@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 640" role="img" aria-labelledby="deskTitle deskDesc">
+  <title id="deskTitle">Ludex desktop install mockup</title>
+  <desc id="deskDesc">Abstract wireframe of the Ludex desktop app showing an install progress panel. Not a screenshot.</desc>
+  <defs>
+    <linearGradient id="dbg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0e1511"/>
+      <stop offset="1" stop-color="#090d0b"/>
+    </linearGradient>
+    <linearGradient id="dc1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#21402f"/><stop offset="1" stop-color="#0e1813"/></linearGradient>
+    <linearGradient id="dc2" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#3d2b19"/><stop offset="1" stop-color="#15110c"/></linearGradient>
+    <linearGradient id="dc3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#21313b"/><stop offset="1" stop-color="#0c1215"/></linearGradient>
+  </defs>
+
+  <rect width="1000" height="640" fill="#080c0a"/>
+  <rect x="24" y="20" width="952" height="600" rx="14" fill="url(#dbg)" stroke="#23312a"/>
+
+  <rect x="24" y="20" width="952" height="46" rx="14" fill="#101713"/>
+  <rect x="24" y="52" width="952" height="14" fill="#101713"/>
+  <circle cx="48" cy="43" r="4.5" fill="#33443a"/>
+  <circle cx="64" cy="43" r="4.5" fill="#33443a"/>
+  <circle cx="80" cy="43" r="4.5" fill="#33443a"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#93a49a">
+    <text x="106" y="47">LUDEX DESKTOP / LIBRARY</text>
+    <text x="952" y="47" text-anchor="end" fill="#61756a">MOCKUP - NOT A SCREENSHOT</text>
+  </g>
+
+  <!-- Dimmed library behind the dialog -->
+  <g opacity="0.55">
+    <text x="52" y="106" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="17" font-weight="600" fill="#dfe6de">Library</text>
+    <rect x="52" y="126" width="300" height="30" rx="6" fill="#111a15" stroke="#26362d"/>
+    <text x="66" y="146" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="11" fill="#6f8477">Search</text>
+
+    <g>
+      <rect x="52" y="176" width="76" height="94" rx="6" fill="url(#dc1)" stroke="#2b4034"/>
+      <text x="142" y="196" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#dfe6de">Archive 01</text>
+      <rect x="142" y="208" width="180" height="4" rx="2" fill="#243229"/>
+      <rect x="142" y="208" width="130" height="4" rx="2" fill="#c6f24e" opacity="0.7"/>
+      <text x="142" y="230" font-family="ui-monospace, monospace" font-size="9" fill="#6f8477">INSTALLED / 4.2 GB</text>
+    </g>
+    <g>
+      <rect x="52" y="286" width="76" height="94" rx="6" fill="url(#dc2)" stroke="#46351f"/>
+      <text x="142" y="306" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#dfe6de">Archive 02</text>
+      <rect x="142" y="318" width="180" height="4" rx="2" fill="#2e2a20"/>
+      <rect x="142" y="318" width="52" height="4" rx="2" fill="#f0b46a" opacity="0.7"/>
+      <text x="142" y="340" font-family="ui-monospace, monospace" font-size="9" fill="#6f8477">NOT INSTALLED</text>
+    </g>
+    <g>
+      <rect x="52" y="396" width="76" height="94" rx="6" fill="url(#dc3)" stroke="#2b3b45"/>
+      <text x="142" y="416" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#dfe6de">Archive 03</text>
+      <rect x="142" y="428" width="180" height="4" rx="2" fill="#233039"/>
+      <rect x="142" y="428" width="90" height="4" rx="2" fill="#8fc6e0" opacity="0.6"/>
+      <text x="142" y="450" font-family="ui-monospace, monospace" font-size="9" fill="#6f8477">NOT INSTALLED</text>
+    </g>
+
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9" fill="#5d7266">
+      <text x="52" y="576">LOCAL MODE / EMBEDDED SERVER</text>
+      <text x="52" y="592">127.0.0.1:RANDOM PORT / SQLITE IN APPDATA</text>
+    </g>
+  </g>
+
+  <!-- Install dialog -->
+  <g>
+    <rect x="430" y="84" width="510" height="452" rx="12" fill="#111a15" stroke="#2c3d33"/>
+    <text x="462" y="126" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="600" fill="#eceee7">Install game</text>
+    <text x="462" y="150" font-family="ui-monospace, monospace" font-size="10" fill="#7f9387">ARCHIVE 07 / V1.2.0 / 2.6 GB</text>
+
+    <line x1="462" y1="172" x2="908" y2="172" stroke="#22312a"/>
+
+    <!-- Steps -->
+    <g font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="12">
+      <circle cx="478" cy="208" r="12" fill="#c6f24e"/>
+      <path d="M472 208L476 212L484 203" stroke="#0a0e0c" stroke-width="2" fill="none"/>
+      <text x="500" y="212" fill="#9fb0a4">Download</text>
+
+      <line x1="620" y1="208" x2="656" y2="208" stroke="#2e4035"/>
+      <circle cx="674" cy="208" r="12" fill="none" stroke="#c6f24e" stroke-width="1.5"/>
+      <text x="696" y="212" fill="#dfe6de">Extract</text>
+
+      <line x1="786" y1="208" x2="818" y2="208" stroke="#2e4035"/>
+      <circle cx="836" cy="208" r="12" fill="none" stroke="#3a4c40" stroke-width="1.5"/>
+      <text x="858" y="212" fill="#7f9387">Ready</text>
+    </g>
+
+    <rect x="462" y="244" width="446" height="10" rx="5" fill="#1b2922"/>
+    <rect x="462" y="244" width="303" height="10" rx="5" fill="#c6f24e"/>
+
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#8fa096">
+      <text x="462" y="278">EXTRACTING 68%</text>
+      <text x="908" y="278" text-anchor="end">1.8 GB / 2.6 GB</text>
+      <text x="462" y="296">84 MB/s / PATH TRAVERSAL GUARDED</text>
+    </g>
+
+    <rect x="462" y="320" width="446" height="58" rx="8" fill="#0d1511" stroke="#22312a"/>
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#7f9387">
+      <text x="478" y="342">INSTALL TO</text>
+      <text x="478" y="362" fill="#c9d4cb">D:\Games\archive-07\1.2.0</text>
+    </g>
+
+    <rect x="462" y="398" width="446" height="1" fill="#22312a"/>
+    <g font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="12">
+      <rect x="462" y="424" width="112" height="38" rx="8" fill="#17221c" stroke="#2c3d33"/>
+      <text x="518" y="448" text-anchor="middle" fill="#b8c5bb">Cancel</text>
+      <rect x="756" y="424" width="152" height="38" rx="8" fill="#c6f24e"/>
+      <text x="832" y="448" text-anchor="middle" fill="#0a0e0c" font-weight="600">Install</text>
+    </g>
+
+    <text x="462" y="500" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9" fill="#5d7266">ZIP / 7Z / RAR / RESUME / SHA-256 VERIFY</text>
+  </g>
+</svg>

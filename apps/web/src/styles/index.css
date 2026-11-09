@@ -1,0 +1,641 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   LUDEX design tokens
+   Direction: late-night archive. Warm-black ink, bone paper, safety-yellow
+   signal. Hairlines and index marks instead of cards and shadows.
+   --------------------------------------------------------------------------- */
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-deep: var(--bg-deep);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-signal: var(--signal);
+  --color-on-signal: var(--on-signal);
+  --color-signal-text: var(--signal-text);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+
+  --font-display: var(--font-display);
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
+}
+
+:root {
+  --font-display: "Bricolage Grotesque Variable", "Bricolage Grotesque", ui-serif, Georgia, serif;
+  --font-ui: "Instrument Sans Variable", "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-code: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* dark is the primary theme */
+  --bg: #0a0a09;
+  --bg-deep: #050505;
+  --surface: #121210;
+  --surface-2: #191916;
+  --line: #272620;
+  --line-2: #3b3930;
+  --ink: #ece8de;
+  --ink-2: #a8a396;
+  --ink-3: #8a8477;
+  --signal: #ffc61a;
+  --on-signal: #14130c;
+  --signal-text: #ffc61a;
+  --signal-line: #6b5310;
+  --danger: #f0564a;
+  --ok: #79c99f;
+
+  --grain-opacity: 0.045;
+  --sheen: rgba(255, 255, 255, 0.14);
+  --scrim: rgba(5, 5, 5, 0.72);
+
+  --dur-1: 120ms;
+  --dur-2: 180ms;
+  --dur-3: 240ms;
+  --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --rail-w: 236px;
+  --bar-h: 60px;
+  --page-x: 40px;
+
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #e7e2d4;
+  --bg-deep: #ddd7c5;
+  --surface: #f1ede0;
+  --surface-2: #f6f2e6;
+  --line: #cbc3ad;
+  --line-2: #ada48b;
+  --ink: #16150f;
+  --ink-2: #55513f;
+  --ink-3: #635d4c;
+  --signal: #f0c000;
+  --on-signal: #16150f;
+  --signal-text: #705200;
+  --signal-line: #c9a227;
+  --danger: #a82c1c;
+  --ok: #2c7050;
+
+  --grain-opacity: 0.035;
+  --sheen: rgba(255, 255, 255, 0.4);
+  --scrim: rgba(231, 226, 212, 0.78);
+
+  color-scheme: light;
+}
+
+/* The game detail hero is a dark stage in both themes. It re-declares the
+   dark tokens so controls inside it stay legible over artwork. */
+.force-dark {
+  --bg: #0a0a09;
+  --bg-deep: #050505;
+  --surface: #121210;
+  --surface-2: #191916;
+  --line: #272620;
+  --line-2: #3b3930;
+  --ink: #ece8de;
+  --ink-2: #a8a396;
+  --ink-3: #8a8477;
+  --signal: #ffc61a;
+  --on-signal: #14130c;
+  --signal-text: #ffc61a;
+  --signal-line: #6b5310;
+  --danger: #f0564a;
+  --ok: #79c99f;
+  --grain-opacity: 0.045;
+  /* utilities resolve the @theme variables, so remap them inside this scope */
+  --color-bg: var(--bg);
+  --color-bg-deep: var(--bg-deep);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-signal: var(--signal);
+  --color-on-signal: var(--on-signal);
+  --color-signal-text: var(--signal-text);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  color: var(--ink);
+  color-scheme: dark;
+}
+
+@media (max-width: 1023px) {
+  :root {
+    --page-x: 24px;
+    --bar-h: 56px;
+  }
+}
+
+@media (max-width: 640px) {
+  :root {
+    --page-x: 18px;
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--line);
+  }
+
+  html {
+    background: var(--bg);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    font-size: 15px;
+    line-height: 1.5;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
+  }
+
+  ::selection {
+    background: var(--signal);
+    color: var(--on-signal);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--signal-text);
+    outline-offset: 2px;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.022em;
+    line-height: 1.05;
+    margin: 0;
+  }
+
+  p {
+    margin: 0;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  img,
+  svg {
+    display: block;
+    max-width: 100%;
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+
+  /* thin, unobtrusive scrollbars that match the surface */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-2) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--line-2);
+    border: 3px solid var(--bg);
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  /* film grain: one fixed overlay, no blend modes so it stays cheap */
+  .grain {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    pointer-events: none;
+    opacity: var(--grain-opacity);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 160px 160px;
+    mix-blend-mode: overlay;
+  }
+
+  .page {
+    width: 100%;
+    max-width: 1560px;
+    margin-inline: auto;
+    padding: 30px var(--page-x) 88px;
+  }
+
+  @media (max-width: 640px) {
+    .page {
+      padding-top: 20px;
+      padding-bottom: 96px;
+    }
+  }
+
+  .num {
+    font-family: var(--font-code);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  .label {
+    font-size: 12px;
+    color: var(--ink-3);
+    letter-spacing: 0.01em;
+  }
+
+  .measure {
+    max-width: 62ch;
+  }
+
+  .rule-top {
+    border-top: 1px solid var(--line);
+  }
+
+  .surface {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+  }
+
+  /* covers are objects: 3:4 plate, hairline edge, sheen on hover */
+  .cover {
+    position: relative;
+    aspect-ratio: 3 / 4;
+    overflow: hidden;
+    border-radius: 2px;
+    container-type: inline-size;
+    background: var(--c-base, var(--surface-2));
+    isolation: isolate;
+  }
+
+  .cover::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 2px;
+    pointer-events: none;
+    z-index: 3;
+  }
+
+  :root[data-theme="light"] .cover::after {
+    border-color: rgba(0, 0, 0, 0.16);
+  }
+
+  .cover-motif {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+  }
+
+  .cover-sheen {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    background: linear-gradient(
+      104deg,
+      transparent 32%,
+      rgba(255, 255, 255, 0.16) 46%,
+      rgba(255, 255, 255, 0.02) 56%,
+      transparent 64%
+    );
+    transform: translate3d(-120%, 0, 0);
+    opacity: 0;
+    transition:
+      transform 620ms var(--ease-out),
+      opacity 200ms linear;
+  }
+
+  .cover-host:hover .cover-sheen,
+  .cover-host:focus-within .cover-sheen {
+    transform: translate3d(120%, 0, 0);
+    opacity: 1;
+  }
+
+  .cover-type {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 7.5cqw;
+    color: var(--c-paper);
+    pointer-events: none;
+  }
+
+  .cover-series {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 2cqw;
+    font-family: var(--font-code);
+    font-size: 4.4cqw;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    opacity: 0.72;
+    border-bottom: 1px solid currentColor;
+    padding-bottom: 2.6cqw;
+  }
+
+  .cover-title {
+    font-family: var(--font-display);
+    font-weight: 650;
+    font-size: 11cqw;
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+    font-stretch: 95%;
+  }
+
+  .cover-foot {
+    margin-top: 2.4cqw;
+    display: flex;
+    gap: 2.4cqw;
+    align-items: baseline;
+    font-family: var(--font-code);
+    font-size: 3.9cqw;
+    letter-spacing: 0.04em;
+    opacity: 0.78;
+  }
+
+  @container (max-width: 150px) {
+    .cover-type {
+      padding: 6.5cqw;
+    }
+    .cover-series {
+      display: none;
+    }
+    .cover-title {
+      font-size: 12.4cqw;
+    }
+    .cover-foot {
+      display: none;
+    }
+  }
+
+  @container (max-width: 96px) {
+    .cover-type {
+      display: none;
+    }
+  }
+
+  .media-plate {
+    position: relative;
+    overflow: hidden;
+    border-radius: 2px;
+    background: var(--surface-2);
+  }
+
+  .media-plate::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    pointer-events: none;
+  }
+
+  .rail-link {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 34px;
+    padding-left: 18px;
+    color: var(--ink-2);
+    font-size: 14px;
+    transition: color var(--dur-1) var(--ease);
+  }
+
+  .rail-link::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 2px;
+    height: 0;
+    background: var(--signal);
+    transform: translateY(-50%);
+    transition: height var(--dur-2) var(--ease-out);
+  }
+
+  .rail-link:hover {
+    color: var(--ink);
+  }
+
+  .rail-link[data-active="true"] {
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  .rail-link[data-active="true"]::before {
+    height: 22px;
+  }
+
+  .rail-link .rail-count {
+    margin-left: auto;
+    padding-right: 14px;
+    font-family: var(--font-code);
+    font-size: 11px;
+    color: var(--ink-3);
+  }
+
+  .rail-link[data-active="true"] .rail-count {
+    color: var(--signal-text);
+  }
+
+  /* diagonal hatch used for empty plates and skeleton texture */
+  .hatch {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      var(--line) 0px,
+      var(--line) 1px,
+      transparent 1px,
+      transparent 7px
+    );
+  }
+
+  .palette-plate {
+    background: linear-gradient(180deg, color-mix(in oklab, var(--surface) 92%, var(--ink)) 0%, var(--surface) 100%);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+  }
+
+  .kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border: 1px solid var(--line-2);
+    border-radius: 3px;
+    background: var(--surface-2);
+    color: var(--ink-2);
+    font-family: var(--font-code);
+    font-size: 10px;
+    line-height: 1;
+    text-transform: none;
+  }
+
+  .row-hover {
+    transition: background-color var(--dur-1) var(--ease);
+  }
+
+  .row-hover:hover {
+    background: var(--surface);
+  }
+
+  .nav-scroll {
+    scrollbar-width: none;
+  }
+  .nav-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+    background: var(--surface);
+  }
+
+  .shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.045), transparent);
+    transform: translateX(-100%);
+    animation: shimmer 1.6s infinite;
+  }
+
+  @keyframes shimmer {
+    to {
+      transform: translateX(100%);
+    }
+  }
+
+  @keyframes slide {
+    0% {
+      transform: translateX(-110%);
+    }
+    100% {
+      transform: translateX(340%);
+    }
+  }
+
+  .stagger-in > * {
+    animation: rise-in var(--dur-3) var(--ease-out) both;
+  }
+
+  .stagger-in > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger-in > *:nth-child(2) { animation-delay: 22ms; }
+  .stagger-in > *:nth-child(3) { animation-delay: 44ms; }
+  .stagger-in > *:nth-child(4) { animation-delay: 66ms; }
+  .stagger-in > *:nth-child(5) { animation-delay: 88ms; }
+  .stagger-in > *:nth-child(6) { animation-delay: 110ms; }
+  .stagger-in > *:nth-child(7) { animation-delay: 132ms; }
+  .stagger-in > *:nth-child(8) { animation-delay: 154ms; }
+  .stagger-in > *:nth-child(n + 9) { animation-delay: 176ms; }
+
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 10px, 0);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .page-in {
+    animation: page-in var(--dur-3) var(--ease-out) both;
+  }
+
+  @keyframes page-in {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 6px, 0);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .fade-in {
+    animation: fade-in var(--dur-2) var(--ease-out) both;
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .cover-sheen {
+    display: none;
+  }
+}

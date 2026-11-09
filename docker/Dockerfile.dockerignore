@@ -1,0 +1,25 @@
+# Keep the Docker build context small. Docker/BuildKit picks this file up
+# because it sits next to the Dockerfile and is named <Dockerfile>.dockerignore.
+.git
+.gitignore
+.github
+target
+**/target
+node_modules
+**/node_modules
+apps/web/dist
+apps/desktop/src
+apps/desktop/src-tauri
+apps/desktop/public
+data
+media
+games
+.dev
+*.db
+*.db-shm
+*.db-wal
+*.part
+.env
+.env.*
+!.env.example
+docs

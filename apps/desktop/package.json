@@ -1,0 +1,19 @@
+{
+  "name": "@ludex/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Ludex desktop shell (Tauri 2)",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "dist": "pnpm --dir ../web build && tauri build",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

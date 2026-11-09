@@ -1,0 +1,24 @@
+[package]
+name = "ludex-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Domain model, filename parser and archive layer shared by Ludex server and desktop"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+zip = { workspace = true, features = ["zstd"] }
+sevenz-rust2 = { workspace = true, features = ["aes256"] }
+unrar = { workspace = true }
+walkdir.workspace = true
+sha2.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

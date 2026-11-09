@@ -81,6 +81,7 @@ interface ScanStatus {
 | GET | `/api/setup/status` | `{ needsSetup: boolean, serverName: string, version: string }` |
 | POST | `/api/setup` | body `{ username, password, serverName? }` → `{ token, user }`; 409 if users exist |
 | GET | `/api/media/{name}` | cached image/file (public, immutable cache headers) |
+| GET | `/api/config` | `{ serverName, version, features: { igdb, steam, ingest, localMode }, maxUploadBytes }` (public, used by setup/login) |
 
 ## Auth
 
@@ -160,7 +161,7 @@ A successful ingest triggers `library/scan` automatically.
 
 | Method | Route | Notes |
 |---|---|---|
-| GET | `/api/config` | `{ serverName, version, features: { igdb, steam, ingest, localMode }, maxUploadBytes }` |
+| GET | `/api/config` | public; `{ serverName, version, features: { igdb, steam, ingest, localMode }, maxUploadBytes }` |
 
 ## Desktop (Tauri) commands
 

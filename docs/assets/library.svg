@@ -1,0 +1,153 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 780" role="img" aria-labelledby="libTitle libDesc">
+  <title id="libTitle">Ludex library mockup</title>
+  <desc id="libDesc">Abstract wireframe of the Ludex web library: sidebar, search and filters, and a grid of placeholder covers. Not a screenshot.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d1410"/>
+      <stop offset="1" stop-color="#090d0b"/>
+    </linearGradient>
+    <linearGradient id="c1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#21402f"/><stop offset="1" stop-color="#0e1813"/></linearGradient>
+    <linearGradient id="c2" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#3d2b19"/><stop offset="1" stop-color="#15110c"/></linearGradient>
+    <linearGradient id="c3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#21313b"/><stop offset="1" stop-color="#0c1215"/></linearGradient>
+    <linearGradient id="c4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#332338"/><stop offset="1" stop-color="#120e14"/></linearGradient>
+    <linearGradient id="c5" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1d3a38"/><stop offset="1" stop-color="#0b1514"/></linearGradient>
+    <linearGradient id="c6" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#3b2a22"/><stop offset="1" stop-color="#150f0c"/></linearGradient>
+    <linearGradient id="c7" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#26321f"/><stop offset="1" stop-color="#0d120b"/></linearGradient>
+    <linearGradient id="c8" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2c2c35"/><stop offset="1" stop-color="#101014"/></linearGradient>
+  </defs>
+
+  <rect width="1200" height="780" fill="#080c0a"/>
+  <rect x="24" y="20" width="1152" height="740" rx="16" fill="url(#bg)" stroke="#23312a"/>
+
+  <rect x="24" y="20" width="1152" height="56" rx="16" fill="#101713"/>
+  <rect x="24" y="60" width="1152" height="16" fill="#101713"/>
+  <circle cx="54" cy="48" r="5" fill="#33443a"/>
+  <circle cx="72" cy="48" r="5" fill="#33443a"/>
+  <circle cx="90" cy="48" r="5" fill="#33443a"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#93a49a" font-size="12">
+    <text x="120" y="53">LUDEX / LIBRARY</text>
+    <text x="1128" y="53" text-anchor="end" fill="#61756a">MOCKUP - NOT A SCREENSHOT</text>
+  </g>
+
+  <line x1="250" y1="76" x2="250" y2="760" stroke="#1e2b24"/>
+
+  <g font-family="Inter, ui-sans-serif, system-ui, sans-serif">
+    <text x="52" y="112" font-size="15" font-weight="600" fill="#e9ece3">Ludex</text>
+    <text x="52" y="132" font-size="11" fill="#6d8074">self-hosted</text>
+
+    <g font-size="12" fill="#93a49a">
+      <rect x="44" y="158" width="190" height="34" rx="6" fill="#17221c"/>
+      <text x="60" y="180" fill="#dce4db">Library</text>
+      <text x="60" y="224">News</text>
+      <text x="60" y="258">Ingest</text>
+      <text x="60" y="292">Users</text>
+      <text x="60" y="326">Settings</text>
+    </g>
+
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#5d7266">
+      <text x="44" y="380" letter-spacing="1.4">COLLECTION</text>
+      <text x="60" y="408">All games</text>
+      <text x="60" y="432">Bookmarked</text>
+      <text x="60" y="456">Unplayed</text>
+      <text x="60" y="480">Playing</text>
+      <text x="60" y="504">Completed</text>
+    </g>
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#8fa096">
+      <text x="214" y="408" text-anchor="end">18</text>
+      <text x="214" y="432" text-anchor="end">4</text>
+      <text x="214" y="456" text-anchor="end">7</text>
+      <text x="214" y="480" text-anchor="end">2</text>
+      <text x="214" y="504" text-anchor="end">5</text>
+    </g>
+
+    <rect x="282" y="108" width="430" height="42" rx="8" fill="#111a15" stroke="#26362d"/>
+    <circle cx="306" cy="129" r="6" fill="none" stroke="#6f8477" stroke-width="1.5"/>
+    <path d="M311 134L316 139" stroke="#6f8477" stroke-width="1.5"/>
+    <text x="330" y="133" font-size="13" fill="#6f8477">Search library</text>
+
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#8fa096">
+      <rect x="730" y="108" width="88" height="42" rx="8" fill="#111a15" stroke="#26362d"/>
+      <text x="752" y="133">ALL GENRES</text>
+      <rect x="828" y="108" width="76" height="42" rx="8" fill="#111a15" stroke="#26362d"/>
+      <text x="846" y="133">ANY STATE</text>
+      <rect x="914" y="108" width="86" height="42" rx="8" fill="#111a15" stroke="#26362d"/>
+      <text x="930" y="133">TITLE A-Z</text>
+    </g>
+
+    <text x="282" y="196" font-size="20" font-weight="600" fill="#e9ece3">All games</text>
+    <text x="376" y="196" font-size="12" fill="#6f8477">18 titles / 21 versions</text>
+    <text x="1136" y="196" font-size="11" text-anchor="end" fill="#6f8477">Grid 4 x 2</text>
+
+    <!-- Row 1 -->
+    <g>
+      <rect x="282" y="230" width="200" height="190" rx="8" fill="url(#c1)" stroke="#2b4034"/>
+      <circle cx="382" cy="315" r="46" fill="none" stroke="#c6f24e" stroke-width="1.4" opacity="0.75"/>
+      <path d="M352 315H412M382 285V345" stroke="#c6f24e" stroke-width="1.4" opacity="0.45"/>
+      <text x="298" y="440" font-size="13" fill="#dfe6de">Archive 01</text>
+      <rect x="298" y="452" width="168" height="4" rx="2" fill="#233129"/>
+      <rect x="298" y="452" width="118" height="4" rx="2" fill="#c6f24e" opacity="0.8"/>
+    </g>
+    <g>
+      <rect x="500" y="230" width="200" height="190" rx="8" fill="url(#c2)" stroke="#46351f"/>
+      <path d="M536 366L586 286L636 366Z" fill="none" stroke="#f0b46a" stroke-width="1.4" opacity="0.75"/>
+      <circle cx="610" cy="296" r="12" fill="none" stroke="#f0b46a" stroke-width="1.4" opacity="0.55"/>
+      <text x="516" y="440" font-size="13" fill="#dfe6de">Archive 02</text>
+      <rect x="516" y="452" width="168" height="4" rx="2" fill="#2e2a20"/>
+      <rect x="516" y="452" width="74" height="4" rx="2" fill="#f0b46a" opacity="0.75"/>
+    </g>
+    <g>
+      <rect x="718" y="230" width="200" height="190" rx="8" fill="url(#c3)" stroke="#2b3b45"/>
+      <rect x="756" y="272" width="124" height="104" rx="4" fill="none" stroke="#8fc6e0" stroke-width="1.4" opacity="0.7"/>
+      <path d="M756 306H880M756 340H880M798 272V376M840 272V376" stroke="#8fc6e0" stroke-width="1" opacity="0.25"/>
+      <text x="734" y="440" font-size="13" fill="#dfe6de">Archive 03</text>
+      <rect x="734" y="452" width="168" height="4" rx="2" fill="#233039"/>
+      <rect x="734" y="452" width="142" height="4" rx="2" fill="#8fc6e0" opacity="0.7"/>
+    </g>
+    <g>
+      <rect x="936" y="230" width="200" height="190" rx="8" fill="url(#c4)" stroke="#3c2c42"/>
+      <path d="M986 372C986 316 1036 286 1086 286C1086 342 1036 372 986 372Z" fill="none" stroke="#c9a2d6" stroke-width="1.4" opacity="0.7"/>
+      <path d="M986 372C1020 338 1052 316 1086 286" stroke="#c9a2d6" stroke-width="1" opacity="0.35"/>
+      <text x="952" y="440" font-size="13" fill="#dfe6de">Archive 04</text>
+      <rect x="952" y="452" width="168" height="4" rx="2" fill="#2d2532"/>
+      <rect x="952" y="452" width="42" height="4" rx="2" fill="#c9a2d6" opacity="0.7"/>
+    </g>
+
+    <!-- Row 2 -->
+    <g>
+      <rect x="282" y="492" width="200" height="190" rx="8" fill="url(#c5)" stroke="#2a4642"/>
+      <circle cx="344" cy="556" r="20" fill="none" stroke="#7fd9cb" stroke-width="1.4" opacity="0.7"/>
+      <circle cx="416" cy="618" r="34" fill="none" stroke="#7fd9cb" stroke-width="1.4" opacity="0.45"/>
+      <text x="298" y="702" font-size="13" fill="#dfe6de">Archive 05</text>
+      <rect x="298" y="714" width="168" height="4" rx="2" fill="#22302d"/>
+      <rect x="298" y="714" width="96" height="4" rx="2" fill="#7fd9cb" opacity="0.65"/>
+    </g>
+    <g>
+      <rect x="500" y="492" width="200" height="190" rx="8" fill="url(#c6)" stroke="#463226"/>
+      <path d="M540 620L590 534L640 620Z" fill="none" stroke="#e0a48c" stroke-width="1.4" opacity="0.65"/>
+      <path d="M566 620L590 574L614 620Z" fill="none" stroke="#e0a48c" stroke-width="1" opacity="0.35"/>
+      <text x="516" y="702" font-size="13" fill="#dfe6de">Archive 06</text>
+      <rect x="516" y="714" width="168" height="4" rx="2" fill="#30251f"/>
+      <rect x="516" y="714" width="128" height="4" rx="2" fill="#e0a48c" opacity="0.6"/>
+    </g>
+    <g>
+      <rect x="718" y="492" width="200" height="190" rx="8" fill="url(#c7)" stroke="#364428"/>
+      <rect x="754" y="534" width="128" height="76" rx="3" fill="none" stroke="#b7d47a" stroke-width="1.4" opacity="0.65"/>
+      <path d="M754 572H882M790 534V610M818 534V610M846 534V610" stroke="#b7d47a" stroke-width="1" opacity="0.25"/>
+      <text x="734" y="702" font-size="13" fill="#dfe6de">Archive 07</text>
+      <rect x="734" y="714" width="168" height="4" rx="2" fill="#28301f"/>
+      <rect x="734" y="714" width="60" height="4" rx="2" fill="#b7d47a" opacity="0.6"/>
+    </g>
+    <g>
+      <rect x="936" y="492" width="200" height="190" rx="8" fill="url(#c8)" stroke="#3a3a44"/>
+      <path d="M976 620H1096M976 590H1096M976 560H1096" stroke="#b8b8c9" stroke-width="1.2" opacity="0.35"/>
+      <circle cx="1036" cy="590" r="26" fill="none" stroke="#b8b8c9" stroke-width="1.2" opacity="0.55"/>
+      <text x="952" y="702" font-size="13" fill="#dfe6de">Archive 08</text>
+      <rect x="952" y="714" width="168" height="4" rx="2" fill="#292930"/>
+      <rect x="952" y="714" width="150" height="4" rx="2" fill="#b8b8c9" opacity="0.5"/>
+    </g>
+  </g>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#4f6257" font-size="10">
+    <text x="52" y="734">PLACEHOLDER COVERS / NO REAL GAME ART</text>
+  </g>
+</svg>
