@@ -1,0 +1,30 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Node
+node_modules/
+dist/
+.pnpm-store/
+*.tsbuildinfo
+
+# Tauri
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/schemas/
+apps/desktop/src-tauri/icons/*.png.bak
+
+# Runtime data
+data/
+media/
+games/
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+!.env.example
+*.part
+.DS_Store
+.idea/
+.vscode/

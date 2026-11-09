@@ -1,0 +1,17 @@
+{
+  "name": "ludex",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "pnpm --filter @ludex/web dev",
+    "build": "pnpm --filter @ludex/web build",
+    "check": "pnpm --filter @ludex/web check",
+    "desktop:dev": "pnpm --filter @ludex/desktop dev",
+    "desktop:build": "pnpm --filter @ludex/desktop build",
+    "desktop:dist": "pnpm --filter @ludex/desktop dist"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@tauri-apps/cli", "esbuild"]
+  }
+}
