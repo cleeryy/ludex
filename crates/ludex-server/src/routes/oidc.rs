@@ -107,7 +107,8 @@ async fn exchange(
     })?;
 
     let row = sqlx::query_as::<_, UserRow>(
-        "SELECT id, username, password_hash, email, role, activated, avatar_path, created_at, updated_at
+        "SELECT id, username, password_hash, email, role, activated, avatar_path,
+                created_at, updated_at, oidc_issuer, oidc_subject
          FROM users WHERE id = ?",
     )
     .bind(user_id)

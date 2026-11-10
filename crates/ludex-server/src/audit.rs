@@ -23,6 +23,8 @@ pub mod actions {
     pub const USER_DELETED: &str = "user.deleted";
     /// Account password changed.
     pub const USER_PASSWORD_CHANGED: &str = "user.password_changed";
+    /// Account password reset by an administrator.
+    pub const USER_PASSWORD_RESET: &str = "user.password_reset";
     /// API key created.
     pub const API_KEY_CREATED: &str = "api_key.created";
     /// API key revoked.

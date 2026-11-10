@@ -6,6 +6,42 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Stream installs for RAR4/RAR5 (#8): `archive_tar_size` and
+  `stream_archive_as_tar` now plan and stream RAR archives with the same
+  bounded-memory, path-sanitised tar writer as ZIP/7z; encrypted archives are
+  rejected with a clear error and the HTTP route accepts RAR (only genuinely
+  unsupported files keep the 415). Real RAR4/RAR5/encrypted/symlink fixtures and
+  end-to-end tar tests cover the new path.
+- GameVault import (#6): `ludex-server import-gamevault --dump <file>
+  [--dry-run] [--json]` reads the versioned JSON exported by
+  `scripts/gamevault-export.sql` (never the live PostgreSQL database), matches
+  games by relative path then title+size (ambiguity is reported, never
+  guessed), imports progress/playtime with the documented state mapping,
+  bookmarks, news and metadata edits, and creates local accounts with one-time
+  temporary passwords (GameVault hashes are never reused). The dry run writes
+  nothing, the import is idempotent, and `docs/MIGRATION.md` documents the
+  export, dry-run, apply and verification steps.
+- Share link web UI (#9): a public, account-free `#/share/<token>` page renders
+  only the shared game's metadata, offers the password prompt when needed and
+  downloads through the short-lived ticket. Editors get a Share dialog on the
+  game page to create (version, expiry, password, download cap, label), copy the
+  public URL once and revoke existing links.
+- User account editing (#101): the public `User` now exposes `source`
+  (`local`/`oidc`) and `oidcIssuer`; `PATCH /api/users/{id}` accepts `username`
+  and write-only `password` for local accounts (unique usernames, Argon2,
+  `user.password_reset` audit event) and rejects identity edits on SSO accounts
+  with `409 managed_by_idp` while role/activation stay editable. The admin Users
+  screen shows Local/SSO badges and an edit dialog with read-only SSO identity
+  fields.
+- Smooth download ETA and transfer graph (#102): per-job 1 Hz sampling with a
+  rolling-median smoothed speed, a material-change gate on the displayed ETA,
+  honest "Estimating…"/phase labels, an aggregate ETA only when every running
+  download has a known total, and a two-minute SVG speed graph with
+  current/peak/average labels and an accessible summary. Helpers are unit-tested
+  with Vitest and the web test step runs in CI.
+
 ## [0.2.1] - 2026-11-10
 
 ### Added

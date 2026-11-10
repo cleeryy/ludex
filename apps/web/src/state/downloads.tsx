@@ -5,10 +5,21 @@ import { installBridge, installsAvailable } from "@/lib/install";
 import { isNative, native } from "@/lib/native";
 import { USING_MOCKS } from "@/lib/flags";
 import { errorMessage } from "@/lib/http";
-import type { InstallJob } from "@/lib/types";
+import type { InstallJob, InstallPhase } from "@/lib/types";
 import { useAuth } from "@/state/auth";
 import { useToast } from "@/state/toasts";
-import { formatEta } from "@/lib/format";
+import { formatDuration } from "@/lib/format";
+import {
+  SAMPLE_INTERVAL_MS,
+  aggregateTransfer,
+  nextEta,
+  pushSample,
+  sampleJob,
+  type AggregateJobInput,
+  type EtaSnapshot,
+  type JobMeter,
+  type SpeedPoint,
+} from "@/lib/eta";
 
 const ACTIVE_PHASES: ReadonlySet<InstallJob["phase"]> = new Set(["queued", "downloading", "extracting", "finalizing"]);
 
@@ -41,13 +52,43 @@ export interface ResumeInfo {
   executable?: string | null;
 }
 
-interface Aggregate {
+export interface Aggregate {
   bytesDone: number;
   bytesTotal: number | null;
   percent: number | null;
+  /** Sum of the smoothed rates of jobs downloading right now. */
   speedBps: number;
+  /** Display-ready ETA for the status strip; null while estimating/unknown. */
   eta: string | null;
+  etaSeconds: number | null;
+  totalKnown: boolean;
+  etaKnown: boolean;
+  estimating: boolean;
+  downloading: number;
+  /** The phase to narrate when no download is moving (extracting, …). */
+  phase: InstallPhase | null;
+  phaseElapsedMs: number | null;
 }
+
+/** Why the aggregate shows a phase instead of an ETA. */
+const PHASE_ORDER: readonly InstallPhase[] = ["downloading", "extracting", "finalizing", "queued", "paused"];
+
+/** Sampling state rendered by the Downloads screen (#102). */
+interface TransferState {
+  meters: Record<string, JobMeter>;
+  etaSeconds: number | null;
+  eta: EtaSnapshot | null;
+  history: SpeedPoint[];
+  updatedAt: number;
+}
+
+const EMPTY_TRANSFER: TransferState = {
+  meters: {},
+  etaSeconds: null,
+  eta: null,
+  history: [],
+  updatedAt: 0,
+};
 
 interface DownloadsValue {
   available: boolean;
@@ -56,6 +97,12 @@ interface DownloadsValue {
   history: InstallJob[];
   activeCount: number;
   aggregate: Aggregate | null;
+  /** Per-job smoothed speed/ETA, keyed by job id (#102). */
+  meters: Record<string, JobMeter>;
+  /** Aggregate speed samples for the transfer graph, oldest first (#102). */
+  speedHistory: SpeedPoint[];
+  /** Timestamp of the newest sample; the graph's right edge. */
+  speedHistoryAt: number;
   startInstall: (input: StartInstallInput) => Promise<InstallJob>;
   cancel: (jobId: string) => Promise<void>;
   pause: (jobId: string) => Promise<void>;
@@ -85,6 +132,13 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
   const [titles, setTitles] = useState<Record<string, string>>({});
   const announced = useRef(new Set<string>());
   const primed = useRef(false);
+
+  // Sampling layer (#102): one meter per active job plus the aggregate speed
+  // history the Downloads graph reads. Samples are capped at two minutes.
+  const [transfer, setTransfer] = useState<TransferState>(EMPTY_TRANSFER);
+  const transferRef = useRef<TransferState>(EMPTY_TRANSFER);
+  const jobsRef = useRef<InstallJob[]>(jobs);
+  jobsRef.current = jobs;
 
   const gamesQuery = useQuery({
     queryKey: ["games", "all"],
@@ -142,6 +196,60 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     () => jobs.filter((job) => !isActiveJob(job) && !hidden.has(job.jobId)),
     [jobs, hidden],
   );
+
+  /**
+   * Fold one observation per active job into the sampling state. The rolling
+   * median and ETA gates live in `lib/eta.ts`; this only wires them to the
+   * current job list.
+   */
+  const sampleTransfers = useCallback(() => {
+    const at = Date.now();
+    const activeJobs = jobsRef.current.filter(isActiveJob);
+    if (activeJobs.length === 0) {
+      if (transferRef.current !== EMPTY_TRANSFER) {
+        transferRef.current = EMPTY_TRANSFER;
+        setTransfer(EMPTY_TRANSFER);
+      }
+      return;
+    }
+    const previous = transferRef.current;
+    const meters: Record<string, JobMeter> = {};
+    const inputs: AggregateJobInput[] = [];
+    for (const job of activeJobs) {
+      const meter = sampleJob(previous.meters[job.jobId] ?? null, job, at);
+      meters[job.jobId] = meter;
+      inputs.push({
+        phase: job.phase,
+        bytesDone: job.bytesDone,
+        bytesTotal: job.bytesTotal,
+        speedBps: meter.speedBps,
+        estimating: meter.estimating,
+      });
+    }
+    const aggregateSample = aggregateTransfer(inputs);
+    const eta = nextEta(previous.eta, aggregateSample.etaCandidate, at);
+    const next: TransferState = {
+      meters,
+      etaSeconds: eta?.seconds ?? null,
+      eta,
+      history: pushSample(previous.history, { at, speedBps: aggregateSample.speedBps }),
+      updatedAt: at,
+    };
+    transferRef.current = next;
+    setTransfer(next);
+  }, []);
+
+  useEffect(() => {
+    if (!available || !user) {
+      transferRef.current = EMPTY_TRANSFER;
+      setTransfer(EMPTY_TRANSFER);
+      return;
+    }
+    sampleTransfers();
+    if (active.length === 0) return;
+    const timer = setInterval(sampleTransfers, SAMPLE_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [available, user, active.length, sampleTransfers]);
 
   useEffect(() => {
     if (!available || !user || active.length === 0) return;
@@ -201,31 +309,43 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
 
   const aggregate = useMemo<Aggregate | null>(() => {
     if (active.length === 0) return null;
-    let bytesDone = 0;
-    let bytesTotal = 0;
-    let speedBps = 0;
-    let unknown = false;
-    for (const job of active) {
-      // Paused jobs still show their partial progress but do not contribute
-      // speed or ETA to the aggregate.
-      bytesDone += job.bytesDone;
-      if (isPausedJob(job)) {
-        unknown = true;
-        continue;
+    const inputs: AggregateJobInput[] = active.map((job) => {
+      const meter = transfer.meters[job.jobId];
+      return {
+        phase: job.phase,
+        bytesDone: job.bytesDone,
+        bytesTotal: job.bytesTotal,
+        speedBps: meter?.speedBps ?? (job.phase === "downloading" ? job.speedBps : 0),
+        estimating: meter?.estimating ?? job.phase === "downloading",
+      };
+    });
+    const sample = aggregateTransfer(inputs);
+    // Paused jobs keep their progress but never drive the phase narration.
+    const running = active.filter((job) => job.phase !== "paused");
+    const phase = PHASE_ORDER.find((candidate) => running.some((job) => job.phase === candidate)) ?? null;
+    let phaseElapsedMs: number | null = null;
+    if (phase !== null) {
+      phaseElapsedMs = 0;
+      for (const job of running) {
+        if (job.phase !== phase) continue;
+        phaseElapsedMs = Math.max(phaseElapsedMs, transfer.meters[job.jobId]?.elapsedMs ?? 0);
       }
-      speedBps += job.speedBps;
-      if (job.bytesTotal && job.bytesTotal > 0) bytesTotal += job.bytesTotal;
-      else unknown = true;
     }
-    const percent = !unknown && bytesTotal > 0 ? Math.min(100, (bytesDone / bytesTotal) * 100) : null;
     return {
-      bytesDone,
-      bytesTotal: unknown ? null : bytesTotal,
-      percent,
-      speedBps,
-      eta: bytesTotal > 0 ? formatEta(bytesDone, bytesTotal, speedBps) : null,
+      bytesDone: sample.bytesDone,
+      bytesTotal: sample.bytesTotal,
+      percent: sample.percent,
+      speedBps: sample.speedBps,
+      eta: transfer.etaSeconds !== null ? formatDuration(transfer.etaSeconds) : null,
+      etaSeconds: transfer.etaSeconds,
+      totalKnown: sample.totalKnown,
+      etaKnown: sample.etaKnown,
+      estimating: sample.estimating,
+      downloading: sample.downloading,
+      phase,
+      phaseElapsedMs,
     };
-  }, [active]);
+  }, [active, transfer]);
 
   const jobForGame = useCallback((gameId: number) => active.find((job) => job.gameId === gameId), [active]);
   const resumableForGame = useCallback(
@@ -428,6 +548,9 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       history,
       activeCount: active.length,
       aggregate,
+      meters: transfer.meters,
+      speedHistory: transfer.history,
+      speedHistoryAt: transfer.updatedAt,
       startInstall,
       cancel,
       pause,
@@ -441,7 +564,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       resumableForGame,
       titleFor,
     }),
-    [available, jobs, active, history, aggregate, startInstall, cancel, pause, resume, retryAsDownload, retryStream, remove, clearHistory, openFolder, jobForGame, resumableForGame, titleFor],
+    [available, jobs, active, history, aggregate, transfer, startInstall, cancel, pause, resume, retryAsDownload, retryStream, remove, clearHistory, openFolder, jobForGame, resumableForGame, titleFor],
   );
 
   return <DownloadsContext.Provider value={value}>{children}</DownloadsContext.Provider>;

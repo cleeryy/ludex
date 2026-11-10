@@ -7,6 +7,8 @@ export type Role = "admin" | "editor" | "user";
 
 export type ProgressState = "unplayed" | "playing" | "completed" | "abandoned" | "onHold" | "planToPlay";
 
+export type UserSource = "local" | "oidc";
+
 export interface User {
   id: number;
   username: string;
@@ -15,6 +17,10 @@ export interface User {
   activated: boolean;
   avatarUrl: string | null;
   createdAt: string;
+  /** Where the account identity comes from; `oidc` accounts are read-only for identity fields. */
+  source: UserSource;
+  /** Identity provider that owns an `oidc` account, when known. */
+  oidcIssuer: string | null;
 }
 
 export interface GameSummary {

@@ -36,6 +36,7 @@ pub mod db;
 pub mod error;
 pub mod events;
 pub mod extract;
+pub mod gamevault;
 pub mod ingest;
 pub mod integrity;
 pub mod media;

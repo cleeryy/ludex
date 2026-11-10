@@ -73,6 +73,9 @@ jobs:
       - name: Typecheck
         run: pnpm --filter @ludex/web exec tsc --noEmit
 
+      - name: Test web helpers
+        run: pnpm --filter @ludex/web test
+
   docker:
     name: Docker image (build only)
     runs-on: ubuntu-24.04

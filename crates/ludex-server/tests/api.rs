@@ -954,6 +954,282 @@ async fn users_and_news_are_admin_only() {
     server.stop().await;
 }
 
+/// Links an account to an OIDC identity directly. The test owns the same
+/// SQLite file as the server, which lets the SSO read-only rules be exercised
+/// without running a real provider.
+async fn link_oidc_identity(server: &TestServer, user_id: i64, issuer: &str, subject: &str) {
+    let url = ludex_server::config::default_database_url(&server.temp.path().join("data"));
+    let pool = ludex_server::db::connect(&url)
+        .await
+        .expect("connect test db");
+    sqlx::query("UPDATE users SET oidc_issuer = ?, oidc_subject = ? WHERE id = ?")
+        .bind(issuer)
+        .bind(subject)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .expect("link oidc identity");
+    pool.close().await;
+}
+
+/// Reads audit entries for one action, waiting for the async writer.
+async fn wait_for_audit(server: &TestServer, token: &str, action: &str) -> Vec<Value> {
+    for _ in 0..200 {
+        let (status, body) = server
+            .get(&format!("/api/audit?action={action}&limit=50"), Some(token))
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let items = body["items"].as_array().cloned().unwrap_or_default();
+        if !items.is_empty() {
+            return items;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("no audit entry for {action}");
+}
+
+/// Asserts the serialised value never carries credential or SSO-subject material.
+fn assert_no_secrets(value: &Value, context: &str) {
+    let raw = serde_json::to_string(value).expect("json");
+    for needle in ["argon2", "passwordHash", "oidcSubject", "subject-123"] {
+        assert!(!raw.contains(needle), "{context} leaks {needle}: {raw}");
+    }
+}
+
+#[tokio::test]
+async fn admin_can_edit_local_accounts_and_reset_passwords() {
+    let server = TestServer::start().await;
+    let (admin_token, admin_user) = server.setup().await;
+    let admin_id = admin_user["id"].as_i64().expect("admin id");
+
+    let (status, bob) = server
+        .post(
+            "/api/users",
+            Some(&admin_token),
+            Some(json!({
+                "username": "bob",
+                "password": "password123",
+                "email": "bob@example.com",
+                "role": "user"
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{bob}");
+    let bob_id = bob["id"].as_i64().expect("bob id");
+    assert_eq!(bob["source"], "local");
+    assert_eq!(bob["oidcIssuer"], Value::Null);
+    assert_no_secrets(&bob, "created user");
+
+    let (status, updated) = server
+        .patch(
+            &format!("/api/users/{bob_id}"),
+            &admin_token,
+            json!({
+                "username": "robert",
+                "email": "robert@example.com",
+                "password": "newpassword123",
+                "role": "editor"
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["username"], "robert");
+    assert_eq!(updated["email"], "robert@example.com");
+    assert_eq!(updated["role"], "editor");
+    assert_eq!(updated["source"], "local");
+    assert_no_secrets(&updated, "updated user");
+
+    // The old username and the old password both stopped working.
+    let (status, _) = server
+        .post(
+            "/api/auth/login",
+            None,
+            Some(json!({"username": "bob", "password": "newpassword123"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = server
+        .post(
+            "/api/auth/login",
+            None,
+            Some(json!({"username": "robert", "password": "password123"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, login) = server
+        .post(
+            "/api/auth/login",
+            None,
+            Some(json!({"username": "robert", "password": "newpassword123"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{login}");
+    assert_eq!(login["user"]["source"], "local");
+
+    // A duplicate username is rejected with a stable code.
+    let (status, carol) = server
+        .post(
+            "/api/users",
+            Some(&admin_token),
+            Some(json!({"username": "carol", "password": "password123", "role": "user"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{carol}");
+    let carol_id = carol["id"].as_i64().expect("carol id");
+    let (status, error) = server
+        .patch(
+            &format!("/api/users/{carol_id}"),
+            &admin_token,
+            json!({"username": "robert"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{error}");
+    assert_eq!(error["error"]["code"], "username_taken");
+
+    let (status, error) = server
+        .patch(
+            &format!("/api/users/{carol_id}"),
+            &admin_token,
+            json!({"password": "short"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{error}");
+    assert_eq!(error["error"]["code"], "invalid_password");
+
+    // Password resets get their own event; normal updates list changed fields.
+    let resets = wait_for_audit(&server, &admin_token, "user.password_reset").await;
+    assert_eq!(resets.len(), 1);
+    assert_no_secrets(&resets[0]["metadata"], "password_reset audit");
+    let updates = wait_for_audit(&server, &admin_token, "user.updated").await;
+    let event = updates
+        .iter()
+        .find(|event| event["targetId"] == Value::String(bob_id.to_string()))
+        .expect("bob update audit");
+    let fields: Vec<&str> = event["metadata"]["fields"]
+        .as_array()
+        .expect("fields")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    for expected in ["username", "email", "role"] {
+        assert!(fields.contains(&expected), "missing {expected}: {fields:?}");
+    }
+    let raw_events = serde_json::to_string(&updates).expect("json");
+    assert!(!raw_events.contains("newpassword123"));
+    assert!(!raw_events.contains("robert@example.com"));
+
+    // The list endpoint hides hashes and subjects for every account.
+    let (status, users) = server.get("/api/users", Some(&admin_token)).await;
+    assert_eq!(status, StatusCode::OK, "{users}");
+    assert_no_secrets(&users, "user list");
+
+    // Changing your own password through the admin form is allowed.
+    let (status, _) = server
+        .patch(
+            &format!("/api/users/{admin_id}"),
+            &admin_token,
+            json!({"password": "adminpass456"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = server
+        .post(
+            "/api/auth/login",
+            None,
+            Some(json!({"username": "admin", "password": "adminpass456"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn oidc_managed_identities_are_read_only_but_roles_are_not() {
+    let server = TestServer::start().await;
+    let (admin_token, _) = server.setup().await;
+
+    let (status, bob) = server
+        .post(
+            "/api/users",
+            Some(&admin_token),
+            Some(json!({
+                "username": "bob",
+                "password": "password123",
+                "email": "bob@example.com",
+                "role": "user"
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{bob}");
+    let bob_id = bob["id"].as_i64().expect("bob id");
+    link_oidc_identity(&server, bob_id, "https://idp.example.com", "subject-123").await;
+
+    let (status, users) = server.get("/api/users", Some(&admin_token)).await;
+    assert_eq!(status, StatusCode::OK, "{users}");
+    let listed = users
+        .as_array()
+        .expect("users")
+        .iter()
+        .find(|user| user["id"] == json!(bob_id))
+        .expect("bob listed");
+    assert_eq!(listed["source"], "oidc");
+    assert_eq!(listed["oidcIssuer"], "https://idp.example.com");
+    assert!(listed.get("oidcSubject").is_none());
+    assert_no_secrets(&users, "user list");
+
+    // Identity fields are owned by the provider.
+    for patch in [
+        json!({"username": "robert"}),
+        json!({"email": "robert@example.com"}),
+        json!({"password": "newpassword123"}),
+    ] {
+        let (status, error) = server
+            .patch(&format!("/api/users/{bob_id}"), &admin_token, patch.clone())
+            .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{patch}: {error}");
+        assert_eq!(error["error"]["code"], "managed_by_idp", "{error}");
+        let message = error["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains("https://idp.example.com"), "{message}");
+    }
+
+    // Local authorisation controls stay editable.
+    let (status, updated) = server
+        .patch(
+            &format!("/api/users/{bob_id}"),
+            &admin_token,
+            json!({"role": "editor", "activated": false}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["role"], "editor");
+    assert_eq!(updated["activated"], false);
+    assert_eq!(updated["username"], "bob");
+    assert_eq!(updated["email"], "bob@example.com");
+    assert_eq!(updated["source"], "oidc");
+    assert_no_secrets(&updated, "updated oidc user");
+
+    // Disabled linked accounts cannot sign in with their local password.
+    let (status, _) = server
+        .post(
+            "/api/auth/login",
+            None,
+            Some(json!({"username": "bob", "password": "password123"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // Neither the response nor the audit trail carries the OIDC subject.
+    let updates = wait_for_audit(&server, &admin_token, "user.updated").await;
+    let event = updates
+        .iter()
+        .find(|event| event["targetId"] == Value::String(bob_id.to_string()))
+        .expect("bob update audit");
+    assert_eq!(event["metadata"]["fields"], json!(["role", "activated"]));
+    assert_no_secrets(&Value::Array(updates), "user.updated audit");
+    assert_no_secrets(&users, "oidc user list");
+    server.stop().await;
+}
+
 #[tokio::test]
 async fn ingest_routes_require_editor() {
     let server = TestServer::start().await;
@@ -1722,9 +1998,32 @@ fn write_test_7z(path: &Path) {
     );
 }
 
+/// Copies the committed RAR5 fixture and pads it past the scanner's 1 MiB
+/// minimum. libunrar stops at the end-of-archive block, so trailing bytes are
+/// ignored; the entries themselves are a real RAR5 archive created with
+/// RAR 6.24.
 fn write_test_rar(path: &Path) {
-    let mut file = std::fs::File::create(path).expect("rar file");
-    file.write_all(b"Rar!\x1a\x07\x00").expect("magic");
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../ludex-core/tests/fixtures/rar5.rar");
+    let mut bytes = std::fs::read(&fixture).expect("read rar fixture");
+    let mut pad = vec![0_u8; 1024 * 1024 + 1 - bytes.len()];
+    rand::thread_rng().fill_bytes(&mut pad);
+    bytes.extend_from_slice(&pad);
+    std::fs::write(path, bytes).expect("write rar");
+    let size = std::fs::metadata(path).expect("rar metadata").len();
+    assert!(
+        size > 1024 * 1024,
+        "rar fixture must exceed the scanner minimum, got {size} bytes"
+    );
+}
+
+/// A `.zip`-named file whose magic bytes are not a supported archive. The
+/// scanner still indexes it, and `/stream` must answer 415 so clients fall back
+/// to `/download`.
+fn write_unsupported_archive(path: &Path) {
+    let mut file = std::fs::File::create(path).expect("unsupported file");
+    file.write_all(b"plain text, not an archive")
+        .expect("magic");
     file.set_len(1024 * 1024 + 1).expect("size");
 }
 
@@ -1753,8 +2052,8 @@ async fn stream_install_zip_as_tar() {
 
     let zip_path = server.games_dir.join("Stream Game (2020).zip");
     write_test_zip(&zip_path);
-    let rar_path = server.games_dir.join("Rar Game (2020).rar");
-    write_test_rar(&rar_path);
+    let unsupported_path = server.games_dir.join("Unreadable Game (2020).zip");
+    write_unsupported_archive(&unsupported_path);
     run_scan(&server, &token).await;
 
     let (_, list) = server.get("/api/games?limit=10", Some(&token)).await;
@@ -1890,30 +2189,31 @@ async fn stream_install_zip_as_tar() {
     assert_eq!(ticket_length, ticket_body.len() as u64);
     assert!(read_tar(&ticket_body).contains_key("Game/game.exe"));
 
-    // Non-ZIP archives are rejected with 415; clients fall back to /download.
-    let rar_game = items
+    // Files that are not a supported archive are rejected with 415; clients
+    // fall back to /download.
+    let unsupported_game = items
         .iter()
-        .find(|item| item["title"] == "Rar Game")
-        .expect("rar game");
-    let rar_game_id = rar_game["id"].as_i64().expect("rar game id");
-    let (_, rar_detail) = server
-        .get(&format!("/api/games/{rar_game_id}"), Some(&token))
+        .find(|item| item["title"] == "Unreadable Game")
+        .expect("unsupported game");
+    let unsupported_game_id = unsupported_game["id"].as_i64().expect("unsupported id");
+    let (_, unsupported_detail) = server
+        .get(&format!("/api/games/{unsupported_game_id}"), Some(&token))
         .await;
-    let rar_version_id = rar_detail["versions"][0]["id"]
+    let unsupported_version_id = unsupported_detail["versions"][0]["id"]
         .as_i64()
-        .expect("rar version id");
+        .expect("unsupported version id");
     let response = server
         .client
         .get(format!(
-            "{}/api/games/{rar_game_id}/versions/{rar_version_id}/stream",
+            "{}/api/games/{unsupported_game_id}/versions/{unsupported_version_id}/stream",
             server.url
         ))
         .bearer_auth(&token)
         .send()
         .await
-        .expect("rar stream");
+        .expect("unsupported stream");
     assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
-    let error: Value = response.json().await.expect("rar error");
+    let error: Value = response.json().await.expect("unsupported error");
     assert_eq!(error["error"]["code"], "stream_unsupported");
 
     server.stop().await;
@@ -1986,6 +2286,102 @@ async fn stream_install_7z_as_tar() {
 }
 
 #[tokio::test]
+async fn stream_install_rar_as_tar() {
+    let server = TestServer::start().await;
+    let (token, _) = server.setup().await;
+
+    let rar_path = server.games_dir.join("Rar Stream Game (2022).rar");
+    write_test_rar(&rar_path);
+    run_scan(&server, &token).await;
+
+    let (_, list) = server.get("/api/games?limit=10", Some(&token)).await;
+    let game = list["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|item| item["title"] == "Rar Stream Game")
+        .expect("rar game");
+    let game_id = game["id"].as_i64().expect("game id");
+    let (_, detail) = server
+        .get(&format!("/api/games/{game_id}"), Some(&token))
+        .await;
+    let version_id = detail["versions"][0]["id"].as_i64().expect("version id");
+
+    let response = server
+        .client
+        .get(format!(
+            "{}/api/games/{game_id}/versions/{version_id}/stream",
+            server.url
+        ))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .expect("rar stream");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/x-tar")
+    );
+    assert!(response
+        .headers()
+        .get(CONTENT_DISPOSITION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("attachment;") && value.contains(".tar")));
+    let content_length: u64 = response
+        .headers()
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok())
+        .expect("content length");
+    let body = response.bytes().await.expect("rar tar body");
+    assert_eq!(content_length, body.len() as u64);
+
+    let files = read_tar(&body);
+    assert_eq!(files.len(), 4, "directory entries must not be streamed");
+    assert_eq!(
+        files.get("Game/readme.txt").map(Vec::as_slice),
+        Some(b"hello".as_slice())
+    );
+    assert_eq!(
+        files.get("Game/sub/game.sh").map(Vec::as_slice),
+        Some(b"#!/bin/sh\n".as_slice())
+    );
+    assert_eq!(
+        files.get("Game/unicode-\u{e9}.txt").map(Vec::as_slice),
+        Some("café".as_bytes())
+    );
+    assert_eq!(files.get("Game/empty.txt").map(Vec::len), Some(0));
+
+    // Streaming must not leave anything behind beyond the source archive: no
+    // staged object and no core scratch directory in the server data dir.
+    let leftovers: Vec<String> = std::fs::read_dir(&server.games_dir)
+        .expect("games dir")
+        .map(|entry| {
+            entry
+                .expect("dir entry")
+                .file_name()
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        leftovers,
+        vec!["Rar Stream Game (2022).rar".to_string()],
+        "unexpected files in the games dir"
+    );
+    let staging_dir = server.temp.path().join("data/tmp");
+    let staged = std::fs::read_dir(&staging_dir)
+        .map(|entries| entries.count())
+        .unwrap_or(0);
+    assert_eq!(staged, 0, "staged copies must be removed after streaming");
+
+    server.stop().await;
+}
+
+#[tokio::test]
 async fn latest_version_exposes_update_metadata() {
     let server = TestServer::start().await;
     let (token, _) = server.setup().await;
@@ -2023,9 +2419,11 @@ async fn latest_version_exposes_update_metadata() {
         .await;
     let versions = detail["versions"].as_array().expect("versions");
     assert_eq!(versions.len(), 2);
-    assert!(versions.iter().all(|version| version["archiveHash"]
-        .as_str()
-        .is_some_and(|value| value.starts_with("sha256-sample:"))));
+    assert!(versions.iter().all(|version| {
+        version["archiveHash"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("sha256-sample:"))
+    }));
 
     // Replacing the archive content changes the fingerprint without a rescan.
     let mut replacement = std::fs::OpenOptions::new()

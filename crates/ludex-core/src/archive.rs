@@ -977,30 +977,37 @@ pub struct TarStreamReport {
 /// Computes the exact size of the tar stream [`stream_archive_as_tar`] would
 /// produce for `path`.
 ///
-/// Supports ZIP and 7z. RAR cannot be streamed without a temporary file, so it
-/// returns [`ArchiveError::UnsupportedFormat`]. No entry data is decompressed.
+/// Supports ZIP, 7z and RAR (RAR4/RAR5). No entry data is decompressed, so the
+/// returned length is derived from the entry plan shared with the stream
+/// writer. Encrypted archives are rejected with
+/// [`ArchiveError::PasswordRequired`].
 pub fn archive_tar_size(path: &Path) -> Result<u64, ArchiveError> {
     match detect_format(path)? {
         ArchiveFormat::Zip => zip_tar_size(path),
+        ArchiveFormat::Rar => rar_tar_size(path),
         ArchiveFormat::SevenZip => seven_zip_tar_size(path),
-        _ => Err(ArchiveError::UnsupportedFormat),
+        ArchiveFormat::Unknown => Err(ArchiveError::UnsupportedFormat),
     }
 }
 
 /// Streams `path` as an uncompressed tar archive to `writer`.
 ///
-/// Supports ZIP (including Zip64 and zstd-compressed entries) and 7z. RAR
-/// returns [`ArchiveError::UnsupportedFormat`]. Entry paths are sanitised with
-/// [`sanitize_entry_path`], link entries are rejected, and entry data is copied
-/// in chunks (never loaded whole in memory).
+/// Supports ZIP (including Zip64 and zstd-compressed entries), 7z and RAR
+/// (RAR4/RAR5). Entry paths are sanitised with [`sanitize_entry_path`], link
+/// and special entries are rejected, and encrypted archives return
+/// [`ArchiveError::PasswordRequired`] because this API has no password
+/// parameter. Entry data is copied in chunks (never loaded whole in memory);
+/// RAR entries are decompressed by libunrar into a private scratch file first,
+/// because libunrar can only extract to a path.
 pub fn stream_archive_as_tar<W: Write>(
     path: &Path,
     writer: &mut W,
 ) -> Result<TarStreamReport, ArchiveError> {
     match detect_format(path)? {
         ArchiveFormat::Zip => stream_zip_as_tar(path, writer),
+        ArchiveFormat::Rar => stream_rar_as_tar(path, writer),
         ArchiveFormat::SevenZip => stream_seven_zip_as_tar(path, writer),
-        _ => Err(ArchiveError::UnsupportedFormat),
+        ArchiveFormat::Unknown => Err(ArchiveError::UnsupportedFormat),
     }
 }
 
@@ -1050,6 +1057,230 @@ pub fn stream_zip_as_tar<W: Write>(
     counter.flush()?;
     report.tar_bytes = counter.count();
     Ok(report)
+}
+
+/// Exact tar size for a RAR (RAR4/RAR5) archive, without decompressing any
+/// entry.
+///
+/// Returns [`ArchiveError::UnsupportedFormat`] for non-RAR files,
+/// [`ArchiveError::PasswordRequired`] for encrypted archives and
+/// [`ArchiveError::UnsafeEntry`] for traversal, link or special entries.
+pub fn rar_tar_size(path: &Path) -> Result<u64, ArchiveError> {
+    if detect_format(path)? != ArchiveFormat::Rar {
+        return Err(ArchiveError::UnsupportedFormat);
+    }
+    let entries = collect_rar_tar_entries(path)?;
+    Ok(tar_total_len(entries.iter()))
+}
+
+/// Streams a RAR (RAR4/RAR5) archive as an uncompressed tar to `writer`.
+///
+/// Encrypted archives are rejected with [`ArchiveError::PasswordRequired`]
+/// because this API has no password parameter. libunrar can only decompress to
+/// a path, so each entry is materialised in a private scratch file, copied to
+/// `writer` in 64 KiB chunks and then deleted: memory stays bounded and no
+/// temporary file outlives the call. The returned [`TarStreamReport::tar_bytes`]
+/// equals [`rar_tar_size`] for a valid archive.
+pub fn stream_rar_as_tar<W: Write>(
+    path: &Path,
+    writer: &mut W,
+) -> Result<TarStreamReport, ArchiveError> {
+    stream_rar_as_tar_in(path, writer, &std::env::temp_dir())
+}
+
+fn stream_rar_as_tar_in<W: Write>(
+    path: &Path,
+    writer: &mut W,
+    scratch_base: &Path,
+) -> Result<TarStreamReport, ArchiveError> {
+    if detect_format(path)? != ArchiveFormat::Rar {
+        return Err(ArchiveError::UnsupportedFormat);
+    }
+    let entries = collect_rar_tar_entries(path)?;
+    let expected_tar_bytes = tar_total_len(entries.iter());
+
+    let mut scratch = ScratchSpace::new(scratch_base)?;
+    let mut archive = unrar::Archive::new(path)
+        .open_for_processing()
+        .map_err(map_unrar_error)?;
+    let mut planned = entries.iter();
+    let mut counter = ByteCounter::new(writer);
+    let mut report = TarStreamReport::default();
+    {
+        let mut builder = tar::Builder::new(&mut counter);
+        while let Some(header) = archive.read_header().map_err(map_unrar_error)? {
+            let (name, size, is_directory, encrypted) = {
+                let entry = header.entry();
+                (
+                    entry.filename.to_string_lossy().to_string(),
+                    entry.unpacked_size,
+                    entry.is_directory(),
+                    entry.is_encrypted(),
+                )
+            };
+            if is_directory {
+                archive = header.skip().map_err(map_unrar_error)?;
+                continue;
+            }
+            if encrypted {
+                return Err(ArchiveError::PasswordRequired);
+            }
+
+            let Some(expected) = planned.next() else {
+                return Err(ArchiveError::InvalidArchive(
+                    "RAR entry set changed while streaming".to_string(),
+                ));
+            };
+            let actual_name = tar_name(&sanitize_entry_path(&name)?);
+            if actual_name != expected.name || size != expected.size {
+                return Err(ArchiveError::InvalidArchive(format!(
+                    "RAR entry changed while streaming: {actual_name}"
+                )));
+            }
+
+            let scratch_path = scratch.next_file();
+            archive = header.extract_to(&scratch_path).map_err(map_unrar_error)?;
+            let mut data = File::open(&scratch_path)?;
+            write_tar_entry(&mut builder, expected, &mut data)?;
+            // Keep disk use bounded to a single entry while streaming.
+            let _ = fs::remove_file(&scratch_path);
+
+            report.files += 1;
+            report.bytes = report.bytes.saturating_add(expected.size);
+        }
+        if planned.next().is_some() {
+            return Err(ArchiveError::InvalidArchive(
+                "RAR entry set changed while streaming".to_string(),
+            ));
+        }
+        builder.finish()?;
+    }
+    counter.flush()?;
+    report.tar_bytes = counter.count();
+
+    // Guards against libunrar yielding a different entry set than the listing,
+    // which would break the advertised Content-Length.
+    if report.tar_bytes != expected_tar_bytes {
+        return Err(ArchiveError::InvalidArchive(
+            "RAR tar size changed while streaming".to_string(),
+        ));
+    }
+    Ok(report)
+}
+
+/// Unix file type bits from a RAR attribute field, when the archive recorded a
+/// Unix mode (RAR stores Unix attributes for archives created on Unix).
+fn rar_unix_file_type(attributes: u32) -> Option<u32> {
+    let file_type = attributes & 0o170_000;
+    (file_type != 0).then_some(file_type)
+}
+
+/// Octal file type for a Unix regular file.
+const RAR_UNIX_REGULAR_FILE: u32 = 0o100_000;
+
+/// Selects and validates the RAR entries that will be streamed.
+///
+/// Only regular files are accepted: directories are skipped, links and special
+/// files (FIFO, socket, device) are rejected, and encrypted archives are
+/// reported before any data is written.
+fn collect_rar_tar_entries(path: &Path) -> Result<Vec<TarEntry>, ArchiveError> {
+    ensure_usable_path(path)?;
+    let listing = unrar::Archive::new(path)
+        .open_for_listing()
+        .map_err(map_unrar_error)?;
+
+    let mut entries = Vec::new();
+    for header in listing {
+        let header = header.map_err(map_unrar_error)?;
+        if header.is_directory() {
+            continue;
+        }
+        if header.is_encrypted() {
+            return Err(ArchiveError::PasswordRequired);
+        }
+        if header.is_split() {
+            return Err(ArchiveError::InvalidArchive(
+                "multi-volume RAR archives cannot be streamed".to_string(),
+            ));
+        }
+
+        let name = header.filename.to_string_lossy().to_string();
+        let attributes = header.file_attr;
+        match rar_unix_file_type(attributes) {
+            Some(file_type) if file_type != RAR_UNIX_REGULAR_FILE => {
+                return Err(ArchiveError::UnsafeEntry(format!(
+                    "link or special entry: {name}"
+                )));
+            }
+            Some(_) => {}
+            None if is_link_attr(attributes) => {
+                return Err(ArchiveError::UnsafeEntry(format!("link entry: {name}")));
+            }
+            None => {}
+        }
+
+        let relative = sanitize_entry_path(&name)?;
+        let name = tar_name(&relative);
+        let mode = tar_mode(&name, rar_unix_mode(attributes));
+        entries.push(TarEntry {
+            name,
+            size: header.unpacked_size,
+            mode,
+        });
+    }
+    Ok(entries)
+}
+
+/// Unix permission bits stored in a RAR attribute field, when present.
+fn rar_unix_mode(attributes: u32) -> Option<u32> {
+    rar_unix_file_type(attributes).map(|_| attributes & 0o777)
+}
+
+/// Per-call scratch directory bridging libunrar's path-only extraction to the
+/// tar writer. The directory is removed when the value is dropped, including on
+/// error, and each entry file is deleted as soon as it has been copied.
+struct ScratchSpace {
+    dir: PathBuf,
+    next: u64,
+}
+
+impl ScratchSpace {
+    fn new(base: &Path) -> Result<Self, ArchiveError> {
+        for attempt in 0..100_u32 {
+            let dir = base.join(format!("ludex-rar-{}-{attempt}", std::process::id()));
+            match create_scratch_dir(&dir) {
+                Ok(()) => return Ok(Self { dir, next: 0 }),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(ArchiveError::Io(io::Error::other(
+            "could not create a scratch directory for RAR streaming",
+        )))
+    }
+
+    fn next_file(&mut self) -> PathBuf {
+        self.next += 1;
+        self.dir.join(format!("entry-{}", self.next))
+    }
+}
+
+/// Creates the scratch directory, owner-only on Unix: extracted entries must
+/// not be readable by other local users while they are being streamed.
+fn create_scratch_dir(dir: &Path) -> io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(dir)
+}
+
+impl Drop for ScratchSpace {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.dir);
+    }
 }
 
 fn seven_zip_tar_size(path: &Path) -> Result<u64, ArchiveError> {
@@ -1979,19 +2210,157 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn rar_tar_stream_is_unsupported() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let rar_path = temp.path().join("fake.rar");
-        fs::write(&rar_path, b"Rar!\x1a\x07\x00not really").expect("write rar");
+    /// Path to a committed test fixture under `crates/ludex-core/tests/fixtures`.
+    ///
+    /// The RAR fixtures were generated with RAR 6.24 (`rar a -ma4`/`-ma5 -m0`),
+    /// the last upstream release that can still create RAR4 archives. The
+    /// encrypted fixtures use the password `ludex-test`.
+    fn fixture(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name)
+    }
 
+    #[test]
+    fn rar4_tar_stream_roundtrip() {
+        let rar_path = fixture("rar4.rar");
+
+        let size = archive_tar_size(&rar_path).expect("rar4 tar size");
+        assert!(size > 1024);
+
+        let mut buffer = Vec::new();
+        let report = stream_archive_as_tar(&rar_path, &mut buffer).expect("stream rar4");
+        // Directory entries are skipped; only regular files are streamed.
+        assert_eq!(report.files, 4);
+        assert_eq!(report.bytes, 5 + 10 + 5);
+        assert_eq!(report.tar_bytes, buffer.len() as u64);
+        assert_eq!(report.tar_bytes, size);
+        assert_eq!(rar_tar_size(&rar_path).expect("rar tar size"), size);
+
+        let entries = read_tar_entries(&buffer);
+        assert_eq!(entries.len(), 4);
+        let find = |name: &str| {
+            entries
+                .iter()
+                .find(|(path, _, _)| path == name)
+                .unwrap_or_else(|| panic!("missing tar entry {name}"))
+        };
+        assert_eq!(find("Game/readme.txt").2, b"hello");
+        assert_eq!(find("Game/sub/game.sh").2, b"#!/bin/sh\n");
+        assert_eq!(find("Game/sub/game.sh").1 & 0o777, 0o755);
+        assert_eq!(find("Game/readme.txt").1 & 0o777, 0o644);
+        assert_eq!(find("Game/unicode-é.txt").2, "café".as_bytes());
+        assert!(find("Game/empty.txt").2.is_empty());
+    }
+
+    #[test]
+    fn rar5_tar_stream_matches_rar4() {
+        let rar4 = fixture("rar4.rar");
+        let rar5 = fixture("rar5.rar");
+
+        // Both fixtures hold the same four files, so the deterministic tar
+        // (mtime 0, canonical order) must be byte-identical.
+        assert_eq!(
+            archive_tar_size(&rar4).expect("rar4 size"),
+            archive_tar_size(&rar5).expect("rar5 size")
+        );
+
+        let mut rar4_buffer = Vec::new();
+        let rar4_report = stream_rar_as_tar(&rar4, &mut rar4_buffer).expect("stream rar4");
+        let mut rar5_buffer = Vec::new();
+        let rar5_report = stream_archive_as_tar(&rar5, &mut rar5_buffer).expect("stream rar5");
+
+        assert_eq!(rar4_report, rar5_report);
+        assert_eq!(rar4_report.files, 4);
+        assert_eq!(rar4_buffer, rar5_buffer);
+        assert_eq!(rar5_report.tar_bytes, rar5_buffer.len() as u64);
+    }
+
+    #[test]
+    fn rar_tar_rejects_encrypted_archives() {
+        // File-encrypted archive: entry names are readable but data is not.
+        // Header-encrypted archive: even the listing needs a password.
+        for name in ["rar5-encrypted.rar", "rar5-encrypted-headers.rar"] {
+            let path = fixture(name);
+            assert!(
+                matches!(archive_tar_size(&path), Err(ArchiveError::PasswordRequired)),
+                "{name} size"
+            );
+            let result = stream_archive_as_tar(&path, &mut Vec::new());
+            assert!(
+                matches!(result, Err(ArchiveError::PasswordRequired)),
+                "{name} stream: {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rar_tar_rejects_link_entries() {
+        let path = fixture("rar4-symlink.rar");
         assert!(matches!(
-            archive_tar_size(&rar_path),
-            Err(ArchiveError::UnsupportedFormat)
+            archive_tar_size(&path),
+            Err(ArchiveError::UnsafeEntry(_))
         ));
         assert!(matches!(
-            stream_archive_as_tar(&rar_path, &mut Vec::new()),
-            Err(ArchiveError::UnsupportedFormat)
+            stream_archive_as_tar(&path, &mut Vec::new()),
+            Err(ArchiveError::UnsafeEntry(_))
         ));
+    }
+
+    #[test]
+    fn rar_tar_stream_leaves_no_scratch_files() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut buffer = Vec::new();
+        let report = stream_rar_as_tar_in(&fixture("rar4.rar"), &mut buffer, temp.path())
+            .expect("stream rar4");
+
+        assert_eq!(report.files, 4);
+        let leftovers: Vec<_> = fs::read_dir(temp.path())
+            .expect("read scratch base")
+            .map(|entry| entry.expect("dir entry").file_name())
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "scratch files left behind: {leftovers:?}"
+        );
+    }
+
+    #[test]
+    fn tar_size_helpers_match_written_bytes() {
+        let entries = vec![
+            TarEntry {
+                name: "Game/empty.txt".to_string(),
+                size: 0,
+                mode: 0o644,
+            },
+            TarEntry {
+                name: "Game/sub/data.bin".to_string(),
+                size: 700,
+                mode: 0o644,
+            },
+            TarEntry {
+                name: format!("Game/{}/long.txt", "x".repeat(150)),
+                size: 512,
+                mode: 0o755,
+            },
+        ];
+        let expected = tar_total_len(entries.iter());
+
+        let mut builder = tar::Builder::new(Vec::new());
+        for entry in &entries {
+            let payload = vec![9_u8; entry.size as usize];
+            write_tar_entry(&mut builder, entry, &mut payload.as_slice()).expect("write entry");
+        }
+        builder.finish().expect("finish");
+        let bytes = builder.into_inner().expect("into inner");
+
+        assert_eq!(bytes.len() as u64, expected);
+        let parsed = read_tar_entries(&bytes);
+        assert_eq!(parsed.len(), entries.len());
+        for (index, entry) in entries.iter().enumerate() {
+            assert_eq!(parsed[index].0, entry.name);
+            assert_eq!(parsed[index].1 & 0o777, entry.mode);
+            assert_eq!(parsed[index].2.len() as u64, entry.size);
+        }
     }
 }

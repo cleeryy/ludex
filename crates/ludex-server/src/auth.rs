@@ -573,7 +573,8 @@ async fn load_auth_user(
     scopes: Option<Vec<Scope>>,
 ) -> Result<AuthUser, ApiError> {
     let row = sqlx::query_as::<_, crate::models::UserRow>(
-        "SELECT id, username, password_hash, email, role, activated, avatar_path, created_at, updated_at
+        "SELECT id, username, password_hash, email, role, activated, avatar_path,
+                created_at, updated_at, oidc_issuer, oidc_subject
          FROM users WHERE id = ?",
     )
     .bind(user_id)

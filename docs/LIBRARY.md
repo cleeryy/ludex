@@ -215,6 +215,31 @@ Safety: the grace period protects a file written by an enrichment pass that has
 not committed its database row yet. A file that is referenced is never deleted,
 whatever its age. Two concurrent runs are rejected with `409 media_gc_running`.
 
+## Stream installs and archive formats
+
+`GET /api/games/{id}/versions/{versionId}/stream` turns a library archive into
+an uncompressed tar on the fly, so the desktop can install a remote game
+without ever storing the archive. Supported formats:
+
+| Format | Notes |
+|---|---|
+| ZIP (incl. Zip64) | Central directory read first; entries copied in 64 KiB chunks. |
+| 7z | Entry metadata read first, then streamed in a single pass. |
+| RAR4 / RAR5 | Headers listed first, then each entry decompressed by libunrar into a private scratch file and copied into the tar. |
+
+Encrypted archives (ZIP, 7z or RAR) cannot be streamed: the route has no
+password parameter and answers `409 archive_password_required`. Files that are
+not a supported archive (for example `.exe`, or a file with an unknown magic)
+are answered with `415 stream_unsupported`, which makes the desktop fall back to
+the normal `/download` path. RAR link entries and other special files are
+rejected like ZIP symlinks.
+
+The tar length is computed from the same entry plan the writer uses and is sent
+as `Content-Length`; the stream aborts if the produced size differs, so a
+truncated or mismatched response is never silently accepted. RAR scratch files
+live under the system temporary directory, are removed as soon as each entry has
+been copied, and the scratch directory never outlives the request.
+
 ## Operational checklist
 
 ```bash

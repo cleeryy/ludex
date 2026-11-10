@@ -257,7 +257,10 @@ export const api = {
       ? mockApi.createUser(tokenStore.get(), body)
       : request<User>("/users", { method: "POST", body });
   },
-  updateUser(id: number, patch: { email?: string | null; role?: Role; activated?: boolean }): Promise<User> {
+  updateUser(
+    id: number,
+    patch: { username?: string; email?: string | null; password?: string; role?: Role; activated?: boolean },
+  ): Promise<User> {
     return USING_MOCKS
       ? mockApi.updateUser(tokenStore.get(), id, patch)
       : request<User>(`/users/${id}`, { method: "PATCH", body: patch });

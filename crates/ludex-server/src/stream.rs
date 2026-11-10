@@ -20,7 +20,7 @@ const CHUNK_SIZE: usize = 64 * 1024;
 /// Number of chunks that may wait in the channel (about 512 KiB).
 const CHANNEL_CAPACITY: usize = 8;
 
-/// Builds a streaming tar body for a ZIP or 7z archive.
+/// Builds a streaming tar body for a ZIP, 7z or RAR archive.
 ///
 /// `expected_bytes` must be the exact tar size returned by
 /// `ludex_core::archive::archive_tar_size`; it is used for the `Content-Length`

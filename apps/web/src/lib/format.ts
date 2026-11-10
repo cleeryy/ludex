@@ -14,14 +14,26 @@ export function formatSpeed(bps: number | null | undefined): string {
   return `${formatBytes(bps, 0)}/s`;
 }
 
-export function formatEta(downloaded: number, total: number | null, speed: number): string | null {
-  if (!total || !speed || total <= downloaded) return null;
-  const seconds = Math.round((total - downloaded) / speed);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
+/**
+ * A duration for ETA and elapsed labels: `42s`, `3m 05s`, `2h 10m`, `1d 4h`.
+ * Pure and rounded once, so a gated ETA does not flicker between formats.
+ */
+export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0s";
+  const total = Math.round(seconds);
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  if (minutes < 60) return `${minutes}m ${String(total % 60).padStart(2, "0")}s`;
   const hours = Math.floor(minutes / 60);
-  return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
+  if (hours < 24) return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
+
+export function formatEta(downloaded: number, total: number | null, speed: number): string | null {
+  if (total === null || !Number.isFinite(total) || !Number.isFinite(speed) || speed <= 0 || total <= downloaded) {
+    return null;
+  }
+  return formatDuration((total - downloaded) / speed);
 }
 
 export function formatMinutes(minutes: number | null | undefined): string | null {

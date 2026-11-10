@@ -31,6 +31,7 @@ import { UsersScreen } from "@/screens/admin/users";
 import { AdminNewsScreen } from "@/screens/admin/news";
 import { ServerScreen } from "@/screens/admin/server";
 import { UploadScreen } from "@/screens/admin/upload";
+import { ShareScreen } from "@/screens/share";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -134,6 +135,8 @@ export function App() {
             <DownloadsProvider>
             <HashRouter>
               <Routes>
+                {/* Public and account-free: must stay outside the Gate (#9). */}
+                <Route path="/share/:token" element={<ShareScreen />} />
                 <Route
                   path="/setup"
                   element={

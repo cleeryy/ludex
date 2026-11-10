@@ -831,7 +831,7 @@ async fn download_from_storage(
                     StatusCode::RANGE_NOT_SATISFIABLE,
                     "invalid_range",
                     "Only a single byte range is supported",
-                ))
+                ));
             }
         },
         None => None,
@@ -981,10 +981,10 @@ async fn stream_version(
     }
     let mut staged = false;
     let path = if is_s3_version(&version) && version.object_key.is_some() {
-        // Stream install needs random access (ZIP central directory): the
-        // object is staged under `{data_dir}/tmp` and removed once the tar
-        // stream ends. Disk use is bounded by one archive at a time per
-        // concurrent stream request.
+        // Stream install needs random access (ZIP central directory, RAR
+        // headers): the object is staged under `{data_dir}/tmp` and removed
+        // once the tar stream ends. Disk use is bounded by one archive at a
+        // time per concurrent stream request.
         match stage_object(&state, &version).await {
             Ok((path, _size)) => {
                 staged = true;
@@ -1022,7 +1022,7 @@ async fn stream_version(
             ));
         }
     };
-    if !matches!(format, ArchiveFormat::Zip | ArchiveFormat::SevenZip) {
+    if format == ArchiveFormat::Unknown {
         cleanup_staged(&path, staged).await;
         return Err(stream_unsupported());
     }
@@ -1359,7 +1359,7 @@ fn stream_unsupported() -> ApiError {
     ApiError::new(
         StatusCode::UNSUPPORTED_MEDIA_TYPE,
         "stream_unsupported",
-        "Stream install is only available for ZIP and 7z archives; use the normal download endpoint",
+        "Stream install is only available for ZIP, 7z and RAR archives; use the normal download endpoint",
     )
 }
 

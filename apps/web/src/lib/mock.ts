@@ -86,6 +86,7 @@ function clone<T>(value: T): T {
 
 let games: GameDetail[] = clone(DEMO_GAMES);
 let users: User[] = loadUsers();
+let passwords = new Map<number, string>();
 let news: NewsPost[] = clone(DEMO_NEWS);
 let jobs: IngestJob[] = [
   {
@@ -331,13 +332,24 @@ function loadUsers(): User[] {
   if (raw) {
     try {
       const parsed = JSON.parse(raw) as User[];
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        // Rows persisted before account sources existed are local accounts.
+        return parsed.map((user) => ({
+          ...user,
+          source: user.source === "oidc" ? "oidc" : "local",
+          oidcIssuer: user.oidcIssuer ?? null,
+        }));
+      }
     } catch {
       /* ignore corrupt demo state */
     }
   }
   if (localStorage.getItem(STORAGE_SETUP) === "1") return [];
   return clone(DEMO_USERS);
+}
+
+function passwordFor(user: User): string {
+  return passwords.get(user.id) ?? DEMO_PASSWORD;
 }
 
 function persistUsers() {
@@ -552,6 +564,8 @@ export const mockApi = {
       activated: true,
       avatarUrl: null,
       createdAt: nowIso(),
+      source: "local",
+      oidcIssuer: null,
     };
     users = [user];
     persistUsers();
@@ -562,7 +576,7 @@ export const mockApi = {
   async login(body: { username: string; password: string }): Promise<AuthResult> {
     await latency();
     const user = users.find((u) => u.username.toLowerCase() === body.username.trim().toLowerCase());
-    if (!user || body.password !== DEMO_PASSWORD) fail(401, "invalid_credentials", "Invalid username or password");
+    if (!user || body.password !== passwordFor(user)) fail(401, "invalid_credentials", "Invalid username or password");
     if (!user.activated) fail(403, "account_disabled", "This account is not activated");
     return { token: `mock.${user.id}.${Date.now()}`, user };
   },
@@ -583,9 +597,10 @@ export const mockApi = {
 
   async changePassword(token: string | null, body: { currentPassword: string; newPassword: string }): Promise<void> {
     await latency();
-    currentUser(token);
-    if (body.currentPassword !== DEMO_PASSWORD) fail(400, "invalid_password", "Current password is incorrect");
+    const user = currentUser(token);
+    if (body.currentPassword !== passwordFor(user)) fail(400, "invalid_password", "Current password is incorrect");
     if (body.newPassword.length < 8) fail(400, "weak_password", "Use at least eight characters");
+    passwords.set(user.id, body.newPassword);
   },
 
   async listGames(query: GameListQuery): Promise<GameList> {
@@ -738,6 +753,8 @@ export const mockApi = {
       activated: true,
       avatarUrl: null,
       createdAt: nowIso(),
+      source: "local",
+      oidcIssuer: null,
     };
     users = [...users, user];
     persistUsers();
@@ -747,17 +764,40 @@ export const mockApi = {
   async updateUser(
     token: string | null,
     id: number,
-    patch: { email?: string | null; role?: Role; activated?: boolean },
+    patch: { username?: string; email?: string | null; password?: string; role?: Role; activated?: boolean },
   ): Promise<User> {
     await latency();
     const me = currentUser(token);
     if (me.role !== "admin") fail(403, "forbidden", "Admin role required");
     const user = users.find((u) => u.id === id);
     if (!user) fail(404, "user_not_found", "That user does not exist");
+
+    const nextUsername = patch.username?.trim();
+    const usernameChanged = nextUsername !== undefined && nextUsername !== user.username;
+    const nextEmail = patch.email === undefined ? undefined : patch.email?.trim() || null;
+    const emailChanged = nextEmail !== undefined && nextEmail !== user.email;
+    if (user.source === "oidc" && (usernameChanged || emailChanged || patch.password !== undefined))
+      fail(
+        409,
+        "managed_by_idp",
+        `This account is managed by ${user.oidcIssuer ?? "your identity provider"}; edit it in the identity provider`,
+      );
+    if (patch.username !== undefined) {
+      if (!nextUsername || nextUsername.length < 3) fail(400, "invalid_username", "Use at least three characters");
+      if (users.some((u) => u.id !== id && u.username.toLowerCase() === nextUsername.toLowerCase()))
+        fail(409, "username_taken", "That username is already in use");
+    }
+    if (patch.password !== undefined && patch.password.length < 8)
+      fail(400, "invalid_password", "Use at least eight characters");
     if (patch.role && patch.role !== "admin" && user.role === "admin" && users.filter((u) => u.role === "admin").length === 1)
       fail(409, "last_admin", "Keep at least one administrator");
     if (patch.activated === false && user.id === me.id) fail(409, "self_deactivate", "You cannot deactivate yourself");
-    Object.assign(user, patch);
+
+    if (nextUsername !== undefined) user.username = nextUsername;
+    if (nextEmail !== undefined) user.email = nextEmail;
+    if (patch.password !== undefined) passwords.set(user.id, patch.password);
+    if (patch.role) user.role = patch.role;
+    if (patch.activated !== undefined) user.activated = patch.activated;
     persistUsers();
     return clone(user);
   },

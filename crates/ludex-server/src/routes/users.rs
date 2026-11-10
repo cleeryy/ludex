@@ -13,7 +13,7 @@ use crate::db;
 use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, JsonBody};
-use crate::models::{CreateUserRequest, UpdateUserRequest, UserRow};
+use crate::models::{CreateUserRequest, UpdateUserRequest, User, UserRow};
 use crate::sql::{bind_query, Bind};
 use crate::state::AppState;
 
@@ -49,13 +49,11 @@ async fn revoke_sessions(
     Ok(Json(json!({ "revoked": revoked })))
 }
 
-async fn list(
-    State(state): State<AppState>,
-    user: AuthUser,
-) -> Result<Json<Vec<ludex_core::models::User>>, ApiError> {
+async fn list(State(state): State<AppState>, user: AuthUser) -> Result<Json<Vec<User>>, ApiError> {
     user.require_admin_access()?;
     let rows = sqlx::query_as::<_, UserRow>(
-        "SELECT id, username, password_hash, email, role, activated, avatar_path, created_at, updated_at
+        "SELECT id, username, password_hash, email, role, activated, avatar_path,
+                created_at, updated_at, oidc_issuer, oidc_subject
          FROM users ORDER BY id",
     )
     .fetch_all(&state.pool)
@@ -68,7 +66,7 @@ async fn create(
     State(state): State<AppState>,
     user: AuthUser,
     JsonBody(request): JsonBody<CreateUserRequest>,
-) -> Result<(StatusCode, Json<ludex_core::models::User>), ApiError> {
+) -> Result<(StatusCode, Json<User>), ApiError> {
     user.require_admin_access()?;
     let username = super::validate_username(&request.username)?;
     super::validate_password(&request.password)?;
@@ -99,7 +97,8 @@ async fn create(
     })?;
 
     let created = sqlx::query_as::<_, UserRow>(
-        "SELECT id, username, password_hash, email, role, activated, avatar_path, created_at, updated_at
+        "SELECT id, username, password_hash, email, role, activated, avatar_path,
+                created_at, updated_at, oidc_issuer, oidc_subject
          FROM users WHERE id = ?",
     )
     .bind(result.last_insert_rowid())
@@ -125,14 +124,13 @@ async fn update(
     caller: AuthUser,
     ApiPath(id): ApiPath<i64>,
     JsonBody(request): JsonBody<UpdateUserRequest>,
-) -> Result<Json<ludex_core::models::User>, ApiError> {
+) -> Result<Json<User>, ApiError> {
     caller.require_admin_access()?;
     let target = fetch_user(&state, id).await?;
     let current_role = target.role.parse::<Role>().unwrap_or(Role::User);
     let current_active = target.activated != 0;
     let new_role = request.role.unwrap_or(current_role);
     let new_active = request.activated.unwrap_or(current_active);
-    let email_changed = request.email.is_some();
 
     if id == caller.id && current_active && !new_active {
         return Err(ApiError::unprocessable(
@@ -144,23 +142,72 @@ async fn update(
         ensure_other_active_admin(&state, id).await?;
     }
 
+    // Identity fields are validated up front so a rejected request changes nothing.
+    let username = request
+        .username
+        .map(|value| super::validate_username(&value))
+        .transpose()?;
+    let email = match request.email {
+        Some(value) => Some(super::validate_email(value)?),
+        None => None,
+    };
+    if let Some(password) = request.password.as_deref() {
+        super::validate_password(password)?;
+    }
+
+    let username_changed = username
+        .as_deref()
+        .is_some_and(|value| value != target.username);
+    let email_changed = email.as_ref().is_some_and(|value| value != &target.email);
+    let password_changed = request.password.is_some();
+
+    // The identity provider owns username, email and password for linked accounts.
+    if target.is_oidc_managed() && (username_changed || email_changed || password_changed) {
+        let issuer = target
+            .oidc_issuer
+            .as_deref()
+            .unwrap_or("your identity provider");
+        return Err(ApiError::conflict(
+            "managed_by_idp",
+            format!("This account is managed by {issuer}; edit it in the identity provider"),
+        ));
+    }
+
+    let mut changed: Vec<&str> = Vec::new();
     let mut sets = Vec::new();
     let mut binds = Vec::new();
-    if let Some(email) = request.email {
+    if username_changed {
+        if let Some(username) = username {
+            sets.push("username = ?");
+            binds.push(Bind::Text(username));
+            changed.push("username");
+        }
+    }
+    if let Some(email) = email {
         sets.push("email = ?");
-        let email = match email {
-            Some(value) => super::validate_email(Some(value))?,
-            None => None,
-        };
         binds.push(Bind::OptText(email));
+        if email_changed {
+            changed.push("email");
+        }
+    }
+    if let Some(password) = request.password {
+        sets.push("password_hash = ?");
+        binds.push(Bind::Text(hash_password(&password)?));
+        // The password never reaches the audit trail; a dedicated event records it.
     }
     if request.role.is_some() {
         sets.push("role = ?");
         binds.push(Bind::Text(new_role.as_str().to_string()));
+        if new_role != current_role {
+            changed.push("role");
+        }
     }
     if request.activated.is_some() {
         sets.push("activated = ?");
         binds.push(Bind::Int(i64::from(new_active)));
+        if new_active != current_active {
+            changed.push("activated");
+        }
     }
     if sets.is_empty() {
         return Ok(Json(target.to_public()));
@@ -173,19 +220,34 @@ async fn update(
     bind_query(sqlx::query(&sql), &binds)
         .execute(&state.pool)
         .await
-        .map_err(ApiError::from)?;
+        .map_err(|error| {
+            if super::system::is_unique_violation(&error) {
+                ApiError::conflict("username_taken", "Username is already taken")
+            } else {
+                ApiError::from(error)
+            }
+        })?;
 
     let updated = fetch_user(&state, id).await?;
-    state.events.emit(
-        Event::new(actions::USER_UPDATED, caller.actor())
-            .target("user", id.to_string())
-            .metadata(json!({
-                "username": updated.username,
-                "role": new_role.as_str(),
-                "activated": new_active,
-                "emailChanged": email_changed,
-            })),
-    );
+    if password_changed {
+        state.events.emit(
+            Event::new(actions::USER_PASSWORD_RESET, caller.actor())
+                .target("user", id.to_string())
+                .metadata(json!({ "username": updated.username })),
+        );
+    }
+    if !changed.is_empty() {
+        state.events.emit(
+            Event::new(actions::USER_UPDATED, caller.actor())
+                .target("user", id.to_string())
+                .metadata(json!({
+                    "username": updated.username,
+                    "role": new_role.as_str(),
+                    "activated": new_active,
+                    "fields": changed,
+                })),
+        );
+    }
     Ok(Json(updated.to_public()))
 }
 
@@ -223,7 +285,8 @@ async fn delete_user(
 
 async fn fetch_user(state: &AppState, id: i64) -> Result<UserRow, ApiError> {
     sqlx::query_as::<_, UserRow>(
-        "SELECT id, username, password_hash, email, role, activated, avatar_path, created_at, updated_at
+        "SELECT id, username, password_hash, email, role, activated, avatar_path,
+                created_at, updated_at, oidc_issuer, oidc_subject
          FROM users WHERE id = ?",
     )
     .bind(id)

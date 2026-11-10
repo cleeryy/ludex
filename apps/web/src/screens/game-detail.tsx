@@ -14,6 +14,7 @@ import {
   Pencil,
   Play,
   RefreshCw,
+  Share2,
   Trash2,
 } from "lucide-react";
 import { api, assetUrl, USING_MOCKS } from "@/lib/api";
@@ -33,6 +34,7 @@ import { ProtonDbBadge } from "@/components/game/protondb-badge";
 import { MoveInstallDialog } from "@/components/game/move-install";
 import { MediaGallery } from "@/components/game/media-gallery";
 import { AddToCollectionDialog } from "@/components/collections/add-to-collection";
+import { ShareDialog } from "@/components/share/share-dialog";
 import { useAuth, useIsEditor } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { GameBackdrop, GameCover } from "@/components/art/cover";
@@ -62,6 +64,7 @@ export function GameDetailScreen() {
   const [installOpen, setInstallOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [launchOpen, setLaunchOpen] = useState(false);
 
   const { data: game, isPending, isError, error, refetch } = useQuery({
@@ -353,6 +356,16 @@ export function GameDetailScreen() {
               >
                 Add to collection
               </Button>
+              {isEditor && (
+                <Button
+                  variant="default"
+                  icon={<Share2 className="size-4" />}
+                  onClick={() => setShareOpen(true)}
+                  className="h-12"
+                >
+                  Share
+                </Button>
+              )}
               <IconButton
                 label={game.bookmarked ? "Remove bookmark" : "Bookmark"}
                 variant="default"
@@ -573,6 +586,7 @@ export function GameDetailScreen() {
         gameId={game.id}
         gameTitle={game.title}
       />
+      <ShareDialog open={shareOpen} onOpenChange={setShareOpen} game={game} />
     </div>
   );
 }

@@ -3,7 +3,7 @@
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use ludex_core::models::{Role, User};
+use ludex_core::models::Role;
 
 use crate::audit::actions;
 use crate::auth::{hash_password, issue_access_token};
@@ -161,7 +161,7 @@ async fn setup(
     }
     transaction.commit().await.map_err(ApiError::from)?;
 
-    let user = User {
+    let user = crate::models::User {
         id: result.last_insert_rowid(),
         username,
         email: None,
@@ -169,6 +169,8 @@ async fn setup(
         activated: true,
         avatar_url: None,
         created_at: db::now(),
+        source: crate::models::UserSource::Local,
+        oidc_issuer: None,
     };
     state.events.emit(
         Event::new(actions::USER_CREATED, Actor::System)

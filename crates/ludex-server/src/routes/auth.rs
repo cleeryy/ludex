@@ -56,7 +56,8 @@ async fn login(
     }
 
     let row = sqlx::query_as::<_, UserRow>(
-        "SELECT id, username, password_hash, email, role, activated, avatar_path, created_at, updated_at
+        "SELECT id, username, password_hash, email, role, activated, avatar_path,
+                created_at, updated_at, oidc_issuer, oidc_subject
          FROM users WHERE username = ?",
     )
     .bind(&username)
@@ -148,7 +149,8 @@ fn login_throttled(wait: u64, locked: bool) -> ApiError {
 
 async fn me(State(state): State<AppState>, user: AuthUser) -> Result<Json<UserResponse>, ApiError> {
     let row = sqlx::query_as::<_, UserRow>(
-        "SELECT id, username, password_hash, email, role, activated, avatar_path, created_at, updated_at
+        "SELECT id, username, password_hash, email, role, activated, avatar_path,
+                created_at, updated_at, oidc_issuer, oidc_subject
          FROM users WHERE id = ?",
     )
     .bind(user.id)
@@ -226,7 +228,8 @@ async fn change_password(
 ) -> Result<StatusCode, ApiError> {
     user.require_scope(Scope::Write)?;
     let row = sqlx::query_as::<_, UserRow>(
-        "SELECT id, username, password_hash, email, role, activated, avatar_path, created_at, updated_at
+        "SELECT id, username, password_hash, email, role, activated, avatar_path,
+                created_at, updated_at, oidc_issuer, oidc_subject
          FROM users WHERE id = ?",
     )
     .bind(user.id)

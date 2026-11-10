@@ -9,15 +9,14 @@ What v0.1 migrates:
 - Archive files (`.zip`, `.rar`, `.7z`, portable `.exe`) and their folder layout.
 - Title/year/version/edition parsed from filenames.
 
-What v0.1 does **not** migrate:
+What Ludex does **not** migrate:
 
-- GameVault users, password hashes, roles, sessions.
-- Metadata edits, covers, progress states, bookmarks, playtime.
-- GameVault news, settings, API keys, GameVault+ features.
+- GameVault password hashes, sessions, API keys and GameVault+ settings.
+- Media files: only artwork paths are imported; Ludex re-caches provider art.
 
-Metadata and progress import is on the roadmap. Export the GameVault database
-now (step 8) so a future importer can use it. Do not delete the GameVault
-instance until you are satisfied with Ludex.
+Metadata edits, users, progress states, playtime, bookmarks and news are
+imported from a JSON export (see step 8). Do not delete the GameVault instance
+until you are satisfied with Ludex.
 
 ## Before you start
 
@@ -221,53 +220,99 @@ Keep the GameVault container and database stopped but intact until you have used
 Ludex for a few days. Rolling back is then just starting GameVault and restoring
 the proxy upstream.
 
-## 8. Export GameVault's database for a future import
+## 8. Import GameVault metadata and progress
 
-Ludex v0.1 cannot import GameVault metadata or progress. Preserve the database
-now; the dump is also your rollback safety net.
+The importer reads the JSON document produced by
+[`scripts/gamevault-export.sql`](../scripts/gamevault-export.sql); it never
+connects to GameVault's PostgreSQL database. Export first, review the dump, run
+the import in dry-run mode, then apply it.
 
-Find the PostgreSQL container:
+### 8.1 Export the JSON dump
+
+The export script is read-only. GameVault is a Prisma application, so check the
+table/column names header in the script against your version (`\dt` and
+`\d "Game"` in psql) before running it.
 
 ```bash
-docker ps --format '{{.Names}}\t{{.Image}}' | grep -i postgres
+# Read the connection details from the running GameVault container instead of
+# putting a password on the command line.
+docker exec -u postgres <gamevault-db-container> \
+  psql -d gamevault -At -f - < scripts/gamevault-export.sql > gamevault.json
+chmod 600 gamevault.json
 ```
 
-Dump as the `postgres` OS user inside the container, which avoids putting a
-password on the command line or in your shell history:
+The result is one `gamevault-export` v1 JSON document with `users`, `games`
+(including their file paths and sizes), `progress`, `bookmarks` and `news`.
+It contains **usernames, e-mail addresses and metadata edits**: treat it as a
+secret and delete it once the import is verified.
+
+Keep a normal `pg_dump` as a rollback safety net (encrypted, outside the repo):
 
 ```bash
 docker exec -u postgres <gamevault-db-container> \
   pg_dump -Fc -d gamevault > "gamevault-$(date +%F).dump"
-chmod 600 "gamevault-$(date +%F).dump"
+age -p -o "gamevault-$(date +%F).dump.age" "gamevault-$(date +%F).dump"
+shred -u "gamevault-$(date +%F).dump"
 ```
 
-If the database name or user differs, inspect the container environment and
-adjust. Do not paste passwords into commands, chat, tickets or git. If peer
-authentication is unavailable, read `PGPASSWORD` from the container environment
-inside the `docker exec` shell rather than echoing it.
+### 8.2 Dry run
 
-The dump contains **password hashes, email addresses, API keys and possibly
-private metadata**. Treat it as a secret:
+Run the importer against the **same** `LUDEX_*` environment as the server
+(`LUDEX_DATABASE_URL`, `LUDEX_DATA_DIR`, `LUDEX_GAMES_DIR`, `LUDEX_MEDIA_DIR`).
+A dry run writes nothing and prints matched / unmatched / ignored rows plus the
+account and progress plan:
 
 ```bash
-# Example: encrypt with age (install it first), then remove the plaintext.
-age -p -o gamevault-$(date +%F).dump.age gamevault-$(date +%F).dump
-shred -u gamevault-$(date +%F).dump
+ludex-server import-gamevault --dump gamevault.json --dry-run
+# machine-readable:
+ludex-server import-gamevault --dump gamevault.json --dry-run --json
 ```
 
-Keep the encrypted dump with your backups. The future importer will need it to
-map users, progress states and playtime.
+Games are matched by relative archive path first, then by normalized title plus
+an identical archive size. Ambiguous matches are reported as unmatched and are
+never guessed: fix the report (usually a missing or renamed archive) and run the
+dry run again.
+
+### 8.3 Apply
+
+```bash
+ludex-server import-gamevault --dump gamevault.json
+```
+
+What is imported:
+
+- **Accounts**: matched by username; new accounts get a random temporary
+  password printed **once** by the command. GameVault password hashes are never
+  reused. `admin`/`editor` roles map to the same Ludex role, everything else
+  becomes `user`; disabled GameVault accounts stay disabled.
+- **Progress and playtime** with GameVault states mapped to Ludex:
+  `UNPLAYED → unplayed`, `PLAYING → playing`, `COMPLETED → completed`,
+  `ABORTED_TEMPORARY → on hold`, `ABORTED_PERMANENT → abandoned`,
+  `INFINITE → playing`.
+- **Bookmarks** and **news posts** (author kept when the account was matched).
+- **Metadata edits** (description, artwork paths, lists, rating, provider
+  mapping, launch/installer fields), with priority over provider metadata.
+  Artwork files are not copied; a metadata refresh replaces the paths.
+
+The import is idempotent: running the same dump twice does not duplicate
+accounts, progress, bookmarks or news, and does not reset passwords it already
+created.
+
+### 8.4 Verify
+
+- `/api/stats` `games`/`versions` still matches the archive count.
+- Spot-check a few games: description/cover reflect GameVault edits, progress
+  states and playtime are present, bookmarks survived.
+- Sign in with one generated temporary password, then change it in
+  Settings → Account (or ask the user to).
 
 ## 9. Users, roles and passwords
 
-GameVault users are not imported. Create Ludex accounts after cutover:
-
-- `admin` — server settings, users, news, everything.
-- `editor` — metadata edits, scans, ingest.
-- `user` — browse, download, bookmarks, progress, playtime.
-
-Passwords cannot be carried over (different hash schemes); ask each user to set
-a new one. Map GameVault roles manually; do not reuse the old password hashes.
+GameVault password hashes cannot be reused (different scheme), so every account
+created by the import receives a random temporary password printed once. Ask
+each user to change it after their first sign-in. Roles map conservatively:
+`admin → admin`, `editor → editor`, everything else → `user`. Accounts are local
+Ludex accounts; link them to SSO later from the identity provider if needed.
 
 ## Rollback
 
@@ -293,5 +338,7 @@ GameVault's database will not know about it until its own scan.
 - [ ] Ludex on the production port with read-write games (if ingest is used).
 - [ ] Proxy/DNS switched; login and download verified.
 - [ ] GameVault PostgreSQL dump encrypted and stored with backups.
-- [ ] Users recreated with new passwords; roles mapped.
+- [ ] `ludex-server import-gamevault --dry-run` reviewed (matched/unmatched).
+- [ ] Import applied; progress, bookmarks and metadata spot-checked.
+- [ ] Temporary passwords handed out; users changed them.
 - [ ] Rollback procedure tested or at least documented.

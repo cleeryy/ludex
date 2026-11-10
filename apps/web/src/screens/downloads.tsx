@@ -2,9 +2,10 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, Download, FolderOpen, Pause, Play, RefreshCw, Trash2, X } from "lucide-react";
 import { installsAvailable } from "@/lib/install";
-import { isActiveJob, isStreamFailedJob, useDownloads } from "@/state/downloads";
+import { isActiveJob, isStreamFailedJob, useDownloads, type Aggregate } from "@/state/downloads";
 import { useAllGames } from "@/lib/hooks";
-import { formatBytes, formatEta, formatSpeed, installPhaseLabel } from "@/lib/format";
+import { formatBytes, formatDuration, formatSpeed, installPhaseLabel } from "@/lib/format";
+import { HISTORY_WINDOW_MS, type JobMeter, type SpeedPoint } from "@/lib/eta";
 import type { InstallJob } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { EmptyState, PageHeader, SectionHeader } from "@/components/page";
@@ -15,6 +16,116 @@ import { cn } from "@/lib/cn";
 
 /** Rows whose history entry may be deleted (#100); active and paused rows cannot. */
 const REMOVABLE_PHASES: ReadonlySet<InstallJob["phase"]> = new Set(["done", "cancelled", "error", "interrupted"]);
+
+const GRAPH_WIDTH = 240;
+const GRAPH_HEIGHT = 40;
+const GRAPH_PAD = 3;
+/** Shortest x-axis so the first points do not collapse into the right edge. */
+const MIN_GRAPH_SPAN_MS = 5_000;
+
+/**
+ * Aggregate status for the header: a gated ETA while a download moves, the
+ * phase plus elapsed time while extracting, and "—" when a running download
+ * does not report a total size (#102).
+ */
+function aggregateStatus(aggregate: Aggregate): { text: string; hint: string | null } | null {
+  if (aggregate.downloading > 0) {
+    if (!aggregate.etaKnown) {
+      return { text: "—", hint: "At least one running download does not report a total size." };
+    }
+    if (aggregate.estimating) return { text: "Estimating…", hint: "Collecting the first samples." };
+    if (aggregate.etaSeconds !== null) return { text: `${formatDuration(aggregate.etaSeconds)} left`, hint: null };
+    return null;
+  }
+  // No download is moving: narrate extraction with elapsed time, and stay
+  // quiet for queued/paused queues that have no estimate at all.
+  if (aggregate.phase !== "extracting" && aggregate.phase !== "finalizing") return null;
+  const label = installPhaseLabel(aggregate.phase);
+  if (aggregate.phaseElapsedMs === null) return { text: `${label}…`, hint: null };
+  return { text: `${label}… ${formatDuration(aggregate.phaseElapsedMs / 1000)}`, hint: null };
+}
+
+/**
+ * Compact SVG area chart of the aggregate download rate (#102). No chart
+ * dependency, theme tokens via `currentColor`, and no motion at all so
+ * `prefers-reduced-motion` needs no extra branch.
+ */
+function TransferGraph({ points, now }: { points: SpeedPoint[]; now: number }) {
+  const visible = useMemo(() => points.filter((point) => point.at >= now - HISTORY_WINDOW_MS), [points, now]);
+  const current = visible.length > 0 ? visible[visible.length - 1].speedBps : 0;
+  const peak = visible.reduce((max, point) => Math.max(max, point.speedBps), 0);
+  const average = visible.length > 0 ? visible.reduce((sum, point) => sum + point.speedBps, 0) / visible.length : 0;
+  const scale = Math.max(peak, 1);
+  // Fill the width while history is still shorter than two minutes, then
+  // scroll a fixed window. Without this the first samples pile up at the right.
+  const oldest = visible.length > 0 ? visible[0].at : now;
+  const span = Math.min(HISTORY_WINDOW_MS, Math.max(MIN_GRAPH_SPAN_MS, now - oldest));
+  const start = now - span;
+  const xFor = (at: number) => ((Math.min(Math.max(at, start), now) - start) / span) * GRAPH_WIDTH;
+  const yFor = (speed: number) =>
+    GRAPH_HEIGHT - GRAPH_PAD - (Math.min(speed, scale) / scale) * (GRAPH_HEIGHT - GRAPH_PAD * 2);
+  const coords = visible.map((point) => [xFor(point.at), yFor(point.speedBps)] as const);
+  const line = coords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const area =
+    coords.length > 1
+      ? `M${coords[0][0].toFixed(1)},${GRAPH_HEIGHT} ${coords
+          .map(([x, y]) => `L${x.toFixed(1)},${y.toFixed(1)}`)
+          .join(" ")} L${coords[coords.length - 1][0].toFixed(1)},${GRAPH_HEIGHT} Z`
+      : "";
+
+  const speedLabel = (value: number) => (value > 0 ? formatSpeed(value) : "0 B/s");
+  const summary = `Download speed over the last two minutes: ${speedLabel(current)} now, peak ${speedLabel(peak)}, average ${speedLabel(
+    average,
+  )}.`;
+
+  return (
+    <figure className="flex items-center gap-3">
+      <svg
+        viewBox={`0 0 ${GRAPH_WIDTH} ${GRAPH_HEIGHT}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={summary}
+        className="h-10 w-[160px] text-signal sm:w-[240px]"
+      >
+        <title>{summary}</title>
+        <line
+          x1="0"
+          y1={GRAPH_HEIGHT - 0.5}
+          x2={GRAPH_WIDTH}
+          y2={GRAPH_HEIGHT - 0.5}
+          stroke="currentColor"
+          strokeOpacity="0.25"
+          strokeWidth="1"
+          vectorEffect="non-scaling-stroke"
+        />
+        {area !== "" && <path d={area} fill="currentColor" fillOpacity="0.14" />}
+        {coords.length > 1 && (
+          <polyline
+            points={line}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.25"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
+      </svg>
+      <figcaption className="flex flex-col gap-0.5 font-mono text-[10px] leading-tight text-ink-3">
+        <span>
+          now <span className="text-ink-2">{speedLabel(current)}</span>
+        </span>
+        <span>
+          peak <span className="text-ink-2">{speedLabel(peak)}</span>
+        </span>
+        <span>
+          avg <span className="text-ink-2">{speedLabel(average)}</span>
+        </span>
+      </figcaption>
+      <span className="sr-only">{summary}</span>
+    </figure>
+  );
+}
 
 export function DownloadsScreen() {
   const downloads = useDownloads();
@@ -51,6 +162,9 @@ export function DownloadsScreen() {
     history,
     activeCount,
     aggregate,
+    meters,
+    speedHistory,
+    speedHistoryAt,
     titleFor,
     cancel,
     pause,
@@ -61,6 +175,8 @@ export function DownloadsScreen() {
     clearHistory,
     openFolder,
   } = downloads;
+
+  const status = aggregate ? aggregateStatus(aggregate) : null;
 
   const clear = async () => {
     const cleared = await clearHistory();
@@ -95,7 +211,11 @@ export function DownloadsScreen() {
             <span className="num">{activeCount} active</span>
             <span className="num">{history.length} in history</span>
             {aggregate?.speedBps ? <span className="num">{formatSpeed(aggregate.speedBps)}</span> : null}
-            {aggregate?.eta ? <span className="num">{aggregate.eta} left</span> : null}
+            {status ? (
+              <span className="num" title={status.hint ?? undefined}>
+                {status.text}
+              </span>
+            ) : null}
           </>
         }
         description="Installs keep running while you use the rest of the app. Closing the install window does not stop them."
@@ -113,9 +233,12 @@ export function DownloadsScreen() {
           title="Active"
           count={activeCount}
           actions={
-            aggregate?.percent !== null && aggregate ? (
-              <span className="num text-[11px] text-ink-3">{aggregate.percent.toFixed(0)}% overall</span>
-            ) : null
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              {aggregate && aggregate.percent !== null ? (
+                <span className="num text-[11px] text-ink-3">{aggregate.percent.toFixed(0)}% overall</span>
+              ) : null}
+              {active.length > 0 ? <TransferGraph points={speedHistory} now={speedHistoryAt} /> : null}
+            </div>
           }
         />
         <div id="downloads-active" className="border-t border-line">
@@ -126,6 +249,7 @@ export function DownloadsScreen() {
             <JobRow
               key={job.jobId}
               job={job}
+              meter={meters[job.jobId]}
               title={titleFor(job)}
               coverUrl={coverFor(job)}
               year={yearFor(job)}
@@ -201,8 +325,17 @@ export function DownloadsScreen() {
   );
 }
 
+/** Per-job ETA label: estimating, gated duration, or "—" for an unknown total. */
+function jobEta(job: InstallJob, meter?: JobMeter): string | null {
+  if (!meter || meter.estimating) return "Estimating…";
+  if (meter.etaSeconds !== null) return `${formatDuration(meter.etaSeconds)} left`;
+  if (!job.bytesTotal) return "—";
+  return null;
+}
+
 function JobRow({
   job,
+  meter,
   title,
   coverUrl,
   year,
@@ -215,6 +348,7 @@ function JobRow({
   onRemove,
 }: {
   job: InstallJob;
+  meter?: JobMeter;
   title: string;
   coverUrl: string | null;
   year: string | null;
@@ -230,7 +364,16 @@ function JobRow({
   const paused = job.phase === "paused";
   const removable = REMOVABLE_PHASES.has(job.phase);
   const pct = job.bytesTotal ? Math.min(100, (job.bytesDone / job.bytesTotal) * 100) : null;
-  const eta = active && !paused && job.bytesTotal && job.speedBps ? formatEta(job.bytesDone, job.bytesTotal, job.speedBps) : null;
+  const starting = active && !paused && job.bytesDone === 0;
+  const downloading = job.phase === "downloading";
+  // Smoothed speed from the sampling layer; raw only until the first sample.
+  const speed = downloading ? (meter?.speedBps ?? job.speedBps) : 0;
+  const eta = downloading && !starting ? jobEta(job, meter) : null;
+  // Extraction/finalizing have no meaningful ETA: narrate the phase instead.
+  const phaseElapsed =
+    (job.phase === "extracting" || job.phase === "finalizing") && meter
+      ? formatDuration(meter.elapsedMs / 1000)
+      : null;
   // Stream installs cannot resume: a failed one gets a normal download retry
   // instead of a Resume button that would silently restart from zero.
   const streamFailed = isStreamFailedJob(job);
@@ -239,7 +382,6 @@ function JobRow({
   const done = job.phase === "done";
   const showMessage =
     Boolean(job.message) && !["Downloading archive", "Queued", "Resuming", "Paused"].includes(job.message ?? "");
-  const starting = active && !paused && job.bytesDone === 0;
   const showBar = active || (!done && pct !== null && pct > 0);
 
   return (
@@ -269,8 +411,9 @@ function JobRow({
             <>
               <span>{formatBytes(job.bytesDone)}</span>
               {job.bytesTotal && <span>of {formatBytes(job.bytesTotal)}</span>}
-              {job.speedBps > 0 && <span>{formatSpeed(job.speedBps)}</span>}
-              {eta && <span>{eta} left</span>}
+              {speed > 0 && <span>{formatSpeed(speed)}</span>}
+              {eta && <span>{eta}</span>}
+              {phaseElapsed && <span>{installPhaseLabel(job.phase)} for {phaseElapsed}</span>}
               {pct !== null && <span>{pct.toFixed(1)}%</span>}
             </>
           )}

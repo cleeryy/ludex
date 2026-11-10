@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { formatDate, initials } from "@/lib/format";
@@ -18,6 +18,35 @@ const ROLES: { value: Role; label: string }[] = [
   { value: "user", label: "Member" },
 ];
 
+type UserPatch = { username?: string; email?: string | null; password?: string; role?: Role; activated?: boolean };
+
+/** A readable label for an issuer URL, keeping the full value as the title. */
+function issuerLabel(issuer: string | null): string {
+  if (!issuer) return "SSO";
+  try {
+    return `SSO · ${new URL(issuer).host}`;
+  } catch {
+    return `SSO · ${issuer}`;
+  }
+}
+
+function generatePassword(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*";
+  const bytes = new Uint8Array(20);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
+}
+
+function SourceBadge({ user }: { user: User }) {
+  if (user.source === "oidc") {
+    return (
+      <span title={user.oidcIssuer ?? "Single sign-on account"}>
+        <Badge tone="outline">{issuerLabel(user.oidcIssuer)}</Badge>
+      </span>
+    );
+  }
+  return <Badge tone="outline">Local</Badge>;
+}
 
 export function UsersScreen() {
   const { user: me } = useAuth();
@@ -25,6 +54,7 @@ export function UsersScreen() {
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
+  const [editTarget, setEditTarget] = useState<User | null>(null);
 
   const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ["users"],
@@ -34,8 +64,7 @@ export function UsersScreen() {
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["users"] });
 
   const update = useMutation({
-    mutationFn: ({ id, patch }: { id: number; patch: { role?: Role; activated?: boolean; email?: string | null } }) =>
-      api.updateUser(id, patch),
+    mutationFn: ({ id, patch }: { id: number; patch: UserPatch }) => api.updateUser(id, patch),
     onSuccess: () => invalidate(),
     onError: (cause: Error) => push({ title: "Could not update the user", description: cause.message, tone: "danger" }),
   });
@@ -66,7 +95,7 @@ export function UsersScreen() {
       {isError && <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} />}
 
       <div className="mt-8 border-t border-line">
-        <div className="hidden grid-cols-[1fr_140px_110px_120px_40px] items-center gap-4 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3 md:grid">
+        <div className="hidden grid-cols-[1fr_140px_110px_120px_72px] items-center gap-4 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3 md:grid">
           <span>Account</span>
           <span>Role</span>
           <span>Active</span>
@@ -89,16 +118,17 @@ export function UsersScreen() {
         {data?.map((user) => (
           <div
             key={user.id}
-            className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-3 border-t border-line py-3 md:grid-cols-[1fr_140px_110px_120px_40px]"
+            className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-3 border-t border-line py-3 md:grid-cols-[1fr_140px_110px_120px_72px]"
           >
             <div className="flex min-w-0 items-center gap-3">
               <span className="grid size-8 shrink-0 place-items-center rounded-[2px] border border-line-2 bg-surface-2 font-mono text-[10px] text-ink-2">
                 {initials(user.username)}
               </span>
               <div className="min-w-0">
-                <p className="flex items-center gap-2 truncate text-[13.5px] text-ink">
+                <p className="flex flex-wrap items-center gap-2 truncate text-[13.5px] text-ink">
                   {user.username}
                   {user.id === me?.id && <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-3">you</span>}
+                  <SourceBadge user={user} />
                 </p>
                 <p className="truncate text-[11.5px] text-ink-3">{user.email ?? "No email"}</p>
               </div>
@@ -125,7 +155,15 @@ export function UsersScreen() {
 
             <span className="num hidden text-[11px] text-ink-3 md:block">{formatDate(user.createdAt)}</span>
 
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-1">
+              <IconButton
+                label={`Edit ${user.username}`}
+                variant="ghost"
+                className="size-8 text-ink-3 hover:text-ink"
+                onClick={() => setEditTarget(user)}
+              >
+                <Pencil className="size-3.5" />
+              </IconButton>
               <IconButton
                 label={`Delete ${user.username}`}
                 variant="ghost"
@@ -141,20 +179,217 @@ export function UsersScreen() {
       </div>
 
       <p className="mt-4 text-[11.5px] leading-relaxed text-ink-3">
-        The last administrator cannot be deleted or demoted, and you cannot delete your own account.
+        Local accounts store their own identity and password. SSO accounts take their username, email and password from
+        the identity provider; only role and activation are editable here. The last administrator cannot be deleted or
+        demoted, and you cannot delete your own account.
       </p>
 
       <CreateUserDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={invalidate} />
+      <EditUserDialog
+        key={editTarget?.id ?? "none"}
+        target={editTarget}
+        onOpenChange={(open) => !open && setEditTarget(null)}
+        onUpdated={invalidate}
+      />
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
         title={`Delete ${deleteTarget?.username ?? "this user"}?`}
-        description="Their sessions end immediately. Progress, playtime and bookmarks stay in the database but are no longer reachable."
+        description={
+          deleteTarget?.source === "oidc"
+            ? `This account signs in through ${deleteTarget.oidcIssuer ?? "an identity provider"}. Deleting it here removes the local account, progress and playtime; the identity itself stays with the provider.`
+            : "Their sessions end immediately. Progress, playtime and bookmarks stay in the database but are no longer reachable."
+        }
         confirmLabel="Delete user"
         loading={remove.isPending}
         onConfirm={() => deleteTarget && remove.mutate(deleteTarget.id)}
       />
     </div>
+  );
+}
+
+function EditUserDialog({
+  target,
+  onOpenChange,
+  onUpdated,
+}: {
+  target: User | null;
+  onOpenChange: (open: boolean) => void;
+  onUpdated: () => void;
+}) {
+  const { push } = useToast();
+  const sso = target?.source === "oidc";
+  const [username, setUsername] = useState(target?.username ?? "");
+  const [email, setEmail] = useState(target?.email ?? "");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [role, setRole] = useState<Role>(target?.role ?? "user");
+  const [activated, setActivated] = useState(target?.activated ?? true);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const reset = () => {
+    setUsername(target?.username ?? "");
+    setEmail(target?.email ?? "");
+    setRole(target?.role ?? "user");
+    setActivated(target?.activated ?? true);
+    setPassword("");
+    setShowPassword(false);
+    setError(null);
+  };
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!target) return;
+    setError(null);
+    const trimmedUsername = username.trim();
+    const nextEmail = email.trim() || null;
+    const patch: UserPatch = {};
+    if (!sso) {
+      if (trimmedUsername.length < 3) return setError("Use at least three characters for the username.");
+      if (password.length > 0 && password.length < 8) return setError("Use at least eight characters for the password.");
+      if (trimmedUsername !== target.username) patch.username = trimmedUsername;
+      if (nextEmail !== target.email) patch.email = nextEmail;
+      if (password.length > 0) patch.password = password;
+    }
+    if (role !== target.role) patch.role = role;
+    if (activated !== target.activated) patch.activated = activated;
+    if (Object.keys(patch).length === 0) {
+      onOpenChange(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.updateUser(target.id, patch);
+      push({
+        title: "User updated",
+        description: patch.password ? `The password for ${trimmedUsername} was reset.` : `${trimmedUsername} was updated.`,
+        tone: "success",
+      });
+      reset();
+      onOpenChange(false);
+      onUpdated();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={target !== null}
+      onOpenChange={(next) => {
+        if (!next) reset();
+        onOpenChange(next);
+      }}
+      title={`Edit ${target?.username ?? "user"}`}
+      description={
+        sso
+          ? "Identity fields are read-only for SSO accounts. You can still change the local role and activation."
+          : "Rename the account, change its email, reset its password or adjust access."
+      }
+      footer={
+        <>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button variant="primary" form="edit-user" type="submit" loading={busy}>
+            Save changes
+          </Button>
+        </>
+      }
+    >
+      <form id="edit-user" onSubmit={submit} className="flex flex-col gap-4">
+        {sso && (
+          <p className="border-l-2 border-line-2 pl-3 text-[12.5px] leading-relaxed text-ink-3">
+            This account is managed by{" "}
+            <span className="break-all text-ink-2">{target?.oidcIssuer ?? "an identity provider"}</span>. Change the
+            username, email or password there; they cannot be edited here.
+          </p>
+        )}
+        <Field label="Username" htmlFor="edit-username">
+          <Input
+            id="edit-username"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            disabled={sso}
+            readOnly={sso}
+            autoFocus={!sso}
+            required
+          />
+        </Field>
+        <Field
+          label="Email"
+          htmlFor="edit-email"
+          hint={sso ? "Provided by the identity provider." : "Optional. There is no mail server yet."}
+        >
+          <Input
+            id="edit-email"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            disabled={sso}
+            readOnly={sso}
+          />
+        </Field>
+        {!sso && (
+          <Field
+            label="New password"
+            htmlFor="edit-password"
+            hint="Leave blank to keep the current password. At least eight characters."
+            aside={
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="quiet"
+                  type="button"
+                  icon={<RefreshCw className="size-3.5" />}
+                  onClick={() => {
+                    setPassword(generatePassword());
+                    setShowPassword(true);
+                  }}
+                >
+                  Generate
+                </Button>
+                <Button
+                  size="sm"
+                  variant="quiet"
+                  type="button"
+                  icon={showPassword ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                  onClick={() => setShowPassword((value) => !value)}
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </Button>
+              </div>
+            }
+          >
+            <Input
+              id="edit-password"
+              type={showPassword ? "text" : "password"}
+              autoComplete="new-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </Field>
+        )}
+        <Field label="Role" htmlFor="edit-role">
+          <Select label="Role" id="edit-role" value={role} onChange={setRole} options={ROLES} />
+        </Field>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-[13px] font-medium text-ink">Activated</p>
+            <p className="text-[12.5px] text-ink-3">Disabled accounts cannot sign in.</p>
+          </div>
+          <Switch checked={activated} label={`Activate ${target?.username ?? "user"}`} onCheckedChange={setActivated} />
+        </div>
+        {error && (
+          <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+            {error}
+          </p>
+        )}
+      </form>
+    </Dialog>
   );
 }
 

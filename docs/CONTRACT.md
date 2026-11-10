@@ -24,6 +24,10 @@ type ProgressState =
 interface User {
   id: number; username: string; email: string | null; role: Role;
   activated: boolean; avatarUrl: string | null; createdAt: string;
+  /** Identity source. `oidc` accounts are linked to an identity provider. */
+  source: "local" | "oidc";
+  /** Issuer of the linked provider; `null` for local accounts. */
+  oidcIssuer: string | null;
 }
 
 interface GameSummary {
@@ -172,7 +176,7 @@ keys. It is safe for uptime monitors and dashboards.
 | POST | `/api/games/{id}/refresh-metadata` | editor; 202 `{ queued: true }` |
 | POST | `/api/games/{id}/download-ticket` | `{ versionId? }` → `{ url, expiresAt }` (15 min, no auth needed on the URL) |
 | GET | `/api/games/{id}/download?versionId=&token=` | file stream, Range supported, `Content-Disposition` |
-| GET | `/api/games/{id}/versions/{versionId}/stream?token=` | Stream install: an uncompressed `application/x-tar` of the archive entries, no archive stored on the client. ZIP and 7z are supported; RAR/unknown return 415 and the client falls back. Exact `Content-Length`. Same auth rules as download. |
+| GET | `/api/games/{id}/versions/{versionId}/stream?token=` | Stream install: an uncompressed `application/x-tar` of the archive entries, no archive stored on the client. ZIP, 7z and RAR (RAR4/RAR5) are supported; unsupported files return 415 and the client falls back, encrypted archives return 409. Exact `Content-Length`. Same auth rules as download. |
 | GET | `/api/games/{id}/versions/latest` | newest non-missing version → `LatestVersion`; 404 `no_versions` when the game has none |
 | GET | `/api/games/{id}/versions/{versionId}/local-path` | embedded/local mode + loopback only → `{ path }`, else 404 |
 
@@ -222,6 +226,9 @@ token is returned **once**, at creation; only its SHA-256 is stored.
 | DELETE | `/api/shares/{id}` | editor | 204; 404 `share_not_found`; idempotent for an already revoked row |
 | GET | `/api/share/{token}` | public | `ShareView` (metadata only); 404 `share_not_found` for unknown, revoked, expired or exhausted links |
 | POST | `/api/share/{token}/access` | public | body `{ password? }` (omitted body = no password) → `{ url, expiresAt }`; 401 `invalid_share_password`, 410 `share_expired`, 410 `share_exhausted`, 404 `share_not_found`, 429 `rate_limited` |
+
+The web client serves the public page at `#/share/{token}` outside its auth
+gate, and editors create, list and revoke links from the game detail page.
 
 ```ts
 interface ShareLink {
@@ -407,10 +414,31 @@ follow-up (Ludusavi).
 
 | Method | Route | Notes |
 |---|---|---|
-| GET | `/api/users` | `User[]` |
-| POST | `/api/users` | `{ username, password, email?, role }` → `User` |
-| PATCH | `/api/users/{id}` | `{ email?, role?, activated? }` → `User` |
+| GET | `/api/users` | `User[]`; never includes password hashes or OIDC subjects |
+| POST | `/api/users` | `{ username, password, email?, role }` → `User` (always `source: "local"`) |
+| PATCH | `/api/users/{id}` | `{ username?, email?, password?, role?, activated? }` → `User` |
 | DELETE | `/api/users/{id}` | 204; cannot delete the last admin or self |
+
+`PATCH` fields:
+
+- `username` — local accounts only; validated and unique (`409 username_taken`).
+- `email` — local accounts only; `null` or `""` clears it.
+- `password` — local accounts only, write-only; at least 8 characters
+  (`400 invalid_password`). Hashed with Argon2 and never returned, logged or
+  copied into audit metadata. A reset records `user.password_reset`.
+- `role`, `activated` — always editable, including for SSO-linked accounts:
+  they are local authorisation controls, not identity data.
+
+Identity is owned by the OIDC provider once an account is linked: attempts to
+change `username`, `email` or `password` fail with `409 managed_by_idp` and a
+message naming the issuer. Unlinking or re-linking an identity is out of scope.
+`user.updated` metadata only lists the changed field names in `fields` (no
+values, passwords, hashes or subjects).
+
+Existing guards stay in force: an administrator cannot deactivate or delete
+themselves while active, and the last active administrator cannot be demoted,
+deactivated or deleted (`409 last_admin`, `422 cannot_deactivate_self`).
+Changing your own username or password through this route is allowed.
 
 ## API keys (#40)
 
@@ -444,7 +472,8 @@ updates `lastUsedAt`. Revoked or unknown keys get the same 401 as a bad JWT.
 Every security-relevant event is written to `audit_logs` with an actor
 (`user`, `api_key` or `system`), action, optional target, secret-free JSON
 metadata, IP when known, and timestamp. Recorded actions: `login.succeeded`,
-`login.failed`, `user.created|updated|deleted|password_changed`, `api_key.created|revoked`,
+`login.failed`, `user.created|updated|deleted|password_changed|password_reset`,
+`api_key.created|revoked`,
 `game.ingested|deleted`, `download.completed`, `settings.updated`,
 `webhook.created|updated|deleted`, `save.uploaded|deleted`, `oidc.login`,
 `oidc.linked`.
@@ -703,7 +732,7 @@ interface LocalSettings {
   installDir: string;           // where games are installed
   downloadDir: string;          // temp archives; empty = {installDir}/.ludex-tmp
   serverPort: number;           // preferred embedded port, 0 = random
-  streamInstall: boolean;       // remote ZIP/7z installs without storing the archive
+  streamInstall: boolean;       // remote ZIP/7z/RAR installs without storing the archive
   keepArchives: boolean;        // keep the downloaded archive after install
   archivePasswords: string[];   // tried in order
   bandwidthLimitKib: number;    // global download cap in KiB/s, 0 = unlimited
@@ -954,6 +983,10 @@ interface RepairReport {
 | `presence_status` | — | `PresenceStatus` (never blocks on the IPC socket) |
 | `steam_scan` | — | `SteamPreview`; reads Steam metadata, matches titles, marks imports |
 | `steam_import` | `{ appIds }` | `SteamImportReport`; no download, launches through Steam |
+| `detect_save_paths` | `{ gameId }` | `SavePaths`; runs Ludusavi CLI/manifest detection, merges persisted manual paths and saves the mapping + preview. `saves` entries are `{ path, kind: "file" \| "directory", source: "manifest" \| "manual" \| "override", primary, sizeBytes, lastModified, notes }`; `detected: false` plus `message` is the explicit "no save folder detected" state. Paths stay local |
+| `redetect_save_paths` | `{ gameId }` | `SavePaths`; same as `detect_save_paths`, for a re-run after the game created its saves |
+| `get_save_paths` | `{ gameId }` | `SavePaths` from SQLite + last preview; never rescans the disk |
+| `set_save_paths` | `{ gameId, paths: { path, kind?, primary?, source? }[] }` | `SavePaths`; replaces the per-game manual override list, checks each path is readable and inside an allowlisted root, allows at most one primary. `source` is `manual` (default) or `override` |
 
 Events:
 
@@ -1097,27 +1130,34 @@ pub async fn start(config: Config) -> anyhow::Result<ServerHandle>;
 spawns the HTTP server, and returns once the listener is ready. Dropping/sending
 on `shutdown` stops it gracefully.
 
-## Stream install (ZIP)
+## Stream install (ZIP, 7z and RAR)
 
 `GET /api/games/{id}/versions/{versionId}/stream` returns an uncompressed tar
-stream of the ZIP entries. It exists so the desktop can install a remote ZIP
-without storing the archive: the client writes extracted files directly from
-the tar stream. Only ZIP is supported in v0.2; non-ZIP returns 415 and the
-client falls back to the normal download+extract path. `Content-Length` is set
-to the exact tar size so the desktop can show a percentage.
+stream of the archive entries. It exists so the desktop can install a remote
+archive without storing it: the client writes extracted files directly from the
+tar stream. ZIP, 7z and RAR (RAR4/RAR5) are supported; unsupported files return
+415 and the client falls back to the normal download+extract path. Encrypted
+archives return 409 `archive_password_required` because the stream route has no
+password parameter. `Content-Length` is set to the exact tar size so the desktop
+can show a percentage.
 
 Core API:
 
 ```rust
-pub fn zip_tar_size(path: &Path) -> Result<u64, ArchiveError>;
-pub fn stream_zip_as_tar<W: std::io::Write>(
+pub fn archive_tar_size(path: &Path) -> Result<u64, ArchiveError>;
+pub fn stream_archive_as_tar<W: std::io::Write>(
     path: &Path, writer: &mut W,
 ) -> Result<TarStreamReport, ArchiveError>;
 pub struct TarStreamReport { pub files: u64, pub bytes: u64, pub tar_bytes: u64 }
 ```
 
-Tar entries must use sanitized relative paths, reject traversal/symlinks, keep
-file modes when available, and never load a whole entry into memory.
+Tar entries must use sanitized relative paths, reject traversal/symlinks/special
+files, keep file modes when available, and never load a whole entry into memory.
+The byte count returned by `archive_tar_size` comes from the same entry plan as
+the stream writer, and the stream re-checks it before completing. RAR streaming
+decompresses entries through libunrar into a private scratch file (libunrar can
+only extract to a path), copied to the tar in 64 KiB chunks and deleted
+immediately; the scratch directory never outlives the request.
 
 ## Shared Rust core API
 

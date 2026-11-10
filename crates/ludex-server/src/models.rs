@@ -4,7 +4,7 @@
 //! desktop app see exactly the contract's shapes.
 
 use chrono::{DateTime, Utc};
-use ludex_core::models::{GameSummary, LaunchInfo, ProgressState, Role, User};
+use ludex_core::models::{GameSummary, LaunchInfo, ProgressState, Role};
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Row returned by the game list/random queries.
@@ -91,6 +91,59 @@ pub struct VersionRow {
     pub etag: Option<String>,
 }
 
+/// Where an account's identity comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UserSource {
+    /// Identity and password are managed by Ludex.
+    Local,
+    /// Identity is managed by the linked OIDC provider.
+    Oidc,
+}
+
+impl UserSource {
+    /// Stable wire identifier.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            UserSource::Local => "local",
+            UserSource::Oidc => "oidc",
+        }
+    }
+}
+
+/// Public representation of an account, never including secrets.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct User {
+    /// Database identifier.
+    pub id: i64,
+    /// Login name.
+    pub username: String,
+    /// Optional e-mail address.
+    pub email: Option<String>,
+    /// Authorisation level.
+    pub role: Role,
+    /// Whether the account has been activated by an administrator.
+    pub activated: bool,
+    /// Optional avatar URL served by the server.
+    pub avatar_url: Option<String>,
+    /// Creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Identity source: `local` or `oidc`.
+    pub source: UserSource,
+    /// OIDC issuer when [`User::source`] is `oidc`.
+    pub oidc_issuer: Option<String>,
+}
+
+impl User {
+    /// Whether an identity provider owns this account's identity fields.
+    #[must_use]
+    pub fn is_oidc_managed(&self) -> bool {
+        self.source == UserSource::Oidc
+    }
+}
+
 /// Row of the `users` table, including the password hash.
 #[derive(Debug, sqlx::FromRow)]
 pub struct UserRow {
@@ -103,10 +156,12 @@ pub struct UserRow {
     pub avatar_path: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub oidc_issuer: Option<String>,
+    pub oidc_subject: Option<String>,
 }
 
 impl UserRow {
-    /// Public representation, hiding the password hash.
+    /// Public representation, hiding the password hash and the OIDC subject.
     #[must_use]
     pub fn to_public(&self) -> User {
         User {
@@ -121,6 +176,22 @@ impl UserRow {
                 .filter(|path| !path.is_empty())
                 .map(crate::media::media_url),
             created_at: crate::db::parse_time(&self.created_at).unwrap_or_else(Utc::now),
+            source: self.source(),
+            oidc_issuer: self.oidc_issuer.clone(),
+        }
+    }
+
+    /// Whether an identity provider owns this account's identity fields.
+    #[must_use]
+    pub fn is_oidc_managed(&self) -> bool {
+        self.source() == UserSource::Oidc
+    }
+
+    fn source(&self) -> UserSource {
+        if self.oidc_issuer.is_some() || self.oidc_subject.is_some() {
+            UserSource::Oidc
+        } else {
+            UserSource::Local
         }
     }
 }
@@ -434,9 +505,15 @@ pub struct CreateUserRequest {
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateUserRequest {
-    /// New e-mail (`null` or `""` clears it).
+    /// New login name (local accounts only).
+    #[serde(default)]
+    pub username: Option<String>,
+    /// New e-mail (`null` or `""` clears it; local accounts only).
     #[serde(default, deserialize_with = "deserialize_some")]
     pub email: Option<Option<String>>,
+    /// New password, write-only (local accounts only).
+    #[serde(default)]
+    pub password: Option<String>,
     /// New role.
     #[serde(default)]
     pub role: Option<Role>,
@@ -1566,6 +1643,30 @@ mod tests {
         assert_eq!(update.email, Some(None));
         let update: UpdateUserRequest = serde_json::from_str("{}").expect("json");
         assert!(update.email.is_none());
+        assert!(update.username.is_none());
+        assert!(update.password.is_none());
+    }
+
+    #[test]
+    fn update_user_accepts_identity_fields() {
+        let update: UpdateUserRequest =
+            serde_json::from_str(r#"{"username": "mara", "password": "password123"}"#)
+                .expect("json");
+        assert_eq!(update.username.as_deref(), Some("mara"));
+        assert_eq!(update.password.as_deref(), Some("password123"));
+    }
+
+    #[test]
+    fn user_source_serialises_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&UserSource::Local).expect("json"),
+            "\"local\""
+        );
+        assert_eq!(
+            serde_json::to_string(&UserSource::Oidc).expect("json"),
+            "\"oidc\""
+        );
+        assert_eq!(UserSource::Oidc.as_str(), "oidc");
     }
 
     #[test]

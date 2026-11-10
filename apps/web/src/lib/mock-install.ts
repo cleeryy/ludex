@@ -34,9 +34,32 @@ interface JobMeta {
 const meta = new Map<string, JobMeta>();
 const phaseEnds = new Map<string, number>();
 const listeners = new Set<() => void>();
+/** Per-job base rate so the demo graph has variety between installs. */
+const speedSeeds = new Map<string, number>();
 
 function emit() {
   for (const listener of listeners) listener();
+}
+
+function baseSpeed(jobId: string): number {
+  const seeded = speedSeeds.get(jobId);
+  if (seeded !== undefined) return seeded;
+  let hash = 0;
+  for (const char of jobId) hash = (hash * 31 + char.charCodeAt(0)) % 1_000;
+  const speed = (18 + (hash % 42)) * MB;
+  speedSeeds.set(jobId, speed);
+  return speed;
+}
+
+/**
+ * Variable demo rate (#102): the base wobbles every tick and now and then
+ * dips, so the smoothing and the two-minute graph are reviewable in a browser
+ * without the desktop shell. The tick itself stays at 1 s.
+ */
+function nextMockSpeed(jobId: string): number {
+  const wobble = 0.65 + Math.random() * 0.55;
+  const dip = Math.random() < 0.07 ? 0.15 : 1;
+  return Math.max(1 * MB, Math.round(baseSpeed(jobId) * wobble * dip));
 }
 
 function sizeOf(gameId: number, versionId: number): number {
@@ -100,7 +123,7 @@ let jobs: InstallJob[] = [
     "downloading",
     96 * GB,
     Math.round(132.4 * GB),
-    240 * MB,
+    46 * MB,
     "Forza Horizon 6",
     "1.0.118",
     "Downloading archive",
@@ -193,13 +216,13 @@ if (USING_MOCKS) setInterval(() => {
       const end = phaseEnds.get(current.jobId) ?? time;
       if (time >= end) {
         current.phase = "downloading";
-        current.speedBps = 52 * MB + Math.round(Math.random() * 18 * MB);
+        current.speedBps = nextMockSpeed(current.jobId);
         current.message = "Downloading archive";
         changed = true;
       }
     } else if (current.phase === "downloading") {
       const total = current.bytesTotal ?? 0;
-      current.speedBps = 48 * MB + Math.round(Math.random() * 26 * MB);
+      current.speedBps = nextMockSpeed(current.jobId);
       current.bytesDone = Math.min(total, current.bytesDone + current.speedBps);
       if (total > 0 && current.bytesDone >= total) {
         current.phase = "extracting";
@@ -211,6 +234,7 @@ if (USING_MOCKS) setInterval(() => {
     } else if (current.phase === "extracting") {
       if (time >= (phaseEnds.get(current.jobId) ?? time)) {
         current.phase = "finalizing";
+        current.speedBps = 0;
         current.message = "Writing the desktop index";
         phaseEnds.set(current.jobId, time + 2500);
       }
@@ -337,7 +361,7 @@ export const mockInstalls = {
         phaseEnds.set(jobId, now() + 3000);
       } else {
         target.phase = "downloading";
-        target.speedBps = 52 * MB;
+        target.speedBps = nextMockSpeed(jobId);
         target.message = "Resuming";
         phaseEnds.delete(jobId);
       }
@@ -361,16 +385,20 @@ export const mockInstalls = {
     jobs = jobs.filter((entry) => entry.jobId !== jobId);
     meta.delete(jobId);
     phaseEnds.delete(jobId);
+    speedSeeds.delete(jobId);
     emit();
     return Promise.resolve();
   },
 
   clearCompleted(): Promise<number> {
-    const before = jobs.length;
+    const cleared = jobs.filter((entry) => TERMINAL.has(entry.phase));
+    for (const entry of cleared) {
+      meta.delete(entry.jobId);
+      speedSeeds.delete(entry.jobId);
+    }
     jobs = jobs.filter((entry) => !TERMINAL.has(entry.phase));
-    const cleared = before - jobs.length;
-    if (cleared > 0) emit();
-    return Promise.resolve(cleared);
+    if (cleared.length > 0) emit();
+    return Promise.resolve(cleared.length);
   },
 
   subscribe(listener: () => void): () => void {
