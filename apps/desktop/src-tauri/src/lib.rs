@@ -4,12 +4,15 @@ mod bridge;
 mod chrome;
 mod commands;
 mod compat;
+mod config_adapters;
 mod db;
+mod game_config;
 mod install;
 mod installer;
 mod launchers;
 mod launch;
 mod linux_gaming;
+mod locations;
 mod maintenance;
 mod manifest;
 mod paths;
@@ -160,6 +163,14 @@ pub fn run() {
             commands::sync_cloud_save_now,
             commands::restore_cloud_save,
             commands::resolve_cloud_save_conflict,
+            commands::list_locations,
+            commands::check_location,
+            commands::list_game_configs,
+            commands::read_game_config,
+            commands::write_game_config,
+            commands::restore_game_config,
+            commands::list_game_config_backups,
+            commands::game_config_adapters,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Ludex application");

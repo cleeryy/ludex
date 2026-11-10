@@ -5,6 +5,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::linux_gaming::LaunchMode;
 
@@ -37,6 +38,66 @@ impl UpdateChannel {
     }
 }
 
+/// What a named folder is used for (#99).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LocationKind {
+    /// Root of installed games: `{path}/{slug}/{version}`.
+    Install,
+    /// Temporary archives and staging copies.
+    Download,
+    /// Scratch space for extraction or repairs.
+    Temp,
+}
+
+impl LocationKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LocationKind::Install => "install",
+            LocationKind::Download => "download",
+            LocationKind::Temp => "temp",
+        }
+    }
+
+    pub fn default_label(self) -> &'static str {
+        match self {
+            LocationKind::Install => "Games",
+            LocationKind::Download => "Downloads",
+            LocationKind::Temp => "Scratch",
+        }
+    }
+}
+
+/// A user-named install, download or temp folder (#99).
+///
+/// Locations are additive: a machine can keep a fast SSD for installs, a large
+/// spinning disk for archives and a USB drive for one game. The install queue
+/// resolves a location to a path when a job starts, so unplugging a location
+/// only fails that job with an actionable error instead of breaking the queue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Location {
+    /// Stable id used by `install_game` (`locationId`). Filled by `normalize`.
+    pub id: String,
+    pub label: String,
+    pub path: String,
+    pub kind: LocationKind,
+    /// The default folder for this kind. At most one per kind after normalize.
+    pub default: bool,
+}
+
+impl Default for Location {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            label: String::new(),
+            path: String::new(),
+            kind: LocationKind::Install,
+            default: false,
+        }
+    }
+}
+
 /// Mirrors `LocalSettings` from `docs/CONTRACT.md`.
 ///
 /// `keepArchives` and `archivePasswords` are desktop-only extras: the web UI
@@ -51,10 +112,15 @@ pub struct LocalSettings {
     pub token: Option<String>,
     /// Folder scanned by the embedded server in local mode.
     pub games_dir: Option<String>,
-    /// Where games are installed.
+    /// Where games are installed. Kept in sync with the default install
+    /// location (#99); old UI payloads may set it directly.
     pub install_dir: String,
-    /// Where temporary archives are downloaded.
+    /// Where temporary archives are downloaded. Kept in sync with the default
+    /// download location; empty means `{installDir}/.ludex-tmp`.
     pub download_dir: String,
+    /// Named install/download/temp folders (#99). Empty in old settings files;
+    /// `normalize` migrates the two single folders above into entries.
+    pub locations: Vec<Location>,
     /// Preferred embedded server port, 0 = random.
     pub server_port: u16,
     /// Install remote ZIP versions from the tar stream (no archive on disk).
@@ -129,6 +195,7 @@ impl Default for LocalSettings {
             games_dir: None,
             install_dir: String::new(),
             download_dir: String::new(),
+            locations: Vec::new(),
             server_port: 0,
             stream_install: true,
             keep_archives: false,
@@ -178,6 +245,7 @@ impl LocalSettings {
         // `downloadDir` empty is meaningful: use `{installDir}/.ludex-tmp`.
         self.install_dir = self.install_dir.trim().to_string();
         self.download_dir = self.download_dir.trim().to_string();
+        self.normalize_locations(app_data);
         self.server_url = self.server_url.trim().trim_end_matches('/').to_string();
         self.games_dir = self
             .games_dir
@@ -220,12 +288,161 @@ impl LocalSettings {
         self.installer_timeout_secs = self.installer_timeout_secs.clamp(30, 7200);
     }
 
+    /// Trim, deduplicate and migrate the named locations (#99).
+    ///
+    /// Rules:
+    /// - an old settings file with only `installDir`/`downloadDir` becomes one
+    ///   install location (default) plus one download location when set;
+    /// - ids and labels are filled in, paths trimmed, duplicates dropped;
+    /// - exactly one default per kind is kept;
+    /// - `installDir`/`downloadDir` mirror the default locations so an older
+    ///   web bundle keeps reading a coherent value.
+    fn normalize_locations(&mut self, app_data: &Path) {
+        for location in &mut self.locations {
+            location.id = location.id.trim().to_string();
+            location.label = location.label.trim().chars().take(60).collect();
+            location.path = location.path.trim().to_string();
+        }
+        self.locations.retain(|location| !location.path.is_empty());
+
+        let mut seen_ids = std::collections::HashSet::new();
+        let mut seen_paths = std::collections::HashSet::new();
+        self.locations.retain_mut(|location| {
+            let path_key = format!(
+                "{}:{}",
+                location.kind.as_str(),
+                location.path.replace('\\', "/")
+            );
+            if seen_paths.contains(&path_key) {
+                return false;
+            }
+            seen_paths.insert(path_key);
+            if location.id.is_empty() {
+                location.id = format!("loc-{}", uuid::Uuid::new_v4().simple());
+            } else if seen_ids.contains(&location.id) {
+                // Duplicate id: the first entry is the one commands can still
+                // resolve; keeping a second one would make the picker ambiguous.
+                return false;
+            }
+            seen_ids.insert(location.id.clone());
+            true
+        });
+
+        if self.locations.is_empty() {
+            let install_path = if self.install_dir.trim().is_empty() {
+                app_data.join("Games").to_string_lossy().to_string()
+            } else {
+                self.install_dir.trim().to_string()
+            };
+            self.locations.push(Location {
+                id: "games".to_string(),
+                label: "Games".to_string(),
+                path: install_path,
+                kind: LocationKind::Install,
+                default: true,
+            });
+            if !self.download_dir.trim().is_empty() {
+                self.locations.push(Location {
+                    id: "downloads".to_string(),
+                    label: "Downloads".to_string(),
+                    path: self.download_dir.trim().to_string(),
+                    kind: LocationKind::Download,
+                    default: true,
+                });
+            }
+        }
+
+        for kind in [
+            LocationKind::Install,
+            LocationKind::Download,
+            LocationKind::Temp,
+        ] {
+            let mut found_default = false;
+            for location in self.locations.iter_mut().filter(|item| item.kind == kind) {
+                if location.label.is_empty() {
+                    location.label = kind.default_label().to_string();
+                }
+                if location.default && !found_default {
+                    found_default = true;
+                } else if location.default {
+                    location.default = false;
+                }
+            }
+            if !found_default {
+                if let Some(location) = self.locations.iter_mut().find(|item| item.kind == kind) {
+                    location.default = true;
+                }
+            }
+        }
+
+        if let Some(path) = self
+            .default_location(LocationKind::Install)
+            .map(|location| location.path.clone())
+        {
+            self.install_dir = path;
+        }
+        self.download_dir = self
+            .default_location(LocationKind::Download)
+            .map(|location| location.path.clone())
+            .unwrap_or_default();
+    }
+
+    pub fn location(&self, id: &str) -> Option<&Location> {
+        self.locations
+            .iter()
+            .find(|location| !id.trim().is_empty() && location.id == id.trim())
+    }
+
+    pub fn default_location(&self, kind: LocationKind) -> Option<&Location> {
+        self.locations
+            .iter()
+            .find(|location| location.kind == kind && location.default)
+            .or_else(|| self.locations.iter().find(|location| location.kind == kind))
+    }
+
+    /// Resolve a location id to a path. `None` returns the default location of
+    /// that kind (falling back to the legacy single folder).
+    pub fn resolve_location(
+        &self,
+        id: Option<&str>,
+        kind: LocationKind,
+    ) -> Result<PathBuf, String> {
+        if let Some(id) = id.map(str::trim).filter(|value| !value.is_empty()) {
+            let location = self.location(id).ok_or_else(|| {
+                format!("The selected location no longer exists (id {id}). Pick another one in Settings → Locations.")
+            })?;
+            if location.path.trim().is_empty() {
+                return Err(format!(
+                    "The location “{}” has no folder. Add one in Settings → Locations.",
+                    location.label
+                ));
+            }
+            return Ok(PathBuf::from(location.path.trim()));
+        }
+        match kind {
+            LocationKind::Install => Ok(self.install_path()),
+            LocationKind::Download => {
+                let configured = self.download_dir.trim();
+                if configured.is_empty() {
+                    Err("No download location is configured.".to_string())
+                } else {
+                    Ok(PathBuf::from(configured))
+                }
+            }
+            LocationKind::Temp => Ok(std::env::temp_dir().join("ludex")),
+        }
+    }
+
     pub fn install_path(&self) -> PathBuf {
-        PathBuf::from(&self.install_dir)
+        self.default_location(LocationKind::Install)
+            .map(|location| PathBuf::from(location.path.trim()))
+            .unwrap_or_else(|| PathBuf::from(&self.install_dir))
     }
 
     pub fn download_path(&self) -> PathBuf {
-        PathBuf::from(&self.download_dir)
+        self.default_location(LocationKind::Download)
+            .map(|location| PathBuf::from(location.path.trim()))
+            .unwrap_or_else(|| PathBuf::from(&self.download_dir))
     }
 }
 
@@ -243,9 +460,73 @@ pub fn validate(settings: &LocalSettings) -> Result<(), String> {
             return Err("Server URL must not contain whitespace.".to_string());
         }
     }
+    for location in &settings.locations {
+        crate::locations::validate(&location.label, &location.path)?;
+    }
     // A remote URL may be filled in a later wizard step; commands that need it
     // report a clear error themselves.
     Ok(())
+}
+
+/// Apply an old-style `installDir`/`downloadDir` patch to the merged settings
+/// JSON (#99). The new UI sends `locations`; an older bundle only knows the two
+/// single folders, so map those onto the default location of the matching kind
+/// instead of silently ignoring them.
+pub fn apply_legacy_folder_patch(
+    merged: &mut Value,
+    install_dir: Option<&str>,
+    download_dir: Option<&str>,
+) {
+    let Some(root) = merged.as_object_mut() else {
+        return;
+    };
+    let locations = root
+        .entry("locations")
+        .or_insert_with(|| Value::Array(Vec::new()));
+    let Some(locations) = locations.as_array_mut() else {
+        return;
+    };
+
+    let mut set_path = |kind: &str, label: &str, path: &str| {
+        let trimmed = path.trim();
+        if trimmed.is_empty() && kind != "download" {
+            return;
+        }
+        let existing = locations
+            .iter()
+            .position(|location| {
+                location.get("kind").and_then(Value::as_str) == Some(kind)
+                    && location.get("default").and_then(Value::as_bool) == Some(true)
+            })
+            .or_else(|| {
+                locations
+                    .iter()
+                    .position(|location| location.get("kind").and_then(Value::as_str) == Some(kind))
+            });
+        match existing {
+            Some(index) => {
+                if let Some(entry) = locations[index].as_object_mut() {
+                    entry.insert("path".to_string(), Value::String(trimmed.to_string()));
+                    entry.insert("default".to_string(), Value::Bool(true));
+                }
+            }
+            None if !trimmed.is_empty() => locations.push(serde_json::json!({
+                "id": "",
+                "label": label,
+                "path": trimmed,
+                "kind": kind,
+                "default": true,
+            })),
+            None => {}
+        }
+    };
+
+    if let Some(path) = install_dir {
+        set_path("install", "Games", path);
+    }
+    if let Some(path) = download_dir {
+        set_path("download", "Downloads", path);
+    }
 }
 
 /// Effective download directory for an install.
@@ -271,22 +552,45 @@ pub fn resolve_download_dir(
     install_root.join(".ludex-tmp")
 }
 
+/// Best-effort folder creation.
+///
+/// A location can be a USB drive that is not plugged in right now: failing the
+/// whole settings save (or the queue) because one folder is missing would be
+/// worse than reporting it when the folder is actually used. Installs validate
+/// the selected location themselves and fail with an actionable message.
 pub fn ensure_dirs(settings: &LocalSettings) -> Result<(), String> {
-    let install_dir = settings.install_path();
-    fs::create_dir_all(&install_dir).map_err(|e| {
-        format!(
-            "Could not create the install folder {}: {e}",
-            install_dir.display()
-        )
-    })?;
-    if !settings.download_dir.trim().is_empty() {
-        let download_dir = settings.download_path();
-        fs::create_dir_all(&download_dir).map_err(|e| {
+    let mut seen = std::collections::HashSet::new();
+    for location in &settings.locations {
+        let path = PathBuf::from(location.path.trim());
+        if location.path.trim().is_empty() || !seen.insert(path.clone()) {
+            continue;
+        }
+        if let Err(error) = fs::create_dir_all(&path) {
+            tracing::warn!(
+                error = %error,
+                path = %path.display(),
+                label = %location.label,
+                "could not create the location folder; it will be checked when used"
+            );
+        }
+    }
+    if settings.locations.is_empty() {
+        let install_dir = settings.install_path();
+        fs::create_dir_all(&install_dir).map_err(|e| {
             format!(
-                "Could not create the download folder {}: {e}",
-                download_dir.display()
+                "Could not create the install folder {}: {e}",
+                install_dir.display()
             )
         })?;
+        if !settings.download_dir.trim().is_empty() {
+            let download_dir = settings.download_path();
+            fs::create_dir_all(&download_dir).map_err(|e| {
+                format!(
+                    "Could not create the download folder {}: {e}",
+                    download_dir.display()
+                )
+            })?;
+        }
     }
     if let Some(games_dir) = settings.games_dir.as_deref() {
         let path = Path::new(games_dir);
@@ -570,5 +874,117 @@ mod tests {
             ..LocalSettings::default()
         };
         assert!(validate(&settings).is_ok());
+    }
+
+    #[test]
+    fn old_single_folders_migrate_to_locations() {
+        // A settings file written before #99 has no `locations` key at all.
+        let raw = serde_json::json!({
+            "mode": "local",
+            "installDir": "/mnt/games",
+            "downloadDir": "/mnt/tmp",
+            "serverUrl": "",
+            "streamInstall": false
+        });
+        let mut settings: LocalSettings = serde_json::from_value(raw).unwrap();
+        settings.normalize(Path::new("/data"));
+
+        assert_eq!(settings.locations.len(), 2);
+        let install = settings.default_location(LocationKind::Install).unwrap();
+        assert_eq!(install.path, "/mnt/games");
+        assert!(install.default);
+        assert_eq!(install.label, "Games");
+        let download = settings.default_location(LocationKind::Download).unwrap();
+        assert_eq!(download.path, "/mnt/tmp");
+        assert!(download.default);
+        // The legacy fields mirror the defaults for older bundles.
+        assert_eq!(settings.install_dir, "/mnt/games");
+        assert_eq!(settings.download_dir, "/mnt/tmp");
+    }
+
+    #[test]
+    fn migration_keeps_one_default_per_kind() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.locations = vec![
+            Location {
+                id: "a".into(),
+                label: "A".into(),
+                path: "/a".into(),
+                kind: LocationKind::Install,
+                default: true,
+            },
+            Location {
+                id: "b".into(),
+                label: "B".into(),
+                path: "/b".into(),
+                kind: LocationKind::Install,
+                default: true,
+            },
+            Location {
+                id: "c".into(),
+                label: "".into(),
+                path: "/c".into(),
+                kind: LocationKind::Temp,
+                default: false,
+            },
+            Location {
+                id: "a".into(),
+                label: "Duplicate".into(),
+                path: "/d".into(),
+                kind: LocationKind::Install,
+                default: false,
+            },
+        ];
+        settings.normalize(Path::new("/data"));
+
+        let installs: Vec<&Location> = settings
+            .locations
+            .iter()
+            .filter(|location| location.kind == LocationKind::Install)
+            .collect();
+        assert_eq!(installs.len(), 2);
+        assert_eq!(installs.iter().filter(|item| item.default).count(), 1);
+        assert_eq!(installs[0].path, "/a");
+        assert!(installs[0].default);
+        let temp = settings
+            .locations
+            .iter()
+            .find(|location| location.kind == LocationKind::Temp)
+            .unwrap();
+        assert_eq!(temp.label, "Scratch");
+        assert!(temp.default);
+        assert_eq!(settings.install_dir, "/a");
+    }
+
+    #[test]
+    fn legacy_folder_patch_updates_the_default_location() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.normalize(Path::new("/data"));
+        let mut merged = serde_json::to_value(&settings).unwrap();
+
+        apply_legacy_folder_patch(&mut merged, Some("/ssd/games"), Some("/big/tmp"));
+        let mut next: LocalSettings = serde_json::from_value(merged).unwrap();
+        next.normalize(Path::new("/data"));
+
+        assert_eq!(next.install_dir, "/ssd/games");
+        assert_eq!(next.download_dir, "/big/tmp");
+        assert_eq!(
+            next.default_location(LocationKind::Install).unwrap().path,
+            "/ssd/games"
+        );
+        assert_eq!(next.locations.len(), 2);
+    }
+
+    #[test]
+    fn resolved_locations_ignore_empty_ids_and_reject_unknown_ones() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.normalize(Path::new("/data"));
+        assert!(settings
+            .resolve_location(Some("  "), LocationKind::Install)
+            .is_ok());
+        assert!(settings
+            .resolve_location(Some("gone"), LocationKind::Install)
+            .unwrap_err()
+            .contains("no longer exists"));
     }
 }

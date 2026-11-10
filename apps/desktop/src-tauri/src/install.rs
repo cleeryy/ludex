@@ -158,6 +158,13 @@ pub struct InstallParams {
     pub executable: Option<String>,
     pub install_dir: Option<String>,
     pub download_dir: Option<String>,
+    /// Named location picked for the install root (#99). Takes precedence over
+    /// `install_dir`.
+    pub install_location_id: Option<String>,
+    /// Named location picked for the temporary archive (#99).
+    pub download_location_id: Option<String>,
+    /// Expected extracted size, used for the free-space guard (#99).
+    pub expected_bytes: Option<u64>,
     pub stream: Option<bool>,
     /// Previous install folder to delete once an update is verified. The
     /// previous files stay untouched until the new install is in place.
@@ -205,18 +212,78 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
         params.token = settings.token.clone();
     }
 
-    let install_root = params
-        .install_dir
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| settings.install_path());
+    let stream_requested_now = stream_requested(params.stream, &settings, &params.server_url);
+    let plan = crate::locations::plan_install(
+        &settings,
+        params.install_location_id.as_deref(),
+        params.download_location_id.as_deref(),
+        params.install_dir.as_deref(),
+        params.download_dir.as_deref(),
+        stream_requested_now,
+    )?;
+    // Guard before queueing: a full disk fails here with an actionable message
+    // instead of after a long download. Same volume + archive: peak usage is
+    // the archive plus the extracted copy.
+    if let Some(expected) = params.expected_bytes.filter(|value| *value > 0) {
+        let install_required = if stream_requested_now || plan.cross_filesystem {
+            expected
+        } else {
+            expected.saturating_mul(2)
+        };
+        if let Some(free) = free_space(&plan.install_root) {
+            crate::locations::guard_free_space(install_required, free)
+                .map_err(|error| format!("{} {}", plan.peak_note, error))?;
+        }
+        if plan.cross_filesystem && !stream_requested_now {
+            if let Some(free) = free_space(&plan.download_dir) {
+                crate::locations::guard_free_space(expected, free).map_err(|error| {
+                    format!(
+                        "The download location {} does not have room for the archive. {error}",
+                        plan.download_dir.display()
+                    )
+                })?;
+            }
+        }
+    }
+    // Validate the folders now: a relative path or a read-only drive fails the
+    // click with a clear message instead of the worker after a long queue wait.
+    let install_root = absolute_path(plan.install_root.clone())?;
+    let download_dir = absolute_path(plan.download_dir.clone())?;
+    let install_status = crate::locations::probe_path(&install_root.to_string_lossy())?;
+    if !install_status.writable {
+        return Err(format!(
+            "The install location {} is not writable.{}",
+            install_root.display(),
+            install_status
+                .note
+                .map(|note| format!(" {note}"))
+                .unwrap_or_default()
+        ));
+    }
+    if !stream_requested_now {
+        let download_status = crate::locations::probe_path(&download_dir.to_string_lossy())?;
+        if !download_status.writable {
+            return Err(format!(
+                "The download location {} is not writable.{}",
+                download_dir.display(),
+                download_status
+                    .note
+                    .map(|note| format!(" {note}"))
+                    .unwrap_or_default()
+            ));
+        }
+    }
+
+    // Pin the resolved folders on the job so a location renamed or unplugged
+    // while it runs cannot move a paused download.
+    params.install_dir = Some(install_root.to_string_lossy().to_string());
+    params.download_dir = Some(download_dir.to_string_lossy().to_string());
+
+    let install_root = PathBuf::from(params.install_dir.clone().unwrap_or_default());
     let slug = paths::slug_for_title(&params.title);
     let version_label = paths::version_label(params.version.as_deref());
     let planned_install = install_root.join(&slug).join(&version_label);
-    let download_root =
-        settings::resolve_download_dir(&settings, &install_root, params.download_dir.as_deref());
+    let download_root = PathBuf::from(params.download_dir.clone().unwrap_or_default());
 
     let game_id = params.game_id;
     let version_id = params.version_id;
@@ -1439,6 +1506,14 @@ pub(crate) fn absolute_path(path: PathBuf) -> Result<PathBuf, String> {
             .map(|current| current.join(path))
             .map_err(|e| format!("Could not resolve a relative install path: {e}"))
     }
+}
+
+/// Free bytes on the volume that would hold `path`, or `None` when it cannot be
+/// probed (a missing drive): the guard then stays out of the way and the worker
+/// reports the real error.
+fn free_space(path: &Path) -> Option<u64> {
+    let existing = paths::nearest_existing(path)?;
+    fs2::available_space(existing).ok()
 }
 
 pub(crate) async fn local_archive_path(

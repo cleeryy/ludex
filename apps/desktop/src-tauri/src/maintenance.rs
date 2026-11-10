@@ -585,6 +585,9 @@ pub async fn repair_install(app: &AppHandle, game_id: i64) -> Result<RepairRepor
         executable: None,
         install_dir: None,
         download_dir: None,
+        install_location_id: None,
+        download_location_id: None,
+        expected_bytes: None,
         stream: None,
         replace_path: None,
     };
