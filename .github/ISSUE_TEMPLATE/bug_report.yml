@@ -1,0 +1,100 @@
+name: Bug report
+description: Something in Ludex is broken or behaves unexpectedly.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Do **not** paste tokens, passwords, private URLs or
+        copyrighted game files. Security issues go through the private advisory
+        link on the new-issue page, not here.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and its impact.
+      placeholder: The library scan stopped after 12 files and the UI stayed on "Scanning".
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, deterministic steps.
+      placeholder: |
+        1. Start the server with ...
+        2. Add a file named ...
+        3. Open /library and ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Ludex version
+      description: Release tag, image tag or commit SHA.
+      placeholder: v0.2.0 / edge / 8a9ed64
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How are you running Ludex?
+      options:
+        - Docker / Compose
+        - Linux binary / systemd
+        - Desktop app (Windows)
+        - Desktop app (Linux)
+        - Desktop local mode
+        - Built from source
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Server / API
+        - Web UI
+        - Desktop app
+        - Library scan
+        - Metadata
+        - Downloads / ingest
+        - Authentication / users
+        - Docker / deployment
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and environment
+      description: Redact secrets. Include OS, browser/WebView version, reverse proxy and relevant `journalctl`/`docker compose logs` lines.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: This report contains no secrets, tokens or private data.
+          required: true
+        - label: This is not a security vulnerability (those use the private advisory link).
+          required: true
