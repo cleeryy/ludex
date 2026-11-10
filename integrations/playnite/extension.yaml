@@ -1,0 +1,9 @@
+Id: Ludex_Playnite
+Name: Ludex
+Author: cleeryy
+Version: 0.1.0
+Module: LudexIntegration.dll
+Type: GameLibrary
+Links:
+  - Name: Ludex
+    Url: https://github.com/cleeryy/ludex
