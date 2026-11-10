@@ -1,4 +1,4 @@
-import type { GameDetail, GameVersion, NewsPost, ProgressState, User } from "@/lib/types";
+import type { Activity, Collection, GameDetail, GameVideo, GameVersion, NewsPost, ProgressState, PublicProfile, User } from "@/lib/types";
 import { demoBackdrop, demoCover, demoStill } from "@/lib/art";
 
 /**
@@ -418,9 +418,32 @@ function buildVersions(seed: Seed, id: number): GameVersion[] {
   ];
 }
 
+const TRAILER_IDS = [
+  "dQw4w9WgXcQ",
+  "aqz-KE-bpKQ",
+  "M7lc1UVf-VE",
+  "ScMzIvxBSi4",
+  "ysz5S6PUM-U",
+  "jNQXAC9IVRw",
+];
+
+function demoVideos(seed: Seed, index: number): GameVideo[] {
+  const videoId = TRAILER_IDS[index % TRAILER_IDS.length];
+  return [
+    {
+      title: `${seed.title} — trailer`,
+      url: `https://www.youtube.com/watch?v=${videoId}`,
+      thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+      videoId,
+      provider: "youtube",
+    },
+  ];
+}
+
 export const DEMO_GAMES: GameDetail[] = seeds.map((seed, i) => {
   const id = i + 1;
   const versions = buildVersions(seed, id);
+  const videos = demoVideos(seed, i);
   return {
     id,
     title: seed.title,
@@ -439,7 +462,8 @@ export const DEMO_GAMES: GameDetail[] = seeds.map((seed, i) => {
     lastPlayedAt: seed.lastPlayed ?? null,
     description: seed.description,
     screenshots: [0, 1, 2, 3].map((n) => demoStill(seed.slug, n)),
-    trailers: [],
+    trailers: videos,
+    videos,
     developers: seed.developers,
     publishers: seed.publishers,
     tags: seed.tags,
@@ -522,6 +546,208 @@ export const DEMO_NEWS: NewsPost[] = [
     author: "mara",
     createdAt: "2026-10-01T08:00:00Z",
     updatedAt: "2026-10-01T08:00:00Z",
+  },
+];
+
+export const DEMO_COLLECTIONS: Collection[] = [
+  {
+    id: 1,
+    name: "Friday night co-op",
+    description: "Two controllers, one couch, no excuses.",
+    isPublic: true,
+    kind: "manual",
+    rules: { match: "all", rules: [] },
+    gameCount: 3,
+    owner: { id: 1, username: "mara", displayName: "Mara" },
+    owned: true,
+    createdAt: "2026-09-18T19:00:00Z",
+    updatedAt: "2026-11-09T21:14:00Z",
+  },
+  {
+    id: 2,
+    name: "Recent and well rated",
+    description: "Everything from the last two years that cleared 85.",
+    isPublic: false,
+    kind: "smart",
+    rules: {
+      match: "all",
+      rules: [
+        { field: "year", op: "gte", value: 2024 },
+        { field: "rating", op: "gte", value: 85 },
+      ],
+    },
+    gameCount: 0,
+    owner: { id: 1, username: "mara", displayName: "Mara" },
+    owned: true,
+    createdAt: "2026-10-02T20:30:00Z",
+    updatedAt: "2026-10-02T20:30:00Z",
+  },
+  {
+    id: 3,
+    name: "Horror shelf",
+    description: "Keep the lights on.",
+    isPublic: true,
+    kind: "manual",
+    rules: { match: "all", rules: [] },
+    gameCount: 4,
+    owner: { id: 2, username: "jonas", displayName: "Jonas" },
+    owned: false,
+    createdAt: "2026-08-11T09:15:00Z",
+    updatedAt: "2026-10-27T18:40:00Z",
+  },
+  {
+    id: 4,
+    name: "Backlog, honestly",
+    description: null,
+    isPublic: false,
+    kind: "manual",
+    rules: { match: "all", rules: [] },
+    gameCount: 4,
+    owner: { id: 1, username: "mara", displayName: "Mara" },
+    owned: true,
+    createdAt: "2026-07-22T17:05:00Z",
+    updatedAt: "2026-09-01T12:00:00Z",
+  },
+];
+
+/** Manual collection membership, keyed by collection id. */
+export const DEMO_COLLECTION_GAMES: Record<number, number[]> = {
+  1: [7, 4, 12, 16],
+  2: [],
+  3: [2, 8, 9, 10],
+  4: [1, 6, 11, 14],
+};
+
+export const DEMO_PROFILES: PublicProfile[] = [
+  {
+    id: 1,
+    username: "mara",
+    displayName: "Mara",
+    bio: "Runs the archive. Puzzle games and long nights.",
+    avatarUrl: null,
+    publicProfile: true,
+    createdAt: "2026-02-11T09:00:00Z",
+  },
+  {
+    id: 2,
+    username: "jonas",
+    displayName: "Jonas",
+    bio: "Horror, co-op, and bad decisions in racing games.",
+    avatarUrl: null,
+    publicProfile: true,
+    createdAt: "2026-03-04T18:20:00Z",
+  },
+  {
+    id: 3,
+    username: "ines",
+    displayName: "Inès",
+    bio: null,
+    avatarUrl: null,
+    publicProfile: false,
+    createdAt: "2026-04-22T11:45:00Z",
+  },
+  {
+    id: 4,
+    username: "sam",
+    displayName: null,
+    bio: null,
+    avatarUrl: null,
+    publicProfile: false,
+    createdAt: "2026-06-30T14:05:00Z",
+  },
+];
+
+/** Chronological; the mock adapter sorts newest first. */
+export const DEMO_ACTIVITIES: Activity[] = [
+  {
+    id: 1,
+    kind: "collection_created",
+    createdAt: "2026-10-02T20:30:00Z",
+    metadata: { name: "Recent and well rated", kind: "smart" },
+    user: { id: 1, username: "mara", displayName: "Mara", avatarUrl: null },
+    game: null,
+    collection: { id: 2, name: "Recent and well rated" },
+  },
+  {
+    id: 2,
+    kind: "game_added",
+    createdAt: "2026-10-14T18:02:00Z",
+    metadata: {},
+    user: { id: 2, username: "jonas", displayName: "Jonas", avatarUrl: null },
+    game: { id: 10, title: "Little Nightmares III", coverUrl: null, releaseYear: 2025 },
+    collection: null,
+  },
+  {
+    id: 3,
+    kind: "game_played",
+    createdAt: "2026-10-18T21:40:00Z",
+    metadata: { minutes: 95 },
+    user: { id: 1, username: "mara", displayName: "Mara", avatarUrl: null },
+    game: { id: 14, title: "Outer Wilds", coverUrl: null, releaseYear: 2019 },
+    collection: null,
+  },
+  {
+    id: 4,
+    kind: "game_completed",
+    createdAt: "2026-10-24T22:12:00Z",
+    metadata: {},
+    user: { id: 2, username: "jonas", displayName: "Jonas", avatarUrl: null },
+    game: { id: 2, title: "Bodycam", coverUrl: null, releaseYear: 2024 },
+    collection: null,
+  },
+  {
+    id: 5,
+    kind: "game_installed",
+    createdAt: "2026-10-27T19:31:00Z",
+    metadata: { source: "desktop" },
+    user: { id: 1, username: "mara", displayName: "Mara", avatarUrl: null },
+    game: { id: 14, title: "Outer Wilds", coverUrl: null, releaseYear: 2019 },
+    collection: null,
+  },
+  {
+    id: 6,
+    kind: "game_played",
+    createdAt: "2026-10-31T20:05:00Z",
+    metadata: { minutes: 60 },
+    user: { id: 2, username: "jonas", displayName: "Jonas", avatarUrl: null },
+    game: { id: 7, title: "It Takes Two", coverUrl: null, releaseYear: 2021 },
+    collection: null,
+  },
+  {
+    id: 7,
+    kind: "collection_created",
+    createdAt: "2026-11-02T21:10:00Z",
+    metadata: { name: "Friday night co-op", kind: "manual" },
+    user: { id: 1, username: "mara", displayName: "Mara", avatarUrl: null },
+    game: null,
+    collection: { id: 1, name: "Friday night co-op" },
+  },
+  {
+    id: 8,
+    kind: "game_added",
+    createdAt: "2026-11-04T18:44:00Z",
+    metadata: {},
+    user: { id: 1, username: "mara", displayName: "Mara", avatarUrl: null },
+    game: { id: 1, title: "Blue Prince", coverUrl: null, releaseYear: 2025 },
+    collection: null,
+  },
+  {
+    id: 9,
+    kind: "game_completed",
+    createdAt: "2026-11-06T23:26:00Z",
+    metadata: {},
+    user: { id: 1, username: "mara", displayName: "Mara", avatarUrl: null },
+    game: { id: 3, title: "Call of Duty: Black Ops III", coverUrl: null, releaseYear: 2015 },
+    collection: null,
+  },
+  {
+    id: 10,
+    kind: "game_played",
+    createdAt: "2026-11-09T21:14:00Z",
+    metadata: { minutes: 120 },
+    user: { id: 1, username: "mara", displayName: "Mara", avatarUrl: null },
+    game: { id: 14, title: "Outer Wilds", coverUrl: null, releaseYear: 2019 },
+    collection: null,
   },
 ];
 

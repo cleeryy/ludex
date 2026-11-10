@@ -30,6 +30,8 @@ export function HomeScreen() {
 
   const { data, isPending, isError, error, refetch } = useAllGames();
   const games = data?.items ?? [];
+  const collectionsQuery = useQuery({ queryKey: ["collections"], queryFn: () => api.listCollections() });
+  const shelves = (collectionsQuery.data ?? []).slice(0, 4);
 
   const played = useMemo(
     () =>
@@ -242,6 +244,41 @@ export function HomeScreen() {
                   }
                 />
               </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {shelves.length > 0 && (
+        <section className="mt-12" aria-labelledby="home-collections">
+          <SectionHeader
+            title="Collections"
+            actions={
+              <Link to="/collections" className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
+                All collections
+              </Link>
+            }
+          />
+          <div id="home-collections" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {shelves.map((collection) => (
+              <Link
+                key={collection.id}
+                to={`/collections/${collection.id}`}
+                className="flex flex-col justify-between gap-4 border border-line bg-surface/40 p-3 transition-colors hover:border-line-2 hover:bg-surface"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-3">
+                    {collection.kind === "smart" ? "Smart" : "Manual"}
+                  </span>
+                  <span className="num text-[10.5px] text-ink-3">{collection.gameCount}</span>
+                </div>
+                <div>
+                  <p className="truncate text-[14px] font-medium text-ink">{collection.name}</p>
+                  <p className="mt-1 truncate font-mono text-[10px] text-ink-3">
+                    {collection.owned ? "Yours" : collection.owner.displayName ?? collection.owner.username}
+                  </p>
+                </div>
+              </Link>
             ))}
           </div>
         </section>

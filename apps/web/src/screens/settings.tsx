@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, HardDrive, Monitor, Moon, Sun } from "lucide-react";
 import { api } from "@/lib/api";
@@ -29,6 +30,19 @@ export function SettingsScreen() {
 
   const [draft, setDraft] = useState<LocalSettings | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const profileQuery = useQuery({ queryKey: ["my-profile"], queryFn: () => api.myProfile() });
+  const [publicProfile, setPublicProfile] = useState(false);
+  const [displayName, setDisplayName] = useState("");
+  const [bio, setBio] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  useEffect(() => {
+    if (!profileQuery.data) return;
+    setPublicProfile(profileQuery.data.publicProfile);
+    setDisplayName(profileQuery.data.displayName ?? "");
+    setBio(profileQuery.data.bio ?? "");
+  }, [profileQuery.data]);
 
   const settingsQuery = useQuery({
     queryKey: ["desktop-settings"],
@@ -80,6 +94,25 @@ export function SettingsScreen() {
       push({ title: "Could not save the settings", description: errorMessage(cause), tone: "danger" });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveProfile = async () => {
+    setSavingProfile(true);
+    try {
+      await api.updateProfile({
+        publicProfile,
+        displayName: displayName.trim() || null,
+        bio: bio.trim() || null,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["my-profile"] });
+      await queryClient.invalidateQueries({ queryKey: ["community-users"] });
+      await queryClient.invalidateQueries({ queryKey: ["community-feed"] });
+      push({ title: "Community profile saved", tone: "success" });
+    } catch (cause) {
+      push({ title: "Could not save the profile", description: errorMessage(cause), tone: "danger" });
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -201,6 +234,73 @@ export function SettingsScreen() {
           </form>
         </section>
       </div>
+
+      <section className="mt-12 max-w-[980px]" aria-labelledby="community-profile-heading">
+        <SectionHeader
+          title="Community profile"
+          description="Opt in to a public page. Private accounts never appear in the feed or the member list."
+          actions={
+            publicProfile ? (
+              <Link
+                to={`/community/u/${user?.id ?? ""}`}
+                className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
+              >
+                View public page
+              </Link>
+            ) : undefined
+          }
+        />
+        <div id="community-profile-heading" className="border-t border-line pt-5">
+          {profileQuery.isPending ? (
+            <p className="text-[13px] text-ink-3">Loading your profile…</p>
+          ) : (
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="flex flex-col gap-4">
+                <div className="flex items-start justify-between gap-6 border-b border-line pb-4">
+                  <div>
+                    <p className="text-[13px] font-medium text-ink">Public profile</p>
+                    <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
+                      Your display name, bio, library, public collections and activity become visible to other accounts.
+                      Playtime totals and private collections stay private.
+                    </p>
+                  </div>
+                  <Switch checked={publicProfile} onCheckedChange={setPublicProfile} label="Public profile" />
+                </div>
+                <Field label="Display name" htmlFor="display-name" hint="Shown instead of your login name. Optional.">
+                  <Input
+                    id="display-name"
+                    value={displayName}
+                    onChange={(event) => setDisplayName(event.target.value)}
+                    placeholder={user?.username ?? "Mara"}
+                    maxLength={64}
+                  />
+                </Field>
+              </div>
+              <div className="flex flex-col gap-4">
+                <Field label="Bio" htmlFor="profile-bio" hint="A sentence or two. Optional.">
+                  <Textarea
+                    id="profile-bio"
+                    value={bio}
+                    onChange={(event) => setBio(event.target.value)}
+                    placeholder="Puzzle games and long nights."
+                    rows={4}
+                    maxLength={500}
+                    className="min-h-[110px]"
+                  />
+                </Field>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button variant="default" loading={savingProfile} onClick={() => void saveProfile()}>
+                    Save profile
+                  </Button>
+                  <span className="text-[11.5px] text-ink-3">
+                    {publicProfile ? "Your page is listed in Community." : "Your page is visible to you only."}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
 
       {desktopAvailable && (
         <section className="mt-12 max-w-[980px]">

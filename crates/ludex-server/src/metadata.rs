@@ -24,7 +24,7 @@ const IGDB_GAMES_URL: &str = "https://api.igdb.com/v4/games";
 const STEAM_SEARCH_URL: &str = "https://store.steampowered.com/api/storesearch/";
 const STEAM_DETAILS_URL: &str = "https://store.steampowered.com/api/appdetails";
 const IGDB_FIELDS: &str = "name,summary,first_release_date,cover.url,artworks.url,\
-screenshots.url,videos.video_id,genres.name,involved_companies.company.name,\
+screenshots.url,videos.video_id,videos.name,genres.name,involved_companies.company.name,\
 involved_companies.developer,involved_companies.publisher,rating,age_ratings.*,url,\
 platforms.id,category,alternative_names.name,multiplayer_modes.offlinemax,\
 multiplayer_modes.onlinemax,game_modes.name";
@@ -196,6 +196,8 @@ struct IgdbImage {
 #[derive(Debug, Deserialize)]
 struct IgdbVideo {
     video_id: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -277,15 +279,26 @@ fn map_igdb(game: &IgdbGame) -> ProviderMetadata {
     let trailers: Vec<Trailer> = game
         .videos
         .iter()
-        .filter_map(|video| video.video_id.as_deref())
-        .take(5)
-        .map(|video_id| Trailer {
-            title: "Trailer".to_string(),
-            url: format!("https://www.youtube.com/watch?v={video_id}"),
-            thumbnail_url: Some(format!(
-                "https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
-            )),
+        .filter_map(|video| {
+            let video_id = video
+                .video_id
+                .as_deref()
+                .filter(|id| !id.trim().is_empty())?;
+            Some(Trailer {
+                title: video
+                    .name
+                    .clone()
+                    .filter(|name| !name.trim().is_empty())
+                    .unwrap_or_else(|| "Trailer".to_string()),
+                url: format!("https://www.youtube.com/watch?v={video_id}"),
+                thumbnail_url: Some(format!(
+                    "https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
+                )),
+                video_id: Some(video_id.to_string()),
+                provider: Some("youtube".to_string()),
+            })
         })
+        .take(5)
         .collect();
 
     let age_rating = igdb_age_rating(&game.age_ratings);
@@ -763,6 +776,8 @@ async fn steam_details(http: &Client, app_id: i64) -> Result<Option<ProviderMeta
                     .unwrap_or_else(|| "Trailer".to_string()),
                 url,
                 thumbnail_url: movie.thumbnail.clone(),
+                video_id: None,
+                provider: Some("file".to_string()),
             })
         })
         .take(5)
@@ -1293,6 +1308,31 @@ mod tests {
         let json = r#"{"id": 1, "name": "Old", "age_ratings": [{"category": 2, "rating": 4}]}"#;
         let game: IgdbGame = serde_json::from_str(json).expect("fixture");
         assert_eq!(map_igdb(&game).age_rating, Some(16));
+    }
+
+    #[test]
+    fn igdb_videos_map_to_youtube_trailers() {
+        let json = r#"{
+            "id": 77,
+            "name": "Hades",
+            "videos": [
+                {"video_id": "dQw4w9WgXcQ", "name": "Launch trailer"},
+                {"video_id": "", "name": "Broken"},
+                {"name": "No id"}
+            ]
+        }"#;
+        let game: IgdbGame = serde_json::from_str(json).expect("fixture");
+        let metadata = map_igdb(&game);
+        assert_eq!(metadata.trailers.len(), 1, "{:?}", metadata.trailers);
+        let trailer = &metadata.trailers[0];
+        assert_eq!(trailer.title, "Launch trailer");
+        assert_eq!(trailer.video_id.as_deref(), Some("dQw4w9WgXcQ"));
+        assert_eq!(trailer.provider.as_deref(), Some("youtube"));
+        assert_eq!(trailer.url, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+        assert_eq!(
+            trailer.thumbnail_url.as_deref(),
+            Some("https://img.youtube.com/vi/dQw4w9WgXcQ/hqdefault.jpg")
+        );
     }
 
     #[tokio::test]
