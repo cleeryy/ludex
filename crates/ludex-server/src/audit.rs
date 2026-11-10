@@ -35,6 +35,8 @@ pub mod actions {
     pub const GAME_DELETED: &str = "game.deleted";
     /// Custom cover/background uploaded or reset.
     pub const GAME_ARTWORK_UPDATED: &str = "game.artwork_updated";
+    /// Access denied by parental controls (age limit).
+    pub const GAME_ACCESS_DENIED: &str = "game.access_denied";
     /// A download job completed.
     pub const DOWNLOAD_COMPLETED: &str = "download.completed";
     /// Server settings written (initial setup).

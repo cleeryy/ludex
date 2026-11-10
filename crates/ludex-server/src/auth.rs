@@ -68,6 +68,8 @@ pub struct AuthUser {
     pub scopes: Option<Vec<Scope>>,
     /// Session/token id (`jti`) for JWT credentials; `None` for API keys.
     pub jti: Option<String>,
+    /// Maximum age rating this account may access; `None` = unrestricted (#39).
+    pub age_limit: Option<u8>,
 }
 
 impl AuthUser {
@@ -477,7 +479,7 @@ pub async fn authenticate_token(state: &AppState, token: &str) -> Result<AuthUse
     let issued_at = DateTime::from_timestamp(claims.iat, 0).unwrap_or_else(Utc::now);
 
     let row = sqlx::query_as::<_, RevocationRow>(
-        "SELECT u.id, u.username, u.role, u.activated, u.tokens_valid_after,
+        "SELECT u.id, u.username, u.role, u.activated, u.age_limit, u.tokens_valid_after,
                 s.revoked_at AS session_revoked,
                 (SELECT 1 FROM token_revocations r WHERE r.jti = ?) AS token_revoked
          FROM users u
@@ -526,6 +528,7 @@ pub async fn authenticate_token(state: &AppState, token: &str) -> Result<AuthUse
         api_key_id: None,
         scopes: None,
         jti,
+        age_limit: row.age_limit.and_then(|value| u8::try_from(value).ok()),
     })
 }
 
@@ -536,6 +539,7 @@ struct RevocationRow {
     username: String,
     role: String,
     activated: i64,
+    age_limit: Option<i64>,
     tokens_valid_after: Option<String>,
     session_revoked: Option<String>,
     token_revoked: i64,
@@ -574,7 +578,7 @@ async fn load_auth_user(
 ) -> Result<AuthUser, ApiError> {
     let row = sqlx::query_as::<_, crate::models::UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
-                created_at, updated_at, oidc_issuer, oidc_subject
+                age_limit, created_at, updated_at, oidc_issuer, oidc_subject
          FROM users WHERE id = ?",
     )
     .bind(user_id)
@@ -597,6 +601,7 @@ async fn load_auth_user(
         api_key_id,
         scopes,
         jti: None,
+        age_limit: row.age_limit.and_then(|value| u8::try_from(value).ok()),
     })
 }
 

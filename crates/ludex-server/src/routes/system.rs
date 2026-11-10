@@ -169,6 +169,7 @@ async fn setup(
         activated: true,
         avatar_url: None,
         created_at: db::now(),
+        age_limit: None,
         source: crate::models::UserSource::Local,
         oidc_issuer: None,
     };

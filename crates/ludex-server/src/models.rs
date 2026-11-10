@@ -130,6 +130,9 @@ pub struct User {
     pub avatar_url: Option<String>,
     /// Creation timestamp.
     pub created_at: DateTime<Utc>,
+    /// Maximum age rating this account may access; `None` = unrestricted.
+    #[schema(value_type = Option<u8>)]
+    pub age_limit: Option<u8>,
     /// Identity source: `local` or `oidc`.
     pub source: UserSource,
     /// OIDC issuer when [`User::source`] is `oidc`.
@@ -158,6 +161,7 @@ pub struct UserRow {
     pub updated_at: String,
     pub oidc_issuer: Option<String>,
     pub oidc_subject: Option<String>,
+    pub age_limit: Option<i64>,
 }
 
 impl UserRow {
@@ -176,6 +180,7 @@ impl UserRow {
                 .filter(|path| !path.is_empty())
                 .map(crate::media::media_url),
             created_at: crate::db::parse_time(&self.created_at).unwrap_or_else(Utc::now),
+            age_limit: self.age_limit.and_then(|value| u8::try_from(value).ok()),
             source: self.source(),
             oidc_issuer: self.oidc_issuer.clone(),
         }
@@ -532,6 +537,9 @@ pub struct UpdateUserRequest {
     /// New activation flag.
     #[serde(default)]
     pub activated: Option<bool>,
+    /// Maximum age rating (`null` clears the limit).
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub age_limit: Option<Option<u8>>,
 }
 
 /// Query string for `GET /api/games` and `/api/games/random`.

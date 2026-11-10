@@ -191,6 +191,17 @@ impl Filters {
         })
     }
 
+    /// Hides games above the account's age limit (#39). Unrated games stay
+    /// visible: an unknown rating is not evidence of adult content.
+    fn with_age_limit(mut self, limit: Option<u8>) -> Self {
+        if let Some(limit) = limit {
+            self.clauses
+                .push("(g.age_rating IS NULL OR g.age_rating <= ?)".to_string());
+            self.binds.push(Bind::Int(i64::from(limit)));
+        }
+        self
+    }
+
     fn where_clause(&self) -> String {
         if self.clauses.is_empty() {
             " WHERE 1=1".to_string()
@@ -212,7 +223,7 @@ async fn list(
     user: AuthUser,
     ApiQuery(query): ApiQuery<GameQuery>,
 ) -> Result<Json<Paginated<GameSummary>>, ApiError> {
-    let filters = Filters::from_query(&query)?;
+    let filters = Filters::from_query(&query)?.with_age_limit(user.age_limit);
     let page = query.page.unwrap_or(1).max(1);
     let limit = query.limit.unwrap_or(48).clamp(1, 200);
     let offset = (page - 1).saturating_mul(limit);
@@ -305,7 +316,7 @@ async fn random(
     user: AuthUser,
     ApiQuery(query): ApiQuery<GameQuery>,
 ) -> Result<Json<GameSummary>, ApiError> {
-    let filters = Filters::from_query(&query)?;
+    let filters = Filters::from_query(&query)?.with_age_limit(user.age_limit);
     let mut binds = vec![Bind::Int(user.id), Bind::Int(user.id)];
     binds.extend(filters.binds.iter().cloned());
 
@@ -353,7 +364,12 @@ async fn detail(
     user: AuthUser,
     ApiPath(id): ApiPath<i64>,
 ) -> Result<Json<GameDetail>, ApiError> {
-    Ok(Json(fetch_detail(&state, user.id, id).await?))
+    let game = fetch_detail(&state, user.id, id).await?;
+    if age_blocked(user.age_limit, game.age_rating) {
+        deny_age_restricted(&state, &user, id);
+        return Err(age_not_found());
+    }
+    Ok(Json(game))
 }
 
 async fn fetch_detail(state: &AppState, user_id: i64, id: i64) -> Result<GameDetail, ApiError> {
@@ -616,6 +632,10 @@ async fn download_ticket(
     JsonBody(request): JsonBody<TicketRequest>,
 ) -> Result<Json<TicketResponse>, ApiError> {
     ensure_game(&state, game_id).await?;
+    if age_blocked(user.age_limit, game_age_rating(&state, game_id).await?) {
+        deny_age_restricted(&state, &user, game_id);
+        return Err(age_not_found());
+    }
     let version_id = match request.version_id {
         Some(version_id) => {
             let exists = sqlx::query_scalar::<_, i64>(
@@ -638,6 +658,40 @@ async fn download_ticket(
         url: format!("/api/games/{game_id}/download?versionId={version_id}&token={token}"),
         expires_at,
     }))
+}
+
+/// Whether a game's age rating exceeds the account's limit (#39).
+fn age_blocked(limit: Option<u8>, rating: Option<u8>) -> bool {
+    matches!((limit, rating), (Some(limit), Some(rating)) if rating > limit)
+}
+
+/// A restricted game is indistinguishable from a missing one.
+fn age_not_found() -> ApiError {
+    ApiError::not_found("game_not_found", "Game not found")
+}
+
+/// Records an age-restricted access attempt without leaking the game to the
+/// caller.
+fn deny_age_restricted(state: &AppState, user: &AuthUser, game_id: i64) {
+    state.events.emit(
+        crate::events::Event::new(crate::audit::actions::GAME_ACCESS_DENIED, user.actor())
+            .target("game", game_id.to_string())
+            .metadata(serde_json::json!({
+                "reason": "age_restricted",
+                "ageLimit": user.age_limit,
+            })),
+    );
+}
+
+/// Reads a game's age rating, if any.
+async fn game_age_rating(state: &AppState, game_id: i64) -> Result<Option<u8>, ApiError> {
+    let rating = sqlx::query_scalar::<_, Option<i64>>("SELECT age_rating FROM games WHERE id = ?")
+        .bind(game_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(ApiError::from)?
+        .flatten();
+    Ok(rating.and_then(|value| u8::try_from(value).ok()))
 }
 
 async fn newest_version(state: &AppState, game_id: i64) -> Result<i64, ApiError> {
@@ -680,7 +734,11 @@ async fn authorize_version(
     }
 
     let token = bearer_token(headers).ok_or_else(ApiError::unauthorized)?;
-    authenticate_token(state, &token).await?;
+    let user = authenticate_token(state, &token).await?;
+    if age_blocked(user.age_limit, game_age_rating(state, game_id).await?) {
+        deny_age_restricted(state, &user, game_id);
+        return Err(age_not_found());
+    }
     match requested_version {
         Some(version_id) => Ok(version_id),
         None => newest_version(state, game_id).await,

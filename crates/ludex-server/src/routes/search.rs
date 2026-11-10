@@ -48,7 +48,7 @@ struct SuggestRow {
 
 async fn suggest(
     State(state): State<AppState>,
-    _user: AuthUser,
+    user: AuthUser,
     ApiQuery(query): ApiQuery<SuggestQuery>,
 ) -> Result<Json<SuggestResponse>, ApiError> {
     let raw = query.q.as_deref().unwrap_or("").trim();
@@ -61,12 +61,27 @@ async fn suggest(
     let limit = query.limit.unwrap_or(8).clamp(1, 20);
     let normalized = normalize(raw);
 
-    let rows = sqlx::query_as::<_, SuggestRow>(
-        "SELECT id, title, sort_title, release_date, cover_path, alt_titles_json
-         FROM games ORDER BY sort_title ASC LIMIT 5000",
-    )
-    .fetch_all(&state.pool)
-    .await
+    // Parental controls (#39): never suggest a game above the account limit.
+    let rows = match user.age_limit {
+        Some(limit) => {
+            sqlx::query_as::<_, SuggestRow>(
+                "SELECT id, title, sort_title, release_date, cover_path, alt_titles_json
+                 FROM games WHERE age_rating IS NULL OR age_rating <= ?
+                 ORDER BY sort_title ASC LIMIT 5000",
+            )
+            .bind(i64::from(limit))
+            .fetch_all(&state.pool)
+            .await
+        }
+        None => {
+            sqlx::query_as::<_, SuggestRow>(
+                "SELECT id, title, sort_title, release_date, cover_path, alt_titles_json
+                 FROM games ORDER BY sort_title ASC LIMIT 5000",
+            )
+            .fetch_all(&state.pool)
+            .await
+        }
+    }
     .map_err(ApiError::from)?;
 
     let mut scored: Vec<(f64, SuggestRow, TitleMatch)> = rows

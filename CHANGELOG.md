@@ -8,6 +8,24 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Automatic cloud save sync (#108): the desktop app archives the save paths
+  detected in #107 after `game://exited` (3 s debounce), hashes the archive and
+  uploads it as an `auto` snapshot. An unchanged SHA-256 is a no-op, empty
+  detection never creates an empty snapshot, symlinks and huge trees are
+  skipped/bounded, and failed uploads are persisted in SQLite and retried with
+  bounded exponential backoff. New `cloud_save_status`,
+  `set_cloud_save_sync` (global or per-game override with `on`/`global_off`/
+  `game_off` reasons), `sync_cloud_save_now`, `restore_cloud_save` and
+  `resolve_cloud_save_conflict` Tauri commands. Restore verifies the SHA-256,
+  writes a timestamped local backup before overwriting newer saves, refuses
+  traversal/symlink entries, and runs once per snapshot; `keep_local` records
+  and uploads the local state instead. Snapshot uploads now carry `source` and
+  `deviceId`, duplicate automatic hashes return the existing snapshot, and
+  automatic snapshots are pruned to the newest 10 per user and game (manual
+  snapshots are never pruned). Desktop migration `SCHEMA_V9`; the game page
+  gains automatic-backup status, Sync now, Restore and a conflict dialog, and
+  Settings gains the global default, device name and a privacy note. The
+  browser build explains that automatic sync needs the desktop app.
 - Achievements framework (#117): per-game and global definitions, per-account
   unlock state with a unique `(user, achievement)` constraint, points, hidden
   definitions, global unlock percentages, and completion summaries. Routes:

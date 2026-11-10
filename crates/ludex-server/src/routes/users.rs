@@ -53,7 +53,7 @@ async fn list(State(state): State<AppState>, user: AuthUser) -> Result<Json<Vec<
     user.require_admin_access()?;
     let rows = sqlx::query_as::<_, UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
-                created_at, updated_at, oidc_issuer, oidc_subject
+                age_limit, created_at, updated_at, oidc_issuer, oidc_subject
          FROM users ORDER BY id",
     )
     .fetch_all(&state.pool)
@@ -98,7 +98,7 @@ async fn create(
 
     let created = sqlx::query_as::<_, UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
-                created_at, updated_at, oidc_issuer, oidc_subject
+                age_limit, created_at, updated_at, oidc_issuer, oidc_subject
          FROM users WHERE id = ?",
     )
     .bind(result.last_insert_rowid())
@@ -209,6 +209,21 @@ async fn update(
             changed.push("activated");
         }
     }
+    if let Some(age_limit) = request.age_limit {
+        if let Some(limit) = age_limit {
+            if limit > 21 {
+                return Err(ApiError::bad_request(
+                    "invalid_age_limit",
+                    "Age limit must be between 0 and 21",
+                ));
+            }
+        }
+        sets.push("age_limit = ?");
+        binds.push(Bind::OptInt(age_limit.map(i64::from)));
+        if target.age_limit.map(|value| value as u8) != age_limit {
+            changed.push("age_limit");
+        }
+    }
     if sets.is_empty() {
         return Ok(Json(target.to_public()));
     }
@@ -286,7 +301,7 @@ async fn delete_user(
 async fn fetch_user(state: &AppState, id: i64) -> Result<UserRow, ApiError> {
     sqlx::query_as::<_, UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
-                created_at, updated_at, oidc_issuer, oidc_subject
+                age_limit, created_at, updated_at, oidc_issuer, oidc_subject
          FROM users WHERE id = ?",
     )
     .bind(id)
