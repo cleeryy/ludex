@@ -181,7 +181,7 @@ jobs:
             args: "--bundles appimage,deb"
           - platform: macos-latest
             label: macOS universal (dmg)
-            args: "--target universal-apple-darwin --bundles dmg"
+            args: "--target universal-apple-darwin --bundles app,dmg"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -273,7 +273,7 @@ jobs:
           prerelease: false
           # The updater manifest is assembled in the `updater-manifest` job so
           # parallel platform builds cannot clobber each other's latest.json.
-          uploadUpdaterJson: false
+          includeUpdaterJson: false
           args: ${{ matrix.args }}
 
   updater-manifest:

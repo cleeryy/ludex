@@ -5,9 +5,9 @@
       "app",
       "dmg"
     ],
-    "macos": {
+    "category": "public.app-category.games",
+    "macOS": {
       "minimumSystemVersion": "11.0"
-    },
-    "category": "public.app-category.games"
+    }
   }
 }
