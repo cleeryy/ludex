@@ -503,6 +503,22 @@ pub const ROUTES: &[RouteDoc] = &[
     ),
     route(
         HttpMethod::Get,
+        "/games/{id}/versions/{version_id}/stream/manifest",
+        "Games",
+        "Ordered ZIP manifest for resumable stream installs",
+        Auth::Public,
+        Payload::Schema("StreamManifest"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/games/{id}/versions/{version_id}/stream/entries/{index}",
+        "Games",
+        "Raw content of one archive entry (single Range supported)",
+        Auth::Public,
+        Payload::Binary,
+    ),
+    route(
+        HttpMethod::Get,
         "/games/{id}/versions/{version_id}/local-path",
         "Games",
         "Local install path (desktop local mode)",
@@ -1562,6 +1578,8 @@ pub fn document() -> OpenApi {
         .schema_from::<ludex_core::models::GameDetail>()
         .schema_from::<ludex_core::models::GameVersion>()
         .schema_from::<ludex_core::models::LatestVersion>()
+        .schema_from::<ludex_core::archive::StreamManifest>()
+        .schema_from::<ludex_core::archive::StreamEntry>()
         .schema_from::<ludex_core::models::LaunchInfo>()
         .schema_from::<ludex_core::models::Trailer>()
         .schema_from::<ludex_core::models::ProviderRef>()

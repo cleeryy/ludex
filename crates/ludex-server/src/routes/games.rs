@@ -7,11 +7,14 @@ use std::path::PathBuf;
 use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chrono::Duration;
-use ludex_core::archive::{archive_tar_size, detect_format, ArchiveError, ArchiveFormat};
+use ludex_core::archive::{
+    archive_tar_size, detect_format, zip_entry_info, zip_stream_manifest, ArchiveError,
+    ArchiveFormat, StreamManifest,
+};
 use ludex_core::models::{
     GameDetail, GameSummary, GameVersion, LatestVersion, LaunchInfo, Paginated, ProgressState,
     ProgressUpdate, ProviderRef, Stats, Trailer,
@@ -35,7 +38,7 @@ use crate::roots;
 use crate::sql::{bind_query, bind_query_as, bind_query_scalar, Bind};
 use crate::state::AppState;
 use crate::storage::{RequestRange, StorageError};
-use crate::stream::archive_tar_body;
+use crate::stream::{archive_tar_body, entry_body};
 
 pub(crate) const LIST_COLUMNS: &str = "g.id, g.title, g.sort_title, g.release_date, g.cover_path, \
 g.background_path, g.rating, g.genres_json, g.early_access, g.alt_titles_json, g.max_players, \
@@ -74,6 +77,14 @@ pub fn router() -> Router<AppState> {
         .route(
             "/games/{id}/versions/{version_id}/stream",
             get(stream_version),
+        )
+        .route(
+            "/games/{id}/versions/{version_id}/stream/manifest",
+            get(stream_manifest),
+        )
+        .route(
+            "/games/{id}/versions/{version_id}/stream/entries/{index}",
+            get(stream_entry),
         )
         .route(
             "/games/{id}/versions/{version_id}/local-path",
@@ -1123,6 +1134,313 @@ async fn stream_version(
             HeaderValue::from_static("private, no-store"),
         )
         .body(archive_tar_body(path, tar_size, cleanup))
+        .map_err(|_| ApiError::internal())
+}
+
+// ---------------------------------------------------------------------------
+// Resumable per-entry stream installs (#115)
+// ---------------------------------------------------------------------------
+
+/// A resolvable archive path for the stream endpoints: either the library file
+/// or an object-store archive staged under `{data_dir}/tmp`.
+struct StreamSource {
+    path: PathBuf,
+    staged: bool,
+    format: ArchiveFormat,
+}
+
+/// Resolves the archive of a version and detects its format.
+///
+/// Object-store archives are staged (the tar/manifest readers need random
+/// access) and removed by the caller/response once it is done with them.
+async fn resolve_stream_source(
+    state: &AppState,
+    version: &VersionRow,
+) -> Result<StreamSource, ApiError> {
+    let mut staged = false;
+    let path = if is_s3_version(version) && version.object_key.is_some() {
+        match stage_object(state, version).await {
+            Ok((path, _size)) => {
+                staged = true;
+                path
+            }
+            Err(error) if can_fall_back_to_local(&error) => {
+                tracing::warn!(
+                    version = version.id,
+                    "object storage staging failed; trying the local library file"
+                );
+                local_version_path(state, version).await?
+            }
+            Err(error) => return Err(error),
+        }
+    } else {
+        local_version_path(state, version).await?
+    };
+
+    let format = match detect_format(&path) {
+        Ok(format) => format,
+        Err(error) => {
+            cleanup_staged(&path, staged).await;
+            return Err(if error.kind() == std::io::ErrorKind::NotFound {
+                ApiError::not_found("file_not_found", "The library file is missing from disk")
+            } else {
+                ApiError::unprocessable(
+                    "stream_failed",
+                    format!("Could not inspect the archive: {error}"),
+                )
+            });
+        }
+    };
+    Ok(StreamSource {
+        path,
+        staged,
+        format,
+    })
+}
+
+/// `GET /api/games/{id}/versions/{versionId}/stream/manifest`
+///
+/// Ordered ZIP manifest for a resumable per-entry install. Same authorization
+/// as `/stream`: a Bearer token or a download ticket. Non-ZIP archives answer
+/// `415 stream_unsupported`, which is the client's signal to fall back to the
+/// sequential tar stream or the normal resumable download.
+async fn stream_manifest(
+    State(state): State<AppState>,
+    ApiPath((game_id, version_id)): ApiPath<(i64, i64)>,
+    ApiQuery(query): ApiQuery<StreamQuery>,
+    headers: HeaderMap,
+) -> Result<Json<StreamManifest>, ApiError> {
+    let version_id = authorize_version(
+        &state,
+        &headers,
+        game_id,
+        Some(version_id),
+        query.token.as_deref(),
+    )
+    .await?;
+
+    let version = fetch_version(&state, game_id, version_id).await?;
+    if version.missing != 0 {
+        return Err(ApiError::not_found(
+            "file_not_found",
+            "This version is no longer available",
+        ));
+    }
+    let source = resolve_stream_source(&state, &version).await?;
+
+    if source.format != ArchiveFormat::Zip {
+        cleanup_staged(&source.path, source.staged).await;
+        return Err(stream_unsupported());
+    }
+
+    let manifest_path = source.path.clone();
+    let built = tokio::task::spawn_blocking(move || zip_stream_manifest(&manifest_path)).await;
+    cleanup_staged(&source.path, source.staged).await;
+
+    match built {
+        Ok(Ok(manifest)) => Ok(Json(manifest)),
+        Ok(Err(ArchiveError::UnsupportedFormat)) => Err(stream_unsupported()),
+        Ok(Err(error)) => Err(map_archive_error(error)),
+        Err(error) => Err(ApiError::unprocessable(
+            "stream_failed",
+            format!("Manifest task failed: {error}"),
+        )),
+    }
+}
+
+/// A resolved single `Range` of one entry.
+struct EntryRange {
+    start: u64,
+    length: u64,
+    partial: bool,
+}
+
+/// Resolves the `Range` header of an entry request against the entry size.
+///
+/// `Err` means the range is malformed or unsatisfiable: the caller answers 416
+/// with `Content-Range: bytes */<size>`.
+fn resolve_entry_range(raw: Option<&str>, size: u64) -> Result<EntryRange, ()> {
+    let Some(raw) = raw else {
+        return Ok(EntryRange {
+            start: 0,
+            length: size,
+            partial: false,
+        });
+    };
+    let parsed = parse_range(raw).ok_or(())?.ok_or(())?;
+    match parsed {
+        RequestRange::Offset(start) => {
+            if start >= size {
+                return Err(());
+            }
+            Ok(EntryRange {
+                start,
+                length: size - start,
+                partial: true,
+            })
+        }
+        RequestRange::Bounded { start, end } => {
+            if start >= size || end < start {
+                return Err(());
+            }
+            let end = end.min(size - 1);
+            Ok(EntryRange {
+                start,
+                length: end - start + 1,
+                partial: true,
+            })
+        }
+        RequestRange::Suffix(length) => {
+            if length == 0 || size == 0 {
+                return Err(());
+            }
+            let start = size.saturating_sub(length);
+            Ok(EntryRange {
+                start,
+                length: size - start,
+                partial: true,
+            })
+        }
+    }
+}
+
+/// `GET /api/games/{id}/versions/{versionId}/stream/entries/{index}`
+///
+/// Raw content of one ZIP entry, with single-Range support so an interrupted
+/// entry resumes at its byte offset (direct seek for stored entries,
+/// decompress-and-skip for DEFLATE/Zstd). The response is a plain byte stream;
+/// the client already knows the size and CRC-32 from the manifest.
+async fn stream_entry(
+    State(state): State<AppState>,
+    ApiPath((game_id, version_id, index)): ApiPath<(i64, i64, usize)>,
+    ApiQuery(query): ApiQuery<StreamQuery>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let version_id = authorize_version(
+        &state,
+        &headers,
+        game_id,
+        Some(version_id),
+        query.token.as_deref(),
+    )
+    .await?;
+
+    let version = fetch_version(&state, game_id, version_id).await?;
+    if version.missing != 0 {
+        return Err(ApiError::not_found(
+            "file_not_found",
+            "This version is no longer available",
+        ));
+    }
+    let source = resolve_stream_source(&state, &version).await?;
+
+    if source.format != ArchiveFormat::Zip {
+        cleanup_staged(&source.path, source.staged).await;
+        return Err(stream_unsupported());
+    }
+
+    let info_path = source.path.clone();
+    let info = match tokio::task::spawn_blocking(move || zip_entry_info(&info_path, index)).await {
+        Ok(Ok(info)) => info,
+        Ok(Err(ArchiveError::EntryNotFound)) => {
+            cleanup_staged(&source.path, source.staged).await;
+            return Err(ApiError::not_found(
+                "entry_not_found",
+                "This archive does not have that entry",
+            ));
+        }
+        Ok(Err(ArchiveError::UnsupportedFormat)) => {
+            cleanup_staged(&source.path, source.staged).await;
+            return Err(stream_unsupported());
+        }
+        Ok(Err(error)) => {
+            cleanup_staged(&source.path, source.staged).await;
+            return Err(map_archive_error(error));
+        }
+        Err(error) => {
+            cleanup_staged(&source.path, source.staged).await;
+            return Err(ApiError::unprocessable(
+                "stream_failed",
+                format!("Entry task failed: {error}"),
+            ));
+        }
+    };
+
+    let requested = headers
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok());
+    let range = match resolve_entry_range(requested, info.size) {
+        Ok(range) => range,
+        Err(()) => {
+            cleanup_staged(&source.path, source.staged).await;
+            let mut response = ApiError::new(
+                StatusCode::RANGE_NOT_SATISFIABLE,
+                "invalid_range",
+                "The requested byte range cannot be satisfied",
+            )
+            .into_response();
+            if let Ok(value) = HeaderValue::from_str(&format!("bytes */{}", info.size)) {
+                response.headers_mut().insert(header::CONTENT_RANGE, value);
+            }
+            response
+                .headers_mut()
+                .insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+            return Ok(response);
+        }
+    };
+
+    if info.is_dir {
+        cleanup_staged(&source.path, source.staged).await;
+        return Err(ApiError::not_found(
+            "entry_not_found",
+            "Directories have no content",
+        ));
+    }
+
+    let file_name = info
+        .path
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or("entry.bin");
+    let content_type = mime_guess::from_path(&info.path).first_or_octet_stream();
+    let mut builder = Response::builder()
+        .status(if range.partial {
+            StatusCode::PARTIAL_CONTENT
+        } else {
+            StatusCode::OK
+        })
+        .header(header::CONTENT_TYPE, content_type.to_string())
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CONTENT_LENGTH, range.length)
+        .header(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("private, no-store"),
+        );
+    if let Ok(value) = HeaderValue::from_str(&content_disposition(file_name)) {
+        builder = builder.header(header::CONTENT_DISPOSITION, value);
+    }
+    if range.partial {
+        builder = builder.header(
+            header::CONTENT_RANGE,
+            format!(
+                "bytes {}-{}/{}",
+                range.start,
+                range.start + range.length - 1,
+                info.size
+            ),
+        );
+    }
+
+    let cleanup = source.staged.then(|| source.path.clone());
+    builder
+        .body(entry_body(
+            source.path,
+            index,
+            range.start,
+            range.length,
+            cleanup,
+        ))
         .map_err(|_| ApiError::internal())
 }
 

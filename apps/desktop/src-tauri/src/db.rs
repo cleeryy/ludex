@@ -105,7 +105,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -278,6 +278,33 @@ CREATE TABLE IF NOT EXISTS cloud_save_restore (
 );
 "#;
 
+/// Issue #115: per-entry checkpoints for resumable stream installs (v10).
+///
+/// `stream_completed` is a hex bitset of completed entry indexes (bit `i` set
+/// when entry `i` is on disk). The manifest is kept in its own table so
+/// updating the checkpoint after every entry does not rewrite a multi-megabyte
+/// entry list. Both survive an app restart; the next install of the same
+/// version adopts them when the fingerprint still matches the server manifest.
+const SCHEMA_V10: &str = r#"
+ALTER TABLE install_jobs ADD COLUMN stream_completed TEXT;
+
+CREATE TABLE IF NOT EXISTS install_stream_manifests (
+    job_id      TEXT PRIMARY KEY,
+    game_id     INTEGER NOT NULL,
+    version_id  INTEGER NOT NULL,
+    format      TEXT NOT NULL,
+    staging     TEXT NOT NULL,
+    entries     TEXT NOT NULL,
+    entry_count INTEGER NOT NULL,
+    total_bytes INTEGER NOT NULL,
+    fingerprint TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS install_stream_manifests_version_idx
+    ON install_stream_manifests (game_id, version_id);
+"#;
+
 pub fn open(path: &Path) -> Result<Connection, String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
@@ -355,6 +382,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         connection
             .execute_batch(SCHEMA_V9)
             .map_err(|e| format!("Could not add cloud save sync to the desktop database: {e}"))?;
+    }
+    if version < 10 {
+        connection
+            .execute_batch(SCHEMA_V10)
+            .map_err(|e| format!("Could not add resumable stream checkpoints: {e}"))?;
     }
 
     if version < SCHEMA_VERSION {
@@ -906,6 +938,9 @@ pub struct InstallJobRecord {
     pub error: Option<String>,
     /// True when the job used the non-resumable tar stream (#114).
     pub stream: bool,
+    /// Hex bitset of completed entry indexes for a resumable stream install
+    /// (#115). `None` for download/tar jobs.
+    pub stream_completed: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -916,8 +951,9 @@ pub fn upsert_install_job(connection: &Connection, job: &InstallJobRecord) -> Re
             r#"
             INSERT INTO install_jobs
                 (job_id, game_id, version_id, phase, bytes_done, bytes_total,
-                 speed_bps, part_path, install_path, error, stream, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                 speed_bps, part_path, install_path, error, stream, stream_completed,
+                 created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
             ON CONFLICT(job_id) DO UPDATE SET
                 phase        = excluded.phase,
                 bytes_done   = excluded.bytes_done,
@@ -927,6 +963,7 @@ pub fn upsert_install_job(connection: &Connection, job: &InstallJobRecord) -> Re
                 install_path = excluded.install_path,
                 error        = excluded.error,
                 stream       = excluded.stream,
+                stream_completed = excluded.stream_completed,
                 updated_at   = excluded.updated_at
             "#,
             params![
@@ -941,6 +978,7 @@ pub fn upsert_install_job(connection: &Connection, job: &InstallJobRecord) -> Re
                 job.install_path,
                 job.error,
                 i64::from(job.stream),
+                job.stream_completed,
                 job.created_at,
                 job.updated_at,
             ],
@@ -962,12 +1000,13 @@ fn map_install_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<InstallJobRecord
         install_path: row.get(8)?,
         error: row.get(9)?,
         stream: row.get::<_, i64>(10)? != 0,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
+        stream_completed: row.get(11)?,
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
     })
 }
 
-const INSTALL_JOB_COLUMNS: &str = "job_id, game_id, version_id, phase, bytes_done, bytes_total, speed_bps, part_path, install_path, error, stream, created_at, updated_at";
+const INSTALL_JOB_COLUMNS: &str = "job_id, game_id, version_id, phase, bytes_done, bytes_total, speed_bps, part_path, install_path, error, stream, stream_completed, created_at, updated_at";
 
 pub fn get_install_job(
     connection: &Connection,
@@ -1000,6 +1039,125 @@ pub fn latest_install_job_for_version(
         )
         .optional()
         .map_err(|e| format!("Could not read the install job: {e}"))
+}
+
+/// Row shape of `install_stream_manifests` (#115).
+#[derive(Debug, Clone)]
+pub struct StreamManifestRecord {
+    pub job_id: String,
+    pub game_id: i64,
+    pub version_id: i64,
+    pub format: String,
+    pub staging: String,
+    pub entries: String,
+    pub entry_count: i64,
+    pub total_bytes: i64,
+    pub fingerprint: String,
+    pub created_at: String,
+}
+
+/// Saves (or replaces) the manifest of a resumable stream job.
+pub fn upsert_stream_manifest(
+    connection: &Connection,
+    record: &StreamManifestRecord,
+) -> Result<(), String> {
+    connection
+        .execute(
+            r#"
+            INSERT INTO install_stream_manifests
+                (job_id, game_id, version_id, format, staging, entries,
+                 entry_count, total_bytes, fingerprint, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            ON CONFLICT(job_id) DO UPDATE SET
+                format      = excluded.format,
+                staging     = excluded.staging,
+                entries     = excluded.entries,
+                entry_count = excluded.entry_count,
+                total_bytes = excluded.total_bytes,
+                fingerprint = excluded.fingerprint
+            "#,
+            params![
+                record.job_id,
+                record.game_id,
+                record.version_id,
+                record.format,
+                record.staging,
+                record.entries,
+                record.entry_count,
+                record.total_bytes,
+                record.fingerprint,
+                record.created_at,
+            ],
+        )
+        .map_err(|e| format!("Could not record the stream manifest: {e}"))?;
+    Ok(())
+}
+
+fn map_stream_manifest(row: &rusqlite::Row<'_>) -> rusqlite::Result<StreamManifestRecord> {
+    Ok(StreamManifestRecord {
+        job_id: row.get(0)?,
+        game_id: row.get(1)?,
+        version_id: row.get(2)?,
+        format: row.get(3)?,
+        staging: row.get(4)?,
+        entries: row.get(5)?,
+        entry_count: row.get(6)?,
+        total_bytes: row.get(7)?,
+        fingerprint: row.get(8)?,
+        created_at: row.get(9)?,
+    })
+}
+
+const STREAM_MANIFEST_COLUMNS: &str = "job_id, game_id, version_id, format, staging, entries, entry_count, total_bytes, fingerprint, created_at";
+
+/// Most recent manifest for a game version, whatever job wrote it. Used to
+/// adopt a checkpoint when an install is restarted from the UI or after an app
+/// restart (which creates a new job id).
+pub fn latest_stream_manifest_for_version(
+    connection: &Connection,
+    game_id: i64,
+    version_id: i64,
+) -> Result<Option<StreamManifestRecord>, String> {
+    connection
+        .query_row(
+            &format!(
+                "SELECT {STREAM_MANIFEST_COLUMNS} FROM install_stream_manifests
+                 WHERE game_id = ?1 AND version_id = ?2
+                 ORDER BY created_at DESC LIMIT 1"
+            ),
+            params![game_id, version_id],
+            map_stream_manifest,
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the stream manifest: {e}"))
+}
+
+/// Deletes every manifest row for a game version except `keep_job_id`.
+pub fn prune_stream_manifests(
+    connection: &Connection,
+    game_id: i64,
+    version_id: i64,
+    keep_job_id: &str,
+) -> Result<usize, String> {
+    connection
+        .execute(
+            "DELETE FROM install_stream_manifests
+             WHERE game_id = ?1 AND version_id = ?2 AND job_id <> ?3",
+            params![game_id, version_id, keep_job_id],
+        )
+        .map_err(|e| format!("Could not prune the stream manifests: {e}"))
+}
+
+/// Drops the manifest of one job (completed, cancelled without progress, or
+/// superseded).
+pub fn delete_stream_manifest(connection: &Connection, job_id: &str) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM install_stream_manifests WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| format!("Could not delete the stream manifest: {e}"))?;
+    Ok(())
 }
 
 /// Every persisted job, newest first. Used by `list_install_jobs` so the UI
@@ -1039,18 +1197,22 @@ pub fn delete_install_job(connection: &Connection, job_id: &str) -> Result<bool,
             params![job_id],
         )
         .map_err(|e| format!("Could not remove the install job: {e}"))?;
+    // The stream manifest and its checkpoint are intentionally kept: they
+    // describe files still present in the staging folder, so a later install
+    // can adopt them even after the history row is gone (#115).
     Ok(affected > 0)
 }
 
 /// Remove every terminal row from Downloads history (#100). Returns the number
 /// of rows deleted; install folders, archives and `.part` files stay.
 pub fn clear_finished_install_jobs(connection: &Connection) -> Result<usize, String> {
-    connection
+    let affected = connection
         .execute(
             &format!("DELETE FROM install_jobs WHERE phase IN ({TERMINAL_INSTALL_PHASES})"),
             [],
         )
-        .map_err(|e| format!("Could not clear finished install jobs: {e}"))
+        .map_err(|e| format!("Could not clear finished install jobs: {e}"))?;
+    Ok(affected)
 }
 
 /// Mark older non-terminal jobs for the same version as superseded when a new
@@ -1654,6 +1816,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V7).unwrap();
         connection.execute_batch(SCHEMA_V8).unwrap();
         connection.execute_batch(SCHEMA_V9).unwrap();
+        connection.execute_batch(SCHEMA_V10).unwrap();
         connection
     }
 
@@ -1730,6 +1893,7 @@ mod tests {
             install_path: Some("/tmp/game".into()),
             error: None,
             stream: true,
+            stream_completed: None,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         };
@@ -1838,6 +2002,7 @@ mod tests {
             install_path: None,
             error: None,
             stream: false,
+            stream_completed: None,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         };
@@ -1870,6 +2035,7 @@ mod tests {
             install_path: None,
             error: None,
             stream: false,
+            stream_completed: None,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         }
@@ -2432,5 +2598,85 @@ mod tests {
         let restore = get_cloud_save_restore(&connection, 3).unwrap().unwrap();
         assert_eq!(restore.snapshot_id, 42);
         assert!(restore.local_backup_path.is_none());
+    }
+
+    #[test]
+    fn stream_checkpoints_roundtrip_and_prune() {
+        let connection = memory_database();
+        let mut job = job_record("stream-1", "downloading");
+        job.stream = true;
+        job.stream_completed = Some("0500".into());
+        upsert_install_job(&connection, &job).unwrap();
+        assert_eq!(
+            get_install_job(&connection, "stream-1")
+                .unwrap()
+                .unwrap()
+                .stream_completed
+                .as_deref(),
+            Some("0500")
+        );
+
+        let manifest = StreamManifestRecord {
+            job_id: "stream-1".into(),
+            game_id: 9,
+            version_id: 91,
+            format: "zip".into(),
+            staging: "/games/.slug.stream-9-91".into(),
+            entries: "[]".into(),
+            entry_count: 12,
+            total_bytes: 4096,
+            fingerprint: "abc123".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+        };
+        upsert_stream_manifest(&connection, &manifest).unwrap();
+        let loaded = latest_stream_manifest_for_version(&connection, 9, 91)
+            .unwrap()
+            .expect("manifest");
+        assert_eq!(loaded.fingerprint, "abc123");
+        assert_eq!(loaded.entry_count, 12);
+        assert_eq!(loaded.staging, "/games/.slug.stream-9-91");
+
+        // Same version, newer job: the latest row wins and prune keeps only it.
+        upsert_install_job(&connection, &job_record("stream-2", "downloading")).unwrap();
+        let mut second = manifest.clone();
+        second.job_id = "stream-2".into();
+        second.fingerprint = "def456".into();
+        second.created_at = "2026-01-02T00:00:00Z".into();
+        upsert_stream_manifest(&connection, &second).unwrap();
+        assert_eq!(
+            latest_stream_manifest_for_version(&connection, 9, 91)
+                .unwrap()
+                .unwrap()
+                .fingerprint,
+            "def456"
+        );
+        assert_eq!(
+            prune_stream_manifests(&connection, 9, 91, "stream-2").unwrap(),
+            1
+        );
+        assert_eq!(
+            latest_stream_manifest_for_version(&connection, 9, 91)
+                .unwrap()
+                .unwrap()
+                .job_id,
+            "stream-2"
+        );
+
+        // Removing a history row keeps the manifest: the staging files it
+        // points at are still adoptable by a later install (#115).
+        connection
+            .execute(
+                "UPDATE install_jobs SET phase = 'cancelled' WHERE job_id = 'stream-2'",
+                [],
+            )
+            .unwrap();
+        assert!(delete_install_job(&connection, "stream-2").unwrap());
+        assert_eq!(
+            latest_stream_manifest_for_version(&connection, 9, 91)
+                .unwrap()
+                .unwrap()
+                .job_id,
+            "stream-2"
+        );
     }
 }

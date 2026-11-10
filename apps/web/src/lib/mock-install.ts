@@ -110,9 +110,26 @@ function job(
   message: string | null,
   installPath: string | null = null,
   stream = false,
+  resumable = false,
 ): InstallJob {
   meta.set(jobId, { title, version });
-  return { jobId, gameId, versionId, phase, bytesDone, bytesTotal, speedBps, message, installPath, stream };
+  return {
+    jobId,
+    gameId,
+    versionId,
+    phase,
+    bytesDone,
+    bytesTotal,
+    speedBps,
+    message,
+    installPath,
+    stream,
+    resumable,
+    entriesDone: null,
+    entriesTotal: null,
+    currentEntry: null,
+    resumedEntries: null,
+  };
 }
 
 let jobs: InstallJob[] = [
@@ -128,6 +145,7 @@ let jobs: InstallJob[] = [
     "1.0.118",
     "Downloading archive",
     null,
+    true,
     true,
   ),
   job("job_ln3", 10, 101, "queued", 0, Math.round(18.5 * GB), 0, "Little Nightmares III", "1.0.3", "Waiting for a slot"),
@@ -183,6 +201,14 @@ let jobs: InstallJob[] = [
     "/home/mara/Games/outer-wilds/1.1.15",
   ),
 ];
+
+// Demo the per-entry stream UI (#115): a resumable job shows file counts.
+if (jobs[0]) {
+  jobs[0].entriesDone = 1240;
+  jobs[0].entriesTotal = 1830;
+  jobs[0].resumedEntries = 410;
+  jobs[0].currentEntry = "data/pakchunk12.pak";
+}
 
 phaseEnds.set("job_ln3", now() + 5000);
 
@@ -323,6 +349,11 @@ export const mockInstalls = {
       message: "Queued",
       installPath: null,
       stream: args.stream ?? false,
+      resumable: false,
+      entriesDone: null,
+      entriesTotal: null,
+      currentEntry: null,
+      resumedEntries: null,
     };
     phaseEnds.set(id, now() + 1500);
     jobs = [next, ...jobs];

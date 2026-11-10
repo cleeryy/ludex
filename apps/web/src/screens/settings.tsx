@@ -420,7 +420,7 @@ export function SettingsScreen() {
                       <div>
                         <p className="text-[13px] font-medium text-ink">{t("Stream installs from the server")}</p>
                         <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
-                          {t("ZIP archives only. Files are written as they arrive, so the archive never touches the disk. If the network drops, a stream install cannot be resumed — it restarts from zero. Use “Retry as download” in Downloads to continue through the resumable normal download path. Uses more bandwidth; non-ZIP archives fall back to a normal download.")}
+                          {t("ZIP archives only. Files are written as they arrive, so the archive never touches the disk. A dropped connection, a pause or an app restart resumes at file granularity: completed files are kept and only missing ones are downloaded again. 7z/RAR archives, and servers without the per-entry API, fall back to the normal resumable download.")}
                         </p>
                       </div>
                       <Switch

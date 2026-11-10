@@ -1606,6 +1606,7 @@ name = "ludex-core"
 version = "0.2.5"
 dependencies = [
  "chrono",
+ "crc32fast",
  "hex",
  "serde",
  "serde_json",

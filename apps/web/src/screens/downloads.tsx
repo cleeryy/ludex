@@ -381,7 +381,10 @@ function JobRow({
   // instead of a Resume button that would silently restart from zero.
   const streamFailed = isStreamFailedJob(job);
   const resumable = !streamFailed && (paused || job.phase === "error" || job.phase === "cancelled" || job.phase === "interrupted");
-  const pausable = !streamFailed && (job.phase === "queued" || job.phase === "downloading") && job.stream !== true;
+  const pausable =
+    !streamFailed &&
+    (job.phase === "queued" || job.phase === "downloading") &&
+    (job.stream !== true || job.resumable);
   const done = job.phase === "done";
   const showMessage =
     Boolean(job.message) && !["Downloading archive", "Queued", "Resuming", "Paused"].includes(job.message ?? "");
@@ -484,13 +487,15 @@ function JobRow({
               className="text-ink-2"
               icon={<RefreshCw className="size-3.5" />}
               onClick={onRetryStream}
-              title={t("Restarts the stream from zero; it cannot resume after a drop")}
+              title={t("This stream has no per-file checkpoint; retrying restarts it from zero")}
             >
               {t("Retry stream")}
             </Button>
           )}
           {streamFailed && (
-            <span className="px-1 text-[11px] leading-snug text-ink-3">{t("Stream installs restart from zero; a download can resume.")}</span>
+            <span className="px-1 text-[11px] leading-snug text-ink-3">
+              {t("This stream has no per-file checkpoint; retrying restarts it. A download can resume.")}
+            </span>
           )}
           {onOpenFolder && (
             <Button variant="ghost" size="sm" className="text-ink-3" icon={<FolderOpen className="size-3.5" />} onClick={onOpenFolder}>

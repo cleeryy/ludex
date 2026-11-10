@@ -123,6 +123,30 @@ All notable changes to Ludex are documented here. The format is based on
   record per-provider outcomes and raw payloads, and can rescan on a schedule
   (`LUDEX_ACHIEVEMENT_SCAN_INTERVAL_HOURS`, 0 = off) from the remembered source
   per game and account.
+- Resumable stream installs (#115): `GET /api/games/{id}/versions/{vid}/stream/manifest`
+  returns the ordered ZIP central directory (`index`, `path`, `size`,
+  `compressedSize`, `mode`, `crc32`, `isDir`) and
+  `GET …/stream/entries/{index}` serves one entry with single-Range support
+  (`206`/`416`, exact `Content-Length`; stored entries seek directly, compressed
+  ones decompress and skip). Same auth as `/stream` (Bearer or download
+  ticket); non-ZIP answers `415 stream_unsupported` and path traversal is
+  rejected. The sequential tar stream stays for compatibility and 7z/RAR.
+- Desktop: per-entry stream installs write files straight into staging, two at
+  a time, verify size and CRC-32, and persist the manifest plus a completed
+  entry bitset in SQLite (schema v9, `install_stream_manifests` +
+  `install_jobs.stream_completed`). A retry, pause/resume or app restart keeps
+  completed files, resumes a partial entry with Range and downloads only
+  missing entries; the install dialog shows `n/N files`, the current entry and
+  "Resumed N files". Cancel stops between entries and keeps completed files
+  when at least one exists. `InstallJob` gains `resumable`, `entriesDone`,
+  `entriesTotal`, `currentEntry` and `resumedEntries`.
+
+### Changed
+
+- A failed per-entry stream install now offers "Resume" (the checkpoint makes it
+  genuinely resumable); "Retry as download" remains for sequential tar jobs and
+  unsupported formats. The settings copy no longer says stream installs restart
+  from zero.
 
 ## [0.2.2] - 2026-11-10
 

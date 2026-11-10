@@ -42,6 +42,13 @@ pub struct JobEntry {
     pub created_at: String,
     pub part_path: Mutex<Option<String>>,
     pub install_path: Mutex<Option<String>>,
+    /// Staging folder of the current attempt. A resumable stream install may
+    /// adopt the folder of a previous attempt, so cancel/pause must use the
+    /// path the worker actually wrote to (#115).
+    pub staging_path: Mutex<Option<String>>,
+    /// Hex bitset of completed stream-install entries (#115). Kept in the job
+    /// entry so the regular job persistence writes it with the rest of the row.
+    pub stream_completed: Mutex<Option<String>>,
 }
 
 impl JobEntry {
@@ -71,6 +78,31 @@ impl JobEntry {
             Ok(mut slot) => *slot = path,
             Err(poisoned) => *poisoned.into_inner() = path,
         }
+    }
+
+    pub fn set_staging_path(&self, path: Option<String>) {
+        match self.staging_path.lock() {
+            Ok(mut slot) => *slot = path,
+            Err(poisoned) => *poisoned.into_inner() = path,
+        }
+    }
+
+    pub fn staging_path(&self) -> Option<String> {
+        self.staging_path.lock().ok().and_then(|slot| slot.clone())
+    }
+
+    pub fn set_stream_completed(&self, value: Option<String>) {
+        match self.stream_completed.lock() {
+            Ok(mut slot) => *slot = value,
+            Err(poisoned) => *poisoned.into_inner() = value,
+        }
+    }
+
+    pub fn stream_completed(&self) -> Option<String> {
+        self.stream_completed
+            .lock()
+            .map(|slot| slot.clone())
+            .unwrap_or_default()
     }
 
     /// The pause token captured by the current worker.

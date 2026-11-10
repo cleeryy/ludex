@@ -2851,6 +2851,7 @@ name = "ludex-core"
 version = "0.2.5"
 dependencies = [
  "chrono",
+ "crc32fast",
  "hex",
  "serde",
  "serde_json",
@@ -2870,6 +2871,7 @@ name = "ludex-desktop"
 version = "0.2.5"
 dependencies = [
  "chrono",
+ "crc32fast",
  "discord-rich-presence",
  "fs2",
  "futures-util",

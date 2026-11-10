@@ -719,8 +719,17 @@ export interface InstallJob {
   speedBps: number;
   message: string | null;
   installPath: string | null;
-  /** True when the job used the non-resumable stream install (#114). */
+  /** True when the job used a stream install instead of download+extract (#114). */
   stream: boolean;
+  /** True when the stream install has per-entry checkpoints and can resume (#115). */
+  resumable: boolean;
+  /** Completed / total file entries of a per-entry stream install. */
+  entriesDone: number | null;
+  entriesTotal: number | null;
+  /** Entry currently being written, relative to the install folder. */
+  currentEntry: string | null;
+  /** Files already present when this attempt started (#115). */
+  resumedEntries: number | null;
 }
 
 /** A game with a newer version on the server (#30). */

@@ -21,6 +21,7 @@ mod server;
 mod settings;
 mod state;
 mod steam;
+mod stream_install;
 #[cfg(test)]
 mod test_support;
 mod tray;

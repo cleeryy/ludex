@@ -31,11 +31,13 @@ export const isActiveJob = (job: InstallJob): boolean => ACTIVE_PHASES.has(job.p
 const FAILED_PHASES: ReadonlySet<InstallJob["phase"]> = new Set(["error", "cancelled", "interrupted"]);
 
 /**
- * A failed stream install cannot resume from bytes: the staging files were
- * never written through the resumable `.part` path. Use the persisted `stream`
- * flag, never the English error message (#114).
+ * A failed stream install with no per-entry checkpoint cannot resume from
+ * bytes: the staging folder was discarded. Per-entry stream installs (#115)
+ * persist completed entries, so they are resumable and keep the Resume button.
+ * Use the persisted flags, never the English error message (#114).
  */
-export const isStreamFailedJob = (job: InstallJob): boolean => job.stream === true && FAILED_PHASES.has(job.phase);
+export const isStreamFailedJob = (job: InstallJob): boolean =>
+  job.stream === true && job.resumable !== true && FAILED_PHASES.has(job.phase);
 
 export interface StartInstallInput {
   gameId: number;
