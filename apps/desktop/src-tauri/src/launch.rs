@@ -19,6 +19,8 @@ use crate::util::{non_empty, now_rfc3339};
 #[serde(rename_all = "camelCase")]
 pub struct LaunchResult {
     pub session_id: String,
+    /// Compatibility tool used on Linux (UMU/Proton/Wine), when any.
+    pub tool: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -48,14 +50,23 @@ pub async fn launch(
 ) -> Result<LaunchResult, String> {
     let state = app.state::<AppState>();
 
-    let installed = {
+    let (installed, options) = {
         let connection = state
             .db
             .lock()
             .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
-        db::get_installed(&connection, game_id)?
-    }
-    .ok_or_else(|| format!("Game {game_id} is not installed on this device."))?;
+        let installed = db::get_installed(&connection, game_id)?;
+        let mut options = db::get_launch_options(&connection, game_id)?;
+        if !db::has_launch_options(&connection, game_id)? {
+            let default = state.settings_snapshot().default_launch_mode;
+            if default != crate::linux_gaming::LaunchMode::Auto {
+                options.mode = default;
+            }
+        }
+        (installed, options)
+    };
+    let installed =
+        installed.ok_or_else(|| format!("Game {game_id} is not installed on this device."))?;
 
     let install_path = PathBuf::from(&installed.install_path);
     if !install_path.is_dir() {
@@ -64,6 +75,7 @@ pub async fn launch(
             install_path.display()
         ));
     }
+    let prefix = crate::linux_gaming::prefix_for(&install_path, &options.prefix_path)?;
 
     {
         let processes = state
@@ -79,17 +91,22 @@ pub async fn launch(
         Some(uri) if !uri.is_empty() => None,
         _ => Some(resolve_executable(
             &install_path,
+            Some(&prefix),
             executable.as_deref(),
             installed.executable.as_deref(),
             &installed.title,
         )?),
     };
 
-    let mut command = match (&installed.launch_uri, &executable_path) {
-        (Some(uri), _) if !uri.trim().is_empty() => build_uri_command(uri)?,
-        (_, Some(path)) => build_command(path, &install_path, args.as_deref())?,
-        (_, None) => return Err("No executable was found for this game.".to_string()),
-    };
+    let (mut command, tool) = prepare_launch(
+        app,
+        &installed,
+        executable_path.as_deref(),
+        &install_path,
+        &prefix,
+        args.as_deref(),
+        &options,
+    )?;
     let child = command.spawn().map_err(|e| match &executable_path {
         Some(path) => format!("Could not launch {}: {e}", path.display()),
         None => format!(
@@ -146,7 +163,129 @@ pub async fn launch(
         sync_pending(sync_app).await;
     });
 
-    Ok(LaunchResult { session_id })
+    Ok(LaunchResult { session_id, tool })
+}
+
+/// Build the process for a launch: URI handler, native executable, or a Linux
+/// compatibility tool around a Windows executable (#89).
+#[cfg(all(unix, not(target_os = "macos")))]
+#[allow(clippy::too_many_arguments)]
+fn prepare_launch(
+    app: &AppHandle,
+    installed: &db::InstalledGame,
+    executable: Option<&Path>,
+    install_path: &Path,
+    prefix: &Path,
+    args: Option<&str>,
+    options: &crate::linux_gaming::LaunchOptions,
+) -> Result<(Command, Option<String>), String> {
+    if let Some(uri) = installed
+        .launch_uri
+        .as_deref()
+        .map(str::trim)
+        .filter(|uri| !uri.is_empty())
+    {
+        return Ok((build_uri_command(uri)?, None));
+    }
+
+    let executable =
+        executable.ok_or_else(|| "No executable was found for this game.".to_string())?;
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+    linux_prepare_launch(executable, install_path, prefix, args, options, &settings)
+}
+
+/// Windows and macOS: no compatibility layer.
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+#[allow(clippy::too_many_arguments)]
+fn prepare_launch(
+    _app: &AppHandle,
+    installed: &db::InstalledGame,
+    executable: Option<&Path>,
+    install_path: &Path,
+    _prefix: &Path,
+    args: Option<&str>,
+    _options: &crate::linux_gaming::LaunchOptions,
+) -> Result<(Command, Option<String>), String> {
+    if let Some(uri) = installed
+        .launch_uri
+        .as_deref()
+        .map(str::trim)
+        .filter(|uri| !uri.is_empty())
+    {
+        return Ok((build_uri_command(uri)?, None));
+    }
+
+    let executable =
+        executable.ok_or_else(|| "No executable was found for this game.".to_string())?;
+    Ok((build_command(executable, install_path, args)?, None))
+}
+
+/// Linux: run a Windows executable through the selected compatibility tool.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn linux_prepare_launch(
+    executable: &Path,
+    install_path: &Path,
+    prefix: &Path,
+    args: Option<&str>,
+    options: &crate::linux_gaming::LaunchOptions,
+    settings: &crate::settings::LocalSettings,
+) -> Result<(Command, Option<String>), String> {
+    use crate::compat;
+    use crate::linux_gaming::{self, LaunchMode};
+
+    let is_windows_exe = executable
+        .extension()
+        .map(|extension| extension.eq_ignore_ascii_case("exe"))
+        .unwrap_or(false);
+
+    let mode = match options.mode {
+        LaunchMode::Auto if is_windows_exe => LaunchMode::Auto,
+        LaunchMode::Auto => LaunchMode::Native,
+        other => other,
+    };
+
+    // Native keeps the historical behaviour: `.sh` through `sh`, `.exe`
+    // through Wine when the user explicitly asked for it.
+    if mode == LaunchMode::Native {
+        return Ok((build_command(executable, install_path, args)?, None));
+    }
+
+    if !is_windows_exe {
+        return Err(format!(
+            "Proton and UMU need a Windows .exe. {} is not one; switch the launch mode to native.",
+            executable.display()
+        ));
+    }
+
+    let scan = compat::scan(settings);
+    let mut selection = linux_gaming::select_tool(&scan.tools, mode, &options.tool_id)?;
+    selection.client_install_path = scan.steam_client_path.as_deref().map(PathBuf::from);
+
+    std::fs::create_dir_all(prefix).map_err(|error| {
+        format!(
+            "Could not create the Wine prefix {}: {error}",
+            prefix.display()
+        )
+    })?;
+
+    let extra = args.map(paths::split_args).unwrap_or_default();
+    let plan = linux_gaming::build_launch(&selection, executable, &extra, prefix, options)?;
+
+    let mut command = Command::new(&plan.program);
+    command
+        .args(&plan.args)
+        .current_dir(install_path)
+        .envs(plan.env.iter())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    tracing::info!(
+        tool = %plan.tool_name,
+        prefix = %plan.prefix.display(),
+        "launching a Windows game through a compatibility tool"
+    );
+    Ok((command, Some(plan.tool_name)))
 }
 
 fn record_launch(
@@ -166,6 +305,7 @@ fn record_launch(
 
 fn resolve_executable(
     install_path: &Path,
+    extra_root: Option<&Path>,
     requested: Option<&str>,
     stored: Option<&str>,
     title: &str,
@@ -186,7 +326,11 @@ fn resolve_executable(
             install_path.join(candidate)
         };
         if full.exists() {
-            if !paths::is_inside(install_path, &full) {
+            let allowed = paths::is_inside(install_path, &full)
+                || extra_root
+                    .map(|root| paths::is_inside(root, &full))
+                    .unwrap_or(false);
+            if !allowed {
                 return Err(format!(
                     "Refusing to launch {} because it is outside the install folder.",
                     full.display()
@@ -202,12 +346,15 @@ fn resolve_executable(
         }
     }
 
-    crate::bridge::pick_executable(install_path, title).ok_or_else(|| {
-        format!(
-            "No executable was found in {}. Choose one in the game settings.",
-            install_path.display()
-        )
-    })
+    // A repack installer (#93) may have placed the game inside the Wine prefix.
+    crate::bridge::pick_executable(install_path, title)
+        .or_else(|| extra_root.and_then(|root| crate::bridge::pick_executable(root, title)))
+        .ok_or_else(|| {
+            format!(
+                "No executable was found in {}. Choose one in the game settings.",
+                install_path.display()
+            )
+        })
 }
 
 fn build_command(
@@ -590,10 +737,10 @@ mod tests {
         std::fs::write(root.join("bin/game.exe"), b"x").unwrap();
         std::fs::write(root.join("other.exe"), b"x").unwrap();
 
-        let resolved = resolve_executable(&root, Some("bin/game.exe"), None, "Game").unwrap();
+        let resolved = resolve_executable(&root, None, Some("bin/game.exe"), None, "Game").unwrap();
         assert!(resolved.ends_with("bin/game.exe"));
 
-        let resolved = resolve_executable(&root, None, Some("other.exe"), "Game").unwrap();
+        let resolved = resolve_executable(&root, None, None, Some("other.exe"), "Game").unwrap();
         assert!(resolved.ends_with("other.exe"));
 
         let _ = std::fs::remove_dir_all(&root);

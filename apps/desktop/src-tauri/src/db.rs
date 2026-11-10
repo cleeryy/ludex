@@ -10,6 +10,8 @@ use std::time::Duration;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
+use crate::linux_gaming::{LaunchMode, LaunchOptions};
+
 /// Mirrors `InstalledGame` from `docs/CONTRACT.md`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -90,7 +92,19 @@ pub struct PendingSession {
     pub minutes: i64,
 }
 
-const SCHEMA_VERSION: i64 = 6;
+/// Projected rating cached by `protondb_rating` (#91).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CachedRating {
+    pub app_id: u32,
+    pub tier: String,
+    pub best_tier: Option<String>,
+    pub trending_tier: Option<String>,
+    pub confidence: Option<String>,
+    pub total: i64,
+    pub score: Option<f64>,
+    pub fetched_at: String,
+}
+const SCHEMA_VERSION: i64 = 7;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -184,6 +198,32 @@ const SCHEMA_V6: &str = r#"
 ALTER TABLE install_jobs ADD COLUMN stream INTEGER NOT NULL DEFAULT 0;
 "#;
 
+/// Linux compatibility (#89, #91, #92): per-game launch options and the
+/// ProtonDB cache. Both are local-only; nothing here is synced to the server.
+const SCHEMA_V7: &str = r#"
+CREATE TABLE IF NOT EXISTS game_launch_options (
+    game_id          INTEGER PRIMARY KEY,
+    mode             TEXT    NOT NULL DEFAULT 'auto',
+    tool_id          TEXT    NOT NULL DEFAULT '',
+    prefix_path      TEXT    NOT NULL DEFAULT '',
+    env              TEXT    NOT NULL DEFAULT '{}',
+    winetricks_verbs TEXT    NOT NULL DEFAULT '[]',
+    steam_app_id     INTEGER,
+    updated_at       TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS protondb_reports (
+    app_id        INTEGER PRIMARY KEY,
+    tier          TEXT    NOT NULL,
+    best_tier     TEXT,
+    trending_tier TEXT,
+    confidence    TEXT,
+    total         INTEGER NOT NULL DEFAULT 0,
+    score         REAL,
+    fetched_at    TEXT    NOT NULL
+);
+"#;
+
 pub fn open(path: &Path) -> Result<Connection, String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
@@ -246,6 +286,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         connection
             .execute_batch(SCHEMA_V6)
             .map_err(|e| format!("Could not add stream flags to the desktop database: {e}"))?;
+    }
+    if version < 7 {
+        connection
+            .execute_batch(SCHEMA_V7)
+            .map_err(|e| format!("Could not add Linux compatibility tables: {e}"))?;
     }
 
     if version < SCHEMA_VERSION {
@@ -364,6 +409,12 @@ pub fn get_installed(
 }
 
 pub fn remove_installed(connection: &Connection, game_id: i64) -> Result<bool, String> {
+    connection
+        .execute(
+            "DELETE FROM game_launch_options WHERE game_id = ?1",
+            params![game_id],
+        )
+        .map_err(|e| format!("Could not remove the launch options: {e}"))?;
     let affected = connection
         .execute(
             "DELETE FROM installed_games WHERE game_id = ?1",
@@ -389,6 +440,164 @@ pub fn set_executable(
     if affected == 0 {
         return Err(format!("Game {game_id} is not installed."));
     }
+    Ok(())
+}
+
+/* ------------- per-game launch options (#89, #91, #92) ------------------ */
+
+fn parse_mode(raw: &str) -> LaunchMode {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "native" => LaunchMode::Native,
+        "proton" => LaunchMode::Proton,
+        "umu" => LaunchMode::Umu,
+        _ => LaunchMode::Auto,
+    }
+}
+
+/// True when the game has saved launch options (used to apply the global
+/// default mode only to games the user never configured).
+pub fn has_launch_options(connection: &Connection, game_id: i64) -> Result<bool, String> {
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM game_launch_options WHERE game_id = ?1)",
+            params![game_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|value| value != 0)
+        .map_err(|e| format!("Could not read the launch options: {e}"))
+}
+
+/// Launch options for a game; defaults when nothing was saved yet.
+pub fn get_launch_options(connection: &Connection, game_id: i64) -> Result<LaunchOptions, String> {
+    let row = connection
+        .query_row(
+            "SELECT mode, tool_id, prefix_path, env, winetricks_verbs, steam_app_id
+             FROM game_launch_options WHERE game_id = ?1",
+            params![game_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<i64>>(5)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the launch options: {e}"))?;
+
+    let Some((mode, tool_id, prefix_path, env, verbs, app_id)) = row else {
+        return Ok(LaunchOptions::default());
+    };
+
+    // Corrupt JSON must not make a game unlaunchable.
+    let env = serde_json::from_str(&env).unwrap_or_default();
+    let winetricks_verbs = serde_json::from_str(&verbs).unwrap_or_default();
+
+    Ok(LaunchOptions {
+        mode: parse_mode(&mode),
+        tool_id,
+        prefix_path,
+        env,
+        winetricks_verbs,
+        steam_app_id: app_id.and_then(|value| u32::try_from(value).ok()),
+    })
+}
+
+pub fn save_launch_options(
+    connection: &Connection,
+    game_id: i64,
+    options: &LaunchOptions,
+    updated_at: &str,
+) -> Result<(), String> {
+    let env = serde_json::to_string(&options.env)
+        .map_err(|e| format!("Could not encode the environment overrides: {e}"))?;
+    let verbs = serde_json::to_string(&options.winetricks_verbs)
+        .map_err(|e| format!("Could not encode the winetricks verbs: {e}"))?;
+
+    connection
+        .execute(
+            r#"
+            INSERT INTO game_launch_options
+                (game_id, mode, tool_id, prefix_path, env, winetricks_verbs, steam_app_id, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(game_id) DO UPDATE SET
+                mode             = excluded.mode,
+                tool_id          = excluded.tool_id,
+                prefix_path      = excluded.prefix_path,
+                env              = excluded.env,
+                winetricks_verbs = excluded.winetricks_verbs,
+                steam_app_id     = excluded.steam_app_id,
+                updated_at       = excluded.updated_at
+            "#,
+            params![
+                game_id,
+                options.mode.as_str(),
+                options.tool_id,
+                options.prefix_path,
+                env,
+                verbs,
+                options.steam_app_id.map(i64::from),
+                updated_at,
+            ],
+        )
+        .map_err(|e| format!("Could not save the launch options: {e}"))?;
+    Ok(())
+}
+
+pub fn cached_rating(connection: &Connection, app_id: u32) -> Result<Option<CachedRating>, String> {
+    connection
+        .query_row(
+            "SELECT app_id, tier, best_tier, trending_tier, confidence, total, score, fetched_at
+             FROM protondb_reports WHERE app_id = ?1",
+            params![i64::from(app_id)],
+            |row| {
+                Ok(CachedRating {
+                    app_id: u32::try_from(row.get::<_, i64>(0)?).unwrap_or(app_id),
+                    tier: row.get(1)?,
+                    best_tier: row.get(2)?,
+                    trending_tier: row.get(3)?,
+                    confidence: row.get(4)?,
+                    total: row.get(5)?,
+                    score: row.get(6)?,
+                    fetched_at: row.get(7)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the ProtonDB cache: {e}"))
+}
+
+pub fn store_rating(connection: &Connection, rating: &CachedRating) -> Result<(), String> {
+    connection
+        .execute(
+            r#"
+            INSERT INTO protondb_reports
+                (app_id, tier, best_tier, trending_tier, confidence, total, score, fetched_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(app_id) DO UPDATE SET
+                tier          = excluded.tier,
+                best_tier     = excluded.best_tier,
+                trending_tier = excluded.trending_tier,
+                confidence    = excluded.confidence,
+                total         = excluded.total,
+                score         = excluded.score,
+                fetched_at    = excluded.fetched_at
+            "#,
+            params![
+                i64::from(rating.app_id),
+                rating.tier,
+                rating.best_tier,
+                rating.trending_tier,
+                rating.confidence,
+                rating.total,
+                rating.score,
+                rating.fetched_at,
+            ],
+        )
+        .map_err(|e| format!("Could not cache the ProtonDB rating: {e}"))?;
     Ok(())
 }
 
@@ -925,6 +1134,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V4).unwrap();
         connection.execute_batch(SCHEMA_V5).unwrap();
         connection.execute_batch(SCHEMA_V6).unwrap();
+        connection.execute_batch(SCHEMA_V7).unwrap();
         connection
     }
 
@@ -1311,5 +1521,59 @@ mod tests {
         assert_eq!(pending.len(), 1);
         mark_session_synced(&connection, "s1").unwrap();
         assert!(pending_sessions(&connection).unwrap().is_empty());
+    }
+
+    #[test]
+    fn launch_options_roundtrip_and_default_to_auto() {
+        let connection = memory_database();
+        assert_eq!(
+            get_launch_options(&connection, 9).unwrap(),
+            LaunchOptions::default()
+        );
+
+        let mut options = LaunchOptions {
+            mode: LaunchMode::Proton,
+            tool_id: "proton:/games/GE-Proton9-20".into(),
+            prefix_path: "/mnt/prefixes/nine".into(),
+            ..LaunchOptions::default()
+        };
+        options.env.insert("DXVK_HUD".into(), "fps".into());
+        options.winetricks_verbs = vec!["corefonts".into()];
+        options.steam_app_id = Some(1145360);
+        save_launch_options(&connection, 9, &options, "2026-11-10T00:00:00Z").unwrap();
+
+        let back = get_launch_options(&connection, 9).unwrap();
+        assert_eq!(back, options);
+
+        // Corrupt JSON falls back to defaults instead of breaking the launch.
+        connection
+            .execute(
+                "UPDATE game_launch_options SET env = 'not json' WHERE game_id = 9",
+                [],
+            )
+            .unwrap();
+        let broken = get_launch_options(&connection, 9).unwrap();
+        assert!(broken.env.is_empty());
+        assert_eq!(broken.mode, LaunchMode::Proton);
+    }
+
+    #[test]
+    fn protondb_cache_roundtrips() {
+        let connection = memory_database();
+        assert!(cached_rating(&connection, 1145360).unwrap().is_none());
+
+        let rating = CachedRating {
+            app_id: 1145360,
+            tier: "platinum".into(),
+            best_tier: Some("platinum".into()),
+            trending_tier: None,
+            confidence: Some("strong".into()),
+            total: 412,
+            score: Some(0.82),
+            fetched_at: "2026-11-10T00:00:00Z".into(),
+        };
+        store_rating(&connection, &rating).unwrap();
+        let back = cached_rating(&connection, 1145360).unwrap().unwrap();
+        assert_eq!(back, rating);
     }
 }
