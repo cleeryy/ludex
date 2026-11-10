@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-10
+
 ### Added
 
 - Save folder detection (#107): the desktop app resolves a game's save files
