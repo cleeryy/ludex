@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { ART_BY_SLUG, MOTIF_KEYS, PALETTES, artFromUrl, artForTitle, hashString, mulberry32, type ArtSpec, type MotifKey } from "@/lib/art";
 import { assetUrl } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { t } from "@/lib/i18n";
 
 /* --------------------------------------------------------------------------
    Motifs. Every plate is drawn in a 300x400 space and cropped by CSS, so the
@@ -392,7 +393,7 @@ export function GameCover({
           <div className="cover-type">
             <div className="cover-series">
               <span>Ludex</span>
-              <span>{typeof index === "number" ? `No. ${String(index).padStart(3, "0")}` : "Archive"}</span>
+              <span>{typeof index === "number" ? `No. ${String(index).padStart(3, "0")}` : t("Archive")}</span>
             </div>
             <div>
               <div className="cover-title">{title}</div>
@@ -509,7 +510,7 @@ export function StillPlate({
       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.1),rgba(0,0,0,0.55))]" />
       <div className="absolute inset-x-0 bottom-0 flex items-end justify-between p-3 font-mono text-[10px] uppercase tracking-[0.14em] text-white/75">
         <span>{variant.motif}</span>
-        <span>Still {String(index + 1).padStart(2, "0")}</span>
+        <span>{t("Still")} {String(index + 1).padStart(2, "0")}</span>
       </div>
     </div>
   );

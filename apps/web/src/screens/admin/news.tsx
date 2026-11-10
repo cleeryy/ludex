@@ -10,6 +10,7 @@ import { useToast } from "@/state/toasts";
 import { EmptyState, ErrorState, PageHeader } from "@/components/page";
 import { Button, Field, IconButton, Input, Skeleton, Textarea } from "@/components/ui/controls";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
+import { t , tn } from "@/lib/i18n";
 
 export function AdminNewsScreen() {
   const { push } = useToast();
@@ -27,22 +28,22 @@ export function AdminNewsScreen() {
   const remove = useMutation({
     mutationFn: (id: number) => api.deleteNews(id),
     onSuccess: () => {
-      push({ title: "Post deleted" });
+      push({ title: t("Post deleted") });
       setDeleteTarget(null);
       invalidate();
     },
-    onError: (cause: Error) => push({ title: "Could not delete the post", description: cause.message, tone: "danger" }),
+    onError: (cause: Error) => push({ title: t("Could not delete the post"), description: cause.message, tone: "danger" }),
   });
 
   return (
     <div className="page page-in">
       <PageHeader
-        title="News"
-        meta={<span className="num">{data?.length ?? 0} posts</span>}
-        description="Posts appear on the News page for every account on this server."
+        title={t("News")}
+        meta={<span className="num">{tn(data?.length ?? 0, "1 post", "{count} posts")}</span>}
+        description={t("Posts appear on the News page for every account on this server.")}
         actions={
           <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditor("new")}>
-            New post
+            {t("New post")}
           </Button>
         }
       />
@@ -59,7 +60,7 @@ export function AdminNewsScreen() {
           ))}
 
         {!isPending && !isError && data && data.length === 0 && (
-          <EmptyState title="No posts yet" description="Write the first note about this server or a release." compact />
+          <EmptyState title={t("No posts yet")} description={t("Write the first note about this server or a release.")} compact />
         )}
 
         {data?.map((post) => (
@@ -69,19 +70,19 @@ export function AdminNewsScreen() {
               <p className="mt-1 flex flex-wrap items-baseline gap-x-3 font-mono text-[10.5px] text-ink-3">
                 <span>{formatDate(post.createdAt)}</span>
                 <span>{post.author}</span>
-                {post.updatedAt !== post.createdAt && <span>edited {formatDate(post.updatedAt)}</span>}
+                {post.updatedAt !== post.createdAt && <span>{t("edited")} {formatDate(post.updatedAt)}</span>}
               </p>
             </div>
             <div className="flex items-center gap-1">
               <Link to="/news" className="mr-1 flex h-8 items-center gap-1 text-[12px] text-ink-3 hover:text-ink">
-                View
+                {t("View")}
                 <ArrowUpRight className="size-3" aria-hidden="true" />
               </Link>
               <Button variant="ghost" size="sm" onClick={() => setEditor(post)} className="text-ink-2">
-                Edit
+                {t("Edit")}
               </Button>
               <IconButton
-                label={`Delete ${post.title}`}
+                label={t("Delete {name}", { name: post.title })}
                 variant="ghost"
                 className="size-8 text-ink-3 hover:text-danger"
                 onClick={() => setDeleteTarget(post)}
@@ -105,9 +106,9 @@ export function AdminNewsScreen() {
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="Delete this post?"
+        title={t("Delete this post?")}
         description={deleteTarget ? `“${deleteTarget.title}” will be removed from the News page.` : ""}
-        confirmLabel="Delete post"
+        confirmLabel={t("Delete post")}
         loading={remove.isPending}
         onConfirm={() => deleteTarget && remove.mutate(deleteTarget.id)}
       />
@@ -145,7 +146,7 @@ function NewsEditor({
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
-    if (!title.trim()) return setError("Give the post a title.");
+    if (!title.trim()) return setError(t("Give the post a title."));
     setBusy(true);
     try {
       if (post) await api.updateNews(post.id, { title: title.trim(), body });
@@ -168,25 +169,25 @@ function NewsEditor({
           onClose();
         }
       }}
-      title={isNew ? "New post" : "Edit post"}
-      description="Plain text. Blank lines separate paragraphs."
+      title={isNew ? t("New post") : t("Edit post")}
+      description={t("Plain text. Blank lines separate paragraphs.")}
       size="lg"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" form="news-form" type="submit" loading={busy}>
-            {isNew ? "Publish" : "Save changes"}
+            {isNew ? t("Publish") : t("Save changes")}
           </Button>
         </>
       }
     >
       <form id="news-form" onSubmit={save} className="flex flex-col gap-4">
-        <Field label="Title" htmlFor="news-title">
+        <Field label={t("Title")} htmlFor="news-title">
           <Input id="news-title" value={title} onChange={(event) => setTitle(event.target.value)} autoFocus required maxLength={120} />
         </Field>
-        <Field label="Body" htmlFor="news-body">
+        <Field label={t("Body")} htmlFor="news-body">
           <Textarea id="news-body" value={body} onChange={(event) => setBody(event.target.value)} rows={10} className="min-h-[220px]" />
         </Field>
         {error && (

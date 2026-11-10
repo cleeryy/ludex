@@ -11,12 +11,15 @@ import { ErrorState, PageHeader } from "@/components/page";
 import { Badge, Button, Field, IconButton, Input, Skeleton, Switch } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
+import { tr, t , tn } from "@/lib/i18n";
 
-const ROLES: { value: Role; label: string }[] = [
-  { value: "admin", label: "Admin" },
-  { value: "editor", label: "Editor" },
-  { value: "user", label: "Member" },
-];
+function roleOptions(): { value: Role; label: string }[] {
+  return [
+    { value: "admin", label: t("Admin") },
+    { value: "editor", label: t("Editor") },
+    { value: "user", label: t("Member") },
+  ];
+}
 
 type UserPatch = { username?: string; email?: string | null; password?: string; role?: Role; activated?: boolean };
 
@@ -40,12 +43,12 @@ function generatePassword(): string {
 function SourceBadge({ user }: { user: User }) {
   if (user.source === "oidc") {
     return (
-      <span title={user.oidcIssuer ?? "Single sign-on account"}>
+      <span title={user.oidcIssuer ?? t("Single sign-on account")}>
         <Badge tone="outline">{issuerLabel(user.oidcIssuer)}</Badge>
       </span>
     );
   }
-  return <Badge tone="outline">Local</Badge>;
+  return <Badge tone="outline">{t("Local")}</Badge>;
 }
 
 export function UsersScreen() {
@@ -66,28 +69,28 @@ export function UsersScreen() {
   const update = useMutation({
     mutationFn: ({ id, patch }: { id: number; patch: UserPatch }) => api.updateUser(id, patch),
     onSuccess: () => invalidate(),
-    onError: (cause: Error) => push({ title: "Could not update the user", description: cause.message, tone: "danger" }),
+    onError: (cause: Error) => push({ title: t("Could not update the user"), description: cause.message, tone: "danger" }),
   });
 
   const remove = useMutation({
     mutationFn: (id: number) => api.deleteUser(id),
     onSuccess: () => {
-      push({ title: "User deleted" });
+      push({ title: t("User deleted") });
       setDeleteTarget(null);
       invalidate();
     },
-    onError: (cause: Error) => push({ title: "Could not delete the user", description: cause.message, tone: "danger" }),
+    onError: (cause: Error) => push({ title: t("Could not delete the user"), description: cause.message, tone: "danger" }),
   });
 
   return (
     <div className="page page-in">
       <PageHeader
-        title="Users"
-        meta={<span className="num">{data?.length ?? 0} accounts</span>}
-        description="Accounts live on this server. Roles decide what people can do; activation decides whether they can sign in."
+        title={t("Users")}
+        meta={<span className="num">{tn(data?.length ?? 0, "1 account", "{count} accounts")}</span>}
+        description={t("Accounts live on this server. Roles decide what people can do; activation decides whether they can sign in.")}
         actions={
           <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreateOpen(true)}>
-            Add user
+            {t("Add user")}
           </Button>
         }
       />
@@ -96,11 +99,11 @@ export function UsersScreen() {
 
       <div className="mt-8 border-t border-line">
         <div className="hidden grid-cols-[1fr_140px_110px_120px_72px] items-center gap-4 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3 md:grid">
-          <span>Account</span>
-          <span>Role</span>
-          <span>Active</span>
-          <span>Created</span>
-          <span className="sr-only">Actions</span>
+          <span>{t("Account")}</span>
+          <span>{t("Role")}</span>
+          <span>{t("Active")}</span>
+          <span>{t("Created")}</span>
+          <span className="sr-only">{t("Actions")}</span>
         </div>
 
         {isPending &&
@@ -112,7 +115,7 @@ export function UsersScreen() {
           ))}
 
         {!isPending && !isError && data?.length === 0 && (
-          <p className="py-6 text-[13px] text-ink-3">No accounts. Add the first one.</p>
+          <p className="py-6 text-[13px] text-ink-3">{t("No accounts. Add the first one.")}</p>
         )}
 
         {data?.map((user) => (
@@ -127,19 +130,19 @@ export function UsersScreen() {
               <div className="min-w-0">
                 <p className="flex flex-wrap items-center gap-2 truncate text-[13.5px] text-ink">
                   {user.username}
-                  {user.id === me?.id && <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-3">you</span>}
+                  {user.id === me?.id && <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-3">{t("you")}</span>}
                   <SourceBadge user={user} />
                 </p>
-                <p className="truncate text-[11.5px] text-ink-3">{user.email ?? "No email"}</p>
+                <p className="truncate text-[11.5px] text-ink-3">{user.email ?? t("No email")}</p>
               </div>
             </div>
 
             <div className="w-[120px] md:w-auto">
               <Select
-                label={`Role for ${user.username}`}
+                label={t("Role for {name}", { name: user.username })}
                 value={user.role}
                 onChange={(role) => update.mutate({ id: user.id, patch: { role } })}
-                options={ROLES}
+                options={roleOptions()}
                 className="h-8 text-[12px]"
               />
             </div>
@@ -147,17 +150,17 @@ export function UsersScreen() {
             <div className="flex items-center gap-2">
               <Switch
                 checked={user.activated}
-                label={`Activate ${user.username}`}
+                label={t("Activate {name}", { name: user.username })}
                 onCheckedChange={(activated) => update.mutate({ id: user.id, patch: { activated } })}
               />
-              <span className="text-[11.5px] text-ink-3 md:hidden">{user.activated ? "Active" : "Disabled"}</span>
+              <span className="text-[11.5px] text-ink-3 md:hidden">{user.activated ? t("Active") : t("Disabled")}</span>
             </div>
 
             <span className="num hidden text-[11px] text-ink-3 md:block">{formatDate(user.createdAt)}</span>
 
             <div className="flex justify-end gap-1">
               <IconButton
-                label={`Edit ${user.username}`}
+                label={t("Edit {name}", { name: user.username })}
                 variant="ghost"
                 className="size-8 text-ink-3 hover:text-ink"
                 onClick={() => setEditTarget(user)}
@@ -165,7 +168,7 @@ export function UsersScreen() {
                 <Pencil className="size-3.5" />
               </IconButton>
               <IconButton
-                label={`Delete ${user.username}`}
+                label={t("Delete {name}", { name: user.username })}
                 variant="ghost"
                 className="size-8 text-ink-3 hover:text-danger"
                 disabled={user.id === me?.id}
@@ -179,9 +182,7 @@ export function UsersScreen() {
       </div>
 
       <p className="mt-4 text-[11.5px] leading-relaxed text-ink-3">
-        Local accounts store their own identity and password. SSO accounts take their username, email and password from
-        the identity provider; only role and activation are editable here. The last administrator cannot be deleted or
-        demoted, and you cannot delete your own account.
+        {t("Local accounts store their own identity and password. SSO accounts take their username, email and password from the identity provider; only role and activation are editable here. The last administrator cannot be deleted or demoted, and you cannot delete your own account.")}
       </p>
 
       <CreateUserDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={invalidate} />
@@ -194,13 +195,13 @@ export function UsersScreen() {
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title={`Delete ${deleteTarget?.username ?? "this user"}?`}
+        title={t("Delete {name}?", { name: deleteTarget?.username ?? t("this user") })}
         description={
           deleteTarget?.source === "oidc"
-            ? `This account signs in through ${deleteTarget.oidcIssuer ?? "an identity provider"}. Deleting it here removes the local account, progress and playtime; the identity itself stays with the provider.`
-            : "Their sessions end immediately. Progress, playtime and bookmarks stay in the database but are no longer reachable."
+            ? `This account signs in through ${deleteTarget.oidcIssuer ?? t("an identity provider")}. Deleting it here removes the local account, progress and playtime; the identity itself stays with the provider.`
+            : t("Their sessions end immediately. Progress, playtime and bookmarks stay in the database but are no longer reachable.")
         }
-        confirmLabel="Delete user"
+        confirmLabel={t("Delete user")}
         loading={remove.isPending}
         onConfirm={() => deleteTarget && remove.mutate(deleteTarget.id)}
       />
@@ -246,8 +247,8 @@ function EditUserDialog({
     const nextEmail = email.trim() || null;
     const patch: UserPatch = {};
     if (!sso) {
-      if (trimmedUsername.length < 3) return setError("Use at least three characters for the username.");
-      if (password.length > 0 && password.length < 8) return setError("Use at least eight characters for the password.");
+      if (trimmedUsername.length < 3) return setError(t("Use at least three characters for the username."));
+      if (password.length > 0 && password.length < 8) return setError(t("Use at least eight characters for the password."));
       if (trimmedUsername !== target.username) patch.username = trimmedUsername;
       if (nextEmail !== target.email) patch.email = nextEmail;
       if (password.length > 0) patch.password = password;
@@ -262,7 +263,7 @@ function EditUserDialog({
     try {
       await api.updateUser(target.id, patch);
       push({
-        title: "User updated",
+        title: t("User updated"),
         description: patch.password ? `The password for ${trimmedUsername} was reset.` : `${trimmedUsername} was updated.`,
         tone: "success",
       });
@@ -283,19 +284,19 @@ function EditUserDialog({
         if (!next) reset();
         onOpenChange(next);
       }}
-      title={`Edit ${target?.username ?? "user"}`}
+      title={t("Edit {name}", { name: target?.username ?? t("this user") })}
       description={
         sso
-          ? "Identity fields are read-only for SSO accounts. You can still change the local role and activation."
-          : "Rename the account, change its email, reset its password or adjust access."
+          ? t("Identity fields are read-only for SSO accounts. You can still change the local role and activation.")
+          : t("Rename the account, change its email, reset its password or adjust access.")
       }
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" form="edit-user" type="submit" loading={busy}>
-            Save changes
+            {t("Save changes")}
           </Button>
         </>
       }
@@ -303,12 +304,12 @@ function EditUserDialog({
       <form id="edit-user" onSubmit={submit} className="flex flex-col gap-4">
         {sso && (
           <p className="border-l-2 border-line-2 pl-3 text-[12.5px] leading-relaxed text-ink-3">
-            This account is managed by{" "}
-            <span className="break-all text-ink-2">{target?.oidcIssuer ?? "an identity provider"}</span>. Change the
-            username, email or password there; they cannot be edited here.
+            {tr("This account is managed by {issuer}. Change the username, email or password there; they cannot be edited here.", {
+              issuer: <span className="break-all text-ink-2">{target?.oidcIssuer ?? t("an identity provider")}</span>,
+            })}
           </p>
         )}
-        <Field label="Username" htmlFor="edit-username">
+        <Field label={t("Username")} htmlFor="edit-username">
           <Input
             id="edit-username"
             value={username}
@@ -320,9 +321,9 @@ function EditUserDialog({
           />
         </Field>
         <Field
-          label="Email"
+          label={t("Email")}
           htmlFor="edit-email"
-          hint={sso ? "Provided by the identity provider." : "Optional. There is no mail server yet."}
+          hint={sso ? t("Provided by the identity provider.") : t("Optional. There is no mail server yet.")}
         >
           <Input
             id="edit-email"
@@ -335,9 +336,9 @@ function EditUserDialog({
         </Field>
         {!sso && (
           <Field
-            label="New password"
+            label={t("New password")}
             htmlFor="edit-password"
-            hint="Leave blank to keep the current password. At least eight characters."
+            hint={t("Leave blank to keep the current password. At least eight characters.")}
             aside={
               <div className="flex items-center gap-1">
                 <Button
@@ -350,7 +351,7 @@ function EditUserDialog({
                     setShowPassword(true);
                   }}
                 >
-                  Generate
+                  {t("Generate")}
                 </Button>
                 <Button
                   size="sm"
@@ -359,7 +360,7 @@ function EditUserDialog({
                   icon={showPassword ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
                   onClick={() => setShowPassword((value) => !value)}
                 >
-                  {showPassword ? "Hide" : "Show"}
+                  {showPassword ? t("Hide") : t("Show")}
                 </Button>
               </div>
             }
@@ -373,15 +374,15 @@ function EditUserDialog({
             />
           </Field>
         )}
-        <Field label="Role" htmlFor="edit-role">
-          <Select label="Role" id="edit-role" value={role} onChange={setRole} options={ROLES} />
+        <Field label={t("Role")} htmlFor="edit-role">
+          <Select label={t("Role")} id="edit-role" value={role} onChange={setRole} options={roleOptions()} />
         </Field>
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-[13px] font-medium text-ink">Activated</p>
-            <p className="text-[12.5px] text-ink-3">Disabled accounts cannot sign in.</p>
+            <p className="text-[13px] font-medium text-ink">{t("Activated")}</p>
+            <p className="text-[12.5px] text-ink-3">{t("Disabled accounts cannot sign in.")}</p>
           </div>
-          <Switch checked={activated} label={`Activate ${target?.username ?? "user"}`} onCheckedChange={setActivated} />
+          <Switch checked={activated} label={t("Activate {name}", { name: target?.username ?? t("this user") })} onCheckedChange={setActivated} />
         </div>
         {error && (
           <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
@@ -413,12 +414,12 @@ function CreateUserDialog({ open, onOpenChange, onCreated }: { open: boolean; on
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
-    if (username.trim().length < 3) return setError("Use at least three characters for the username.");
-    if (password.length < 8) return setError("Use at least eight characters for the password.");
+    if (username.trim().length < 3) return setError(t("Use at least three characters for the username."));
+    if (password.length < 8) return setError(t("Use at least eight characters for the password."));
     setBusy(true);
     try {
       await api.createUser({ username: username.trim(), password, email: email.trim() || null, role });
-      push({ title: "User created", description: `${username.trim()} can sign in now.`, tone: "success" });
+      push({ title: t("User created"), description: t("{username} can sign in now.", { username: username.trim() }), tone: "success" });
       reset();
       onOpenChange(false);
       onCreated();
@@ -436,36 +437,36 @@ function CreateUserDialog({ open, onOpenChange, onCreated }: { open: boolean; on
         if (!next) reset();
         onOpenChange(next);
       }}
-      title="Add a user"
-      description="They can sign in immediately unless you deactivate the account afterwards."
+      title={t("Add a user")}
+      description={t("They can sign in immediately unless you deactivate the account afterwards.")}
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" form="create-user" type="submit" loading={busy}>
-            Create user
+            {t("Create user")}
           </Button>
         </>
       }
     >
       <form id="create-user" onSubmit={submit} className="flex flex-col gap-4">
-        <Field label="Username" htmlFor="new-username">
+        <Field label={t("Username")} htmlFor="new-username">
           <Input id="new-username" value={username} onChange={(event) => setUsername(event.target.value)} autoFocus required />
         </Field>
-        <Field label="Email" htmlFor="new-email" hint="Optional. Used for nothing yet; there is no mail server.">
+        <Field label={t("Email")} htmlFor="new-email" hint={t("Optional. Used for nothing yet; there is no mail server.")}>
           <Input id="new-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
         </Field>
-        <Field label="Password" htmlFor="new-password" hint="At least eight characters.">
+        <Field label={t("Password")} htmlFor="new-password" hint={t("At least eight characters.")}>
           <Input id="new-password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
         </Field>
-        <Field label="Role" htmlFor="new-role">
-          <Select label="Role" id="new-role" value={role} onChange={setRole} options={ROLES} />
+        <Field label={t("Role")} htmlFor="new-role">
+          <Select label={t("Role")} id="new-role" value={role} onChange={setRole} options={roleOptions()} />
         </Field>
         <div className="flex flex-wrap gap-2 text-[11.5px] text-ink-3">
-          <Badge tone="outline">Admin: everything</Badge>
-          <Badge tone="outline">Editor: ingest, scan, metadata</Badge>
-          <Badge tone="outline">Member: browse and play</Badge>
+          <Badge tone="outline">{t("Admin: everything")}</Badge>
+          <Badge tone="outline">{t("Editor: ingest, scan, metadata")}</Badge>
+          <Badge tone="outline">{t("Member: browse and play")}</Badge>
         </div>
         {error && (
           <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">

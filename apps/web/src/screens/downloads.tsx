@@ -4,7 +4,7 @@ import { Check, Download, FolderOpen, Pause, Play, RefreshCw, Trash2, X } from "
 import { installsAvailable } from "@/lib/install";
 import { isActiveJob, isStreamFailedJob, useDownloads, type Aggregate } from "@/state/downloads";
 import { useAllGames } from "@/lib/hooks";
-import { formatBytes, formatDuration, formatSpeed, installPhaseLabel } from "@/lib/format";
+import { formatBytes, formatDuration, formatSpeed, installPhaseLabel, formatPercent } from "@/lib/format";
 import { HISTORY_WINDOW_MS, type JobMeter, type SpeedPoint } from "@/lib/eta";
 import type { InstallJob } from "@/lib/types";
 import { useToast } from "@/state/toasts";
@@ -13,6 +13,7 @@ import { GameCover } from "@/components/art/cover";
 import { Badge, Button, Progress } from "@/components/ui/controls";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
+import { tr, t, tn } from "@/lib/i18n";
 
 /** Rows whose history entry may be deleted (#100); active and paused rows cannot. */
 const REMOVABLE_PHASES: ReadonlySet<InstallJob["phase"]> = new Set(["done", "cancelled", "error", "interrupted"]);
@@ -31,10 +32,10 @@ const MIN_GRAPH_SPAN_MS = 5_000;
 function aggregateStatus(aggregate: Aggregate): { text: string; hint: string | null } | null {
   if (aggregate.downloading > 0) {
     if (!aggregate.etaKnown) {
-      return { text: "—", hint: "At least one running download does not report a total size." };
+      return { text: "—", hint: t("At least one running download does not report a total size.") };
     }
-    if (aggregate.estimating) return { text: "Estimating…", hint: "Collecting the first samples." };
-    if (aggregate.etaSeconds !== null) return { text: `${formatDuration(aggregate.etaSeconds)} left`, hint: null };
+    if (aggregate.estimating) return { text: t("Estimating…"), hint: t("Collecting the first samples.") };
+    if (aggregate.etaSeconds !== null) return { text: t("{duration} left", { duration: formatDuration(aggregate.etaSeconds) }), hint: null };
     return null;
   }
   // No download is moving: narrate extraction with elapsed time, and stay
@@ -74,9 +75,11 @@ function TransferGraph({ points, now }: { points: SpeedPoint[]; now: number }) {
       : "";
 
   const speedLabel = (value: number) => (value > 0 ? formatSpeed(value) : "0 B/s");
-  const summary = `Download speed over the last two minutes: ${speedLabel(current)} now, peak ${speedLabel(peak)}, average ${speedLabel(
-    average,
-  )}.`;
+  const summary = t("Download speed over the last two minutes: {current} now, peak {peak}, average {average}.", {
+    current: speedLabel(current),
+    peak: speedLabel(peak),
+    average: speedLabel(average),
+  });
 
   return (
     <figure className="flex items-center gap-3">
@@ -113,13 +116,13 @@ function TransferGraph({ points, now }: { points: SpeedPoint[]; now: number }) {
       </svg>
       <figcaption className="flex flex-col gap-0.5 font-mono text-[10px] leading-tight text-ink-3">
         <span>
-          now <span className="text-ink-2">{speedLabel(current)}</span>
+          {t("Now")} <span className="text-ink-2">{speedLabel(current)}</span>
         </span>
         <span>
-          peak <span className="text-ink-2">{speedLabel(peak)}</span>
+          {t("peak")} <span className="text-ink-2">{speedLabel(peak)}</span>
         </span>
         <span>
-          avg <span className="text-ink-2">{speedLabel(average)}</span>
+          {t("Avg")} <span className="text-ink-2">{speedLabel(average)}</span>
         </span>
       </figcaption>
       <span className="sr-only">{summary}</span>
@@ -142,14 +145,14 @@ export function DownloadsScreen() {
   if (!installsAvailable()) {
     return (
       <div className="page page-in">
-        <PageHeader title="Downloads" description="Install jobs run inside the Ludex desktop app." />
+        <PageHeader title={t("Downloads")} description={t("Install jobs run inside the Ludex desktop app.")} />
         <div className="mt-8">
           <EmptyState
-            title="Downloads live on the desktop"
-            description="The browser build can browse the library and download archives. Installing, launching and playtime need the Ludex desktop app."
+            title={t("Downloads live on the desktop")}
+            description={t("The browser build can browse the library and download archives. Installing, launching and playtime need the Ludex desktop app.")}
           >
             <Link to="/library">
-              <Button variant="default">Open the library</Button>
+              <Button variant="default">{t("Open the library")}</Button>
             </Link>
           </EmptyState>
         </div>
@@ -182,8 +185,8 @@ export function DownloadsScreen() {
     const cleared = await clearHistory();
     if (cleared > 0) {
       push({
-        title: "Finished downloads cleared",
-        description: `${cleared} ${cleared === 1 ? "entry" : "entries"} removed from history. Install folders are kept.`,
+        title: t("Finished downloads cleared"),
+        description: tn(cleared, "1 entry removed from history. Install folders are kept.", "{count} entries removed from history. Install folders are kept."),
       });
     }
   };
@@ -205,11 +208,11 @@ export function DownloadsScreen() {
   return (
     <div className="page page-in">
       <PageHeader
-        title="Downloads"
+        title={t("Downloads")}
         meta={
           <>
-            <span className="num">{activeCount} active</span>
-            <span className="num">{history.length} in history</span>
+            <span className="num">{t("{count} active", { count: activeCount })}</span>
+            <span className="num">{t("{count} in history", { count: history.length })}</span>
             {aggregate?.speedBps ? <span className="num">{formatSpeed(aggregate.speedBps)}</span> : null}
             {status ? (
               <span className="num" title={status.hint ?? undefined}>
@@ -218,11 +221,11 @@ export function DownloadsScreen() {
             ) : null}
           </>
         }
-        description="Installs keep running while you use the rest of the app. Closing the install window does not stop them."
+        description={t("Installs keep running while you use the rest of the app. Closing the install window does not stop them.")}
         actions={
           <Link to="/library">
             <Button variant="ghost" size="sm">
-              Browse the library
+              {t("Browse the library")}
             </Button>
           </Link>
         }
@@ -230,12 +233,12 @@ export function DownloadsScreen() {
 
       <section className="mt-8" aria-labelledby="downloads-active">
         <SectionHeader
-          title="Active"
+          title={t("Active")}
           count={activeCount}
           actions={
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               {aggregate && aggregate.percent !== null ? (
-                <span className="num text-[11px] text-ink-3">{aggregate.percent.toFixed(0)}% overall</span>
+                <span className="num text-[11px] text-ink-3">{t("{percent} overall", { percent: formatPercent(aggregate.percent) })}</span>
               ) : null}
               {active.length > 0 ? <TransferGraph points={speedHistory} now={speedHistoryAt} /> : null}
             </div>
@@ -243,7 +246,7 @@ export function DownloadsScreen() {
         />
         <div id="downloads-active" className="border-t border-line">
           {active.length === 0 && (
-            <p className="py-6 text-[13px] text-ink-3">Nothing downloading. New installs appear here and in the status bar.</p>
+            <p className="py-6 text-[13px] text-ink-3">{t("Nothing downloading. New installs appear here and in the status bar.")}</p>
           )}
           {active.map((job) => (
             <JobRow
@@ -264,7 +267,7 @@ export function DownloadsScreen() {
 
       <section className="mt-10" aria-labelledby="downloads-history">
         <SectionHeader
-          title="History"
+          title={t("History")}
           count={history.length}
           actions={
             history.length > 0 ? (
@@ -273,14 +276,14 @@ export function DownloadsScreen() {
                 onClick={() => void clear()}
                 className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
               >
-                Clear finished
+                {t("Clear finished")}
               </button>
             ) : null
           }
         />
         <div id="downloads-history" className="border-t border-line">
           {history.length === 0 && (
-            <p className="py-6 text-[13px] text-ink-3">No finished downloads yet.</p>
+            <p className="py-6 text-[13px] text-ink-3">{t("No finished downloads yet.")}</p>
           )}
           {history.map((job) => (
             <JobRow
@@ -302,9 +305,9 @@ export function DownloadsScreen() {
       </section>
 
       <p className="mt-6 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
-        Install folders, stream installs and archive passwords are set in Settings. Downloads are indexed by the desktop app
-        and survive a restart. Removing an entry from history never deletes the installed game, its folder or a partial
-        <span className="font-mono"> .part </span> download.
+        {tr("Install folders, stream installs and archive passwords are set in Settings. Downloads are indexed by the desktop app and survive a restart. Removing an entry from history never deletes the installed game, its folder or a partial {part} download.", {
+          part: <span className="font-mono">.part</span>,
+        })}
       </p>
 
       <ConfirmDialog
@@ -312,13 +315,13 @@ export function DownloadsScreen() {
         onOpenChange={(open) => {
           if (!open) setRemoveTarget(null);
         }}
-        title="Remove from Download history?"
+        title={t("Remove from Download history?")}
         description={
           removeTarget
             ? `${titleFor(removeTarget)} stays installed and its files are kept, including a partial .part download. Only this Downloads entry is removed.`
             : ""
         }
-        confirmLabel="Remove from history"
+        confirmLabel={t("Remove from history")}
         onConfirm={confirmRemove}
       />
     </div>
@@ -328,7 +331,7 @@ export function DownloadsScreen() {
 /** Per-job ETA label: estimating, gated duration, or "—" for an unknown total. */
 function jobEta(job: InstallJob, meter?: JobMeter): string | null {
   if (!meter || meter.estimating) return "Estimating…";
-  if (meter.etaSeconds !== null) return `${formatDuration(meter.etaSeconds)} left`;
+  if (meter.etaSeconds !== null) return t("{duration} left", { duration: formatDuration(meter.etaSeconds) });
   if (!job.bytesTotal) return "—";
   return null;
 }
@@ -385,7 +388,7 @@ function JobRow({
   const showBar = active || (!done && pct !== null && pct > 0);
 
   return (
-    <article className="flex items-start gap-4 border-b border-line py-3.5" aria-label={`${title}, ${installPhaseLabel(job.phase)}`}>
+    <article className="flex items-start gap-4 border-b border-line py-3.5" aria-label={t("{title}, {phase}", { title, phase: installPhaseLabel(job.phase) })}>
       <div className="w-11 shrink-0 overflow-hidden rounded-[1px]">
         <GameCover title={title} coverUrl={coverUrl} showType={false} />
       </div>
@@ -404,27 +407,27 @@ function JobRow({
         <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
           {starting ? (
             <>
-              <span>Starting</span>
+              <span>{t("Starting")}</span>
               {job.bytesTotal && <span>{formatBytes(job.bytesTotal)}</span>}
             </>
           ) : (
             <>
               <span>{formatBytes(job.bytesDone)}</span>
-              {job.bytesTotal && <span>of {formatBytes(job.bytesTotal)}</span>}
+              {job.bytesTotal && <span>{t("{done} of {total}", { done: formatBytes(job.bytesDone), total: formatBytes(job.bytesTotal) })}</span>}
               {speed > 0 && <span>{formatSpeed(speed)}</span>}
               {eta && <span>{eta}</span>}
-              {phaseElapsed && <span>{installPhaseLabel(job.phase)} for {phaseElapsed}</span>}
-              {pct !== null && <span>{pct.toFixed(1)}%</span>}
+              {phaseElapsed && <span>{t("{phase} for {duration}", { phase: installPhaseLabel(job.phase), duration: phaseElapsed })}</span>}
+              {pct !== null && <span>{formatPercent(pct, 1)}</span>}
             </>
           )}
-          {job.phase === "interrupted" && <span className="text-signal-text">resume keeps the bytes already received</span>}
+          {job.phase === "interrupted" && <span className="text-signal-text">{t("resume keeps the bytes already received")}</span>}
         </div>
 
         {showBar && (
           <div className="mt-2 max-w-[520px]">
             <Progress
               value={starting ? null : pct}
-              label={`Install progress for ${title}`}
+              label={t("Install progress for {title}", { title })}
               tone={job.phase === "error" ? "danger" : "signal"}
             />
           </div>
@@ -444,12 +447,12 @@ function JobRow({
               className="flex h-8 items-center gap-1.5 pr-2 text-[12px] text-danger underline-offset-4 hover:underline"
             >
               <X className="size-3.5" aria-hidden="true" />
-              Cancel
+              {t("Cancel")}
             </button>
           )}
           {pausable && (
             <Button variant="ghost" size="sm" className="text-ink-2" icon={<Pause className="size-3.5" />} onClick={onPause}>
-              Pause
+              {t("Pause")}
             </Button>
           )}
           {resumable && (
@@ -460,7 +463,7 @@ function JobRow({
               icon={paused ? <Play className="size-3.5" /> : <RefreshCw className="size-3.5" />}
               onClick={onResume}
             >
-              Resume
+              {t("Resume")}
             </Button>
           )}
           {streamFailed && onRetryAsDownload && (
@@ -471,7 +474,7 @@ function JobRow({
               icon={<Download className="size-3.5" />}
               onClick={onRetryAsDownload}
             >
-              Retry as download
+              {t("Retry as download")}
             </Button>
           )}
           {streamFailed && onRetryStream && (
@@ -481,42 +484,42 @@ function JobRow({
               className="text-ink-2"
               icon={<RefreshCw className="size-3.5" />}
               onClick={onRetryStream}
-              title="Restarts the stream from zero; it cannot resume after a drop"
+              title={t("Restarts the stream from zero; it cannot resume after a drop")}
             >
-              Retry stream
+              {t("Retry stream")}
             </Button>
           )}
           {streamFailed && (
-            <span className="px-1 text-[11px] leading-snug text-ink-3">Stream installs restart from zero; a download can resume.</span>
+            <span className="px-1 text-[11px] leading-snug text-ink-3">{t("Stream installs restart from zero; a download can resume.")}</span>
           )}
           {onOpenFolder && (
             <Button variant="ghost" size="sm" className="text-ink-3" icon={<FolderOpen className="size-3.5" />} onClick={onOpenFolder}>
-              Open folder
+              {t("Open folder")}
             </Button>
           )}
           {removable && onRemove && (
             <button
               type="button"
               onClick={onRemove}
-              aria-label={`Remove ${title} from history`}
-              title="Only the history entry is deleted; the installed files and any .part download are kept"
+              aria-label={t("Remove {title} from history", { title })}
+              title={t("Only the history entry is deleted; the installed files and any .part download are kept")}
               className="flex h-8 items-center gap-1.5 px-1 text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
             >
               <Trash2 className="size-3.5" aria-hidden="true" />
-              Remove from history
+              {t("Remove from history")}
             </button>
           )}
           {done && (
             <span className="flex items-center gap-1.5 px-1 text-[11.5px] text-ok">
               <Check className="size-3.5" aria-hidden="true" />
-              Ready to play
+              {t("Ready to play")}
             </span>
           )}
           <Link
             to={`/game/${job.gameId}`}
             className="ml-auto flex h-8 items-center px-1 text-[12px] text-ink-3 hover:text-ink"
           >
-            Game page
+            {t("Game page")}
           </Link>
         </div>
       </div>

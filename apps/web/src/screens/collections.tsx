@@ -7,6 +7,7 @@ import { CollectionCard } from "@/components/collections/collection-card";
 import { CollectionDialog } from "@/components/collections/collection-dialog";
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Button, Skeleton } from "@/components/ui/controls";
+import { t , tn } from "@/lib/i18n";
 
 export function CollectionsScreen() {
   const [createOpen, setCreateOpen] = useState(false);
@@ -21,17 +22,17 @@ export function CollectionsScreen() {
   return (
     <div className="page page-in">
       <PageHeader
-        title="Collections"
+        title={t("Collections")}
         meta={
           <span>
-            {own.length} {own.length === 1 ? "shelf" : "shelves"} of yours
+            {tn(own.length, "1 shelf of yours", "{count} shelves of yours")}
             {shared.length > 0 ? ` · ${shared.length} shared with you` : ""}
           </span>
         }
-        description="Shelves you build by hand, and shelves that keep themselves up to date from rules."
+        description={t("Shelves you build by hand, and shelves that keep themselves up to date from rules.")}
         actions={
           <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreateOpen(true)}>
-            New collection
+            {t("New collection")}
           </Button>
         }
       />
@@ -46,18 +47,18 @@ export function CollectionsScreen() {
 
       {isError && (
         <div className="mt-8">
-          <ErrorState title="Collections didn’t load" message={errorMessage(error)} onRetry={() => void refetch()} />
+          <ErrorState title={t("Collections didn’t load")} message={errorMessage(error)} onRetry={() => void refetch()} />
         </div>
       )}
 
       {!isPending && !isError && own.length === 0 && shared.length === 0 && (
         <div className="mt-8">
           <EmptyState
-            title="No shelves yet"
-            description="A collection is a shelf: an explicit list for a co-op night, or a rule that gathers everything you have not finished. Public shelves show up on your community profile."
+            title={t("No shelves yet")}
+            description={t("A collection is a shelf: an explicit list for a co-op night, or a rule that gathers everything you have not finished. Public shelves show up on your community profile.")}
           >
             <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreateOpen(true)}>
-              Create the first one
+              {t("Create the first one")}
             </Button>
           </EmptyState>
         </div>
@@ -65,7 +66,7 @@ export function CollectionsScreen() {
 
       {own.length > 0 && (
         <section className="mt-10" aria-labelledby="own-collections">
-          <SectionHeader title="Yours" count={own.length} />
+          <SectionHeader title={t("Yours")} count={own.length} />
           <div id="own-collections" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {own.map((collection) => (
               <CollectionCard key={collection.id} collection={collection} />
@@ -76,7 +77,7 @@ export function CollectionsScreen() {
 
       {shared.length > 0 && (
         <section className="mt-12" aria-labelledby="shared-collections">
-          <SectionHeader title="Shared with you" count={shared.length} description="Public shelves from other accounts" />
+          <SectionHeader title={t("Shared with you")} count={shared.length} description={t("Public shelves from other accounts")} />
           <div id="shared-collections" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {shared.map((collection) => (
               <CollectionCard key={collection.id} collection={collection} />

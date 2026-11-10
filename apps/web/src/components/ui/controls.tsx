@@ -164,7 +164,7 @@ export function Switch({
       <span
         className={cn(
           "pointer-events-none block size-3 rounded-full transition-transform duration-[160ms] ease-out",
-          checked ? "translate-x-[19px] bg-signal" : "translate-x-[3px] bg-ink-3",
+          checked ? "translate-x-[19px] bg-signal rtl:translate-x-[-19px]" : "translate-x-[3px] bg-ink-3 rtl:translate-x-[-3px]",
         )}
       />
     </button>
@@ -260,7 +260,7 @@ export function Progress({
       className={cn("relative h-1 w-full overflow-hidden rounded-full bg-line", className)}
     >
       {pct === null ? (
-        <div className={cn("absolute inset-y-0 left-0 w-1/3 animate-[slide_1.4s_ease-in-out_infinite]", color)} />
+        <div className={cn("absolute inset-y-0 start-0 w-1/3 animate-[slide_1.4s_ease-in-out_infinite]", color)} />
       ) : (
         <div className={cn("h-full transition-[width] duration-500 ease-out", color)} style={{ width: `${pct}%` }} />
       )}

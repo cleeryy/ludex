@@ -4,11 +4,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, FileArchive, UploadCloud, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, formatPercent } from "@/lib/format";
 import type { CompleteUploadResponse, UploadSession } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Progress } from "@/components/ui/controls";
+import { t } from "@/lib/i18n";
 
 const STORAGE_KEY = "ludex.upload";
 
@@ -82,11 +83,11 @@ export function UploadScreen() {
     if (!next) return;
     const name = next.name.toLowerCase();
     if (!/\.(zip|rar|7z)$/.test(name)) {
-      setError("Choose a .zip, .rar or .7z archive.");
+      setError(t("Choose a .zip, .rar or .7z archive."));
       return;
     }
     if (session && (next.size !== session.size || next.name !== session.fileName)) {
-      setError("This is not the file that started the upload. Pick the same archive to resume.");
+      setError(t("This is not the file that started the upload. Pick the same archive to resume."));
       return;
     }
     setError(null);
@@ -133,7 +134,7 @@ export function UploadScreen() {
       void queryClient.invalidateQueries({ queryKey: ["games"] });
       void queryClient.invalidateQueries({ queryKey: ["stats"] });
       void queryClient.invalidateQueries({ queryKey: ["scan"] });
-      push({ title: "Upload complete", description: `${completed.fileName} is now in the library.`, tone: "success" });
+      push({ title: t("Upload complete"), description: t("{file} is now in the library.", { file: completed.fileName }), tone: "success" });
     } catch (cause) {
       if (cause instanceof Error && cause.message === "cancelled") {
         setPhase("idle");
@@ -168,26 +169,26 @@ export function UploadScreen() {
   return (
     <div className="mx-auto w-full max-w-[880px] px-4 pb-16 sm:px-6">
       <PageHeader
-        title="Upload a game"
-        description="Send an archive straight into the library. Chunks are resumable: if the connection drops or the tab reloads, pick the same file again to continue."
+        title={t("Upload a game")}
+        description={t("Send an archive straight into the library. Chunks are resumable: if the connection drops or the tab reloads, pick the same file again to continue.")}
       />
 
       <section className="mt-8">
-        <SectionHeader title="Archive" description="ZIP, RAR or 7z" />
+        <SectionHeader title={t("Archive")} description={t("ZIP, RAR or 7z")} />
         {restoring ? (
-          <p className="text-[13px] text-ink-3">Checking for unfinished uploads…</p>
+          <p className="text-[13px] text-ink-3">{t("Checking for unfinished uploads…")}</p>
         ) : result ? (
           <div className="border border-line bg-surface p-6">
             <div className="flex items-start gap-3">
               <CheckCircle2 className="mt-0.5 size-5 text-ok" aria-hidden="true" />
               <div className="min-w-0">
-                <h3 className="text-[15px] font-medium text-ink">Upload complete</h3>
+                <h3 className="text-[15px] font-medium text-ink">{t("Upload complete")}</h3>
                 <p className="mt-1 text-[13px] text-ink-2">
-                  {result.fileName} · {formatBytes(result.size)} · indexed as game #{result.gameId}.
+                  {t("{file} · {size} · indexed as game #{id}", { file: result.fileName, size: formatBytes(result.size), id: result.gameId })}
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Button variant="primary" onClick={() => navigate(`/game/${result.gameId}`)}>
-                    Open game
+                    {t("Open game")}
                   </Button>
                   <Button
                     variant="ghost"
@@ -196,7 +197,7 @@ export function UploadScreen() {
                       setPhase("idle");
                     }}
                   >
-                    Upload another
+                    {t("Upload another")}
                   </Button>
                 </div>
               </div>
@@ -226,12 +227,12 @@ export function UploadScreen() {
             >
               <UploadCloud className="size-6 text-ink-3" aria-hidden="true" />
               <p className="text-[14px] text-ink">
-                {session ? `Resuming ${session.fileName}` : "Drop an archive here, or click to browse"}
+                {session ? `Resuming ${session.fileName}` : t("Drop an archive here, or click to browse")}
               </p>
               <p className="text-[12.5px] text-ink-3">
                 {session
-                  ? "Select the same file again to continue where the last attempt stopped."
-                  : "The server verifies the size and sha256 (when provided) before indexing."}
+                  ? t("Select the same file again to continue where the last attempt stopped.")
+                  : t("The server verifies the size and sha256 (when provided) before indexing.")}
               </p>
               <input
                 ref={inputRef}
@@ -253,23 +254,23 @@ export function UploadScreen() {
                   </p>
                 </div>
                 <Badge tone={busy ? "signal" : "outline"}>
-                  {phase === "uploading" ? "Uploading" : phase === "verifying" ? "Verifying" : session ? "Resumable" : "Ready"}
+                  {phase === "uploading" ? t("Uploading") : phase === "verifying" ? t("Verifying") : session ? t("Resumable") : t("Ready")}
                 </Badge>
               </div>
             )}
 
             {(busy || (session && !file)) && (
               <div className="mt-4">
-                <Progress value={percent} label={phase === "verifying" ? "Verifying and indexing…" : "Uploading"} />
+                <Progress value={percent} label={phase === "verifying" ? t("Verifying and indexing…") : t("Uploading")} />
                 <p className="num mt-1 text-[11.5px] text-ink-3">
-                  {formatBytes(uploaded)} / {formatBytes(total)} · {percent.toFixed(1)}%
+                  {formatBytes(uploaded)} / {formatBytes(total)} · {formatPercent(percent, 1)}
                 </p>
               </div>
             )}
 
             {error && (
               <div className="mt-4">
-                <ErrorState title="Upload failed" message={error} />
+                <ErrorState title={t("Upload failed")} message={error} />
               </div>
             )}
 
@@ -280,11 +281,11 @@ export function UploadScreen() {
                 disabled={!file || busy}
                 onClick={() => void start()}
               >
-                {session ? "Resume upload" : "Start upload"}
+                {session ? t("Resume upload") : t("Start upload")}
               </Button>
               {(session || file) && (
                 <Button variant="ghost" icon={<X className="size-4" />} disabled={phase === "verifying"} onClick={() => void cancel()}>
-                  Cancel
+                  {t("Cancel")}
                 </Button>
               )}
             </div>
@@ -293,22 +294,19 @@ export function UploadScreen() {
       </section>
 
       <section className="mt-12">
-        <SectionHeader title="How it works" description="What the server does with the archive" />
+        <SectionHeader title={t("How it works")} description={t("What the server does with the archive")} />
         <ol className="space-y-3 text-[13px] leading-relaxed text-ink-2">
           <li>
-            <span className="text-ink">1. Initiate.</span> The server reserves an upload id and a 16 MiB chunk size.
+            <span className="text-ink">{t("1. Initiate.")}</span>  {t("The server reserves an upload id and a 16 MiB chunk size.")}
           </li>
           <li>
-            <span className="text-ink">2. Send chunks.</span> Each chunk is written atomically; sending the same chunk
-            twice is harmless.
+            <span className="text-ink">{t("2. Send chunks.")}</span>  {t("Each chunk is written atomically; sending the same chunk twice is harmless.")}
           </li>
           <li>
-            <span className="text-ink">3. Complete.</span> The server assembles the parts, checks the size and optional
-            SHA-256, then indexes the archive as a new game version.
+            <span className="text-ink">{t("3. Complete.")}</span>  {t("The server assembles the parts, checks the size and optional SHA-256, then indexes the archive as a new game version.")}
           </li>
           <li>
-            <span className="text-ink">4. Resume.</span> The upload id is kept in this browser; after a reload, pick the
-            same file and the stored chunks are skipped.
+            <span className="text-ink">{t("4. Resume.")}</span>  {t("The upload id is kept in this browser; after a reload, pick the same file and the stored chunks are skipped.")}
           </li>
         </ol>
       </section>

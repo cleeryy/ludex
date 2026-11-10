@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import type { Achievement } from "@/lib/types";
 import { SectionHeader } from "@/components/page";
+import {  t , tn } from "@/lib/i18n";
 
 /**
  * Achievement showcase on the community profile. Visibility follows the
@@ -22,9 +23,9 @@ export function AchievementShowcase({ userId }: { userId: number }) {
   return (
     <section className="mt-12" aria-labelledby="profile-achievements">
       <SectionHeader
-        title="Achievements"
+        title={t("Achievements")}
         count={data.unlocked}
-        description={`${data.unlockedPoints} points across ${data.games} game${data.games === 1 ? "" : "s"}`}
+        description={t("{points} points across {games}", { points: data.unlockedPoints, games: tn(data.games, "1 game", "{count} games") })}
       />
       <div id="profile-achievements" className="grid gap-2 border-t border-line pt-4 sm:grid-cols-2 xl:grid-cols-3">
         {data.achievements.slice(0, 6).map((achievement) => (
@@ -56,10 +57,10 @@ function ShowcaseTile({ achievement }: { achievement: Achievement }) {
       )}
       <div className="min-w-0 flex-1">
         <p className="truncate text-[12.5px] text-ink">{achievement.name}</p>
-        <p className="mt-0.5 truncate text-[11px] text-ink-3">{achievement.gameTitle ?? "Library"}</p>
+        <p className="mt-0.5 truncate text-[11px] text-ink-3">{achievement.gameTitle ?? t("Library")}</p>
         <p className="mt-1 flex items-center gap-1 font-mono text-[10px] text-ink-3">
           <Trophy className="size-3" aria-hidden="true" />
-          {achievement.points} pts
+          {t("{count} pts", { count: achievement.points })}
           {achievement.unlockedAt && <span className="text-ink-3">· {formatDate(achievement.unlockedAt)}</span>}
         </p>
       </div>

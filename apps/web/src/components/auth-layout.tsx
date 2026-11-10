@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { GameCover } from "@/components/art/cover";
 import { Wordmark } from "@/components/brand";
 import { demoCover } from "@/lib/art";
+import { t } from "@/lib/i18n";
 
 const FRIEZE = ["outer-wilds", "blue-prince", "little-nightmares-iii"];
 
@@ -21,7 +22,7 @@ export function AuthLayout({
       <aside className="relative hidden overflow-hidden border-r border-line bg-bg-deep lg:flex lg:flex-col">
         <div className="flex items-center justify-between px-10 pt-8">
           <Wordmark height={20} />
-          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">Self-hosted</span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">{t("Self-hosted")}</span>
         </div>
 
         <div className="flex flex-1 items-center justify-center px-10">

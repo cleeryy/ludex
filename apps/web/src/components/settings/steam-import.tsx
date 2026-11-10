@@ -7,6 +7,7 @@ import { formatBytes } from "@/lib/format";
 import type { SteamGame, SteamPreview } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Checkbox } from "@/components/ui/controls";
+import { t , tn } from "@/lib/i18n";
 
 /**
  * Steam library import (#13). Ludex never downloads Steam games: the selected
@@ -35,7 +36,7 @@ export function SteamImportPanel() {
       setSelected(new Set(next.games.filter((game) => !game.imported).map((game) => game.appId)));
       if (next.games.length === 0) {
         push({
-          title: "No Steam games found",
+          title: t("No Steam games found"),
           description:
             next.warnings[0] ?? "Steam is not installed here, or its library has no installed games.",
         });
@@ -43,7 +44,7 @@ export function SteamImportPanel() {
     } catch (cause) {
       const message = errorMessage(cause);
       setError(message);
-      push({ title: "Could not read the Steam library", description: message, tone: "danger" });
+      push({ title: t("Could not read the Steam library"), description: message, tone: "danger" });
     } finally {
       setScanning(false);
     }
@@ -85,7 +86,7 @@ export function SteamImportPanel() {
     } catch (cause) {
       const message = errorMessage(cause);
       setError(message);
-      push({ title: "Could not import the Steam games", description: message, tone: "danger" });
+      push({ title: t("Could not import the Steam games"), description: message, tone: "danger" });
     } finally {
       setImporting(false);
     }
@@ -95,7 +96,7 @@ export function SteamImportPanel() {
     <div>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-[13px] font-medium text-ink">Steam library</p>
+          <p className="text-[13px] font-medium text-ink">{t("Steam library")}</p>
           <p className="mt-1 max-w-[52ch] text-[11.5px] leading-relaxed text-ink-3">
             Reads Steam&apos;s own manifests on this machine and adds the games you select to Ludex. Nothing is
             downloaded: they launch through the Steam client, and Steam keeps updates and DRM.
@@ -110,7 +111,7 @@ export function SteamImportPanel() {
               disabled={selected.size === 0}
               onClick={() => void importSelected()}
             >
-              Import {selected.size === 1 ? "1 game" : `${selected.size} games`}
+              {t("Import")} {selected.size === 1 ? t("1 game") : `${selected.size} games`}
             </Button>
           )}
           <Button
@@ -120,7 +121,7 @@ export function SteamImportPanel() {
             loading={scanning}
             onClick={() => void scan()}
           >
-            {preview ? "Rescan" : "Import from Steam"}
+            {preview ? t("Rescan") : t("Import from Steam")}
           </Button>
         </div>
       </div>
@@ -138,7 +139,7 @@ export function SteamImportPanel() {
               {preview.games.length} {preview.games.length === 1 ? "game" : "games"} ·{" "}
               {preview.roots.length} {preview.roots.length === 1 ? "library" : "libraries"}
             </span>
-            {!preview.matched && <span className="text-signal-text">not matched to the server library</span>}
+            {!preview.matched && <span className="text-signal-text">{t("not matched to the server library")}</span>}
             {preview.games.length > 0 && (
               <button
                 type="button"
@@ -151,22 +152,21 @@ export function SteamImportPanel() {
                   )
                 }
               >
-                {selected.size === selectable.length && selectable.length > 0 ? "Clear all" : "Select all"}
+                {selected.size === selectable.length && selectable.length > 0 ? t("Clear all") : t("Select all")}
               </button>
             )}
           </div>
 
           {preview.warnings.length > 0 && (
             <p className="text-[11.5px] text-ink-3">
-              {preview.warnings.length} warning{preview.warnings.length === 1 ? "" : "s"}: {preview.warnings[0]}
+              {tn(preview.warnings.length, "1 warning", "{count} warnings")}: {preview.warnings[0]}
             </p>
           )}
 
           {preview.games.length === 0 ? (
             <p className="flex items-start gap-2 border-t border-line pt-3 text-[12.5px] leading-relaxed text-ink-3">
               <Gamepad2 className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-              No installed Steam game was found. Start Steam once so it writes its library file, or set a Steam
-              folder in the desktop settings.
+              {t("No installed Steam game was found. Start Steam once so it writes its library file, or set a Steam folder in the desktop settings.")}
             </p>
           ) : (
             <ul className="max-h-[340px] overflow-y-auto border-t border-line">
@@ -201,27 +201,27 @@ function SteamRow({
         <Checkbox
           checked={game.imported || checked}
           onCheckedChange={onCheckedChange}
-          label={`Import ${game.name}`}
+          label={t("Import {name}", { name: game.name })}
         />
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
           <span className="truncate text-[13px] text-ink">{game.name}</span>
           {game.imported ? (
-            <Badge tone="ok">Imported</Badge>
+            <Badge tone="ok">{t("Imported")}</Badge>
           ) : game.matchedGameId !== null ? (
             <Badge tone="signal">
-              Matched
+              {t("Matched")}
             </Badge>
           ) : (
-            <Badge tone="outline">Not in the library</Badge>
+            <Badge tone="outline">{t("Not in the library")}</Badge>
           )}
           <span className="num ml-auto text-[10.5px] text-ink-3">{formatBytes(game.sizeBytes)}</span>
         </div>
         <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 font-mono text-[10.5px] text-ink-3">
-          <span>app {game.appId}</span>
-          {game.matchedTitle && game.matchedTitle !== game.name && <span>Ludex: {game.matchedTitle}</span>}
-          {game.matchedGameId === null && <span>local id {game.localGameId}</span>}
+          <span>{t("App {id}", { id: game.appId })}</span>
+          {game.matchedTitle && game.matchedTitle !== game.name && <span>{t("Ludex:")} {game.matchedTitle}</span>}
+          {game.matchedGameId === null && <span>{t("local id")} {game.localGameId}</span>}
         </p>
       </div>
     </li>

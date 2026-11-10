@@ -11,18 +11,21 @@ import type { DiskUsage, LocalSettings } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { useAuth } from "@/state/auth";
 import { useSettings, type ThemePref } from "@/state/settings";
+import { coverageFor, LOCALES, statusLabel, useI18n, tr } from "@/lib/i18n";
 import { useToast } from "@/state/toasts";
 import { PageHeader, SectionHeader } from "@/components/page";
-import { Button, Field, Input, Switch, Textarea } from "@/components/ui/controls";
+import { Badge, Button, Field, Input, Switch, Textarea } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { DesktopUpdatePanel } from "@/components/settings/desktop-update";
 import { CompatibilityPanel } from "@/components/settings/compatibility-panel";
 import { SteamImportPanel } from "@/components/settings/steam-import";
 import { PresenceStatus } from "@/components/settings/presence-status";
+import { t } from "@/lib/i18n";
 
 export function SettingsScreen() {
   const { user, refreshUser } = useAuth();
   const { theme, setTheme, resolved } = useSettings();
+  const { locale: activeLocale, setLocale } = useI18n();
   const { push } = useToast();
   const queryClient = useQueryClient();
   const desktopAvailable = installsAvailable();
@@ -82,8 +85,8 @@ export function SettingsScreen() {
     if (path) update({ [key]: path } as Partial<LocalSettings>);
     else if (!isNative()) {
       push({
-        title: "Folder picker needs the desktop app",
-        description: "You can type a path here in the browser.",
+        title: t("Folder picker needs the desktop app"),
+        description: t("You can type a path here in the browser."),
       });
     }
   };
@@ -95,9 +98,9 @@ export function SettingsScreen() {
       await installBridge.saveSettings(draft);
       await queryClient.invalidateQueries({ queryKey: ["desktop-settings"] });
       await queryClient.invalidateQueries({ queryKey: ["compat-scan"] });
-      push({ title: "Desktop settings saved", tone: "success" });
+      push({ title: t("Desktop settings saved"), tone: "success" });
     } catch (cause) {
-      push({ title: "Could not save the settings", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not save the settings"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setSaving(false);
     }
@@ -114,9 +117,9 @@ export function SettingsScreen() {
       await queryClient.invalidateQueries({ queryKey: ["my-profile"] });
       await queryClient.invalidateQueries({ queryKey: ["community-users"] });
       await queryClient.invalidateQueries({ queryKey: ["community-feed"] });
-      push({ title: "Community profile saved", tone: "success" });
+      push({ title: t("Community profile saved"), tone: "success" });
     } catch (cause) {
-      push({ title: "Could not save the profile", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not save the profile"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setSavingProfile(false);
     }
@@ -125,15 +128,15 @@ export function SettingsScreen() {
   const changePassword = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
-    if (newPassword.length < 8) return setError("Use at least eight characters for the new password.");
-    if (newPassword !== confirm) return setError("The two passwords do not match.");
+    if (newPassword.length < 8) return setError(t("Use at least eight characters for the new password."));
+    if (newPassword !== confirm) return setError(t("The two passwords do not match."));
     setBusy(true);
     try {
       await api.changePassword({ currentPassword, newPassword });
       setCurrentPassword("");
       setNewPassword("");
       setConfirm("");
-      push({ title: "Password changed", tone: "success" });
+      push({ title: t("Password changed"), tone: "success" });
       await refreshUser();
     } catch (cause) {
       setError(errorMessage(cause));
@@ -144,17 +147,17 @@ export function SettingsScreen() {
 
   return (
     <div className="page page-in">
-      <PageHeader title="Settings" meta={user ? <span className="num">Signed in as {user.username}</span> : undefined} />
+      <PageHeader title={t("Settings")} meta={user ? <span className="num">{t("Signed in as")} {user.username}</span> : undefined} />
 
       <div className="mt-8 grid max-w-[980px] gap-10 lg:grid-cols-2">
         <section>
-          <SectionHeader title="Account" />
+          <SectionHeader title={t("Account")} />
           <dl className="border-t border-line">
             {[
-              ["Username", user?.username ?? "—"],
-              ["Email", user?.email ?? "Not set"],
-              ["Role", user ? (user.role === "admin" ? "Administrator" : user.role === "editor" ? "Editor" : "Member") : "—"],
-              ["Member since", user ? formatDate(user.createdAt) : "—"],
+              [t("Username"), user?.username ?? "—"],
+              [t("Email"), user?.email ?? t("Not set")],
+              [t("Role"), user ? (user.role === "admin" ? t("Administrator") : user.role === "editor" ? t("Editor") : t("Member")) : "—"],
+              [t("Member since"), user ? formatDate(user.createdAt) : "—"],
             ].map(([label, value]) => (
               <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
                 <dt className="text-[12.5px] text-ink-3">{label}</dt>
@@ -164,13 +167,13 @@ export function SettingsScreen() {
           </dl>
 
           <div className="mt-8">
-            <SectionHeader title="Appearance" description="Applies to this browser or app window." />
+            <SectionHeader title={t("Appearance")} description={t("Applies to this browser or app window.")} />
             <div className="grid grid-cols-3 gap-2">
               {(
                 [
-                  { value: "dark", label: "Dark", icon: <Moon className="size-4" /> },
-                  { value: "light", label: "Light", icon: <Sun className="size-4" /> },
-                  { value: "system", label: "System", icon: <Monitor className="size-4" /> },
+                  { value: "dark", label: t("Dark"), icon: <Moon className="size-4" /> },
+                  { value: "light", label: t("Light"), icon: <Sun className="size-4" /> },
+                  { value: "system", label: t("System"), icon: <Monitor className="size-4" /> },
                 ] as { value: ThemePref; label: string; icon: React.ReactNode }[]
               ).map((option) => (
                 <button
@@ -189,15 +192,69 @@ export function SettingsScreen() {
               ))}
             </div>
             <p className="mt-2 text-[11.5px] text-ink-3">
-              Currently rendering the {resolved} theme. Reduced motion follows your system setting.
+              {t("Currently rendering the {theme} theme. Reduced motion follows your system setting.", {
+                theme: resolved === "dark" ? t("Dark") : t("Light"),
+              })}
+            </p>
+          </div>
+
+          <div className="mt-8">
+            <SectionHeader
+              title={t("Language")}
+              description={t("Applies to this browser or app window. Community translations fall back to English for missing strings.")}
+            />
+            {[
+              { status: "official" as const, title: t("Official languages") },
+              { status: "community" as const, title: t("Community translations") },
+            ].map((group) => (
+              <div key={group.status} className="mt-4 first:mt-0">
+                <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{group.title}</p>
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {LOCALES.filter((entry) => entry.status === group.status).map((entry) => {
+                    const coverage = entry.code === "en" ? { percent: 100 } : coverageFor(entry.code);
+                    const selected = activeLocale === entry.code;
+                    return (
+                      <button
+                        key={entry.code}
+                        type="button"
+                        lang={entry.code}
+                        dir={entry.dir}
+                        aria-pressed={selected}
+                        onClick={() => void setLocale(entry.code)}
+                        className={cn(
+                          "flex min-h-11 items-center justify-between gap-3 border px-3 py-2 text-start transition-colors",
+                          selected ? "border-signal bg-surface-2" : "border-line hover:border-line-2 hover:bg-surface",
+                        )}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-[13px] text-ink">{entry.label}</span>
+                          <span className="block truncate font-mono text-[10px] text-ink-3">
+                            {entry.englishLabel}
+                            {entry.dir === "rtl" ? " · RTL" : ""}
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          {entry.code !== "en" && coverage && (
+                            <span className="num text-[10px] text-ink-3">{coverage.percent}%</span>
+                          )}
+                          <Badge tone={selected ? "signal" : "outline"}>{statusLabel(entry)}</Badge>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            <p className="mt-3 text-[11.5px] leading-relaxed text-ink-3">
+              {t("Community locales are contributed as JSON files. See docs/I18N.md for the contribution flow; Arabic is machine-seeded and unreviewed.")}
             </p>
           </div>
         </section>
 
         <section>
-          <SectionHeader title="Password" description="Eight characters or more." />
+          <SectionHeader title={t("Password")} description={t("Eight characters or more.")} />
           <form onSubmit={changePassword} className="flex flex-col gap-4 border-t border-line pt-4">
-            <Field label="Current password" htmlFor="current-password">
+            <Field label={t("Current password")} htmlFor="current-password">
               <Input
                 id="current-password"
                 type="password"
@@ -207,7 +264,7 @@ export function SettingsScreen() {
                 required
               />
             </Field>
-            <Field label="New password" htmlFor="new-password">
+            <Field label={t("New password")} htmlFor="new-password">
               <Input
                 id="new-password"
                 type="password"
@@ -217,7 +274,7 @@ export function SettingsScreen() {
                 required
               />
             </Field>
-            <Field label="Confirm new password" htmlFor="confirm-password">
+            <Field label={t("Confirm new password")} htmlFor="confirm-password">
               <Input
                 id="confirm-password"
                 type="password"
@@ -234,7 +291,7 @@ export function SettingsScreen() {
             )}
             <div>
               <Button type="submit" variant="default" loading={busy}>
-                Change password
+                {t("Change password")}
               </Button>
             </div>
           </form>
@@ -243,52 +300,51 @@ export function SettingsScreen() {
 
       <section className="mt-12 max-w-[980px]" aria-labelledby="community-profile-heading">
         <SectionHeader
-          title="Community profile"
-          description="Opt in to a public page. Private accounts never appear in the feed or the member list."
+          title={t("Community profile")}
+          description={t("Opt in to a public page. Private accounts never appear in the feed or the member list.")}
           actions={
             publicProfile ? (
               <Link
                 to={`/community/u/${user?.id ?? ""}`}
                 className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
               >
-                View public page
+                {t("View public page")}
               </Link>
             ) : undefined
           }
         />
         <div id="community-profile-heading" className="border-t border-line pt-5">
           {profileQuery.isPending ? (
-            <p className="text-[13px] text-ink-3">Loading your profile…</p>
+            <p className="text-[13px] text-ink-3">{t("Loading your profile…")}</p>
           ) : (
             <div className="grid gap-6 lg:grid-cols-2">
               <div className="flex flex-col gap-4">
                 <div className="flex items-start justify-between gap-6 border-b border-line pb-4">
                   <div>
-                    <p className="text-[13px] font-medium text-ink">Public profile</p>
+                    <p className="text-[13px] font-medium text-ink">{t("Public profile")}</p>
                     <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
-                      Your display name, bio, library, public collections and activity become visible to other accounts.
-                      Playtime totals and private collections stay private.
+                      {t("Your display name, bio, library, public collections and activity become visible to other accounts. Playtime totals and private collections stay private.")}
                     </p>
                   </div>
-                  <Switch checked={publicProfile} onCheckedChange={setPublicProfile} label="Public profile" />
+                  <Switch checked={publicProfile} onCheckedChange={setPublicProfile} label={t("Public profile")} />
                 </div>
-                <Field label="Display name" htmlFor="display-name" hint="Shown instead of your login name. Optional.">
+                <Field label={t("Display name")} htmlFor="display-name" hint={t("Shown instead of your login name. Optional.")}>
                   <Input
                     id="display-name"
                     value={displayName}
                     onChange={(event) => setDisplayName(event.target.value)}
-                    placeholder={user?.username ?? "Mara"}
+                    placeholder={user?.username ?? t("Mara")}
                     maxLength={64}
                   />
                 </Field>
               </div>
               <div className="flex flex-col gap-4">
-                <Field label="Bio" htmlFor="profile-bio" hint="A sentence or two. Optional.">
+                <Field label={t("Bio")} htmlFor="profile-bio" hint={t("A sentence or two. Optional.")}>
                   <Textarea
                     id="profile-bio"
                     value={bio}
                     onChange={(event) => setBio(event.target.value)}
-                    placeholder="Puzzle games and long nights."
+                    placeholder={t("Puzzle games and long nights.")}
                     rows={4}
                     maxLength={500}
                     className="min-h-[110px]"
@@ -296,10 +352,10 @@ export function SettingsScreen() {
                 </Field>
                 <div className="flex flex-wrap items-center gap-3">
                   <Button variant="default" loading={savingProfile} onClick={() => void saveProfile()}>
-                    Save profile
+                    {t("Save profile")}
                   </Button>
                   <span className="text-[11.5px] text-ink-3">
-                    {publicProfile ? "Your page is listed in Community." : "Your page is visible to you only."}
+                    {publicProfile ? t("Your page is listed in Community.") : t("Your page is visible to you only.")}
                   </span>
                 </div>
               </div>
@@ -311,11 +367,11 @@ export function SettingsScreen() {
       {desktopAvailable && (
         <section className="mt-12 max-w-[980px]">
           <SectionHeader
-            title="Desktop"
-            description="Where games are installed, how archives are downloaded, and how passwords are tried."
+            title={t("Desktop")}
+            description={t("Where games are installed, how archives are downloaded, and how passwords are tried.")}
           />
           <div className="border-t border-line pt-5">
-            {settingsQuery.isPending && <p className="text-[13px] text-ink-3">Loading desktop settings…</p>}
+            {settingsQuery.isPending && <p className="text-[13px] text-ink-3">{t("Loading desktop settings…")}</p>}
             {settingsQuery.isError && (
               <p className="text-[13px] text-danger">{errorMessage(settingsQuery.error)}</p>
             )}
@@ -323,32 +379,32 @@ export function SettingsScreen() {
             {draft && (
               <>
                 <div className="mb-6 flex flex-wrap items-baseline gap-x-6 gap-y-1 font-mono text-[10.5px] text-ink-3">
-                  <span>Mode: {draft.mode === "local" ? "Local library" : "Remote server"}</span>
-                  {draft.serverUrl && <span className="truncate">Server: {draft.serverUrl}</span>}
-                  {!isNative() && <span className="text-signal-text">Preview values from the demo adapter</span>}
+                  <span>{t("Mode:")} {draft.mode === "local" ? t("Local library") : t("Remote server")}</span>
+                  {draft.serverUrl && <span className="truncate">{t("Server:")} {draft.serverUrl}</span>}
+                  {!isNative() && <span className="text-signal-text">{t("Preview values from the demo adapter")}</span>}
                 </div>
 
                 <div className="grid gap-8 lg:grid-cols-2">
                   <div className="flex flex-col gap-5">
                     <PathField
-                      label="Install folder"
-                      hint="Each game gets its own folder and version subfolder."
+                      label={t("Install folder")}
+                      hint={t("Each game gets its own folder and version subfolder.")}
                       value={draft.installDir}
                       onChange={(value) => update({ installDir: value })}
                       onPick={() => void pick("installDir", "Choose the install folder")}
                       disk={installDisk.data}
                     />
                     <PathField
-                      label="Download folder"
-                      hint="Temporary archives. Ignored when stream installs are on."
+                      label={t("Download folder")}
+                      hint={t("Temporary archives. Ignored when stream installs are on.")}
                       value={draft.downloadDir}
                       onChange={(value) => update({ downloadDir: value })}
                       onPick={() => void pick("downloadDir", "Choose the download folder")}
                       disk={downloadDisk.data}
                     />
                     <PathField
-                      label="Steam folder"
-                      hint="Optional. Only used by the Steam import when auto-detection fails."
+                      label={t("Steam folder")}
+                      hint={t("Optional. Only used by the Steam import when auto-detection fails.")}
                       value={draft.steamRoot}
                       onChange={(value) => update({ steamRoot: value })}
                       onPick={() => void pick("steamRoot", "Choose the Steam folder")}
@@ -359,42 +415,38 @@ export function SettingsScreen() {
                   <div>
                     <div className="flex items-start justify-between gap-6 border-b border-line pb-4">
                       <div>
-                        <p className="text-[13px] font-medium text-ink">Stream installs from the server</p>
+                        <p className="text-[13px] font-medium text-ink">{t("Stream installs from the server")}</p>
                         <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
-                          ZIP archives only. Files are written as they arrive, so the archive never touches the disk. If the
-                          network drops, a stream install cannot be resumed — it restarts from zero. Use “Retry as download” in
-                          Downloads to continue through the resumable normal download path. Uses more bandwidth; non-ZIP
-                          archives fall back to a normal download.
+                          {t("ZIP archives only. Files are written as they arrive, so the archive never touches the disk. If the network drops, a stream install cannot be resumed — it restarts from zero. Use “Retry as download” in Downloads to continue through the resumable normal download path. Uses more bandwidth; non-ZIP archives fall back to a normal download.")}
                         </p>
                       </div>
                       <Switch
                         checked={draft.streamInstall}
                         onCheckedChange={(streamInstall) => update({ streamInstall })}
-                        label="Stream installs from the server"
+                        label={t("Stream installs from the server")}
                       />
                     </div>
 
                     <div className="flex items-start justify-between gap-6 border-b border-line py-4">
                       <div>
-                        <p className="text-[13px] font-medium text-ink">Keep downloaded archives</p>
+                        <p className="text-[13px] font-medium text-ink">{t("Keep downloaded archives")}</p>
                         <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
-                          Leave the archive in the download folder after a successful install. Off by default; the desktop
-                          deletes it to save space.
+                          {t("Leave the archive in the download folder after a successful install. Off by default; the desktop deletes it to save space.")}
                         </p>
                       </div>
                       <Switch
                         checked={draft.keepArchives}
                         onCheckedChange={(keepArchives) => update({ keepArchives })}
-                        label="Keep downloaded archives"
+                        label={t("Keep downloaded archives")}
                       />
                     </div>
 
                     <div className="border-b border-line py-4">
                       <label htmlFor="bandwidth-limit" className="text-[13px] font-medium text-ink">
-                        Bandwidth limit
+                        {t("Bandwidth limit")}
                       </label>
                       <p className="mt-1 mb-2 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
-                        Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.
+                        {t("Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.")}
                       </p>
                       <div className="flex items-center gap-2">
                         <Input
@@ -409,21 +461,21 @@ export function SettingsScreen() {
                           }
                           className="h-10 w-[150px] font-mono text-[12px]"
                         />
-                        <span className="text-[11.5px] text-ink-3">KiB/s</span>
+                        <span className="text-[11.5px] text-ink-3">{t("KiB/s")}</span>
                         <span className="num text-[11px] text-ink-3">
                           {draft.bandwidthLimitKib > 0
                             ? `≈ ${formatBytes(draft.bandwidthLimitKib * 1024)}/s`
-                            : "Unlimited"}
+                            : t("Unlimited")}
                         </span>
                       </div>
                     </div>
 
                     <div className="pt-4">
                       <label htmlFor="archive-passwords" className="text-[13px] font-medium text-ink">
-                        Archive passwords
+                        {t("Archive passwords")}
                       </label>
                       <p className="mt-1 mb-2 text-[11.5px] leading-relaxed text-ink-3">
-                        Tried in order when an archive is encrypted. One per line, or separated by commas.
+                        {t("Tried in order when an archive is encrypted. One per line, or separated by commas.")}
                       </p>
                       <Textarea
                         id="archive-passwords"
@@ -442,53 +494,51 @@ export function SettingsScreen() {
                       />
                       <p className="mt-1 text-[11px] text-ink-3">
                         {draft.archivePasswords.length === 0
-                          ? "No passwords. Encrypted archives will fail to extract."
+                          ? t("No passwords. Encrypted archives will fail to extract.")
                           : `${draft.archivePasswords.length} ${draft.archivePasswords.length === 1 ? "password" : "passwords"} stored locally in the desktop settings.`}
                       </p>
                     </div>
 
                     <div className="flex items-start justify-between gap-6 border-b border-line py-4">
                       <div>
-                        <p className="text-[13px] font-medium text-ink">Close to tray</p>
+                        <p className="text-[13px] font-medium text-ink">{t("Close to tray")}</p>
                         <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
-                          Closing the window keeps Ludex running in the system tray so downloads continue. Quit from the
-                          tray menu.
+                          {t("Closing the window keeps Ludex running in the system tray so downloads continue. Quit from the tray menu.")}
                         </p>
                       </div>
                       <Switch
                         checked={draft.closeToTray}
                         onCheckedChange={(closeToTray) => update({ closeToTray })}
-                        label="Close to tray"
+                        label={t("Close to tray")}
                       />
                     </div>
 
                     <div className="flex items-start justify-between gap-6 border-b border-line py-4">
                       <div>
-                        <p className="text-[13px] font-medium text-ink">Check for updates at startup</p>
+                        <p className="text-[13px] font-medium text-ink">{t("Check for updates at startup")}</p>
                         <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
-                          At most once every 24 hours. Manual checks from this page always run.
+                          {t("At most once every 24 hours. Manual checks from this page always run.")}
                         </p>
                       </div>
                       <Switch
                         checked={draft.checkUpdatesOnStartup}
                         onCheckedChange={(checkUpdatesOnStartup) => update({ checkUpdatesOnStartup })}
-                        label="Check for updates at startup"
+                        label={t("Check for updates at startup")}
                       />
                     </div>
 
                     <div className="border-b border-line py-4">
                       <div className="flex items-start justify-between gap-6">
                         <div>
-                          <p className="text-[13px] font-medium text-ink">Discord Rich Presence</p>
+                          <p className="text-[13px] font-medium text-ink">{t("Discord Rich Presence")}</p>
                           <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
-                            Show the running game, its cover and the elapsed time on your Discord profile. Uses the
-                            local Discord app, never a bot token. Off by default.
+                            {t("Show the running game, its cover and the elapsed time on your Discord profile. Uses the local Discord app, never a bot token. Off by default.")}
                           </p>
                         </div>
                         <Switch
                           checked={draft.discordPresence}
                           onCheckedChange={(discordPresence) => update({ discordPresence })}
-                          label="Discord Rich Presence"
+                          label={t("Discord Rich Presence")}
                         />
                       </div>
                       <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -496,25 +546,29 @@ export function SettingsScreen() {
                           id="discord-client-id"
                           value={draft.discordClientId}
                           onChange={(event) => update({ discordClientId: event.target.value })}
-                          placeholder="Discord application id"
+                          placeholder={t("Discord application id")}
                           spellCheck={false}
                           className="h-9 w-[240px] font-mono text-[11.5px]"
                         />
                         <span className="text-[11px] text-ink-3">
-                          An application id labels the activity; it is not a secret.
+                          {t("An application id labels the activity; it is not a secret.")}
                         </span>
                       </div>
                       <PresenceStatus enabled={draft.discordPresence} />
                     </div>
 
                     <div className="border-b border-line py-4">
-                      <p className="text-[13px] font-medium text-ink">Silent installer arguments</p>
+                      <p className="text-[13px] font-medium text-ink">{t("Silent installer arguments")}</p>
                       <p className="mt-1 mb-2 max-w-[52ch] text-[11.5px] leading-relaxed text-ink-3">
-                        Tried in order when a game ships a setup program, one argument set per line. Leave empty for
-                        the built-in presets (<span className="font-mono">/S</span>,{" "}
-                        <span className="font-mono">/silent</span>,{" "}
-                        <span className="font-mono">/VERYSILENT /SUPPRESSMSGBOXES /NORESTART</span>,{" "}
-                        <span className="font-mono">--silent</span>).
+                        {tr("Tried in order when a game ships a setup program, one argument set per line. Leave empty for the built-in presets ({presets}).", {
+                          presets: (
+                            <>
+                              <span className="font-mono">/S</span>, <span className="font-mono">/silent</span>,{" "}
+                              <span className="font-mono">/VERYSILENT /SUPPRESSMSGBOXES /NORESTART</span>,{" "}
+                              <span className="font-mono">--silent</span>
+                            </>
+                          ),
+                        })}
                       </p>
                       <Textarea
                         id="installer-args"
@@ -534,7 +588,7 @@ export function SettingsScreen() {
                       />
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         <label htmlFor="installer-timeout" className="text-[12.5px] text-ink-2">
-                          Timeout per attempt
+                          {t("Timeout per attempt")}
                         </label>
                         <Input
                           id="installer-timeout"
@@ -551,24 +605,25 @@ export function SettingsScreen() {
                           }
                           className="h-9 w-[110px] font-mono text-[12px]"
                         />
-                        <span className="text-[11.5px] text-ink-3">seconds</span>
+                        <span className="text-[11.5px] text-ink-3">{t("seconds")}</span>
                       </div>
                     </div>
 
                     <div className="py-4">
-                      <p className="text-[13px] font-medium text-ink">Update channel</p>
+                      <p className="text-[13px] font-medium text-ink">{t("Update channel")}</p>
                       <p className="mt-1 mb-2 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
-                        Early access builds come from the <span className="font-mono">edge</span> prerelease and can be
-                        rough. Save the settings to switch.
+                        {tr("Early access builds come from the {channel} prerelease and can be rough. Save the settings to switch.", {
+                          channel: <span className="font-mono">edge</span>,
+                        })}
                       </p>
                       <div className="w-[220px]">
                         <Select
-                          label="Update channel"
+                          label={t("Update channel")}
                           value={draft.updateChannel}
                           onChange={(updateChannel) => update({ updateChannel })}
                           options={[
-                            { value: "stable", label: "Stable", hint: "Latest release" },
-                            { value: "early", label: "Early access", hint: "edge prerelease" },
+                            { value: "stable", label: t("Stable"), hint: t("Latest release") },
+                            { value: "early", label: t("Early access"), hint: t("edge prerelease") },
                           ]}
                         />
                       </div>
@@ -582,18 +637,18 @@ export function SettingsScreen() {
 
                 <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-4">
                   <Button variant="primary" onClick={() => void saveDesktop()} loading={saving} disabled={!dirty}>
-                    Save desktop settings
+                    {t("Save desktop settings")}
                   </Button>
-                  {dirty && <span className="text-[11.5px] text-ink-3">Unsaved changes</span>}
+                  {dirty && <span className="text-[11.5px] text-ink-3">{t("Unsaved changes")}</span>}
                   {draft.installDir && (
                     <Button
                       variant="ghost"
                       size="sm"
                       className="ml-auto text-ink-3"
                       icon={<FolderOpen className="size-3.5" />}
-                      onClick={() => void installBridge.openPath(draft.installDir).catch(() => push({ title: "Folder paths live on the desktop" }))}
+                      onClick={() => void installBridge.openPath(draft.installDir).catch(() => push({ title: t("Folder paths live on the desktop") }))}
                     >
-                      Open install folder
+                      {t("Open install folder")}
                     </Button>
                   )}
                 </div>
@@ -606,8 +661,8 @@ export function SettingsScreen() {
       {isNative() && (
         <section className="mt-12 max-w-[980px]" aria-labelledby="integrations-heading">
           <SectionHeader
-            title="Integrations"
-            description="Import a Steam library or drive Ludex from another launcher."
+            title={t("Integrations")}
+            description={t("Import a Steam library or drive Ludex from another launcher.")}
           />
           <div id="integrations-heading" className="border-t border-line pt-5">
             <SteamImportPanel />
@@ -617,7 +672,7 @@ export function SettingsScreen() {
 
       {!desktopAvailable && (
         <p className="mt-10 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
-          Install folders, stream installs and archive passwords are available in the Ludex desktop app.
+          {t("Install folders, stream installs and archive passwords are available in the Ludex desktop app.")}
         </p>
       )}
     </div>
@@ -655,7 +710,7 @@ function PathField({
           placeholder="/home/user/Games"
         />
         <Button variant="default" size="sm" className="h-10 shrink-0" onClick={onPick} icon={<FolderOpen className="size-3.5" />}>
-          Browse
+          {t("Browse")}
         </Button>
       </div>
       <p className="flex flex-wrap items-baseline gap-x-2 text-[11.5px] leading-relaxed text-ink-3">
@@ -663,7 +718,7 @@ function PathField({
         {disk && (
           <span className="num inline-flex items-center gap-1 text-ink-3">
             <HardDrive className="size-3" aria-hidden="true" />
-            {formatBytes(disk.freeBytes)} free of {formatBytes(disk.totalBytes)}
+            {t("{free} free of {total}", { free: formatBytes(disk.freeBytes), total: formatBytes(disk.totalBytes) })}
           </span>
         )}
       </p>

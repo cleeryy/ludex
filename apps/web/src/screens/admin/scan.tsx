@@ -5,6 +5,7 @@ import { formatRelative } from "@/lib/format";
 import { useToast } from "@/state/toasts";
 import { PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Skeleton } from "@/components/ui/controls";
+import { t } from "@/lib/i18n";
 
 export function ScanScreen() {
   const { push } = useToast();
@@ -19,34 +20,34 @@ export function ScanScreen() {
   const start = useMutation({
     mutationFn: () => api.startScan(),
     onSuccess: () => {
-      push({ title: "Scan started", description: "New files appear as they are indexed.", tone: "success" });
+      push({ title: t("Scan started"), description: t("New files appear as they are indexed."), tone: "success" });
       void queryClient.invalidateQueries({ queryKey: ["scan"] });
     },
-    onError: (error: Error) => push({ title: "Scan did not start", description: error.message, tone: "danger" }),
+    onError: (error: Error) => push({ title: t("Scan did not start"), description: error.message, tone: "danger" }),
   });
 
   const counts = [
-    ["Scanned", data?.scanned ?? 0],
-    ["Added", data?.added ?? 0],
-    ["Updated", data?.updated ?? 0],
-    ["Removed", data?.removed ?? 0],
-    ["Metadata pending", data?.metadataPending ?? 0],
+    [t("Scanned"), data?.scanned ?? 0],
+    [t("Added"), data?.added ?? 0],
+    [t("Updated"), data?.updated ?? 0],
+    [t("Removed"), data?.removed ?? 0],
+    [t("Metadata pending"), data?.metadataPending ?? 0],
   ] as const;
 
   return (
     <div className="page page-in">
       <PageHeader
-        title="Library scan"
+        title={t("Library scan")}
         meta={
           <>
             <span className="flex items-center gap-2">
               <span className={data?.running ? "size-1.5 rounded-full bg-signal" : "size-1.5 rounded-full bg-ink-3"} aria-hidden="true" />
-              {data?.running ? "Running" : "Idle"}
+              {data?.running ? t("Running") : t("Idle")}
             </span>
-            {data?.finishedAt && <span>Last finished {formatRelative(data.finishedAt)}</span>}
+            {data?.finishedAt && <span>{t("Last finished")} {formatRelative(data.finishedAt)}</span>}
           </>
         }
-        description="The scanner walks the games folder, indexes new archives and marks removed files as missing. It never deletes metadata or progress."
+        description={t("The scanner walks the games folder, indexes new archives and marks removed files as missing. It never deletes metadata or progress.")}
         actions={
           <Button
             variant="primary"
@@ -55,13 +56,13 @@ export function ScanScreen() {
             disabled={data?.running}
             onClick={() => start.mutate()}
           >
-            {data?.running ? "Scanning" : "Scan now"}
+            {data?.running ? t("Scanning") : t("Scan now")}
           </Button>
         }
       />
 
       <section className="mt-8">
-        <SectionHeader title="This scan" />
+        <SectionHeader title={t("This scan")} />
         <div className="grid grid-cols-2 gap-px border border-line bg-line sm:grid-cols-3 lg:grid-cols-5">
           {counts.map(([label, value]) => (
             <div key={label} className="bg-bg px-4 py-5">
@@ -75,14 +76,14 @@ export function ScanScreen() {
           ))}
         </div>
         <div className="mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-1 font-mono text-[10.5px] text-ink-3">
-          <span>Started {data?.startedAt ? formatRelative(data.startedAt) : "—"}</span>
-          <span>Finished {data?.finishedAt ? formatRelative(data.finishedAt) : "—"}</span>
+          <span>{t("Started")} {data?.startedAt ? formatRelative(data.startedAt) : "—"}</span>
+          <span>{t("Finished")} {data?.finishedAt ? formatRelative(data.finishedAt) : "—"}</span>
         </div>
       </section>
 
       {data && data.errors.length > 0 && (
         <section className="mt-10">
-          <SectionHeader title="Errors" count={data.errors.length} />
+          <SectionHeader title={t("Errors")} count={data.errors.length} />
           <div className="border-t border-line">
             {data.errors.map((message, index) => (
               <p key={index} className="flex items-start gap-2 border-b border-line py-2.5 text-[12.5px] text-danger">
@@ -96,44 +97,44 @@ export function ScanScreen() {
 
       <section className="mt-10 grid gap-8 lg:grid-cols-2">
         <div>
-          <SectionHeader title="What it does" />
+          <SectionHeader title={t("What it does")} />
           <ul className="flex flex-col gap-3 border-t border-line pt-4 text-[13px] leading-relaxed text-ink-2">
             <li className="flex gap-3">
               <span className="mt-[7px] size-1.5 shrink-0 bg-signal" aria-hidden="true" />
-              <span>Walks the games folder three levels deep and indexes archives and portable executables.</span>
+              <span>{t("Walks the games folder three levels deep and indexes archives and portable executables.")}</span>
             </li>
             <li className="flex gap-3">
               <span className="mt-[7px] size-1.5 shrink-0 bg-signal" aria-hidden="true" />
-              <span>Skips hidden entries, extracted game trees, Redist, Support, Tools and uninstallers.</span>
+              <span>{t("Skips hidden entries, extracted game trees, Redist, Support, Tools and uninstallers.")}</span>
             </li>
             <li className="flex gap-3">
               <span className="mt-[7px] size-1.5 shrink-0 bg-signal" aria-hidden="true" />
-              <span>Compares file size and modification time before touching the database, so repeat scans are cheap.</span>
+              <span>{t("Compares file size and modification time before touching the database, so repeat scans are cheap.")}</span>
             </li>
             <li className="flex gap-3">
               <span className="mt-[7px] size-1.5 shrink-0 bg-signal" aria-hidden="true" />
-              <span>Marks missing files instead of deleting them. Progress, bookmarks and metadata survive a move.</span>
+              <span>{t("Marks missing files instead of deleting them. Progress, bookmarks and metadata survive a move.")}</span>
             </li>
           </ul>
         </div>
         <div>
-          <SectionHeader title="Schedule" />
+          <SectionHeader title={t("Schedule")} />
           <div className="border-t border-line pt-4">
             <div className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-              <span className="text-[12.5px] text-ink-3">Automatic scan</span>
-              <Badge tone="ok">Every 15 minutes</Badge>
+              <span className="text-[12.5px] text-ink-3">{t("Automatic scan")}</span>
+              <Badge tone="ok">{t("Every 15 minutes")}</Badge>
             </div>
             <div className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-              <span className="text-[12.5px] text-ink-3">After an ingest</span>
-              <Badge tone="ok">On completion</Badge>
+              <span className="text-[12.5px] text-ink-3">{t("After an ingest")}</span>
+              <Badge tone="ok">{t("On completion")}</Badge>
             </div>
             <div className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-              <span className="text-[12.5px] text-ink-3">Manual</span>
-              <span className="text-[12.5px] text-ink-2">This page, or the command palette</span>
+              <span className="text-[12.5px] text-ink-3">{t("Manual")}</span>
+              <span className="text-[12.5px] text-ink-2">{t("This page, or the command palette")}</span>
             </div>
           </div>
           <p className="mt-3 text-[11.5px] leading-relaxed text-ink-3">
-            A scan only stats files. Metadata enrichment runs separately and is rate limited by the provider.
+            {t("A scan only stats files. Metadata enrichment runs separately and is rate limited by the provider.")}
           </p>
         </div>
       </section>

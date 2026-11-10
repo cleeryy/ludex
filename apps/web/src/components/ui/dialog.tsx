@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/controls";
+import { t } from "@/lib/i18n";
 
 const SIZES = {
   sm: "max-w-[420px]",
@@ -141,7 +142,7 @@ export function Dialog({
                 size="icon"
                 className="-mr-2 -mt-1 size-10"
                 onClick={() => onOpenChange(false)}
-                aria-label="Close dialog"
+                aria-label={t("Close dialog")}
                 disabled={!dismissible}
               >
                 <X className="size-4" />
@@ -186,7 +187,7 @@ export function ConfirmDialog({
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button
             variant={tone === "danger" ? "danger" : "primary"}

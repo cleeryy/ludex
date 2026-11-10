@@ -10,6 +10,7 @@ import { GameBackdrop, GameCover } from "@/components/art/cover";
 import { Wordmark } from "@/components/brand";
 import { SectionHeader } from "@/components/page";
 import { Badge, Button, Field, Input, Skeleton } from "@/components/ui/controls";
+import { t } from "@/lib/i18n";
 
 /**
  * Public share page (#9): reachable logged out at `#/share/{token}`.
@@ -41,7 +42,7 @@ export function ShareScreen() {
         <Wordmark height={18} />
         <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">
           <Link2 className="size-3.5" aria-hidden="true" />
-          Shared link
+          {t("Shared link")}
         </span>
       </header>
 
@@ -50,7 +51,7 @@ export function ShareScreen() {
           <GameBackdrop title={game.title} backgroundUrl={game.backgroundUrl} className="absolute inset-0 h-full" />
 
           <div className="page relative pb-14 pt-4">
-            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">Account-free download</p>
+            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">{t("Account-free download")}</p>
 
             <div className="mt-[8vh] grid gap-8 lg:grid-cols-[250px_1fr] lg:gap-12 xl:grid-cols-[280px_1fr]">
               <div className="w-[150px] sm:w-[190px] lg:w-full">
@@ -80,7 +81,7 @@ export function ShareScreen() {
                       <span>{game.genres.join(" / ")}</span>
                     </>
                   )}
-                  {version.earlyAccess && <Badge tone="signal">Early access</Badge>}
+                  {version.earlyAccess && <Badge tone="signal">{t("Early access")}</Badge>}
                 </div>
 
                 <h1 className="mt-3 max-w-[18ch] text-[clamp(2.4rem,4.6vw,4.25rem)] font-semibold leading-[0.94] tracking-[-0.035em]">
@@ -95,8 +96,8 @@ export function ShareScreen() {
                     </span>
                   )}
                   <span className="num">{formatBytes(version.size)}</span>
-                  <span>{version.version ? `Version ${version.version}` : "Unversioned build"}</span>
-                  {version.releaseDate && <span>Released {formatDate(version.releaseDate)}</span>}
+                  <span>{version.version ? `Version ${version.version}` : t("Unversioned build")}</span>
+                  {version.releaseDate && <span>{t("Released")} {formatDate(version.releaseDate)}</span>}
                 </div>
 
                 {game.description && <p className="measure mt-6 text-[14.5px] leading-relaxed text-ink-2">{game.description}</p>}
@@ -110,14 +111,14 @@ export function ShareScreen() {
           <div className="grid gap-12 lg:grid-cols-[1fr_360px]">
             <div>
               <section aria-labelledby="details-heading">
-                <SectionHeader title="Details" />
+                <SectionHeader title={t("Details")} />
                 <dl id="details-heading" className="border-t border-line">
                   {[
-                    ["Developer", game.developers.join(", ") || "—"],
-                    ["Publisher", game.publishers.join(", ") || "—"],
-                    ["Released", formatDate(game.releaseDate)],
-                    ["Genres", game.genres.join(", ") || "—"],
-                    ["Age rating", game.ageRating ? `${game.ageRating}+` : "Not rated"],
+                    [t("Developer"), game.developers.join(", ") || "—"],
+                    [t("Publisher"), game.publishers.join(", ") || "—"],
+                    [t("Released"), formatDate(game.releaseDate)],
+                    [t("Genres"), game.genres.join(", ") || "—"],
+                    [t("Age rating"), game.ageRating ? `${game.ageRating}+` : t("Not rated")],
                   ].map(([label, value]) => (
                     <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
                       <dt className="shrink-0 text-[12px] text-ink-3">{label}</dt>
@@ -129,7 +130,7 @@ export function ShareScreen() {
 
               {game.screenshots.length > 0 && (
                 <section className="mt-12" aria-labelledby="screenshots-heading">
-                  <SectionHeader title="Screenshots" count={game.screenshots.length} />
+                  <SectionHeader title={t("Screenshots")} count={game.screenshots.length} />
                   <div id="screenshots-heading" className="grid gap-3 border-t border-line pt-4 sm:grid-cols-2">
                     {game.screenshots.slice(0, 4).map((shot, index) => (
                       <img
@@ -156,8 +157,8 @@ export function ShareScreen() {
       </main>
 
       <footer className="page mt-12 flex flex-wrap items-center justify-between gap-3 border-t border-line py-6 text-[11px] leading-relaxed text-ink-3">
-        <span>Served by Ludex. Anyone with this link can open this page; the library owner can revoke it at any time.</span>
-        <span className="font-mono uppercase tracking-[0.12em]">No account needed</span>
+        <span>{t("Served by Ludex. Anyone with this link can open this page; the library owner can revoke it at any time.")}</span>
+        <span className="font-mono uppercase tracking-[0.12em]">{t("No account needed")}</span>
       </footer>
     </div>
   );
@@ -165,14 +166,26 @@ export function ShareScreen() {
 
 /* ------------------------------ access panel ----------------------------- */
 
-const ACCESS_ERROR_TITLES: Record<string, string> = {
-  invalid_share_password: "That password didn’t work",
-  share_expired: "This link has expired",
-  share_exhausted: "The download limit was reached",
-  share_not_found: "This link is no longer available",
-  rate_limited: "Too many attempts",
-  network_error: "Cannot reach the server",
-};
+function accessErrorTitle(code: string): string {
+  switch (code) {
+    case "not_found":
+      return t("This link does not exist");
+    case "expired":
+      return t("This link has expired");
+    case "revoked":
+      return t("This link was revoked");
+    case "limit_reached":
+      return t("This link reached its download limit");
+    case "password_required":
+      return t("This link needs a password");
+    case "wrong_password":
+      return t("That password is not right");
+    case "network_error":
+      return t("Cannot reach the server");
+    default:
+      return t("This link cannot be opened");
+  }
+}
 
 function ShareAccessPanel({ token, view }: { token: string; view: ShareView }) {
   const [password, setPassword] = useState("");
@@ -200,18 +213,18 @@ function ShareAccessPanel({ token, view }: { token: string; view: ShareView }) {
 
   return (
     <div className="border border-line-2 bg-surface p-5">
-      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">Download</p>
+      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">{t("Download")}</p>
       <h2 className="mt-1 flex items-center gap-2 text-[22px] font-semibold leading-tight tracking-[-0.02em]">
-        {version.version ? `Version ${version.version}` : "Latest version"}
-        {version.earlyAccess && <Badge tone="signal">Early access</Badge>}
+        {version.version ? `Version ${version.version}` : t("Latest version")}
+        {version.earlyAccess && <Badge tone="signal">{t("Early access")}</Badge>}
       </h2>
 
       <dl className="mt-4 border-t border-line">
         {[
-          ["Size", formatBytes(version.size)],
-          ["Released", version.releaseDate ? formatDate(version.releaseDate) : "—"],
-          ["Link expires", expiresAt ? formatDate(expiresAt) : "Does not expire"],
-          ["Downloads left", remainingDownloads === null ? "Unlimited" : String(remainingDownloads)],
+          [t("Size"), formatBytes(version.size)],
+          [t("Released"), version.releaseDate ? formatDate(version.releaseDate) : "—"],
+          [t("Link expires"), expiresAt ? formatDate(expiresAt) : t("Does not expire")],
+          [t("Downloads left"), remainingDownloads === null ? t("Unlimited") : String(remainingDownloads)],
         ].map(([label, value]) => (
           <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
             <dt className="text-[12px] text-ink-3">{label}</dt>
@@ -228,7 +241,7 @@ function ShareAccessPanel({ token, view }: { token: string; view: ShareView }) {
         }}
       >
         {hasPassword && (
-          <Field label="Password" htmlFor="share-password" hint="Set by the person who shared this link.">
+          <Field label={t("Password")} htmlFor="share-password" hint={t("Set by the person who shared this link.")}>
             <Input
               id="share-password"
               type="password"
@@ -237,7 +250,7 @@ function ShareAccessPanel({ token, view }: { token: string; view: ShareView }) {
               required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="Enter the share password"
+              placeholder={t("Enter the share password")}
               disabled={busy || exhausted}
             />
           </Field>
@@ -252,25 +265,25 @@ function ShareAccessPanel({ token, view }: { token: string; view: ShareView }) {
           disabled={exhausted}
           icon={hasPassword ? <Lock className="size-4" /> : <Download className="size-4" />}
         >
-          {exhausted ? "Download limit reached" : hasPassword ? "Unlock and download" : "Download"}
+          {exhausted ? t("Download limit reached") : hasPassword ? t("Unlock and download") : t("Download")}
         </Button>
       </form>
 
       {started && (
         <p role="status" className="mt-3 border-l-2 border-ok pl-3 text-[12px] leading-relaxed text-ink-2">
-          Your download should start. The download ticket is valid for 15 minutes; reopen this link if it expires.
+          {t("Your download should start. The download ticket is valid for 15 minutes; reopen this link if it expires.")}
         </p>
       )}
 
       {error && (
         <div role="alert" className="mt-3 border-l-2 border-danger pl-3">
-          <p className="text-[12.5px] text-danger">{ACCESS_ERROR_TITLES[error.code] ?? "The download did not start"}</p>
+          <p className="text-[12.5px] text-danger">{accessErrorTitle(error.code) ?? t("The download did not start")}</p>
           <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">{error.message}</p>
         </div>
       )}
 
       <p className="mt-4 border-t border-line pt-3 text-[11.5px] leading-relaxed text-ink-3">
-        Anyone with this link can view this page and download the archive.
+        {t("Anyone with this link can view this page and download the archive.")}
         {hasPassword && " The password gates downloads; it is verified by the server and never shown again."}
         {remainingDownloads !== null && remainingDownloads > 0 && ` This link allows ${remainingDownloads} more download${remainingDownloads === 1 ? "" : "s"}.`}
       </p>
@@ -297,7 +310,7 @@ function ShareLoading() {
         </div>
       </div>
       <p className="page mt-10 flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-3" role="status">
-        Opening the shared link
+        {t("Opening the shared link")}
       </p>
     </div>
   );
@@ -313,27 +326,26 @@ function ShareUnavailable({ error, onRetry }: { error: unknown; onRetry: () => v
     <div className="grid min-h-dvh grid-rows-[auto_1fr] bg-bg">
       <header className="page flex flex-wrap items-center justify-between gap-3 py-5">
         <Wordmark height={18} />
-        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">Shared link</span>
+        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">{t("Shared link")}</span>
       </header>
       <main className="page flex items-center pb-24">
         <div className="max-w-[520px]">
-          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink-3">Account-free download</p>
+          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink-3">{t("Account-free download")}</p>
           <h1 className="mt-3 text-[clamp(2.2rem,4.4vw,3.4rem)] font-semibold leading-[0.96] tracking-[-0.033em]">{title}</h1>
           <p className="mt-4 border-l-2 border-danger pl-3 text-[14px] leading-relaxed text-ink-2" role="alert">
             {apiError?.message ?? errorMessage(error)}
           </p>
           <p className="mt-4 max-w-[46ch] text-[12.5px] leading-relaxed text-ink-3">
-            Share links can be revoked by the library owner, and they may expire or reach a download limit. Ask the person who
-            sent it for a new link.
+            {t("Share links can be revoked by the library owner, and they may expire or reach a download limit. Ask the person who sent it for a new link.")}
           </p>
           {!notFound && (
             <Button variant="default" className="mt-6" onClick={onRetry}>
-              Try again
+              {t("Try again")}
             </Button>
           )}
           <p className="mt-10 flex items-center gap-1.5 text-[11px] text-ink-3">
             <Lock className="size-3" aria-hidden="true" />
-            This page never exposes the rest of the library.
+            {t("This page never exposes the rest of the library.")}
           </p>
         </div>
       </main>

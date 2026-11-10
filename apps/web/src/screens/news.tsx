@@ -6,6 +6,7 @@ import { formatDate } from "@/lib/format";
 import { useIsAdmin } from "@/state/auth";
 import { EmptyState, ErrorState, PageHeader } from "@/components/page";
 import { Button, Skeleton } from "@/components/ui/controls";
+import { t , tn } from "@/lib/i18n";
 
 export function NewsScreen() {
   const isAdmin = useIsAdmin();
@@ -17,14 +18,14 @@ export function NewsScreen() {
   return (
     <div className="page page-in">
       <PageHeader
-        title="News"
-        meta={<span className="num">{data?.length ?? 0} posts</span>}
-        description="Release notes and notes from the server. Written here, read here; no feed, no comments."
+        title={t("News")}
+        meta={<span className="num">{tn(data?.length ?? 0, "1 post", "{count} posts")}</span>}
+        description={t("Release notes and notes from the server. Written here, read here; no feed, no comments.")}
         actions={
           isAdmin ? (
             <Link to="/admin/news">
               <Button variant="default" size="sm" icon={<PenLine className="size-3.5" />}>
-                Manage posts
+                {t("Manage posts")}
               </Button>
             </Link>
           ) : undefined
@@ -49,13 +50,13 @@ export function NewsScreen() {
 
         {isError && (
           <ErrorState
-            message={error instanceof Error ? error.message : "The server did not answer."}
+            message={error instanceof Error ? error.message : t("The server did not answer.")}
             onRetry={() => void refetch()}
           />
         )}
 
         {!isPending && !isError && data && data.length === 0 && (
-          <EmptyState title="No posts yet" description="Release notes will appear here after the first update." />
+          <EmptyState title={t("No posts yet")} description={t("Release notes will appear here after the first update.")} />
         )}
 
         {!isPending && !isError && data && data.length > 0 && (

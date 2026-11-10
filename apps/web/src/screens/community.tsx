@@ -8,6 +8,7 @@ import { useAuth } from "@/state/auth";
 import { ActivityList } from "@/components/community/activity-list";
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Skeleton } from "@/components/ui/controls";
+import { t , tn } from "@/lib/i18n";
 
 function initials(profile: PublicProfile): string {
   const source = profile.displayName ?? profile.username;
@@ -50,20 +51,20 @@ export function CommunityScreen() {
   return (
     <div className="page page-in">
       <PageHeader
-        title="Community"
+        title={t("Community")}
         meta={
           <span>
-            {members.data?.length ?? 0} public {members.data?.length === 1 ? "profile" : "profiles"} ·{" "}
+            {tn(members.data?.length ?? 0, "1 public profile", "{count} public profiles")} ·{" "}
             {items.length} {items.length === 1 ? "event" : "events"}
           </span>
         }
-        description="What people are playing, finishing and collecting. Only accounts that opt in appear here."
+        description={t("What people are playing, finishing and collecting. Only accounts that opt in appear here.")}
         actions={
           <Link
             to={user ? `/community/u/${user.id}` : "/settings"}
             className="inline-flex h-9 items-center gap-2 border border-line px-3 text-[12.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
           >
-            {isPublic ? "Your public page" : "Your profile"}
+            {isPublic ? t("Your public page") : t("Your profile")}
             <ArrowUpRight className="size-3.5" aria-hidden="true" />
           </Link>
         }
@@ -79,12 +80,12 @@ export function CommunityScreen() {
             </span>
             <div>
               <p className="text-[13.5px] font-medium text-ink">
-                {isPublic ? "Your profile is public" : "Your profile is private"}
+                {isPublic ? t("Your profile is public") : t("Your profile is private")}
               </p>
               <p className="mt-1 max-w-[62ch] text-[12px] leading-relaxed text-ink-3">
                 {isPublic
-                  ? "Your activity appears in the feed, and other accounts can open your page. You can turn this off at any time."
-                  : "Nothing about your account appears in the community. Turn on a public profile in Settings to join the feed."}
+                  ? t("Your activity appears in the feed, and other accounts can open your page. You can turn this off at any time.")
+                  : t("Nothing about your account appears in the community. Turn on a public profile in Settings to join the feed.")}
               </p>
             </div>
           </div>
@@ -92,7 +93,7 @@ export function CommunityScreen() {
             to="/settings"
             className="inline-flex h-9 items-center gap-2 border border-line px-3 text-[12.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
           >
-            {isPublic ? "Privacy settings" : "Make it public"}
+            {isPublic ? t("Privacy settings") : t("Make it public")}
             <ArrowUpRight className="size-3.5" aria-hidden="true" />
           </Link>
         </section>
@@ -100,12 +101,12 @@ export function CommunityScreen() {
 
       <section className="mt-12" aria-labelledby="members-heading">
         <SectionHeader
-          title="People"
+          title={t("People")}
           count={publicMembers.length}
-          description="Accounts with a public profile"
+          description={t("Accounts with a public profile")}
           actions={
             <Link to="/settings" className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
-              Manage yours
+              {t("Manage yours")}
             </Link>
           }
         />
@@ -113,15 +114,15 @@ export function CommunityScreen() {
         {!members.isPending && publicMembers.length === 0 && (
           <EmptyState
             compact
-            title="Nobody has opted in yet"
-            description="Public profiles are off by default. Turn yours on in Settings and your activity will be the first entry here."
+            title={t("Nobody has opted in yet")}
+            description={t("Public profiles are off by default. Turn yours on in Settings and your activity will be the first entry here.")}
           >
             <Link
               to="/settings"
               className="inline-flex h-11 items-center gap-2 rounded-[2px] border border-line-2 bg-surface px-4 text-sm text-ink transition-colors hover:border-ink-3 hover:bg-surface-2"
             >
               <Users className="size-4" aria-hidden="true" />
-              Open settings
+              {t("Open settings")}
             </Link>
           </EmptyState>
         )}
@@ -135,7 +136,7 @@ export function CommunityScreen() {
       </section>
 
       <section className="mt-12" aria-labelledby="feed-heading">
-        <SectionHeader title="Activity" description="Newest first" />
+        <SectionHeader title={t("Activity")} description={t("Newest first")} />
         {feed.isPending && (
           <div className="flex flex-col gap-3 border-t border-line pt-3">
             {Array.from({ length: 4 }).map((_, index) => (
@@ -144,13 +145,13 @@ export function CommunityScreen() {
           </div>
         )}
         {feed.isError && (
-          <ErrorState title="The feed didn’t load" message={errorMessage(feed.error)} onRetry={() => void feed.refetch()} />
+          <ErrorState title={t("The feed didn’t load")} message={errorMessage(feed.error)} onRetry={() => void feed.refetch()} />
         )}
         {!feed.isPending && !feed.isError && (
           <ActivityList
             items={items}
-            emptyTitle="No public activity yet"
-            emptyDescription="Play a game, finish one, or create a collection with a public profile on. Entries appear here as they happen."
+            emptyTitle={t("No public activity yet")}
+            emptyDescription={t("Play a game, finish one, or create a collection with a public profile on. Entries appear here as they happen.")}
             hasMore={Boolean(feed.hasNextPage)}
             loadingMore={feed.isFetchingNextPage}
             onLoadMore={() => void feed.fetchNextPage()}
@@ -159,10 +160,9 @@ export function CommunityScreen() {
       </section>
 
       <p className="mt-10 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
-        The feed records library additions, installs reported by the desktop app, play sessions, completions and new
-        collections. Playtime totals stay on your account; the feed only shows the session length.
+        {t("The feed records library additions, installs reported by the desktop app, play sessions, completions and new collections. Playtime totals stay on your account; the feed only shows the session length.")}
         {profile.data?.publicProfile === false
-          ? " Your own private activity is never shown to anyone else."
+          ? ` ${t("Your own private activity is never shown to anyone else.")}`
           : ""}
       </p>
     </div>

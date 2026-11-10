@@ -3,6 +3,7 @@ import { Lock, Sparkles, Users } from "lucide-react";
 import type { Collection } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { Badge } from "@/components/ui/controls";
+import { t } from "@/lib/i18n";
 
 export function CollectionCard({ collection, className }: { collection: Collection; className?: string }) {
   return (
@@ -19,7 +20,7 @@ export function CollectionCard({ collection, className }: { collection: Collecti
             {collection.kind === "smart" ? (
               <span className="flex items-center gap-1">
                 <Sparkles className="size-2.5" aria-hidden="true" />
-                Smart
+                {t("Smart")}
               </span>
             ) : (
               "Manual"
@@ -29,14 +30,14 @@ export function CollectionCard({ collection, className }: { collection: Collecti
             <Badge tone="outline">
               <span className="flex items-center gap-1">
                 <Users className="size-2.5" aria-hidden="true" />
-                Public
+                {t("Public")}
               </span>
             </Badge>
           ) : (
             <Badge tone="outline">
               <span className="flex items-center gap-1">
                 <Lock className="size-2.5" aria-hidden="true" />
-                Private
+                {t("Private")}
               </span>
             </Badge>
           )}
@@ -53,10 +54,10 @@ export function CollectionCard({ collection, className }: { collection: Collecti
         {collection.description ? (
           <p className="mt-1 line-clamp-2 text-[12.5px] leading-relaxed text-ink-3">{collection.description}</p>
         ) : (
-          <p className="mt-1 text-[12.5px] text-ink-3">{collection.kind === "smart" ? "Built from rules." : "An empty shelf."}</p>
+          <p className="mt-1 text-[12.5px] text-ink-3">{collection.kind === "smart" ? t("Built from rules.") : t("An empty shelf.")}</p>
         )}
         <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">
-          {collection.owned ? "Yours" : `By ${collection.owner.displayName ?? collection.owner.username}`}
+          {collection.owned ? t("Yours") : `By ${collection.owner.displayName ?? collection.owner.username}`}
         </p>
       </div>
     </Link>

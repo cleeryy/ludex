@@ -6,6 +6,7 @@ import { formatBytes } from "@/lib/format";
 import type { UpdateInstalled, UpdateProgress, UpdateStatus } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Progress } from "@/components/ui/controls";
+import { t, tr } from "@/lib/i18n";
 
 /**
  * Application updater panel (#16). Checks on demand, shows the channel and
@@ -43,12 +44,12 @@ export function DesktopUpdatePanel() {
       const next = await native.checkForUpdates(true);
       setStatus(next);
       if (next.available) {
-        push({ title: `Ludex ${next.available.version} is available`, tone: "success" });
+        push({ title: t("Ludex {version} is available", { version: next.available.version }), tone: "success" });
       } else if (next.configured) {
-        push({ title: "You are up to date" });
+        push({ title: t("You are up to date") });
       }
     } catch (cause) {
-      push({ title: "Could not check for updates", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not check for updates"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setChecking(false);
     }
@@ -65,9 +66,9 @@ export function DesktopUpdatePanel() {
           ? { version: next.available.version, restarted: false }
           : null,
       );
-      push({ title: "Update installed", description: next.message ?? undefined, tone: "success" });
+      push({ title: t("Update installed"), description: next.message ?? undefined, tone: "success" });
     } catch (cause) {
-      push({ title: "Could not install the update", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not install the update"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setInstalling(false);
     }
@@ -80,11 +81,13 @@ export function DesktopUpdatePanel() {
     <div className="border-b border-line py-4">
       <div className="flex items-start justify-between gap-6">
         <div>
-          <p className="text-[13px] font-medium text-ink">App updates</p>
+          <p className="text-[13px] font-medium text-ink">{t("App updates")}</p>
           <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
-            Follows GitHub releases. <span className="font-mono">stable</span> tracks the latest release;{" "}
-            <span className="font-mono">early</span> tracks the <span className="font-mono">edge</span> prerelease.
-            Releases are signed; a build without the public key cannot install updates.
+            {tr("Follows GitHub releases. {stable} tracks the latest release; {early} tracks the {edge} prerelease. Releases are signed; a build without the public key cannot install updates.", {
+              stable: <span className="font-mono">stable</span>,
+              early: <span className="font-mono">early</span>,
+              edge: <span className="font-mono">edge</span>,
+            })}
           </p>
         </div>
         <Button
@@ -94,15 +97,15 @@ export function DesktopUpdatePanel() {
           loading={checking}
           onClick={() => void check()}
         >
-          Check for updates
+          {t("Check for updates")}
         </Button>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10.5px] text-ink-3">
-        {status && <span>Current {status.currentVersion}</span>}
-        {status && <span>Channel {status.channel}</span>}
-        {status?.lastCheckedAt && <span>Last check {new Date(status.lastCheckedAt).toLocaleString()}</span>}
-        {!configured && <Badge tone="danger">Signing key missing</Badge>}
+        {status && <span>{t("Current")} {status.currentVersion}</span>}
+        {status && <span>{t("Channel")} {status.channel}</span>}
+        {status?.lastCheckedAt && <span>{t("Last check")} {new Date(status.lastCheckedAt).toLocaleString()}</span>}
+        {!configured && <Badge tone="danger">{t("Signing key missing")}</Badge>}
       </div>
 
       {status?.message && (
@@ -115,7 +118,7 @@ export function DesktopUpdatePanel() {
             <div>
               <p className="text-[13px] text-ink">Ludex {status.available.version}</p>
               {status.available.publishedAt && (
-                <p className="mt-0.5 font-mono text-[10.5px] text-ink-3">Published {status.available.publishedAt}</p>
+                <p className="mt-0.5 font-mono text-[10.5px] text-ink-3">{t("Published")} {status.available.publishedAt}</p>
               )}
               {status.available.notes && (
                 <p className="mt-1 max-w-[60ch] whitespace-pre-line text-[11.5px] leading-relaxed text-ink-3">
@@ -124,12 +127,12 @@ export function DesktopUpdatePanel() {
               )}
             </div>
             <Button variant="primary" size="sm" loading={installing} onClick={() => void install()}>
-              Download and install
+              {t("Download and install")}
             </Button>
           </div>
           {installing && (
             <div className="mt-3">
-              <Progress value={percent} label="Update download" />
+              <Progress value={percent} label={t("Update download")} />
               <p className="mt-1 font-mono text-[10.5px] text-ink-3">
                 {formatBytes(progress?.downloaded ?? 0)}
                 {progress?.total ? ` of ${formatBytes(progress.total)}` : ""}
@@ -142,7 +145,7 @@ export function DesktopUpdatePanel() {
       {installed && (
         <div className="mt-3 flex flex-wrap items-center gap-3 border border-line p-3">
           <p className="text-[12.5px] text-ink-2">
-            Ludex {installed.version} is installed. {installed.restarted ? "The installer restarts the app." : "Restart to use it."}
+            Ludex {installed.version}  {t("is installed.")} {installed.restarted ? t("The installer restarts the app.") : t("Restart to use it.")}
           </p>
           {!installed.restarted && (
             <Button
@@ -151,7 +154,7 @@ export function DesktopUpdatePanel() {
               icon={<RotateCcw className="size-3.5" />}
               onClick={() => void native.restartApp()}
             >
-              Restart Ludex
+              {t("Restart Ludex")}
             </Button>
           )}
         </div>

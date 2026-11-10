@@ -4,12 +4,13 @@ import { Download, FileArchive, Trash2, Upload, X } from "lucide-react";
 import { api, USING_MOCKS } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { cn } from "@/lib/cn";
-import { formatBytes, formatDate } from "@/lib/format";
+import { formatBytes, formatDate, formatPercent } from "@/lib/format";
 import type { SaveSnapshot } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Button, IconButton, Input, Progress, Skeleton } from "@/components/ui/controls";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { SectionHeader } from "@/components/page";
+import { tr, t } from "@/lib/i18n";
 
 const MAX_SAVE_BYTES = 2 * 1024 ** 3;
 
@@ -56,12 +57,12 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
     if (!picked) return;
     if (!/\.zip$/i.test(picked.name)) {
       if (fileInput.current) fileInput.current.value = "";
-      push({ title: "Use a .zip archive", description: "Save snapshots are stored as zip files.", tone: "danger" });
+      push({ title: t("Use a .zip archive"), description: t("Save snapshots are stored as zip files."), tone: "danger" });
       return;
     }
     if (picked.size > MAX_SAVE_BYTES) {
       if (fileInput.current) fileInput.current.value = "";
-      push({ title: "Archive too large", description: "Saves are limited to 2 GiB.", tone: "danger" });
+      push({ title: t("Archive too large"), description: t("Saves are limited to 2 GiB."), tone: "danger" });
       return;
     }
     setFile(picked);
@@ -78,14 +79,14 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
       );
       await invalidate();
       push({
-        title: "Save uploaded",
+        title: t("Save uploaded"),
         description: `${snapshot.label} · ${formatBytes(snapshot.size)}`,
         tone: "success",
       });
       resetComposer();
       setComposerOpen(false);
     } catch (cause) {
-      push({ title: "Upload did not finish", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Upload did not finish"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setUploading(false);
       setProgress(null);
@@ -97,12 +98,12 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
     try {
       await api.downloadSave(snapshot.id);
       if (USING_MOCKS) {
-        push({ title: "Demo build", description: "The archive is a placeholder; a real server streams the .zip." });
+        push({ title: t("Demo build"), description: t("The archive is a placeholder; a real server streams the .zip.") });
       } else {
-        push({ title: "Save downloaded", description: snapshot.fileName });
+        push({ title: t("Save downloaded"), description: snapshot.fileName });
       }
     } catch (cause) {
-      push({ title: "Download did not start", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Download did not start"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setDownloadingId(null);
     }
@@ -114,21 +115,21 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
     try {
       await api.deleteSave(deleteTarget.id);
       await invalidate();
-      push({ title: "Save deleted", description: `${deleteTarget.label} is no longer on your account.`, tone: "success" });
+      push({ title: t("Save deleted"), description: t("{label} is no longer on your account.", { label: deleteTarget.label }), tone: "success" });
       setDeleteTarget(null);
     } catch (cause) {
-      push({ title: "Could not delete the save", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not delete the save"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setDeleting(false);
     }
   };
 
   return (
-    <section className="mt-12" aria-label="Cloud saves">
+    <section className="mt-12" aria-label={t("Cloud saves")}>
       <SectionHeader
-        title="Cloud saves"
+        title={t("Cloud saves")}
         count={rows.length > 0 ? rows.length : undefined}
-        description="Restore points stored against your account"
+        description={t("Restore points stored against your account")}
         actions={
           <Button
             variant={composerOpen ? "ghost" : "default"}
@@ -141,7 +142,7 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
               setComposerOpen((open) => !open);
             }}
           >
-            {composerOpen ? "Close" : "Upload .zip"}
+            {composerOpen ? t("Close") : t("Upload .zip")}
           </Button>
         }
       />
@@ -173,7 +174,7 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
                 ref={fileInput}
                 type="file"
                 accept=".zip,application/zip"
-                aria-label={`Save archive for ${title}`}
+                aria-label={t("Save archive for {title}", { title })}
                 className="absolute inset-0 cursor-pointer opacity-0"
                 disabled={uploading}
                 onChange={(event) => pick(event.target.files?.[0])}
@@ -182,28 +183,28 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
                 <FileArchive className="size-4 shrink-0 text-ink-3 transition-colors group-hover:text-ink-2" aria-hidden="true" />
                 <span className="min-w-0">
                   <span className="block truncate text-[13px] text-ink">
-                    {file ? file.name : "Choose a .zip archive"}
+                    {file ? file.name : t("Choose a .zip archive")}
                   </span>
                   <span className="mt-0.5 block font-mono text-[10.5px] text-ink-3">
-                    {file ? `${formatBytes(file.size)} · ready to upload` : "Drag it here or browse · up to 2 GiB"}
+                    {file ? `${formatBytes(file.size)} · ready to upload` : t("Drag it here or browse · up to 2 GiB")}
                   </span>
                 </span>
               </span>
               <span className="shrink-0 text-[12px] text-ink-2 underline-offset-4 group-hover:text-ink group-hover:underline">
-                {file ? "Change" : "Browse"}
+                {file ? t("Change") : t("Browse")}
               </span>
             </label>
 
             <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
               <label className="flex flex-col gap-1.5">
-                <span className="sr-only">Snapshot label</span>
+                <span className="sr-only">{t("Snapshot label")}</span>
                 <Input
                   ref={labelInput}
                   value={label}
                   maxLength={80}
                   disabled={uploading}
                   onChange={(event) => setLabel(event.target.value)}
-                  placeholder="Label (optional) — e.g. Before the final boss"
+                  placeholder={t("Label (optional) — e.g. Before the final boss")}
                   className="h-10 text-[13px]"
                 />
               </label>
@@ -213,16 +214,16 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
                 disabled={!file}
                 onClick={() => void upload()}
               >
-                Upload save
+                {t("Upload save")}
               </Button>
             </div>
 
             {uploading && (
               <div aria-busy="true">
-                <Progress value={pct} label="Save upload progress" />
+                <Progress value={pct} label={t("Save upload progress")} />
                 <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2.5 font-mono text-[10.5px] text-ink-3">
-                  <span className="text-ink-2">Uploading</span>
-                  {pct !== null && <span>{pct.toFixed(0)}%</span>}
+                  <span className="text-ink-2">{t("Uploading")}</span>
+                  {pct !== null && <span>{formatPercent(pct)}</span>}
                   {progress && (
                     <span>
                       {formatBytes(progress.loaded)} / {formatBytes(progress.total)}
@@ -241,9 +242,9 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
           </div>
         ) : saves.isError ? (
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line py-5" role="alert">
-            <p className="text-[13px] text-ink-2">Cloud saves didn’t load. {errorMessage(saves.error)}</p>
+            <p className="text-[13px] text-ink-2">{t("Cloud saves didn’t load.")} {errorMessage(saves.error)}</p>
             <Button variant="default" size="sm" onClick={() => void saves.refetch()}>
-              Try again
+              {t("Try again")}
             </Button>
           </div>
         ) : rows.length === 0 ? (
@@ -256,14 +257,14 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
                 <FileArchive className="size-4 text-ink-3" />
               </span>
               <div className="flex flex-col gap-1.5">
-                <p className="text-[14px] text-ink">No snapshots for this game yet</p>
+                <p className="text-[14px] text-ink">{t("No snapshots for this game yet")}</p>
                 <p className="measure text-[13px] leading-relaxed text-ink-2">
-                  Saves belong to your account: only you can list, download or delete them. Upload a{" "}
-                  <span className="font-mono text-[12px] text-ink-2">.zip</span> of your save folder to keep a restore
-                  point.
+                  {tr("Saves belong to your account: only you can list, download or delete them. Upload a {zip} of your save folder to keep a restore point.", {
+                    zip: <span className="font-mono text-[12px] text-ink-2">.zip</span>,
+                  })}
                 </p>
                 <p className="measure font-mono text-[10.5px] leading-relaxed text-ink-3">
-                  Ludusavi automation is on the roadmap.
+                  {t("Ludusavi automation is on the roadmap.")}
                 </p>
               </div>
             </div>
@@ -278,7 +279,7 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
                     requestAnimationFrame(() => fileInput.current?.focus());
                   }}
                 >
-                  Upload a save
+                  {t("Upload a save")}
                 </Button>
               </div>
             )}
@@ -295,7 +296,7 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
                     <span className="truncate">{snapshot.label}</span>
                     {index === 0 && (
                       <span className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.08em] text-signal-text">
-                        latest
+                        {t("latest")}
                       </span>
                     )}
                   </p>
@@ -306,7 +307,7 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
                       {formatDate(snapshot.createdAt)}
                     </span>
                     <span className="hidden sm:inline" title={snapshot.sha256}>
-                      sha {snapshot.sha256.slice(0, 10)}
+                      {t("sha {hash}", { hash: snapshot.sha256.slice(0, 10) })}
                     </span>
                   </p>
                 </div>
@@ -319,10 +320,10 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
                     onClick={() => void download(snapshot)}
                     className="text-ink-2"
                   >
-                    Download
+                    {t("Download")}
                   </Button>
                   <IconButton
-                    label={`Delete ${snapshot.label}`}
+                    label={t("Delete {label}", { label: snapshot.label })}
                     variant="ghost"
                     className="size-8 text-ink-3 hover:text-danger"
                     onClick={() => setDeleteTarget(snapshot)}
@@ -333,7 +334,7 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
               </div>
             ))}
             <p className="pt-3 text-[11.5px] leading-relaxed text-ink-3">
-              Snapshots are private to your account and stored as-is; the server never opens them.
+              {t("Snapshots are private to your account and stored as-is; the server never opens them.")}
             </p>
           </div>
         )}
@@ -342,13 +343,13 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="Delete this save?"
+        title={t("Delete this save?")}
         description={
           deleteTarget
             ? `${deleteTarget.label} · ${formatBytes(deleteTarget.size)}. The archive is removed from the server for good.`
             : ""
         }
-        confirmLabel="Delete save"
+        confirmLabel={t("Delete save")}
         loading={deleting}
         onConfirm={() => void remove()}
       />

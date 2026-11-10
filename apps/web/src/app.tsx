@@ -4,12 +4,14 @@ import { api } from "@/lib/api";
 import { isNative, native } from "@/lib/native";
 import { useAuth, useIsAdmin, useIsEditor } from "@/state/auth";
 import { SettingsProvider } from "@/state/settings";
+import { I18nProvider } from "@/lib/i18n";
 import { ToastProvider } from "@/state/toasts";
 import { AuthProvider } from "@/state/auth";
 import { DownloadsProvider } from "@/state/downloads";
 import { Wordmark } from "@/components/brand";
 import { Button } from "@/components/ui/controls";
 import { ToastViewport } from "@/components/ui/toast";
+import { PwaPrompts } from "@/components/pwa-prompts";
 import { AppShell } from "@/components/shell/app-shell";
 import { LoginScreen } from "@/screens/login";
 import { SetupScreen } from "@/screens/setup";
@@ -33,6 +35,7 @@ import { ServerScreen } from "@/screens/admin/server";
 import { AuthenticationScreen } from "@/screens/admin/authentication";
 import { UploadScreen } from "@/screens/admin/upload";
 import { ShareScreen } from "@/screens/share";
+import { t } from "@/lib/i18n";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -52,7 +55,7 @@ function BootScreen() {
         <div className="h-px w-44 overflow-hidden bg-line">
           <div className="h-full w-1/3 animate-[slide_1.4s_ease-in-out_infinite] bg-signal" />
         </div>
-        <p className="text-[11.5px] text-ink-3">Opening the library</p>
+        <p className="text-[11.5px] text-ink-3">{t("Opening the library")}</p>
       </div>
     </div>
   );
@@ -67,15 +70,14 @@ function BootError({ message }: { message: string }) {
       </div>
       <div className="flex flex-1 items-center px-6">
         <div className="w-full max-w-[480px]">
-          <h1 className="text-[30px] font-semibold leading-tight tracking-[-0.03em]">The server did not answer</h1>
+          <h1 className="text-[30px] font-semibold leading-tight tracking-[-0.03em]">{t("The server did not answer")}</h1>
           <p className="mt-3 text-[14px] leading-relaxed text-ink-2">{message}</p>
           <p className="mt-2 text-[12.5px] leading-relaxed text-ink-3">
-            Check that the Ludex server is running, then try again. In the desktop app you can also reset the connection and
-            point it at another address.
+            {t("Check that the Ludex server is running, then try again. In the desktop app you can also reset the connection and point it at another address.")}
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
             <Button variant="primary" onClick={retryBoot}>
-              Try again
+              {t("Try again")}
             </Button>
             {isNative() && (
               <Button
@@ -86,7 +88,7 @@ function BootError({ message }: { message: string }) {
                   window.location.reload();
                 }}
               >
-                Reset connection
+                {t("Reset connection")}
               </Button>
             )}
           </div>
@@ -134,6 +136,7 @@ export function App() {
         <ToastProvider>
           <AuthProvider>
             <DownloadsProvider>
+            <I18nProvider>
             <HashRouter>
               <Routes>
                 {/* Public and account-free: must stay outside the Gate (#9). */}
@@ -243,6 +246,8 @@ export function App() {
               </Routes>
             </HashRouter>
             <ToastViewport />
+            <PwaPrompts />
+            </I18nProvider>
             </DownloadsProvider>
           </AuthProvider>
         </ToastProvider>

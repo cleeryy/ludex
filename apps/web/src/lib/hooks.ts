@@ -7,6 +7,7 @@ import { USING_MOCKS } from "@/lib/flags";
 import { mockInstalls } from "@/lib/mock-install";
 import type { GameDetail, GameList, GameUpdate, InstalledGame } from "@/lib/types";
 import { useToast } from "@/state/toasts";
+import { t, tn } from "@/lib/i18n";
 
 /** Installed games, merged into the server library when running in Tauri. */
 export function useInstalledGames() {
@@ -76,14 +77,14 @@ export function useUpdateGame() {
     mutationFn: (game: { id: number; title: string }) => native.updateGame(game.id),
     onSuccess: (_job, game) => {
       push({
-        title: `Updating ${game.title}`,
-        description: "The previous install stays playable until the new files are in place.",
+        title: t("Updating {title}", { title: game.title }),
+        description: t("The previous install stays playable until the new files are in place."),
       });
       void queryClient.invalidateQueries({ queryKey: ["game-updates"] });
       void queryClient.invalidateQueries({ queryKey: ["games"] });
     },
     onError: (error: Error) => {
-      push({ title: "Could not start the update", description: error.message, tone: "danger" });
+      push({ title: t("Could not start the update"), description: error.message, tone: "danger" });
     },
   });
 }
@@ -125,7 +126,7 @@ export function useBookmark() {
       );
     },
     onError: (error: Error) => {
-      push({ title: "Bookmark not saved", description: error.message, tone: "danger" });
+      push({ title: t("Bookmark not saved"), description: error.message, tone: "danger" });
       void queryClient.invalidateQueries({ queryKey: ["games"] });
     },
     onSettled: () => {
@@ -143,12 +144,12 @@ export function useLaunchGame() {
     mutationFn: (game: { id: number; title: string; executable?: string | null }) =>
       native.launchGame({ gameId: game.id, executable: game.executable ?? null }),
     onSuccess: (_result, game) => {
-      push({ title: `${game.title} is starting`, description: "Playtime is recorded when the game exits." });
+      push({ title: t("{title} is starting", { title: game.title }), description: t("Playtime is recorded when the game exits.") });
       void queryClient.invalidateQueries({ queryKey: ["games"] });
       void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
     },
     onError: (error: Error) => {
-      push({ title: "Could not launch the game", description: error.message, tone: "danger" });
+      push({ title: t("Could not launch the game"), description: error.message, tone: "danger" });
     },
   });
 }
@@ -173,8 +174,8 @@ export function useNativeEvents() {
         void queryClient.invalidateQueries({ queryKey: ["games"] });
         if (minutesPlayed > 0) {
           push({
-            title: "Session saved",
-            description: `${minutesPlayed} minutes added to your playtime.`,
+            title: t("Session saved"),
+            description: tn(minutesPlayed, "1 minute added to your playtime.", "{count} minutes added to your playtime."),
             tone: "success",
           });
         }
@@ -200,7 +201,7 @@ export function useNativeEvents() {
             void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
             void queryClient.invalidateQueries({ queryKey: ["games"] });
           })
-          .catch((cause: Error) => push({ title: "Could not launch the game", description: cause.message, tone: "danger" }));
+          .catch((cause: Error) => push({ title: t("Could not launch the game"), description: cause.message, tone: "danger" }));
       });
       if (cancelled) offLaunch();
       else unlisteners.push(offLaunch);
@@ -209,8 +210,8 @@ export function useNativeEvents() {
       const offUpdate = await native.onUpdateAvailable((status) => {
         if (!status.available) return;
         push({
-          title: `Ludex ${status.available.version} is available`,
-          description: "Open Settings to download and install it.",
+          title: t("Ludex {version} is available", { version: status.available.version }),
+          description: t("Open Settings to download and install it."),
           tone: "success",
         });
       });

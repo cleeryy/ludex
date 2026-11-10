@@ -44,16 +44,10 @@ import { ShortcutsDialog } from "@/components/shell/shortcuts-dialog";
 import { useGenres, useInstalledGames, useNativeEvents } from "@/lib/hooks";
 import { OPEN_SHORTCUTS_EVENT, openFiltersPanel, requestSearchFocus } from "@/lib/ui-events";
 import { useDownloads } from "@/state/downloads";
-import { formatSpeed } from "@/lib/format";
+import { formatSpeed, sortLabel, formatPercent } from "@/lib/format";
+import { t } from "@/lib/i18n";
 
-const SORTS = [
-  { value: "title", label: "Title" },
-  { value: "releaseDate", label: "Release date" },
-  { value: "rating", label: "Rating" },
-  { value: "addedAt", label: "Date added" },
-  { value: "lastPlayed", label: "Last played" },
-  { value: "playtime", label: "Playtime" },
-];
+const SORTS = ["title", "releaseDate", "rating", "addedAt", "lastPlayed", "playtime"] as const;
 
 function RailLink({
   label,
@@ -100,24 +94,24 @@ function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
 
   return (
     <div className="flex h-full flex-col">
-      <nav aria-label="Library" className="flex flex-1 flex-col gap-0.5 overflow-y-auto py-5">
-        <p className="px-5 pb-2 text-[11.5px] text-ink-3">Browse</p>
-        <RailLink label="Home" icon={<House className="size-4" />} active={path === "/"} onClick={() => go("/")} />
+      <nav aria-label={t("Library")} className="flex flex-1 flex-col gap-0.5 overflow-y-auto py-5">
+        <p className="px-5 pb-2 text-[11.5px] text-ink-3">{t("Browse")}</p>
+        <RailLink label={t("Home")} icon={<House className="size-4" />} active={path === "/"} onClick={() => go("/")} />
         <RailLink
-          label="Library"
+          label={t("Library")}
           icon={<LibraryIcon className="size-4" />}
           active={path === "/library" && !genre && !installedOnly}
           count={stats?.games}
           onClick={() => go("/library")}
         />
-        <RailLink label="Recently played" icon={<Clock className="size-4" />} active={path === "/recent"} onClick={() => go("/recent")} />
-        <RailLink label="Bookmarks" icon={<Bookmark className="size-4" />} active={path === "/bookmarks"} onClick={() => go("/bookmarks")} />
-        <RailLink label="Index" icon={<ListOrdered className="size-4" />} active={path === "/all"} onClick={() => go("/all")} />
-        <RailLink label="Collections" icon={<ListPlus className="size-4" />} active={path.startsWith("/collections")} onClick={() => go("/collections")} />
-        <RailLink label="Community" icon={<Users className="size-4" />} active={path.startsWith("/community")} onClick={() => go("/community")} />
+        <RailLink label={t("Recently played")} icon={<Clock className="size-4" />} active={path === "/recent"} onClick={() => go("/recent")} />
+        <RailLink label={t("Bookmarks")} icon={<Bookmark className="size-4" />} active={path === "/bookmarks"} onClick={() => go("/bookmarks")} />
+        <RailLink label={t("Index")} icon={<ListOrdered className="size-4" />} active={path === "/all"} onClick={() => go("/all")} />
+        <RailLink label={t("Collections")} icon={<ListPlus className="size-4" />} active={path.startsWith("/collections")} onClick={() => go("/collections")} />
+        <RailLink label={t("Community")} icon={<Users className="size-4" />} active={path.startsWith("/community")} onClick={() => go("/community")} />
         {downloads.available && (
           <RailLink
-            label="Installed"
+            label={t("Installed")}
             icon={<HardDrive className="size-4" />}
             active={path === "/library" && installedOnly}
             count={installedGames?.length}
@@ -126,7 +120,7 @@ function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
         )}
         {downloads.available && (
           <RailLink
-            label="Downloads"
+            label={t("Downloads")}
             icon={<Download className="size-4" />}
             active={path === "/downloads"}
             count={downloads.activeCount}
@@ -134,12 +128,12 @@ function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
             onClick={() => go("/downloads")}
           />
         )}
-        <RailLink label="News" icon={<Film className="size-4" />} active={path === "/news"} onClick={() => go("/news")} />
+        <RailLink label={t("News")} icon={<Film className="size-4" />} active={path === "/news"} onClick={() => go("/news")} />
 
         {genres.length > 0 && (
           <>
             <div className="mx-5 my-4 h-px bg-line" />
-            <p className="px-5 pb-2 text-[11.5px] text-ink-3">Genres</p>
+            <p className="px-5 pb-2 text-[11.5px] text-ink-3">{t("Genres")}</p>
           </>
         )}
         {genres.map((item) => (
@@ -155,16 +149,16 @@ function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
         {isEditor && (
           <>
             <div className="mx-5 my-4 h-px bg-line" />
-            <p className="px-5 pb-2 text-[11.5px] text-ink-3">Admin</p>
-            <RailLink label="Ingest" icon={<Download className="size-4" />} active={path === "/admin/ingest"} onClick={() => go("/admin/ingest")} />
-            <RailLink label="Upload game" icon={<UploadCloud className="size-4" />} active={path === "/admin/upload"} onClick={() => go("/admin/upload")} />
-            <RailLink label="Library scan" icon={<RefreshCw className="size-4" />} active={path === "/admin/scan"} onClick={() => go("/admin/scan")} />
+            <p className="px-5 pb-2 text-[11.5px] text-ink-3">{t("Admin")}</p>
+            <RailLink label={t("Ingest")} icon={<Download className="size-4" />} active={path === "/admin/ingest"} onClick={() => go("/admin/ingest")} />
+            <RailLink label={t("Upload game")} icon={<UploadCloud className="size-4" />} active={path === "/admin/upload"} onClick={() => go("/admin/upload")} />
+            <RailLink label={t("Library scan")} icon={<RefreshCw className="size-4" />} active={path === "/admin/scan"} onClick={() => go("/admin/scan")} />
             {isAdmin && (
               <>
-                <RailLink label="Users" icon={<Users className="size-4" />} active={path === "/admin/users"} onClick={() => go("/admin/users")} />
-                <RailLink label="News editor" icon={<ShieldCheck className="size-4" />} active={path === "/admin/news"} onClick={() => go("/admin/news")} />
-                <RailLink label="Server" icon={<Server className="size-4" />} active={path === "/admin/server"} onClick={() => go("/admin/server")} />
-                <RailLink label="Authentication" icon={<KeyRound className="size-4" />} active={path === "/admin/authentication"} onClick={() => go("/admin/authentication")} />
+                <RailLink label={t("Users")} icon={<Users className="size-4" />} active={path === "/admin/users"} onClick={() => go("/admin/users")} />
+                <RailLink label={t("News editor")} icon={<ShieldCheck className="size-4" />} active={path === "/admin/news"} onClick={() => go("/admin/news")} />
+                <RailLink label={t("Server")} icon={<Server className="size-4" />} active={path === "/admin/server"} onClick={() => go("/admin/server")} />
+                <RailLink label={t("Authentication")} icon={<KeyRound className="size-4" />} active={path === "/admin/authentication"} onClick={() => go("/admin/authentication")} />
               </>
             )}
           </>
@@ -178,17 +172,17 @@ function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
           className="mb-4 flex w-full items-center gap-2 text-left text-[12px] text-ink-3 transition-colors hover:text-ink-2"
         >
           <Search className="size-3.5" aria-hidden="true" />
-          <span>Search</span>
+          <span>{t("Search")}</span>
           <Kbd>⌘K</Kbd>
         </button>
         <div className="flex items-center gap-2 text-[12px] text-ink-3">
           <span className="size-1.5 rounded-full bg-ok" aria-hidden="true" />
           <span className="truncate">{setup?.serverName ?? "Ludex"}</span>
-          <span className="num ml-auto shrink-0">v{setup?.version ?? "0.1.0"}</span>
+          <span className="num ml-auto shrink-0">{`v${setup?.version ?? "0.1.0"}`}</span>
         </div>
         {USING_MOCKS && (
           <div className="mt-2.5">
-            <Badge tone="outline">Demo data</Badge>
+            <Badge tone="outline">{t("Demo data")}</Badge>
           </div>
         )}
       </div>
@@ -203,7 +197,8 @@ function SortMenu() {
   const menu = useDropdown();
   const sort = params.get("sort") ?? "title";
   const order = params.get("order") ?? (sort === "title" ? "asc" : "desc");
-  const current = SORTS.find((option) => option.value === sort) ?? SORTS[0];
+  const currentSort = SORTS.find((option) => option === sort) ?? SORTS[0];
+  const current = { value: currentSort, label: sortLabel(currentSort) };
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -212,29 +207,29 @@ function SortMenu() {
   };
 
   const items: MenuEntry[] = [
-    { heading: "Sort by" },
+    { heading: t("Sort by") },
     ...SORTS.map((option) => ({
-      label: option.label,
-      selected: option.value === sort,
-      onSelect: () => setParam("sort", option.value),
+      label: sortLabel(option),
+      selected: option === sort,
+      onSelect: () => setParam("sort", option),
     })),
     "separator",
-    { label: "Ascending", selected: order === "asc", onSelect: () => setParam("order", "asc") },
-    { label: "Descending", selected: order === "desc", onSelect: () => setParam("order", "desc") },
+    { label: t("Ascending"), selected: order === "asc", onSelect: () => setParam("order", "asc") },
+    { label: t("Descending"), selected: order === "desc", onSelect: () => setParam("order", "desc") },
   ];
 
   return (
     <>
       <button
         {...menu.triggerProps}
-        aria-label={`Sort: ${current.label}`}
+        aria-label={t("Sort: {sort}", { sort: current.label })}
         className="hidden h-9 items-center gap-2 rounded-[2px] px-2.5 text-[13px] text-ink-2 transition-colors hover:bg-surface hover:text-ink md:inline-flex"
       >
         <ArrowUpDown className="size-3.5 text-ink-3" aria-hidden="true" />
         <span>{current.label}</span>
         <ChevronDown className="size-3.5 text-ink-3" aria-hidden="true" />
       </button>
-      <DropdownMenu {...menu.menuProps} items={items} label="Sort games" />
+      <DropdownMenu {...menu.menuProps} items={items} label={t("Sort games")} />
     </>
   );
 }
@@ -247,22 +242,22 @@ function UserMenu() {
   if (!user) return null;
 
   const items: MenuEntry[] = [
-    { heading: `${user.username} — ${user.role === "admin" ? "Administrator" : user.role === "editor" ? "Editor" : "Member"}` },
-    { label: "Settings", icon: <Settings className="size-3.5" />, onSelect: () => navigate("/settings") },
+    { heading: `${user.username} — ${user.role === "admin" ? t("Administrator") : user.role === "editor" ? t("Editor") : t("Member")}` },
+    { label: t("Settings"), icon: <Settings className="size-3.5" />, onSelect: () => navigate("/settings") },
     {
       label: resolved === "dark" ? "Light theme" : "Dark theme",
       icon: resolved === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />,
       onSelect: () => setTheme(resolved === "dark" ? "light" : "dark"),
     },
     "separator",
-    { label: "Sign out", icon: <LogOut className="size-3.5" />, danger: true, onSelect: () => void signOut() },
+    { label: t("Sign out"), icon: <LogOut className="size-3.5" />, danger: true, onSelect: () => void signOut() },
   ];
 
   return (
     <>
       <button
         {...menu.triggerProps}
-        aria-label={`Account menu for ${user.username}`}
+        aria-label={t("Account menu for {name}", { name: user.username })}
         className="flex h-9 items-center gap-2 rounded-[2px] pl-1 pr-1.5 transition-colors hover:bg-surface"
       >
         <span className="grid size-7 place-items-center rounded-[2px] border border-line-2 bg-surface-2 font-mono text-[10.5px] text-ink">
@@ -271,7 +266,7 @@ function UserMenu() {
         <span className="hidden text-[13px] text-ink-2 sm:block">{user.username}</span>
         <ChevronDown className="hidden size-3.5 text-ink-3 sm:block" aria-hidden="true" />
       </button>
-      <DropdownMenu {...menu.menuProps} items={items} label="Account" />
+      <DropdownMenu {...menu.menuProps} items={items} label={t("Account")} />
     </>
   );
 }
@@ -299,22 +294,22 @@ function Topbar({ onOpenPalette }: { onOpenPalette: () => void }) {
       );
       navigate(`/game/${game.id}`);
     } catch {
-      push({ title: "Nothing to pick", description: "The library is empty, or no game matches the filters." });
+      push({ title: t("Nothing to pick"), description: t("The library is empty, or no game matches the filters.") });
     } finally {
       setRandomizing(false);
     }
   };
 
   return (
-    <header className="flex h-[var(--bar-h)] shrink-0 items-stretch border-b border-line">
+    <header className="flex h-[calc(var(--bar-h)+env(safe-area-inset-top))] shrink-0 items-stretch border-b border-line pt-[env(safe-area-inset-top)]">
       <div className="hidden w-[var(--rail-w)] shrink-0 items-center border-r border-line px-5 lg:flex">
-        <button type="button" onClick={() => navigate("/")} aria-label="Ludex home" className="py-2">
+        <button type="button" onClick={() => navigate("/")} aria-label={t("Ludex home")} className="py-2">
           <Wordmark height={17} />
         </button>
       </div>
 
       <div className="flex min-w-0 flex-1 items-center gap-2 px-[var(--page-x)] lg:px-5">
-        <button type="button" onClick={() => navigate("/")} aria-label="Ludex home" className="mr-1 lg:hidden">
+        <button type="button" onClick={() => navigate("/")} aria-label={t("Ludex home")} className="mr-1 lg:hidden">
           <Wordmark height={15} withDot={false} />
         </button>
 
@@ -324,18 +319,18 @@ function Topbar({ onOpenPalette }: { onOpenPalette: () => void }) {
           className="hidden h-9 w-[300px] items-center gap-2.5 rounded-[2px] border border-line bg-surface px-3 text-left text-[13px] text-ink-3 transition-colors hover:border-line-2 hover:text-ink-2 sm:flex"
         >
           <Search className="size-4 shrink-0" aria-hidden="true" />
-          <span className="flex-1 truncate">Search games</span>
+          <span className="flex-1 truncate">{t("Search games")}</span>
           <Kbd>⌘K</Kbd>
         </button>
         <div className="ml-auto flex items-center gap-1">
-          <IconButton label="Search" variant="ghost" size="icon" className="sm:hidden" onClick={onOpenPalette}>
+          <IconButton label={t("Search")} variant="ghost" size="icon" className="sm:hidden" onClick={onOpenPalette}>
             <Search className="size-4" />
           </IconButton>
-          <IconButton label="Pick a random game" variant="ghost" onClick={random} loading={randomizing}>
+          <IconButton label={t("Pick a random game")} variant="ghost" onClick={random} loading={randomizing}>
             <Dice5 className="size-4" />
           </IconButton>
           <span className="hidden sm:block">
-            <IconButton label="Big Picture mode" variant="ghost" onClick={() => navigate("/bigpicture")}>
+            <IconButton label={t("Big Picture mode")} variant="ghost" onClick={() => navigate("/bigpicture")}>
               <Gamepad2 className="size-4" />
             </IconButton>
           </span>
@@ -354,15 +349,15 @@ function MobileNav({ onMore }: { onMore: () => void }) {
   const path = location.pathname;
 
   const items = [
-    { label: "Home", icon: <House className="size-4" />, to: "/", active: path === "/" },
-    { label: "Library", icon: <LibraryIcon className="size-4" />, to: "/library", active: path === "/library" },
-    { label: "Recent", icon: <Clock className="size-4" />, to: "/recent", active: path === "/recent" },
-    { label: "Saved", icon: <Bookmark className="size-4" />, to: "/bookmarks", active: path === "/bookmarks" },
+    { label: t("Home"), icon: <House className="size-4" />, to: "/", active: path === "/" },
+    { label: t("Library"), icon: <LibraryIcon className="size-4" />, to: "/library", active: path === "/library" },
+    { label: t("Recent"), icon: <Clock className="size-4" />, to: "/recent", active: path === "/recent" },
+    { label: t("Saved"), icon: <Bookmark className="size-4" />, to: "/bookmarks", active: path === "/bookmarks" },
   ];
 
   return (
     <nav
-      aria-label="Primary"
+      aria-label={t("Primary")}
       className="flex h-[calc(56px+env(safe-area-inset-bottom))] shrink-0 items-stretch border-t border-line bg-bg pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
       {items.map((item) => (
@@ -387,7 +382,7 @@ function MobileNav({ onMore }: { onMore: () => void }) {
         className="flex flex-1 flex-col items-center justify-center gap-1 text-[10px] text-ink-3"
       >
         <MoreHorizontal className="size-4" />
-        More
+        {t("More")}
       </button>
     </nav>
   );
@@ -418,20 +413,20 @@ function MobileMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open
   );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title="Menu" description={user ? `Signed in as ${user.username}` : undefined} size="sm">
+    <Dialog open={open} onOpenChange={onOpenChange} title={t("Menu")} description={user ? t("Signed in as {name}", { name: user.username }) : undefined} size="sm">
       <div className="max-h-[60vh] overflow-y-auto">
-        <Row label="News" icon={<Film className="size-3.5" />} onClick={() => go("/news")} />
+        <Row label={t("News")} icon={<Film className="size-3.5" />} onClick={() => go("/news")} />
         {downloads.available && (
-          <Row label="Downloads" icon={<Download className="size-3.5" />} onClick={() => go("/downloads")} />
+          <Row label={t("Downloads")} icon={<Download className="size-3.5" />} onClick={() => go("/downloads")} />
         )}
         {downloads.available && (
-          <Row label="Installed games" icon={<HardDrive className="size-3.5" />} onClick={() => go("/library?installed=true")} />
+          <Row label={t("Installed games")} icon={<HardDrive className="size-3.5" />} onClick={() => go("/library?installed=true")} />
         )}
-        <Row label="Collections" icon={<ListPlus className="size-3.5" />} onClick={() => go("/collections")} />
-        <Row label="Community" icon={<Users className="size-3.5" />} onClick={() => go("/community")} />
-        <Row label="Big Picture mode" icon={<Gamepad2 className="size-3.5" />} onClick={() => go("/bigpicture")} />
-        <Row label="Settings" icon={<Settings className="size-3.5" />} onClick={() => go("/settings")} />
-        <div className="pb-1 pt-4 text-[11.5px] text-ink-3">Genres</div>
+        <Row label={t("Collections")} icon={<ListPlus className="size-3.5" />} onClick={() => go("/collections")} />
+        <Row label={t("Community")} icon={<Users className="size-3.5" />} onClick={() => go("/community")} />
+        <Row label={t("Big Picture mode")} icon={<Gamepad2 className="size-3.5" />} onClick={() => go("/bigpicture")} />
+        <Row label={t("Settings")} icon={<Settings className="size-3.5" />} onClick={() => go("/settings")} />
+        <div className="pb-1 pt-4 text-[11.5px] text-ink-3">{t("Genres")}</div>
         <div className="flex flex-wrap gap-1.5 pb-4">
           {genres.map((genre) => (
             <button
@@ -446,20 +441,20 @@ function MobileMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open
         </div>
         {isEditor && (
           <>
-            <div className="pb-1 text-[11.5px] text-ink-3">Admin</div>
-            <Row label="Ingest" icon={<Download className="size-3.5" />} onClick={() => go("/admin/ingest")} />
-            <Row label="Library scan" icon={<RefreshCw className="size-3.5" />} onClick={() => go("/admin/scan")} />
-            {isAdmin && <Row label="Users" icon={<Users className="size-3.5" />} onClick={() => go("/admin/users")} />}
-            {isAdmin && <Row label="Server" icon={<Server className="size-3.5" />} onClick={() => go("/admin/server")} />}
-            {isAdmin && <Row label="Authentication" icon={<KeyRound className="size-3.5" />} onClick={() => go("/admin/authentication")} />}
+            <div className="pb-1 text-[11.5px] text-ink-3">{t("Admin")}</div>
+            <Row label={t("Ingest")} icon={<Download className="size-3.5" />} onClick={() => go("/admin/ingest")} />
+            <Row label={t("Library scan")} icon={<RefreshCw className="size-3.5" />} onClick={() => go("/admin/scan")} />
+            {isAdmin && <Row label={t("Users")} icon={<Users className="size-3.5" />} onClick={() => go("/admin/users")} />}
+            {isAdmin && <Row label={t("Server")} icon={<Server className="size-3.5" />} onClick={() => go("/admin/server")} />}
+            {isAdmin && <Row label={t("Authentication")} icon={<KeyRound className="size-3.5" />} onClick={() => go("/admin/authentication")} />}
           </>
         )}
         <Row
-          label={resolved === "dark" ? "Switch to the light theme" : "Switch to the dark theme"}
+          label={resolved === "dark" ? t("Switch to the light theme") : t("Switch to the dark theme")}
           icon={resolved === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
           onClick={() => setTheme(resolved === "dark" ? "light" : "dark")}
         />
-        <Row label="Sign out" icon={<LogOut className="size-3.5" />} onClick={() => void signOut()} />
+        <Row label={t("Sign out")} icon={<LogOut className="size-3.5" />} onClick={() => void signOut()} />
       </div>
     </Dialog>
   );
@@ -476,7 +471,7 @@ function DownloadsStrip() {
   return (
     <Link
       to="/downloads"
-      aria-label={`Downloads: ${titleFor(job)}${pct !== null ? `, ${pct.toFixed(0)} percent` : ""}`}
+      aria-label={t("Downloads: {title}, {percent} percent", { title: titleFor(job), percent: pct !== null ? pct.toFixed(0) : "" })}
       className="relative flex h-10 shrink-0 items-center gap-3 border-t border-line bg-surface-2 px-4 text-[12px] text-ink-2 transition-colors hover:bg-surface"
     >
       <span className="absolute inset-x-0 top-0 h-[2px] bg-line" aria-hidden="true">
@@ -488,14 +483,14 @@ function DownloadsStrip() {
       <Download className="size-3.5 shrink-0 text-signal-text" aria-hidden="true" />
       <span className="min-w-0 truncate text-ink">{titleFor(job)}</span>
       {activeCount > 1 && <span className="num shrink-0 text-ink-3">+{activeCount - 1}</span>}
-      <span className="num ml-auto shrink-0">{paused ? "Paused" : pct !== null ? `${pct.toFixed(0)}%` : "Preparing"}</span>
+      <span className="num ml-auto shrink-0">{paused ? t("Paused") : pct !== null ? formatPercent(pct) : t("Preparing")}</span>
       {aggregate?.speedBps ? (
         <span className="num hidden shrink-0 text-ink-3 sm:inline">{formatSpeed(aggregate.speedBps)}</span>
       ) : null}
-      {aggregate?.eta ? <span className="num hidden shrink-0 text-ink-3 md:inline">{aggregate.eta} left</span> : null}
+      {aggregate?.eta ? <span className="num hidden shrink-0 text-ink-3 md:inline">{t("{duration} left", { duration: aggregate.eta })}</span> : null}
       <span className="hidden shrink-0 items-center gap-1 text-ink-3 sm:flex">
-        Downloads
-        <ChevronRight className="size-3" aria-hidden="true" />
+        {t("Downloads")}
+        <ChevronRight className="rtl:-scale-x-100 size-3" aria-hidden="true" />
       </span>
     </Link>
   );
@@ -589,7 +584,7 @@ export function AppShell() {
       <div className="grain" aria-hidden="true" />
       <Topbar onOpenPalette={() => setPaletteOpen(true)} />
       <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-[var(--rail-w)] shrink-0 border-r border-line lg:block" aria-label="Sidebar">
+        <aside className="hidden w-[var(--rail-w)] shrink-0 border-r border-line lg:block" aria-label={t("Sidebar")}>
           <Rail onOpenPalette={() => setPaletteOpen(true)} />
         </aside>
         <main

@@ -4,6 +4,8 @@
  * last used set is restored when the library is opened without params.
  */
 
+import { stateLabel, sortLabel } from "@/lib/format";
+import { t } from "@/lib/i18n";
 import type { GameListQuery, ProgressState } from "@/lib/types";
 
 export const FILTER_STORAGE_KEY = "ludex.library.filters";
@@ -44,46 +46,67 @@ export interface LibraryFilters {
   order: NonNullable<GameListQuery["order"]>;
 }
 
-export const STATE_LABELS: Record<ProgressState, string> = {
-  unplayed: "Unplayed",
-  playing: "Playing",
-  completed: "Completed",
-  onHold: "On hold",
-  abandoned: "Abandoned",
-  planToPlay: "Planned",
-};
-
-export const SORT_LABELS: Record<NonNullable<GameListQuery["sort"]>, string> = {
-  title: "Title",
-  releaseDate: "Release date",
-  addedAt: "Date added",
-  lastPlayed: "Last played",
-  playtime: "Playtime",
-  rating: "Rating",
-};
-
-export const PLAYER_OPTIONS = [
-  { value: "any", label: "Any" },
-  { value: "2", label: "2+ players" },
-  { value: "3", label: "3+ players" },
-  { value: "4", label: "4+ players" },
-  { value: "8", label: "8+ players" },
+export const PROGRESS_STATES: readonly ProgressState[] = [
+  "unplayed",
+  "playing",
+  "completed",
+  "onHold",
+  "abandoned",
+  "planToPlay",
 ];
 
-export const RATING_OPTIONS = [
-  { value: "any", label: "Any" },
-  { value: "60", label: "60 and up" },
-  { value: "70", label: "70 and up" },
-  { value: "80", label: "80 and up" },
-  { value: "90", label: "90 and up" },
-];
+export const SORT_VALUES = ["title", "releaseDate", "addedAt", "lastPlayed", "playtime", "rating"] as const;
+export type SortValue = (typeof SORT_VALUES)[number];
 
-export const PROVIDER_OPTIONS = [
-  { value: "any", label: "Any source" },
-  { value: "igdb", label: "IGDB" },
-  { value: "steam", label: "Steam" },
-  { value: "demo", label: "Demo data" },
-];
+export function sortOptions(): { value: SortValue; label: string }[] {
+  return SORT_VALUES.map((value) => ({ value, label: sortLabel(value) }));
+}
+
+export function stateOptions(): { value: string; label: string }[] {
+  return [{ value: "any", label: t("Any state") }, ...PROGRESS_STATES.map((value) => ({ value, label: stateLabel(value) }))];
+}
+
+export function playerOptions(): { value: string; label: string }[] {
+  return [
+    { value: "any", label: t("Any") },
+    { value: "2", label: t("2+ players") },
+    { value: "3", label: t("3+ players") },
+    { value: "4", label: t("4+ players") },
+    { value: "8", label: t("8+ players") },
+  ];
+}
+
+export function ratingOptions(): { value: string; label: string }[] {
+  return [
+    { value: "any", label: t("Any") },
+    { value: "60", label: t("60 and up") },
+    { value: "70", label: t("70 and up") },
+    { value: "80", label: t("80 and up") },
+    { value: "90", label: t("90 and up") },
+  ];
+}
+
+export function providerOptions(): { value: string; label: string }[] {
+  return [
+    { value: "any", label: t("Any source") },
+    { value: "igdb", label: "IGDB" },
+    { value: "steam", label: "Steam" },
+    { value: "demo", label: t("Demo data") },
+  ];
+}
+
+export function providerLabel(value: string): string {
+  switch (value) {
+    case "igdb":
+      return "IGDB";
+    case "steam":
+      return "Steam";
+    case "demo":
+      return t("Demo data");
+    default:
+      return value;
+  }
+}
 
 export function defaultSort(mode: string): NonNullable<GameListQuery["sort"]> {
   return mode === "recent" ? "lastPlayed" : "title";
@@ -162,32 +185,32 @@ export interface FilterChip {
 
 export function activeFilterChips(filters: LibraryFilters): FilterChip[] {
   const chips: FilterChip[] = [];
-  if (filters.q.trim()) chips.push({ key: "q", label: `“${filters.q.trim()}”` });
+  if (filters.q.trim()) chips.push({ key: "q", label: t("“{query}”", { query: filters.q.trim() }) });
   if (filters.genre) chips.push({ key: "genre", label: filters.genre });
-  if (filters.state) chips.push({ key: "state", label: STATE_LABELS[filters.state] });
-  if (filters.earlyAccess) chips.push({ key: "earlyAccess", label: "Early access" });
-  if (filters.installed) chips.push({ key: "installed", label: "Installed" });
+  if (filters.state) chips.push({ key: "state", label: stateLabel(filters.state) });
+  if (filters.earlyAccess) chips.push({ key: "earlyAccess", label: t("Early access") });
+  if (filters.installed) chips.push({ key: "installed", label: t("Installed") });
   if (filters.yearFrom || filters.yearTo) {
     const label =
       filters.yearFrom && filters.yearTo
-        ? `${filters.yearFrom}–${filters.yearTo}`
+        ? t("{from}–{to}", { from: filters.yearFrom, to: filters.yearTo })
         : filters.yearFrom
-          ? `From ${filters.yearFrom}`
-          : `Until ${filters.yearTo}`;
+          ? t("From {year}", { year: filters.yearFrom })
+          : t("Until {year}", { year: filters.yearTo });
     chips.push({ key: "yearFrom", label });
   }
-  if (filters.players) chips.push({ key: "players", label: `${filters.players}+ players` });
+  if (filters.players) chips.push({ key: "players", label: t("{count}+ players", { count: Number(filters.players) }) });
   if (filters.playtimeMin || filters.playtimeMax) {
     const label =
       filters.playtimeMin && filters.playtimeMax
-        ? `${filters.playtimeMin}–${filters.playtimeMax} min played`
+        ? t("{from}–{to} min played", { from: filters.playtimeMin, to: filters.playtimeMax })
         : filters.playtimeMin
-          ? `${filters.playtimeMin}+ min played`
-          : `Up to ${filters.playtimeMax} min played`;
+          ? t("{count}+ min played", { count: Number(filters.playtimeMin) })
+          : t("Up to {count} min played", { count: Number(filters.playtimeMax) });
     chips.push({ key: "playtimeMin", label });
   }
-  if (filters.minRating) chips.push({ key: "minRating", label: `${filters.minRating}+ rating` });
-  if (filters.provider) chips.push({ key: "provider", label: `Source: ${filters.provider}` });
+  if (filters.minRating) chips.push({ key: "minRating", label: t("{count}+ rating", { count: Number(filters.minRating) }) });
+  if (filters.provider) chips.push({ key: "provider", label: t("Source: {provider}", { provider: providerLabel(filters.provider) }) });
   return chips;
 }
 

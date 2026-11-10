@@ -1,16 +1,19 @@
+import { t } from "@/lib/i18n";
 import type { GameSummary, SmartField, SmartOperator, SmartRule, SmartRules } from "@/lib/types";
 
 /** Fields a smart collection rule may target. */
-export const SMART_FIELDS: { value: SmartField; label: string }[] = [
-  { value: "genre", label: "Genre" },
-  { value: "year", label: "Release year" },
-  { value: "players", label: "Players" },
-  { value: "playtime", label: "Playtime (minutes)" },
-  { value: "rating", label: "Rating" },
-  { value: "installed", label: "Available on server" },
-  { value: "provider", label: "Metadata provider" },
-  { value: "title", label: "Title" },
-];
+export function smartFields(): { value: SmartField; label: string }[] {
+  return [
+    { value: "genre", label: t("Genre") },
+    { value: "year", label: t("Release year") },
+    { value: "players", label: t("Players") },
+    { value: "playtime", label: t("Playtime (minutes)") },
+    { value: "rating", label: t("Rating") },
+    { value: "installed", label: t("Available on server") },
+    { value: "provider", label: t("Metadata provider") },
+    { value: "title", label: t("Title") },
+  ];
+}
 
 const OPERATORS: Record<SmartField, { value: SmartOperator; label: string }[]> = {
   genre: [
@@ -46,8 +49,25 @@ const OPERATORS: Record<SmartField, { value: SmartOperator; label: string }[]> =
   provider: [{ value: "is", label: "is" }],
 };
 
+function operatorLabel(label: string): string {
+  switch (label) {
+    case "is":
+      return t("is");
+    case "contains":
+      return t("contains");
+    case "is at least":
+      return t("is at least");
+    case "is at most":
+      return t("is at most");
+    case "is between":
+      return t("is between");
+    default:
+      return label;
+  }
+}
+
 export function operatorsFor(field: SmartField) {
-  return OPERATORS[field];
+  return OPERATORS[field].map((operator) => ({ ...operator, label: operatorLabel(operator.label) }));
 }
 
 export function defaultOperator(field: SmartField): SmartOperator {
@@ -70,20 +90,20 @@ export function defaultRule(field: SmartField): SmartRule {
 
 /** Human summary of one rule, used on collection pages. */
 export function ruleLabel(rule: SmartRule): string {
-  const field = SMART_FIELDS.find((entry) => entry.value === rule.field)?.label ?? rule.field;
-  const op = OPERATORS[rule.field]?.find((entry) => entry.value === (rule.op ?? defaultOperator(rule.field)))?.label ?? "is";
+  const field = smartFields().find((entry) => entry.value === rule.field)?.label ?? rule.field;
+  const op = operatorsFor(rule.field).find((entry) => entry.value === (rule.op ?? defaultOperator(rule.field)))?.label ?? t("is");
   if (rule.field === "installed") {
-    return `${field} ${rule.value ? "is" : "is not"} available`;
+    return rule.value ? t("{field} is available", { field }) : t("{field} is not available", { field });
   }
   if (rule.op === "between") {
-    return `${field} ${op} ${rule.value} and ${rule.value2 ?? "?"}`;
+    return t("{field} {operator} {from} and {to}", { field, operator: op, from: String(rule.value), to: rule.value2 ?? "?" });
   }
-  return `${field} ${op} ${rule.value}`;
+  return t("{field} {operator} {value}", { field, operator: op, value: String(rule.value) });
 }
 
 export function rulesSummary(rules: SmartRules): string {
-  if (!rules.rules.length) return "No rules yet";
-  const joiner = rules.match === "any" ? " or " : " and ";
+  if (!rules.rules.length) return t("No rules yet");
+  const joiner = rules.match === "any" ? t(" or ") : t(" and ");
   return rules.rules.map(ruleLabel).join(joiner);
 }
 

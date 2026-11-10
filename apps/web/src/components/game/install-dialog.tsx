@@ -3,11 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Download, FolderOpen } from "lucide-react";
 import { installBridge } from "@/lib/install";
 import { errorMessage } from "@/lib/http";
-import { formatBytes, formatEta, formatSpeed, installPhaseLabel } from "@/lib/format";
+import { formatBytes, formatEta, formatSpeed, installPhaseLabel, formatPercent } from "@/lib/format";
 import type { GameDetail, GameVersion } from "@/lib/types";
 import { isStreamFailedJob, useDownloads } from "@/state/downloads";
 import { Button, Progress } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
+import { t } from "@/lib/i18n";
 
 /**
  * The install dialog starts a background job and then gets out of the way: the
@@ -109,32 +110,32 @@ export function InstallDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title={`Install ${game.title}`}
+      title={t("Install {title}", { title: game.title })}
       description={version.version ? `Version ${version.version} · ${formatBytes(version.size)}` : formatBytes(version.size)}
       size="sm"
       footer={
         job?.phase === "done" ? (
           <Button variant="primary" onClick={() => onOpenChange(false)}>
-            Done
+            {t("Done")}
           </Button>
         ) : active ? (
           <>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              Continue in background
+              {t("Continue in background")}
             </Button>
             {(job.phase === "queued" || job.phase === "downloading") && job.stream !== true ? (
               <Button variant="default" onClick={() => void downloads.pause(job.jobId)}>
-                Pause
+                {t("Pause")}
               </Button>
             ) : null}
             <Button variant="danger" onClick={() => void downloads.cancel(job.jobId)}>
-              Cancel
+              {t("Cancel")}
             </Button>
           </>
         ) : streamFailed ? (
           <>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              Close
+              {t("Close")}
             </Button>
             <Button
               variant="ghost"
@@ -143,28 +144,28 @@ export function InstallDialog({
                 void downloads.retryStream(job, { title: game.title, version: version.version, executable: game.launch.executable })
               }
             >
-              Retry stream
+              {t("Retry stream")}
             </Button>
             <Button variant="primary" loading={starting} onClick={() => void retryAsDownload()} icon={<Download className="size-4" />}>
-              Retry as download
+              {t("Retry as download")}
             </Button>
           </>
         ) : resumable ? (
           <>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              Close
+              {t("Close")}
             </Button>
             <Button variant="primary" loading={starting} onClick={() => void resume()}>
-              Resume
+              {t("Resume")}
             </Button>
           </>
         ) : (
           <>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button variant="primary" loading={starting} onClick={() => void start()} icon={<Download className="size-4" />}>
-              Install
+              {t("Install")}
             </Button>
           </>
         )
@@ -173,17 +174,17 @@ export function InstallDialog({
       <div className="flex flex-col gap-4">
         <dl className="flex flex-col gap-2 text-[12.5px]">
           <div className="flex items-baseline justify-between gap-4">
-            <dt className="text-ink-3">Install folder</dt>
-            <dd className="truncate font-mono text-[11px] text-ink-2">{settings?.installDir || "Set in Settings"}</dd>
+            <dt className="text-ink-3">{t("Install folder")}</dt>
+            <dd className="truncate font-mono text-[11px] text-ink-2">{settings?.installDir || t("Set in Settings")}</dd>
           </div>
           <div className="flex items-baseline justify-between gap-4">
-            <dt className="text-ink-3">Download folder</dt>
+            <dt className="text-ink-3">{t("Download folder")}</dt>
             <dd className="truncate font-mono text-[11px] text-ink-2">
-              {settings?.streamInstall ? "Streamed, not stored (not resumable)" : settings?.downloadDir || "Set in Settings"}
+              {settings?.streamInstall ? t("Streamed, not stored (not resumable)") : settings?.downloadDir || t("Set in Settings")}
             </dd>
           </div>
           <div className="flex items-baseline justify-between gap-4">
-            <dt className="text-ink-3">Archive</dt>
+            <dt className="text-ink-3">{t("Archive")}</dt>
             <dd className="truncate font-mono text-[11px] text-ink-2">{version.fileName}</dd>
           </div>
         </dl>
@@ -192,24 +193,24 @@ export function InstallDialog({
           <div className="flex flex-col gap-2 border-t border-line pt-4">
             <div className="flex items-baseline justify-between gap-3">
               <span className="text-[12.5px] text-ink">{installPhaseLabel(job.phase)}</span>
-              {pct !== null && <span className="num text-[11.5px] text-ink-3">{pct.toFixed(0)}%</span>}
+              {pct !== null && <span className="num text-[11.5px] text-ink-3">{formatPercent(pct)}</span>}
             </div>
-            <Progress value={pct} label="Install progress" />
+            <Progress value={pct} label={t("Install progress")} />
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
               <span>{formatBytes(job.bytesDone)}</span>
-              {job.bytesTotal && <span>of {formatBytes(job.bytesTotal)}</span>}
+              {job.bytesTotal && <span>{t("{done} of {total}", { done: formatBytes(job.bytesDone), total: formatBytes(job.bytesTotal) })}</span>}
               {job.speedBps > 0 && <span>{formatSpeed(job.speedBps)}</span>}
-              {eta && <span>{eta} left</span>}
+              {eta && <span>{t("{duration} left", { duration: eta })}</span>}
               {job.message && <span className="text-ink-2">{job.message}</span>}
             </div>
             {active && (
               <p className="text-[11.5px] leading-relaxed text-ink-3">
-                You can close this window. The install keeps running and stays in Downloads.
+                {t("You can close this window. The install keeps running and stays in Downloads.")}
               </p>
             )}
             {streamFailed && (
               <p className="text-[11.5px] leading-relaxed text-ink-3">
-                The stream cannot be resumed; this retries with a normal resumable download.
+                {t("The stream cannot be resumed; this retries with a normal resumable download.")}
               </p>
             )}
             {job.installPath && (
@@ -219,7 +220,7 @@ export function InstallDialog({
                 className="flex w-fit items-center gap-1.5 text-[11.5px] text-ink-3 hover:text-ink"
               >
                 <FolderOpen className="size-3.5" aria-hidden="true" />
-                Open install folder
+                {t("Open install folder")}
               </button>
             )}
           </div>

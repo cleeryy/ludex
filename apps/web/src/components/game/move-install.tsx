@@ -8,6 +8,7 @@ import type { InstalledGame, MoveProgress } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Button, Field, Input, Progress } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
+import { t } from "@/lib/i18n";
 
 /**
  * "Move install…" dialog (#36): pick a new install root, then the game folder
@@ -74,15 +75,15 @@ export function MoveInstallDialog({
       const updated = await installBridge.moveInstall(gameId, target.trim());
       onMoved(updated);
       push({
-        title: `${title} moved`,
-        description: `It now lives in ${updated.installPath}.`,
+        title: t("{title} moved", { title }),
+        description: t("It now lives in {path}.", { path: updated.installPath }),
         tone: "success",
       });
       onOpenChange(false);
     } catch (cause) {
       const message = errorMessage(cause);
       setError(message);
-      push({ title: "Could not move the game", description: message, tone: "danger" });
+      push({ title: t("Could not move the game"), description: message, tone: "danger" });
     } finally {
       setBusy(false);
     }
@@ -94,16 +95,16 @@ export function MoveInstallDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title={`Move ${title}`}
-      description="Choose the folder that should contain this game from now on."
+      title={t("Move {title}", { title })}
+      description={t("Choose the folder that should contain this game from now on.")}
       size="sm"
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" loading={busy} disabled={!target.trim()} onClick={() => void move()}>
-            Move game
+            {t("Move game")}
           </Button>
         </>
       }
@@ -111,16 +112,16 @@ export function MoveInstallDialog({
       <div className="flex flex-col gap-4">
         <dl className="flex flex-col gap-2 text-[12.5px]">
           <div className="flex items-baseline justify-between gap-4">
-            <dt className="text-ink-3">Current folder</dt>
+            <dt className="text-ink-3">{t("Current folder")}</dt>
             <dd className="truncate font-mono text-[11px] text-ink-2">{installed.installPath}</dd>
           </div>
           <div className="flex items-baseline justify-between gap-4">
-            <dt className="text-ink-3">Size on disk</dt>
+            <dt className="text-ink-3">{t("Size on disk")}</dt>
             <dd className="num text-[12px] text-ink-2">{formatBytes(installed.sizeBytes)}</dd>
           </div>
         </dl>
 
-        <Field label="New install folder" htmlFor="move-target" hint="The game keeps its name and version subfolder.">
+        <Field label={t("New install folder")} htmlFor="move-target" hint={t("The game keeps its name and version subfolder.")}>
           <div className="flex items-stretch gap-2">
             <Input
               id="move-target"
@@ -139,20 +140,20 @@ export function MoveInstallDialog({
               onClick={() => void pick()}
               disabled={busy}
             >
-              Browse
+              {t("Browse")}
             </Button>
           </div>
         </Field>
 
         {busy && (
           <div>
-            <Progress value={percent} label="Move progress" />
+            <Progress value={percent} label={t("Move progress")} />
             <p className="mt-1.5 font-mono text-[10.5px] text-ink-3">
-              {progress?.message ?? "Preparing the move…"}
+              {progress?.message ?? t("Preparing the move…")}
               {progress && progress.bytesTotal > 0 && (
                 <span>
                   {" "}
-                  · {formatBytes(progress.bytesDone)} of {formatBytes(progress.bytesTotal)}
+                  · {t("{done} of {total}", { done: formatBytes(progress.bytesDone), total: formatBytes(progress.bytesTotal) })}
                 </span>
               )}
             </p>
@@ -166,8 +167,7 @@ export function MoveInstallDialog({
         )}
 
         <p className="text-[11.5px] leading-relaxed text-ink-3">
-          Moving to the same drive renames the folder instantly. Moving to another drive copies every file, checks the
-          size, then deletes the old copy. The game cannot be running during the move.
+          {t("Moving to the same drive renames the folder instantly. Moving to another drive copies every file, checks the size, then deletes the old copy. The game cannot be running during the move.")}
         </p>
       </div>
     </Dialog>

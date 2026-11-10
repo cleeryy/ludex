@@ -6,7 +6,7 @@ import { Download, Gamepad2, Play, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { downloadGame } from "@/lib/download";
 import { errorMessage } from "@/lib/http";
-import { formatBytes, formatMinutes, formatRating, formatRelative, formatYear, stateLabel } from "@/lib/format";
+import { formatBytes, formatMinutes, formatRating, formatRelative, formatYear, stateLabel, formatPercent } from "@/lib/format";
 import { isNative } from "@/lib/native";
 import { useAllGames, useInstalledMap, useLaunchGame } from "@/lib/hooks";
 import { useGamepad, type GamepadAction } from "@/lib/gamepad";
@@ -17,6 +17,7 @@ import { ArtPlate, GameCover } from "@/components/art/cover";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { Button, Kbd, Skeleton } from "@/components/ui/controls";
 import { cn } from "@/lib/cn";
+import { t , tn } from "@/lib/i18n";
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
@@ -44,8 +45,8 @@ export function BigPictureScreen() {
       .filter((game) => game.lastPlayedAt)
       .sort((a, b) => Date.parse(b.lastPlayedAt ?? "") - Date.parse(a.lastPlayedAt ?? ""));
     return [
-      { id: "recent", label: "Recently played", games: recent },
-      { id: "all", label: "All games", games },
+      { id: "recent", label: t("Recently played"), games: recent },
+      { id: "all", label: t("All games"), games },
     ].filter((shelf) => shelf.games.length > 0);
   }, [games]);
 
@@ -104,7 +105,7 @@ export function BigPictureScreen() {
     try {
       await downloadGame(selected.id, version?.id);
     } catch (cause) {
-      push({ title: "Download did not start", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Download did not start"), description: errorMessage(cause), tone: "danger" });
     }
   };
 
@@ -196,9 +197,9 @@ export function BigPictureScreen() {
     return (
       <div className="flex h-dvh flex-col items-center justify-center gap-5 bg-bg-deep text-center">
         <Wordmark height={22} />
-        <p className="text-[15px] text-ink-2">The library is empty. Add a game first.</p>
+        <p className="text-[15px] text-ink-2">{t("The library is empty. Add a game first.")}</p>
         <Button variant="primary" onClick={exit}>
-          Exit Big Picture
+          {t("Exit Big Picture")}
         </Button>
       </div>
     );
@@ -213,19 +214,19 @@ export function BigPictureScreen() {
         launch.mutate({ id: selected.id, title: selected.title, executable: installedGame.executable ?? detail.data?.launch.executable })
       }
     >
-      Play
+      {t("Play")}
     </Button>
   ) : job ? (
     <Button variant="default" size="lg" icon={<Download className="size-4" />} onClick={() => navigate("/downloads")}>
-      Installing {pct !== null ? `${pct.toFixed(0)}%` : ""}
+      {t("Installing {percent}", { percent: pct !== null ? formatPercent(pct) : "" })}
     </Button>
   ) : isNative() ? (
     <Button variant="primary" size="lg" icon={<Download className="size-4" />} disabled={!version} onClick={() => setInstallOpen(true)}>
-      Install
+      {t("Install")}
     </Button>
   ) : (
     <Button variant="primary" size="lg" icon={<Download className="size-4" />} onClick={() => void download()}>
-      Download
+      {t("Download")}
     </Button>
   );
 
@@ -235,7 +236,7 @@ export function BigPictureScreen() {
 
       <header className="relative z-10 flex h-16 shrink-0 items-center gap-4 border-b border-line px-6 lg:px-8">
         <Wordmark height={17} />
-        <span className="hidden font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3 sm:inline">Big Picture</span>
+        <span className="hidden font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3 sm:inline">{t("Big Picture")}</span>
         <div className="ml-auto flex items-center gap-3">
           {downloads.activeCount > 0 && (
             <button
@@ -244,15 +245,15 @@ export function BigPictureScreen() {
               className="flex h-8 items-center gap-2 border border-line px-2.5 text-[11.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
             >
               <Download className="size-3.5 text-signal-text" aria-hidden="true" />
-              <span>{downloads.activeCount} downloading</span>
+              <span>{tn(downloads.activeCount, "1 downloading", "{count} downloading")}</span>
               {downloads.aggregate?.percent !== null && downloads.aggregate && (
-                <span className="num text-ink-3">{downloads.aggregate.percent.toFixed(0)}%</span>
+                <span className="num text-ink-3">{formatPercent(downloads.aggregate.percent)}</span>
               )}
             </button>
           )}
           <span className="num text-[12px] text-ink-2">{time}</span>
           <Button variant="ghost" size="sm" icon={<X className="size-3.5" />} onClick={exit}>
-            Exit
+            {t("Exit")}
           </Button>
         </div>
       </header>
@@ -290,7 +291,7 @@ export function BigPictureScreen() {
             <div className="flex min-w-0 flex-1 flex-col gap-3">
               <span className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-[#ffc61a]">
                 <span className="h-px w-8 bg-[#ffc61a]" aria-hidden="true" />
-                {selected.lastPlayedAt ? "Continue playing" : "From the library"}
+                {selected.lastPlayedAt ? t("Continue playing") : t("From the library")}
               </span>
               <h1 className="max-w-[20ch] text-[clamp(2rem,4.4vw,4.35rem)] font-semibold leading-[0.92] tracking-[-0.04em] text-[#ece8de]">
                 {selected.title}
@@ -299,31 +300,31 @@ export function BigPictureScreen() {
                 <span>{formatYear(selected.releaseDate)}</span>
                 <span>{stateLabel(selected.state)}</span>
                 {formatRating(selected.rating) && <span>{formatRating(selected.rating)} / 100</span>}
-                {formatMinutes(selected.minutesPlayed) && <span>{formatMinutes(selected.minutesPlayed)} played</span>}
-                {selected.lastPlayedAt && <span>Last played {formatRelative(selected.lastPlayedAt)}</span>}
-                {installedGame && <span className="text-[#79c99f]">Installed</span>}
+                {formatMinutes(selected.minutesPlayed) && <span>{t("{duration} played", { duration: formatMinutes(selected.minutesPlayed) ?? "" })}</span>}
+                {selected.lastPlayedAt && <span>{t("Last played")} {formatRelative(selected.lastPlayedAt)}</span>}
+                {installedGame && <span className="text-[#79c99f]">{t("Installed")}</span>}
               </div>
               {detail.data?.description && (
                 <p className="line-clamp-2 max-w-[64ch] text-[14px] leading-relaxed text-[#c9c4b8]">{detail.data.description}</p>
               )}
               {job && (
                 <p className="flex flex-wrap items-baseline gap-x-3 font-mono text-[10.5px] text-[#a8a396]">
-                  <span className="text-[#ffc61a]">{pct !== null ? `${pct.toFixed(0)}%` : "Preparing"}</span>
-                  {job.bytesTotal && <span>{formatBytes(job.bytesDone)} of {formatBytes(job.bytesTotal)}</span>}
+                  <span className="text-[#ffc61a]">{pct !== null ? formatPercent(pct) : t("Preparing")}</span>
+                  {job.bytesTotal && <span>{t("{done} of {total}", { done: formatBytes(job.bytesDone), total: formatBytes(job.bytesTotal) })}</span>}
                   {job.speedBps > 0 && <span>{formatBytes(job.speedBps, 0)}/s</span>}
                 </p>
               )}
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 {primary}
                 <Button variant="default" onClick={() => navigate(`/game/${selected.id}`)}>
-                  Game page
+                  {t("Game page")}
                 </Button>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="relative shrink-0 border-t border-line px-4 pb-3 pt-4 lg:px-6" aria-label="Games">
+        <section className="relative shrink-0 border-t border-line px-4 pb-3 pt-4 lg:px-6" aria-label={t("Games")}>
           <div className="mb-2 flex items-baseline justify-between px-2">
             <span className="text-[12px] text-ink-3">{shelf?.label}</span>
             <span className="num text-[10.5px] text-ink-3">
@@ -372,26 +373,26 @@ export function BigPictureScreen() {
           <span className="flex items-center gap-1.5">
             <Kbd>←</Kbd>
             <Kbd>→</Kbd>
-            select
+            {t("select")}
           </span>
           <span className="flex items-center gap-1.5">
             <Kbd>↑</Kbd>
             <Kbd>↓</Kbd>
-            shelf
+            {t("shelf")}
           </span>
           <span className="flex items-center gap-1.5">
             <Kbd>↵</Kbd>
-            play or install
+            {t("play or install")}
           </span>
           <span className="flex items-center gap-1.5">
             <Kbd>esc</Kbd>
-            exit
+            {t("exit")}
           </span>
           <span className="ml-auto flex items-center gap-1.5">
             <Gamepad2 className="size-3.5" aria-hidden="true" />
             {gamepad.connected
-              ? "Gamepad: stick or d-pad, A, B, Y, LB/RB shelf"
-              : "Keyboard only — connect a controller for couch navigation"}
+              ? t("Gamepad: stick or d-pad, A, B, Y, LB/RB shelf")
+              : t("Keyboard only — connect a controller for couch navigation")}
           </span>
         </footer>
       </main>

@@ -1,3 +1,4 @@
+import { t } from "@/lib/i18n";
 export class ApiError extends Error {
   status: number;
   code: string;
@@ -21,5 +22,5 @@ export function isApiError(error: unknown): error is ApiError {
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
-  return "Something went wrong";
+  return t("Something went wrong");
 }

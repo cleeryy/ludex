@@ -4,14 +4,38 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <link rel="apple-touch-icon" href="./app-icon.svg" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="theme-color" content="#0a0a09" />
     <meta name="color-scheme" content="dark light" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Ludex" />
     <title>Ludex</title>
     <meta
       name="description"
       content="Ludex is a private, self-hosted library for the DRM-free games you already own."
     />
+    <script>
+      // Applies the stored theme and locale before the first paint so there is
+      // no flash of the wrong surface or direction. Kept tiny and inline on
+      // purpose: a module would run after the first paint.
+      (function () {
+        try {
+          var theme = localStorage.getItem("ludex.theme") || "system";
+          var dark =
+            theme === "dark" ||
+            (theme === "system" && !window.matchMedia("(prefers-color-scheme: light)").matches);
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+          var locale = localStorage.getItem("ludex.locale") || "en";
+          document.documentElement.lang = locale;
+          document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", dark ? "#0a0a09" : "#e7e2d4");
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -9,6 +9,7 @@
  */
 
 import { ApiError, UNAUTHORIZED_EVENT, getApiBase, tokenStore } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
 /** Public game metadata attached to a share link. */
 export interface ShareGame {
@@ -117,7 +118,7 @@ async function publicFetch<T>(path: string, init: RequestInit = {}): Promise<T> 
   try {
     response = await fetch(apiUrl(path), { ...init, headers });
   } catch {
-    throw new ApiError(0, "network_error", "Cannot reach the server. Check that it is running and the address is correct.");
+    throw new ApiError(0, "network_error", t("Cannot reach the server. Check that it is running and the address is correct."));
   }
 
   if (!response.ok) throw await toError(response);
@@ -136,7 +137,7 @@ async function editorFetch<T>(path: string, init: RequestInit = {}): Promise<T> 
   try {
     response = await fetch(apiUrl(path), { ...init, headers });
   } catch {
-    throw new ApiError(0, "network_error", "Cannot reach the server. Check that it is running and the address is correct.");
+    throw new ApiError(0, "network_error", t("Cannot reach the server. Check that it is running and the address is correct."));
   }
 
   if (response.status === 401) {

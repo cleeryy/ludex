@@ -13,9 +13,13 @@
     "e2e:report": "pnpm --filter @ludex/e2e exec playwright show-report",
     "desktop:dev": "pnpm --filter @ludex/desktop dev",
     "desktop:build": "pnpm --filter @ludex/desktop build",
-    "desktop:dist": "pnpm --filter @ludex/desktop dist"
+    "desktop:dist": "pnpm --filter @ludex/desktop dist",
+    "i18n": "pnpm --filter @ludex/web i18n:check"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["@tauri-apps/cli", "esbuild"]
+    "onlyBuiltDependencies": [
+      "@tauri-apps/cli",
+      "esbuild"
+    ]
   }
 }

@@ -6,6 +6,7 @@ import { errorMessage } from "@/lib/http";
 import { useToast } from "@/state/toasts";
 import { Button, Input } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
+import { t } from "@/lib/i18n";
 
 /** Adds one game to an existing manual collection, or creates a new one. */
 export function AddToCollectionDialog({
@@ -45,7 +46,7 @@ export function AddToCollectionDialog({
       });
       onOpenChange(false);
     } catch (cause) {
-      push({ title: "Could not add the game", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not add the game"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setBusyId(null);
     }
@@ -58,11 +59,11 @@ export function AddToCollectionDialog({
     try {
       const collection = await api.createCollection({ name: trimmed, gameIds: [gameId] });
       await queryClient.invalidateQueries({ queryKey: ["collections"] });
-      push({ title: "Collection created", description: `${gameTitle} is the first game in ${collection.name}.`, tone: "success" });
+      push({ title: t("Collection created"), description: t("{game} is the first game in {collection}.", { game: gameTitle, collection: collection.name }), tone: "success" });
       setName("");
       onOpenChange(false);
     } catch (cause) {
-      push({ title: "Could not create the collection", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not create the collection"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setCreating(false);
     }
@@ -72,18 +73,18 @@ export function AddToCollectionDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Add to a collection"
-      description={`${gameTitle} can live in as many shelves as you like.`}
+      title={t("Add to a collection")}
+      description={t("{game} can live in as many shelves as you like.", { game: gameTitle })}
       size="sm"
     >
       <div className="flex flex-col gap-5">
         <div>
-          <p className="pb-2 text-[12px] text-ink-3">Your manual collections</p>
+          <p className="pb-2 text-[12px] text-ink-3">{t("Your manual collections")}</p>
           {collections.isPending ? (
-            <p className="text-[13px] text-ink-3">Loading…</p>
+            <p className="text-[13px] text-ink-3">{t("Loading…")}</p>
           ) : own.length === 0 ? (
             <p className="border border-line px-3 py-3 text-[13px] leading-relaxed text-ink-2">
-              No manual collections yet. Create one below and this game becomes its first entry.
+              {t("No manual collections yet. Create one below and this game becomes its first entry.")}
             </p>
           ) : (
             <div className="border-t border-line">
@@ -102,11 +103,11 @@ export function AddToCollectionDialog({
                     <span className="block truncate text-[13.5px] text-ink">{collection.name}</span>
                     <span className="mt-0.5 block font-mono text-[10px] text-ink-3">
                       {collection.gameCount} {collection.gameCount === 1 ? "game" : "games"}
-                      {collection.isPublic ? " · public" : ""}
+                      {collection.isPublic ? t(" · public") : ""}
                     </span>
                   </span>
                   {busyId === collection.id ? (
-                    <span className="text-[11.5px] text-ink-3">Adding…</span>
+                    <span className="text-[11.5px] text-ink-3">{t("Adding…")}</span>
                   ) : (
                     <Plus className="size-4 shrink-0 text-ink-3" aria-hidden="true" />
                   )}
@@ -117,13 +118,13 @@ export function AddToCollectionDialog({
         </div>
 
         <div>
-          <p className="pb-2 text-[12px] text-ink-3">New collection</p>
+          <p className="pb-2 text-[12px] text-ink-3">{t("New collection")}</p>
           <div className="flex items-stretch gap-2">
             <Input
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Friday night co-op"
-              aria-label="New collection name"
+              placeholder={t("Friday night co-op")}
+              aria-label={t("New collection name")}
               onKeyDown={(event) => {
                 if (event.key === "Enter") void createAndAdd();
               }}
@@ -135,7 +136,7 @@ export function AddToCollectionDialog({
               icon={<Check className="size-4" />}
               onClick={() => void createAndAdd()}
             >
-              Create
+              {t("Create")}
             </Button>
           </div>
         </div>

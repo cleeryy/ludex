@@ -1,3 +1,4 @@
+import { t } from "@/lib/i18n";
 import type {
   CompatScan,
   DiskUsage,
@@ -35,7 +36,7 @@ export const isNative = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>);
 
 export function nativeUnavailable(): Error {
-  return new Error("That needs the Ludex desktop app. The browser build can browse and download.");
+  return new Error(t("That needs the Ludex desktop app. The browser build can browse and download."));
 }
 
 async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
