@@ -1,6 +1,7 @@
 //! Ludex desktop application (Tauri 2).
 
 mod bridge;
+mod chrome;
 mod commands;
 mod compat;
 mod db;
@@ -68,6 +69,11 @@ pub fn run() {
             let settings = state.settings_snapshot();
             app.manage(state);
 
+            // Window chrome (#111): the base config is undecorated for Windows
+            // and Linux, so this only does work when the user asked for the
+            // native title bar back. macOS keeps its native chrome.
+            chrome::apply(app.handle(), settings.native_title_bar);
+
             tray::init(app.handle()).map_err(std::io::Error::other)?;
             // Discord Rich Presence (#12): off unless enabled in settings.
             presence::start(settings.discord_presence, &settings.discord_client_id);
@@ -98,6 +104,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::save_settings,
+            commands::set_native_title_bar,
             commands::pick_folder,
             commands::local_server_start,
             commands::local_server_stop,

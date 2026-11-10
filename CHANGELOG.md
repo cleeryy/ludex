@@ -6,6 +6,27 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Custom title bar on desktop (#111): Windows and Linux now run undecorated
+  (`decorations: false` in the base Tauri config) and Ludex draws its own
+  chrome inside the existing top bar — compact wordmark, the usual search and
+  actions, then minimize / maximize-restore / close with 44 px targets,
+  `aria-label`s, focus rings and a hairline separator. The empty parts of the
+  bar drag the window (`data-tauri-drag-region`), double-click toggles maximize,
+  and all eight edges keep resizing through the undecorated frame. Close still
+  goes through `CloseRequested`, so "Close to tray" keeps working. The bar hides
+  in fullscreen and Big Picture, and the boot, login, setup and shared-link
+  screens get the same controls in the corner because they live outside the
+  shell. macOS keeps its native title bar and traffic lights through
+  `tauri.macos.conf.json`. A new Settings → Appearance toggle, "Use the native
+  title bar" (off by default, `nativeTitleBar` in `settings.json`, applied by the
+  `set_native_title_bar` command without a restart), restores the system frame
+  for Snap Layouts, screen readers and remote desktop. Windows 11 Snap Layouts
+  stay unavailable while the custom bar is on: documented with the 500 px
+  constraint in `docs/WINDOW-CHROME.md`, along with the manual Windows 10/11 and
+  Linux test matrix that still has to be run.
+
 ## [0.2.5] - 2026-11-10
 
 ### Added

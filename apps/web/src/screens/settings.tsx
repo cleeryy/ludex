@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { installBridge, installsAvailable } from "@/lib/install";
 import { isNative, native } from "@/lib/native";
+import { setTitleBarPreference, supportsCustomTitleBar } from "@/lib/window-chrome";
 import { formatBytes, formatDate } from "@/lib/format";
 import type { DiskUsage, LocalSettings } from "@/lib/types";
 import { cn } from "@/lib/cn";
@@ -81,6 +82,27 @@ export function SettingsScreen() {
   });
 
   const update = (patch: Partial<LocalSettings>) => setDraft((current) => (current ? { ...current, ...patch } : current));
+
+  /**
+   * The title bar toggle lives in Appearance but belongs to the desktop
+   * settings: it is applied and persisted on its own, so it never waits for the
+   * "Save desktop settings" button further down (#111).
+   */
+  const applyNativeTitleBar = async (next: boolean) => {
+    update({ nativeTitleBar: next });
+    // The window chrome (AppShell and the bare screens) reads this mirror.
+    setTitleBarPreference(next);
+    try {
+      await native.setNativeTitleBar(next);
+      // Refresh the saved snapshot so "Unsaved changes" stays honest. Skipped
+      // while the form holds other edits: the refetch resets the draft.
+      if (!dirty) await queryClient.invalidateQueries({ queryKey: ["desktop-settings"] });
+    } catch (cause) {
+      update({ nativeTitleBar: !next });
+      setTitleBarPreference(!next);
+      push({ title: t("Could not change the title bar"), description: errorMessage(cause), tone: "danger" });
+    }
+  };
 
   const pick = async (key: "installDir" | "downloadDir" | "steamRoot", title: string) => {
     const path = await native.pickFolder(title);
@@ -199,6 +221,22 @@ export function SettingsScreen() {
                 theme: resolved === "dark" ? t("Dark") : t("Light"),
               })}
             </p>
+
+            {isNative() && supportsCustomTitleBar() && draft && (
+              <div className="mt-6 flex items-start justify-between gap-6 border-t border-line pt-4">
+                <div>
+                  <p className="text-[13px] font-medium text-ink">{t("Use the native title bar")}</p>
+                  <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
+                    {t("Draw the system title bar instead of Ludex's own. Applies immediately, no restart. Turn it on for Windows Snap Layouts, screen readers or remote desktop.")}
+                  </p>
+                </div>
+                <Switch
+                  checked={draft.nativeTitleBar}
+                  onCheckedChange={(nativeTitleBar) => void applyNativeTitleBar(nativeTitleBar)}
+                  label={t("Use the native title bar")}
+                />
+              </div>
+            )}
           </div>
 
           <div className="mt-8">

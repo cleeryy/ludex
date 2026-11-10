@@ -62,6 +62,16 @@ export const native = {
     return invoke<LocalSettings>("save_settings", { settings });
   },
 
+  /**
+   * Show the native title bar (`true`) or Ludex's own (`false`). Applies to the
+   * live window and is persisted immediately (#111); a no-op on macOS, which
+   * always keeps the native traffic lights.
+   */
+  async setNativeTitleBar(enabled: boolean): Promise<LocalSettings | null> {
+    if (!isNative()) return null;
+    return invoke<LocalSettings>("set_native_title_bar", { enabled });
+  },
+
   async pickFolder(title?: string): Promise<string | null> {
     if (!isNative()) return null;
     return invoke<string | null>("pick_folder", { title });
@@ -435,6 +445,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   archivePasswords: [],
   bandwidthLimitKib: 0,
   closeToTray: true,
+  nativeTitleBar: false,
   updateChannel: "stable",
   checkUpdatesOnStartup: true,
   lastUpdateCheckAt: null,

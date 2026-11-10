@@ -292,6 +292,7 @@ const DEFAULT_SETTINGS: LocalSettings = {
   archivePasswords: [],
   bandwidthLimitKib: 0,
   closeToTray: true,
+  nativeTitleBar: false,
   updateChannel: "stable",
   checkUpdatesOnStartup: true,
   lastUpdateCheckAt: null,

@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 import { GameCover } from "@/components/art/cover";
 import { Wordmark } from "@/components/brand";
+import { FloatingWindowControls } from "@/components/shell/window-controls";
 import { demoCover } from "@/lib/art";
 import { t } from "@/lib/i18n";
+import { useCustomTitleBar } from "@/lib/window-chrome";
 
 const FRIEZE = ["outer-wilds", "blue-prince", "little-nightmares-iii"];
 
@@ -17,10 +19,17 @@ export function AuthLayout({
   note: string;
   footer?: ReactNode;
 }) {
+  // Login and setup live outside the AppShell, so they carry their own window
+  // chrome: a drag surface on the wordmark rows and the controls in the corner.
+  const customChrome = useCustomTitleBar();
+
   return (
     <div className="grid min-h-dvh grid-rows-[auto_1fr] bg-bg lg:grid-cols-[1.12fr_1fr] lg:grid-rows-1">
       <aside className="relative hidden overflow-hidden border-r border-line bg-bg-deep lg:flex lg:flex-col">
-        <div className="flex items-center justify-between px-10 pt-8">
+        <div
+          data-tauri-drag-region={customChrome ? "deep" : undefined}
+          className="flex items-center justify-between px-10 pt-8"
+        >
           <Wordmark height={20} />
           <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">{t("Self-hosted")}</span>
         </div>
@@ -51,8 +60,12 @@ export function AuthLayout({
       </aside>
 
       <main className="flex flex-col px-[var(--page-x)] py-8">
-        <div className="lg:hidden">
-          <Wordmark height={17} />
+        {/* Top strip: the wordmark on small screens, an empty drag handle for
+            the undecorated window on large ones. */}
+        <div data-tauri-drag-region={customChrome ? "deep" : undefined} className="flex min-h-9 items-center">
+          <span className="lg:hidden">
+            <Wordmark height={17} />
+          </span>
         </div>
         <div className="flex flex-1 items-center">
           <div className="w-full max-w-[392px] py-10 lg:mx-auto">{children}</div>
@@ -71,6 +84,7 @@ export function AuthLayout({
           )}
         </footer>
       </main>
+      <FloatingWindowControls />
     </div>
   );
 }

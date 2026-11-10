@@ -9,6 +9,7 @@ import { formatBytes, formatDate, formatRating, formatYear } from "@/lib/format"
 import { GameBackdrop, GameCover } from "@/components/art/cover";
 import { Wordmark } from "@/components/brand";
 import { SectionHeader } from "@/components/page";
+import { WindowControls, useWindowChrome } from "@/components/shell/window-controls";
 import { Badge, Button, Field, Input, Skeleton } from "@/components/ui/controls";
 import { t } from "@/lib/i18n";
 
@@ -38,13 +39,7 @@ export function ShareScreen() {
 
   return (
     <div className="min-h-dvh bg-bg">
-      <header className="page flex flex-wrap items-center justify-between gap-3 py-5">
-        <Wordmark height={18} />
-        <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">
-          <Link2 className="size-3.5" aria-hidden="true" />
-          {t("Shared link")}
-        </span>
-      </header>
+      <ShareHeader marker />
 
       <main>
         <section className="force-dark relative isolate overflow-hidden bg-[#0a0a09]">
@@ -296,9 +291,7 @@ function ShareAccessPanel({ token, view }: { token: string; view: ShareView }) {
 function ShareLoading() {
   return (
     <div className="min-h-dvh bg-bg">
-      <header className="page py-5">
-        <Wordmark height={18} />
-      </header>
+      <ShareHeader />
       <div className="page mt-8 grid gap-8 lg:grid-cols-[250px_1fr] lg:gap-12">
         <Skeleton className="aspect-[3/4] w-[150px] sm:w-[190px] lg:w-full" />
         <div className="flex flex-col gap-4">
@@ -324,10 +317,7 @@ function ShareUnavailable({ error, onRetry }: { error: unknown; onRetry: () => v
 
   return (
     <div className="grid min-h-dvh grid-rows-[auto_1fr] bg-bg">
-      <header className="page flex flex-wrap items-center justify-between gap-3 py-5">
-        <Wordmark height={18} />
-        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">{t("Shared link")}</span>
-      </header>
+      <ShareHeader marker />
       <main className="page flex items-center pb-24">
         <div className="max-w-[520px]">
           <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink-3">{t("Account-free download")}</p>
@@ -350,5 +340,31 @@ function ShareUnavailable({ error, onRetry }: { error: unknown; onRetry: () => v
         </div>
       </main>
     </div>
+  );
+}
+
+/**
+ * Header for the three shared-link states. Ludex draws the window controls
+ * here because this page lives outside the AppShell; the row is also the drag
+ * surface of the undecorated desktop window (#111).
+ */
+function ShareHeader({ marker = false }: { marker?: boolean }) {
+  const chrome = useWindowChrome();
+  return (
+    <header
+      data-tauri-drag-region={chrome.custom ? "deep" : undefined}
+      className="page flex flex-wrap items-center justify-between gap-3 py-5"
+    >
+      <Wordmark height={18} />
+      <div className="flex items-center gap-3">
+        {marker && (
+          <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">
+            <Link2 className="size-3.5" aria-hidden="true" />
+            {t("Shared link")}
+          </span>
+        )}
+        <WindowControls chrome={chrome} />
+      </div>
+    </header>
   );
 }

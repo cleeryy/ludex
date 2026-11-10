@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/controls";
 import { ToastViewport } from "@/components/ui/toast";
 import { PwaPrompts } from "@/components/pwa-prompts";
 import { AppShell } from "@/components/shell/app-shell";
+import { FloatingWindowControls } from "@/components/shell/window-controls";
+import { useCustomTitleBar } from "@/lib/window-chrome";
 import { LoginScreen } from "@/screens/login";
 import { SetupScreen } from "@/screens/setup";
 import { HomeScreen } from "@/screens/home";
@@ -48,8 +50,12 @@ const queryClient = new QueryClient({
 });
 
 function BootScreen() {
+  const customChrome = useCustomTitleBar();
   return (
-    <div className="grid min-h-dvh place-items-center bg-bg">
+    <div
+      data-tauri-drag-region={customChrome ? "deep" : undefined}
+      className="grid min-h-dvh place-items-center bg-bg"
+    >
       <div className="flex flex-col items-center gap-5">
         <Wordmark height={22} />
         <div className="h-px w-44 overflow-hidden bg-line">
@@ -57,15 +63,19 @@ function BootScreen() {
         </div>
         <p className="text-[11.5px] text-ink-3">{t("Opening the library")}</p>
       </div>
+      <FloatingWindowControls />
     </div>
   );
 }
 
 function BootError({ message }: { message: string }) {
   const { retryBoot } = useAuth();
+  const customChrome = useCustomTitleBar();
   return (
     <div className="flex min-h-dvh flex-col bg-bg">
-      <div className="px-6 pt-6">
+      {/* The wordmark row doubles as the drag strip: the message below stays
+          selectable, which matters when it has to be copied. */}
+      <div data-tauri-drag-region={customChrome ? "deep" : undefined} className="px-6 pt-6 pb-2">
         <Wordmark height={18} />
       </div>
       <div className="flex flex-1 items-center px-6">
@@ -95,6 +105,7 @@ function BootError({ message }: { message: string }) {
         </div>
       </div>
       <div className="px-6 pb-6 font-mono text-[11px] text-ink-3">{api ? "api: configured" : null}</div>
+      <FloatingWindowControls />
     </div>
   );
 }

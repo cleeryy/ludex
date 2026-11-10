@@ -67,6 +67,11 @@ pub struct LocalSettings {
     pub bandwidth_limit_kib: u64,
     /// Closing the window hides Ludex to the tray instead of quitting.
     pub close_to_tray: bool,
+    /// Use the native title bar instead of Ludex's own (#111). Windows and Linux
+    /// ship undecorated; this restores the OS title bar, Snap Layouts and the
+    /// system window menu. Ignored on macOS, which always keeps its native
+    /// traffic lights.
+    pub native_title_bar: bool,
     /// Release channel followed by the updater.
     pub update_channel: UpdateChannel,
     /// Check for app updates shortly after startup (at most once per 24 h).
@@ -130,6 +135,7 @@ impl Default for LocalSettings {
             archive_passwords: Vec::new(),
             bandwidth_limit_kib: 0,
             close_to_tray: true,
+            native_title_bar: false,
             update_channel: UpdateChannel::Stable,
             check_updates_on_startup: true,
             last_update_check_at: None,
@@ -390,6 +396,7 @@ mod tests {
         assert_eq!(json["keepArchives"], false);
         assert_eq!(json["bandwidthLimitKib"], 0);
         assert_eq!(json["closeToTray"], true);
+        assert_eq!(json["nativeTitleBar"], false);
         assert_eq!(json["updateChannel"], "stable");
         assert_eq!(json["checkUpdatesOnStartup"], true);
         assert_eq!(json["lastUpdateCheckAt"], serde_json::Value::Null);
@@ -535,6 +542,25 @@ mod tests {
         assert_eq!(json["defaultLaunchMode"], "proton");
         let back: LocalSettings = serde_json::from_value(json).unwrap();
         assert_eq!(back.default_launch_mode, LaunchMode::Proton);
+    }
+
+    #[test]
+    fn native_title_bar_roundtrips() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        // The custom (undecorated) title bar is the default on Windows and Linux.
+        assert!(!settings.native_title_bar);
+
+        settings.native_title_bar = true;
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["nativeTitleBar"], true);
+        let back: LocalSettings = serde_json::from_value(json).unwrap();
+        assert!(back.native_title_bar);
+
+        // Settings files written before #111 have no such key: keep the custom bar.
+        let legacy: LocalSettings =
+            serde_json::from_value(serde_json::json!({ "closeToTray": false })).unwrap();
+        assert!(!legacy.native_title_bar);
+        assert!(!legacy.close_to_tray);
     }
 
     #[test]

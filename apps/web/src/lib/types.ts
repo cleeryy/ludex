@@ -558,6 +558,8 @@ export interface LocalSettings {
   bandwidthLimitKib: number;
   /** Closing the window hides Ludex to the tray instead of quitting. */
   closeToTray: boolean;
+  /** Use the OS title bar instead of Ludex's own (#111). Off by default. */
+  nativeTitleBar: boolean;
   /** Release channel followed by the app updater. */
   updateChannel: "stable" | "early";
   /** Check for app updates at startup (throttled to once per 24 h). */

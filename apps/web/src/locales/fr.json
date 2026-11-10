@@ -1403,5 +1403,13 @@
   "You can replay this tour from Settings → Help.": "Vous pouvez rejouer cette visite depuis Réglages → Aide.",
   "You’re set": "Tout est prêt",
   "Your library": "Votre bibliothèque",
-  "All recommended steps are done.": "Toutes les étapes recommandées sont terminées."
+  "All recommended steps are done.": "Toutes les étapes recommandées sont terminées.",
+  "Close window": "Fermer la fenêtre",
+  "Could not change the title bar": "Impossible de modifier la barre de titre",
+  "Draw the system title bar instead of Ludex's own. Applies immediately, no restart. Turn it on for Windows Snap Layouts, screen readers or remote desktop.": "Affiche la barre de titre du système à la place de celle de Ludex. S’applique immédiatement, sans redémarrage. À activer pour l’ancrage des fenêtres sous Windows, les lecteurs d’écran ou le bureau à distance.",
+  "Maximize window": "Agrandir la fenêtre",
+  "Minimize window": "Réduire la fenêtre",
+  "Restore window": "Restaurer la fenêtre",
+  "Use the native title bar": "Utiliser la barre de titre native",
+  "Window controls": "Commandes de la fenêtre"
 }

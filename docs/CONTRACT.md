@@ -866,6 +866,7 @@ interface LocalSettings {
   archivePasswords: string[];   // tried in order
   bandwidthLimitKib: number;    // global download cap in KiB/s, 0 = unlimited
   closeToTray: boolean;         // closing the window hides to the tray (default true)
+  nativeTitleBar: boolean;      // OS title bar instead of Ludex's own (#111), default false
   updateChannel: "stable" | "early"; // app updater channel (default stable)
   checkUpdatesOnStartup: boolean;    // throttled to once per 24 h
   lastUpdateCheckAt: string | null;  // RFC 3339, drives the throttle
@@ -1109,7 +1110,8 @@ interface CloudSyncToggleResponse {
 | Command | Args | Returns |
 |---|---|---|
 | `get_settings` | — | `LocalSettings` |
-| `save_settings` | `{ settings }` | `LocalSettings` |
+| `save_settings` | `{ settings }` | `LocalSettings`; also re-applies the window decorations when `nativeTitleBar` changed (#111) |
+| `set_native_title_bar` | `{ enabled }` | `LocalSettings`; shows the OS title bar (`true`) or Ludex's own (`false`) on the live window and persists it, no restart. No-op decoration change on macOS (#111) |
 | `pick_folder` | `{ title? }` | `string \| null` |
 | `local_server_start` | — | `{ url, token }` |
 | `local_server_stop` | — | `null` |

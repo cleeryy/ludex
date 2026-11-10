@@ -36,6 +36,7 @@ import type { ProgressState } from "@/lib/types";
 import { useSettings } from "@/state/settings";
 import { useToast } from "@/state/toasts";
 import { Wordmark } from "@/components/brand";
+import { WindowControls, useWindowChrome, type WindowChrome } from "@/components/shell/window-controls";
 import { Badge, IconButton, Kbd } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { DropdownMenu, useDropdown, type MenuEntry } from "@/components/ui/select";
@@ -272,7 +273,7 @@ function UserMenu() {
   );
 }
 
-function Topbar({ onOpenPalette }: { onOpenPalette: () => void }) {
+function Topbar({ onOpenPalette, chrome }: { onOpenPalette: () => void; chrome: WindowChrome }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { push } = useToast();
@@ -302,14 +303,20 @@ function Topbar({ onOpenPalette }: { onOpenPalette: () => void }) {
   };
 
   return (
-    <header className="flex h-[calc(var(--bar-h)+env(safe-area-inset-top))] shrink-0 items-stretch border-b border-line pt-[env(safe-area-inset-top)]">
+    <header
+      // With client-side decorations the empty parts of the bar move the
+      // window; buttons and inputs block it themselves, and the trailing
+      // clusters opt out explicitly.
+      data-tauri-drag-region={chrome.custom ? "deep" : undefined}
+      className="flex h-[calc(var(--bar-h)+env(safe-area-inset-top))] shrink-0 items-stretch border-b border-line pt-[env(safe-area-inset-top)]"
+    >
       <div className="hidden w-[var(--rail-w)] shrink-0 items-center border-r border-line px-5 lg:flex">
         <button type="button" onClick={() => navigate("/")} aria-label={t("Ludex home")} className="py-2">
           <Wordmark height={17} />
         </button>
       </div>
 
-      <div className="flex min-w-0 flex-1 items-center gap-2 px-[var(--page-x)] lg:px-5">
+      <div className={cn("flex min-w-0 flex-1 items-center gap-2 px-[var(--page-x)] lg:px-5", chrome.custom && "lg:pr-3")}>
         <button type="button" onClick={() => navigate("/")} aria-label={t("Ludex home")} className="mr-1 lg:hidden">
           <Wordmark height={15} withDot={false} />
         </button>
@@ -323,7 +330,7 @@ function Topbar({ onOpenPalette }: { onOpenPalette: () => void }) {
           <span className="flex-1 truncate">{t("Search games")}</span>
           <Kbd>⌘K</Kbd>
         </button>
-        <div className="ml-auto flex items-center gap-1">
+        <div data-tauri-drag-region={chrome.custom ? "false" : undefined} className="ml-auto flex items-center gap-1">
           <IconButton label={t("Search")} variant="ghost" size="icon" className="sm:hidden" onClick={onOpenPalette}>
             <Search className="size-4" />
           </IconButton>
@@ -340,6 +347,8 @@ function Topbar({ onOpenPalette }: { onOpenPalette: () => void }) {
           <UserMenu />
         </div>
       </div>
+
+      {chrome.custom && <WindowControls chrome={chrome} height="bar" />}
     </header>
   );
 }
@@ -503,6 +512,7 @@ export function AppShell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const chrome = useWindowChrome();
   useNativeEvents();
   const scrollRef = useRef<HTMLElement>(null);
   const positions = useRef(new Map<string, number>());
@@ -583,7 +593,9 @@ export function AppShell() {
   return (
     <div className="flex h-dvh flex-col bg-bg text-ink">
       <div className="grain" aria-hidden="true" />
-      <Topbar onOpenPalette={() => setPaletteOpen(true)} />
+      {/* Fullscreen has no title bar: the custom controls and the bar step
+          aside so Big Picture and full-screen sessions stay chrome-free. */}
+      {!chrome.fullscreen && <Topbar onOpenPalette={() => setPaletteOpen(true)} chrome={chrome} />}
       <div className="flex min-h-0 flex-1">
         <aside className="hidden w-[var(--rail-w)] shrink-0 border-r border-line lg:block" aria-label={t("Sidebar")}>
           <Rail onOpenPalette={() => setPaletteOpen(true)} />

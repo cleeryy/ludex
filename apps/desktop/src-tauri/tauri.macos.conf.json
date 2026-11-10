@@ -1,5 +1,23 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Ludex",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 700,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false,
+        "backgroundColor": "#0b0e0d",
+        "visible": true,
+        "decorations": true
+      }
+    ]
+  },
   "bundle": {
     "targets": [
       "app",

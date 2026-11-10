@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
+use crate::chrome;
 use crate::compat::{self, CompatScan};
 use crate::db::{self, GamePlaytime, InstalledGame};
 use crate::install::{self, InstallJob, InstallParams};
@@ -44,7 +45,11 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<LocalSettings, String>
 }
 
 #[tauri::command]
-pub fn save_settings(state: State<'_, AppState>, settings: Value) -> Result<LocalSettings, String> {
+pub fn save_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    settings: Value,
+) -> Result<LocalSettings, String> {
     if !settings.is_object() {
         return Err("Settings must be a JSON object.".to_string());
     }
@@ -62,7 +67,25 @@ pub fn save_settings(state: State<'_, AppState>, settings: Value) -> Result<Loca
     settings::save(&state.settings_path, &next)?;
     state.set_settings(next.clone())?;
     presence::configure(next.discord_presence, &next.discord_client_id);
+    // The title bar preference is saved with the rest of the form; apply it so
+    // the window never needs a restart (#111).
+    chrome::apply(&app, next.native_title_bar);
 
+    Ok(next)
+}
+
+/// Switch between the custom title bar and the native one (#111).
+///
+/// Applies immediately and persists right away: the Appearance toggle must not
+/// depend on the "Save desktop settings" button, which lives in another section.
+#[tauri::command]
+pub fn set_native_title_bar(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<LocalSettings, String> {
+    let next = state.update_settings(|settings| settings.native_title_bar = enabled)?;
+    chrome::apply(&app, next.native_title_bar);
     Ok(next)
 }
 
