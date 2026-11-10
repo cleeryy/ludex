@@ -6,6 +6,31 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Advanced library filters: genre, release year range, player count, playtime
+  range, installed state, metadata provider, minimum rating and sort by
+  playtime. Filters combine, live in the URL, persist in localStorage, and are
+  shown as removable chips with a clear-all action.
+- Fuzzy search over titles, sort titles and provider aliases, tolerant to typos
+  and accents, with ranked results and matched-field metadata. `GET
+  /api/games/suggest?q=` returns the top eight type-ahead suggestions.
+- Library search field with debounced suggestions, keyboard navigation,
+  matched-substring highlighting and an empty state.
+- Global keyboard shortcuts (`/`, `g h`, `g l`, `g d`, `g s`, `d`, `f`, `?`,
+  `Esc`) and a shortcuts help sheet. The command palette gains fuzzy filtering,
+  filter commands and shortcut hints.
+- Gamepad navigation in the library and Big Picture: d-pad/stick focus movement
+  with repeat, A select, B back, X filters, Y downloads, LB/RB tabs or shelves,
+  a visible focus ring and a graceful keyboard-only fallback.
+- `maxPlayers` and `altTitles` on the API, populated from IGDB where available
+  and editable by editors; indexes for the new filter columns.
+
+### Changed
+
+- `GET /api/games?q=` now ranks by relevance instead of substring order and
+  searches aliases as well as titles. `sort=playtime` is supported.
+
 ## [0.2.0] - 2026-11-10
 
 ### Added

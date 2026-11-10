@@ -12,6 +12,7 @@ import {
   Film,
   Gamepad2,
   House,
+  Keyboard,
   Library,
   ListOrdered,
   Moon,
@@ -21,6 +22,7 @@ import {
   Server,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   Sun,
   UserRound,
   Users,
@@ -29,6 +31,8 @@ import { api } from "@/lib/api";
 import { installsAvailable } from "@/lib/install";
 import { cn } from "@/lib/cn";
 import { formatYear, stateLabel } from "@/lib/format";
+import { scoreSearch } from "@/lib/search";
+import { openFiltersPanel, openShortcutsHelp } from "@/lib/ui-events";
 import { useAuth, useIsAdmin, useIsEditor } from "@/state/auth";
 import { useSettings } from "@/state/settings";
 import { useToast } from "@/state/toasts";
@@ -83,8 +87,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     };
 
     const navigation: Item[] = [
-      { id: "nav-home", group: "Go to", label: "Home", icon: <House className="size-3.5" />, run: go("/") },
-      { id: "nav-library", group: "Go to", label: "Library", icon: <Library className="size-3.5" />, run: go("/library") },
+      { id: "nav-home", group: "Go to", label: "Home", icon: <House className="size-3.5" />, kbd: "g h", run: go("/") },
+      { id: "nav-library", group: "Go to", label: "Library", icon: <Library className="size-3.5" />, kbd: "g l", run: go("/library") },
       ...(installsAvailable()
         ? [
             {
@@ -92,16 +96,50 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               group: "Go to",
               label: "Downloads",
               icon: <Download className="size-3.5" />,
+              kbd: "g d",
               run: go("/downloads"),
             },
           ]
         : []),
       { id: "nav-recent", group: "Go to", label: "Recently played", icon: <Clock className="size-3.5" />, run: go("/recent") },
-      { id: "nav-bookmarks", group: "Go to", label: "Bookmarks", icon: <Bookmark className="size-3.5" />, run: go("/bookmarks") },
-      { id: "nav-index", group: "Go to", label: "Index", hint: "A–Z list", icon: <ListOrdered className="size-3.5" />, run: go("/all") },
+      { id: "nav-bookmarks", group: "Go to", label: "Bookmarks", icon: <Bookmark className="size-3.5" />, kbd: "g b", run: go("/bookmarks") },
+      { id: "nav-index", group: "Go to", label: "Index", hint: "A–Z list", icon: <ListOrdered className="size-3.5" />, kbd: "g i", run: go("/all") },
       { id: "nav-news", group: "Go to", label: "News", icon: <Film className="size-3.5" />, run: go("/news") },
       { id: "nav-bigpicture", group: "Go to", label: "Big Picture mode", icon: <Gamepad2 className="size-3.5" />, run: go("/bigpicture") },
-      { id: "nav-settings", group: "Go to", label: "Settings", icon: <Settings className="size-3.5" />, run: go("/settings") },
+      { id: "nav-settings", group: "Go to", label: "Settings", icon: <Settings className="size-3.5" />, kbd: "g s", run: go("/settings") },
+    ];
+
+    const library: Item[] = [
+      {
+        id: "lib-filters",
+        group: "Library",
+        label: "Open the filter panel",
+        icon: <SlidersHorizontal className="size-3.5" />,
+        kbd: "f",
+        run: () => {
+          close();
+          navigate("/library");
+          window.setTimeout(openFiltersPanel, 80);
+        },
+      },
+      ...(installsAvailable()
+        ? [
+            {
+              id: "lib-installed",
+              group: "Library",
+              label: "Show installed games",
+              icon: <Gamepad2 className="size-3.5" />,
+              run: go("/library?installed=true"),
+            },
+          ]
+        : []),
+      {
+        id: "lib-clear",
+        group: "Library",
+        label: "Clear library filters",
+        icon: <SlidersHorizontal className="size-3.5" />,
+        run: go("/library"),
+      },
     ];
 
     const admin: Item[] = isEditor
@@ -168,6 +206,18 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         },
       },
       {
+        id: "act-shortcuts",
+        group: "Actions",
+        label: "Keyboard shortcuts",
+        hint: "Every shortcut",
+        icon: <Keyboard className="size-3.5" />,
+        kbd: "?",
+        run: () => {
+          close();
+          openShortcutsHelp();
+        },
+      },
+      {
         id: "act-signout",
         group: "Actions",
         label: "Sign out",
@@ -179,17 +229,13 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       },
     ];
 
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     const games: Item[] = (data?.items ?? [])
-      .filter((game) => {
-        if (!q) return game.lastPlayedAt !== null;
-        return (
-          game.title.toLowerCase().includes(q) ||
-          game.genres.some((genre) => genre.toLowerCase().includes(q))
-        );
-      })
+      .map((game) => ({ game, score: q ? scoreSearch(q, game.title, game.genres) : 1 }))
+      .filter((entry) => (q ? entry.score > 0 : entry.game.lastPlayedAt !== null))
+      .sort((a, b) => (q ? b.score - a.score : 0))
       .slice(0, q ? 7 : 4)
-      .map((game) => ({
+      .map(({ game }) => ({
         id: `game-${game.id}`,
         group: q ? "Games" : "Jump back in",
         label: game.title,
@@ -205,11 +251,11 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         },
       }));
 
-    const groups = [...games, ...navigation, ...admin, ...actions];
+    const groups = [...games, ...navigation, ...library, ...admin, ...actions];
     if (!q) return groups;
     return groups.filter((item) => {
       if (item.group === "Games") return true;
-      return item.label.toLowerCase().includes(q) || item.group.toLowerCase().includes(q);
+      return scoreSearch(q, item.label, [item.group]) > 0;
     });
   }, [data, query, navigate, isEditor, isAdmin, resolved, setTheme, signOut, push]);
 
