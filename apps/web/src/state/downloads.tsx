@@ -62,7 +62,10 @@ interface DownloadsValue {
   resume: (job: InstallJob, info: ResumeInfo) => Promise<InstallJob | null>;
   retryAsDownload: (job: InstallJob, info: ResumeInfo) => Promise<InstallJob | null>;
   retryStream: (job: InstallJob, info: ResumeInfo) => Promise<InstallJob | null>;
-  clearHistory: () => Promise<void>;
+  /** Delete one finished job from history; files and `.part` downloads stay. */
+  remove: (jobId: string) => Promise<void>;
+  /** Delete every finished job from history; resolves with the entries removed. */
+  clearHistory: () => Promise<number>;
   openFolder: (path: string) => Promise<void>;
   jobForGame: (gameId: number) => InstallJob | undefined;
   resumableForGame: (gameId: number) => InstallJob | undefined;
@@ -360,12 +363,51 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     [active, startInstall, push],
   );
 
+  const remove = useCallback(
+    async (jobId: string) => {
+      try {
+        // Persisted first: the desktop deletes the SQLite row and never the
+        // install folder or `.part` file.
+        await installBridge.remove(jobId);
+      } catch (cause) {
+        push({ title: "Could not remove the download from history", description: errorMessage(cause), tone: "danger" });
+        return;
+      }
+      // Drop it locally right away so the row disappears without waiting for
+      // the next poll; the deletion already happened in the database.
+      setJobs((current) => current.filter((job) => job.jobId !== jobId));
+      setHidden((current) => {
+        if (!current.has(jobId)) return current;
+        const next = new Set(current);
+        next.delete(jobId);
+        return next;
+      });
+      setTitles((current) => {
+        if (!(jobId in current)) return current;
+        const next = { ...current };
+        delete next[jobId];
+        return next;
+      });
+      announced.current.delete(jobId);
+    },
+    [push],
+  );
+
   const clearHistory = useCallback(async () => {
-    const finished = history.filter((job) => job.phase === "done" || job.phase === "cancelled").map((job) => job.jobId);
-    setHidden((current) => new Set([...current, ...finished]));
-    if (USING_MOCKS) await installBridge.clearCompleted();
-    await refresh();
-  }, [history, refresh]);
+    try {
+      // Persisted: every terminal row goes from the desktop database, so the
+      // history stays empty after a restart instead of reappearing.
+      const cleared = await installBridge.clearCompleted();
+      if (cleared > 0) setHidden(new Set());
+      await refresh();
+      return cleared;
+    } catch (cause) {
+      // Keep the history as-is; the next list poll restores nothing that was
+      // not already there.
+      push({ title: "Could not clear the download history", description: errorMessage(cause), tone: "danger" });
+      return 0;
+    }
+  }, [refresh, push]);
 
   const openFolder = useCallback(
     async (path: string) => {
@@ -392,13 +434,14 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       resume,
       retryAsDownload,
       retryStream,
+      remove,
       clearHistory,
       openFolder,
       jobForGame,
       resumableForGame,
       titleFor,
     }),
-    [available, jobs, active, history, aggregate, startInstall, cancel, pause, resume, retryAsDownload, retryStream, clearHistory, openFolder, jobForGame, resumableForGame, titleFor],
+    [available, jobs, active, history, aggregate, startInstall, cancel, pause, resume, retryAsDownload, retryStream, remove, clearHistory, openFolder, jobForGame, resumableForGame, titleFor],
   );
 
   return <DownloadsContext.Provider value={value}>{children}</DownloadsContext.Provider>;

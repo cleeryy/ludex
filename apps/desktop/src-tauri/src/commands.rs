@@ -178,6 +178,115 @@ pub fn list_install_jobs(app: AppHandle) -> Result<Vec<InstallJob>, String> {
     install::list(&app)
 }
 
+/// Terminal phases whose Downloads history entry can be removed (#100).
+/// Active and paused jobs keep their queue slot and their `.part` offset, so
+/// their index row must survive until they finish or are cancelled.
+fn is_removable_history_phase(phase: install::InstallPhase) -> bool {
+    matches!(
+        phase,
+        install::InstallPhase::Done
+            | install::InstallPhase::Cancelled
+            | install::InstallPhase::Error
+    )
+}
+
+/// Tell the UI that the install job list changed after a history deletion.
+fn emit_install_jobs(app: &AppHandle) {
+    match install::list(app) {
+        Ok(jobs) => {
+            let _ = app.emit("install://jobs", jobs);
+        }
+        Err(error) => tracing::warn!(error = %error, "could not emit the install job list"),
+    }
+    // The tray tooltip reports active downloads; keep it in sync.
+    crate::tray::refresh_tooltip(app);
+}
+
+/// Remove one finished job from Downloads history (#100).
+///
+/// Only the SQLite index row goes: install folders, archives and `.part` files
+/// are never touched. A job still tracked by the running app is refused while
+/// it is queued, downloading, extracting, finalizing or paused.
+#[tauri::command]
+pub fn delete_install_job(app: AppHandle, job_id: String) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let in_memory = {
+        let jobs = state
+            .jobs
+            .lock()
+            .map_err(|_| "The install queue is unavailable; restart Ludex.".to_string())?;
+        jobs.get(&job_id).cloned()
+    };
+
+    if let Some(entry) = &in_memory {
+        let phase = entry.snapshot().phase;
+        if !is_removable_history_phase(phase) {
+            return Err(match phase {
+                install::InstallPhase::Paused => {
+                    "This install is paused. Cancel it before removing it from history.".to_string()
+                }
+                _ => "This install is still running. Cancel it before removing it from history."
+                    .to_string(),
+            });
+        }
+    }
+
+    let deleted = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::delete_install_job(&connection, &job_id)?
+    };
+    // A job the current run tracks but never persisted (or whose row was
+    // already removed) can still be dropped from memory; anything unknown is a
+    // stale UI entry and gets a clear error.
+    if !deleted && in_memory.is_none() {
+        return Err(format!("Install job {job_id} is not in Downloads history."));
+    }
+
+    if in_memory.is_some() {
+        let mut jobs = state
+            .jobs
+            .lock()
+            .map_err(|_| "The install queue is unavailable; restart Ludex.".to_string())?;
+        jobs.remove(&job_id);
+    }
+
+    emit_install_jobs(&app);
+    Ok(())
+}
+
+/// Remove every finished job from Downloads history (#100).
+///
+/// Only terminal rows (`done`, `cancelled`, `error`, `interrupted`) go;
+/// install folders, archives and `.part` files are kept. Returns the number of
+/// rows removed.
+#[tauri::command]
+pub fn clear_finished_install_jobs(app: AppHandle) -> Result<usize, String> {
+    let state = app.state::<AppState>();
+    let cleared = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::clear_finished_install_jobs(&connection)?
+    };
+
+    // Mirror the deletion in the in-memory registry, otherwise
+    // `list_install_jobs` would keep returning terminal jobs whose row is gone.
+    {
+        let mut jobs = state
+            .jobs
+            .lock()
+            .map_err(|_| "The install queue is unavailable; restart Ludex.".to_string())?;
+        jobs.retain(|_, entry| !is_removable_history_phase(entry.snapshot().phase));
+    }
+
+    emit_install_jobs(&app);
+    Ok(cleared)
+}
+
 #[tauri::command]
 pub fn list_installed(state: State<'_, AppState>) -> Result<Vec<InstalledGame>, String> {
     let connection = state

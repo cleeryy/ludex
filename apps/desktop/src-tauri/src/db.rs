@@ -749,6 +749,37 @@ pub fn all_install_jobs(connection: &Connection) -> Result<Vec<InstallJobRecord>
     Ok(jobs)
 }
 
+/// Phases whose history row may be deleted (#100). Active and paused jobs are
+/// still owned by the installer (queue slot, `.part` offset), so they are never
+/// removed from here: the command refuses them first and returns an error.
+const TERMINAL_INSTALL_PHASES: &str = "'done', 'cancelled', 'error', 'interrupted'";
+
+/// Remove one terminal row from Downloads history (#100). Returns whether a row
+/// was deleted; `Ok(false)` means the job is unknown or still active/paused.
+/// Only the index row goes: install folders, archives and `.part` files stay.
+pub fn delete_install_job(connection: &Connection, job_id: &str) -> Result<bool, String> {
+    let affected = connection
+        .execute(
+            &format!(
+                "DELETE FROM install_jobs WHERE job_id = ?1 AND phase IN ({TERMINAL_INSTALL_PHASES})"
+            ),
+            params![job_id],
+        )
+        .map_err(|e| format!("Could not remove the install job: {e}"))?;
+    Ok(affected > 0)
+}
+
+/// Remove every terminal row from Downloads history (#100). Returns the number
+/// of rows deleted; install folders, archives and `.part` files stay.
+pub fn clear_finished_install_jobs(connection: &Connection) -> Result<usize, String> {
+    connection
+        .execute(
+            &format!("DELETE FROM install_jobs WHERE phase IN ({TERMINAL_INSTALL_PHASES})"),
+            [],
+        )
+        .map_err(|e| format!("Could not clear finished install jobs: {e}"))
+}
+
 /// Mark older non-terminal jobs for the same version as superseded when a new
 /// attempt starts (for example resuming a paused job after a restart). Finished
 /// and failed rows are kept as history.
@@ -1087,6 +1118,112 @@ mod tests {
         assert_eq!(paused.phase, "cancelled");
         let failed = get_install_job(&connection, "failed").unwrap().unwrap();
         assert_eq!(failed.phase, "error");
+    }
+
+    fn job_record(job_id: &str, phase: &str) -> InstallJobRecord {
+        InstallJobRecord {
+            job_id: job_id.into(),
+            game_id: 9,
+            version_id: 91,
+            phase: phase.into(),
+            bytes_done: 0,
+            bytes_total: Some(100),
+            speed_bps: 0,
+            part_path: Some(format!("/tmp/{job_id}.part")),
+            install_path: None,
+            error: None,
+            stream: false,
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+        }
+    }
+
+    #[test]
+    fn deleting_a_terminal_install_job_removes_its_row() {
+        let connection = memory_database();
+        for phase in ["done", "cancelled", "error", "interrupted"] {
+            let job_id = format!("job-{phase}");
+            upsert_install_job(&connection, &job_record(&job_id, phase)).unwrap();
+            assert!(
+                delete_install_job(&connection, &job_id).unwrap(),
+                "terminal phase {phase} must be deletable"
+            );
+            assert!(
+                get_install_job(&connection, &job_id).unwrap().is_none(),
+                "terminal phase {phase} row must be gone"
+            );
+        }
+        // Unknown ids are not an error at the DB layer; the command maps this
+        // to a clear "not in history" message.
+        assert!(!delete_install_job(&connection, "job-missing").unwrap());
+    }
+
+    #[test]
+    fn deleting_an_active_or_paused_install_job_keeps_its_row() {
+        let connection = memory_database();
+        for phase in [
+            "queued",
+            "downloading",
+            "extracting",
+            "finalizing",
+            "paused",
+        ] {
+            let job_id = format!("job-{phase}");
+            upsert_install_job(&connection, &job_record(&job_id, phase)).unwrap();
+            assert!(
+                !delete_install_job(&connection, &job_id).unwrap(),
+                "{phase} is not terminal and must be refused"
+            );
+            let kept = get_install_job(&connection, &job_id).unwrap();
+            assert_eq!(
+                kept.expect("the row must survive").phase,
+                phase,
+                "{phase} row must stay"
+            );
+        }
+    }
+
+    #[test]
+    fn clearing_finished_install_jobs_only_removes_terminal_rows() {
+        let connection = memory_database();
+        for phase in [
+            "done",
+            "cancelled",
+            "error",
+            "interrupted",
+            "queued",
+            "downloading",
+            "paused",
+        ] {
+            upsert_install_job(&connection, &job_record(&format!("job-{phase}"), phase)).unwrap();
+        }
+
+        assert_eq!(clear_finished_install_jobs(&connection).unwrap(), 4);
+        let remaining: Vec<String> = all_install_jobs(&connection)
+            .unwrap()
+            .into_iter()
+            .map(|job| job.phase)
+            .collect();
+        assert_eq!(remaining.len(), 3);
+        assert!(remaining
+            .iter()
+            .all(|phase| ["queued", "downloading", "paused"].contains(&phase.as_str())));
+    }
+
+    #[test]
+    fn deleted_install_jobs_stay_gone_after_a_restart() {
+        let connection = memory_database();
+        upsert_install_job(&connection, &job_record("job-keep", "done")).unwrap();
+        upsert_install_job(&connection, &job_record("job-drop", "error")).unwrap();
+
+        assert!(delete_install_job(&connection, "job-drop").unwrap());
+
+        // `all_install_jobs` is what `list_install_jobs` reads on the next
+        // launch, so a deleted entry must not come back.
+        let jobs = all_install_jobs(&connection).unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].job_id, "job-keep");
+        assert!(get_install_job(&connection, "job-drop").unwrap().is_none());
     }
 
     #[test]

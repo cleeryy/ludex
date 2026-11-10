@@ -39,8 +39,14 @@ export const installBridge = {
     return USING_MOCKS ? mockInstalls.resume(jobId) : native.resumeInstall(jobId);
   },
 
-  clearCompleted(): Promise<void> {
-    return USING_MOCKS ? mockInstalls.clearCompleted() : Promise.resolve();
+  /** Delete one finished job from history, never its files (#100). */
+  remove(jobId: string): Promise<void> {
+    return USING_MOCKS ? mockInstalls.remove(jobId) : native.deleteInstallJob(jobId);
+  },
+
+  /** Delete every finished job from history; resolves with the rows removed. */
+  clearCompleted(): Promise<number> {
+    return USING_MOCKS ? mockInstalls.clearCompleted() : native.clearFinishedInstallJobs();
   },
 
   settings(): Promise<LocalSettings | null> {

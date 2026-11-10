@@ -8,6 +8,23 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Share links (#9): editor-created, expiring, revocable and optionally
+  password-protected public links to a game or one version. Public routes
+  `/api/share/{token}` (metadata only) and `/api/share/{token}/access`
+  (short-lived download ticket) need no account; management lives at
+  `POST /api/games/{id}/shares`, `GET /api/shares` and
+  `DELETE /api/shares/{id}`. Tokens are stored as SHA-256 only and returned
+  once, passwords as Argon2id. Downloads reuse the scoped download-ticket path
+  (Range and object storage unchanged); access is rate-limited per token,
+  `maxDownloads` is reserved atomically, and the public payload never carries
+  progress, bookmarks, playtime, paths or other games. Migration
+  `0011_share_links.sql`, new `docs/CONTRACT.md` "Share links" section.
+- Downloads history (#100): `delete_install_job` removes one finished entry and
+  `clear_finished_install_jobs` removes every finished entry from the desktop
+  SQLite index; active and paused jobs are refused. The Downloads screen gains a
+  per-row "Remove from history" action (with a confirmation for failed or
+  interrupted jobs) and "Clear finished" now persists instead of hiding rows
+  client-side. Install folders, archives and `.part` downloads are kept.
 - Desktop silent installers (#7): `installer_plan`, `run_installer`,
   `cancel_installer`, `set_executable` and `choose_executable`. Silent switch
   presets (`/S`, `/silent`, `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`,

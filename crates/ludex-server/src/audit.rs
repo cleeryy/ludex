@@ -59,6 +59,14 @@ pub mod actions {
     pub const INTEGRITY_CHECK_STARTED: &str = "integrity.check_started";
     /// Media cache garbage collection removed files.
     pub const MEDIA_GC_RUN: &str = "media.gc";
+    /// Share link created.
+    pub const SHARE_CREATED: &str = "share.created";
+    /// Share link revoked.
+    pub const SHARE_REVOKED: &str = "share.revoked";
+    /// A public share link issued a download ticket.
+    pub const SHARE_ACCESS: &str = "share.access";
+    /// A public share access attempt was rejected.
+    pub const SHARE_ACCESS_DENIED: &str = "share.access_denied";
 }
 
 /// Writes one event to `audit_logs`. Failures are logged, never propagated:

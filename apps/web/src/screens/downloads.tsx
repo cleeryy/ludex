@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, Download, FolderOpen, Pause, Play, RefreshCw, X } from "lucide-react";
+import { Check, Download, FolderOpen, Pause, Play, RefreshCw, Trash2, X } from "lucide-react";
 import { installsAvailable } from "@/lib/install";
 import { isActiveJob, isStreamFailedJob, useDownloads } from "@/state/downloads";
 import { useAllGames } from "@/lib/hooks";
@@ -10,13 +10,20 @@ import { useToast } from "@/state/toasts";
 import { EmptyState, PageHeader, SectionHeader } from "@/components/page";
 import { GameCover } from "@/components/art/cover";
 import { Badge, Button, Progress } from "@/components/ui/controls";
+import { ConfirmDialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
+
+/** Rows whose history entry may be deleted (#100); active and paused rows cannot. */
+const REMOVABLE_PHASES: ReadonlySet<InstallJob["phase"]> = new Set(["done", "cancelled", "error", "interrupted"]);
 
 export function DownloadsScreen() {
   const downloads = useDownloads();
   const { push } = useToast();
   const { data } = useAllGames();
   const gamesById = useMemo(() => new Map((data?.items ?? []).map((game) => [game.id, game])), [data]);
+  // Failed entries ask first: removing them is the only way to lose sight of
+  // the resume/retry action, even though the files stay on disk.
+  const [removeTarget, setRemoveTarget] = useState<InstallJob | null>(null);
 
   const coverFor = (job: InstallJob) => gamesById.get(job.gameId)?.coverUrl ?? null;
   const yearFor = (job: InstallJob) => gamesById.get(job.gameId)?.releaseDate ?? null;
@@ -50,13 +57,33 @@ export function DownloadsScreen() {
     resume,
     retryAsDownload,
     retryStream,
+    remove,
     clearHistory,
     openFolder,
   } = downloads;
 
   const clear = async () => {
-    await clearHistory();
-    push({ title: "Finished downloads cleared" });
+    const cleared = await clearHistory();
+    if (cleared > 0) {
+      push({
+        title: "Finished downloads cleared",
+        description: `${cleared} ${cleared === 1 ? "entry" : "entries"} removed from history. Install folders are kept.`,
+      });
+    }
+  };
+
+  const requestRemove = (job: InstallJob) => {
+    if (job.phase === "error" || job.phase === "interrupted") {
+      setRemoveTarget(job);
+      return;
+    }
+    void remove(job.jobId);
+  };
+
+  const confirmRemove = () => {
+    const target = removeTarget;
+    setRemoveTarget(null);
+    if (target) void remove(target.jobId);
   };
 
   return (
@@ -144,6 +171,7 @@ export function DownloadsScreen() {
               onResume={() => void resume(job, { title: titleFor(job) })}
               onRetryAsDownload={() => void retryAsDownload(job, { title: titleFor(job) })}
               onRetryStream={() => void retryStream(job, { title: titleFor(job) })}
+              onRemove={REMOVABLE_PHASES.has(job.phase) ? () => requestRemove(job) : undefined}
             />
           ))}
         </div>
@@ -151,8 +179,24 @@ export function DownloadsScreen() {
 
       <p className="mt-6 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
         Install folders, stream installs and archive passwords are set in Settings. Downloads are indexed by the desktop app
-        and survive a restart.
+        and survive a restart. Removing an entry from history never deletes the installed game, its folder or a partial
+        <span className="font-mono"> .part </span> download.
       </p>
+
+      <ConfirmDialog
+        open={removeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoveTarget(null);
+        }}
+        title="Remove from Download history?"
+        description={
+          removeTarget
+            ? `${titleFor(removeTarget)} stays installed and its files are kept, including a partial .part download. Only this Downloads entry is removed.`
+            : ""
+        }
+        confirmLabel="Remove from history"
+        onConfirm={confirmRemove}
+      />
     </div>
   );
 }
@@ -168,6 +212,7 @@ function JobRow({
   onResume,
   onRetryAsDownload,
   onRetryStream,
+  onRemove,
 }: {
   job: InstallJob;
   title: string;
@@ -179,9 +224,11 @@ function JobRow({
   onResume: () => void;
   onRetryAsDownload?: () => void;
   onRetryStream?: () => void;
+  onRemove?: () => void;
 }) {
   const active = isActiveJob(job);
   const paused = job.phase === "paused";
+  const removable = REMOVABLE_PHASES.has(job.phase);
   const pct = job.bytesTotal ? Math.min(100, (job.bytesDone / job.bytesTotal) * 100) : null;
   const eta = active && !paused && job.bytesTotal && job.speedBps ? formatEta(job.bytesDone, job.bytesTotal, job.speedBps) : null;
   // Stream installs cannot resume: a failed one gets a normal download retry
@@ -303,6 +350,18 @@ function JobRow({
             <Button variant="ghost" size="sm" className="text-ink-3" icon={<FolderOpen className="size-3.5" />} onClick={onOpenFolder}>
               Open folder
             </Button>
+          )}
+          {removable && onRemove && (
+            <button
+              type="button"
+              onClick={onRemove}
+              aria-label={`Remove ${title} from history`}
+              title="Only the history entry is deleted; the installed files and any .part download are kept"
+              className="flex h-8 items-center gap-1.5 px-1 text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
+            >
+              <Trash2 className="size-3.5" aria-hidden="true" />
+              Remove from history
+            </button>
           )}
           {done && (
             <span className="flex items-center gap-1.5 px-1 text-[11.5px] text-ok">

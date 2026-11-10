@@ -98,6 +98,8 @@ pub fn run() {
             commands::resume_install,
             commands::get_install_job,
             commands::list_install_jobs,
+            commands::delete_install_job,
+            commands::clear_finished_install_jobs,
             commands::list_installed,
             commands::list_recent_games,
             commands::get_game_playtime,

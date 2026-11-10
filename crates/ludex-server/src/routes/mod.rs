@@ -14,6 +14,7 @@ pub mod news;
 pub mod oidc;
 pub mod saves;
 pub mod search;
+pub mod share;
 pub mod system;
 pub mod users;
 pub mod webhooks;
@@ -42,6 +43,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(keys::router())
         .merge(audit::router())
         .merge(webhooks::router())
+        .merge(share::router())
         .fallback(api_not_found)
 }
 

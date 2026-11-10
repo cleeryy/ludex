@@ -117,6 +117,8 @@ interface ScanStatus {
 | POST | `/api/setup` | body `{ username, password, serverName? }` → `{ token, user }`; 409 if users exist |
 | GET | `/api/media/{name}` | cached image/file (public, immutable cache headers) |
 | GET | `/api/config` | `{ serverName, version, features: { igdb, steam, ingest, localMode }, maxUploadBytes }` (public, used by setup/login) |
+| GET | `/api/share/{token}` | public share page (`ShareView`); see *Share links (#9)* |
+| POST | `/api/share/{token}/access` | exchange a share link for a 15-minute download ticket; see *Share links (#9)* |
 
 ```ts
 interface HealthDetails {
@@ -207,6 +209,77 @@ fallback). Results are ranked by relevance and carry `matchedField`,
 | PUT | `/api/games/{id}/bookmark` | `{ bookmarked }` | `{ bookmarked }` |
 | POST | `/api/games/{id}/installed` | desktop install report → `{ recorded }` |
 | GET | `/api/stats` | — | `{ games, versions, totalBytes, users, byState: Record<ProgressState, number> }` |
+
+## Share links (#9)
+
+Editor-managed, account-free links to one game or one version. The plaintext
+token is returned **once**, at creation; only its SHA-256 is stored.
+
+| Method | Route | Auth | Notes |
+|---|---|---|---|
+| POST | `/api/games/{id}/shares` | editor | body `{ versionId?, expiresInHours?, password?, maxDownloads?, label? }` → 201 `ShareLink` (includes `token`); 404 `game_not_found`; 400 `invalid_expiry` (`1..=8760`), `invalid_max_downloads` (`1..=100000`), `invalid_password` (min 4 chars), `invalid_label`, `invalid_version` (version not under this game) |
+| GET | `/api/shares` | editor | every link, newest first, with `gameTitle`; never includes `token` |
+| DELETE | `/api/shares/{id}` | editor | 204; 404 `share_not_found`; idempotent for an already revoked row |
+| GET | `/api/share/{token}` | public | `ShareView` (metadata only); 404 `share_not_found` for unknown, revoked, expired or exhausted links |
+| POST | `/api/share/{token}/access` | public | body `{ password? }` (omitted body = no password) → `{ url, expiresAt }`; 401 `invalid_share_password`, 410 `share_expired`, 410 `share_exhausted`, 404 `share_not_found`, 429 `rate_limited` |
+
+```ts
+interface ShareLink {
+  id: number; token?: string;          // token only in the creation response
+  gameId: number; versionId: number | null; // null = latest at access time
+  gameTitle: string | null;            // management list only
+  label: string | null;
+  expiresAt: string | null;            // RFC 3339
+  hasPassword: boolean;
+  maxDownloads: number | null;         // null = unlimited
+  downloadCount: number;
+  revokedAt: string | null; createdAt: string;
+}
+
+interface ShareView {
+  game: {
+    id: number; title: string; description: string | null;
+    coverUrl: string | null; backgroundUrl: string | null; screenshots: string[];
+    releaseDate: string | null; rating: number | null;
+    genres: string[]; developers: string[]; publishers: string[];
+    ageRating: number | null;
+  };
+  version: {
+    id: number; version: string | null; size: number;
+    releaseDate: string | null; earlyAccess: boolean;
+  };
+  expiresAt: string | null; hasPassword: boolean;
+  remainingDownloads: number | null;   // null = unlimited
+}
+```
+
+Security model:
+
+- **No library exposure.** The public page is built from a dedicated `games`
+  query: no `progress`, `bookmarks`, `playSessions`, file paths, versions list
+  or other games. `ShareView` is metadata plus a short-lived download ticket.
+- **Expiry.** Optional `expiresAt`; the access route answers 410 `share_expired`
+  and the metadata page answers 404. `versionId: null` resolves the newest
+  available version at access time, so a link survives a library update.
+- **Password.** Optional, min 4 characters, stored as Argon2id. Wrong or missing
+  password → 401 `invalid_share_password`; the token itself is still subject to
+  the rate limit. Every attempt performs exactly one Argon2 verification, so
+  latency does not reveal whether a token exists or is protected.
+- **Download cap.** `maxDownloads` is reserved atomically (`UPDATE … WHERE
+  download_count < max_downloads`), so parallel requests cannot exceed it. The
+  cap is reached → 410 `share_exhausted`.
+- **Revocation.** `DELETE /api/shares/{id}` sets `revoked_at`; every public
+  route answers 404 from then on. Revoking an unknown link is a 404.
+- **Rate limiting.** 30 `POST /api/share/{token}/access` attempts per token per
+  sliding 60 s window → 429 `rate_limited`. Attempts are consumed even when the
+  password is correct.
+- **Tickets, not links to the file.** `POST …/access` returns
+  `/api/games/{id}/download?versionId={id}&token=…`, a 15-minute JWT scoped to
+  the game and version. Range requests, `Content-Disposition` and object
+  storage work exactly like the authenticated download.
+- **Audit.** `share.created`, `share.revoked`, `share.access` and
+  `share.access_denied` are recorded; the token and password never appear in
+  logs, audit metadata or responses.
 
 ## Collections (#25)
 
@@ -785,6 +858,8 @@ interface RepairReport {
 | `resume_install` | `{ jobId }` | `InstallJob` (continues with HTTP Range) |
 | `get_install_job` | `{ jobId }` | `InstallJob` |
 | `list_install_jobs` | — | `InstallJob[]` (active + persisted, newest first) |
+| `delete_install_job` | `{ jobId }` | `null`; removes one terminal (`done`, `cancelled`, `error`, `interrupted`) row from Downloads history. Refuses active and paused jobs. Never deletes the install folder, archives or `.part` files |
+| `clear_finished_install_jobs` | — | `number` (rows removed); deletes every terminal history row, keeps active/paused jobs and all files on disk |
 | `list_installed` | — | `InstalledGame[]` |
 | `launch_game` | `{ gameId, executable?, args? }` | `{ sessionId }` |
 | `stop_game` | `{ sessionId }` | `null` |

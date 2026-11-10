@@ -48,6 +48,7 @@ pub mod roots;
 pub mod routes;
 pub mod saves;
 pub mod scanner;
+pub mod share;
 pub mod sql;
 pub mod state;
 pub mod storage;

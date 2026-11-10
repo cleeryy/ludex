@@ -89,6 +89,18 @@ export const native = {
     await invoke<null>("cancel_install", { jobId });
   },
 
+  /** Remove one terminal job from Downloads history (#100); files are kept. */
+  async deleteInstallJob(jobId: string): Promise<void> {
+    if (!isNative()) throw nativeUnavailable();
+    await invoke<null>("delete_install_job", { jobId });
+  },
+
+  /** Remove every terminal job from Downloads history (#100); returns rows removed. */
+  async clearFinishedInstallJobs(): Promise<number> {
+    if (!isNative()) return 0;
+    return invoke<number>("clear_finished_install_jobs");
+  },
+
   async pauseInstall(jobId: string): Promise<InstallJob> {
     return invoke<InstallJob>("pause_install", { jobId });
   },

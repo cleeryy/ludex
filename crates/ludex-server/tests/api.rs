@@ -2068,3 +2068,361 @@ async fn latest_version_exposes_update_metadata() {
     assert!(new.exists());
     server.stop().await;
 }
+
+/// Rewrites the expiry of one share row directly. The test owns the same
+/// SQLite file as the server, which lets expiry be exercised without waiting
+/// an hour or exposing an internal endpoint.
+async fn patch_share_expiry(server: &TestServer, share_id: i64, expires_at: &str) {
+    let url = ludex_server::config::default_database_url(&server.temp.path().join("data"));
+    let pool = ludex_server::db::connect(&url)
+        .await
+        .expect("connect test db");
+    sqlx::query("UPDATE share_links SET expires_at = ? WHERE id = ?")
+        .bind(expires_at)
+        .bind(share_id)
+        .execute(&pool)
+        .await
+        .expect("update share expiry");
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn share_links_are_public_and_ticket_based() {
+    let server = TestServer::start().await;
+    let (token, _) = server.setup().await;
+    // The scanner ignores archives below 1 MiB; the content does not matter
+    // here, only that the ticketed download streams the indexed file.
+    let file_size = 1024 * 1024 + 24;
+    server.write_game("Hades (2020).zip", file_size);
+    run_scan(&server, &token).await;
+
+    let (_, list) = server.get("/api/games", Some(&token)).await;
+    let game_id = list["items"][0]["id"].as_i64().expect("game id");
+    let (_, detail) = server
+        .get(&format!("/api/games/{game_id}"), Some(&token))
+        .await;
+    let version_id = detail["versions"][0]["id"].as_i64().expect("version id");
+
+    // Create a protected, expiring link for one version.
+    let (status, share) = server
+        .post(
+            &format!("/api/games/{game_id}/shares"),
+            Some(&token),
+            Some(json!({
+                "versionId": version_id,
+                "expiresInHours": 24,
+                "password": "open sesame",
+                "maxDownloads": 5,
+                "label": "For Bob",
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{share}");
+    let share_id = share["id"].as_i64().expect("share id");
+    let share_token = share["token"]
+        .as_str()
+        .expect("plaintext token")
+        .to_string();
+    assert!(share_token.starts_with("lsx_"), "{share}");
+    assert_eq!(share["gameId"], game_id);
+    assert_eq!(share["versionId"], version_id);
+    assert_eq!(share["label"], "For Bob");
+    assert_eq!(share["hasPassword"], true);
+    assert_eq!(share["maxDownloads"], 5);
+    assert_eq!(share["downloadCount"], 0);
+    assert!(share["expiresAt"].as_str().is_some(), "{share}");
+    assert!(share["revokedAt"].is_null());
+    assert!(share.get("passwordHash").is_none());
+
+    // The metadata page is public and carries no account data.
+    let (status, view) = server.get(&format!("/api/share/{share_token}"), None).await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(view["game"]["id"], game_id);
+    assert_eq!(view["game"]["title"], "Hades");
+    assert_eq!(view["version"]["id"], version_id);
+    assert_eq!(view["hasPassword"], true);
+    assert_eq!(view["remainingDownloads"], 5);
+    for field in ["state", "minutesPlayed", "bookmarked", "lastPlayedAt"] {
+        assert!(
+            view["game"].get(field).is_none(),
+            "no user data: {field} in {view}"
+        );
+    }
+    for field in ["filePath", "rootId", "versions", "launch", "provider"] {
+        assert!(
+            view["game"].get(field).is_none(),
+            "no library internals: {field} in {view}"
+        );
+    }
+    assert!(view.get("token").is_none());
+    assert!(view.get("id").is_none(), "the public page has no row id");
+
+    // Wrong password is a 401, never an existence oracle for the link.
+    let (status, error) = server
+        .post(
+            &format!("/api/share/{share_token}/access"),
+            None,
+            Some(json!({"password": "wrong"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{error}");
+    assert_eq!(error["error"]["code"], "invalid_share_password");
+
+    // The right password returns a working, scoped download ticket.
+    let (status, access) = server
+        .post(
+            &format!("/api/share/{share_token}/access"),
+            None,
+            Some(json!({"password": "open sesame"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{access}");
+    let url = access["url"].as_str().expect("url").to_string();
+    assert!(
+        url.starts_with(&format!(
+            "/api/games/{game_id}/download?versionId={version_id}"
+        )),
+        "{url}"
+    );
+    assert!(url.contains("token="), "{url}");
+    assert!(access["expiresAt"].as_str().is_some());
+
+    let response = server
+        .client
+        .get(format!("{}{}", server.url, url))
+        .send()
+        .await
+        .expect("download");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.content_length(), Some(file_size));
+    assert_eq!(
+        response.bytes().await.expect("body").len() as u64,
+        file_size
+    );
+
+    // Range requests work unchanged through the ticket.
+    let response = server
+        .client
+        .get(format!("{}{}", server.url, url))
+        .header(RANGE, "bytes=0-99")
+        .send()
+        .await
+        .expect("range download");
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(response.bytes().await.expect("body").len(), 100);
+
+    // The management list has the counter and the game title, never the token.
+    let (status, shares) = server.get("/api/shares", Some(&token)).await;
+    assert_eq!(status, StatusCode::OK, "{shares}");
+    let items = shares.as_array().expect("shares");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["downloadCount"], 1);
+    assert_eq!(items[0]["gameTitle"], "Hades");
+    assert!(items[0].get("token").is_none(), "tokens are shown once");
+    assert!(items[0].get("passwordHash").is_none());
+
+    // A plain account cannot create, list or revoke share links.
+    let (status, viewer) = server
+        .post(
+            "/api/users",
+            Some(&token),
+            Some(json!({"username": "viewer", "password": ADMIN_PASSWORD, "role": "user"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{viewer}");
+    let (status, login) = server
+        .post(
+            "/api/auth/login",
+            None,
+            Some(json!({"username": "viewer", "password": ADMIN_PASSWORD})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let viewer_token = login["token"].as_str().expect("viewer token");
+    let (status, _) = server
+        .post(
+            &format!("/api/games/{game_id}/shares"),
+            Some(viewer_token),
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = server.get("/api/shares", Some(viewer_token)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = server
+        .delete(&format!("/api/shares/{share_id}"), viewer_token)
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // Revocation cuts public access immediately.
+    let (status, _) = server
+        .delete(&format!("/api/shares/{share_id}"), &token)
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _) = server.get(&format!("/api/share/{share_token}"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, error) = server
+        .post(
+            &format!("/api/share/{share_token}/access"),
+            None,
+            Some(json!({"password": "open sesame"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{error}");
+    assert_eq!(error["error"]["code"], "share_not_found");
+
+    // Unknown tokens answer the same 404.
+    let (status, error) = server.get("/api/share/lsx_unknown", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(error["error"]["code"], "share_not_found");
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn share_links_enforce_limits_expiry_and_validation() {
+    let server = TestServer::start().await;
+    let (token, _) = server.setup().await;
+    server.write_game("Hades (2020).zip", 1024 * 1024 + 32);
+    server.write_game("Bastion (2011).zip", 1024 * 1024 + 48);
+    run_scan(&server, &token).await;
+
+    let (_, list) = server.get("/api/games", Some(&token)).await;
+    let games = list["items"].as_array().expect("games");
+    let game_id = |title: &str| {
+        games
+            .iter()
+            .find(|game| game["title"] == title)
+            .and_then(|game| game["id"].as_i64())
+            .unwrap_or_else(|| panic!("missing game {title}: {list}"))
+    };
+    let hades = game_id("Hades");
+    let bastion = game_id("Bastion");
+    let (_, detail) = server
+        .get(&format!("/api/games/{hades}"), Some(&token))
+        .await;
+    let hades_version = detail["versions"][0]["id"].as_i64().expect("version id");
+    let (_, other) = server
+        .get(&format!("/api/games/{bastion}"), Some(&token))
+        .await;
+    let bastion_version = other["versions"][0]["id"].as_i64().expect("version id");
+
+    // Payload validation.
+    let cases = [
+        (json!({"expiresInHours": 0}), "invalid_expiry"),
+        (json!({"expiresInHours": 9000}), "invalid_expiry"),
+        (json!({"maxDownloads": 0}), "invalid_max_downloads"),
+        (json!({"maxDownloads": 100001}), "invalid_max_downloads"),
+        (json!({"password": "abc"}), "invalid_password"),
+        (json!({"versionId": bastion_version}), "invalid_version"),
+    ];
+    for (body, code) in cases {
+        let (status, error) = server
+            .post(
+                &format!("/api/games/{hades}/shares"),
+                Some(&token),
+                Some(body.clone()),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body} -> {error}");
+        assert_eq!(error["error"]["code"], code, "{body} -> {error}");
+    }
+
+    let (status, error) = server
+        .post("/api/games/999999/shares", Some(&token), Some(json!({})))
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{error}");
+    assert_eq!(error["error"]["code"], "game_not_found");
+
+    // A link without a version follows the latest version at access time.
+    let (status, share) = server
+        .post(
+            &format!("/api/games/{hades}/shares"),
+            Some(&token),
+            Some(json!({"maxDownloads": 1})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{share}");
+    let share_id = share["id"].as_i64().expect("id");
+    let share_token = share["token"].as_str().expect("token").to_string();
+    assert!(share["versionId"].is_null(), "{share}");
+
+    // No body at all: the access route treats it as "no password".
+    let (status, access) = server
+        .post(&format!("/api/share/{share_token}/access"), None, None)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{access}");
+    assert!(
+        access["url"]
+            .as_str()
+            .expect("url")
+            .contains(&format!("versionId={hades_version}")),
+        "{access}"
+    );
+
+    let (status, error) = server
+        .post(&format!("/api/share/{share_token}/access"), None, None)
+        .await;
+    assert_eq!(status, StatusCode::GONE, "{error}");
+    assert_eq!(error["error"]["code"], "share_exhausted");
+    let (_, shares) = server.get("/api/shares", Some(&token)).await;
+    let item = shares
+        .as_array()
+        .expect("shares")
+        .iter()
+        .find(|share| share["id"] == share_id)
+        .expect("share row");
+    assert_eq!(item["downloadCount"], 1);
+
+    // Expiry is checked on both the metadata page (404) and access (410).
+    let (status, expiring) = server
+        .post(
+            &format!("/api/games/{hades}/shares"),
+            Some(&token),
+            Some(json!({"expiresInHours": 1})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{expiring}");
+    let expiring_id = expiring["id"].as_i64().expect("id");
+    let expiring_token = expiring["token"].as_str().expect("token").to_string();
+    let past = ludex_server::db::db_time(chrono::Utc::now() - chrono::Duration::hours(2));
+    patch_share_expiry(&server, expiring_id, &past).await;
+
+    let (status, error) = server
+        .get(&format!("/api/share/{expiring_token}"), None)
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{error}");
+    let (status, error) = server
+        .post(&format!("/api/share/{expiring_token}/access"), None, None)
+        .await;
+    assert_eq!(status, StatusCode::GONE, "{error}");
+    assert_eq!(error["error"]["code"], "share_expired");
+
+    // Revoking an unknown row is a 404, not a silent success.
+    let (status, error) = server.delete("/api/shares/999999", &token).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{error}");
+
+    // Public access is rate-limited per token, even without a password.
+    let (status, limited) = server
+        .post(
+            &format!("/api/games/{hades}/shares"),
+            Some(&token),
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{limited}");
+    let limited_token = limited["token"].as_str().expect("token").to_string();
+    for _ in 0..30 {
+        let (status, body) = server
+            .post(&format!("/api/share/{limited_token}/access"), None, None)
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    let (status, error) = server
+        .post(&format!("/api/share/{limited_token}/access"), None, None)
+        .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{error}");
+    assert_eq!(error["error"]["code"], "rate_limited");
+
+    server.stop().await;
+}

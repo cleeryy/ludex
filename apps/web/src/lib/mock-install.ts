@@ -20,6 +20,8 @@ import type {
 const MB = 1024 ** 2;
 const GB = 1024 ** 3;
 const ACTIVE: ReadonlySet<InstallJob["phase"]> = new Set(["queued", "downloading", "extracting", "finalizing"]);
+/** Phases that may leave Downloads history (#100); mirrors the SQLite check. */
+const TERMINAL: ReadonlySet<InstallJob["phase"]> = new Set(["done", "cancelled", "error", "interrupted"]);
 
 const now = () => Date.now();
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -340,10 +342,31 @@ export const mockInstalls = {
     return Promise.resolve(clone(target));
   },
 
-  clearCompleted(): Promise<void> {
-    jobs = jobs.filter((entry) => entry.phase !== "done" && entry.phase !== "cancelled");
+  remove(jobId: string): Promise<void> {
+    const target = jobs.find((entry) => entry.jobId === jobId);
+    if (!target) return Promise.reject(new Error("Unknown install job"));
+    if (!TERMINAL.has(target.phase)) {
+      return Promise.reject(
+        new Error(
+          target.phase === "paused"
+            ? "This install is paused. Cancel it before removing it from history."
+            : "This install is still running. Cancel it before removing it from history.",
+        ),
+      );
+    }
+    jobs = jobs.filter((entry) => entry.jobId !== jobId);
+    meta.delete(jobId);
+    phaseEnds.delete(jobId);
     emit();
     return Promise.resolve();
+  },
+
+  clearCompleted(): Promise<number> {
+    const before = jobs.length;
+    jobs = jobs.filter((entry) => !TERMINAL.has(entry.phase));
+    const cleared = before - jobs.length;
+    if (cleared > 0) emit();
+    return Promise.resolve(cleared);
   },
 
   subscribe(listener: () => void): () => void {
