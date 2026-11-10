@@ -27,7 +27,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 jsonwebtoken = "9"
 argon2 = "0.5"
 password-hash = { version = "0.5", features = ["rand_core"] }
-zip = "2"
+zip = "9"
 sevenz-rust2 = "0.13"
 unrar = "0.5"
 walkdir = "2"
