@@ -73,7 +73,7 @@ All notable changes to Ludex are documented here. The format is based on
   the desktop DB records exact seconds. The game page shows "Played Xh" and the
   recent sessions on this device.
 - Server: `game_versions.archive_hash`, `file_modified` and `updated_at`
-  (migration 0008), computed by the scanner; `archiveHash` and `updatedAt` on
+  (migration 0009), computed by the scanner; `archiveHash` and `updatedAt` on
   `GameVersion`.
 - Core: `ludex_core::fingerprint` — a cheap sampled archive fingerprint
   (`sha256-sample:` over size + first/last MiB) shared by the server scanner and
