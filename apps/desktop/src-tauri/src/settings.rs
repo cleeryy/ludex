@@ -72,6 +72,18 @@ pub struct LocalSettings {
     /// Last successful or attempted update check, RFC 3339. Used for the
     /// once-per-24 h throttle; cleared by a manual check.
     pub last_update_check_at: Option<String>,
+    /// Publish the running game as Discord Rich Presence (#12). Off by default.
+    pub discord_presence: bool,
+    /// Discord application id used for Rich Presence. An application id is not
+    /// a bot token; it only labels the activity.
+    pub discord_client_id: String,
+    /// Argument sets tried in order by `run_installer` (#7). Empty means the
+    /// built-in NSIS/Inno/InstallShield presets.
+    pub installer_silent_args: Vec<Vec<String>>,
+    /// How long one silent install attempt may run before it is killed.
+    pub installer_timeout_secs: u64,
+    /// Steam root overriding discovery (#13). Empty means auto-detect.
+    pub steam_root: String,
 }
 
 impl Default for LocalSettings {
@@ -92,6 +104,11 @@ impl Default for LocalSettings {
             update_channel: UpdateChannel::Stable,
             check_updates_on_startup: true,
             last_update_check_at: None,
+            discord_presence: false,
+            discord_client_id: String::new(),
+            installer_silent_args: Vec::new(),
+            installer_timeout_secs: 600,
+            steam_root: String::new(),
         }
     }
 }
@@ -128,6 +145,22 @@ impl LocalSettings {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .collect();
+        self.discord_client_id = self.discord_client_id.trim().to_string();
+        self.steam_root = self.steam_root.trim().to_string();
+        self.installer_silent_args = self
+            .installer_silent_args
+            .drain(..)
+            .map(|set| {
+                set.into_iter()
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<String>>()
+            })
+            .filter(|set| !set.is_empty())
+            .collect();
+        // A zero/absurd timeout would either kill every installer instantly or
+        // hang an install for a day.
+        self.installer_timeout_secs = self.installer_timeout_secs.clamp(30, 7200);
     }
 
     pub fn install_path(&self) -> PathBuf {
@@ -309,6 +342,43 @@ mod tests {
         assert_eq!(json["updateChannel"], "stable");
         assert_eq!(json["checkUpdatesOnStartup"], true);
         assert_eq!(json["lastUpdateCheckAt"], serde_json::Value::Null);
+        assert_eq!(json["discordPresence"], false);
+        assert_eq!(json["discordClientId"], "");
+        assert_eq!(json["installerSilentArgs"], serde_json::json!([]));
+        assert_eq!(json["installerTimeoutSecs"], 600);
+        assert_eq!(json["steamRoot"], "");
+    }
+
+    #[test]
+    fn installer_and_presence_settings_roundtrip() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.discord_presence = true;
+        settings.discord_client_id = " 1234 ".into();
+        settings.installer_silent_args = vec![
+            vec![" /S ".into(), " ".into()],
+            vec![],
+            vec!["/VERYSILENT".into(), "/NORESTART".into()],
+        ];
+        settings.installer_timeout_secs = 5;
+        settings.steam_root = " /steam ".into();
+        settings.normalize(Path::new("/data"));
+
+        assert_eq!(settings.discord_client_id, "1234");
+        assert_eq!(
+            settings.installer_silent_args,
+            vec![
+                vec!["/S".to_string()],
+                vec!["/VERYSILENT".to_string(), "/NORESTART".to_string()]
+            ]
+        );
+        // Clamped to the documented minimum.
+        assert_eq!(settings.installer_timeout_secs, 30);
+        assert_eq!(settings.steam_root, "/steam");
+
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["discordPresence"], true);
+        let back: LocalSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(back.installer_silent_args.len(), 2);
     }
 
     #[test]

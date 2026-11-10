@@ -1,11 +1,10 @@
 //! Application state managed by Tauri.
 
+use rusqlite::Connection;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-
-use rusqlite::Connection;
 use tauri::{AppHandle, Manager};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio_util::sync::CancellationToken;
@@ -117,6 +116,8 @@ pub struct AppState {
     pub server: AsyncMutex<Option<ludex_server::ServerHandle>>,
     pub jobs: Mutex<HashMap<String, Arc<JobEntry>>>,
     pub processes: Mutex<HashMap<String, Arc<ProcessEntry>>>,
+    /// Cancellation flags for `run_installer` runs, per game (#7).
+    pub installers: Mutex<HashMap<i64, Arc<AtomicBool>>>,
     pub http: reqwest::Client,
     /// Install jobs run one at a time by default to avoid disk thrash on large
     /// archives. Additional requests wait in the queued phase.
@@ -169,6 +170,7 @@ impl AppState {
             server: AsyncMutex::new(None),
             jobs: Mutex::new(HashMap::new()),
             processes: Mutex::new(HashMap::new()),
+            installers: Mutex::new(HashMap::new()),
             http,
             install_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_INSTALLS)),
         })

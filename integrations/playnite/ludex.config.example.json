@@ -1,0 +1,6 @@
+{
+  "ServerUrl": "https://ludex.example.com",
+  "ApiKey": "ldx_replace_with_a_read_only_key",
+  "LaunchUrlTemplate": "{serverUrl}/game/{gameId}",
+  "IncludeUnavailable": false
+}

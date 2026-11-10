@@ -548,6 +548,11 @@ interface LocalSettings {
   updateChannel: "stable" | "early"; // app updater channel (default stable)
   checkUpdatesOnStartup: boolean;    // throttled to once per 24 h
   lastUpdateCheckAt: string | null;  // RFC 3339, drives the throttle
+  discordPresence: boolean;          // Discord Rich Presence (#12), default false
+  discordClientId: string;           // Discord application id, not a bot token
+  installerSilentArgs: string[][];   // silent install attempts (#7), empty = presets
+  installerTimeoutSecs: number;      // per attempt, default 600, clamped 30-7200
+  steamRoot: string;                 // Steam folder override (#13), empty = detect
 }
 
 interface InstalledGame {
@@ -556,6 +561,59 @@ interface InstalledGame {
   installedAt: string; lastLaunchedAt: string | null;
   /** Fingerprint of the archive this install came from, when known. */
   archiveHash: string | null;
+  /** `steam` entries were imported from a Steam library (#13). */
+  source: "ludex" | "steam";
+  /** External launch URI (`steam://rungameid/<appid>`) for imported entries. */
+  launchUri: string | null;
+}
+
+/** Preview of a silent installer run (#7). */
+interface InstallerPlan {
+  executable: string | null;
+  detected: string[];       // installer-looking files in the install folder
+  attempts: string[][];     // argument sets, in order
+  timeoutSecs: number;
+  interactive: boolean;
+  platform: string;         // "windows", "linux", "macos"
+}
+
+interface InstallerAttempt {
+  args: string[]; exitCode: number | null;
+  timedOut: boolean; cancelled: boolean;
+  error: string | null; durationMs: number;
+}
+
+interface InstallerReport {
+  gameId: number; executable: string;
+  success: boolean; cancelled: boolean; timedOut: boolean; interactive: boolean;
+  exitCode: number | null; attempts: InstallerAttempt[];
+  recordedExecutable: string | null; // set after a successful install
+  candidates: string[];              // exe picker suggestions
+  message: string;
+}
+
+/** Discord Rich Presence state (#12). */
+interface PresenceStatus {
+  enabled: boolean; configured: boolean; connected: boolean;
+  lastError: string | null; details: string | null; retryInSeconds: number;
+}
+
+/** One installed Steam game discovered on disk (#13). */
+interface SteamGame {
+  appId: number; name: string; installDir: string; libraryPath: string;
+  sizeBytes: number; lastPlayed: number | null;
+  matchedGameId: number | null; matchedTitle: string | null;
+  imported: boolean; localGameId: number; // negative app id when unmatched
+}
+
+interface SteamPreview {
+  roots: string[]; games: SteamGame[]; warnings: string[];
+  matched: boolean;  // false: the server could not be listed
+}
+
+interface SteamImportReport {
+  imported: InstalledGame[];
+  skipped: { appId: number; title: string; reason: string }[];
 }
 
 /** A game with a newer version on the server (#30). */
@@ -652,6 +710,14 @@ interface RepairReport {
 | `check_for_updates` | `{ manual? }` | `UpdateStatus`; manual checks bypass the 24 h throttle |
 | `install_update` | — | `UpdateStatus` after download+install; refuses when no signing key is configured |
 | `restart_app` | — | `null` (restarts Ludex; Linux/macOS after an update) |
+| `installer_plan` | `{ gameId?, executable? }` | `InstallerPlan`; never runs anything |
+| `run_installer` | `{ gameId, executable?, interactive?, args? }` | `InstallerReport`; silent runs are Windows-only, interactive runs use no arguments and no timeout |
+| `cancel_installer` | `{ gameId }` | `null`; stops a running installer at the next poll |
+| `set_executable` | `{ gameId, executable }` | `InstalledGame`; the file must be inside the install folder |
+| `choose_executable` | `{ gameId }` | `InstalledGame \| null`; system file dialog, records the pick |
+| `presence_status` | — | `PresenceStatus` (never blocks on the IPC socket) |
+| `steam_scan` | — | `SteamPreview`; reads Steam metadata, matches titles, marks imports |
+| `steam_import` | `{ appIds }` | `SteamImportReport`; no download, launches through Steam |
 
 Events:
 
@@ -669,6 +735,7 @@ Events:
 - `update://available` → `UpdateStatus` (startup check found a version)
 - `update://progress` → `{ downloaded, total, percent }`
 - `update://installed` → `{ version, restarted }`
+- `installer://done` → `{ gameId, success, exitCode }` (#7)
 
 Native install layout: `{installDir}/{slug}/{versionLabel}/game files` plus a
 desktop SQLite index at `{appDataDir}/ludex-desktop.db` (installed games,
@@ -677,6 +744,30 @@ fingerprints). Local archive extraction
 uses `GET /api/games/{id}/versions/{vid}/local-path` when the embedded server is
 in local mode; remote installs download with Range resume and delete the temp
 archive by default (`keepArchives` setting false).
+
+### Desktop integrations (#7, #12, #13, #14)
+
+- **Silent installers.** `run_installer` tries `installerSilentArgs` (default
+  `/S`, `/silent`, `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`, `--silent`) in
+  order, treats exit codes `0` and `3010` as success, kills an attempt after
+  `installerTimeoutSecs` and moves on. After success it records the game binary
+  it finds (never the installer). On a non-Windows host silent runs are refused;
+  `installer_plan` still reports the plan. An interactive run sends no arguments
+  and has no timeout. Nothing runs without an explicit command.
+- **Discord presence.** Optional, off by default, uses the local Discord IPC
+  (application id, no bot token). Payload: game title, public cover URL
+  (`https`, non-private host), session start; idle when nothing runs.
+  Reconnects with a 4 s → 120 s backoff. `presence_status` exposes
+  `connected`, `lastError` and `retryInSeconds`.
+- **Steam import.** Reads `steamapps/libraryfolders.vdf` and
+  `appmanifest_*.acf`, keeps fully installed games whose folder exists, matches
+  normalised titles (then edition-stripped titles) against the server library and
+  imports selected games with `launchUri: steam://rungameid/<appid>`,
+  `versionId: 0`, `source: "steam"`. Matched games keep their server `gameId`;
+  unmatched ones get `-appId`. Uninstalling an import only removes the index
+  entry. Playtime for negative ids is not synced to the server.
+- **Playnite.** The plugin lives in `integrations/playnite/` and is a pure API
+  client; there is no dedicated endpoint.
 
 ### Install lifecycle
 
@@ -710,8 +801,8 @@ archive by default (`keepArchives` setting false).
   for the server) and `seconds` (exact, for local reports). `get_game_playtime`
   aggregates totals, per-UTC-day buckets and the recent sessions.
 - **Tray (#15).** `closeToTray` (default true) hides the window instead of
-  quitting; the tray menu offers Show/Hide, Downloads, Recent games (from
-  `installed_games.last_launched_at`), Check for updates and Quit. Left click
+  quitting; the tray menu offers Show/Hide, Downloads, Recent games (latest
+  launch, else import/install date), Check for updates and Quit. Left click
   toggles the window and the tooltip reports active downloads.
 - **App updates (#16).** `stable` follows the latest GitHub release, `early`
   follows the moving `edge` prerelease. Checks run at startup at most once per

@@ -900,6 +900,8 @@ mod tests {
             last_launched_at: None,
             archive_hash: None,
             install_root: Some(root.into()),
+            source: crate::db::SOURCE_LUDEX.into(),
+            launch_uri: None,
         }
     }
 

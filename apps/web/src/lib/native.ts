@@ -5,10 +5,15 @@ import type {
   InstallGameArgs,
   InstallJob,
   InstalledGame,
+  InstallerPlan,
+  InstallerReport,
   LocalSettings,
   MoveProgress,
+  PresenceStatus,
   RepairProgress,
   RepairReport,
+  SteamImportReport,
+  SteamPreview,
   UpdateInstalled,
   UpdateProgress,
   UpdateStatus,
@@ -184,6 +189,71 @@ export const native = {
     return invoke<DiskUsage>("get_disk_usage", { path });
   },
 
+  /* ------------------------------ installers (#7) ------------------------ */
+
+  async installerPlan(gameId?: number | null, executable?: string | null): Promise<InstallerPlan> {
+    return invoke<InstallerPlan>("installer_plan", { gameId, executable });
+  },
+
+  async runInstaller(args: {
+    gameId: number;
+    executable?: string | null;
+    interactive?: boolean;
+    args?: string[] | null;
+  }): Promise<InstallerReport> {
+    return invoke<InstallerReport>("run_installer", { ...args });
+  },
+
+  async cancelInstaller(gameId: number): Promise<void> {
+    if (!isNative()) return;
+    await invoke<null>("cancel_installer", { gameId });
+  },
+
+  async setExecutable(gameId: number, executable: string): Promise<InstalledGame> {
+    return invoke<InstalledGame>("set_executable", { gameId, executable });
+  },
+
+  async chooseExecutable(gameId: number): Promise<InstalledGame | null> {
+    return invoke<InstalledGame | null>("choose_executable", { gameId });
+  },
+
+  /* ---------------------------- presence (#12) --------------------------- */
+
+  async presenceStatus(): Promise<PresenceStatus> {
+    if (!isNative()) {
+      return {
+        enabled: false,
+        configured: false,
+        connected: false,
+        lastError: null,
+        details: null,
+        retryInSeconds: 0,
+      };
+    }
+    try {
+      return await invoke<PresenceStatus>("presence_status");
+    } catch {
+      return {
+        enabled: false,
+        configured: false,
+        connected: false,
+        lastError: null,
+        details: null,
+        retryInSeconds: 0,
+      };
+    }
+  },
+
+  /* ------------------------------ steam (#13) ---------------------------- */
+
+  async steamScan(): Promise<SteamPreview> {
+    return invoke<SteamPreview>("steam_scan");
+  },
+
+  async steamImport(appIds: number[]): Promise<SteamImportReport> {
+    return invoke<SteamImportReport>("steam_import", { appIds });
+  },
+
   async onInstallProgress(handler: (job: InstallJob) => void): Promise<() => void> {
     return listen<InstallJob>("install://progress", handler);
   },
@@ -247,6 +317,15 @@ export const native = {
   async onLocalServerStatus(handler: (payload: { running: boolean; url: string | null }) => void): Promise<() => void> {
     return listen<{ running: boolean; url: string | null }>("local-server://status", handler);
   },
+
+  async onInstallerDone(
+    handler: (payload: { gameId: number; success: boolean; exitCode: number | null }) => void,
+  ): Promise<() => void> {
+    return listen<{ gameId: number; success: boolean; exitCode: number | null }>(
+      "installer://done",
+      handler,
+    );
+  },
 };
 
 async function listen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
@@ -272,4 +351,9 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   updateChannel: "stable",
   checkUpdatesOnStartup: true,
   lastUpdateCheckAt: null,
+  discordPresence: false,
+  discordClientId: "",
+  installerSilentArgs: [],
+  installerTimeoutSecs: 600,
+  steamRoot: "",
 };

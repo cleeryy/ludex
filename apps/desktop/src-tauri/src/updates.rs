@@ -106,6 +106,10 @@ pub async fn check(app: &AppHandle) -> Result<Vec<GameUpdate>, String> {
     let mut updates = Vec::new();
     let mut consecutive_errors = 0usize;
     for game in installed {
+        // Steam imports (#13) are not managed by the Ludex server.
+        if game.source == db::SOURCE_STEAM || game.game_id <= 0 {
+            continue;
+        }
         match latest_version(&state, game.game_id).await {
             Ok(latest) => {
                 consecutive_errors = 0;
@@ -226,6 +230,8 @@ mod tests {
             last_launched_at: None,
             archive_hash: hash.map(str::to_string),
             install_root: Some("/games".into()),
+            source: crate::db::SOURCE_LUDEX.into(),
+            launch_uri: None,
         }
     }
 

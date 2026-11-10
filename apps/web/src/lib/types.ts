@@ -411,6 +411,16 @@ export interface LocalSettings {
   checkUpdatesOnStartup: boolean;
   /** Last update check, RFC 3339. */
   lastUpdateCheckAt: string | null;
+  /** Publish the running game as Discord Rich Presence (#12). Off by default. */
+  discordPresence: boolean;
+  /** Discord application id used for Rich Presence (not a bot token). */
+  discordClientId: string;
+  /** Argument sets tried in order by the silent installer (#7). Empty = presets. */
+  installerSilentArgs: string[][];
+  /** Seconds one silent install attempt may run before it is killed. */
+  installerTimeoutSecs: number;
+  /** Steam root overriding auto-discovery (#13). Empty = detect. */
+  steamRoot: string;
 }
 
 export interface InstalledGame {
@@ -425,6 +435,88 @@ export interface InstalledGame {
   lastLaunchedAt: string | null;
   /** Fingerprint of the archive this install came from, when known. */
   archiveHash?: string | null;
+  /** `steam` entries were imported from a Steam library and launch through Steam. */
+  source?: "ludex" | "steam";
+  /** External launch URI for imported entries (`steam://rungameid/…`). */
+  launchUri?: string | null;
+}
+
+/* --------------------------- desktop extras ------------------------------ */
+
+export interface InstallerPlan {
+  executable: string | null;
+  /** Installer-looking executables found in the install folder. */
+  detected: string[];
+  attempts: string[][];
+  timeoutSecs: number;
+  interactive: boolean;
+  platform: string;
+}
+
+export interface InstallerAttempt {
+  args: string[];
+  exitCode: number | null;
+  timedOut: boolean;
+  cancelled: boolean;
+  error: string | null;
+  durationMs: number;
+}
+
+export interface InstallerReport {
+  gameId: number;
+  executable: string;
+  success: boolean;
+  cancelled: boolean;
+  timedOut: boolean;
+  interactive: boolean;
+  exitCode: number | null;
+  attempts: InstallerAttempt[];
+  recordedExecutable: string | null;
+  candidates: string[];
+  message: string;
+}
+
+export interface PresenceStatus {
+  enabled: boolean;
+  configured: boolean;
+  connected: boolean;
+  lastError: string | null;
+  details: string | null;
+  retryInSeconds: number;
+}
+
+export interface SteamGame {
+  appId: number;
+  name: string;
+  installDir: string;
+  libraryPath: string;
+  sizeBytes: number;
+  lastPlayed: number | null;
+  /** Server game matched by title, when unambiguous. */
+  matchedGameId: number | null;
+  matchedTitle: string | null;
+  imported: boolean;
+  /** Local id used when nothing matched (negative app id). */
+  localGameId: number;
+}
+
+export interface SteamPreview {
+  roots: string[];
+  games: SteamGame[];
+  warnings: string[];
+  /** False when the server could not be listed, so nothing is pre-matched. */
+  matched: boolean;
+}
+
+export interface SteamSkip {
+  appId: number;
+  title: string;
+  reason: string;
+}
+
+export interface SteamImportReport {
+  imported: InstalledGame[];
+  skipped: SteamSkip[];
 }
 
 /**

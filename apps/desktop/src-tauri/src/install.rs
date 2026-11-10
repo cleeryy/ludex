@@ -1141,6 +1141,8 @@ async fn execute(
         last_launched_at: previous_last_launch,
         archive_hash,
         install_root: Some(install_root.to_string_lossy().to_string()),
+        source: db::SOURCE_LUDEX.to_string(),
+        launch_uri: None,
     };
 
     {

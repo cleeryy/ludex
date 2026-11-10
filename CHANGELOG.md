@@ -8,6 +8,28 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Desktop silent installers (#7): `installer_plan`, `run_installer`,
+  `cancel_installer`, `set_executable` and `choose_executable`. Silent switch
+  presets (`/S`, `/silent`, `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`,
+  `--silent`) are tried in order with per-attempt timeouts, exit-code handling
+  (`0` and `3010` count as installed), cancellation and an interactive fallback;
+  the game executable is recorded afterwards. Configurable with
+  `installerSilentArgs` and `installerTimeoutSecs`. Windows-only execution,
+  cross-platform tests.
+- Desktop Discord Rich Presence (#12): optional `discordPresence` setting and
+  `discordClientId` application id, game title/cover/elapsed time, idle state,
+  reconnect with backoff, `presence_status` and clean no-op without Discord.
+- Desktop Steam library import (#13): VDF/ACF parsing of
+  `libraryfolders.vdf` and `appmanifest_*.acf`, platform path discovery,
+  conservative title matching, `steam_scan`/`steam_import`, entries launched via
+  `steam://rungameid/<appid>`, `source`/`launchUri` columns (schema v5) and a
+  Settings → Integrations preview with checkboxes.
+- Playnite library plugin (#14) under `integrations/playnite/`: read-only
+  `GET /api/games` sync, one Playnite entry per game, Play action to a Ludex URL,
+  file-based configuration and manual `dotnet` build instructions.
+- `docs/INTEGRATIONS.md` gains a "Desktop integrations" section; the desktop
+  README documents the new settings, commands and events.
+
 - Multiple library roots (#45): ordered `library_roots` table with label,
   path, enabled flag and availability, `LUDEX_LIBRARY_ROOTS` configuration,
   admin CRUD at `/api/library/roots` and per-root scans at
