@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-10
+
 ### Added
 
 - Share links (#9): editor-created, expiring, revocable and optionally
