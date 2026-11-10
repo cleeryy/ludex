@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
-use crate::db::{self, InstalledGame};
+use crate::db::{self, GamePlaytime, InstalledGame};
 use crate::install::{self, InstallJob, InstallParams};
 use crate::launch::{self, LaunchResult};
 use crate::maintenance::{self, RepairReport};
@@ -17,6 +17,8 @@ use crate::paths;
 use crate::server::{self, ServerInfo, ServerStatus};
 use crate::settings::{self, LocalSettings};
 use crate::state::AppState;
+use crate::updater::{self, UpdateStatus};
+use crate::updates::{self, GameUpdate};
 use crate::util::merge_json;
 
 #[derive(Debug, Clone, Serialize)]
@@ -125,6 +127,7 @@ pub fn install_game(
             install_dir,
             download_dir,
             stream,
+            replace_path: None,
         },
     )
 }
@@ -273,6 +276,72 @@ pub fn open_path(app: AppHandle, path: String) -> Result<(), String> {
     app.opener()
         .open_path(target.to_string_lossy().to_string(), None::<&str>)
         .map_err(|e| format!("Could not open {path}: {e}"))
+}
+
+/// Recently launched installed games, newest first (Home + tray).
+#[tauri::command]
+pub fn list_recent_games(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<Vec<InstalledGame>, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    db::recent_installed(&connection, limit.unwrap_or(8).clamp(1, 50))
+}
+
+/// Aggregated playtime for one game: totals, per-day buckets and sessions.
+#[tauri::command]
+pub fn get_game_playtime(
+    state: State<'_, AppState>,
+    game_id: i64,
+    days: Option<i64>,
+    sessions: Option<i64>,
+) -> Result<GamePlaytime, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    db::game_playtime(
+        &connection,
+        game_id,
+        days.unwrap_or(30),
+        sessions.unwrap_or(10),
+    )
+}
+
+/// Installed games with a newer version on the server (#30).
+#[tauri::command]
+pub async fn check_game_updates(app: AppHandle) -> Result<Vec<GameUpdate>, String> {
+    updates::check(&app).await
+}
+
+/// Install the newest version of a game, replacing the current install.
+#[tauri::command]
+pub async fn update_game(app: AppHandle, game_id: i64) -> Result<InstallJob, String> {
+    updates::update_game(&app, game_id).await
+}
+
+/// Check for an application update (#16).
+#[tauri::command]
+pub async fn check_for_updates(
+    app: AppHandle,
+    manual: Option<bool>,
+) -> Result<UpdateStatus, String> {
+    updater::check_now(app, manual.unwrap_or(true)).await
+}
+
+/// Download and install the available application update.
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> Result<UpdateStatus, String> {
+    updater::install(app).await
+}
+
+/// Restart Ludex (after an update installed on Linux/macOS).
+#[tauri::command]
+pub fn restart_app(app: AppHandle) {
+    updater::restart(&app);
 }
 
 #[tauri::command]

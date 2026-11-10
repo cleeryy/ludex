@@ -11,6 +11,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::db;
 use crate::paths;
+use crate::process_tree::{ProcessSampler, TreeTracker};
 use crate::state::{AppState, ProcessEntry};
 use crate::util::{non_empty, now_rfc3339};
 
@@ -26,6 +27,7 @@ struct GameExited {
     session_id: String,
     game_id: i64,
     minutes_played: i64,
+    seconds_played: i64,
 }
 
 static SYNCING: AtomicBool = AtomicBool::new(false);
@@ -84,6 +86,7 @@ pub async fn launch(
     let child = command
         .spawn()
         .map_err(|e| format!("Could not launch {}: {e}", executable_path.display()))?;
+    let pid = child.id();
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let started_at = chrono::Utc::now();
@@ -91,6 +94,7 @@ pub async fn launch(
 
     let entry = Arc::new(ProcessEntry {
         child: std::sync::Mutex::new(child),
+        pid,
         game_id,
         started_at,
         started: std::time::Instant::now(),
@@ -121,6 +125,8 @@ pub async fn launch(
     }
 
     spawn_watcher(app.clone(), entry, session_id.clone(), game_id);
+    // The tray lists recent games by last launch.
+    crate::tray::refresh_menu(app);
 
     // Opportunistically flush sessions that failed to sync earlier.
     let sync_app = app.clone();
@@ -282,41 +288,54 @@ fn platform_command(executable: &Path) -> Result<Command, String> {
 
 fn spawn_watcher(app: AppHandle, entry: Arc<ProcessEntry>, session_id: String, game_id: i64) {
     std::thread::spawn(move || {
-        let exit_status = loop {
-            {
-                let mut child = match entry.child.lock() {
-                    Ok(child) => child,
-                    Err(_) => break None,
-                };
-                match child.try_wait() {
-                    Ok(Some(status)) => break Some(status),
-                    Ok(None) => {}
-                    Err(error) => {
-                        tracing::warn!(error = %error, "could not wait for the game process");
-                        break None;
+        // Process-tree tracking (#26): the session stays open while any
+        // descendant of the launched game is alive, not just the root PID.
+        let mut sampler = ProcessSampler::new();
+        let mut tracker = TreeTracker::new(entry.pid);
+        let mut exit_description: Option<String> = None;
+
+        loop {
+            // Reap the root child as soon as it exits so it does not linger as
+            // a zombie in the process snapshot (which would look "alive").
+            if exit_description.is_none() {
+                if let Ok(mut child) = entry.child.lock() {
+                    match child.try_wait() {
+                        Ok(Some(status)) => exit_description = Some(status.to_string()),
+                        Ok(None) => {}
+                        Err(error) => {
+                            tracing::warn!(error = %error, "could not wait for the game process");
+                            exit_description = Some(format!("error: {error}"));
+                        }
                     }
                 }
             }
-            std::thread::sleep(Duration::from_millis(400));
-        };
+
+            let snapshot = sampler.snapshot();
+            let status = tracker.step(&snapshot);
+            if status.finished {
+                break;
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        }
 
         let elapsed_seconds = entry.started.elapsed().as_secs();
+        let seconds = i64::try_from(elapsed_seconds).unwrap_or(i64::MAX);
         let minutes = ((elapsed_seconds + 30) / 60) as i64;
         let ended_at = now_rfc3339();
 
-        if let Some(status) = exit_status {
-            tracing::info!(
-                game_id,
-                started_at = %entry.started_at,
-                status = %status,
-                minutes,
-                "game exited"
-            );
-        }
+        tracing::info!(
+            game_id,
+            started_at = %entry.started_at,
+            status = ?exit_description,
+            seconds,
+            "game process tree exited"
+        );
 
         let state = app.state::<AppState>();
         if let Ok(connection) = state.db.lock() {
-            if let Err(error) = db::finish_session(&connection, &session_id, &ended_at, minutes) {
+            if let Err(error) =
+                db::finish_session(&connection, &session_id, &ended_at, minutes, seconds)
+            {
                 tracing::warn!(error = %error, "could not record the play session");
             }
         }
@@ -330,6 +349,7 @@ fn spawn_watcher(app: AppHandle, entry: Arc<ProcessEntry>, session_id: String, g
                 session_id: session_id.clone(),
                 game_id,
                 minutes_played: minutes,
+                seconds_played: seconds,
             },
         );
 
@@ -355,18 +375,26 @@ pub fn stop(app: &AppHandle, session_id: &str) -> Result<(), String> {
     };
     let entry = entry.ok_or_else(|| format!("No running game for session {session_id}."))?;
 
+    // Kill the whole tree: launchers spawn the real game as a child, and
+    // killing only the root would leave it running in the background.
+    let mut sampler = ProcessSampler::new();
+    let killed = sampler.kill_tree(entry.pid);
+
     let mut child = entry
         .child
         .lock()
         .map_err(|_| "The game process is unavailable; restart Ludex.".to_string())?;
-
     match child.try_wait() {
         Ok(Some(_)) => Ok(()),
         Ok(None) => child
             .kill()
+            .map(|_| ())
             .map_err(|e| format!("Could not stop the game: {e}")),
         Err(error) => Err(format!("Could not inspect the game process: {error}")),
-    }
+    }?;
+
+    tracing::info!(session_id, killed, "stopped the game process tree");
+    Ok(())
 }
 
 pub async fn sync_session(

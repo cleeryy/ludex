@@ -18,9 +18,11 @@ use crate::settings::{self, LocalSettings};
 /// archives. Additional requests wait in the queued phase.
 const MAX_CONCURRENT_INSTALLS: usize = 1;
 
-/// A launched game process, watched until it exits.
+/// A launched game process, watched until its whole process tree exits.
 pub struct ProcessEntry {
     pub child: Mutex<std::process::Child>,
+    /// Root PID of the launched game (the direct child of Ludex).
+    pub pid: u32,
     pub game_id: i64,
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub started: std::time::Instant,

@@ -23,9 +23,48 @@ pub struct InstalledGame {
     pub size_bytes: i64,
     pub installed_at: String,
     pub last_launched_at: Option<String>,
+    /// Fingerprint of the archive this install came from (`sha256-sample:…`),
+    /// `null` for stream installs and installs made before fingerprinting.
+    #[serde(default)]
+    pub archive_hash: Option<String>,
     /// Absolute install root used for this game (not exposed to the web UI).
     #[serde(skip)]
     pub install_root: Option<String>,
+}
+
+/// One recorded play session, as shown in the game page and the tray.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRecord {
+    pub id: String,
+    pub game_id: i64,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub minutes: i64,
+    pub seconds: i64,
+}
+
+/// Aggregated playtime for one game.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GamePlaytime {
+    pub game_id: i64,
+    pub total_seconds: i64,
+    pub sessions: i64,
+    pub first_played_at: Option<String>,
+    pub last_played_at: Option<String>,
+    /// Total per UTC day (`YYYY-MM-DD`), newest first, capped at 30 days.
+    pub by_day: Vec<DayPlaytime>,
+    /// Most recent sessions, newest first.
+    pub recent_sessions: Vec<SessionRecord>,
+}
+
+/// Playtime for one UTC day.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DayPlaytime {
+    pub day: String,
+    pub seconds: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -35,7 +74,7 @@ pub struct PendingSession {
     pub minutes: i64,
 }
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -104,6 +143,13 @@ CREATE TABLE IF NOT EXISTS install_manifests (
 );
 "#;
 
+/// Playtime tracking (#26) and install fingerprints (#30).
+const SCHEMA_V4: &str = r#"
+ALTER TABLE installed_games ADD COLUMN archive_hash TEXT;
+ALTER TABLE sessions ADD COLUMN seconds INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS sessions_started_idx ON sessions (game_id, started_at DESC);
+"#;
+
 pub fn open(path: &Path) -> Result<Connection, String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
@@ -152,6 +198,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             .execute_batch(SCHEMA_V3)
             .map_err(|e| format!("Could not create the install manifest table: {e}"))?;
     }
+    if version < 4 {
+        connection
+            .execute_batch(SCHEMA_V4)
+            .map_err(|e| format!("Could not upgrade the desktop database for playtime: {e}"))?;
+    }
 
     if version < SCHEMA_VERSION {
         connection
@@ -169,8 +220,8 @@ pub fn upsert_installed(connection: &Connection, game: &InstalledGame) -> Result
             r#"
             INSERT INTO installed_games
                 (game_id, version_id, title, version, install_path, executable,
-                 size_bytes, installed_at, last_launched_at, install_root)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 size_bytes, installed_at, last_launched_at, archive_hash, install_root)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             ON CONFLICT(game_id) DO UPDATE SET
                 version_id       = excluded.version_id,
                 title            = excluded.title,
@@ -180,6 +231,7 @@ pub fn upsert_installed(connection: &Connection, game: &InstalledGame) -> Result
                 size_bytes       = excluded.size_bytes,
                 installed_at     = excluded.installed_at,
                 last_launched_at = excluded.last_launched_at,
+                archive_hash     = excluded.archive_hash,
                 install_root     = excluded.install_root
             "#,
             params![
@@ -192,6 +244,7 @@ pub fn upsert_installed(connection: &Connection, game: &InstalledGame) -> Result
                 game.size_bytes,
                 game.installed_at,
                 game.last_launched_at,
+                game.archive_hash,
                 game.install_root,
             ],
         )
@@ -210,7 +263,8 @@ fn map_installed(row: &rusqlite::Row<'_>) -> rusqlite::Result<InstalledGame> {
         size_bytes: row.get(6)?,
         installed_at: row.get(7)?,
         last_launched_at: row.get(8)?,
-        install_root: row.get(9)?,
+        archive_hash: row.get(9)?,
+        install_root: row.get(10)?,
     })
 }
 
@@ -219,7 +273,7 @@ pub fn list_installed(connection: &Connection) -> Result<Vec<InstalledGame>, Str
         .prepare(
             r#"
             SELECT game_id, version_id, title, version, install_path, executable,
-                   size_bytes, installed_at, last_launched_at, install_root
+                   size_bytes, installed_at, last_launched_at, archive_hash, install_root
             FROM installed_games
             ORDER BY title COLLATE NOCASE ASC
             "#,
@@ -245,7 +299,7 @@ pub fn get_installed(
         .query_row(
             r#"
             SELECT game_id, version_id, title, version, install_path, executable,
-                   size_bytes, installed_at, last_launched_at, install_root
+                   size_bytes, installed_at, last_launched_at, archive_hash, install_root
             FROM installed_games
             WHERE game_id = ?1
             "#,
@@ -300,14 +354,134 @@ pub fn finish_session(
     id: &str,
     ended_at: &str,
     minutes: i64,
+    seconds: i64,
 ) -> Result<(), String> {
     connection
         .execute(
-            "UPDATE sessions SET ended_at = ?2, minutes = ?3 WHERE id = ?1",
-            params![id, ended_at, minutes.max(0)],
+            "UPDATE sessions SET ended_at = ?2, minutes = ?3, seconds = ?4 WHERE id = ?1",
+            params![id, ended_at, minutes.max(0), seconds.max(0)],
         )
         .map_err(|e| format!("Could not record the play session: {e}"))?;
     Ok(())
+}
+
+/// Installed games ordered by the last launch, for the tray menu and Home.
+pub fn recent_installed(
+    connection: &Connection,
+    limit: usize,
+) -> Result<Vec<InstalledGame>, String> {
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT game_id, version_id, title, version, install_path, executable,
+                   size_bytes, installed_at, last_launched_at, archive_hash, install_root
+            FROM installed_games
+            WHERE last_launched_at IS NOT NULL
+            ORDER BY last_launched_at DESC, title COLLATE NOCASE ASC
+            LIMIT ?1
+            "#,
+        )
+        .map_err(|e| format!("Could not read recent games: {e}"))?;
+
+    let rows = statement
+        .query_map(params![limit as i64], map_installed)
+        .map_err(|e| format!("Could not read recent games: {e}"))?;
+
+    let mut games = Vec::new();
+    for row in rows {
+        games.push(row.map_err(|e| format!("Could not read recent games: {e}"))?);
+    }
+    Ok(games)
+}
+
+/// Aggregated playtime for one game: totals, per-day buckets and the last
+/// sessions. `days` caps the per-day buckets (1..=365) and `sessions` caps the
+/// recent session list.
+pub fn game_playtime(
+    connection: &Connection,
+    game_id: i64,
+    days: i64,
+    sessions: i64,
+) -> Result<GamePlaytime, String> {
+    let (total_seconds, session_count, first_played_at, last_played_at) = connection
+        .query_row(
+            "SELECT COALESCE(SUM(seconds), 0), COUNT(*), MIN(started_at), MAX(started_at)
+             FROM sessions WHERE game_id = ?1",
+            params![game_id],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
+        .map_err(|e| format!("Could not read playtime: {e}"))?;
+
+    let mut statement = connection
+        .prepare(
+            "SELECT substr(started_at, 1, 10) AS day, COALESCE(SUM(seconds), 0) AS seconds
+             FROM sessions
+             WHERE game_id = ?1 AND started_at >= date('now', ?2)
+             GROUP BY day ORDER BY day DESC",
+        )
+        .map_err(|e| format!("Could not read daily playtime: {e}"))?;
+    let window = format!("-{} days", days.clamp(1, 365));
+    let rows = statement
+        .query_map(params![game_id, window], |row| {
+            Ok(DayPlaytime {
+                day: row.get(0)?,
+                seconds: row.get(1)?,
+            })
+        })
+        .map_err(|e| format!("Could not read daily playtime: {e}"))?;
+    let mut by_day = Vec::new();
+    for row in rows {
+        by_day.push(row.map_err(|e| format!("Could not read daily playtime: {e}"))?);
+    }
+
+    Ok(GamePlaytime {
+        game_id,
+        total_seconds,
+        sessions: session_count,
+        first_played_at,
+        last_played_at,
+        by_day,
+        recent_sessions: recent_sessions(connection, game_id, sessions)?,
+    })
+}
+
+/// Last `limit` sessions for a game, newest first.
+pub fn recent_sessions(
+    connection: &Connection,
+    game_id: i64,
+    limit: i64,
+) -> Result<Vec<SessionRecord>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, game_id, started_at, ended_at, minutes, seconds
+             FROM sessions WHERE game_id = ?1
+             ORDER BY started_at DESC, id DESC LIMIT ?2",
+        )
+        .map_err(|e| format!("Could not read play sessions: {e}"))?;
+    let rows = statement
+        .query_map(params![game_id, limit.clamp(1, 200)], |row| {
+            Ok(SessionRecord {
+                id: row.get(0)?,
+                game_id: row.get(1)?,
+                started_at: row.get(2)?,
+                ended_at: row.get(3)?,
+                minutes: row.get(4)?,
+                seconds: row.get(5)?,
+            })
+        })
+        .map_err(|e| format!("Could not read play sessions: {e}"))?;
+    let mut records = Vec::new();
+    for row in rows {
+        records.push(row.map_err(|e| format!("Could not read play sessions: {e}"))?);
+    }
+    Ok(records)
 }
 
 pub fn pending_sessions(connection: &Connection) -> Result<Vec<PendingSession>, String> {
@@ -609,6 +783,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V1).unwrap();
         connection.execute_batch(SCHEMA_V2).unwrap();
         connection.execute_batch(SCHEMA_V3).unwrap();
+        connection.execute_batch(SCHEMA_V4).unwrap();
         connection
     }
 
@@ -625,11 +800,13 @@ mod tests {
             size_bytes: 42,
             installed_at: "2026-01-01T00:00:00Z".into(),
             last_launched_at: None,
+            archive_hash: Some("sha256-sample:abc".into()),
             install_root: Some("/tmp".into()),
         };
         upsert_installed(&connection, &game).unwrap();
         let loaded = get_installed(&connection, 7).unwrap().unwrap();
         assert_eq!(loaded.title, "Test");
+        assert_eq!(loaded.archive_hash.as_deref(), Some("sha256-sample:abc"));
         assert_eq!(list_installed(&connection).unwrap().len(), 1);
         assert!(remove_installed(&connection, 7).unwrap());
         assert!(get_installed(&connection, 7).unwrap().is_none());
@@ -767,11 +944,81 @@ mod tests {
     }
 
     #[test]
+    fn playtime_aggregates_totals_days_and_sessions() {
+        let connection = memory_database();
+        let today = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let yesterday = (chrono::Utc::now() - chrono::Duration::days(1))
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+        for (id, started, seconds) in [
+            ("s1", yesterday.as_str(), 1800),
+            ("s2", today.as_str(), 2700),
+            ("s3", today.as_str(), 600),
+        ] {
+            insert_session(&connection, id, 5, started).unwrap();
+            finish_session(&connection, id, started, seconds / 60, seconds).unwrap();
+        }
+
+        let playtime = game_playtime(&connection, 5, 30, 10).unwrap();
+        assert_eq!(playtime.total_seconds, 5100);
+        assert_eq!(playtime.sessions, 3);
+        assert_eq!(playtime.by_day.len(), 2, "{:?}", playtime.by_day);
+        assert_eq!(playtime.by_day[0].seconds, 3300);
+        assert_eq!(playtime.by_day[1].seconds, 1800);
+        assert_eq!(playtime.recent_sessions.len(), 3);
+        assert!(playtime
+            .recent_sessions
+            .iter()
+            .any(|session| session.id == "s1" && session.seconds == 1800));
+
+        let limited = recent_sessions(&connection, 5, 1).unwrap();
+        assert_eq!(limited.len(), 1);
+        assert!(game_playtime(&connection, 6, 30, 10).unwrap().sessions == 0);
+    }
+
+    #[test]
+    fn recent_games_follow_the_last_launch() {
+        let connection = memory_database();
+        let mut first = InstalledGame {
+            game_id: 1,
+            version_id: 1,
+            title: "Alpha".into(),
+            version: None,
+            install_path: "/games/alpha".into(),
+            executable: None,
+            size_bytes: 1,
+            installed_at: "2026-01-01T00:00:00Z".into(),
+            last_launched_at: Some("2026-01-01T00:00:00Z".into()),
+            archive_hash: None,
+            install_root: Some("/games".into()),
+        };
+        upsert_installed(&connection, &first).unwrap();
+        first.game_id = 2;
+        first.title = "Beta".into();
+        first.last_launched_at = Some("2026-01-02T00:00:00Z".into());
+        upsert_installed(&connection, &first).unwrap();
+        first.game_id = 3;
+        first.title = "Never played".into();
+        first.last_launched_at = None;
+        upsert_installed(&connection, &first).unwrap();
+
+        let recent = recent_installed(&connection, 10).unwrap();
+        assert_eq!(
+            recent
+                .iter()
+                .map(|game| game.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Beta", "Alpha"]
+        );
+        assert_eq!(recent_installed(&connection, 1).unwrap().len(), 1);
+    }
+
+    #[test]
     fn sessions_are_pending_until_synced() {
         let connection = memory_database();
         insert_session(&connection, "s1", 1, "2026-01-01T00:00:00Z").unwrap();
         assert!(pending_sessions(&connection).unwrap().is_empty());
-        finish_session(&connection, "s1", "2026-01-01T00:30:00Z", 30).unwrap();
+        finish_session(&connection, "s1", "2026-01-01T00:30:00Z", 30, 1800).unwrap();
         let pending = pending_sessions(&connection).unwrap();
         assert_eq!(pending.len(), 1);
         mark_session_synced(&connection, "s1").unwrap();

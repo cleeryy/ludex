@@ -14,6 +14,27 @@ pub enum Mode {
     Remote,
 }
 
+/// Desktop update channel.
+///
+/// `stable` follows the latest GitHub release; `early` follows the moving
+/// `edge` prerelease, which is published from `main` between releases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateChannel {
+    #[default]
+    Stable,
+    Early,
+}
+
+impl UpdateChannel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            UpdateChannel::Stable => "stable",
+            UpdateChannel::Early => "early",
+        }
+    }
+}
+
 /// Mirrors `LocalSettings` from `docs/CONTRACT.md`.
 ///
 /// `keepArchives` and `archivePasswords` are desktop-only extras: the web UI
@@ -42,6 +63,15 @@ pub struct LocalSettings {
     pub archive_passwords: Vec<String>,
     /// Global download bandwidth cap in KiB/s. 0 = unlimited.
     pub bandwidth_limit_kib: u64,
+    /// Closing the window hides Ludex to the tray instead of quitting.
+    pub close_to_tray: bool,
+    /// Release channel followed by the updater.
+    pub update_channel: UpdateChannel,
+    /// Check for app updates shortly after startup (at most once per 24 h).
+    pub check_updates_on_startup: bool,
+    /// Last successful or attempted update check, RFC 3339. Used for the
+    /// once-per-24 h throttle; cleared by a manual check.
+    pub last_update_check_at: Option<String>,
 }
 
 impl Default for LocalSettings {
@@ -58,6 +88,10 @@ impl Default for LocalSettings {
             keep_archives: false,
             archive_passwords: Vec::new(),
             bandwidth_limit_kib: 0,
+            close_to_tray: true,
+            update_channel: UpdateChannel::Stable,
+            check_updates_on_startup: true,
+            last_update_check_at: None,
         }
     }
 }
@@ -271,6 +305,20 @@ mod tests {
         assert_eq!(json["downloadDir"], "");
         assert_eq!(json["keepArchives"], false);
         assert_eq!(json["bandwidthLimitKib"], 0);
+        assert_eq!(json["closeToTray"], true);
+        assert_eq!(json["updateChannel"], "stable");
+        assert_eq!(json["checkUpdatesOnStartup"], true);
+        assert_eq!(json["lastUpdateCheckAt"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn update_channel_roundtrips() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.update_channel = UpdateChannel::Early;
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["updateChannel"], "early");
+        let back: LocalSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(back.update_channel, UpdateChannel::Early);
     }
 
     #[test]

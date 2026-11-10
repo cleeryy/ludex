@@ -134,6 +134,9 @@ pub struct InstallParams {
     pub install_dir: Option<String>,
     pub download_dir: Option<String>,
     pub stream: Option<bool>,
+    /// Previous install folder to delete once an update is verified. The
+    /// previous files stay untouched until the new install is in place.
+    pub replace_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -369,6 +372,8 @@ fn emit_jobs(app: &AppHandle) {
         }
         Err(error) => tracing::warn!(error = %error, "could not emit install job list"),
     }
+    // The tray tooltip reports active downloads; keep it in sync.
+    crate::tray::refresh_tooltip(app);
 }
 
 pub fn cancel(app: &AppHandle, job_id: &str) -> Result<(), String> {
@@ -662,6 +667,7 @@ async fn run_job(app: AppHandle, job_id: String) {
             let _ = app.emit("install://progress", &job);
             let _ = app.emit("install://done", &job);
             emit_jobs(&app);
+            crate::tray::refresh_menu(&app);
             tracing::info!(job_id = %job_id, game_id = job.game_id, path = ?job.install_path, "install complete");
         }
         Err(Failure::Cancelled) => {
@@ -867,6 +873,27 @@ async fn execute(
     }
 
     check_cancel(&entry.cancel)?;
+
+    // Fingerprint the archive before it is deleted: it is how update detection
+    // knows whether the installed files came from this exact archive.
+    let archive_hash = match archive.as_deref() {
+        Some(path) => {
+            let path = path.to_path_buf();
+            match tokio::task::spawn_blocking(move || ludex_core::archive_fingerprint(&path)).await
+            {
+                Ok(Ok(value)) => Some(value),
+                Ok(Err(error)) => {
+                    tracing::debug!(error = %error, "could not fingerprint the archive");
+                    None
+                }
+                Err(error) => {
+                    tracing::debug!(error = %error, "archive fingerprint task failed");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
 
     let relative_executable: Option<PathBuf> = if streamed {
         let snapshot = entry.snapshot();
@@ -1112,6 +1139,7 @@ async fn execute(
         size_bytes: size_bytes as i64,
         installed_at: now_rfc3339(),
         last_launched_at: previous_last_launch,
+        archive_hash,
         install_root: Some(install_root.to_string_lossy().to_string()),
     };
 
@@ -1123,6 +1151,30 @@ async fn execute(
     }
 
     entry.set_part_path(None);
+
+    // Update installs: the previous folder is only removed once the new one is
+    // indexed, so a failed update never destroys a playable install. Saves live
+    // outside the install folder and are never touched.
+    if let Some(previous) = params
+        .replace_path
+        .as_deref()
+        .map(PathBuf::from)
+        .filter(|previous| previous != &final_path)
+    {
+        let base = install_root.clone();
+        let previous_for_log = previous.clone();
+        let removed =
+            tokio::task::spawn_blocking(move || paths::remove_installed_dir(&base, &previous))
+                .await
+                .unwrap_or_else(|error| Err(format!("cleanup task failed: {error}")));
+        match removed {
+            Ok(()) => {
+                tracing::info!(path = %previous_for_log.display(), "removed the previous install after the update")
+            }
+            Err(error) => tracing::warn!(error = %error, "could not remove the previous install"),
+        }
+    }
+
     Ok(final_path)
 }
 
