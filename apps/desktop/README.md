@@ -91,6 +91,11 @@ mode 0600 on Unix because it holds the JWT). Defaults:
 | `updateChannel` | `stable` (`early` follows the `edge` prerelease) |
 | `checkUpdatesOnStartup` | `true` (at most once per 24 h) |
 | `lastUpdateCheckAt` | `null` until the first check |
+| `discordPresence` | `false` (Discord Rich Presence, #12) |
+| `discordClientId` | empty (Discord application id, not a bot token) |
+| `installerSilentArgs` | `[]` → built-in silent switch presets (#7) |
+| `installerTimeoutSecs` | `600` (clamped to 30–7200) |
+| `steamRoot` | empty → Steam auto-detection (#13) |
 
 `save_settings` deep-merges partial payloads, so a wizard can save one field at
 a time. An empty `downloadDir` is meaningful: the effective directory is
@@ -185,8 +190,8 @@ extractor is not interruptible mid-entry; staging is removed afterwards).
 ### Tray icon (#15)
 
 A tray icon is created at startup with Show/Hide, Downloads, a Recent games
-submenu (the five most recently launched installs, from
-`installed_games.last_launched_at`), Check for updates and Quit. Left click
+submenu (the five most recent installs by launch, else import/install date),
+Check for updates and Quit. Left click
 toggles the window, the tooltip reports running/paused downloads, and the menu
 is rebuilt after a launch or a finished install. `closeToTray` (default true)
 makes the window close button hide to the tray; quit explicitly from the menu.
@@ -236,6 +241,73 @@ two samples is lost (launchers that exit in under a second), and PID reuse can
 extend a session in pathological cases. On macOS `open` is tracked, so the game
 itself is not a descendant; sessions may end when `open` exits.
 
+## Desktop integrations
+
+### Silent installers (#7)
+
+Some releases ship a `setup.exe` instead of the game. After installing, the game
+page's **Installer** panel lists installer-looking programs in the folder and can
+run one:
+
+- `installer_plan` previews the argument sets, the timeout and the platform; it
+  never executes anything.
+- `run_installer` tries `installerSilentArgs` in order, then the built-in presets
+  `/S`, `/silent`, `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART` and `--silent`.
+  Exit code `0` or `3010` (reboot required) is success; another code, a timeout
+  or a cancel moves to the next set.
+- One attempt is killed after `installerTimeoutSecs`; `cancel_installer` kills
+  the current one and stops the plan.
+- After success the app records the game binary (never the installer) and emits
+  `installer://done`. `choose_executable` / `set_executable` fix the choice.
+- Silent runs are Windows-only. The command builder, attempt selection,
+  exit-code policy, timeout and cancellation are unit tested with an injected
+  runner, so the logic is covered on Linux; `run_installer` refuses to execute
+  there.
+- Installers that need elevation fail to start; run them interactively.
+  `Executable` overrides always have to resolve inside the install folder.
+
+### Discord Rich Presence (#12)
+
+`discordPresence` (default off) plus `discordClientId`, a Discord *application*
+id created at <https://discord.com/developers/applications>. No bot token and no
+network traffic to Discord's API: the app talks to the local IPC socket.
+
+- The activity shows the game title, a public cover URL and the session start;
+  idle otherwise.
+- Covers are filtered: `https` only, loopback and private ranges dropped.
+- Missing Discord is not an error: reconnects back off 4 s → 120 s and
+  `presence_status` reports the reason. Disabling clears the activity.
+- `presence.rs` keeps the payload builder and the reconnect state machine free
+  of IPC so they are unit tested with a mock sink.
+
+### Steam library import (#13)
+
+`steam_scan` reads `steamapps/libraryfolders.vdf` and `appmanifest_*.acf` from
+the default Steam roots (Linux, macOS, Windows incl. the `SteamPath` registry
+value), then every library they reference. A game is listed when Steam reports it
+fully installed (`StateFlags & 4`) and its `steamapps/common/<installdir>`
+folder exists.
+
+- Titles are matched against the server library using a normalised form, then
+  once more with edition suffixes stripped; ambiguous titles are skipped.
+- `steam_import` writes `source: "steam"` rows with
+  `launchUri: steam://rungameid/<appid>` and `versionId: 0`. Matched games keep
+  their server id so playtime still syncs; unmatched ones use `-appId`.
+- Launching starts the URI handler (`cmd /C start` on Windows, `xdg-open`,
+  `open`). Nothing is downloaded.
+- Uninstall of an import removes only the index row: the Steam folder is never
+  deleted. `steamRoot` overrides discovery (`LUDEX_STEAM_ROOT` also works).
+- Playtime while a `steam://` handler is alive is recorded like any other
+  session; for games Steam launches out of process the session can be short.
+
+### Playnite (#14)
+
+`integrations/playnite/` is a read-only Playnite library plugin (C#, Playnite
+SDK). It calls `GET /api/games`, creates one Playnite entry per game and sets the
+Play action to a Ludex URL (`LaunchUrlTemplate`, default the game page). It is
+built manually with `dotnet`; see the README there. No server endpoint was added
+for it.
+
 ## Move, verify and repair
 
 - `move_install(gameId, targetDir)` keeps the `{slug}/{versionLabel}` layout
@@ -273,6 +345,7 @@ itself is not a descendant; sessions may end when `open` exits.
 | `update://available` | `UpdateStatus` |
 | `update://progress` | `{ downloaded, total, percent }` |
 | `update://installed` | `{ version, restarted }` |
+| `installer://done` | `{ gameId, success, exitCode }` |
 
 ## Launching and playtime
 
@@ -330,3 +403,11 @@ by CI; no code signing is configured.
   report `configured: false` and cannot install updates.
 - The `early` channel requires the moving `edge` prerelease to publish
   `latest.json` (see `docs/RELEASING.md`).
+- Silent installer runs are Windows-only and untested against real installers in
+  CI; the command builder and the exit-code/timeout policy are unit tested.
+- Discord presence needs a Discord application id and a running Discord client;
+  neither is available in CI, so only the payload and state machine are tested.
+- Steam import paths are tested with fixtures, not against a real Steam install;
+  playtime for Steam-launched games is only as good as the handler process tree.
+- The Playnite plugin is not built in CI (no .NET SDK); compile it against your
+  Playnite installation before installing.

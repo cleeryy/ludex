@@ -1,4 +1,4 @@
-# Integrations: API keys, audit log and webhooks
+# Integrations: API keys, audit log, webhooks and desktop clients
 
 Everything below uses the normal JSON API under `/api`. Authenticate either
 with a session JWT (`Authorization: Bearer <jwt>`) or an API key
@@ -187,3 +187,102 @@ Payload shape:
   connection pinned before every attempt to limit DNS-rebinding SSRF.
 - A disabled hook receives no deliveries; its queued deliveries resume when it
   is re-enabled.
+
+## Desktop integrations
+
+Everything in this section runs on the machine that installed the games, inside
+the Ludex desktop app. None of it needs a bot token, a paid service or a server
+change.
+
+### Silent installers (`setup.exe`)
+
+Some DRM-free releases are an archive containing a `setup.exe` instead of the
+game itself. After installing the version, the game page gains an **Installer**
+panel: it lists installer-looking programs in the install folder and can run one
+with silent switches.
+
+- The command is `run_installer`; nothing runs without a click.
+- Attempts are tried in order. Defaults:
+  `/S` (NSIS), `/silent`, `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART` (Inno
+  Setup) and `--silent` (Squirrel/electron-builder).
+- Exit code `0` and `3010` (success, reboot required) count as installed. Any
+  other code, a timeout or a cancellation moves to the next attempt.
+- `installerSilentArgs` (Settings → Desktop) replaces the list: one argument set
+  per line. `installerTimeoutSecs` caps one attempt (default 600 s, min 30).
+- After success Ludex picks the game binary the installer left behind and
+  records it, so **Play** works without another prompt. If nothing sensible is
+  found, use **Choose executable**.
+- When every silent attempt fails the panel offers an interactive run (no
+  arguments, no timeout). Cancelling keeps the files the installer already wrote.
+- Silent runs are Windows-only: `run_installer` refuses to execute anywhere else
+  but `installer_plan` still reports the plan. An installer that needs elevation
+  fails to start; run it interactively instead.
+
+### Discord Rich Presence
+
+Settings → Desktop → **Discord Rich Presence** (off by default), plus a Discord
+*application id* (`discordClientId`). An application id only labels the
+activity; it is not a secret and no bot is involved.
+
+- While a game runs, Discord shows its title, the cover when the URL is public,
+  and the elapsed session time. With nothing running it shows the idle activity.
+- Covers are only sent over `https` and only for public hosts: loopback and
+  private ranges are dropped instead of rendering a broken image.
+- Ludex talks to the local Discord IPC socket. If Discord is closed, the
+  connection is retried with a 4 s → 120 s exponential backoff; `presence_status`
+  reports `connected`, `lastError` and `retryInSeconds`.
+- Disabling the setting clears the activity. On a machine without Discord (most
+  Linux servers) it simply stays disconnected; no socket, no error spam.
+- Discord only accepts the activity when the application id is a real Discord
+  application. Create one at <https://discord.com/developers/applications>
+  (any name works, no bot user needed).
+
+### Steam library import
+
+Settings → **Integrations → Steam library** reads Steam's own metadata, lists the
+installed Steam games and imports the selected ones into Ludex. No files are
+downloaded and Steam keeps ownership, updates and DRM.
+
+- Discovery reads `steamapps/libraryfolders.vdf` in the default roots
+  (`~/.steam/steam`, `~/.local/share/Steam`, Flatpak, `~/Library/Application
+  Support/Steam` on macOS, `%ProgramFiles(x86)%\Steam` and the `SteamPath`
+  registry value on Windows) and every extra library it points at, then
+  `appmanifest_*.acf`.
+- Only manifests with `StateFlags` bit 4 (fully installed) and an existing
+  `steamapps/common/<installdir>` folder are listed.
+- Matching to the Ludex library is by normalised title, then once more after
+  stripping edition suffixes (`GOTY`, `Definitive Edition`, …). An ambiguous
+  title is never guessed.
+- Imported games launch through `steam://rungameid/<appid>`. Matched games keep
+  their server id (so playtime sync and the game page keep working); unmatched
+  ones get a negative local id and an **Import from Steam** entry appears in
+  "On this device".
+- Re-importing is refused, and a game already installed through Ludex is left
+  alone. **Uninstall** on a Steam import only removes the Ludex entry: the Steam
+  folder is never touched.
+- `steamRoot` (Settings → Desktop → Steam folder) overrides auto-detection.
+  `LUDEX_STEAM_ROOT` does the same for automation.
+- Playtime for a Steam game is tracked by Ludex only while the `steam://` handler
+  process tree is alive; Steam's own counter stays authoritative.
+
+### Playnite
+
+`integrations/playnite/` is a read-only Playnite library plugin: `GET
+/api/games`, one Playnite entry per game, Play action = a Ludex URL. It needs an
+API key with the `read` scope and is built manually (no .NET SDK in CI); see
+`integrations/playnite/README.md`.
+
+Configuration lives in `ludex.config.json` next to the plugin DLL:
+
+```json
+{
+  "ServerUrl": "https://ludex.example.com",
+  "ApiKey": "ldx_read_only_key",
+  "LaunchUrlTemplate": "{serverUrl}/game/{gameId}",
+  "IncludeUnavailable": false
+}
+```
+
+Set `LaunchUrlTemplate` to `ludex://play/{gameId}` once a desktop build registers
+the `ludex` scheme; until then the game page is opened in the browser. The plugin
+never writes to the server.
