@@ -12,10 +12,12 @@
 //! ```
 
 use std::fs::{self, File};
-use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
 use sevenz_rust2::{Archive as SevenZipArchive, Password, SevenZArchiveEntry, SevenZReader};
+use sha2::{Digest, Sha256};
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
@@ -85,6 +87,9 @@ pub enum ArchiveError {
     /// An entry path would escape the destination directory or is malformed.
     #[error("unsafe archive entry: {0}")]
     UnsafeEntry(String),
+    /// The requested entry index is not in the archive.
+    #[error("archive entry not found")]
+    EntryNotFound,
 }
 
 impl ArchiveError {
@@ -885,7 +890,7 @@ fn map_zip_error(error: ZipError) -> ArchiveError {
         }
         ZipError::UnsupportedArchive(reason) => ArchiveError::InvalidArchive(reason.to_string()),
         ZipError::InvalidArchive(message) => ArchiveError::InvalidArchive(message.to_string()),
-        ZipError::FileNotFound => ArchiveError::InvalidArchive("entry not found".to_string()),
+        ZipError::FileNotFound => ArchiveError::EntryNotFound,
         other => ArchiveError::InvalidArchive(other.to_string()),
     }
 }
@@ -1281,6 +1286,271 @@ impl Drop for ScratchSpace {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.dir);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Resumable, per-entry stream installs (#115)
+// ---------------------------------------------------------------------------
+
+/// One entry of a [`StreamManifest`].
+///
+/// `index` is the position in the archive's central directory: it is stable
+/// for a given archive and is what the entry endpoint expects. `path` is a
+/// sanitised relative path with `/` separators, so clients can join it to a
+/// staging folder without re-validating it (they should still do it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamEntry {
+    /// Position in the archive central directory.
+    pub index: usize,
+    /// Sanitised relative path, `/` separated.
+    pub path: String,
+    /// Uncompressed size in bytes (`0` for directories).
+    pub size: u64,
+    /// Compressed size in bytes (`0` for directories).
+    pub compressed_size: u64,
+    /// Permission bits: the archive's Unix mode, `0o755` for scripts and
+    /// AppImages, `0o644` otherwise.
+    pub mode: u32,
+    /// CRC-32 of the uncompressed data (`0` for directories).
+    pub crc32: u32,
+    /// Whether this entry is a directory.
+    pub is_dir: bool,
+}
+
+/// Ordered entry list for a resumable stream install.
+///
+/// The manifest is generated from the ZIP central directory, in central
+/// directory order, and contains both files and directories. Clients download
+/// the files they do not have yet and create the directories.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamManifest {
+    /// Container format. `zip` today; 7z/RAR remain sequential tar streams.
+    pub format: String,
+    /// Number of entries, directories included.
+    pub entry_count: usize,
+    /// Sum of the uncompressed file sizes (directories excluded).
+    pub total_bytes: u64,
+    /// Sum of the compressed file sizes (directories excluded).
+    pub total_compressed_bytes: u64,
+    /// Entries in central-directory order.
+    pub entries: Vec<StreamEntry>,
+}
+
+impl StreamManifest {
+    /// Stable fingerprint of the manifest contents.
+    ///
+    /// The desktop uses it to decide whether a persisted checkpoint still
+    /// matches the archive the server would serve now: when the archive was
+    /// replaced under the same version row, entry indexes and sizes may have
+    /// changed and the checkpoint must be discarded.
+    #[must_use]
+    pub fn fingerprint(&self) -> String {
+        let encoded = serde_json::to_vec(self).unwrap_or_default();
+        let digest = Sha256::digest(&encoded);
+        hex::encode(digest)
+    }
+}
+
+/// Builds the ordered [`StreamManifest`] of a ZIP archive.
+///
+/// Reads only the central directory: no entry is decompressed. Encrypted and
+/// symlink entries are rejected, exactly like the tar stream, so a client that
+/// falls back to `/stream` sees the same failure.
+pub fn zip_stream_manifest(path: &Path) -> Result<StreamManifest, ArchiveError> {
+    if detect_format(path)? != ArchiveFormat::Zip {
+        return Err(ArchiveError::UnsupportedFormat);
+    }
+    let file = File::open(path)?;
+    let mut archive = ZipArchive::new(BufReader::new(file)).map_err(map_zip_error)?;
+
+    let mut manifest = StreamManifest {
+        format: ArchiveFormat::Zip.label().to_string(),
+        entry_count: 0,
+        total_bytes: 0,
+        total_compressed_bytes: 0,
+        entries: Vec::with_capacity(archive.len()),
+    };
+
+    for index in 0..archive.len() {
+        let entry = archive.by_index_raw(index).map_err(map_zip_error)?;
+        if entry.encrypted() {
+            return Err(ArchiveError::PasswordRequired);
+        }
+        if entry.is_symlink() {
+            return Err(ArchiveError::UnsafeEntry(format!(
+                "link entry: {}",
+                entry.name()
+            )));
+        }
+
+        let is_dir = entry.is_dir();
+        let relative = match sanitize_entry_path(entry.name()) {
+            Ok(relative) => relative,
+            // Root directory markers such as "./" carry no path; they are not
+            // needed by the client and are skipped rather than rejected.
+            Err(_) if is_dir => continue,
+            Err(error) => return Err(error),
+        };
+        let name = tar_name(&relative);
+        let mode = tar_mode(&name, entry.unix_mode());
+        let size = if is_dir { 0 } else { entry.size() };
+        let compressed_size = if is_dir { 0 } else { entry.compressed_size() };
+        let crc32 = if is_dir { 0 } else { entry.crc32() };
+
+        manifest.total_bytes = manifest.total_bytes.saturating_add(size);
+        manifest.total_compressed_bytes = manifest
+            .total_compressed_bytes
+            .saturating_add(compressed_size);
+        manifest.entries.push(StreamEntry {
+            index,
+            path: name,
+            size,
+            compressed_size,
+            mode,
+            crc32,
+            is_dir,
+        });
+    }
+
+    manifest.entry_count = manifest.entries.len();
+    Ok(manifest)
+}
+
+/// Reads the metadata of one ZIP entry, without decompressing it.
+///
+/// Returns [`ArchiveError::InvalidArchive`] when `index` is out of range.
+pub fn zip_entry_info(path: &Path, index: usize) -> Result<StreamEntry, ArchiveError> {
+    if detect_format(path)? != ArchiveFormat::Zip {
+        return Err(ArchiveError::UnsupportedFormat);
+    }
+    let file = File::open(path)?;
+    let mut archive = ZipArchive::new(BufReader::new(file)).map_err(map_zip_error)?;
+    let entry = archive.by_index_raw(index).map_err(map_zip_error)?;
+    if entry.encrypted() {
+        return Err(ArchiveError::PasswordRequired);
+    }
+    if entry.is_symlink() {
+        return Err(ArchiveError::UnsafeEntry(format!(
+            "link entry: {}",
+            entry.name()
+        )));
+    }
+    let is_dir = entry.is_dir();
+    let relative = sanitize_entry_path(entry.name())?;
+    let name = tar_name(&relative);
+    let mode = tar_mode(&name, entry.unix_mode());
+    Ok(StreamEntry {
+        index,
+        path: name,
+        size: if is_dir { 0 } else { entry.size() },
+        compressed_size: if is_dir { 0 } else { entry.compressed_size() },
+        mode,
+        crc32: if is_dir { 0 } else { entry.crc32() },
+        is_dir,
+    })
+}
+
+/// Writes `length` bytes of one ZIP entry starting at uncompressed `offset`.
+///
+/// Stored (uncompressed) entries seek straight to `data_start + offset`, so a
+/// ranged resume costs one seek. Compressed entries are decompressed from the
+/// start and the first `offset` bytes are skipped; that keeps memory bounded
+/// but makes a resume of a large DEFLATE/Zstd entry proportional to its offset.
+/// Returns the number of bytes written (`0` for directories).
+pub fn write_zip_entry_range<W: Write>(
+    path: &Path,
+    index: usize,
+    offset: u64,
+    length: Option<u64>,
+    writer: &mut W,
+) -> Result<u64, ArchiveError> {
+    if detect_format(path)? != ArchiveFormat::Zip {
+        return Err(ArchiveError::UnsupportedFormat);
+    }
+    let file = File::open(path)?;
+    let mut archive = ZipArchive::new(BufReader::new(file)).map_err(map_zip_error)?;
+    let entry = archive.by_index_raw(index).map_err(map_zip_error)?;
+    if entry.encrypted() {
+        return Err(ArchiveError::PasswordRequired);
+    }
+    if entry.is_symlink() {
+        return Err(ArchiveError::UnsafeEntry(format!(
+            "link entry: {}",
+            entry.name()
+        )));
+    }
+    if entry.is_dir() {
+        return Ok(0);
+    }
+    let size = entry.size();
+    let data_start = entry.data_start();
+    let method = entry.compression();
+    drop(entry);
+
+    if offset > size {
+        return Err(ArchiveError::InvalidArchive(format!(
+            "offset {offset} is past the end of entry {index} ({size} bytes)"
+        )));
+    }
+    let available = size - offset;
+    let take = length.unwrap_or(available).min(available);
+    if take == 0 {
+        return Ok(0);
+    }
+
+    if method == zip::CompressionMethod::Stored {
+        // A fresh handle avoids disturbing the archive reader's buffered
+        // position; `data_start` is an absolute offset in the archive file.
+        let mut data = File::open(path)?;
+        data.seek(SeekFrom::Start(data_start.saturating_add(offset)))?;
+        copy_exact(&mut data, writer, take)?;
+    } else {
+        let mut entry = archive.by_index(index).map_err(map_zip_error)?;
+        skip_exact(&mut entry, offset)?;
+        copy_exact(&mut entry, writer, take)?;
+    }
+    Ok(take)
+}
+
+/// Copies exactly `count` bytes or fails when the source ends early.
+fn copy_exact<R: Read + ?Sized, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    count: u64,
+) -> Result<(), ArchiveError> {
+    let mut remaining = count;
+    let mut buffer = vec![0_u8; COPY_BUFFER_SIZE];
+    while remaining > 0 {
+        let want = usize::try_from(remaining.min(buffer.len() as u64)).unwrap_or(buffer.len());
+        let read = reader.read(&mut buffer[..want])?;
+        if read == 0 {
+            return Err(ArchiveError::InvalidArchive(
+                "archive entry ended before its declared size".to_string(),
+            ));
+        }
+        writer.write_all(&buffer[..read])?;
+        remaining -= read as u64;
+    }
+    Ok(())
+}
+
+/// Reads and discards exactly `count` bytes or fails when the source ends early.
+fn skip_exact<R: Read + ?Sized>(reader: &mut R, count: u64) -> Result<(), ArchiveError> {
+    let mut remaining = count;
+    let mut buffer = vec![0_u8; COPY_BUFFER_SIZE];
+    while remaining > 0 {
+        let want = usize::try_from(remaining.min(buffer.len() as u64)).unwrap_or(buffer.len());
+        let read = reader.read(&mut buffer[..want])?;
+        if read == 0 {
+            return Err(ArchiveError::InvalidArchive(
+                "archive entry ended before the requested offset".to_string(),
+            ));
+        }
+        remaining -= read as u64;
+    }
+    Ok(())
 }
 
 fn seven_zip_tar_size(path: &Path) -> Result<u64, ArchiveError> {
@@ -2362,5 +2632,216 @@ mod tests {
             assert_eq!(parsed[index].1 & 0o777, entry.mode);
             assert_eq!(parsed[index].2.len() as u64, entry.size);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Resumable per-entry manifest (#115)
+    // -----------------------------------------------------------------------
+
+    fn write_manifest_zip(path: &Path) {
+        use zip::write::SimpleFileOptions;
+
+        let file = File::create(path).expect("create zip");
+        let mut writer = zip::ZipWriter::new(file);
+        writer
+            .add_directory("Game/", SimpleFileOptions::default())
+            .expect("directory");
+        writer
+            .add_directory("Game/data/", SimpleFileOptions::default())
+            .expect("nested directory");
+        writer
+            .start_file(
+                "Game/game.exe",
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored),
+            )
+            .expect("stored entry");
+        writer.write_all(b"MZ ludex").expect("write stored");
+        writer
+            .start_file(
+                "Game/data/big.bin",
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+            )
+            .expect("deflated entry");
+        let payload: Vec<u8> = (0..200_000).map(|index| (index % 253) as u8).collect();
+        writer.write_all(&payload).expect("write deflated");
+        writer
+            .start_file(
+                "Game/run.sh",
+                SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Deflated)
+                    .unix_permissions(0o700),
+            )
+            .expect("script entry");
+        writer
+            .write_all(b"#!/bin/sh\necho hi\n")
+            .expect("write script");
+        writer.finish().expect("finish zip");
+    }
+
+    #[test]
+    fn stream_manifest_lists_entries_in_directory_order() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("manifest.zip");
+        write_manifest_zip(&archive);
+
+        let manifest = zip_stream_manifest(&archive).expect("manifest");
+        assert_eq!(manifest.format, "zip");
+        assert_eq!(manifest.entry_count, manifest.entries.len());
+        assert_eq!(manifest.entry_count, 5);
+        assert_eq!(
+            manifest
+                .entries
+                .iter()
+                .map(|entry| entry.path.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "Game",
+                "Game/data",
+                "Game/game.exe",
+                "Game/data/big.bin",
+                "Game/run.sh"
+            ]
+        );
+        assert_eq!(
+            manifest
+                .entries
+                .iter()
+                .map(|entry| entry.index)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3, 4]
+        );
+        assert!(manifest.entries[0].is_dir);
+        assert!(manifest.entries[1].is_dir);
+        assert_eq!(manifest.entries[2].size, 8);
+        assert_eq!(
+            manifest.entries[2].crc32,
+            crc32fast::hash(b"MZ ludex"),
+            "the manifest carries the central-directory CRC-32"
+        );
+        assert_eq!(manifest.entries[3].size, 200_000);
+        assert!(
+            manifest.entries[3].compressed_size < manifest.entries[3].size,
+            "deflated entries report their compressed size"
+        );
+        assert_eq!(
+            manifest.entries[4].mode, 0o755,
+            "scripts keep the executable bit"
+        );
+        assert_eq!(
+            manifest.total_bytes,
+            8 + 200_000 + b"#!/bin/sh\necho hi\n".len() as u64
+        );
+
+        // The fingerprint is stable and changes with the manifest.
+        assert_eq!(manifest.fingerprint(), manifest.fingerprint());
+        let mut changed = manifest.clone();
+        changed.entries[2].size += 1;
+        assert_ne!(manifest.fingerprint(), changed.fingerprint());
+    }
+
+    #[test]
+    fn entry_ranges_read_stored_and_deflated_data() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("ranges.zip");
+        write_manifest_zip(&archive);
+        let manifest = zip_stream_manifest(&archive).expect("manifest");
+        let big = manifest
+            .entries
+            .iter()
+            .find(|entry| entry.path == "Game/data/big.bin")
+            .expect("big entry");
+        let stored = manifest
+            .entries
+            .iter()
+            .find(|entry| entry.path == "Game/game.exe")
+            .expect("stored entry");
+
+        let expected: Vec<u8> = (0..200_000).map(|index| (index % 253) as u8).collect();
+
+        // Stored: full read and an arbitrary range.
+        let mut full = Vec::new();
+        let written =
+            write_zip_entry_range(&archive, stored.index, 0, None, &mut full).expect("stored full");
+        assert_eq!(written, 8);
+        assert_eq!(full, b"MZ ludex");
+
+        let mut ranged = Vec::new();
+        let written = write_zip_entry_range(&archive, stored.index, 2, Some(4), &mut ranged)
+            .expect("stored range");
+        assert_eq!(written, 4);
+        assert_eq!(ranged, b" lud");
+
+        // Deflated: the server decompresses and skips to the offset.
+        let mut tail = Vec::new();
+        let written = write_zip_entry_range(&archive, big.index, 199_990, None, &mut tail)
+            .expect("deflated tail");
+        assert_eq!(written, 10);
+        assert_eq!(tail, expected[199_990..]);
+
+        let mut middle = Vec::new();
+        let written = write_zip_entry_range(&archive, big.index, 1000, Some(16), &mut middle)
+            .expect("middle");
+        assert_eq!(written, 16);
+        assert_eq!(middle, expected[1000..1016]);
+
+        // A range that runs past the end is clamped to the entry.
+        let mut clamped = Vec::new();
+        let written = write_zip_entry_range(&archive, big.index, 199_990, Some(100), &mut clamped)
+            .expect("clamped");
+        assert_eq!(written, 10);
+
+        // Offset exactly at the end and past it.
+        let mut empty = Vec::new();
+        assert_eq!(
+            write_zip_entry_range(&archive, big.index, 200_000, None, &mut empty).expect("end"),
+            0
+        );
+        assert!(matches!(
+            write_zip_entry_range(&archive, big.index, 200_001, None, &mut Vec::new()),
+            Err(ArchiveError::InvalidArchive(_))
+        ));
+    }
+
+    #[test]
+    fn entry_info_matches_the_manifest_and_rejects_bad_indexes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("info.zip");
+        write_manifest_zip(&archive);
+        let manifest = zip_stream_manifest(&archive).expect("manifest");
+        for entry in &manifest.entries {
+            assert_eq!(&zip_entry_info(&archive, entry.index).expect("info"), entry);
+        }
+        assert!(matches!(
+            zip_entry_info(&archive, manifest.entry_count + 1),
+            Err(ArchiveError::EntryNotFound)
+        ));
+        let directory = zip_entry_info(&archive, 0).expect("directory");
+        assert!(directory.is_dir);
+        assert_eq!(directory.size, 0);
+    }
+
+    #[test]
+    fn manifest_rejects_traversal_links_and_non_zip_archives() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let traversal = temp.path().join("traversal.zip");
+        write_zip(&traversal, &[("../escape.txt", b"nope")]);
+        assert!(matches!(
+            zip_stream_manifest(&traversal),
+            Err(ArchiveError::UnsafeEntry(_))
+        ));
+
+        let link = temp.path().join("link.zip");
+        write_zip_with_symlink(&link);
+        assert!(matches!(
+            zip_stream_manifest(&link),
+            Err(ArchiveError::UnsafeEntry(_))
+        ));
+
+        let text = temp.path().join("not-an-archive.zip");
+        fs::write(&text, b"plain text").expect("write text");
+        assert!(matches!(
+            zip_stream_manifest(&text),
+            Err(ArchiveError::UnsupportedFormat)
+        ));
     }
 }
