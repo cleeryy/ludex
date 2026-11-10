@@ -65,6 +65,7 @@ async fn main() -> Result<()> {
         scan_tx,
         http,
         igdb,
+        oidc: None,
     };
 
     let ids = sqlx::query_scalar::<_, i64>("SELECT id FROM games ORDER BY id")

@@ -37,6 +37,7 @@ export function ServerScreen() {
         ["Steam metadata", config.data.features.steam],
         ["Ingest", config.data.features.ingest],
         ["Local mode", config.data.features.localMode],
+        ["OIDC sign-in", config.data.features.oidc],
       ] as const
     : [];
 

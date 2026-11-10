@@ -124,7 +124,9 @@ export interface IngestStats {
 export interface ServerConfig {
   serverName: string;
   version: string;
-  features: { igdb: boolean; steam: boolean; ingest: boolean; localMode: boolean };
+  features: { igdb: boolean; steam: boolean; ingest: boolean; localMode: boolean; oidc: boolean };
+  /** Label for the SSO button, e.g. "Authentik". Null hides the button. */
+  oidcDisplayName: string | null;
   maxUploadBytes: number;
 }
 

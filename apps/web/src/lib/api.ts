@@ -170,6 +170,11 @@ export const api = {
     if (USING_MOCKS) return Promise.resolve();
     return request("/auth/logout", { method: "POST" });
   },
+  oidcExchange(code: string): Promise<AuthResult> {
+    return USING_MOCKS
+      ? mockApi.oidcExchange(code)
+      : request<AuthResult>("/auth/oidc/exchange", { method: "POST", body: { code }, auth: false });
+  },
   changePassword(body: { currentPassword: string; newPassword: string }): Promise<void> {
     return USING_MOCKS
       ? mockApi.changePassword(tokenStore.get(), body)
