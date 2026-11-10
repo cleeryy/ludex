@@ -40,7 +40,7 @@ pub struct OidcExchangeRequest {
 }
 
 async fn start(State(state): State<AppState>, headers: HeaderMap) -> Result<Response, ApiError> {
-    let client = state.oidc.as_ref().ok_or_else(oidc_disabled)?;
+    let client = state.oidc_client().await.ok_or_else(oidc_disabled)?;
     let url = client.begin(&headers).await?;
     let mut response = Redirect::to(&url).into_response();
     response
@@ -53,7 +53,7 @@ async fn callback(
     State(state): State<AppState>,
     ApiQuery(query): ApiQuery<CallbackQuery>,
 ) -> Result<Response, ApiError> {
-    let client = state.oidc.as_ref().ok_or_else(oidc_disabled)?;
+    let client = state.oidc_client().await.ok_or_else(oidc_disabled)?;
     if let Some(error) = query.error {
         let message = query
             .error_description
@@ -75,7 +75,7 @@ async fn callback(
         .ok_or_else(|| ApiError::bad_request("invalid_state", "Missing SSO state"))?;
 
     let identity = client.complete(code, state_param).await?;
-    let user_id = oidc::provision_user(&state, client, &identity).await?;
+    let user_id = oidc::provision_user(&state, &client, &identity).await?;
     let one_time_code = client.issue_code(user_id)?;
     let location = client.callback_location(&one_time_code);
 
@@ -90,7 +90,7 @@ async fn exchange(
     State(state): State<AppState>,
     JsonBody(request): JsonBody<OidcExchangeRequest>,
 ) -> Result<Response, ApiError> {
-    let client = state.oidc.as_ref().ok_or_else(oidc_disabled)?;
+    let client = state.oidc_client().await.ok_or_else(oidc_disabled)?;
     let code = request.code.trim();
     if code.is_empty() {
         return Err(ApiError::bad_request(

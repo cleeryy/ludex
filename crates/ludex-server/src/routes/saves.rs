@@ -26,6 +26,10 @@ use crate::state::AppState;
 
 /// Longest accepted snapshot label, in characters.
 const MAX_LABEL_CHARS: usize = 200;
+/// Auto snapshots kept per user and game; manual snapshots are never pruned.
+const AUTO_SNAPSHOT_RETENTION: i64 = 10;
+/// Longest accepted device identifier, in characters.
+const MAX_DEVICE_ID_CHARS: usize = 100;
 
 /// Save routes, relative to `/api`.
 ///
@@ -49,7 +53,8 @@ async fn list(
 ) -> Result<Json<Vec<SaveSnapshot>>, ApiError> {
     ensure_game(&state, game_id).await?;
     let rows = sqlx::query_as::<_, SaveSnapshotRow>(
-        "SELECT id, user_id, game_id, version_id, label, file_name, size, sha256, created_at
+        "SELECT id, user_id, game_id, version_id, label, file_name, size, sha256, created_at,
+                source, device_id
          FROM save_snapshots
          WHERE user_id = ? AND game_id = ?
          ORDER BY created_at DESC, id DESC",
@@ -75,6 +80,8 @@ async fn upload(
 
     let mut pending: Option<PendingSave> = None;
     let mut label = String::new();
+    let mut source = "manual".to_string();
+    let mut device_id: Option<String> = None;
 
     while let Some(field) = multipart.next_field().await.map_err(map_multipart_error)? {
         match field.name().unwrap_or_default() {
@@ -111,6 +118,30 @@ async fn upload(
                 }
                 label = value;
             }
+            "source" => {
+                let value = field.text().await.map_err(map_multipart_error)?;
+                let value = value.trim().to_string();
+                if value != "manual" && value != "auto" {
+                    return Err(ApiError::bad_request(
+                        "invalid_source",
+                        "source must be 'manual' or 'auto'",
+                    ));
+                }
+                source = value;
+            }
+            "deviceId" => {
+                let value = field.text().await.map_err(map_multipart_error)?;
+                let value = value.trim().to_string();
+                if value.chars().count() > MAX_DEVICE_ID_CHARS
+                    || value.chars().any(char::is_control)
+                {
+                    return Err(ApiError::bad_request(
+                        "invalid_device_id",
+                        "The device identifier is invalid",
+                    ));
+                }
+                device_id = (!value.is_empty()).then_some(value);
+            }
             _ => {
                 // Unknown fields are drained and ignored for forward compatibility.
                 let mut field = field;
@@ -128,10 +159,33 @@ async fn upload(
     let sha256 = pending.sha256().to_string();
     let now = db::db_time(db::now());
 
+    // Automatic uploads are idempotent by content hash: an unchanged save
+    // returns the snapshot that already holds those bytes (#108).
+    if source == "auto" {
+        let existing = sqlx::query_as::<_, SaveSnapshotRow>(
+            "SELECT id, user_id, game_id, version_id, label, file_name, size, sha256, created_at,
+                    source, device_id
+             FROM save_snapshots
+             WHERE user_id = ? AND game_id = ? AND sha256 = ?
+             ORDER BY created_at DESC, id DESC LIMIT 1",
+        )
+        .bind(user.id)
+        .bind(game_id)
+        .bind(&sha256)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(ApiError::from)?;
+        if let Some(existing) = existing {
+            pending.discard().await;
+            return Ok((StatusCode::OK, Json(existing.to_public())));
+        }
+    }
+
     let inserted = sqlx::query(
         "INSERT INTO save_snapshots
-            (user_id, game_id, version_id, label, file_name, size, sha256, created_at)
-         VALUES (?, ?, NULL, ?, ?, ?, ?, ?)",
+            (user_id, game_id, version_id, label, file_name, size, sha256, created_at,
+             source, device_id)
+         VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(user.id)
     .bind(game_id)
@@ -140,6 +194,8 @@ async fn upload(
     .bind(size)
     .bind(&sha256)
     .bind(&now)
+    .bind(&source)
+    .bind(device_id.as_deref())
     .execute(&state.pool)
     .await;
 
@@ -171,19 +227,28 @@ async fn upload(
                 "size": size,
                 "sha256": sha256,
                 "label": label,
+                "source": source,
+                "deviceId": device_id,
             })),
     );
+
+    if source == "auto" {
+        prune_auto_snapshots(&state, user.id, game_id, AUTO_SNAPSHOT_RETENTION).await;
+    }
 
     Ok((
         StatusCode::CREATED,
         Json(SaveSnapshot {
             id: snapshot_id,
             game_id,
+            version_id: None,
             label,
             file_name,
             size,
             sha256,
             created_at: db::parse_time(&now).unwrap_or_else(chrono::Utc::now),
+            source,
+            device_id,
         }),
     ))
 }
@@ -269,6 +334,49 @@ async fn delete_snapshot(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Keeps only the newest `keep` automatic snapshots for one user and game.
+///
+/// Manual snapshots are never touched. Row deletions happen before the file
+/// deletions so a crash leaves an orphaned file (removed by the media GC
+/// rules) instead of a row pointing at a missing archive.
+async fn prune_auto_snapshots(state: &AppState, user_id: i64, game_id: i64, keep: i64) {
+    let stale = sqlx::query_as::<_, (i64, String)>(
+        "SELECT id, file_name FROM save_snapshots
+         WHERE user_id = ? AND game_id = ? AND source = 'auto'
+           AND id NOT IN (
+               SELECT id FROM save_snapshots
+               WHERE user_id = ? AND game_id = ? AND source = 'auto'
+               ORDER BY created_at DESC, id DESC LIMIT ?
+           )",
+    )
+    .bind(user_id)
+    .bind(game_id)
+    .bind(user_id)
+    .bind(game_id)
+    .bind(keep)
+    .fetch_all(&state.pool)
+    .await;
+
+    let stale = match stale {
+        Ok(rows) => rows,
+        Err(error) => {
+            tracing::warn!(error = %error, "could not list stale save snapshots");
+            return;
+        }
+    };
+    for (id, file_name) in stale {
+        if let Err(error) = sqlx::query("DELETE FROM save_snapshots WHERE id = ?")
+            .bind(id)
+            .execute(&state.pool)
+            .await
+        {
+            tracing::warn!(error = %error, snapshot = id, "could not prune a save snapshot row");
+            continue;
+        }
+        saves::delete_file(&state.config.data_dir, user_id, game_id, id, &file_name).await;
+    }
+}
+
 async fn ensure_game(state: &AppState, game_id: i64) -> Result<(), ApiError> {
     let exists = sqlx::query_scalar::<_, i64>("SELECT id FROM games WHERE id = ?")
         .bind(game_id)
@@ -282,7 +390,8 @@ async fn ensure_game(state: &AppState, game_id: i64) -> Result<(), ApiError> {
 
 async fn fetch_snapshot(state: &AppState, id: i64) -> Result<SaveSnapshotRow, ApiError> {
     sqlx::query_as::<_, SaveSnapshotRow>(
-        "SELECT id, user_id, game_id, version_id, label, file_name, size, sha256, created_at
+        "SELECT id, user_id, game_id, version_id, label, file_name, size, sha256, created_at,
+                source, device_id
          FROM save_snapshots WHERE id = ?",
     )
     .bind(id)

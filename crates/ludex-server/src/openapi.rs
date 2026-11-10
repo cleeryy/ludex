@@ -177,6 +177,51 @@ pub const ROUTES: &[RouteDoc] = &[
         Auth::Public,
         Payload::Schema("ServerConfig"),
     ),
+    // OIDC administration (#103)
+    route(
+        HttpMethod::Get,
+        "/admin/oidc",
+        "Authentication",
+        "Effective OIDC settings, environment locks and discovery status",
+        Auth::Admin,
+        Payload::Object,
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/admin/oidc",
+            "Authentication",
+            "Validate, encrypt, discover and hot-swap OIDC settings",
+            Auth::Admin,
+            Payload::Object,
+        ),
+        "OidcSettingsRequest",
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/admin/oidc/test",
+                "Authentication",
+                "Run OIDC discovery against submitted values",
+                Auth::Admin,
+                Payload::Object,
+            ),
+            200,
+        ),
+        "OidcSettingsRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/admin/oidc/reset",
+            "Authentication",
+            "Delete saved OIDC settings and fall back to the environment",
+            Auth::Admin,
+            Payload::Object,
+        ),
+        200,
+    ),
     route(
         HttpMethod::Get,
         "/openapi.json",
@@ -1592,6 +1637,7 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::achievements::UnlockRequest>()
         .schema_from::<crate::routes::achievements::DefinitionResponse>()
         .schema_from::<crate::routes::achievements::UnlockResponse>()
+        .schema_from::<crate::routes::admin_oidc::OidcSettingsRequest>()
         .security_scheme(
             "bearerAuth",
             SecurityScheme::Http(

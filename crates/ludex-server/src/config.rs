@@ -135,6 +135,45 @@ pub const DEFAULT_UPLOAD_MAX_BYTES: u64 = 100 * 1024 * 1024 * 1024;
 /// Default lifetime of an unfinished resumable upload (24 h).
 pub const DEFAULT_UPLOAD_TTL_HOURS: u64 = 24;
 
+/// Which OIDC fields are pinned by `LUDEX_OIDC_*` environment variables.
+///
+/// A pinned field always wins over the value saved from the admin UI, so
+/// config-as-code deployments keep working exactly as before. The desktop
+/// app's [`Config::for_local`] pins nothing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OidcEnvLocked {
+    /// `LUDEX_OIDC_ISSUER` is set (also implies `enabled = true`).
+    pub issuer: bool,
+    /// `LUDEX_OIDC_CLIENT_ID` is set.
+    pub client_id: bool,
+    /// `LUDEX_OIDC_CLIENT_SECRET` is set.
+    pub client_secret: bool,
+    /// `LUDEX_OIDC_REDIRECT_URL` is set.
+    pub redirect_url: bool,
+    /// `LUDEX_OIDC_PUBLIC_BASE_URL` is set.
+    pub public_base_url: bool,
+    /// `LUDEX_OIDC_SCOPES` is set.
+    pub scopes: bool,
+    /// `LUDEX_OIDC_DISPLAY_NAME` is set.
+    pub display_name: bool,
+    /// `LUDEX_OIDC_AUTO_CREATE` is set.
+    pub auto_create: bool,
+    /// `LUDEX_OIDC_DEFAULT_ROLE` is set.
+    pub default_role: bool,
+    /// `LUDEX_OIDC_GROUPS_CLAIM` is set.
+    pub groups_claim: bool,
+    /// `LUDEX_OIDC_ADMIN_GROUPS` is set.
+    pub admin_groups: bool,
+}
+
+impl OidcEnvLocked {
+    /// Whether at least one field is pinned by the environment.
+    #[must_use]
+    pub fn any(&self) -> bool {
+        *self != Self::default()
+    }
+}
+
 /// Runtime configuration for the Ludex server.
 ///
 /// Every field can be set through `LUDEX_*` environment variables with
@@ -236,6 +275,8 @@ pub struct Config {
     /// Public origin used to build the OIDC redirect URI and the SPA callback
     /// URL. Must be an absolute http(s) origin/path without query or fragment.
     pub oidc_public_base_url: Option<String>,
+    /// Fields pinned by `LUDEX_OIDC_*`; they win over the admin UI settings.
+    pub oidc_env_locked: OidcEnvLocked,
     /// Game archive storage backend.
     pub storage_backend: StorageBackend,
     /// S3 configuration, present when `storage_backend` is [`StorageBackend::S3`].
@@ -509,6 +550,19 @@ impl Config {
             oidc_groups_claim: env_opt("LUDEX_OIDC_GROUPS_CLAIM")
                 .unwrap_or_else(|| "groups".to_string()),
             oidc_public_base_url,
+            oidc_env_locked: OidcEnvLocked {
+                issuer: env_opt("LUDEX_OIDC_ISSUER").is_some(),
+                client_id: env_opt("LUDEX_OIDC_CLIENT_ID").is_some(),
+                client_secret: env_opt("LUDEX_OIDC_CLIENT_SECRET").is_some(),
+                redirect_url: env_opt("LUDEX_OIDC_REDIRECT_URL").is_some(),
+                public_base_url: env_opt("LUDEX_OIDC_PUBLIC_BASE_URL").is_some(),
+                scopes: env_opt("LUDEX_OIDC_SCOPES").is_some(),
+                display_name: env_opt("LUDEX_OIDC_DISPLAY_NAME").is_some(),
+                auto_create: env_opt("LUDEX_OIDC_AUTO_CREATE").is_some(),
+                default_role: env_opt("LUDEX_OIDC_DEFAULT_ROLE").is_some(),
+                groups_claim: env_opt("LUDEX_OIDC_GROUPS_CLAIM").is_some(),
+                admin_groups: env_opt("LUDEX_OIDC_ADMIN_GROUPS").is_some(),
+            },
             storage_backend,
             s3,
             metrics_token: env_opt("LUDEX_METRICS_TOKEN"),
@@ -575,6 +629,7 @@ impl Config {
             oidc_admin_groups: Vec::new(),
             oidc_groups_claim: "groups".to_string(),
             oidc_public_base_url: None,
+            oidc_env_locked: OidcEnvLocked::default(),
             storage_backend: StorageBackend::Local,
             s3: None,
             metrics_token: None,

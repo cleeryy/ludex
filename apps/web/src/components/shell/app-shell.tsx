@@ -12,6 +12,7 @@ import {
   Film,
   HardDrive,
   House,
+  KeyRound,
   ListOrdered,
   ListPlus,
   LogOut,
@@ -163,6 +164,7 @@ function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
                 <RailLink label="Users" icon={<Users className="size-4" />} active={path === "/admin/users"} onClick={() => go("/admin/users")} />
                 <RailLink label="News editor" icon={<ShieldCheck className="size-4" />} active={path === "/admin/news"} onClick={() => go("/admin/news")} />
                 <RailLink label="Server" icon={<Server className="size-4" />} active={path === "/admin/server"} onClick={() => go("/admin/server")} />
+                <RailLink label="Authentication" icon={<KeyRound className="size-4" />} active={path === "/admin/authentication"} onClick={() => go("/admin/authentication")} />
               </>
             )}
           </>
@@ -449,6 +451,7 @@ function MobileMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open
             <Row label="Library scan" icon={<RefreshCw className="size-3.5" />} onClick={() => go("/admin/scan")} />
             {isAdmin && <Row label="Users" icon={<Users className="size-3.5" />} onClick={() => go("/admin/users")} />}
             {isAdmin && <Row label="Server" icon={<Server className="size-3.5" />} onClick={() => go("/admin/server")} />}
+            {isAdmin && <Row label="Authentication" icon={<KeyRound className="size-3.5" />} onClick={() => go("/admin/authentication")} />}
           </>
         )}
         <Row

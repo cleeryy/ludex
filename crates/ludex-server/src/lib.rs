@@ -192,7 +192,57 @@ async fn prepare(config: Config) -> Result<Prepared> {
 
     let (scan_tx, scan_rx) = mpsc::channel::<ScanRequest>(4);
     let (cancel_tx, cancel_rx) = watch::channel(false);
-    let oidc = OidcClient::from_config(&config, http.clone())?;
+    // Settings saved from the admin UI are the fallback; `LUDEX_OIDC_*`
+    // environment variables win per field (see `OidcEnvLocked`).
+    let stored_oidc = oidc::load_settings(&pool, &secret).await?;
+    let resolved_oidc = oidc::resolve_settings(stored_oidc.as_ref(), &config);
+    let (oidc, oidc_status) = if resolved_oidc.secret_error {
+        // The server secret changed: the stored ciphertext is useless. Keep
+        // the server bootable and let an administrator re-enter the secret.
+        tracing::warn!(
+            "the saved OIDC client secret cannot be decrypted; re-enter it in Admin → Authentication"
+        );
+        (
+            None,
+            oidc::OidcStatus {
+                ok: false,
+                issuer: resolved_oidc.settings.issuer.clone(),
+                checked_at: None,
+                error: Some(
+                    "The saved OIDC client secret cannot be decrypted (server secret changed). \
+                     Replace it in the admin UI."
+                        .to_string(),
+                ),
+            },
+        )
+    } else {
+        match OidcClient::from_settings(&resolved_oidc.settings, http.clone()) {
+            Ok(client) => {
+                let status = oidc::OidcStatus::initial(client.as_ref());
+                (client, status)
+            }
+            // A broken environment configuration keeps failing startup loudly
+            // (historical behaviour); a broken saved row only disables SSO.
+            Err(error) if config.oidc_env_locked.issuer => return Err(error),
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    "saved OIDC configuration is invalid; SSO is disabled until it is fixed"
+                );
+                (
+                    None,
+                    oidc::OidcStatus {
+                        ok: false,
+                        issuer: resolved_oidc.settings.issuer.clone(),
+                        checked_at: None,
+                        error: Some(format!(
+                            "The saved OIDC configuration is invalid: {error:#}"
+                        )),
+                    },
+                )
+            }
+        }
+    };
     let (events, event_rx) = events::channel();
     let ingest_ctx = ingest::IngestContext {
         games_dir: config.games_dir.clone(),
@@ -212,7 +262,8 @@ async fn prepare(config: Config) -> Result<Prepared> {
         scan_tx: scan_tx.clone(),
         http,
         igdb,
-        oidc,
+        oidc: Arc::new(RwLock::new(oidc)),
+        oidc_status: Arc::new(RwLock::new(oidc_status)),
         events,
         webhooks_notify: Arc::new(tokio::sync::Notify::new()),
         watcher: Arc::new(RwLock::new(watcher::WatcherStatus::default())),

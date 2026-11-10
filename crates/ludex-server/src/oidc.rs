@@ -7,18 +7,22 @@
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use aes_gcm::aead::{Aead, KeyInit, Payload};
+use aes_gcm::{Aes256Gcm, Nonce};
 use anyhow::{Context, Result as AnyResult};
 use axum::http::{HeaderMap, StatusCode};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use hkdf::Hkdf;
 use jsonwebtoken::jwk::{Jwk, JwkSet, PublicKeyUse};
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use ludex_core::models::Role;
 use rand::RngCore;
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use sqlx::SqlitePool;
 use subtle::ConstantTimeEq;
 use url::Url;
 
@@ -39,6 +43,588 @@ const MAX_PENDING: usize = 1024;
 const MAX_CODES: usize = 1024;
 /// JWKS cache lifetime.
 const JWKS_TTL: Duration = Duration::from_secs(60 * 60);
+/// Timeout for the discovery request made when saving or testing settings.
+const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
+/// HKDF salt for the client-secret encryption key.
+const SECRET_HKDF_SALT: &[u8] = b"ludex-oidc-settings-v1";
+/// HKDF info for the client-secret encryption key.
+const SECRET_HKDF_INFO: &[u8] = b"oidc-client-secret";
+/// Additional authenticated data bound to every encrypted secret.
+const SECRET_AAD: &[u8] = b"ludex.oidc.client-secret.v1";
+/// Prefix of the stored ciphertext format.
+const SECRET_PREFIX: &str = "v1.";
+
+/// OIDC provider settings, as saved from the admin UI **without** the secret.
+///
+/// [`client_secret`](Self::client_secret) is only populated in memory; it is
+/// never serialised by any endpoint. `secret_configured` tells the UI whether
+/// a secret is stored at rest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OidcSettings {
+    /// Whether SSO is offered on the login page.
+    pub enabled: bool,
+    /// Issuer URL (the base of the discovery document).
+    pub issuer: Option<String>,
+    /// OAuth client id.
+    pub client_id: Option<String>,
+    /// Registered redirect URI; relative paths are resolved against the
+    /// public base.
+    pub redirect_url: Option<String>,
+    /// Public origin used to build the redirect URI.
+    pub public_base_url: Option<String>,
+    /// Space-separated scopes.
+    pub scopes: String,
+    /// Label of the login button.
+    pub display_name: String,
+    /// Create local accounts for unknown identities.
+    pub auto_create: bool,
+    /// Role for provisioned accounts that are not in an admin group.
+    pub default_role: Role,
+    /// Claim (dot-separated path) holding group/role values.
+    pub groups_claim: String,
+    /// Group/role values that grant the admin role.
+    pub admin_groups: Vec<String>,
+    /// Plaintext client secret. In memory only, never serialised.
+    #[serde(skip)]
+    pub client_secret: Option<String>,
+    /// Whether a secret is stored at rest.
+    #[serde(default)]
+    pub secret_configured: bool,
+}
+
+impl Default for OidcSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            issuer: None,
+            client_id: None,
+            redirect_url: None,
+            public_base_url: None,
+            scopes: "openid profile email".to_string(),
+            display_name: "SSO".to_string(),
+            auto_create: true,
+            default_role: Role::User,
+            groups_claim: "groups".to_string(),
+            admin_groups: Vec::new(),
+            client_secret: None,
+            secret_configured: false,
+        }
+    }
+}
+
+/// Settings loaded from the `oidc_settings` row.
+#[derive(Debug, Clone)]
+pub struct StoredOidcSettings {
+    /// Non-secret fields plus the decrypted secret when available.
+    pub settings: OidcSettings,
+    /// Ciphertext kept so a save can preserve the secret without re-entering it.
+    pub encrypted_secret: Option<String>,
+    /// Whether the stored ciphertext could not be decrypted (server secret
+    /// rotated).
+    pub secret_error: bool,
+}
+
+/// Settings after applying environment precedence.
+#[derive(Debug, Clone)]
+pub struct ResolvedOidcSettings {
+    /// Effective settings, secret decrypted where applicable.
+    pub settings: OidcSettings,
+    /// camelCase names of the fields pinned by `LUDEX_OIDC_*`.
+    pub env_locked_fields: Vec<String>,
+    /// Ciphertext of the stored secret, when the row is the source.
+    pub encrypted_secret: Option<String>,
+    /// Whether the stored secret exists but cannot be decrypted.
+    pub secret_error: bool,
+    /// Whether a saved row exists at all.
+    pub stored: bool,
+}
+
+/// Discovery endpoints returned by the test/save endpoints.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OidcDiscoveryInfo {
+    /// Provider issuer echoed by the document.
+    pub issuer: String,
+    /// Authorization endpoint.
+    pub authorization_endpoint: String,
+    /// Token endpoint.
+    pub token_endpoint: String,
+    /// JWKS endpoint.
+    pub jwks_uri: String,
+    /// Supported ID-token signing algorithms.
+    pub id_token_signing_alg_values_supported: Vec<String>,
+    /// Supported token endpoint authentication methods.
+    pub token_endpoint_auth_methods_supported: Vec<String>,
+}
+
+/// Last discovery check recorded for the admin status card.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OidcStatus {
+    /// Whether the last check succeeded. Only meaningful when `checked_at` is set.
+    pub ok: bool,
+    /// Issuer of the last check.
+    pub issuer: Option<String>,
+    /// RFC 3339 timestamp of the last check.
+    pub checked_at: Option<String>,
+    /// Provider error from the last failed check.
+    pub error: Option<String>,
+}
+
+impl OidcStatus {
+    /// Initial status for a freshly started server (no network check yet).
+    #[must_use]
+    pub fn initial(client: Option<&OidcClient>) -> Self {
+        Self {
+            ok: client.is_some(),
+            issuer: client.map(|client| client.issuer.clone()),
+            checked_at: None,
+            error: None,
+        }
+    }
+}
+
+/// Derives the AES-256-GCM key from the server secret.
+fn derive_secret_key(server_secret: &[u8]) -> [u8; 32] {
+    let hkdf = Hkdf::<Sha256>::new(Some(SECRET_HKDF_SALT), server_secret);
+    let mut key = [0_u8; 32];
+    hkdf.expand(SECRET_HKDF_INFO, &mut key)
+        .expect("32 bytes is a valid HKDF output length");
+    key
+}
+
+/// Encrypts a client secret with a key derived from the server secret.
+///
+/// The returned value is `v1.<base64url(nonce || ciphertext)>`; the nonce is
+/// random for every write, so saving the same secret twice produces different
+/// ciphertext.
+pub fn encrypt_secret(server_secret: &[u8], plaintext: &str) -> AnyResult<String> {
+    let cipher = Aes256Gcm::new_from_slice(&derive_secret_key(server_secret))
+        .context("build AES-256-GCM cipher")?;
+    let mut nonce_bytes = [0_u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let ciphertext = cipher
+        .encrypt(
+            Nonce::from_slice(&nonce_bytes),
+            Payload {
+                msg: plaintext.as_bytes(),
+                aad: SECRET_AAD,
+            },
+        )
+        .map_err(|_| anyhow::anyhow!("encrypt OIDC client secret"))?;
+    let mut blob = Vec::with_capacity(12 + ciphertext.len());
+    blob.extend_from_slice(&nonce_bytes);
+    blob.extend_from_slice(&ciphertext);
+    Ok(format!("{SECRET_PREFIX}{}", URL_SAFE_NO_PAD.encode(blob)))
+}
+
+/// Decrypts a secret produced by [`encrypt_secret`].
+pub fn decrypt_secret(server_secret: &[u8], stored: &str) -> AnyResult<String> {
+    let encoded = stored
+        .strip_prefix(SECRET_PREFIX)
+        .context("unsupported OIDC secret format")?;
+    let blob = URL_SAFE_NO_PAD
+        .decode(encoded)
+        .context("decode OIDC secret")?;
+    if blob.len() <= 12 {
+        anyhow::bail!("OIDC secret ciphertext is truncated");
+    }
+    let (nonce_bytes, ciphertext) = blob.split_at(12);
+    let cipher = Aes256Gcm::new_from_slice(&derive_secret_key(server_secret))
+        .context("build AES-256-GCM cipher")?;
+    let plaintext = cipher
+        .decrypt(
+            Nonce::from_slice(nonce_bytes),
+            Payload {
+                msg: ciphertext,
+                aad: SECRET_AAD,
+            },
+        )
+        .map_err(|_| anyhow::anyhow!("decrypt OIDC client secret (server secret changed?)"))?;
+    String::from_utf8(plaintext).context("OIDC secret is not valid UTF-8")
+}
+
+/// Names of the settings that differ between two snapshots. The secret is
+/// never compared by value: callers pass `secret_changed` explicitly.
+#[must_use]
+pub fn changed_fields(
+    previous: &OidcSettings,
+    next: &OidcSettings,
+    secret_changed: bool,
+) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut push = |name: &str, changed: bool| {
+        if changed {
+            fields.push(name.to_string());
+        }
+    };
+    push("enabled", previous.enabled != next.enabled);
+    push(
+        "issuer",
+        previous.issuer.as_deref().map(str::trim) != next.issuer.as_deref().map(str::trim),
+    );
+    push(
+        "clientId",
+        previous.client_id.as_deref().map(str::trim) != next.client_id.as_deref().map(str::trim),
+    );
+    push(
+        "redirectUrl",
+        previous.redirect_url.as_deref().map(str::trim)
+            != next.redirect_url.as_deref().map(str::trim),
+    );
+    push(
+        "publicBaseUrl",
+        previous.public_base_url.as_deref().map(str::trim)
+            != next.public_base_url.as_deref().map(str::trim),
+    );
+    push("scopes", previous.scopes.trim() != next.scopes.trim());
+    push(
+        "displayName",
+        previous.display_name.trim() != next.display_name.trim(),
+    );
+    push("autoCreate", previous.auto_create != next.auto_create);
+    push("defaultRole", previous.default_role != next.default_role);
+    push(
+        "groupsClaim",
+        previous.groups_claim.trim() != next.groups_claim.trim(),
+    );
+    push("adminGroups", previous.admin_groups != next.admin_groups);
+    if secret_changed {
+        fields.push("clientSecret".to_string());
+    }
+    fields
+}
+
+/// Loads the saved row and decrypts the secret when possible.
+///
+/// A decryption failure is not an error here: `secret_error` is set so the
+/// admin UI can ask for the secret again instead of losing the whole config.
+pub async fn load_settings(
+    pool: &SqlitePool,
+    server_secret: &[u8],
+) -> AnyResult<Option<StoredOidcSettings>> {
+    let row = sqlx::query_as::<_, OidcSettingsRow>(
+        "SELECT enabled, issuer, client_id, redirect_url, public_base_url, scopes,
+                display_name, auto_create, default_role, groups_claim, admin_groups,
+                client_secret_enc, updated_at
+         FROM oidc_settings WHERE id = 1",
+    )
+    .fetch_optional(pool)
+    .await
+    .context("read OIDC settings")?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+
+    let mut settings = OidcSettings {
+        enabled: row.enabled != 0,
+        issuer: row.issuer,
+        client_id: row.client_id,
+        redirect_url: row.redirect_url,
+        public_base_url: row.public_base_url,
+        scopes: row.scopes,
+        display_name: row.display_name,
+        auto_create: row.auto_create != 0,
+        default_role: row.default_role.parse().unwrap_or(Role::User),
+        groups_claim: row.groups_claim,
+        admin_groups: db::parse_json_list(&row.admin_groups),
+        client_secret: None,
+        secret_configured: row.client_secret_enc.is_some(),
+    };
+
+    let mut secret_error = false;
+    if let Some(encrypted) = &row.client_secret_enc {
+        match decrypt_secret(server_secret, encrypted) {
+            Ok(plaintext) => settings.client_secret = Some(plaintext),
+            Err(error) => {
+                tracing::warn!(error = %error, "cannot decrypt the stored OIDC client secret");
+                secret_error = true;
+            }
+        }
+    }
+
+    Ok(Some(StoredOidcSettings {
+        settings,
+        encrypted_secret: row.client_secret_enc,
+        secret_error,
+    }))
+}
+
+/// Writes the single settings row. `encrypted_secret` is `None` when no secret
+/// is configured (public PKCE client or cleared).
+pub async fn save_settings(
+    pool: &SqlitePool,
+    settings: &OidcSettings,
+    encrypted_secret: Option<&str>,
+) -> AnyResult<()> {
+    sqlx::query(
+        "INSERT INTO oidc_settings
+            (id, enabled, issuer, client_id, redirect_url, public_base_url, scopes,
+             display_name, auto_create, default_role, groups_claim, admin_groups,
+             client_secret_enc, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+             enabled = excluded.enabled,
+             issuer = excluded.issuer,
+             client_id = excluded.client_id,
+             redirect_url = excluded.redirect_url,
+             public_base_url = excluded.public_base_url,
+             scopes = excluded.scopes,
+             display_name = excluded.display_name,
+             auto_create = excluded.auto_create,
+             default_role = excluded.default_role,
+             groups_claim = excluded.groups_claim,
+             admin_groups = excluded.admin_groups,
+             client_secret_enc = excluded.client_secret_enc,
+             updated_at = excluded.updated_at",
+    )
+    .bind(i64::from(settings.enabled))
+    .bind(settings.issuer.as_deref())
+    .bind(settings.client_id.as_deref())
+    .bind(settings.redirect_url.as_deref())
+    .bind(settings.public_base_url.as_deref())
+    .bind(&settings.scopes)
+    .bind(&settings.display_name)
+    .bind(i64::from(settings.auto_create))
+    .bind(settings.default_role.as_str())
+    .bind(&settings.groups_claim)
+    .bind(db::dump_json_list(&settings.admin_groups))
+    .bind(encrypted_secret)
+    .bind(db::db_time(db::now()))
+    .execute(pool)
+    .await
+    .context("write OIDC settings")?;
+    Ok(())
+}
+
+/// Deletes the saved row, restoring environment-only configuration.
+pub async fn delete_settings(pool: &SqlitePool) -> AnyResult<()> {
+    sqlx::query("DELETE FROM oidc_settings WHERE id = 1")
+        .execute(pool)
+        .await
+        .context("delete OIDC settings")?;
+    Ok(())
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct OidcSettingsRow {
+    enabled: i64,
+    issuer: Option<String>,
+    client_id: Option<String>,
+    redirect_url: Option<String>,
+    public_base_url: Option<String>,
+    scopes: String,
+    display_name: String,
+    auto_create: i64,
+    default_role: String,
+    groups_claim: String,
+    admin_groups: String,
+    client_secret_enc: Option<String>,
+    #[allow(dead_code)]
+    updated_at: String,
+}
+
+/// Static configuration as settings. Used when no row is saved (environment
+/// only or desktop) and by [`OidcClient::from_config`].
+#[must_use]
+pub fn settings_from_config(config: &Config) -> OidcSettings {
+    let secret = non_empty(config.oidc_client_secret.as_deref());
+    OidcSettings {
+        enabled: non_empty(config.oidc_issuer.as_deref()).is_some(),
+        issuer: config.oidc_issuer.clone(),
+        client_id: config.oidc_client_id.clone(),
+        redirect_url: config.oidc_redirect_url.clone(),
+        public_base_url: config.oidc_public_base_url.clone(),
+        scopes: config.oidc_scopes.clone(),
+        display_name: config.oidc_display_name.clone(),
+        auto_create: config.oidc_auto_create,
+        default_role: config.oidc_default_role,
+        groups_claim: config.oidc_groups_claim.clone(),
+        admin_groups: config.oidc_admin_groups.clone(),
+        secret_configured: secret.is_some(),
+        client_secret: secret,
+    }
+}
+
+/// Applies `LUDEX_OIDC_*` precedence over the saved row, per field.
+#[must_use]
+pub fn resolve_settings(
+    stored: Option<&StoredOidcSettings>,
+    config: &Config,
+) -> ResolvedOidcSettings {
+    // With no saved row the static configuration (environment variables, or a
+    // programmatic `Config` in tests and the desktop app) is the baseline.
+    let mut settings = stored
+        .map(|stored| stored.settings.clone())
+        .unwrap_or_else(|| settings_from_config(config));
+    let locked = config.oidc_env_locked;
+
+    let mut locked_fields = Vec::new();
+    if locked.issuer {
+        if let Some(issuer) = non_empty(config.oidc_issuer.as_deref()) {
+            settings.issuer = Some(issuer);
+            settings.enabled = true;
+        }
+        locked_fields.push("issuer".to_string());
+        locked_fields.push("enabled".to_string());
+    }
+    if locked.client_id {
+        settings.client_id = non_empty(config.oidc_client_id.as_deref());
+        locked_fields.push("clientId".to_string());
+    }
+    if locked.client_secret {
+        settings.client_secret = non_empty(config.oidc_client_secret.as_deref());
+        settings.secret_configured = settings.client_secret.is_some();
+        locked_fields.push("clientSecret".to_string());
+    }
+    if locked.redirect_url {
+        settings.redirect_url = non_empty(config.oidc_redirect_url.as_deref());
+        locked_fields.push("redirectUrl".to_string());
+    }
+    if locked.public_base_url {
+        settings.public_base_url = non_empty(config.oidc_public_base_url.as_deref());
+        locked_fields.push("publicBaseUrl".to_string());
+    }
+    if locked.scopes {
+        settings.scopes = config.oidc_scopes.clone();
+        locked_fields.push("scopes".to_string());
+    }
+    if locked.display_name {
+        settings.display_name = config.oidc_display_name.clone();
+        locked_fields.push("displayName".to_string());
+    }
+    if locked.auto_create {
+        settings.auto_create = config.oidc_auto_create;
+        locked_fields.push("autoCreate".to_string());
+    }
+    if locked.default_role {
+        settings.default_role = config.oidc_default_role;
+        locked_fields.push("defaultRole".to_string());
+    }
+    if locked.groups_claim {
+        settings.groups_claim = config.oidc_groups_claim.clone();
+        locked_fields.push("groupsClaim".to_string());
+    }
+    if locked.admin_groups {
+        settings.admin_groups = config.oidc_admin_groups.clone();
+        locked_fields.push("adminGroups".to_string());
+    }
+
+    if !locked.client_secret {
+        if let Some(stored) = stored {
+            settings.client_secret = stored.settings.client_secret.clone();
+            settings.secret_configured = stored.encrypted_secret.is_some();
+        }
+    }
+
+    ResolvedOidcSettings {
+        settings,
+        env_locked_fields: locked_fields,
+        encrypted_secret: stored.and_then(|stored| stored.encrypted_secret.clone()),
+        secret_error: stored.is_some_and(|stored| stored.secret_error),
+        stored: stored.is_some(),
+    }
+}
+
+/// Trims an optional string, treating blank as absent.
+#[must_use]
+pub fn non_empty(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+/// Validates settings submitted from the admin UI.
+///
+/// `strict` enforces HTTPS for the issuer (except loopback hosts) and is only
+/// applied to values typed in the UI; environment values keep their historical
+/// (laxer) validation so existing deployments restart exactly as before.
+pub fn validate_settings(settings: &OidcSettings, strict_https: bool) -> Result<(), ApiError> {
+    let issuer = non_empty(settings.issuer.as_deref());
+    match issuer {
+        Some(issuer) => {
+            let normalized = normalize_issuer(&issuer).map_err(|error| {
+                ApiError::bad_request(
+                    "invalid_oidc_issuer",
+                    format!("Invalid issuer URL: {error}"),
+                )
+            })?;
+            if strict_https {
+                require_https_issuer(&normalized)?;
+            }
+        }
+        None if settings.enabled => {
+            return Err(ApiError::bad_request(
+                "invalid_oidc_issuer",
+                "An issuer URL is required when SSO is enabled",
+            ));
+        }
+        None => {}
+    }
+
+    if settings.enabled && non_empty(settings.client_id.as_deref()).is_none() {
+        return Err(ApiError::bad_request(
+            "invalid_oidc_client_id",
+            "A client ID is required when SSO is enabled",
+        ));
+    }
+    if let Some(client_id) = non_empty(settings.client_id.as_deref()) {
+        if client_id.chars().count() > 512 {
+            return Err(ApiError::bad_request(
+                "invalid_oidc_client_id",
+                "The client ID must be at most 512 characters",
+            ));
+        }
+    }
+    if let Some(redirect) = non_empty(settings.redirect_url.as_deref()) {
+        validate_redirect_template(&redirect).map_err(|error| {
+            ApiError::bad_request(
+                "invalid_oidc_redirect_url",
+                format!("Invalid redirect URL: {error}"),
+            )
+        })?;
+    }
+    if let Some(base) = non_empty(settings.public_base_url.as_deref()) {
+        validate_public_base(&base).map_err(|error| {
+            ApiError::bad_request(
+                "invalid_oidc_public_base_url",
+                format!("Invalid public base URL: {error}"),
+            )
+        })?;
+    }
+    if settings.groups_claim.trim().is_empty() {
+        return Err(ApiError::bad_request(
+            "invalid_oidc_groups_claim",
+            "The groups claim must not be empty",
+        ));
+    }
+    if parse_scopes(&settings.scopes).len() > 32 {
+        return Err(ApiError::bad_request(
+            "invalid_oidc_scopes",
+            "Too many scopes requested",
+        ));
+    }
+    Ok(())
+}
+
+/// Rejects a plain-HTTP issuer, except on loopback hosts used in development.
+fn require_https_issuer(value: &str) -> Result<(), ApiError> {
+    let url = Url::parse(value).map_err(|_| {
+        ApiError::bad_request("invalid_oidc_issuer", "The issuer must be an absolute URL")
+    })?;
+    let loopback = url
+        .host_str()
+        .is_some_and(|host| matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1"));
+    if url.scheme() != "https" && !loopback {
+        return Err(ApiError::bad_request(
+            "insecure_oidc_issuer",
+            "The issuer must use HTTPS (plain HTTP is only allowed on localhost)",
+        ));
+    }
+    Ok(())
+}
 
 /// One in-flight authorization request.
 #[derive(Clone)]
@@ -132,6 +718,8 @@ pub struct OidcClient {
     admin_groups: Vec<String>,
     groups_claim: String,
     http: Client,
+    /// Dedicated client for discovery: short timeout, no redirects.
+    discovery_http: Client,
     discovery: Arc<Mutex<Option<DiscoveryDocument>>>,
     jwks: Arc<Mutex<Option<CachedJwks>>>,
     store: Arc<OidcStore>,
@@ -155,6 +743,23 @@ struct DiscoveryDocument {
     token_endpoint_auth_methods_supported: Vec<String>,
 }
 
+impl From<&DiscoveryDocument> for OidcDiscoveryInfo {
+    fn from(document: &DiscoveryDocument) -> Self {
+        Self {
+            issuer: document.issuer.clone(),
+            authorization_endpoint: document.authorization_endpoint.clone(),
+            token_endpoint: document.token_endpoint.clone(),
+            jwks_uri: document.jwks_uri.clone(),
+            id_token_signing_alg_values_supported: document
+                .id_token_signing_alg_values_supported
+                .clone(),
+            token_endpoint_auth_methods_supported: document
+                .token_endpoint_auth_methods_supported
+                .clone(),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct TokenResponse {
     id_token: String,
@@ -176,78 +781,83 @@ pub struct OidcIdentity {
 }
 
 impl OidcClient {
-    /// Builds a client from configuration. Returns `None` when SSO is disabled.
+    /// Builds a client from static configuration (environment or desktop).
+    /// Returns `None` when SSO is disabled.
     pub fn from_config(config: &Config, http: Client) -> AnyResult<Option<Self>> {
-        let Some(issuer) = config
-            .oidc_issuer
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        else {
+        let settings = settings_from_config(config);
+        Self::from_settings(&settings, http).context("invalid LUDEX_OIDC_* configuration")
+    }
+
+    /// Builds a client from effective (resolved) settings. Returns `None` when
+    /// SSO is disabled in the settings.
+    pub fn from_settings(settings: &OidcSettings, http: Client) -> AnyResult<Option<Self>> {
+        if !settings.enabled {
             return Ok(None);
-        };
-        let client_id = config
-            .oidc_client_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .context("LUDEX_OIDC_CLIENT_ID is required when OIDC is enabled")?;
-        let issuer = normalize_issuer(issuer).context("invalid LUDEX_OIDC_ISSUER")?;
-        let public_base_url = config
-            .oidc_public_base_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(validate_public_base)
+        }
+        let issuer = non_empty(settings.issuer.as_deref())
+            .context("an OIDC issuer is required when SSO is enabled")?;
+        let client_id = non_empty(settings.client_id.as_deref())
+            .context("an OIDC client ID is required when SSO is enabled")?;
+        let issuer = normalize_issuer(&issuer).context("invalid OIDC issuer")?;
+        let public_base_url = non_empty(settings.public_base_url.as_deref())
+            .map(|value| validate_public_base(&value))
             .transpose()
-            .context("invalid LUDEX_OIDC_PUBLIC_BASE_URL")?;
-        let redirect_url = config
-            .oidc_redirect_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(validate_redirect_template)
+            .context("invalid OIDC public base URL")?;
+        let redirect_url = non_empty(settings.redirect_url.as_deref())
+            .map(|value| validate_redirect_template(&value))
             .transpose()
-            .context("invalid LUDEX_OIDC_REDIRECT_URL")?;
-        let scopes = parse_scopes(&config.oidc_scopes);
-        let groups_claim = {
-            let value = config.oidc_groups_claim.trim();
-            if value.is_empty() {
-                "groups".to_string()
-            } else {
-                value.to_string()
-            }
-        };
-        let admin_groups = config
-            .oidc_admin_groups
+            .context("invalid OIDC redirect URL")?;
+        let groups_claim = settings.groups_claim.trim().to_string();
+        let admin_groups = settings
+            .admin_groups
             .iter()
             .map(|group| group.trim())
             .filter(|group| !group.is_empty())
             .map(str::to_string)
             .collect();
+        let discovery_http = Client::builder()
+            .user_agent(concat!("Ludex/", env!("CARGO_PKG_VERSION")))
+            .timeout(DISCOVERY_TIMEOUT)
+            .connect_timeout(Duration::from_secs(5))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .context("build OIDC discovery client")?;
 
         Ok(Some(Self {
             issuer,
-            client_id: client_id.to_string(),
-            client_secret: config
-                .oidc_client_secret
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string),
+            client_id,
+            client_secret: non_empty(settings.client_secret.as_deref()),
             redirect_url,
             public_base_url,
-            scopes,
-            display_name: config.oidc_display_name.clone(),
-            auto_create: config.oidc_auto_create,
-            default_role: config.oidc_default_role,
+            scopes: parse_scopes(&settings.scopes),
+            display_name: settings.display_name.trim().to_string(),
+            auto_create: settings.auto_create,
+            default_role: settings.default_role,
             admin_groups,
-            groups_claim,
+            groups_claim: if groups_claim.is_empty() {
+                "groups".to_string()
+            } else {
+                groups_claim
+            },
             http,
+            discovery_http,
             discovery: Arc::new(Mutex::new(None)),
             jwks: Arc::new(Mutex::new(None)),
             store: Arc::new(OidcStore::default()),
         }))
+    }
+
+    /// Issuer currently configured.
+    #[must_use]
+    pub fn issuer(&self) -> &str {
+        &self.issuer
+    }
+
+    /// Runs discovery with a fresh client, returning actionable provider
+    /// errors for the admin save/test endpoints.
+    pub async fn probe(&self) -> Result<OidcDiscoveryInfo, String> {
+        let document = self.fetch_discovery().await?;
+        Ok((&document).into())
     }
 
     /// Display name for the web UI button.
@@ -361,20 +971,39 @@ impl OidcClient {
         if let Some(document) = lock(&self.discovery).clone() {
             return Ok(document);
         }
+        let document = self.fetch_discovery().await.map_err(|error| {
+            tracing::warn!(issuer = %self.issuer, error = %error, "OIDC discovery failed");
+            discovery_error()
+        })?;
+        *lock(&self.discovery) = Some(document.clone());
+        Ok(document)
+    }
+
+    /// Fetches and validates the discovery document, returning the raw reason
+    /// on failure. Used by the admin endpoints so an operator sees what broke.
+    async fn fetch_discovery(&self) -> Result<DiscoveryDocument, String> {
         let url = format!("{}/.well-known/openid-configuration", self.issuer);
         let response = self
-            .http
+            .discovery_http
             .get(&url)
             .header(reqwest::header::ACCEPT, "application/json")
             .send()
             .await
-            .map_err(|_| discovery_error())?;
-        if !response.status().is_success() {
-            return Err(discovery_error());
+            .map_err(|error| format!("Could not reach {url}: {error}"))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!("{url} returned HTTP {status}"));
         }
-        let document: DiscoveryDocument = response.json().await.map_err(|_| discovery_error())?;
-        validate_discovery(&self.issuer, &document)?;
-        *lock(&self.discovery) = Some(document.clone());
+        let document: DiscoveryDocument = response
+            .json()
+            .await
+            .map_err(|error| format!("{url} did not return a valid JSON document: {error}"))?;
+        validate_discovery(&self.issuer, &document).map_err(|_| {
+            format!(
+                "{url} is invalid: the provider issuer or one of its endpoints does not match {}",
+                self.issuer
+            )
+        })?;
         Ok(document)
     }
 
@@ -1168,5 +1797,232 @@ mod tests {
         assert!(validate_redirect_template("https://ludex.example/cb").is_ok());
         assert!(validate_public_base("https://ludex.example/").is_ok());
         assert!(validate_public_base("https://ludex.example/?next=evil").is_err());
+    }
+
+    #[test]
+    fn secrets_encrypt_round_trip_and_never_serialise() {
+        let server_secret = b"server-secret-used-for-settings-encryption";
+        let secret = "client-secret-value-123";
+
+        let first = encrypt_secret(server_secret, secret).expect("encrypt");
+        let second = encrypt_secret(server_secret, secret).expect("encrypt again");
+        assert!(first.starts_with(SECRET_PREFIX));
+        assert!(!first.contains(secret));
+        assert_ne!(first, second, "every write uses a fresh nonce");
+        assert_eq!(
+            decrypt_secret(server_secret, &first).expect("decrypt"),
+            secret
+        );
+        assert!(decrypt_secret(b"another-server-secret", &first).is_err());
+        assert!(decrypt_secret(server_secret, "garbage").is_err());
+
+        let settings = OidcSettings {
+            client_secret: Some(secret.to_string()),
+            secret_configured: true,
+            ..OidcSettings::default()
+        };
+        let json = serde_json::to_string(&settings).expect("serialise");
+        assert!(!json.contains(secret));
+        assert!(!json.contains("clientSecret"));
+        assert!(json.contains("\"secretConfigured\":true"));
+    }
+
+    #[tokio::test]
+    async fn stored_secret_is_encrypted_on_disk() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let database_url = format!(
+            "sqlite://{}?mode=rwc",
+            temp.path().join("ludex.db").display()
+        );
+        let pool = crate::db::connect(&database_url).await.expect("connect");
+        let server_secret = b"server-secret-used-for-settings-encryption";
+        let secret = "plaintext-client-secret";
+        let encrypted = encrypt_secret(server_secret, secret).expect("encrypt");
+        let settings = OidcSettings {
+            enabled: true,
+            issuer: Some("https://idp.example.com".to_string()),
+            client_id: Some("ludex".to_string()),
+            client_secret: Some(secret.to_string()),
+            secret_configured: true,
+            ..OidcSettings::default()
+        };
+        save_settings(&pool, &settings, Some(&encrypted))
+            .await
+            .expect("save");
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(&pool)
+            .await
+            .expect("checkpoint");
+        pool.close().await;
+
+        let bytes = std::fs::read(temp.path().join("ludex.db")).expect("read db");
+        let haystack = String::from_utf8_lossy(&bytes);
+        assert!(
+            !haystack.contains(secret),
+            "the OIDC client secret must never be stored in plaintext"
+        );
+
+        let pool = crate::db::connect(&database_url).await.expect("reconnect");
+        let stored = load_settings(&pool, server_secret)
+            .await
+            .expect("load")
+            .expect("row");
+        assert_eq!(stored.settings.client_secret.as_deref(), Some(secret));
+        assert!(stored.encrypted_secret.is_some());
+        assert!(stored.settings.secret_configured);
+        pool.close().await;
+    }
+
+    #[test]
+    fn environment_wins_per_field_over_saved_settings() {
+        let mut config = Config::for_local(
+            std::path::PathBuf::from("/tmp/games"),
+            std::path::PathBuf::from("/tmp/data"),
+            std::path::PathBuf::from("/tmp/media"),
+        );
+        config.oidc_issuer = Some("https://env.example.com".to_string());
+        config.oidc_client_id = Some("env-client".to_string());
+        config.oidc_display_name = "Env provider".to_string();
+        config.oidc_env_locked.issuer = true;
+        config.oidc_env_locked.client_id = true;
+        config.oidc_env_locked.display_name = true;
+
+        let stored_settings = OidcSettings {
+            enabled: false,
+            issuer: Some("https://db.example.com".to_string()),
+            client_id: Some("db-client".to_string()),
+            display_name: "DB provider".to_string(),
+            scopes: "openid profile".to_string(),
+            client_secret: Some("db-secret".to_string()),
+            secret_configured: true,
+            ..OidcSettings::default()
+        };
+        let stored = StoredOidcSettings {
+            settings: stored_settings.clone(),
+            encrypted_secret: Some("v1.ciphertext".to_string()),
+            secret_error: false,
+        };
+
+        let resolved = resolve_settings(Some(&stored), &config);
+        assert_eq!(
+            resolved.settings.issuer.as_deref(),
+            Some("https://env.example.com")
+        );
+        assert!(resolved.settings.enabled, "an env issuer enables SSO");
+        assert_eq!(resolved.settings.client_id.as_deref(), Some("env-client"));
+        assert_eq!(resolved.settings.display_name, "Env provider");
+        assert_eq!(
+            resolved.settings.scopes, stored_settings.scopes,
+            "fields that are not pinned keep the saved value"
+        );
+        assert!(resolved
+            .env_locked_fields
+            .iter()
+            .any(|field| field == "issuer"));
+        assert!(resolved
+            .env_locked_fields
+            .iter()
+            .any(|field| field == "enabled"));
+        assert!(resolved
+            .env_locked_fields
+            .iter()
+            .any(|field| field == "clientId"));
+        assert!(!resolved
+            .env_locked_fields
+            .iter()
+            .any(|field| field == "scopes"));
+
+        // With nothing saved and nothing pinned, SSO stays off.
+        let bare = Config::for_local(
+            std::path::PathBuf::from("/tmp/games"),
+            std::path::PathBuf::from("/tmp/data"),
+            std::path::PathBuf::from("/tmp/media"),
+        );
+        let resolved = resolve_settings(None, &bare);
+        assert!(!resolved.settings.enabled);
+        assert!(resolved.env_locked_fields.is_empty());
+    }
+
+    #[test]
+    fn settings_validation_requires_https_except_on_loopback() {
+        let base = OidcSettings {
+            enabled: true,
+            issuer: Some("http://idp.example.com".to_string()),
+            client_id: Some("ludex".to_string()),
+            ..OidcSettings::default()
+        };
+        assert!(validate_settings(&base, true).is_err());
+        assert!(validate_settings(&base, false).is_ok());
+
+        let loopback = OidcSettings {
+            issuer: Some("http://localhost:9000".to_string()),
+            ..base.clone()
+        };
+        assert!(validate_settings(&loopback, true).is_ok());
+        let loopback_ip = OidcSettings {
+            issuer: Some("http://127.0.0.1:9000".to_string()),
+            ..base.clone()
+        };
+        assert!(validate_settings(&loopback_ip, true).is_ok());
+
+        let no_client = OidcSettings {
+            client_id: None,
+            ..base.clone()
+        };
+        assert!(validate_settings(&no_client, true).is_err());
+
+        let bad_redirect = OidcSettings {
+            issuer: Some("https://idp.example.com".to_string()),
+            redirect_url: Some("javascript:alert(1)".to_string()),
+            ..base.clone()
+        };
+        assert!(validate_settings(&bad_redirect, true).is_err());
+
+        let empty_claim = OidcSettings {
+            issuer: Some("https://idp.example.com".to_string()),
+            groups_claim: "  ".to_string(),
+            ..base.clone()
+        };
+        assert!(validate_settings(&empty_claim, true).is_err());
+
+        let disabled_blank = OidcSettings {
+            enabled: false,
+            issuer: None,
+            client_id: None,
+            ..OidcSettings::default()
+        };
+        assert!(validate_settings(&disabled_blank, true).is_ok());
+    }
+
+    #[test]
+    fn changed_fields_only_lists_names() {
+        let previous = OidcSettings {
+            enabled: true,
+            issuer: Some("https://idp.example.com".to_string()),
+            client_id: Some("ludex".to_string()),
+            display_name: "SSO".to_string(),
+            admin_groups: vec!["admins".to_string()],
+            ..OidcSettings::default()
+        };
+        let next = OidcSettings {
+            enabled: false,
+            issuer: Some("https://other.example.com".to_string()),
+            client_id: Some("ludex".to_string()),
+            display_name: "Authentik".to_string(),
+            admin_groups: vec!["admins".to_string(), "operators".to_string()],
+            ..OidcSettings::default()
+        };
+        let fields = changed_fields(&previous, &next, true);
+        assert_eq!(
+            fields,
+            vec![
+                "enabled".to_string(),
+                "issuer".to_string(),
+                "displayName".to_string(),
+                "adminGroups".to_string(),
+                "clientSecret".to_string(),
+            ]
+        );
+        assert!(!fields.iter().any(|field| field == "clientId"));
     }
 }

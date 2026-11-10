@@ -198,6 +198,9 @@ async fn setup(
 
 async fn config(State(state): State<AppState>) -> Result<Json<ServerConfig>, ApiError> {
     let server_name = db::server_name(&state.pool, &state.config.server_name).await;
+    // Snapshot the live client so a save from the admin UI is reflected
+    // without restarting the server.
+    let oidc = state.oidc_client().await;
     Ok(Json(ServerConfig {
         server_name,
         version: env!("CARGO_PKG_VERSION"),
@@ -206,10 +209,13 @@ async fn config(State(state): State<AppState>) -> Result<Json<ServerConfig>, Api
             steam: true,
             ingest: true,
             local_mode: state.config.local_mode,
-            oidc: state.oidc.is_some(),
+            oidc: oidc.is_some(),
         },
         max_upload_bytes: MAX_JSON_BYTES as u64,
-        oidc_display_name: state.config.oidc_display_name.clone(),
+        oidc_display_name: oidc.as_ref().map_or_else(
+            || state.config.oidc_display_name.clone(),
+            |client| client.display_name().to_string(),
+        ),
     }))
 }
 

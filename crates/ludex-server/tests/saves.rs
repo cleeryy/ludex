@@ -130,6 +130,25 @@ impl TestServer {
         self.send_form(game_id, Some(token), form).await
     }
 
+    /// Upload with the automatic-sync fields (#108).
+    async fn upload_as(
+        &self,
+        game_id: i64,
+        token: &str,
+        file_name: &str,
+        bytes: Vec<u8>,
+        source: &str,
+        device_id: Option<&str>,
+    ) -> (StatusCode, Value) {
+        let mut form =
+            Form::new().part("file", Part::bytes(bytes).file_name(file_name.to_string()));
+        form = form.text("source", source.to_string());
+        if let Some(device_id) = device_id {
+            form = form.text("deviceId", device_id.to_string());
+        }
+        self.send_form(game_id, Some(token), form).await
+    }
+
     async fn download(&self, snapshot_id: i64, token: &str) -> reqwest::Response {
         self.client
             .get(format!("{}/api/saves/{snapshot_id}/download", self.url))
@@ -562,6 +581,126 @@ async fn save_uploads_allow_more_than_the_json_body_limit() {
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{error}");
     assert_eq!(error["error"]["code"], "invalid_body");
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn auto_snapshots_are_metadata_tagged_idempotent_and_retained() {
+    let server = TestServer::start().await;
+    let token = server.admin_token();
+    let user_id = server.current_user_id(&token).await;
+    let game_id = server.insert_game("Save Sync Game").await;
+
+    // A manual snapshot must survive every automatic prune.
+    let (status, manual) = server
+        .upload(
+            game_id,
+            &token,
+            "manual.zip",
+            b"manual-save".to_vec(),
+            Some("before"),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{manual}");
+    assert_eq!(manual["source"], "manual");
+    assert_eq!(manual["deviceId"], Value::Null);
+
+    // Twelve distinct automatic snapshots, one per second: retention keeps 10.
+    for index in 0..12 {
+        let (status, body) = server
+            .upload_as(
+                game_id,
+                &token,
+                "auto.zip",
+                format!("auto-save-{index}").into_bytes(),
+                "auto",
+                Some("device-a"),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        assert_eq!(body["source"], "auto");
+        assert_eq!(body["deviceId"], "device-a");
+    }
+    let (status, list) = server
+        .get(&format!("/api/games/{game_id}/saves"), Some(&token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let items = list.as_array().expect("array");
+    assert_eq!(
+        items.iter().filter(|item| item["source"] == "auto").count(),
+        10,
+        "{list}"
+    );
+    assert_eq!(
+        items
+            .iter()
+            .filter(|item| item["source"] == "manual")
+            .count(),
+        1,
+        "manual snapshots are never pruned: {list}"
+    );
+
+    // Re-uploading unchanged bytes as auto is idempotent and returns the row.
+    let (status, again) = server
+        .upload_as(
+            game_id,
+            &token,
+            "auto.zip",
+            b"auto-save-11".to_vec(),
+            "auto",
+            Some("device-a"),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{again}");
+    assert_eq!(again["source"], "auto");
+    let after = server.save_count(user_id).await;
+    assert_eq!(after, 11, "11 rows: 10 auto + 1 manual");
+
+    // The auto snapshot is downloadable like any other.
+    let snapshot_id = again["id"].as_i64().expect("snapshot id");
+    let response = server.download(snapshot_id, &token).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.bytes().await.expect("bytes").as_ref(),
+        b"auto-save-11"
+    );
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn auto_upload_rejects_invalid_sources_and_device_ids() {
+    let server = TestServer::start().await;
+    let token = server.admin_token();
+    let game_id = server.insert_game("Save Validation Game").await;
+
+    let (status, error) = server
+        .upload_as(
+            game_id,
+            &token,
+            "save.zip",
+            b"data".to_vec(),
+            "scheduled",
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{error}");
+    assert_eq!(error["error"]["code"], "invalid_source");
+
+    let long_device = "d".repeat(200);
+    let (status, error) = server
+        .upload_as(
+            game_id,
+            &token,
+            "save.zip",
+            b"data".to_vec(),
+            "auto",
+            Some(&long_device),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{error}");
+    assert_eq!(error["error"]["code"], "invalid_device_id");
 
     server.stop().await;
 }

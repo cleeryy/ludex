@@ -37,6 +37,10 @@ import type {
   LibraryFile,
   LibraryStats,
   NewsPost,
+  OidcAdminResponse,
+  OidcSettings,
+  OidcSettingsInput,
+  OidcTestResult,
   ProfilePatch,
   ProgressState,
   PublicProfile,
@@ -546,6 +550,57 @@ startTicker();
 /* ------------------------------ demo state ------------------------------- */
 
 const demoUploads = new Map<string, UploadSession>();
+
+/** Demo OIDC settings: enabled so the login page still shows the SSO button. */
+const demoOidc: OidcSettings = {
+  enabled: true,
+  issuer: "https://auth.demo.example/application/o/ludex/",
+  clientId: "ludex-demo",
+  redirectUrl: null,
+  publicBaseUrl: "https://ludex.demo.example",
+  scopes: "openid profile email",
+  displayName: "Authentik",
+  autoCreate: true,
+  defaultRole: "user",
+  groupsClaim: "groups",
+  adminGroups: ["ludex-admins"],
+  secretConfigured: true,
+};
+
+function demoOidcResponse(settings: OidcSettings): OidcAdminResponse {
+  return {
+    settings: clone(settings),
+    envLockedFields: [],
+    status: {
+      ok: true,
+      issuer: settings.issuer,
+      checkedAt: new Date().toISOString(),
+      error: null,
+    },
+    linkedAccounts: users.filter((user) => user.oidcIssuer).length,
+  };
+}
+
+function demoOidcDiscovery(issuer: string): OidcTestResult {
+  const base = issuer.replace(/\/$/, "");
+  return {
+    ok: true,
+    discovery: {
+      issuer: base,
+      authorizationEndpoint: `${base}/authorize`,
+      tokenEndpoint: `${base}/token`,
+      jwksUri: `${base}/jwks`,
+      idTokenSigningAlgValuesSupported: ["RS256"],
+      tokenEndpointAuthMethodsSupported: ["client_secret_basic", "client_secret_post"],
+    },
+  };
+}
+
+function requireDemoAdmin(token: string | null): User {
+  const user = currentUser(token);
+  if (user.role !== "admin") fail(403, "forbidden", "Administrator role required");
+  return user;
+}
 
 /* ---------------------------------- api ---------------------------------- */
 
@@ -1419,10 +1474,65 @@ export const mockApi = {
     return {
       serverName: DEMO_SERVER_NAME,
       version: "0.1.0",
-      features: { igdb: false, steam: true, ingest: true, localMode: false, oidc: true },
-      oidcDisplayName: "Authentik",
+      features: { igdb: false, steam: true, ingest: true, localMode: false, oidc: demoOidc.enabled },
+      oidcDisplayName: demoOidc.enabled ? demoOidc.displayName : null,
       maxUploadBytes: 32 * 1024 * GB,
     };
+  },
+
+  /* admin OIDC */
+  async adminOidc(token: string | null): Promise<OidcAdminResponse> {
+    await latency();
+    requireDemoAdmin(token);
+    return demoOidcResponse(demoOidc);
+  },
+
+  async saveOidcSettings(token: string | null, body: OidcSettingsInput): Promise<OidcAdminResponse> {
+    await latency();
+    requireDemoAdmin(token);
+    const issuer = body.issuer === undefined ? demoOidc.issuer : body.issuer?.trim() || null;
+    if (body.enabled && !issuer) fail(400, "invalid_oidc_issuer", "An issuer URL is required");
+    if (issuer && !/^https?:\/\//i.test(issuer)) {
+      fail(400, "invalid_oidc_issuer", "The issuer must be an absolute http(s) URL");
+    }
+    if (body.replaceSecret?.trim()) demoOidc.secretConfigured = true;
+    if (body.clearSecret) demoOidc.secretConfigured = false;
+    Object.assign(demoOidc, {
+      enabled: body.enabled ?? demoOidc.enabled,
+      issuer,
+      clientId: body.clientId === undefined ? demoOidc.clientId : body.clientId?.trim() || null,
+      redirectUrl: body.redirectUrl?.trim() || null,
+      publicBaseUrl: body.publicBaseUrl?.trim() || null,
+      scopes: body.scopes?.trim() || demoOidc.scopes,
+      displayName: body.displayName?.trim() || "SSO",
+      autoCreate: body.autoCreate ?? demoOidc.autoCreate,
+      defaultRole: body.defaultRole ?? demoOidc.defaultRole,
+      groupsClaim: body.groupsClaim?.trim() || "groups",
+      adminGroups: (body.adminGroups ?? demoOidc.adminGroups)
+        .map((group) => group.trim())
+        .filter((group, index, all) => group && all.findIndex((entry) => entry.toLowerCase() === group.toLowerCase()) === index),
+    });
+    return demoOidcResponse(demoOidc);
+  },
+
+  async testOidcSettings(token: string | null, body: OidcSettingsInput): Promise<OidcTestResult> {
+    await latency();
+    requireDemoAdmin(token);
+    const issuer = body.issuer?.trim() || demoOidc.issuer;
+    if (!issuer || !/^https?:\/\//i.test(issuer)) {
+      fail(400, "invalid_oidc_issuer", "The issuer must be an absolute http(s) URL");
+    }
+    return demoOidcDiscovery(issuer);
+  },
+
+  async resetOidcSettings(token: string | null): Promise<OidcAdminResponse> {
+    await latency();
+    requireDemoAdmin(token);
+    demoOidc.enabled = false;
+    demoOidc.secretConfigured = false;
+    demoOidc.issuer = null;
+    demoOidc.clientId = null;
+    return demoOidcResponse(demoOidc);
   },
 
   async health() {

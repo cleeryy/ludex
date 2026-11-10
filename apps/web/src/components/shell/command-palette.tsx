@@ -17,6 +17,7 @@ import {
   ListOrdered,
   Moon,
   Plus,
+  KeyRound,
   RefreshCw,
   Search,
   Server,
@@ -151,6 +152,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 { id: "adm-users", group: "Admin", label: "Users", icon: <Users className="size-3.5" />, run: go("/admin/users") },
                 { id: "adm-news", group: "Admin", label: "News editor", icon: <ShieldCheck className="size-3.5" />, run: go("/admin/news") },
                 { id: "adm-server", group: "Admin", label: "Server", icon: <Server className="size-3.5" />, run: go("/admin/server") },
+                { id: "adm-authentication", group: "Admin", label: "Authentication", icon: <KeyRound className="size-3.5" />, run: go("/admin/authentication") },
               ]
             : []),
         ]

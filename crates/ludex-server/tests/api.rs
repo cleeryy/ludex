@@ -2826,3 +2826,317 @@ async fn share_links_enforce_limits_expiry_and_validation() {
 
     server.stop().await;
 }
+
+/* ----------------------------- OIDC admin UI (#103) ----------------------- */
+
+/// Minimal discovery-only identity provider used by the admin OIDC tests.
+async fn spawn_discovery_provider() -> (String, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind mock provider");
+    let address = listener.local_addr().expect("mock provider address");
+    let issuer = format!("http://{address}");
+    let base = issuer.clone();
+    let router = axum::Router::new().route(
+        "/.well-known/openid-configuration",
+        axum::routing::get(move || {
+            let base = base.clone();
+            async move {
+                axum::Json(json!({
+                    "issuer": base,
+                    "authorization_endpoint": format!("{base}/authorize"),
+                    "token_endpoint": format!("{base}/token"),
+                    "jwks_uri": format!("{base}/jwks"),
+                    "id_token_signing_alg_values_supported": ["RS256"],
+                    "token_endpoint_auth_methods_supported": [
+                        "client_secret_basic",
+                        "client_secret_post"
+                    ],
+                }))
+            }
+        }),
+    );
+    let handle = tokio::spawn(async move {
+        let _ = axum::serve(listener, router).await;
+    });
+    (issuer, handle)
+}
+
+async fn member_token(server: &TestServer, admin: &str) -> String {
+    let (status, body) = server
+        .post(
+            "/api/users",
+            Some(admin),
+            Some(json!({
+                "username": "member",
+                "password": "password123",
+                "role": "user"
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let (status, body) = server
+        .post(
+            "/api/auth/login",
+            None,
+            Some(json!({ "username": "member", "password": "password123" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body["token"].as_str().expect("member token").to_string()
+}
+
+#[tokio::test]
+async fn admin_oidc_settings_require_an_administrator() {
+    let server = TestServer::start().await;
+    let (admin, _) = server.setup().await;
+
+    let (status, error) = server.get("/api/admin/oidc", None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{error}");
+
+    let member = member_token(&server, &admin).await;
+    let (status, error) = server.get("/api/admin/oidc", Some(&member)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{error}");
+
+    let (status, error) = server
+        .put(
+            "/api/admin/oidc",
+            &member,
+            json!({ "enabled": true, "issuer": "https://idp.example.com" }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{error}");
+
+    let (status, error) = server
+        .post(
+            "/api/admin/oidc/test",
+            Some(&member),
+            Some(json!({ "issuer": "https://idp.example.com" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{error}");
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn admin_oidc_save_hot_reloads_and_a_bad_issuer_keeps_the_old_config() {
+    let server = TestServer::start().await;
+    let (admin, _) = server.setup().await;
+    let (issuer, provider) = spawn_discovery_provider().await;
+
+    let (status, body) = server.get("/api/admin/oidc", Some(&admin)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["settings"]["enabled"], false);
+    assert_eq!(body["settings"]["secretConfigured"], false);
+    assert_eq!(body["envLockedFields"], json!([]));
+    assert_eq!(body["status"]["checkedAt"], Value::Null);
+
+    // Discovery test runs against the submitted values and does not persist.
+    let (status, tested) = server
+        .post(
+            "/api/admin/oidc/test",
+            Some(&admin),
+            Some(json!({
+                "issuer": issuer,
+                "clientId": "ludex",
+                "scopes": "openid profile email"
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{tested}");
+    assert_eq!(tested["ok"], true);
+    assert_eq!(tested["discovery"]["issuer"], issuer);
+    assert_eq!(
+        tested["discovery"]["authorizationEndpoint"],
+        format!("{issuer}/authorize")
+    );
+
+    // A failed save must leave the previous (disabled) configuration active.
+    let (status, error) = server
+        .put(
+            "/api/admin/oidc",
+            &admin,
+            json!({
+                "enabled": true,
+                "issuer": "http://127.0.0.1:1",
+                "clientId": "ludex",
+                "displayName": "Broken"
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{error}");
+    assert_eq!(error["error"]["code"], "oidc_discovery_failed");
+    assert!(error["error"]["message"]
+        .as_str()
+        .expect("message")
+        .contains("Could not reach"));
+    let (_, config) = server.get("/api/config", None).await;
+    assert_eq!(config["features"]["oidc"], false);
+    assert_eq!(config["oidcDisplayName"], "SSO");
+
+    // Saving a reachable provider swaps the client without a restart.
+    let secret = "top-secret-client-value";
+    let (status, saved) = server
+        .put(
+            "/api/admin/oidc",
+            &admin,
+            json!({
+                "enabled": true,
+                "issuer": issuer,
+                "clientId": "ludex",
+                "displayName": "Authentik",
+                "publicBaseUrl": "https://ludex.example",
+                "scopes": "openid profile email groups",
+                "groupsClaim": "groups",
+                "adminGroups": [" admins ", "", "Admins", "operators"],
+                "replaceSecret": secret
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(saved["settings"]["enabled"], true);
+    assert_eq!(saved["settings"]["secretConfigured"], true);
+    assert_eq!(saved["settings"]["displayName"], "Authentik");
+    assert_eq!(
+        saved["settings"]["adminGroups"],
+        json!(["admins", "operators"])
+    );
+    assert_eq!(saved["status"]["ok"], true);
+    let wire = serde_json::to_string(&saved).expect("json");
+    assert!(
+        !wire.contains(secret),
+        "the client secret must never be returned by the API"
+    );
+
+    let (_, config) = server.get("/api/config", None).await;
+    assert_eq!(config["features"]["oidc"], true);
+    assert_eq!(config["oidcDisplayName"], "Authentik");
+
+    // The login route uses the new client immediately.
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("client");
+    let response = client
+        .get(format!("{}/api/auth/oidc/start", server.url))
+        .send()
+        .await
+        .expect("start");
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let location = response
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("location")
+        .to_string();
+    assert!(
+        location.starts_with(&format!("{issuer}/authorize")),
+        "{location}"
+    );
+    assert!(location.contains("client_id=ludex"));
+    assert!(location.contains("code_challenge_method=S256"));
+
+    // A later failing save keeps the working provider.
+    let (status, error) = server
+        .put(
+            "/api/admin/oidc",
+            &admin,
+            json!({
+                "enabled": true,
+                "issuer": "http://127.0.0.1:1",
+                "clientId": "ludex",
+                "displayName": "Broken again"
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{error}");
+    let (_, config) = server.get("/api/config", None).await;
+    assert_eq!(config["features"]["oidc"], true);
+    assert_eq!(config["oidcDisplayName"], "Authentik");
+    let (_, admin_view) = server.get("/api/admin/oidc", Some(&admin)).await;
+    assert_eq!(admin_view["settings"]["issuer"], issuer);
+    assert_eq!(admin_view["settings"]["displayName"], "Authentik");
+
+    // Resetting restores environment-only configuration (here: disabled).
+    let (status, reset) = server
+        .post("/api/admin/oidc/reset", Some(&admin), None)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{reset}");
+    assert_eq!(reset["settings"]["enabled"], false);
+    let (_, config) = server.get("/api/config", None).await;
+    assert_eq!(config["features"]["oidc"], false);
+
+    provider.abort();
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn saved_oidc_settings_survive_a_restart() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let (issuer, provider) = spawn_discovery_provider().await;
+    let mut config = Config::for_local(
+        temp.path().join("games"),
+        temp.path().join("data"),
+        temp.path().join("media"),
+    );
+    config.local_mode = false;
+    config.bind = "127.0.0.1:0".parse().expect("bind");
+    let client = Client::builder().build().expect("client");
+
+    let handle = start(config.clone()).await.expect("first start");
+    let response = client
+        .post(format!("{}/api/setup", handle.url))
+        .json(&json!({ "username": "admin", "password": ADMIN_PASSWORD }))
+        .send()
+        .await
+        .expect("setup");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.json::<Value>().await.expect("setup json");
+    let admin = body["token"].as_str().expect("token").to_string();
+
+    let response = client
+        .put(format!("{}/api/admin/oidc", handle.url))
+        .bearer_auth(&admin)
+        .json(&json!({
+            "enabled": true,
+            "issuer": issuer,
+            "clientId": "ludex",
+            "displayName": "Restart SSO",
+            "replaceSecret": "restart-secret"
+        }))
+        .send()
+        .await
+        .expect("save");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let _ = handle.shutdown.send(());
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    let handle = start(config).await.expect("second start");
+    let config_body = client
+        .get(format!("{}/api/config", handle.url))
+        .send()
+        .await
+        .expect("config")
+        .json::<Value>()
+        .await
+        .expect("config json");
+    assert_eq!(config_body["features"]["oidc"], true);
+    assert_eq!(config_body["oidcDisplayName"], "Restart SSO");
+
+    let admin_view = client
+        .get(format!("{}/api/admin/oidc", handle.url))
+        .bearer_auth(&admin)
+        .send()
+        .await
+        .expect("admin oidc")
+        .json::<Value>()
+        .await
+        .expect("admin json");
+    assert_eq!(admin_view["settings"]["secretConfigured"], true);
+    assert_eq!(admin_view["settings"]["issuer"], issuer);
+
+    let _ = handle.shutdown.send(());
+    provider.abort();
+}

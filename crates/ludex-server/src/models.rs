@@ -215,6 +215,8 @@ pub struct SaveSnapshot {
     pub id: i64,
     /// Game the snapshot belongs to.
     pub game_id: i64,
+    /// Version the snapshot was taken from, when reported by the client.
+    pub version_id: Option<i64>,
     /// User-supplied label.
     pub label: String,
     /// Sanitized client file name.
@@ -225,6 +227,10 @@ pub struct SaveSnapshot {
     pub sha256: String,
     /// Upload timestamp.
     pub created_at: DateTime<Utc>,
+    /// `manual` for a user upload, `auto` for the post-exit sync (#108).
+    pub source: String,
+    /// Opaque identifier of the device that uploaded the archive (#108).
+    pub device_id: Option<String>,
 }
 
 /// Row of the `save_snapshots` table.
@@ -239,6 +245,8 @@ pub struct SaveSnapshotRow {
     pub size: i64,
     pub sha256: String,
     pub created_at: String,
+    pub source: String,
+    pub device_id: Option<String>,
 }
 
 impl SaveSnapshotRow {
@@ -248,11 +256,14 @@ impl SaveSnapshotRow {
         SaveSnapshot {
             id: self.id,
             game_id: self.game_id,
+            version_id: self.version_id,
             label: self.label,
             file_name: self.file_name,
             size: self.size,
             sha256: self.sha256,
             created_at: crate::db::parse_time(&self.created_at).unwrap_or_else(Utc::now),
+            source: self.source,
+            device_id: self.device_id,
         }
     }
 }
@@ -471,7 +482,8 @@ pub struct ServerConfig {
     pub features: FeatureFlags,
     /// Maximum accepted upload size.
     pub max_upload_bytes: u64,
-    /// Display name for the SSO button.
+    /// Display name for the SSO button (the configured label even while SSO
+    /// is disabled, matching the historical response).
     pub oidc_display_name: String,
 }
 

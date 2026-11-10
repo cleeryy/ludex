@@ -172,6 +172,23 @@ line. `version_id` records the installed game version that was inspected.
 `uninstall_game` deletes both tables for the game. Reinstalling starts from a
 clean detection.
 
+## Automatic sync (server)
+
+Server-side snapshots carry sync metadata (#108):
+
+- `source` — `manual` (a user upload) or `auto` (the desktop after `game://exited`).
+- `deviceId` — opaque machine identifier; used for display only, never for
+  authorisation.
+- `versionId` — the build the save belongs to, when reported.
+- `sha256` — content hash; automatic uploads with a hash that already exists for
+  the user and game return the existing snapshot (`200`) instead of creating a
+  duplicate.
+- Retention keeps the newest **10 automatic** snapshots per user and game and
+  never prunes manual snapshots. Pruning removes rows first, then files, so a
+  crash cannot leave a row pointing at a missing archive.
+- The existing size limit and per-user isolation are unchanged; uploads are
+  multipart `file`, `label`, `source` and `deviceId` fields.
+
 ## Tauri commands
 
 See the command table in `docs/CONTRACT.md`:

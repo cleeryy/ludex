@@ -21,6 +21,9 @@ import type {
   LibraryFile,
   LibraryStats,
   NewsPost,
+  OidcAdminResponse,
+  OidcSettingsInput,
+  OidcTestResult,
   ProfilePatch,
   ProgressState,
   PublicProfile,
@@ -201,6 +204,26 @@ export const api = {
     return USING_MOCKS
       ? mockApi.changePassword(tokenStore.get(), body)
       : request("/auth/change-password", { method: "POST", body });
+  },
+
+  /* admin OIDC (#103) */
+  adminOidc(): Promise<OidcAdminResponse> {
+    return USING_MOCKS ? mockApi.adminOidc(tokenStore.get()) : request<OidcAdminResponse>("/admin/oidc");
+  },
+  saveOidcSettings(body: OidcSettingsInput): Promise<OidcAdminResponse> {
+    return USING_MOCKS
+      ? mockApi.saveOidcSettings(tokenStore.get(), body)
+      : request<OidcAdminResponse>("/admin/oidc", { method: "PUT", body });
+  },
+  testOidcSettings(body: OidcSettingsInput): Promise<OidcTestResult> {
+    return USING_MOCKS
+      ? mockApi.testOidcSettings(tokenStore.get(), body)
+      : request<OidcTestResult>("/admin/oidc/test", { method: "POST", body });
+  },
+  resetOidcSettings(): Promise<OidcAdminResponse> {
+    return USING_MOCKS
+      ? mockApi.resetOidcSettings(tokenStore.get())
+      : request<OidcAdminResponse>("/admin/oidc/reset", { method: "POST" });
   },
 
   /* games */

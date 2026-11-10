@@ -33,6 +33,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 mime_guess.workspace = true
 sha2.workspace = true
 hmac.workspace = true
+aes-gcm = "0.10"
+hkdf = "0.12"
 hex.workspace = true
 rand.workspace = true
 subtle.workspace = true

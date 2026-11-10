@@ -14,7 +14,7 @@ use crate::ingest::IngestHandle;
 use crate::metadata::IgdbClient;
 use crate::metrics::Metrics;
 use crate::models::ScanStatus;
-use crate::oidc::OidcClient;
+use crate::oidc::{OidcClient, OidcStatus};
 use crate::scanner::ScanRequest;
 use crate::storage::ArchiveStorage;
 use crate::watcher::{WatcherHandle, WatcherStatus};
@@ -38,8 +38,11 @@ pub struct AppState {
     pub http: reqwest::Client,
     /// IGDB client, present when credentials are configured.
     pub igdb: Option<IgdbClient>,
-    /// OIDC client, present when SSO is configured.
-    pub oidc: Option<OidcClient>,
+    /// OIDC client, atomically replaced when an administrator saves new SSO
+    /// settings. `None` means SSO is disabled.
+    pub oidc: Arc<RwLock<Option<OidcClient>>>,
+    /// Last discovery check, shown by the admin Authentication page.
+    pub oidc_status: Arc<RwLock<OidcStatus>>,
     /// Audit + webhook event bus.
     pub events: EventSink,
     /// Wakes the webhook delivery worker when a delivery is queued.
@@ -80,6 +83,12 @@ impl AppState {
     pub fn igdb_enabled(&self) -> bool {
         self.igdb.is_some()
     }
+
+    /// Snapshot of the current OIDC client. Cloning it is cheap (the flow
+    /// state is shared), and the read lock is never held across an `await`.
+    pub async fn oidc_client(&self) -> Option<OidcClient> {
+        self.oidc.read().await.clone()
+    }
 }
 
 #[cfg(test)]
@@ -111,7 +120,8 @@ impl AppState {
             scan_tx,
             http: reqwest::Client::new(),
             igdb: None,
-            oidc: None,
+            oidc: Arc::new(RwLock::new(None)),
+            oidc_status: Arc::new(RwLock::new(OidcStatus::default())),
             events: crate::events::channel().0,
             webhooks_notify: Arc::new(tokio::sync::Notify::new()),
             watcher: Arc::new(RwLock::new(WatcherStatus::default())),

@@ -179,6 +179,71 @@ export interface SetupStatus {
   version: string;
 }
 
+/* ------------------------------- OIDC admin ------------------------------ */
+
+/** Effective OIDC settings. The client secret is never included. */
+export interface OidcSettings {
+  enabled: boolean;
+  issuer: string | null;
+  clientId: string | null;
+  redirectUrl: string | null;
+  publicBaseUrl: string | null;
+  scopes: string;
+  displayName: string;
+  autoCreate: boolean;
+  defaultRole: Role;
+  groupsClaim: string;
+  adminGroups: string[];
+  /** Whether a secret is stored at rest. */
+  secretConfigured: boolean;
+}
+
+export interface OidcStatus {
+  ok: boolean;
+  issuer: string | null;
+  checkedAt: string | null;
+  error: string | null;
+}
+
+export interface OidcAdminResponse {
+  settings: OidcSettings;
+  /** camelCase field names pinned by `LUDEX_OIDC_*`. */
+  envLockedFields: string[];
+  status: OidcStatus;
+  linkedAccounts: number;
+}
+
+/** Write payload; `replaceSecret` is write-only and never returned. */
+export interface OidcSettingsInput {
+  enabled?: boolean;
+  issuer?: string | null;
+  clientId?: string | null;
+  redirectUrl?: string | null;
+  publicBaseUrl?: string | null;
+  scopes?: string;
+  displayName?: string;
+  autoCreate?: boolean;
+  defaultRole?: Role;
+  groupsClaim?: string;
+  adminGroups?: string[];
+  replaceSecret?: string | null;
+  clearSecret?: boolean;
+}
+
+export interface OidcDiscoveryInfo {
+  issuer: string;
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
+  jwksUri: string;
+  idTokenSigningAlgValuesSupported: string[];
+  tokenEndpointAuthMethodsSupported: string[];
+}
+
+export interface OidcTestResult {
+  ok: boolean;
+  discovery: OidcDiscoveryInfo;
+}
+
 export interface LibraryStats {
   games: number;
   versions: number;

@@ -120,7 +120,7 @@ interface ScanStatus {
 | GET | `/api/setup/status` | `{ needsSetup: boolean, serverName: string, version: string }` |
 | POST | `/api/setup` | body `{ username, password, serverName? }` → `{ token, user }`; 409 if users exist |
 | GET | `/api/media/{name}` | cached image/file (public, immutable cache headers) |
-| GET | `/api/config` | `{ serverName, version, features: { igdb, steam, ingest, localMode }, maxUploadBytes }` (public, used by setup/login) |
+| GET | `/api/config` | `{ serverName, version, features: { igdb, steam, ingest, localMode, oidc }, maxUploadBytes, oidcDisplayName }` (public, used by setup/login). `features.oidc` and `oidcDisplayName` reflect the live OIDC client, so a saved admin configuration applies without a restart |
 | GET | `/api/share/{token}` | public share page (`ShareView`); see *Share links (#9)* |
 | POST | `/api/share/{token}/access` | exchange a share link for a 15-minute download ticket; see *Share links (#9)* |
 
@@ -440,6 +440,94 @@ themselves while active, and the last active administrator cannot be demoted,
 deactivated or deleted (`409 last_admin`, `422 cannot_deactivate_self`).
 Changing your own username or password through this route is allowed.
 
+## Admin OIDC settings (#103)
+
+Administrators configure SSO from **Admin → Authentication**. All routes
+require an administrator session (`403 forbidden` otherwise). The client secret
+is write-only: no response ever includes it, and audit metadata never contains
+it. See `docs/OIDC.md` for precedence, encryption and rotation details.
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/admin/oidc` | effective non-secret settings + `secretConfigured`, `envLockedFields`, `status`, `linkedAccounts` |
+| PUT | `/api/admin/oidc` | validate the payload, encrypt a replacement secret, run discovery, persist and hot-swap; a failure leaves the previous config active |
+| POST | `/api/admin/oidc/test` | discovery against the submitted values; no persistence |
+| POST | `/api/admin/oidc/reset` | delete the saved row and fall back to `LUDEX_OIDC_*` only |
+
+```ts
+interface OidcSettings {
+  enabled: boolean;
+  issuer: string | null;
+  clientId: string | null;
+  redirectUrl: string | null;     // relative path or absolute URI
+  publicBaseUrl: string | null;
+  scopes: string;                 // space-separated, openid always added
+  displayName: string;            // "Sign in with …" label
+  autoCreate: boolean;
+  defaultRole: "admin" | "editor" | "user";
+  groupsClaim: string;            // dot path allowed
+  adminGroups: string[];
+  secretConfigured: boolean;      // true when a secret is stored at rest
+}
+
+interface OidcAdminResponse {
+  settings: OidcSettings;
+  envLockedFields: string[];      // camelCase names pinned by LUDEX_OIDC_*
+  status: {
+    ok: boolean;
+    issuer: string | null;
+    checkedAt: string | null;     // null = not checked since start
+    error: string | null;
+  };
+  linkedAccounts: number;         // users with oidc_issuer set
+}
+
+interface OidcSettingsInput {
+  enabled?: boolean;
+  issuer?: string | null;
+  clientId?: string | null;
+  redirectUrl?: string | null;
+  publicBaseUrl?: string | null;
+  scopes?: string;
+  displayName?: string;
+  autoCreate?: boolean;
+  defaultRole?: "admin" | "editor" | "user";
+  groupsClaim?: string;
+  adminGroups?: string[];
+  replaceSecret?: string | null;  // write-only; blank keeps the stored secret
+  clearSecret?: boolean;          // remove the secret (public PKCE client)
+}
+```
+
+`PUT` returns the same `OidcAdminResponse` as `GET`. Validation failures use
+`400 invalid_oidc_*` (`invalid_oidc_issuer`, `insecure_oidc_issuer`,
+`invalid_oidc_client_id`, `invalid_oidc_redirect_url`,
+`invalid_oidc_public_base_url`, `invalid_oidc_groups_claim`). A discovery
+failure returns `502 oidc_discovery_failed` with the provider error in
+`message`, and nothing is persisted or swapped. Requesting a save while the
+stored secret cannot be decrypted (server secret changed) returns
+`400 oidc_secret_unreadable` unless the request replaces or clears it.
+
+`POST /api/admin/oidc/test` returns:
+
+```ts
+interface OidcTestResult {
+  ok: true;
+  discovery: {
+    issuer: string;
+    authorizationEndpoint: string;
+    tokenEndpoint: string;
+    jwksUri: string;
+    idTokenSigningAlgValuesSupported: string[];
+    tokenEndpointAuthMethodsSupported: string[];
+  };
+}
+```
+
+Each successful save or test records `settings.oidc_updated` in the audit log
+with `{ issuer, enabled, fields }` (field names only) or `{ reset: true, … }`
+for a reset.
+
 ## API keys (#40)
 
 API keys are random `ldx_<64 hex>` bearer tokens. The plaintext token is
@@ -475,8 +563,8 @@ metadata, IP when known, and timestamp. Recorded actions: `login.succeeded`,
 `login.failed`, `user.created|updated|deleted|password_changed|password_reset`,
 `api_key.created|revoked`,
 `game.ingested|deleted`, `download.completed`, `settings.updated`,
-`webhook.created|updated|deleted`, `save.uploaded|deleted`, `oidc.login`,
-`oidc.linked`.
+`settings.oidc_updated`, `webhook.created|updated|deleted`,
+`save.uploaded|deleted`, `oidc.login`, `oidc.linked`.
 
 ```ts
 interface AuditLog {
