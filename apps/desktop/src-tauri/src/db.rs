@@ -276,6 +276,8 @@ CREATE TABLE IF NOT EXISTS cloud_save_restore (
     restored_at       TEXT    NOT NULL,
     local_backup_path TEXT
 );
+"#;
+
 /// Issue #115: per-entry checkpoints for resumable stream installs (v10).
 ///
 /// `stream_completed` is a hex bitset of completed entry indexes (bit `i` set
@@ -2596,6 +2598,7 @@ mod tests {
         let restore = get_cloud_save_restore(&connection, 3).unwrap().unwrap();
         assert_eq!(restore.snapshot_id, 42);
         assert!(restore.local_backup_path.is_none());
+    }
 
     #[test]
     fn stream_checkpoints_roundtrip_and_prune() {
