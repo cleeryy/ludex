@@ -30,7 +30,23 @@ pub struct InstalledGame {
     /// Absolute install root used for this game (not exposed to the web UI).
     #[serde(skip)]
     pub install_root: Option<String>,
+    /// How the entry entered the local index: `ludex` (installed by this app)
+    /// or `steam` (imported from a Steam library, #13).
+    #[serde(default = "default_source")]
+    pub source: String,
+    /// External launch URI for imported entries (`steam://rungameid/…`).
+    #[serde(default)]
+    pub launch_uri: Option<String>,
 }
+
+fn default_source() -> String {
+    SOURCE_LUDEX.to_string()
+}
+
+/// A game installed by the Ludex installer.
+pub const SOURCE_LUDEX: &str = "ludex";
+/// A Steam game imported into the local index (#13).
+pub const SOURCE_STEAM: &str = "steam";
 
 /// One recorded play session, as shown in the game page and the tray.
 #[derive(Debug, Clone, Serialize)]
@@ -74,7 +90,7 @@ pub struct PendingSession {
     pub minutes: i64,
 }
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -152,6 +168,16 @@ UPDATE sessions SET seconds = minutes * 60 WHERE seconds = 0 AND minutes > 0;
 CREATE INDEX IF NOT EXISTS sessions_started_idx ON sessions (game_id, started_at DESC);
 "#;
 
+/// External library imports (#13): entries that live outside `installDir` and
+/// launch through another client (`steam://rungameid/…`). A partial unique
+/// index makes a second import of the same URI impossible.
+const SCHEMA_V5: &str = r#"
+ALTER TABLE installed_games ADD COLUMN source TEXT NOT NULL DEFAULT 'ludex';
+ALTER TABLE installed_games ADD COLUMN launch_uri TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS installed_games_launch_uri_idx
+    ON installed_games (launch_uri) WHERE launch_uri IS NOT NULL;
+"#;
+
 pub fn open(path: &Path) -> Result<Connection, String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
@@ -205,6 +231,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             .execute_batch(SCHEMA_V4)
             .map_err(|e| format!("Could not upgrade the desktop database for playtime: {e}"))?;
     }
+    if version < 5 {
+        connection
+            .execute_batch(SCHEMA_V5)
+            .map_err(|e| format!("Could not add external imports to the desktop database: {e}"))?;
+    }
 
     if version < SCHEMA_VERSION {
         connection
@@ -222,8 +253,9 @@ pub fn upsert_installed(connection: &Connection, game: &InstalledGame) -> Result
             r#"
             INSERT INTO installed_games
                 (game_id, version_id, title, version, install_path, executable,
-                 size_bytes, installed_at, last_launched_at, archive_hash, install_root)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                 size_bytes, installed_at, last_launched_at, archive_hash, install_root,
+                 source, launch_uri)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
             ON CONFLICT(game_id) DO UPDATE SET
                 version_id       = excluded.version_id,
                 title            = excluded.title,
@@ -234,7 +266,9 @@ pub fn upsert_installed(connection: &Connection, game: &InstalledGame) -> Result
                 installed_at     = excluded.installed_at,
                 last_launched_at = excluded.last_launched_at,
                 archive_hash     = excluded.archive_hash,
-                install_root     = excluded.install_root
+                install_root     = excluded.install_root,
+                source           = excluded.source,
+                launch_uri       = excluded.launch_uri
             "#,
             params![
                 game.game_id,
@@ -248,6 +282,8 @@ pub fn upsert_installed(connection: &Connection, game: &InstalledGame) -> Result
                 game.last_launched_at,
                 game.archive_hash,
                 game.install_root,
+                game.source,
+                game.launch_uri,
             ],
         )
         .map_err(|e| format!("Could not record the installed game: {e}"))?;
@@ -267,6 +303,8 @@ fn map_installed(row: &rusqlite::Row<'_>) -> rusqlite::Result<InstalledGame> {
         last_launched_at: row.get(8)?,
         archive_hash: row.get(9)?,
         install_root: row.get(10)?,
+        source: row.get(11)?,
+        launch_uri: row.get(12)?,
     })
 }
 
@@ -275,7 +313,8 @@ pub fn list_installed(connection: &Connection) -> Result<Vec<InstalledGame>, Str
         .prepare(
             r#"
             SELECT game_id, version_id, title, version, install_path, executable,
-                   size_bytes, installed_at, last_launched_at, archive_hash, install_root
+                   size_bytes, installed_at, last_launched_at, archive_hash, install_root,
+                   source, launch_uri
             FROM installed_games
             ORDER BY title COLLATE NOCASE ASC
             "#,
@@ -301,7 +340,8 @@ pub fn get_installed(
         .query_row(
             r#"
             SELECT game_id, version_id, title, version, install_path, executable,
-                   size_bytes, installed_at, last_launched_at, archive_hash, install_root
+                   size_bytes, installed_at, last_launched_at, archive_hash, install_root,
+                   source, launch_uri
             FROM installed_games
             WHERE game_id = ?1
             "#,
@@ -320,6 +360,54 @@ pub fn remove_installed(connection: &Connection, game_id: i64) -> Result<bool, S
         )
         .map_err(|e| format!("Could not remove the installed game: {e}"))?;
     Ok(affected > 0)
+}
+
+/// Record the executable chosen after an interactive or silent installer run
+/// (#7), or from the exe picker.
+pub fn set_executable(
+    connection: &Connection,
+    game_id: i64,
+    executable: Option<&str>,
+) -> Result<(), String> {
+    let affected = connection
+        .execute(
+            "UPDATE installed_games SET executable = ?2 WHERE game_id = ?1",
+            params![game_id, executable],
+        )
+        .map_err(|e| format!("Could not record the executable: {e}"))?;
+    if affected == 0 {
+        return Err(format!("Game {game_id} is not installed."));
+    }
+    Ok(())
+}
+
+/// Every entry imported from one source (`steam` today).
+pub fn list_installed_by_source(
+    connection: &Connection,
+    source: &str,
+) -> Result<Vec<InstalledGame>, String> {
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT game_id, version_id, title, version, install_path, executable,
+                   size_bytes, installed_at, last_launched_at, archive_hash, install_root,
+                   source, launch_uri
+            FROM installed_games
+            WHERE source = ?1
+            ORDER BY title COLLATE NOCASE ASC
+            "#,
+        )
+        .map_err(|e| format!("Could not read imported games: {e}"))?;
+
+    let rows = statement
+        .query_map(params![source], map_installed)
+        .map_err(|e| format!("Could not read imported games: {e}"))?;
+
+    let mut games = Vec::new();
+    for row in rows {
+        games.push(row.map_err(|e| format!("Could not read imported games: {e}"))?);
+    }
+    Ok(games)
 }
 
 pub fn touch_launched(
@@ -367,7 +455,9 @@ pub fn finish_session(
     Ok(())
 }
 
-/// Installed games ordered by the last launch, for the tray menu and Home.
+/// Installed games ordered by the most recent activity (last launch, else the
+/// import/install date), for the tray menu and Home. Imported Steam games have
+/// never been launched through Ludex and must still be listed.
 pub fn recent_installed(
     connection: &Connection,
     limit: usize,
@@ -376,10 +466,10 @@ pub fn recent_installed(
         .prepare(
             r#"
             SELECT game_id, version_id, title, version, install_path, executable,
-                   size_bytes, installed_at, last_launched_at, archive_hash, install_root
+                   size_bytes, installed_at, last_launched_at, archive_hash, install_root,
+                   source, launch_uri
             FROM installed_games
-            WHERE last_launched_at IS NOT NULL
-            ORDER BY last_launched_at DESC, title COLLATE NOCASE ASC
+            ORDER BY COALESCE(last_launched_at, installed_at) DESC, title COLLATE NOCASE ASC
             LIMIT ?1
             "#,
         )
@@ -786,7 +876,39 @@ mod tests {
         connection.execute_batch(SCHEMA_V2).unwrap();
         connection.execute_batch(SCHEMA_V3).unwrap();
         connection.execute_batch(SCHEMA_V4).unwrap();
+        connection.execute_batch(SCHEMA_V5).unwrap();
         connection
+    }
+
+    #[test]
+    fn migration_adds_external_import_columns() {
+        let connection = memory_database();
+        let columns: Vec<String> = connection
+            .prepare("PRAGMA table_info(installed_games)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .map(|name| name.unwrap())
+            .collect();
+        assert!(columns.iter().any(|name| name == "source"));
+        assert!(columns.iter().any(|name| name == "launch_uri"));
+
+        let uri = "steam://rungameid/440";
+        connection
+            .execute(
+                "INSERT INTO installed_games (game_id, version_id, title, install_path, installed_at, launch_uri)
+                 VALUES (-440, 0, 'TF2', '/steam/tf2', '2026-11-10T00:00:00Z', ?1)",
+                params![uri],
+            )
+            .unwrap();
+        // The partial unique index rejects a second import of the same URI.
+        assert!(connection
+            .execute(
+                "INSERT INTO installed_games (game_id, version_id, title, install_path, installed_at, launch_uri)
+                 VALUES (-441, 0, 'TF2 again', '/steam/tf2', '2026-11-10T00:00:00Z', ?1)",
+                params![uri],
+            )
+            .is_err());
     }
 
     #[test]
@@ -804,6 +926,8 @@ mod tests {
             last_launched_at: None,
             archive_hash: Some("sha256-sample:abc".into()),
             install_root: Some("/tmp".into()),
+            source: SOURCE_LUDEX.into(),
+            launch_uri: None,
         };
         upsert_installed(&connection, &game).unwrap();
         let loaded = get_installed(&connection, 7).unwrap().unwrap();
@@ -993,14 +1117,18 @@ mod tests {
             last_launched_at: Some("2026-01-01T00:00:00Z".into()),
             archive_hash: None,
             install_root: Some("/games".into()),
+            source: SOURCE_LUDEX.into(),
+            launch_uri: None,
         };
         upsert_installed(&connection, &first).unwrap();
         first.game_id = 2;
         first.title = "Beta".into();
+        first.installed_at = "2026-01-02T00:00:00Z".into();
         first.last_launched_at = Some("2026-01-02T00:00:00Z".into());
         upsert_installed(&connection, &first).unwrap();
         first.game_id = 3;
         first.title = "Never played".into();
+        first.installed_at = "2026-01-03T00:00:00Z".into();
         first.last_launched_at = None;
         upsert_installed(&connection, &first).unwrap();
 
@@ -1010,7 +1138,8 @@ mod tests {
                 .iter()
                 .map(|game| game.title.as_str())
                 .collect::<Vec<_>>(),
-            vec!["Beta", "Alpha"]
+            // The never-launched entry still appears, by install date.
+            vec!["Never played", "Beta", "Alpha"]
         );
         assert_eq!(recent_installed(&connection, 1).unwrap().len(), 1);
     }

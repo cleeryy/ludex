@@ -75,17 +75,28 @@ pub async fn launch(
         }
     }
 
-    let executable_path = resolve_executable(
-        &install_path,
-        executable.as_deref(),
-        installed.executable.as_deref(),
-        &installed.title,
-    )?;
+    let executable_path = match installed.launch_uri.as_deref().map(str::trim) {
+        Some(uri) if !uri.is_empty() => None,
+        _ => Some(resolve_executable(
+            &install_path,
+            executable.as_deref(),
+            installed.executable.as_deref(),
+            &installed.title,
+        )?),
+    };
 
-    let mut command = build_command(&executable_path, &install_path, args.as_deref())?;
-    let child = command
-        .spawn()
-        .map_err(|e| format!("Could not launch {}: {e}", executable_path.display()))?;
+    let mut command = match (&installed.launch_uri, &executable_path) {
+        (Some(uri), _) if !uri.trim().is_empty() => build_uri_command(uri)?,
+        (_, Some(path)) => build_command(path, &install_path, args.as_deref())?,
+        (_, None) => return Err("No executable was found for this game.".to_string()),
+    };
+    let child = command.spawn().map_err(|e| match &executable_path {
+        Some(path) => format!("Could not launch {}: {e}", path.display()),
+        None => format!(
+            "Could not open {}: {e}",
+            installed.launch_uri.as_deref().unwrap_or("the game")
+        ),
+    })?;
     let pid = child.id();
 
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -127,6 +138,7 @@ pub async fn launch(
     spawn_watcher(app.clone(), entry, session_id.clone(), game_id);
     // The tray lists recent games by last launch.
     crate::tray::refresh_menu(app);
+    announce_presence(app, game_id, &installed.title, started_at);
 
     // Opportunistically flush sessions that failed to sync earlier.
     let sync_app = app.clone();
@@ -243,6 +255,37 @@ fn platform_command(executable: &Path) -> Result<Command, String> {
     Ok(Command::new(executable))
 }
 
+/// Open an external launch URI (`steam://rungameid/…`).
+///
+/// The handler (Steam) takes ownership of the game process, so playtime is
+/// observed through the handler's short-lived process tree.
+fn build_uri_command(uri: &str) -> Result<Command, String> {
+    let uri = uri.trim();
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", "", uri]);
+        Ok(command)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut command = Command::new("open");
+        command.arg(uri);
+        Ok(command)
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if paths::find_on_path("xdg-open").is_none() {
+            return Err(
+                "xdg-open is required to open external game launchers on Linux.".to_string(),
+            );
+        }
+        let mut command = Command::new("xdg-open");
+        command.arg(uri);
+        Ok(command)
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn platform_command(executable: &Path) -> Result<Command, String> {
     let is_bundle = executable
@@ -284,6 +327,59 @@ fn platform_command(executable: &Path) -> Result<Command, String> {
         }
         _ => Ok(Command::new(executable)),
     }
+}
+
+/// Publish the running game to Discord (#12).
+///
+/// The cover URL is fetched from the server when it is reachable; a private or
+/// failing URL simply leaves the art out. Nothing here blocks the launch.
+fn announce_presence(
+    app: &AppHandle,
+    game_id: i64,
+    title: &str,
+    started_at: chrono::DateTime<chrono::Utc>,
+) {
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+    if !settings.discord_presence || settings.discord_client_id.trim().is_empty() {
+        return;
+    }
+    let title = title.to_string();
+    let base = settings.server_url.trim_end_matches('/').to_string();
+    let token = settings.token.clone();
+    let http = state.http.clone();
+
+    tauri::async_runtime::spawn(async move {
+        let cover = if base.is_empty() || game_id <= 0 {
+            None
+        } else {
+            fetch_cover(&http, &base, token.as_deref(), game_id).await
+        };
+        crate::presence::set_payload(Some(crate::presence::PresencePayload::playing(
+            &title,
+            cover.as_deref(),
+            started_at,
+        )));
+    });
+}
+
+async fn fetch_cover(
+    http: &reqwest::Client,
+    base: &str,
+    token: Option<&str>,
+    game_id: i64,
+) -> Option<String> {
+    let mut request = http
+        .get(format!("{base}/api/games/{game_id}"))
+        .timeout(Duration::from_secs(5));
+    if let Some(token) = non_empty(token) {
+        request = request.bearer_auth(token);
+    }
+    let value: serde_json::Value = request.send().await.ok()?.json().await.ok()?;
+    value
+        .get("coverUrl")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
 }
 
 fn spawn_watcher(app: AppHandle, entry: Arc<ProcessEntry>, session_id: String, game_id: i64) {
@@ -353,6 +449,9 @@ fn spawn_watcher(app: AppHandle, entry: Arc<ProcessEntry>, session_id: String, g
             },
         );
 
+        // Discord presence goes back to idle (#12).
+        crate::presence::set_payload(Some(crate::presence::PresencePayload::idle()));
+
         let sync_app = app.clone();
         let sync_session_id = session_id;
         tauri::async_runtime::spawn(async move {
@@ -408,6 +507,13 @@ pub async fn sync_session(
     }
 
     let state = app.state::<AppState>();
+    // Steam imports (#13) and other external entries have no server game.
+    if game_id <= 0 {
+        if let Ok(connection) = state.db.lock() {
+            let _ = db::mark_session_synced(&connection, session_id);
+        }
+        return Ok(());
+    }
     let settings = state.settings_snapshot();
     let base = settings.server_url.trim_end_matches('/');
     if base.is_empty() {

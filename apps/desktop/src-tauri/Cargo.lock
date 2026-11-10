@@ -630,7 +630,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a347dcabdae9c31b0825fd6a8bed285ec9c2acb89c47827126d52fa4f59cece3"
 dependencies = [
  "fnv",
- "uuid",
+ "uuid 1.29.2",
  "web-time",
 ]
 
@@ -1053,6 +1053,21 @@ dependencies = [
  "option-ext",
  "redox_users",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "discord-rich-presence"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90c55d69cab17c19677ce3a5f8face993a9e6eaf847fecac3547f3a3ff4a2494"
+dependencies = [
+ "log",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_repr",
+ "thiserror 2.0.21",
+ "uuid 0.8.2",
 ]
 
 [[package]]
@@ -2679,7 +2694,7 @@ dependencies = [
  "tar",
  "thiserror 2.0.21",
  "unrar",
- "uuid",
+ "uuid 1.29.2",
  "walkdir",
  "zip 2.6.1",
 ]
@@ -2689,6 +2704,7 @@ name = "ludex-desktop"
 version = "0.2.0"
 dependencies = [
  "chrono",
+ "discord-rich-presence",
  "fs2",
  "futures-util",
  "hex",
@@ -2713,7 +2729,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
- "uuid",
+ "uuid 1.29.2",
  "zip 2.6.1",
 ]
 
@@ -2752,7 +2768,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "uuid",
+ "uuid 1.29.2",
  "walkdir",
 ]
 
@@ -4308,7 +4324,7 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
- "uuid",
+ "uuid 1.29.2",
 ]
 
 [[package]]
@@ -4842,7 +4858,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
- "uuid",
+ "uuid 1.29.2",
 ]
 
 [[package]]
@@ -4923,7 +4939,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.21",
  "tracing",
- "uuid",
+ "uuid 1.29.2",
  "whoami",
 ]
 
@@ -4962,7 +4978,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.21",
  "tracing",
- "uuid",
+ "uuid 1.29.2",
  "whoami",
 ]
 
@@ -4989,7 +5005,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "url",
- "uuid",
+ "uuid 1.29.2",
 ]
 
 [[package]]
@@ -5327,7 +5343,7 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "url",
- "uuid",
+ "uuid 1.29.2",
  "walkdir",
 ]
 
@@ -5574,7 +5590,7 @@ dependencies = [
  "toml 1.2.1+spec-1.1.0",
  "url",
  "urlpattern",
- "uuid",
+ "uuid 1.29.2",
  "walkdir",
 ]
 
@@ -6162,6 +6178,15 @@ name = "utf_types"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a3b425286980a367278453f3b6d28cdcb134b574e5a35824a6ff5eebad50bb6"
+
+[[package]]
+name = "uuid"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
+dependencies = [
+ "getrandom 0.2.17",
+]
 
 [[package]]
 name = "uuid"
@@ -7048,7 +7073,7 @@ dependencies = [
  "serde_repr",
  "tracing",
  "uds_windows",
- "uuid",
+ "uuid 1.29.2",
  "windows-sys 0.61.2",
  "winnow 1.0.5",
  "zbus_macros",

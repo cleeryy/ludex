@@ -4,14 +4,17 @@ mod bridge;
 mod commands;
 mod db;
 mod install;
+mod installer;
 mod launch;
 mod maintenance;
 mod manifest;
 mod paths;
+mod presence;
 mod process_tree;
 mod server;
 mod settings;
 mod state;
+mod steam;
 #[cfg(test)]
 mod test_support;
 mod tray;
@@ -55,9 +58,12 @@ pub fn run() {
         })
         .setup(|app| {
             let state = state::AppState::new(app.handle()).map_err(std::io::Error::other)?;
+            let settings = state.settings_snapshot();
             app.manage(state);
 
             tray::init(app.handle()).map_err(std::io::Error::other)?;
+            // Discord Rich Presence (#12): off unless enabled in settings.
+            presence::start(settings.discord_presence, &settings.discord_client_id);
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -108,6 +114,14 @@ pub fn run() {
             commands::restart_app,
             commands::open_path,
             commands::get_disk_usage,
+            commands::installer_plan,
+            commands::run_installer,
+            commands::cancel_installer,
+            commands::set_executable,
+            commands::choose_executable,
+            commands::presence_status,
+            commands::steam_scan,
+            commands::steam_import,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Ludex application");
@@ -115,6 +129,7 @@ pub fn run() {
     app.run(|app_handle, event| {
         if matches!(event, RunEvent::Exit) {
             server::stop_on_exit(app_handle);
+            presence::shutdown();
         }
     });
 }
