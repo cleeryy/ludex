@@ -196,7 +196,7 @@ fn escape(value: &str) -> String {
 }
 
 /// Last integrity report, as exposed by `/metrics` and health details.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IntegritySummary {
     /// Report id.

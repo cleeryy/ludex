@@ -79,6 +79,9 @@ async fn main() -> Result<()> {
         storage,
         metrics: Arc::new(ludex_server::metrics::Metrics::default()),
         ingest: None,
+        rate_limiter: Arc::new(ludex_server::security::RateLimiter::disabled()),
+        login_guard: Arc::new(ludex_server::security::LoginGuard::disabled()),
+        session_touch: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     };
 
     let ids = sqlx::query_scalar::<_, i64>("SELECT id FROM games ORDER BY id")

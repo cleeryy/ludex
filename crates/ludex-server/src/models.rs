@@ -137,7 +137,7 @@ pub struct NewsRow {
 }
 
 /// Public representation of a cloud save snapshot.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveSnapshot {
     /// Snapshot id.
@@ -187,7 +187,7 @@ impl SaveSnapshotRow {
 }
 
 /// Scanner status exposed by `GET /api/library/scan`.
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanStatus {
     /// Whether a scan is currently running.
@@ -211,17 +211,20 @@ pub struct ScanStatus {
 }
 
 /// `POST /api/auth/login` and `POST /api/setup` response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthResponse {
     /// Signed access token.
     pub token: String,
     /// Authenticated account.
     pub user: User,
+    /// Token expiry, when the token belongs to a tracked session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 /// Login request.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LoginRequest {
     /// Login name.
@@ -231,7 +234,7 @@ pub struct LoginRequest {
 }
 
 /// First-run setup request.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SetupRequest {
     /// Administrator username.
@@ -244,7 +247,7 @@ pub struct SetupRequest {
 }
 
 /// First-run setup status.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SetupStatus {
     /// True while the server has no accounts.
@@ -256,7 +259,7 @@ pub struct SetupStatus {
 }
 
 /// `GET /api/health` response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthResponse {
     /// Always `ok` when the request succeeds.
@@ -268,7 +271,7 @@ pub struct HealthResponse {
 }
 
 /// `GET /api/health/details` response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthDetails {
     /// `ok` or `degraded` when the database is unreachable.
@@ -296,7 +299,7 @@ pub struct HealthDetails {
 }
 
 /// Database section of the health details.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthDatabase {
     /// Whether `SELECT 1` succeeded.
@@ -306,7 +309,7 @@ pub struct HealthDatabase {
 }
 
 /// Disk section of the health details.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthDisk {
     /// Free bytes under the data directory.
@@ -318,7 +321,7 @@ pub struct HealthDisk {
 }
 
 /// Library section of the health details.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthLibrary {
     /// Games in the library.
@@ -336,7 +339,7 @@ pub struct HealthLibrary {
 }
 
 /// Ingest queue section of the health details.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthIngest {
     /// Jobs waiting for a download slot.
@@ -354,7 +357,7 @@ pub struct HealthIngest {
 }
 
 /// Watcher section of the health details. Root paths stay private.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthWatcher {
     /// Whether the watcher task is running.
@@ -370,7 +373,7 @@ pub struct HealthWatcher {
 }
 
 /// Feature flags exposed by `GET /api/config`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FeatureFlags {
     /// IGDB credentials configured.
@@ -386,7 +389,7 @@ pub struct FeatureFlags {
 }
 
 /// `GET /api/config` response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerConfig {
     /// Display name.
@@ -402,7 +405,7 @@ pub struct ServerConfig {
 }
 
 /// Password change request.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangePasswordRequest {
     /// Current password.
@@ -412,7 +415,7 @@ pub struct ChangePasswordRequest {
 }
 
 /// Admin user creation request.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateUserRequest {
     /// Login name.
@@ -428,7 +431,7 @@ pub struct CreateUserRequest {
 }
 
 /// Admin user update request.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateUserRequest {
     /// New e-mail (`null` or `""` clears it).
@@ -443,7 +446,7 @@ pub struct UpdateUserRequest {
 }
 
 /// Query string for `GET /api/games` and `/api/games/random`.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GameQuery {
     /// Title substring.
@@ -497,7 +500,7 @@ pub struct GameQuery {
 }
 
 /// Query string for `GET /api/games/suggest`.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SuggestQuery {
     /// Free-text query, usually a partial title with typos.
@@ -509,7 +512,7 @@ pub struct SuggestQuery {
 }
 
 /// One fuzzy-search suggestion with cover art and match metadata.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GameSuggestion {
     /// Game id.
@@ -529,7 +532,7 @@ pub struct GameSuggestion {
 }
 
 /// Response of `GET /api/games/suggest`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SuggestResponse {
     /// Normalised query echoed back.
@@ -539,7 +542,7 @@ pub struct SuggestResponse {
 }
 
 /// Editor game metadata update.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateGameRequest {
     /// New display title.
@@ -587,7 +590,7 @@ pub struct UpdateGameRequest {
 }
 
 /// Progress state update.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgressRequest {
     /// New state.
@@ -595,7 +598,7 @@ pub struct ProgressRequest {
 }
 
 /// Playtime report.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaytimeRequest {
     /// Minutes played; clamped to 1..=1440.
@@ -603,7 +606,7 @@ pub struct PlaytimeRequest {
 }
 
 /// Bookmark update.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct BookmarkRequest {
     /// Desired bookmark state.
@@ -611,7 +614,7 @@ pub struct BookmarkRequest {
 }
 
 /// Bookmark response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct BookmarkResponse {
     /// Current bookmark state.
@@ -619,7 +622,7 @@ pub struct BookmarkResponse {
 }
 
 /// Download ticket request.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TicketRequest {
     /// Specific version, or the newest available one.
@@ -628,7 +631,7 @@ pub struct TicketRequest {
 }
 
 /// Download ticket response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TicketResponse {
     /// Absolute-path URL including the short-lived ticket.
@@ -638,7 +641,7 @@ pub struct TicketResponse {
 }
 
 /// Query string for the download route.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadQuery {
     /// Version to stream.
@@ -650,7 +653,7 @@ pub struct DownloadQuery {
 }
 
 /// Query string for the ZIP stream-install route.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct StreamQuery {
     /// Short-lived download ticket, accepted instead of a Bearer token.
@@ -659,28 +662,28 @@ pub struct StreamQuery {
 }
 
 /// Local path response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct LocalPathResponse {
     /// Absolute path on the server's filesystem.
     pub path: String,
 }
 
 /// Scan trigger response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ScanResponse {
     /// Whether a scan was queued.
     pub started: bool,
 }
 
 /// Metadata refresh response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct RefreshResponse {
     /// Always true: enrichment runs in the background.
     pub queued: bool,
 }
 
 /// `POST /api/library/roots` request.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateLibraryRootRequest {
     /// Optional label; defaults to the last path component.
@@ -694,7 +697,7 @@ pub struct CreateLibraryRootRequest {
 }
 
 /// `PATCH /api/library/roots/{id}` request.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateLibraryRootRequest {
     /// New label.
@@ -712,7 +715,7 @@ pub struct UpdateLibraryRootRequest {
 }
 
 /// `POST /api/library/roots/{id}/scan` response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RootScanResponse {
     /// Whether a scan was queued.
@@ -722,7 +725,7 @@ pub struct RootScanResponse {
 }
 
 /// `POST /api/integrity/check` request.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IntegrityCheckRequest {
     /// `all` (default), `archives` or `media`.
@@ -731,7 +734,7 @@ pub struct IntegrityCheckRequest {
 }
 
 /// `POST /api/integrity/check` response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IntegrityCheckResponse {
     /// Report id to poll with `GET /api/integrity/reports/{id}`.
@@ -741,7 +744,7 @@ pub struct IntegrityCheckResponse {
 }
 
 /// `GET /api/integrity/reports/{id}` response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IntegrityReportDetail {
     /// Report summary.
@@ -751,7 +754,7 @@ pub struct IntegrityReportDetail {
 }
 
 /// `POST /api/media/gc` query.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MediaGcQuery {
     /// Compute the plan without deleting anything (default true).
@@ -760,7 +763,7 @@ pub struct MediaGcQuery {
 }
 
 /// Library folder response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LibraryFolders {
     /// Library volume.
@@ -772,7 +775,7 @@ pub struct LibraryFolders {
 }
 
 /// News creation request.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateNewsRequest {
     /// Post title.
@@ -782,7 +785,7 @@ pub struct CreateNewsRequest {
 }
 
 /// News update request.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateNewsRequest {
     /// New title.
@@ -794,7 +797,7 @@ pub struct UpdateNewsRequest {
 }
 
 /// Response wrapping a single user.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct UserResponse {
     /// Account.
     pub user: User,
@@ -835,7 +838,7 @@ impl ApiKeyRow {
 }
 
 /// API key metadata returned by `/api/keys`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKey {
     /// Key id.
@@ -857,7 +860,7 @@ pub struct ApiKey {
 }
 
 /// `POST /api/keys` request.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateApiKeyRequest {
     /// Human label.
@@ -871,7 +874,7 @@ pub struct CreateApiKeyRequest {
 }
 
 /// `POST /api/keys` response: the plaintext secret is shown exactly once.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateApiKeyResponse {
     /// Key metadata.
@@ -882,7 +885,7 @@ pub struct CreateApiKeyResponse {
 }
 
 /// Query string for `GET /api/keys`.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeyQuery {
     /// Admin only: list keys for every account.
@@ -924,7 +927,7 @@ impl AuditLogRow {
 }
 
 /// One audit entry.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditLog {
     /// Row id, also the pagination cursor.
@@ -948,7 +951,7 @@ pub struct AuditLog {
 }
 
 /// Query string for `GET /api/audit`.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditQuery {
     /// Page size, 1..=200 (default 50).
@@ -975,7 +978,7 @@ pub struct AuditQuery {
 }
 
 /// One page of audit entries.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditPage {
     /// Newest-first entries.
@@ -1010,7 +1013,7 @@ impl WebhookRow {
 }
 
 /// Webhook metadata.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Webhook {
     /// Webhook id.
@@ -1026,7 +1029,7 @@ pub struct Webhook {
 }
 
 /// `POST /api/webhooks` response: the signing secret is shown once.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateWebhookResponse {
     /// Webhook metadata.
@@ -1037,7 +1040,7 @@ pub struct CreateWebhookResponse {
 }
 
 /// `POST /api/webhooks` request.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateWebhookRequest {
     /// Delivery URL (http/https, public unless explicitly allowed).
@@ -1050,7 +1053,7 @@ pub struct CreateWebhookRequest {
 }
 
 /// `PATCH /api/webhooks/{id}` request.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateWebhookRequest {
     /// Replacement URL.
@@ -1068,7 +1071,7 @@ pub struct UpdateWebhookRequest {
 }
 
 /// `PATCH /api/webhooks/{id}` response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateWebhookResponse {
     /// Webhook metadata.
@@ -1080,7 +1083,7 @@ pub struct UpdateWebhookResponse {
 }
 
 /// `POST /api/webhooks/{id}/test` response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct WebhookTestResponse {
     /// Queued delivery id.
@@ -1088,7 +1091,7 @@ pub struct WebhookTestResponse {
 }
 
 /// Kind of collection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum CollectionKind {
     /// Explicit list of games.
@@ -1119,7 +1122,7 @@ impl CollectionKind {
 }
 
 /// One rule inside a smart collection.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SmartRule {
     /// `genre`, `year`, `players`, `playtime`, `rating`, `installed`,
@@ -1136,7 +1139,7 @@ pub struct SmartRule {
 }
 
 /// Rule tree of a smart collection.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SmartRules {
     /// `all` (AND) or `any` (OR).
@@ -1161,7 +1164,7 @@ fn default_match_mode() -> String {
 }
 
 /// Owner of a collection, as exposed by the API.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CollectionOwner {
     /// Account id.
@@ -1173,7 +1176,7 @@ pub struct CollectionOwner {
 }
 
 /// Collection metadata.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Collection {
     /// Collection id.
@@ -1243,7 +1246,7 @@ impl CollectionRow {
 }
 
 /// `POST /api/collections` request.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateCollectionRequest {
     /// Display name.
@@ -1266,7 +1269,7 @@ pub struct CreateCollectionRequest {
 }
 
 /// `PATCH /api/collections/{id}` request.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateCollectionRequest {
     /// New display name.
@@ -1287,7 +1290,7 @@ pub struct UpdateCollectionRequest {
 }
 
 /// `POST /api/collections/{id}/games` request.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CollectionGamesRequest {
     /// Games to add.
@@ -1295,7 +1298,7 @@ pub struct CollectionGamesRequest {
 }
 
 /// Response of `POST /api/games/{id}/installed`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct InstalledReportResponse {
     /// Whether a new feed entry was written (deduped within an hour).
@@ -1303,7 +1306,7 @@ pub struct InstalledReportResponse {
 }
 
 /// `POST /api/collections/{id}/games` response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CollectionGamesResponse {
     /// Rows actually inserted (duplicates are ignored).
@@ -1313,7 +1316,7 @@ pub struct CollectionGamesResponse {
 }
 
 /// Query string for `GET /api/collections/{id}/games`.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CollectionGamesQuery {
     /// 1-based page number.
@@ -1325,7 +1328,7 @@ pub struct CollectionGamesQuery {
 }
 
 /// Account summary embedded in feed entries.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ActivityUser {
     /// Account id.
@@ -1339,7 +1342,7 @@ pub struct ActivityUser {
 }
 
 /// Game summary embedded in feed entries.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ActivityGame {
     /// Game id.
@@ -1353,7 +1356,7 @@ pub struct ActivityGame {
 }
 
 /// Collection summary embedded in feed entries.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ActivityCollection {
     /// Collection id.
@@ -1363,7 +1366,7 @@ pub struct ActivityCollection {
 }
 
 /// One public activity entry.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Activity {
     /// Row id, also the pagination cursor.
@@ -1384,7 +1387,7 @@ pub struct Activity {
 }
 
 /// One page of feed entries.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ActivityPage {
     /// Newest-first entries.
@@ -1394,7 +1397,7 @@ pub struct ActivityPage {
 }
 
 /// Query string for feed and activity routes.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ActivityQuery {
     /// Page size, 1..=100 (default 20).
@@ -1466,7 +1469,7 @@ impl ActivityRow {
 }
 
 /// Opt-in public profile.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicProfile {
     /// Account id.
@@ -1486,7 +1489,7 @@ pub struct PublicProfile {
 }
 
 /// Aggregate counters shown on a profile.
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicStats {
     /// Games with progress.
@@ -1502,7 +1505,7 @@ pub struct PublicStats {
 }
 
 /// `GET /api/community/users/{id}` response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicProfileResponse {
     /// Profile header.
@@ -1516,7 +1519,7 @@ pub struct PublicProfileResponse {
 }
 
 /// `PATCH /api/me/profile` request.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateProfileRequest {
     /// Opt in or out of the public directory and feed.
@@ -1572,4 +1575,205 @@ mod tests {
         assert!(json.contains("\"metadataPending\":0"), "{json}");
         assert!(json.contains("\"startedAt\":null"), "{json}");
     }
+}
+
+/// One login session (`auth_sessions` row).
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthSession {
+    /// Session id.
+    pub id: i64,
+    /// Client `User-Agent` recorded at login.
+    pub user_agent: Option<String>,
+    /// Client IP recorded at login.
+    pub ip: Option<String>,
+    /// Creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Last request seen with this token.
+    pub last_seen_at: DateTime<Utc>,
+    /// Token expiry.
+    pub expires_at: DateTime<Utc>,
+    /// Revocation timestamp, if revoked.
+    pub revoked_at: Option<DateTime<Utc>>,
+    /// Whether this is the session used by the current request.
+    pub current: bool,
+}
+
+/// Row of the `auth_sessions` table.
+#[derive(Debug, sqlx::FromRow)]
+pub struct AuthSessionRow {
+    pub id: i64,
+    pub jti: String,
+    pub user_agent: Option<String>,
+    pub ip: Option<String>,
+    pub created_at: String,
+    pub last_seen_at: String,
+    pub expires_at: String,
+    pub revoked_at: Option<String>,
+}
+
+impl AuthSessionRow {
+    /// Public representation, hiding the token id.
+    #[must_use]
+    pub fn to_public(&self, current_jti: Option<&str>) -> AuthSession {
+        AuthSession {
+            id: self.id,
+            user_agent: self.user_agent.clone(),
+            ip: self.ip.clone(),
+            created_at: crate::db::parse_time(&self.created_at).unwrap_or_else(Utc::now),
+            last_seen_at: crate::db::parse_time(&self.last_seen_at).unwrap_or_else(Utc::now),
+            expires_at: crate::db::parse_time(&self.expires_at).unwrap_or_else(Utc::now),
+            revoked_at: self.revoked_at.as_deref().and_then(crate::db::parse_time),
+            current: current_jti == Some(self.jti.as_str()),
+        }
+    }
+}
+
+/// `POST /api/uploads` request.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateUploadRequest {
+    /// Archive file name. Must be a supported archive extension.
+    pub file_name: String,
+    /// Total size in bytes.
+    pub size: i64,
+    /// Optional lowercase SHA-256 of the complete archive.
+    #[serde(default)]
+    pub sha256: Option<String>,
+}
+
+/// Progress of a resumable upload.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadSession {
+    /// Upload id.
+    pub id: String,
+    /// Original file name.
+    pub file_name: String,
+    /// Declared total size.
+    pub size: i64,
+    /// Declared SHA-256, when provided.
+    pub sha256: Option<String>,
+    /// Chunk size the client must use.
+    pub chunk_size: i64,
+    /// Number of chunks expected.
+    pub total_parts: i64,
+    /// Bytes received so far.
+    pub received_bytes: i64,
+    /// Indices of chunks already stored.
+    pub received_parts: Vec<i64>,
+    /// `open`, `complete` or `failed`.
+    pub status: String,
+    /// Creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Last update timestamp.
+    pub updated_at: DateTime<Utc>,
+    /// Indexed game id once complete.
+    pub game_id: Option<i64>,
+    /// Indexed version id once complete.
+    pub version_id: Option<i64>,
+    /// Failure reason, when `status` is `failed`.
+    pub error: Option<String>,
+}
+
+/// Row of the `uploads` table.
+#[derive(Debug, sqlx::FromRow)]
+pub struct UploadRow {
+    pub id: String,
+    pub user_id: i64,
+    pub file_name: String,
+    pub size: i64,
+    pub sha256: Option<String>,
+    pub chunk_size: i64,
+    pub status: String,
+    pub game_id: Option<i64>,
+    pub version_id: Option<i64>,
+    pub error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl UploadRow {
+    /// Public representation including on-disk progress.
+    #[must_use]
+    pub fn to_public(&self, received_parts: Vec<i64>) -> UploadSession {
+        let complete = self.status == "complete";
+        let received_bytes = if complete {
+            self.size
+        } else {
+            received_parts
+                .iter()
+                .map(|index| part_len(self.size, self.chunk_size, *index))
+                .sum()
+        };
+        UploadSession {
+            id: self.id.clone(),
+            file_name: self.file_name.clone(),
+            size: self.size,
+            sha256: self.sha256.clone(),
+            chunk_size: self.chunk_size,
+            total_parts: total_parts(self.size, self.chunk_size),
+            received_bytes,
+            received_parts,
+            status: self.status.clone(),
+            created_at: crate::db::parse_time(&self.created_at).unwrap_or_else(Utc::now),
+            updated_at: crate::db::parse_time(&self.updated_at).unwrap_or_else(Utc::now),
+            game_id: self.game_id,
+            version_id: self.version_id,
+            error: self.error.clone(),
+        }
+    }
+}
+
+/// Length of one chunk, taking the final partial chunk into account.
+#[must_use]
+pub fn part_len(total: i64, chunk: i64, index: i64) -> i64 {
+    if chunk <= 0 {
+        return 0;
+    }
+    let start = index.saturating_mul(chunk);
+    (total - start).clamp(0, chunk)
+}
+
+/// Number of chunks needed for `total` bytes at `chunk` bytes per part.
+#[must_use]
+pub fn total_parts(total: i64, chunk: i64) -> i64 {
+    if chunk <= 0 {
+        return 0;
+    }
+    (total + chunk - 1) / chunk
+}
+
+/// `PUT /api/uploads/{id}/parts/{n}` response.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadPartResponse {
+    /// Upload id.
+    pub id: String,
+    /// Stored chunk index.
+    pub part: i64,
+    /// Bytes received so far.
+    pub received_bytes: i64,
+    /// Number of chunks stored.
+    pub received_parts: i64,
+    /// Total number of chunks.
+    pub total_parts: i64,
+}
+
+/// `POST /api/uploads/{id}/complete` response.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CompleteUploadResponse {
+    /// Upload id.
+    pub id: String,
+    /// Indexed game id.
+    pub game_id: i64,
+    /// Indexed version id.
+    pub version_id: i64,
+    /// Stored file name (may be suffixed when the name was taken).
+    pub file_name: String,
+    /// Verified size.
+    pub size: i64,
+    /// Verified SHA-256, when the client provided one.
+    pub sha256: Option<String>,
 }

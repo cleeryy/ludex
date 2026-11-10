@@ -187,7 +187,11 @@ async fn setup(
             })),
     );
     let token = issue_access_token(&state.jwt_secret, user.id, user.role)?;
-    Ok(Json(AuthResponse { token, user }))
+    Ok(Json(AuthResponse {
+        token,
+        user,
+        expires_at: None,
+    }))
 }
 
 async fn config(State(state): State<AppState>) -> Result<Json<ServerConfig>, ApiError> {

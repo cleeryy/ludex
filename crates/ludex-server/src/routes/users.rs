@@ -2,7 +2,7 @@
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::routing::{get, patch};
+use axum::routing::{delete, get, patch};
 use axum::{Json, Router};
 use ludex_core::models::Role;
 use serde_json::json;
@@ -22,6 +22,31 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/users", get(list).post(create))
         .route("/users/{id}", patch(update).delete(delete_user))
+        .route("/users/{id}/sessions", delete(revoke_sessions))
+}
+
+/// Admin: revoke every session of an account (sign out all devices).
+async fn revoke_sessions(
+    State(state): State<AppState>,
+    user: AuthUser,
+    ApiPath(id): ApiPath<i64>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    user.require_admin_access()?;
+    let exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE id = ?")
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(ApiError::from)?;
+    if exists == 0 {
+        return Err(ApiError::not_found("user_not_found", "Account not found"));
+    }
+    let revoked = crate::auth::revoke_all_sessions(&state, id, "admin_revoked").await?;
+    state.events.emit(
+        Event::new(crate::audit::actions::SESSION_REVOKED, user.actor())
+            .target("user", id.to_string())
+            .metadata(json!({ "sessions": revoked, "reason": "admin_revoked" })),
+    );
+    Ok(Json(json!({ "revoked": revoked })))
 }
 
 async fn list(

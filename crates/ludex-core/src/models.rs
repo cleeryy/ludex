@@ -11,7 +11,19 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// User role. Serialises as `admin`, `editor` or `user`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    utoipa::ToSchema,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum Role {
     /// Full access, including user management and server settings.
@@ -60,7 +72,18 @@ pub struct ParseRoleError(pub String);
 /// Per-user progress for a game. Serialises as `unplayed`, `playing`,
 /// `completed`, `abandoned`, `onHold` or `planToPlay`.
 #[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    utoipa::ToSchema,
 )]
 #[serde(rename_all = "camelCase")]
 pub enum ProgressState {
@@ -131,7 +154,7 @@ impl FromStr for ProgressState {
 pub struct ParseProgressStateError(pub String);
 
 /// An account on the server.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct User {
     /// Database identifier.
@@ -151,7 +174,7 @@ pub struct User {
 }
 
 /// A game as shown in library grids and search results.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GameSummary {
     /// Database identifier.
@@ -199,7 +222,7 @@ pub struct GameSummary {
 }
 
 /// One downloadable file (archive or executable) of a game.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GameVersion {
     /// Database identifier.
@@ -228,7 +251,7 @@ pub struct GameVersion {
 /// The newest available version of a game, used by clients to detect updates.
 ///
 /// Returned by `GET /api/games/{id}/versions/latest`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LatestVersion {
     /// Game this version belongs to.
@@ -252,7 +275,7 @@ pub struct LatestVersion {
 }
 
 /// Launch configuration for a game, editable by editors.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchInfo {
     /// Main executable, relative to the install folder.
@@ -270,7 +293,7 @@ pub struct LaunchInfo {
 }
 
 /// A video trailer.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Trailer {
     /// Trailer title.
@@ -288,7 +311,7 @@ pub struct Trailer {
 }
 
 /// Provider metadata reference for a game.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderRef {
     /// Provider slug (`igdb`, `steam`, ...).
@@ -300,7 +323,7 @@ pub struct ProviderRef {
 }
 
 /// Full game payload, extending [`GameSummary`].
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GameDetail {
     /// Summary fields, flattened into the same JSON object.
@@ -335,7 +358,7 @@ pub struct GameDetail {
 }
 
 /// A news post shown on the server home page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NewsPost {
     /// Database identifier.
@@ -367,7 +390,7 @@ pub struct Paginated<T> {
 }
 
 /// Progress returned after a progress or playtime update.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgressUpdate {
     /// New progress state.
@@ -379,7 +402,7 @@ pub struct ProgressUpdate {
 }
 
 /// Server-wide statistics.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Stats {
     /// Number of games.

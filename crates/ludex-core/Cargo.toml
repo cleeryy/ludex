@@ -20,6 +20,7 @@ tar = "0.4"
 walkdir.workspace = true
 sha2.workspace = true
 hex.workspace = true
+utoipa = { version = "5", features = ["chrono"] }
 
 [dev-dependencies]
 tempfile.workspace = true

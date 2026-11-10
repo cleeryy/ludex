@@ -49,9 +49,12 @@ flate2.workspace = true
 tar.workspace = true
 base64 = "0.22"
 rust-embed = { version = "8", optional = true, features = ["axum"] }
+utoipa = { version = "5", features = ["chrono"] }
 
 [dev-dependencies]
 http-body-util = "0.1"
+sha2.workspace = true
+hex.workspace = true
 tower = { workspace = true, features = ["util"] }
 tempfile.workspace = true
 zip.workspace = true

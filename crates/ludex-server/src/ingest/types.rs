@@ -24,7 +24,7 @@ pub const PARTS_FILE: &str = "ingest-parts.json";
 pub const PART_SUFFIX: &str = ".part";
 
 /// Lifecycle of an ingest download, matching the contract enum.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum IngestStatus {
     Queued,
@@ -48,7 +48,7 @@ impl IngestStatus {
 }
 
 /// One ingest download as returned by the API and persisted on disk.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IngestJob {
     pub id: String,
@@ -66,7 +66,7 @@ pub struct IngestJob {
 }
 
 /// Body of `POST /api/ingest/downloads`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateDownloadRequest {
     pub url: String,
     #[serde(default)]
@@ -74,13 +74,13 @@ pub struct CreateDownloadRequest {
 }
 
 /// Body of `PUT /api/ingest/downloads/{id}`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateDownloadRequest {
     pub url: String,
 }
 
 /// Entry of `GET /api/ingest/files`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IngestFile {
     pub name: String,
@@ -91,7 +91,7 @@ pub struct IngestFile {
 }
 
 /// Response of `GET /api/ingest/stats`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IngestStats {
     pub games_dir: String,
@@ -103,7 +103,7 @@ pub struct IngestStats {
 }
 
 /// Response of `POST /api/ingest/files/{name}/verify`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct VerifyResponse {
     pub ok: bool,
     pub log: String,

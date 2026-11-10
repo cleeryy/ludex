@@ -67,6 +67,10 @@ pub mod actions {
     pub const SHARE_ACCESS: &str = "share.access";
     /// A public share access attempt was rejected.
     pub const SHARE_ACCESS_DENIED: &str = "share.access_denied";
+    /// Session revoked (logout or admin action).
+    pub const SESSION_REVOKED: &str = "session.revoked";
+    /// Resumable archive upload completed and indexed.
+    pub const UPLOAD_COMPLETED: &str = "upload.completed";
 }
 
 /// Writes one event to `audit_logs`. Failures are logged, never propagated:

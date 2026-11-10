@@ -326,8 +326,10 @@ async fn setup_login_and_public_routes() {
     let (status, _) = server.post("/api/auth/logout", Some(&token), None).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 
+    // Since #19 logout revokes the token server-side instead of relying on the
+    // client to forget it.
     let (status, _) = server.get("/api/library/folders", Some(&token)).await;
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
 
     server.stop().await;
 }

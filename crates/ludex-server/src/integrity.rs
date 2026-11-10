@@ -64,7 +64,7 @@ impl IntegrityScope {
 }
 
 /// Row of `integrity_reports`.
-#[derive(Debug, Clone, sqlx::FromRow, Serialize)]
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IntegrityReport {
     /// Report id.
@@ -86,7 +86,7 @@ pub struct IntegrityReport {
 }
 
 /// Row of `integrity_findings`.
-#[derive(Debug, Clone, sqlx::FromRow, Serialize)]
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IntegrityFinding {
     /// Finding id.

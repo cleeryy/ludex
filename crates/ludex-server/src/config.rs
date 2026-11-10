@@ -112,6 +112,22 @@ impl S3Config {
         }
     }
 }
+/// Default JWT access-token lifetime (7 days, the historical value).
+pub const DEFAULT_JWT_TTL_MINUTES: u64 = 7 * 24 * 60;
+/// Default global API request rate, per client IP. Zero disables limiting.
+pub const DEFAULT_RATE_LIMIT_RPS: u32 = 100;
+/// Default global API burst, per client IP.
+pub const DEFAULT_RATE_LIMIT_BURST: u32 = 300;
+/// Default failed logins before a lockout.
+pub const DEFAULT_LOGIN_MAX_ATTEMPTS: u32 = 5;
+/// Default lockout duration after too many failed logins.
+pub const DEFAULT_LOGIN_LOCKOUT_SECONDS: u64 = 900;
+/// Default chunk size accepted by resumable archive uploads (16 MiB).
+pub const DEFAULT_UPLOAD_CHUNK_BYTES: u64 = 16 * 1024 * 1024;
+/// Default maximum size of a resumable archive upload (100 GiB).
+pub const DEFAULT_UPLOAD_MAX_BYTES: u64 = 100 * 1024 * 1024 * 1024;
+/// Default lifetime of an unfinished resumable upload (24 h).
+pub const DEFAULT_UPLOAD_TTL_HOURS: u64 = 24;
 
 /// Runtime configuration for the Ludex server.
 ///
@@ -170,6 +186,26 @@ pub struct Config {
     pub media_gc_interval: Duration,
     /// Maximum size of a single cloud save upload, in bytes.
     pub saves_max_bytes: u64,
+    /// JWT access-token lifetime, in minutes.
+    pub jwt_ttl_minutes: u64,
+    /// Global API request rate per client IP. Zero disables limiting.
+    pub rate_limit_rps: u32,
+    /// Global API burst per client IP.
+    pub rate_limit_burst: u32,
+    /// Failed logins allowed before a lockout. Zero disables lockout.
+    pub login_max_attempts: u32,
+    /// Lockout duration after too many failed logins.
+    pub login_lockout: Duration,
+    /// Base delay of the exponential login backoff.
+    pub login_backoff: Duration,
+    /// Chunk size accepted by `PUT /api/uploads/{id}/parts/{n}`.
+    pub upload_chunk_bytes: u64,
+    /// Maximum accepted archive upload size.
+    pub upload_max_bytes: u64,
+    /// Lifetime of an unfinished resumable upload.
+    pub upload_ttl: Duration,
+    /// Serve the human-readable OpenAPI explorer at `/api/docs`.
+    pub openapi_docs: bool,
     /// OIDC issuer URL. `None` disables SSO.
     pub oidc_issuer: Option<String>,
     /// OIDC client id.
@@ -296,6 +332,76 @@ impl Config {
             None => DEFAULT_SAVES_MAX_BYTES,
         };
 
+        let jwt_ttl_minutes = match env_opt("LUDEX_JWT_TTL_MINUTES") {
+            Some(value) => value
+                .parse::<u64>()
+                .context("LUDEX_JWT_TTL_MINUTES must be an integer")?
+                .max(1),
+            None => DEFAULT_JWT_TTL_MINUTES,
+        };
+        let rate_limit_rps = match env_opt("LUDEX_RATE_LIMIT_RPS") {
+            Some(value) => value
+                .parse::<u32>()
+                .context("LUDEX_RATE_LIMIT_RPS must be an integer")?,
+            None => DEFAULT_RATE_LIMIT_RPS,
+        };
+        let rate_limit_burst = match env_opt("LUDEX_RATE_LIMIT_BURST") {
+            Some(value) => value
+                .parse::<u32>()
+                .context("LUDEX_RATE_LIMIT_BURST must be an integer")?,
+            None => DEFAULT_RATE_LIMIT_BURST,
+        };
+        let login_max_attempts = match env_opt("LUDEX_LOGIN_MAX_ATTEMPTS") {
+            Some(value) => value
+                .parse::<u32>()
+                .context("LUDEX_LOGIN_MAX_ATTEMPTS must be an integer")?,
+            None => DEFAULT_LOGIN_MAX_ATTEMPTS,
+        };
+        let login_lockout_seconds = match env_opt("LUDEX_LOGIN_LOCKOUT_SECONDS") {
+            Some(value) => value
+                .parse::<u64>()
+                .context("LUDEX_LOGIN_LOCKOUT_SECONDS must be an integer")?,
+            None => DEFAULT_LOGIN_LOCKOUT_SECONDS,
+        };
+        let login_backoff_ms = match env_opt("LUDEX_LOGIN_BACKOFF_MS") {
+            Some(value) => value
+                .parse::<u64>()
+                .context("LUDEX_LOGIN_BACKOFF_MS must be an integer")?,
+            None => 500,
+        };
+        let upload_chunk_bytes = match env_opt("LUDEX_UPLOAD_CHUNK_BYTES") {
+            Some(value) => {
+                let parsed = value
+                    .parse::<u64>()
+                    .context("LUDEX_UPLOAD_CHUNK_BYTES must be an integer")?;
+                anyhow::ensure!(
+                    parsed > 0,
+                    "LUDEX_UPLOAD_CHUNK_BYTES must be greater than zero"
+                );
+                parsed.min(64 * 1024 * 1024)
+            }
+            None => DEFAULT_UPLOAD_CHUNK_BYTES,
+        };
+        let upload_max_bytes = match env_opt("LUDEX_UPLOAD_MAX_BYTES") {
+            Some(value) => {
+                let parsed = value
+                    .parse::<u64>()
+                    .context("LUDEX_UPLOAD_MAX_BYTES must be an integer")?;
+                anyhow::ensure!(
+                    parsed > 0,
+                    "LUDEX_UPLOAD_MAX_BYTES must be greater than zero"
+                );
+                parsed
+            }
+            None => DEFAULT_UPLOAD_MAX_BYTES,
+        };
+        let upload_ttl_hours = match env_opt("LUDEX_UPLOAD_TTL_HOURS") {
+            Some(value) => value
+                .parse::<u64>()
+                .context("LUDEX_UPLOAD_TTL_HOURS must be an integer")?,
+            None => DEFAULT_UPLOAD_TTL_HOURS,
+        };
+
         Ok(Self {
             bind,
             data_dir,
@@ -325,6 +431,16 @@ impl Config {
             media_gc_grace: Duration::from_secs(media_gc_grace_hours * 3_600),
             media_gc_interval: Duration::from_secs(media_gc_interval_hours * 3_600),
             saves_max_bytes,
+            jwt_ttl_minutes,
+            rate_limit_rps,
+            rate_limit_burst,
+            login_max_attempts,
+            login_lockout: Duration::from_secs(login_lockout_seconds),
+            login_backoff: Duration::from_millis(login_backoff_ms),
+            upload_chunk_bytes,
+            upload_max_bytes,
+            upload_ttl: Duration::from_secs(upload_ttl_hours * 3_600),
+            openapi_docs: bool_env("LUDEX_OPENAPI_DOCS"),
             oidc_issuer: env_opt("LUDEX_OIDC_ISSUER"),
             oidc_client_id: env_opt("LUDEX_OIDC_CLIENT_ID"),
             oidc_client_secret: env_opt("LUDEX_OIDC_CLIENT_SECRET"),
@@ -378,6 +494,16 @@ impl Config {
             media_gc_grace: Duration::from_secs(DEFAULT_MEDIA_GC_GRACE_HOURS * 3_600),
             media_gc_interval: Duration::ZERO,
             saves_max_bytes: DEFAULT_SAVES_MAX_BYTES,
+            jwt_ttl_minutes: DEFAULT_JWT_TTL_MINUTES,
+            rate_limit_rps: 0,
+            rate_limit_burst: DEFAULT_RATE_LIMIT_BURST,
+            login_max_attempts: DEFAULT_LOGIN_MAX_ATTEMPTS,
+            login_lockout: Duration::from_secs(DEFAULT_LOGIN_LOCKOUT_SECONDS),
+            login_backoff: Duration::from_millis(500),
+            upload_chunk_bytes: DEFAULT_UPLOAD_CHUNK_BYTES,
+            upload_max_bytes: DEFAULT_UPLOAD_MAX_BYTES,
+            upload_ttl: Duration::from_secs(DEFAULT_UPLOAD_TTL_HOURS * 3_600),
+            openapi_docs: false,
             oidc_issuer: None,
             oidc_client_id: None,
             oidc_client_secret: None,

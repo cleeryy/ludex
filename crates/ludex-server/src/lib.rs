@@ -44,15 +44,18 @@ pub mod metadata;
 pub mod metrics;
 pub mod models;
 pub mod oidc;
+pub mod openapi;
 pub mod roots;
 pub mod routes;
 pub mod saves;
 pub mod scanner;
+pub mod security;
 pub mod share;
 pub mod sql;
 pub mod state;
 pub mod storage;
 pub mod stream;
+pub mod uploads;
 pub mod watcher;
 pub mod web;
 pub mod webhooks;
@@ -217,6 +220,16 @@ async fn prepare(config: Config) -> Result<Prepared> {
         storage: ArchiveStorage::from_config(&config),
         metrics: Arc::new(metrics::Metrics::default()),
         ingest: Some(ingest_handle),
+        rate_limiter: Arc::new(security::RateLimiter::new(
+            config.rate_limit_rps,
+            config.rate_limit_burst,
+        )),
+        login_guard: Arc::new(security::LoginGuard::new(
+            config.login_max_attempts,
+            config.login_lockout,
+            config.login_backoff,
+        )),
+        session_touch: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     };
 
     let watcher_handle = watcher::start(&state).await;
@@ -233,6 +246,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
         cancel_rx.clone(),
     ));
     tokio::spawn(media_gc::scheduled_worker(state.clone(), cancel_rx));
+    tokio::spawn(uploads::cleanup_worker(state.clone()));
     // Initial scan in the background; never blocks startup.
     let _ = state.scan_tx.try_send(ScanRequest::all());
 
@@ -270,7 +284,9 @@ fn spawn_server(
 }
 
 fn build_router(state: &AppState, ingest_ctx: &ingest::IngestContext) -> Router {
-    let api = routes::api_router(state.config.saves_max_bytes);
+    let api = routes::api_router(state.config.saves_max_bytes).layer(
+        axum::middleware::from_fn_with_state(state.clone(), security::rate_limit),
+    );
     let app = Router::new()
         .nest("/api", api)
         .route("/metrics", axum::routing::get(routes::metrics::metrics));
