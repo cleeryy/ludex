@@ -1,43 +1,43 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutGrid, List, Plus, X } from "lucide-react";
+import { useReducedMotion } from "motion/react";
+import { Gamepad2, LayoutGrid, List, Plus, SlidersHorizontal, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatBytes, formatRating, formatYear, stateLabel } from "@/lib/format";
 import { isNative } from "@/lib/native";
-import type { GameListQuery, GameSummary, ProgressState } from "@/lib/types";
+import type { GameListQuery, GameSummary } from "@/lib/types";
 import { useBookmark, useGenres, useInstalledMap, useLaunchGame } from "@/lib/hooks";
 import { useDownloads } from "@/state/downloads";
 import { installsAvailable } from "@/lib/install";
 import { useAuth, useIsEditor } from "@/state/auth";
 import { useSettings } from "@/state/settings";
+import {
+  activeFilterChips,
+  clearFilterParams,
+  filterQuery,
+  hasFilterParams,
+  loadFilters,
+  readFilters,
+  removeFilterChip,
+  saveFilters,
+  setFilterParam,
+  SORT_LABELS,
+  type FilterKey,
+} from "@/lib/library-filters";
+import { focusGamepadTarget, useGamepad, type GamepadAction } from "@/lib/gamepad";
+import { OPEN_FILTERS_EVENT } from "@/lib/ui-events";
 import { EmptyState, ErrorState, PageHeader } from "@/components/page";
 import { GameCard } from "@/components/game/game-card";
 import { GameCover } from "@/components/art/cover";
 import { STATE_TONE } from "@/components/game/state";
-import { Badge, Button, Checkbox, Segmented, Skeleton } from "@/components/ui/controls";
+import { FilterPanel } from "@/components/library/filter-panel";
+import { LibrarySearch } from "@/components/library/search-field";
+import { Badge, Button, Segmented, Skeleton } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 
 export type LibraryMode = "library" | "recent" | "bookmarks" | "index";
-
-const SORT_LABEL: Record<string, string> = {
-  title: "Title",
-  releaseDate: "Release date",
-  rating: "Rating",
-  addedAt: "Date added",
-  lastPlayed: "Last played",
-};
-
-const STATE_OPTIONS = [
-  { value: "any", label: "Any state" },
-  { value: "unplayed", label: "Unplayed" },
-  { value: "playing", label: "Playing" },
-  { value: "completed", label: "Completed" },
-  { value: "onHold", label: "On hold" },
-  { value: "abandoned", label: "Abandoned" },
-  { value: "planToPlay", label: "Planned" },
-];
 
 const MODE_TITLE: Record<LibraryMode, string> = {
   library: "Library",
@@ -53,6 +53,17 @@ const MODE_DESCRIPTION: Record<LibraryMode, string> = {
   index: "Every title in the library, A to Z.",
 };
 
+const MODE_ROUTES: Record<LibraryMode, string> = {
+  library: "/library",
+  recent: "/recent",
+  bookmarks: "/bookmarks",
+  index: "/all",
+};
+
+const SORT_OPTIONS = Object.entries(SORT_LABELS).map(([value, label]) => ({ value, label }));
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
 export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
@@ -64,31 +75,51 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   const bookmark = useBookmark();
   const launch = useLaunchGame();
   const downloads = useDownloads();
+  const reduceMotion = useReducedMotion();
 
-  const q = params.get("q") ?? "";
-  const genre = params.get("genre") ?? "";
-  const state = (params.get("state") as ProgressState | null) ?? null;
-  const early = params.get("earlyAccess") === "true";
-  const installedOnly = params.get("installed") === "true" && installsAvailable();
-  const sort = (params.get("sort") ?? (mode === "recent" ? "lastPlayed" : "title")) as NonNullable<GameListQuery["sort"]>;
-  const order = (params.get("order") ?? (sort === "title" ? "asc" : "desc")) as NonNullable<GameListQuery["order"]>;
+  const filters = readFilters(params, mode);
+  const chips = activeFilterChips(filters).filter((chip) => chip.key !== "installed" || installsAvailable());
+  const installedOnly = filters.installed && installsAvailable();
+  const hasFilters = chips.length > 0 || installedOnly;
+  const effectiveView = mode === "index" ? "list" : view;
+
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [padIndex, setPadIndex] = useState(0);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const restored = useRef(false);
+  const search = params.toString();
+
+  // Restore the last filter set when the library is opened without params.
+  useEffect(() => {
+    if (mode !== "library" || restored.current) return;
+    restored.current = true;
+    if (hasFilterParams(params) || params.has("sort") || params.has("order")) return;
+    const saved = loadFilters();
+    if (saved) setParams(saved, { replace: true });
+    // Run once per mount; params deliberately read at mount time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  // Persist the current filter set (best effort, localStorage may be disabled).
+  useEffect(() => {
+    if (mode !== "library") return;
+    saveFilters(new URLSearchParams(search));
+  }, [search, mode]);
+
+  useEffect(() => {
+    const onOpenFilters = () => setFilterOpen(true);
+    window.addEventListener(OPEN_FILTERS_EVENT, onOpenFilters);
+    return () => window.removeEventListener(OPEN_FILTERS_EVENT, onOpenFilters);
+  }, []);
 
   const query: GameListQuery =
     mode === "recent"
       ? { sort: "lastPlayed", order: "desc", limit: 200 }
       : mode === "bookmarks"
-        ? { bookmarked: true, sort, order, limit: 200 }
+        ? { bookmarked: true, sort: filters.sort, order: filters.order, limit: 200 }
         : mode === "index"
           ? { sort: "title", order: "asc", limit: 200 }
-          : {
-              q: q || undefined,
-              genre: genre || undefined,
-              state: state ?? undefined,
-              earlyAccess: early || undefined,
-              sort,
-              order,
-              limit: 200,
-            };
+          : { ...filterQuery(filters), limit: 200 };
 
   const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ["games", mode, query],
@@ -103,20 +134,27 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   }, [all, mode, installedOnly, installed]);
 
   const totalBytes = items.reduce((sum, game) => sum + game.totalSize, 0);
-  const hasFilters = Boolean(q || genre || state || early || installedOnly);
-  const effectiveView = mode === "index" ? "list" : view;
 
-  const update = (key: string, value: string | null) => {
-    const next = new URLSearchParams(params);
-    if (!value) next.delete(key);
-    else next.set(key, value);
-    setParams(next, { replace: true });
+  const update = (key: FilterKey, value: string | boolean | null) => {
+    setParams((current) => setFilterParam(current, key, value), { replace: true });
   };
 
   const clearFilters = () => {
-    const next = new URLSearchParams(params);
-    for (const key of ["q", "genre", "state", "earlyAccess", "installed"]) next.delete(key);
-    setParams(next, { replace: true });
+    setParams((current) => clearFilterParams(current), { replace: true });
+  };
+
+  const removeChip = (key: FilterKey) => {
+    const patch = removeFilterChip(key);
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        for (const [patchKey, patchValue] of Object.entries(patch)) {
+          setFilterParam(next, patchKey as FilterKey, patchValue as string | boolean);
+        }
+        return next;
+      },
+      { replace: true },
+    );
   };
 
   const toggleBookmark = (game: GameSummary) => bookmark.mutate({ id: game.id, bookmarked: !game.bookmarked });
@@ -139,6 +177,90 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
     }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [items, mode]);
+
+  /* ------------------------------- gamepad -------------------------------- */
+
+  const targets = () =>
+    Array.from(gridRef.current?.querySelectorAll<HTMLElement>("[data-gamepad-target]") ?? []).filter(
+      (element) => element.offsetParent !== null,
+    );
+
+  const columns = (elements: HTMLElement[]): number => {
+    if (elements.length < 2) return 1;
+    const top = elements[0].offsetTop;
+    let count = 1;
+    for (let index = 1; index < elements.length; index += 1) {
+      if (elements[index].offsetTop !== top) break;
+      count += 1;
+    }
+    return Math.max(1, count);
+  };
+
+  const currentIndex = (elements: HTMLElement[]): number => {
+    const focused = elements.findIndex(
+      (element) => element === document.activeElement || element.contains(document.activeElement),
+    );
+    return focused >= 0 ? focused : clamp(padIndex, 0, Math.max(0, elements.length - 1));
+  };
+
+  const cycleMode = (delta: number) => {
+    const order: LibraryMode[] = ["library", "recent", "bookmarks", "index"];
+    const current = order.indexOf(mode);
+    const next = order[(current + delta + order.length) % order.length];
+    navigate(MODE_ROUTES[next]);
+  };
+
+  const onGamepad = (action: GamepadAction) => {
+    if (action === "prevTab") return cycleMode(-1);
+    if (action === "nextTab") return cycleMode(1);
+    if (action === "downloads") return navigate("/downloads");
+    if (action === "menu") {
+      if (mode === "library") setFilterOpen(true);
+      return;
+    }
+    if (action === "back") {
+      if (window.history.length > 1) navigate(-1);
+      else navigate("/library");
+      return;
+    }
+
+    const elements = targets();
+    if (elements.length === 0) return;
+    const index = currentIndex(elements);
+
+    if (action === "confirm") {
+      elements[index]?.click();
+      return;
+    }
+
+    const cols = columns(elements);
+    const next =
+      action === "left"
+        ? index - 1
+        : action === "right"
+          ? index + 1
+          : action === "up"
+            ? index - cols
+            : index + cols;
+    const bounded = clamp(next, 0, elements.length - 1);
+    setPadIndex(bounded);
+    focusGamepadTarget(elements, bounded, !reduceMotion);
+  };
+
+  const gamepad = useGamepad(onGamepad, { enabled: !filterOpen });
+
+  useEffect(() => {
+    setPadIndex(0);
+  }, [mode, search]);
+
+  useEffect(() => {
+    if (!gamepad.connected) return;
+    const elements = targets();
+    if (elements.length === 0) return;
+    setPadIndex((current) => clamp(current, 0, elements.length - 1));
+    // Only clamp when the result set changes size.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items.length, gamepad.connected]);
 
   const headerActions = (
     <>
@@ -169,8 +291,21 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
           <>
             <span className="num">{items.length} games</span>
             {totalBytes > 0 && <span className="num">{formatBytes(totalBytes)}</span>}
-            {items.length > 0 && mode !== "index" && mode !== "recent" && <span>Sorted by {SORT_LABEL[sort] ?? sort}</span>}
-            {mode === "recent" && <span>Most recent first</span>}
+            {mode === "recent" ? (
+              <span>Most recent first</span>
+            ) : items.length > 0 && mode !== "index" ? (
+              <span>
+                {mode === "library" && filters.q.trim()
+                  ? "Ranked by relevance"
+                  : `Sorted by ${SORT_LABELS[filters.sort] ?? filters.sort}`}
+              </span>
+            ) : null}
+            {gamepad.connected && (
+              <span className="inline-flex items-center gap-1.5 text-ok">
+                <Gamepad2 className="size-3.5" aria-hidden="true" />
+                Gamepad
+              </span>
+            )}
           </>
         }
         description={MODE_DESCRIPTION[mode] || undefined}
@@ -179,50 +314,49 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
 
       {mode === "library" && !(items.length === 0 && !hasFilters) && (
         <div className="sticky top-0 z-20 -mx-[var(--page-x)] mt-4 border-b border-line bg-bg px-[var(--page-x)] py-2.5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6">
-            <div className="nav-scroll -mb-0.5 flex min-w-0 flex-1 items-center gap-4 overflow-x-auto">
-              <button
-                type="button"
-                onClick={() => update("genre", null)}
-                className={cn(
-                  "relative h-8 shrink-0 text-[13px] transition-colors",
-                  !genre ? "text-ink" : "text-ink-3 hover:text-ink-2",
-                )}
-              >
-                All
-                {!genre && <span className="absolute inset-x-0 bottom-0 h-[2px] bg-signal" aria-hidden="true" />}
-              </button>
-              {genres.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => update("genre", item === genre ? null : item)}
-                  aria-pressed={genre === item}
-                  className={cn(
-                    "relative h-8 shrink-0 text-[13px] transition-colors",
-                    genre === item ? "text-ink" : "text-ink-3 hover:text-ink-2",
-                  )}
-                >
-                  {item}
-                  {genre === item && <span className="absolute inset-x-0 bottom-0 h-[2px] bg-signal" aria-hidden="true" />}
-                </button>
-              ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <LibrarySearch value={filters.q} onCommit={(value) => update("q", value)} className="min-w-0 flex-1 sm:max-w-[340px]" />
+            <div className="hidden w-[150px] sm:block">
+              <Select
+                label="Filter by progress state"
+                value={filters.state || "any"}
+                onChange={(value) => update("state", value === "any" ? null : value)}
+                options={[
+                  { value: "any", label: "Any state" },
+                  { value: "unplayed", label: "Unplayed" },
+                  { value: "playing", label: "Playing" },
+                  { value: "completed", label: "Completed" },
+                  { value: "onHold", label: "On hold" },
+                  { value: "abandoned", label: "Abandoned" },
+                  { value: "planToPlay", label: "Planned" },
+                ]}
+                className="h-9 text-[12.5px]"
+              />
             </div>
-
-            <div className="flex flex-wrap shrink-0 items-center gap-3 sm:ml-auto">
-              <div className="w-[148px]">
-                <Select
-                  label="Filter by progress state"
-                  value={state ?? "any"}
-                  onChange={(value) => update("state", value === "any" ? null : value)}
-                  options={STATE_OPTIONS}
-                  className="h-9 text-[12.5px]"
-                />
-              </div>
-              <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-2">
-                <Checkbox checked={early} onCheckedChange={(next) => update("earlyAccess", next ? "true" : null)} label="Early access only" />
-                Early access
-              </label>
+            <Button
+              variant="default"
+              size="sm"
+              icon={<SlidersHorizontal className="size-3.5" />}
+              onClick={() => setFilterOpen(true)}
+              aria-haspopup="dialog"
+            >
+              Filters
+              {chips.length > 0 && (
+                <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-[2px] bg-signal px-1 font-mono text-[9.5px] text-on-signal">
+                  {chips.length}
+                </span>
+              )}
+            </Button>
+            <div className="w-[150px] md:hidden">
+              <Select
+                label="Sort games"
+                value={filters.sort}
+                onChange={(value) => update("sort", value)}
+                options={SORT_OPTIONS}
+                className="h-9 text-[12.5px]"
+              />
+            </div>
+            <div className="ml-auto flex items-center gap-3">
               {hasFilters && (
                 <button
                   type="button"
@@ -230,15 +364,77 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                   className="flex h-9 items-center gap-1 text-[12.5px] text-ink-3 transition-colors hover:text-ink"
                 >
                   <X className="size-3.5" aria-hidden="true" />
-                  Clear
+                  Clear all
                 </button>
               )}
             </div>
           </div>
+
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6">
+            <div className="nav-scroll -mb-0.5 flex min-w-0 flex-1 items-center gap-4 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => update("genre", null)}
+                className={cn(
+                  "relative h-8 shrink-0 text-[13px] transition-colors",
+                  !filters.genre ? "text-ink" : "text-ink-3 hover:text-ink-2",
+                )}
+              >
+                All
+                {!filters.genre && <span className="absolute inset-x-0 bottom-0 h-[2px] bg-signal" aria-hidden="true" />}
+              </button>
+              {genres.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => update("genre", item === filters.genre ? null : item)}
+                  aria-pressed={filters.genre === item}
+                  className={cn(
+                    "relative h-8 shrink-0 text-[13px] transition-colors",
+                    filters.genre === item ? "text-ink" : "text-ink-3 hover:text-ink-2",
+                  )}
+                >
+                  {item}
+                  {filters.genre === item && <span className="absolute inset-x-0 bottom-0 h-[2px] bg-signal" aria-hidden="true" />}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {chips.length > 0 && (
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5" aria-label="Active filters">
+              {chips.map((chip) => (
+                <button
+                  key={`${chip.key}-${chip.label}`}
+                  type="button"
+                  onClick={() => removeChip(chip.key)}
+                  aria-label={`Remove filter: ${chip.label}`}
+                  className="inline-flex h-6 items-center gap-1.5 rounded-[2px] border border-line-2 bg-surface px-1.5 text-[11.5px] text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
+                >
+                  {chip.label}
+                  <X className="size-3 text-ink-3" aria-hidden="true" />
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="ml-1 h-6 text-[11.5px] text-ink-3 transition-colors hover:text-ink"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+
+          {gamepad.connected && (
+            <p className="mt-2 hidden items-center gap-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3 sm:flex">
+              <Gamepad2 className="size-3" aria-hidden="true" />
+              D-pad move · A open · B back · X filters · Y downloads · LB/RB tabs
+            </p>
+          )}
         </div>
       )}
 
-      <div className="mt-7">
+      <div ref={gridRef} className="mt-7">
         {isPending && <LibrarySkeleton view={effectiveView} />}
 
         {isError && (
@@ -294,6 +490,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
               <Link
                 key={game.id}
                 to={`/game/${game.id}`}
+                data-gamepad-target="true"
                 className="row-hover group grid grid-cols-[2rem_1fr_auto] items-center gap-4 border-t border-line py-2.5 sm:grid-cols-[2rem_1fr_4rem_5rem_3rem] md:grid-cols-[2rem_1fr_4rem_5rem_3rem_6rem]"
               >
                 <span className="num text-[10.5px] text-ink-3">{String(game.id).padStart(3, "0")}</span>
@@ -345,6 +542,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                     <Link
                       key={game.id}
                       to={`/game/${game.id}`}
+                      data-gamepad-target="true"
                       className="row-hover grid grid-cols-[1fr_auto] items-baseline gap-4 border-b border-line py-2.5 last:border-0"
                     >
                       <div className="flex min-w-0 items-baseline gap-3">
@@ -366,6 +564,15 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
           </div>
         )}
       </div>
+
+      <FilterPanel
+        open={filterOpen}
+        onOpenChange={setFilterOpen}
+        filters={filters}
+        activeCount={chips.length}
+        onChange={update}
+        onClearAll={clearFilters}
+      />
     </div>
   );
 }

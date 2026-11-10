@@ -181,6 +181,13 @@
     outline-offset: 2px;
   }
 
+  /* Gamepad focus is not a keyboard event, so the browser's focus-visible
+     heuristic can hide the ring. The hook marks the active element. */
+  [data-gamepad-focus="true"] {
+    outline: 2px solid var(--signal-text);
+    outline-offset: 3px;
+  }
+
   h1,
   h2,
   h3,

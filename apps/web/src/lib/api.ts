@@ -19,6 +19,7 @@ import type {
   ScanStatus,
   ServerConfig,
   SetupStatus,
+  SuggestResponse,
   User,
 } from "@/lib/types";
 
@@ -138,6 +139,13 @@ const query = (q: GameListQuery): Record<string, string | number | boolean | und
   state: q.state,
   bookmarked: q.bookmarked,
   earlyAccess: q.earlyAccess,
+  yearFrom: q.yearFrom,
+  yearTo: q.yearTo,
+  players: q.players,
+  playtimeMin: q.playtimeMin,
+  playtimeMax: q.playtimeMax,
+  minRating: q.minRating,
+  provider: q.provider,
   sort: q.sort,
   order: q.order,
   page: q.page,
@@ -185,6 +193,11 @@ export const api = {
   /* games */
   listGames(q: GameListQuery = {}): Promise<GameList> {
     return USING_MOCKS ? mockApi.listGames(q) : request<GameList>("/games", { query: query(q) });
+  },
+  suggestGames(q: string, limit = 8): Promise<SuggestResponse> {
+    return USING_MOCKS
+      ? mockApi.suggestGames(q, limit)
+      : request<SuggestResponse>("/games/suggest", { query: { q, limit } });
   },
   getGame(id: number): Promise<GameDetail> {
     return USING_MOCKS ? mockApi.getGame(id) : request<GameDetail>(`/games/${id}`);

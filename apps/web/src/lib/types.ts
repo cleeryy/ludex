@@ -33,6 +33,14 @@ export interface GameSummary {
   minutesPlayed: number;
   bookmarked: boolean;
   lastPlayedAt: string | null;
+  /** Highest supported player count, when known. */
+  maxPlayers: number | null;
+  /** Field that matched a search query. */
+  matchedField?: "title" | "sortTitle" | "altTitle" | null;
+  /** Title or alias text that matched the query. */
+  matchedTitle?: string | null;
+  /** Relevance score when the row came from a search. */
+  matchScore?: number | null;
 }
 
 export interface GameVersion {
@@ -63,6 +71,8 @@ export interface GameDetail extends GameSummary {
   tags: string[];
   ageRating: number | null;
   provider: { slug: string; id: string; url: string | null } | null;
+  /** Provider aliases used by fuzzy search. */
+  altTitles: string[];
   versions: GameVersion[];
   launch: GameLaunchOptions;
 }
@@ -165,10 +175,40 @@ export interface GameListQuery {
   state?: ProgressState;
   bookmarked?: boolean;
   earlyAccess?: boolean;
-  sort?: "title" | "releaseDate" | "rating" | "addedAt" | "lastPlayed";
+  /** Earliest release year (inclusive). */
+  yearFrom?: number;
+  /** Latest release year (inclusive). */
+  yearTo?: number;
+  /** Minimum supported player count. */
+  players?: number;
+  /** Minimum played minutes (inclusive). */
+  playtimeMin?: number;
+  /** Maximum played minutes (inclusive). */
+  playtimeMax?: number;
+  /** Minimum rating (0-100). */
+  minRating?: number;
+  /** Metadata provider slug (`igdb`, `steam`, `demo`). */
+  provider?: string;
+  sort?: "title" | "releaseDate" | "rating" | "addedAt" | "lastPlayed" | "playtime";
   order?: "asc" | "desc";
   page?: number;
   limit?: number;
+}
+
+/** One fuzzy-search suggestion returned by `GET /api/games/suggest`. */
+export interface GameSuggestion {
+  id: number;
+  title: string;
+  year: number | null;
+  coverUrl: string | null;
+  matchedField: "title" | "sortTitle" | "altTitle";
+  matchedTitle: string;
+  score: number;
+}
+
+export interface SuggestResponse {
+  query: string;
+  suggestions: GameSuggestion[];
 }
 
 export interface GameList {
@@ -189,6 +229,8 @@ export interface GamePatch {
   publishers?: string[];
   ageRating?: number | null;
   earlyAccess?: boolean;
+  altTitles?: string[];
+  players?: number | null;
   launch?: Partial<GameLaunchOptions>;
 }
 
