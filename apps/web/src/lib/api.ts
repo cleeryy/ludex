@@ -2,6 +2,7 @@ import { ApiError } from "@/lib/http";
 import { USING_MOCKS } from "@/lib/flags";
 import { mockApi } from "@/lib/mock";
 import type {
+  AchievementScanReport,
   ActivityPage,
   AuthResult,
   AuthSession,
@@ -9,6 +10,7 @@ import type {
   CollectionGamesResponse,
   CollectionInput,
   CompleteUploadResponse,
+  GameAchievements,
   GameDetail,
   GameList,
   GameListQuery,
@@ -32,6 +34,7 @@ import type {
   UploadPartResponse,
   UploadSession,
   User,
+  UserAchievements,
 } from "@/lib/types";
 
 /* --------------------------------------------------------------------------
@@ -447,6 +450,29 @@ export const api = {
     return USING_MOCKS
       ? mockApi.reportInstalled(tokenStore.get(), id)
       : request<{ recorded: boolean }>(`/games/${id}/installed`, { method: "POST" });
+  },
+
+  /* achievements */
+  gameAchievements(id: number): Promise<GameAchievements> {
+    return USING_MOCKS
+      ? mockApi.gameAchievements(tokenStore.get(), id)
+      : request<GameAchievements>(`/games/${id}/achievements`);
+  },
+  scanAchievements(
+    id: number,
+    body: { installPath?: string | null; appId?: string | null; providers?: string[] } = {},
+  ): Promise<AchievementScanReport> {
+    return USING_MOCKS
+      ? mockApi.scanAchievements(tokenStore.get(), id, body)
+      : request<AchievementScanReport>(`/games/${id}/achievements/scan`, { method: "POST", body });
+  },
+  meAchievements(): Promise<UserAchievements> {
+    return USING_MOCKS ? mockApi.meAchievements(tokenStore.get()) : request<UserAchievements>("/me/achievements");
+  },
+  userAchievements(id: number): Promise<UserAchievements> {
+    return USING_MOCKS
+      ? mockApi.userAchievements(tokenStore.get(), id)
+      : request<UserAchievements>(`/users/${id}/achievements`);
   },
 
 

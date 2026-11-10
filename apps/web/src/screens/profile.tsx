@@ -9,6 +9,7 @@ import { useBookmark, useInstalledMap, useLaunchGame } from "@/lib/hooks";
 import { isNative } from "@/lib/native";
 import { GameCard } from "@/components/game/game-card";
 import { CollectionCard } from "@/components/collections/collection-card";
+import { AchievementShowcase } from "@/components/community/achievement-showcase";
 import { ActivityList } from "@/components/community/activity-list";
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Skeleton } from "@/components/ui/controls";
@@ -134,6 +135,8 @@ export function ProfileScreen() {
           </div>
         ))}
       </section>
+
+      <AchievementShowcase userId={userId} />
 
       <section className="mt-12" aria-labelledby="profile-library">
         <SectionHeader

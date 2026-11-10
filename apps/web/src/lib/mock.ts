@@ -13,6 +13,8 @@ import { hashString } from "@/lib/art";
 import { ApiError, sleep } from "@/lib/http";
 import { normalizeSearch, scoreSearch } from "@/lib/search";
 import type {
+  Achievement,
+  AchievementScanReport,
   Activity,
   ActivityKind,
   ActivityPage,
@@ -22,6 +24,7 @@ import type {
   CollectionGamesResponse,
   CollectionInput,
   CompleteUploadResponse,
+  GameAchievements,
   GameDetail,
   GameList,
   GameListQuery,
@@ -48,6 +51,7 @@ import type {
   UploadPartResponse,
   UploadSession,
   User,
+  UserAchievements,
 } from "@/lib/types";
 import { evaluateRules } from "@/lib/collections";
 
@@ -544,6 +548,71 @@ startTicker();
 const demoUploads = new Map<string, UploadSession>();
 
 /* ---------------------------------- api ---------------------------------- */
+
+
+/* ------------------------------ achievements ----------------------------- */
+
+const ACHIEVEMENT_SEEDS: { key: string; name: string; description: string; points: number; hidden: boolean }[] = [
+  { key: "first_steps", name: "First Steps", description: "Finish the opening chapter.", points: 10, hidden: false },
+  { key: "steady_hands", name: "Steady Hands", description: "Clear a section without taking damage.", points: 20, hidden: false },
+  { key: "archivist", name: "Archivist", description: "Find every collectible in one area.", points: 30, hidden: false },
+  { key: "against_the_clock", name: "Against the Clock", description: "Beat the par time for a full run.", points: 40, hidden: false },
+  { key: "the_long_way", name: "The Long Way", description: "Take the route nobody recommends.", points: 50, hidden: true },
+];
+
+function demoAchievements(game: GameDetail, userId: number): Achievement[] {
+  const owned =
+    game.state === "completed" ? 4 : game.state === "playing" ? 2 : game.state === "abandoned" ? 1 : 0;
+  // Other profiles get a stable but different spread so the showcase is not
+  // a copy of the signed-in account.
+  const unlockedCount =
+    userId === 1 ? owned : Math.min(ACHIEVEMENT_SEEDS.length, (hashString(game.title) + userId) % 6);
+  return ACHIEVEMENT_SEEDS.map((seed, index) => {
+    const unlocked = index < unlockedCount;
+    const secret = seed.hidden && !unlocked;
+    return {
+      id: game.id * 100 + index + 1,
+      gameId: game.id,
+      gameTitle: game.title,
+      coverUrl: game.coverUrl,
+      key: `${seed.key}_${game.id}`,
+      name: secret ? "Hidden achievement" : seed.name,
+      description: secret ? null : seed.description,
+      iconUrl: null,
+      points: seed.points,
+      hidden: seed.hidden,
+      provider: index % 2 === 0 ? "game_files" : "manual",
+      unlocked,
+      unlockedAt: unlocked
+        ? new Date(Date.UTC(2026, index % 10, 3 + index + (game.id % 7), 18, 30)).toISOString()
+        : null,
+      progress: unlocked ? 1 : 0,
+      unlockPercentage: Math.round(((hashString(`${game.title}:${seed.key}`) % 640) / 10) * 10) / 10,
+      source: unlocked ? "game_files" : null,
+    } satisfies Achievement;
+  });
+}
+
+function demoUserAchievements(
+  userId: number,
+  profile: { id: number; username: string; displayName?: string | null; publicProfile?: boolean },
+): UserAchievements {
+  const achievements = DEMO_GAMES.flatMap((game) => demoAchievements(game, userId))
+    .filter((entry) => entry.unlocked)
+    .sort((left, right) => (right.unlockedAt ?? "").localeCompare(left.unlockedAt ?? ""));
+  return {
+    user: {
+      id: profile.id,
+      username: profile.username,
+      displayName: profile.displayName ?? null,
+      publicProfile: profile.publicProfile ?? true,
+    },
+    unlocked: achievements.length,
+    unlockedPoints: achievements.reduce((sum, entry) => sum + entry.points, 0),
+    games: new Set(achievements.map((entry) => entry.gameId)).size,
+    achievements,
+  };
+}
 
 export const mockApi = {
   async setupStatus(): Promise<SetupStatus> {
@@ -1272,6 +1341,77 @@ export const mockApi = {
     const before = activities.length;
     recordActivity(user, "game_installed", { gameId: id, metadata: { source: "desktop" }, dedupeMinutes: 60 });
     return { recorded: activities.length > before };
+  },
+
+  /* achievements */
+  async gameAchievements(token: string | null, id: number): Promise<GameAchievements> {
+    await latency();
+    const user = currentUser(token);
+    const game = visibleGames().find((entry) => entry.id === id);
+    if (!game) fail(404, "game_not_found", "That game is not in the library");
+    const achievements = demoAchievements(game, user.id);
+    const unlocked = achievements.filter((entry) => entry.unlocked).length;
+    const points = achievements.reduce((sum, entry) => sum + entry.points, 0);
+    const unlockedPoints = achievements
+      .filter((entry) => entry.unlocked)
+      .reduce((sum, entry) => sum + entry.points, 0);
+    return {
+      gameId: id,
+      total: achievements.length,
+      unlocked,
+      points,
+      unlockedPoints,
+      completion: achievements.length ? Math.round((unlocked / achievements.length) * 1000) / 10 : 0,
+      achievements,
+      lastScan: {
+        scannedAt: "2026-11-08T21:10:00Z",
+        providers: ["game_files"],
+        found: achievements.length,
+        unlocked: 0,
+      },
+    };
+  },
+
+  async scanAchievements(
+    token: string | null,
+    id: number,
+    body: { installPath?: string | null } = {},
+  ): Promise<AchievementScanReport> {
+    await latency();
+    const user = currentUser(token);
+    if (!visibleGames().some((game) => game.id === id)) fail(404, "game_not_found", "That game is not in the library");
+    const found = demoAchievements(visibleGames().find((game) => game.id === id)!, user.id);
+    return {
+      gameId: id,
+      userId: user.id,
+      scannedAt: nowIso(),
+      found: found.length,
+      unlocked: found.filter((entry) => entry.unlocked).length,
+      providers: [
+        {
+          provider: "game_files",
+          status: "ok",
+          found: found.length,
+          unlocked: found.filter((entry) => entry.unlocked).length,
+          message: body.installPath ? null : "demo install path",
+        },
+      ],
+      warnings: [],
+    };
+  },
+
+  async meAchievements(token: string | null): Promise<UserAchievements> {
+    await latency();
+    const user = currentUser(token);
+    return demoUserAchievements(user.id, user);
+  },
+
+  async userAchievements(token: string | null, id: number): Promise<UserAchievements> {
+    await latency();
+    currentUser(token);
+    const profile = DEMO_PROFILES.find((entry) => entry.id === id);
+    if (!profile) fail(404, "profile_not_found", "Profile not found");
+    return demoUserAchievements(id, profile);
   },
 
   async config(): Promise<ServerConfig> {

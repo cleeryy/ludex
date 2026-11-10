@@ -345,7 +345,8 @@ export type ActivityKind =
   | "game_installed"
   | "game_played"
   | "game_completed"
-  | "collection_created";
+  | "collection_created"
+  | "achievement_unlocked";
 
 export interface Activity {
   id: number;
@@ -842,4 +843,84 @@ export interface CompleteUploadResponse {
   fileName: string;
   size: number;
   sha256: string | null;
+}
+
+/* ------------------------------ achievements ----------------------------- */
+
+/** One achievement definition plus the requesting account's state. */
+export interface Achievement {
+  id: number;
+  /** Owning game; null for a global achievement. */
+  gameId: number | null;
+  gameTitle: string | null;
+  coverUrl: string | null;
+  key: string;
+  /** Masked to "Hidden achievement" while secret and locked. */
+  name: string;
+  description: string | null;
+  iconUrl: string | null;
+  points: number;
+  hidden: boolean;
+  /** `manual`, `game_files`, `gog_galaxy_api` or `gog_galaxy_sqlite`. */
+  provider: string;
+  unlocked: boolean;
+  unlockedAt: string | null;
+  /** Completion fraction, 0..1. */
+  progress: number;
+  /** Share of accounts that unlocked it, 0..100. */
+  unlockPercentage: number;
+  /** Source of the unlock when unlocked. */
+  source: string | null;
+}
+
+export interface AchievementScanSummary {
+  scannedAt: string;
+  providers: string[];
+  found: number;
+  unlocked: number;
+}
+
+export interface GameAchievements {
+  gameId: number;
+  total: number;
+  unlocked: number;
+  points: number;
+  unlockedPoints: number;
+  /** Completion percentage, 0..100. */
+  completion: number;
+  achievements: Achievement[];
+  lastScan: AchievementScanSummary | null;
+}
+
+export interface AchievementUser {
+  id: number;
+  username: string;
+  displayName: string | null;
+  publicProfile: boolean;
+}
+
+export interface UserAchievements {
+  user: AchievementUser;
+  unlocked: number;
+  unlockedPoints: number;
+  games: number;
+  achievements: Achievement[];
+}
+
+export interface AchievementProviderReport {
+  provider: string;
+  status: "ok" | "skipped" | "error";
+  found: number;
+  unlocked: number;
+  message: string | null;
+}
+
+export interface AchievementScanReport {
+  gameId: number;
+  userId: number;
+  scannedAt: string;
+  found: number;
+  unlocked: number;
+  providers: AchievementProviderReport[];
+  warnings: string[];
 }

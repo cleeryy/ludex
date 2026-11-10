@@ -25,6 +25,7 @@ import { isNative, native } from "@/lib/native";
 import type { GameDetail, ProgressState } from "@/lib/types";
 import { useBookmark, useGamePlaytime, useInstalledMap, useLaunchGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
 import { useDownloads } from "@/state/downloads";
+import { AchievementsPanel } from "@/components/game/achievements";
 import { CloudSaves } from "@/components/game/cloud-saves";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { InstallFiles } from "@/components/game/install-files";
@@ -414,6 +415,8 @@ export function GameDetailScreen() {
 
       <div className="page pt-8">
         <MediaGallery game={game} spec={spec} seed={hashString(game.title)} />
+
+        <AchievementsPanel gameId={game.id} isEditor={isEditor} installPath={isInstalled?.installPath} />
 
         <div className="mt-14 grid gap-12 lg:grid-cols-[1fr_320px]">
           <div>
