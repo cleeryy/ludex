@@ -28,7 +28,7 @@ jsonwebtoken = "9"
 argon2 = "0.5"
 password-hash = { version = "0.5", features = ["rand_core"] }
 zip = "2"
-sevenz-rust2 = "0.13"
+sevenz-rust2 = "0.25"
 unrar = "0.5"
 walkdir = "2"
 tempfile = "3"
