@@ -95,6 +95,16 @@ pub struct InstallJob {
     /// True when this job used the non-resumable tar stream (#114). The UI
     /// offers "Retry as download" instead of "Resume" for a failed stream job.
     pub stream: bool,
+    /// True when the job has per-entry checkpoints (#115): a failed or paused
+    /// install can resume from the files already in staging.
+    pub resumable: bool,
+    /// Completed / total file entries of a per-entry stream install.
+    pub entries_done: Option<u32>,
+    pub entries_total: Option<u32>,
+    /// Entry currently being written, relative to the staging folder.
+    pub current_entry: Option<String>,
+    /// Files already present when this attempt started (#115).
+    pub resumed_entries: Option<u32>,
 }
 
 impl InstallJob {
@@ -110,6 +120,12 @@ impl InstallJob {
                 _ => "Interrupted".to_string(),
             })
         });
+        let completed = record
+            .stream_completed
+            .as_deref()
+            .map(crate::stream_install::CompletedEntries::from_hex)
+            .unwrap_or_default();
+        let resumable = record.stream && completed.count() > 0;
         Self {
             job_id: record.job_id,
             game_id: record.game_id,
@@ -121,6 +137,11 @@ impl InstallJob {
             message,
             install_path: record.install_path,
             stream: record.stream,
+            resumable,
+            entries_done: resumable.then(|| completed.count() as u32),
+            entries_total: None,
+            current_entry: None,
+            resumed_entries: None,
         }
     }
 }
@@ -165,9 +186,9 @@ impl From<String> for Failure {
 }
 
 #[derive(Debug, Default)]
-struct JobPaths {
-    staging: Option<PathBuf>,
-    part: Option<PathBuf>,
+pub(crate) struct JobPaths {
+    pub(crate) staging: Option<PathBuf>,
+    pub(crate) part: Option<PathBuf>,
 }
 
 pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, String> {
@@ -229,6 +250,11 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
         message: Some("Queued".to_string()),
         install_path: None,
         stream: stream_requested(params.stream, &settings, &params.server_url),
+        resumable: false,
+        entries_done: None,
+        entries_total: None,
+        current_entry: None,
+        resumed_entries: None,
     };
 
     let entry = Arc::new(JobEntry {
@@ -240,6 +266,13 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
         created_at: now_rfc3339(),
         part_path: std::sync::Mutex::new(Some(planned_part.to_string_lossy().to_string())),
         install_path: std::sync::Mutex::new(Some(planned_install.to_string_lossy().to_string())),
+        staging_path: std::sync::Mutex::new(Some(
+            install_root
+                .join(format!(".{slug}.staging-{}", short_id(&job_id)))
+                .to_string_lossy()
+                .to_string(),
+        )),
+        stream_completed: std::sync::Mutex::new(None),
     });
 
     {
@@ -448,9 +481,10 @@ pub fn pause(app: &AppHandle, job_id: &str) -> Result<InstallJob, String> {
                 entry.params.stream,
                 &state.settings_snapshot(),
                 &entry.params.server_url,
-            ) {
+            ) && !snapshot.resumable
+            {
                 return Err(
-                    "Stream installs cannot be paused. Turn off stream installs in Settings, then retry."
+                    "This stream install cannot be paused. Turn off stream installs in Settings, then retry."
                         .to_string(),
                 );
             }
@@ -524,8 +558,12 @@ fn planned_paths(state: &AppState, entry: &JobEntry) -> JobPaths {
                 entry.params.game_id, entry.params.version_id
             ))
         });
+    let staging = entry
+        .staging_path()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| install_root.join(format!(".{slug}.staging-{}", short_id(&job_id))));
     JobPaths {
-        staging: Some(install_root.join(format!(".{slug}.staging-{}", short_id(&job_id)))),
+        staging: Some(staging),
         part: Some(part),
     }
 }
@@ -646,8 +684,13 @@ async fn run_job(app: AppHandle, job_id: String) {
     drop(permit);
 
     if result.is_err() {
-        if let Some(staging) = job_paths.staging.as_deref() {
-            let _ = tokio::fs::remove_dir_all(staging).await;
+        // Resumable stream installs keep staging and their checkpoint so the
+        // next attempt continues from the completed entries (#115). Everything
+        // else discards the partial tree.
+        if !entry.snapshot().resumable {
+            if let Some(staging) = job_paths.staging.as_deref() {
+                let _ = tokio::fs::remove_dir_all(staging).await;
+            }
         }
         // Cancelling discards the partial archive; pausing keeps it so the
         // next attempt resumes with HTTP Range.
@@ -660,12 +703,16 @@ async fn run_job(app: AppHandle, job_id: String) {
 
     match result {
         Ok(install_path) => {
+            // The staging folder was moved into place: the per-entry
+            // checkpoint is no longer needed.
+            clear_stream_checkpoint(&app, &entry);
             entry.update(|job| {
                 job.phase = InstallPhase::Done;
                 job.speed_bps = 0;
                 job.bytes_done = job.bytes_total.unwrap_or(job.bytes_done);
                 job.message = Some("Installed".to_string());
                 job.install_path = Some(install_path.to_string_lossy().to_string());
+                job.resumable = false;
             });
             persist(&app, &entry);
             let job = entry.snapshot();
@@ -696,8 +743,12 @@ async fn finalize_paused(app: &AppHandle, entry: &JobEntry, job_paths: &JobPaths
         finalize_cancelled(app, entry, job_paths).await;
         return;
     }
-    if let Some(staging) = job_paths.staging.as_deref() {
-        let _ = tokio::fs::remove_dir_all(staging).await;
+    // A resumable stream install keeps its staging folder and checkpoint: the
+    // next `resume_install` continues from the completed entries (#115).
+    if !entry.snapshot().resumable {
+        if let Some(staging) = job_paths.staging.as_deref() {
+            let _ = tokio::fs::remove_dir_all(staging).await;
+        }
     }
     entry.update(|job| {
         job.phase = InstallPhase::Paused;
@@ -711,22 +762,56 @@ async fn finalize_paused(app: &AppHandle, entry: &JobEntry, job_paths: &JobPaths
 }
 
 async fn finalize_cancelled(app: &AppHandle, entry: &JobEntry, job_paths: &JobPaths) {
-    if let Some(staging) = job_paths.staging.as_deref() {
+    // Cancelling a resumable stream install stops between entries and keeps
+    // the files that were already written, so a later install of the same
+    // version does not download them again (#115). With nothing completed
+    // there is nothing worth keeping: discard the folder and the checkpoint.
+    let keep_staging = entry.snapshot().resumable
+        && entry
+            .stream_completed()
+            .as_deref()
+            .map(crate::stream_install::CompletedEntries::from_hex)
+            .map(|completed| completed.count() > 0)
+            .unwrap_or(false);
+    if keep_staging {
+        tracing::info!(
+            job_id = %entry.snapshot().job_id,
+            "install cancelled; completed streamed entries are kept for the next attempt"
+        );
+    } else if let Some(staging) = job_paths.staging.as_deref() {
         let _ = tokio::fs::remove_dir_all(staging).await;
+        clear_stream_checkpoint(app, entry);
     }
     if let Some(part) = job_paths.part.as_deref() {
         let _ = tokio::fs::remove_file(part).await;
     }
     entry.set_part_path(None);
+    let message = if keep_staging {
+        "Install cancelled; the files already downloaded are kept for the next attempt"
+    } else {
+        "Install cancelled"
+    };
     entry.update(|job| {
         job.phase = InstallPhase::Cancelled;
         job.speed_bps = 0;
-        job.message = Some("Install cancelled".to_string());
+        job.message = Some(message.to_string());
     });
     persist(app, entry);
     let _ = app.emit("install://progress", entry.snapshot());
     emit_jobs(app);
     tracing::info!(job_id = %entry.snapshot().job_id, "install cancelled");
+}
+
+/// Removes the per-entry manifest and clears the completed bitset.
+fn clear_stream_checkpoint(app: &AppHandle, entry: &JobEntry) {
+    let state = app.state::<AppState>();
+    let job_id = entry.snapshot().job_id;
+    if let Ok(connection) = state.db.lock() {
+        if let Err(error) = db::delete_stream_manifest(&connection, &job_id) {
+            tracing::warn!(error = %error, "could not delete the stream manifest");
+        }
+    }
+    entry.set_stream_completed(None);
 }
 
 fn finalize_error(app: &AppHandle, entry: &JobEntry, message: String) {
@@ -749,7 +834,7 @@ fn finalize_error(app: &AppHandle, entry: &JobEntry, message: String) {
     tracing::warn!(job_id = %job.job_id, error = %message, "install failed");
 }
 
-fn persist(app: &AppHandle, entry: &JobEntry) {
+pub(crate) fn persist(app: &AppHandle, entry: &JobEntry) {
     let state = app.state::<AppState>();
     let job = entry.snapshot();
     let (part_path, install_path) = entry.stored_paths();
@@ -769,6 +854,7 @@ fn persist(app: &AppHandle, entry: &JobEntry) {
             None
         },
         stream: job.stream,
+        stream_completed: entry.stream_completed(),
         created_at: entry.created_at.clone(),
         updated_at: now_rfc3339(),
     };
@@ -814,14 +900,10 @@ async fn execute(
     let pause = entry.pause_token();
     let staging = install_root.join(format!(".{slug}.staging-{}", short_id(&job_id)));
     job_paths.staging = Some(staging.clone());
-    if staging.exists() {
-        tokio::fs::remove_dir_all(&staging).await.map_err(|e| {
-            Failure::Failed(format!(
-                "Could not clear the staging folder {}: {e}",
-                staging.display()
-            ))
-        })?;
-    }
+    entry.set_staging_path(Some(staging.to_string_lossy().to_string()));
+    // The staging folder is NOT cleared here: a resumable stream install
+    // adopts the folder of its previous attempt and needs the completed files
+    // (#115). Every non-resumable branch resets it before writing.
 
     check_stop(&entry.cancel, &pause)?;
 
@@ -846,10 +928,14 @@ async fn execute(
     let download_root =
         settings::resolve_download_dir(&settings, &install_root, params.download_dir.as_deref());
 
-    // 2. Stream install (remote ZIP only): unpack the tar while downloading.
+    // 2. Stream install (remote ZIP only): write the entries straight into
+    // staging. The per-entry protocol (#115) is resumable; non-ZIP archives
+    // and older servers fall back to the sequential tar stream.
     let mut streamed = false;
     if archive.is_none() && stream_requested(params.stream, &settings, &params.server_url) {
-        match stream_install(app, entry, &params, &staging).await {
+        let outcome =
+            crate::stream_install::install(app, entry, &params, &staging, job_paths).await;
+        match outcome {
             Ok(StreamOutcome::Done) => {
                 streamed = true;
                 job_paths.part = None;
@@ -858,13 +944,30 @@ async fn execute(
             Ok(StreamOutcome::Unsupported(status)) => {
                 tracing::info!(
                     status = status.as_u16(),
-                    "stream install unsupported, falling back to download"
+                    "per-entry stream unsupported, trying the sequential tar stream"
                 );
-                // The job is now a normal, resumable download: a failure must
-                // offer "Resume", not the stream-specific retry (#114).
-                entry.update(|job| job.stream = false);
-                persist(app, entry);
-                let _ = tokio::fs::remove_dir_all(&staging).await;
+                let stream_staging = job_paths.staging.clone().unwrap_or_else(|| staging.clone());
+                reset_staging(&stream_staging).await?;
+                match tar_stream_install(app, entry, &params, &stream_staging).await {
+                    Ok(StreamOutcome::Done) => {
+                        streamed = true;
+                        job_paths.part = None;
+                        entry.set_part_path(None);
+                    }
+                    Ok(StreamOutcome::Unsupported(status)) => {
+                        tracing::info!(
+                            status = status.as_u16(),
+                            "stream install unsupported, falling back to download"
+                        );
+                        // The job is now a normal, resumable download: a failure
+                        // must offer "Resume", not the stream-specific retry (#114).
+                        entry.update(|job| job.stream = false);
+                        entry.set_stream_completed(None);
+                        persist(app, entry);
+                        let _ = tokio::fs::remove_dir_all(&stream_staging).await;
+                    }
+                    Err(failure) => return Err(failure),
+                }
             }
             Err(failure) => return Err(failure),
         }
@@ -872,6 +975,7 @@ async fn execute(
 
     // 3. Otherwise download with resume.
     if archive.is_none() && !streamed {
+        reset_staging(&staging).await?;
         let part = job_paths.part.clone().unwrap_or_else(|| {
             download_root.join(format!(".{}-{}.part", params.game_id, params.version_id))
         });
@@ -1312,6 +1416,19 @@ fn set_progress(
     });
     persist(app, entry);
     let _ = app.emit("install://progress", entry.snapshot());
+}
+
+/// Deletes a staging folder so a non-resumable branch starts from scratch.
+async fn reset_staging(staging: &Path) -> Result<(), Failure> {
+    if tokio::fs::try_exists(staging).await.unwrap_or(false) {
+        tokio::fs::remove_dir_all(staging).await.map_err(|e| {
+            Failure::Failed(format!(
+                "Could not clear the staging folder {}: {e}",
+                staging.display()
+            ))
+        })?;
+    }
+    Ok(())
 }
 
 pub(crate) fn absolute_path(path: PathBuf) -> Result<PathBuf, String> {
@@ -1786,10 +1903,10 @@ fn stream_requested(requested: Option<bool>, settings: &LocalSettings, server_ur
 }
 
 #[derive(Debug)]
-enum StreamOutcome {
+pub(crate) enum StreamOutcome {
     Done,
-    /// The server cannot stream this version (non-ZIP). Fall back to the
-    /// normal download + extract path.
+    /// The server cannot stream this version (non-ZIP, or a server build
+    /// without the per-entry endpoints). Fall back to the next strategy.
     Unsupported(reqwest::StatusCode),
 }
 
@@ -1830,7 +1947,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for ProgressReader<R> {
 /// Nothing is written to the download folder: the tar is consumed as it
 /// arrives. Non-ZIP versions answer 415/404 and the caller falls back to the
 /// regular download. Stream installs are not resumable.
-async fn stream_install(
+async fn tar_stream_install(
     app: &AppHandle,
     entry: &Arc<JobEntry>,
     params: &InstallParams,
@@ -2110,7 +2227,7 @@ where
 
 /// Convert a tar entry path to a safe relative path. Rejects absolute paths,
 /// `..`, Windows drive/separator tricks and empty paths.
-fn safe_tar_path(path: &Path) -> Option<PathBuf> {
+pub(crate) fn safe_tar_path(path: &Path) -> Option<PathBuf> {
     let mut result = PathBuf::new();
     for component in path.components() {
         match component {
