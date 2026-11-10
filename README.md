@@ -68,8 +68,8 @@ application backed by PostgreSQL. Ludex takes a different route:
 | Custom install and download folders | v0.2 |
 | Stream install for ZIP and 7z (no archive retained) | v0.2 |
 | Big Picture mode (keyboard/gamepad) | v0.2 |
-| Higher-resolution IGDB covers/backgrounds | v0.2 |
 | SSO OIDC (Authentik/Keycloak) | v0.2 |
+| Higher-resolution IGDB covers/backgrounds | v0.2 |
 | Web UI served by the server | v0.1 |
 | Users and roles (`admin`, `editor`, `user`) | v0.1 |
 | News posts | v0.1 |
@@ -248,6 +248,20 @@ The server can serve a development build without embedding by running Vite
 separately. `embed-web` compiles `apps/web/dist` into the binary for a single
 deployable artifact.
 
+### Browser E2E
+
+```bash
+pnpm e2e:install   # one-time Chromium download
+pnpm e2e           # Playwright against a running server
+scripts/e2e.sh     # full harness: builds web + server, starts isolated servers
+```
+
+`scripts/e2e.sh` covers the library UI, search/filter, game detail, browser
+download, first-run setup, admin ingest and Big Picture. The `E2E` CI job is a
+required branch-protection check and the release workflow will not publish an
+artifact unless it passes. See [`CONTRIBUTING.md`](CONTRIBUTING.md) and
+[`docs/RELEASING.md`](docs/RELEASING.md).
+
 ## Migrating from GameVault
 
 Ludex can scan a GameVault `/games` volume as-is. Run it on a second port with
@@ -270,6 +284,14 @@ two writers on one volume: [`docs/MIGRATION.md`](docs/MIGRATION.md).
 Put Ludex behind HTTPS (Caddy, nginx, Traefik) before exposing it to the
 internet. Do not expose the data directory or the SQLite file.
 
+Security issues should be reported privately, not in a public issue. See
+[`SECURITY.md`](SECURITY.md).
+
+For the homelab pull-based updater (CT258 `edge` timer, SHA-256 verification,
+automatic rollback), see [`docs/GITOPS.md`](docs/GITOPS.md). It only swaps the
+server binary and restarts `ludex.service`; `/games`, `/data` and `/media` are
+never touched.
+
 ## License and clean-room statement
 
 Ludex v0.2.0 and later is licensed under the **GNU Affero General Public License
@@ -283,3 +305,6 @@ sponsored by, or endorsed by GameVault or Phalcode.
 
 Ludex does not circumvent DRM, does not bundle games, and does not provide
 storefront or piracy features. You are responsible for the files you index.
+
+Contributions are accepted under the same license; see
+[`CONTRIBUTING.md`](CONTRIBUTING.md).

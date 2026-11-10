@@ -1,0 +1,12 @@
+[Unit]
+Description=Check for Ludex updates every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+RandomizedDelaySec=45s
+AccuracySec=15s
+Unit=ludex-update.service
+
+[Install]
+WantedBy=timers.target
