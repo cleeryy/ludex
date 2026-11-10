@@ -2,7 +2,8 @@
 
 Single source of truth for the server, web UI and Tauri shell. All JSON is
 `camelCase`. All routes are under `/api` unless stated. Auth is
-`Authorization: Bearer <jwt>` except public routes.
+`Authorization: Bearer <jwt>` or, for integrations, `Authorization: Bearer
+ldx_<token>` (an API key) except public routes.
 
 ## Errors
 
@@ -166,6 +167,106 @@ follow-up (Ludusavi).
 | POST | `/api/users` | `{ username, password, email?, role }` → `User` |
 | PATCH | `/api/users/{id}` | `{ email?, role?, activated? }` → `User` |
 | DELETE | `/api/users/{id}` | 204; cannot delete the last admin or self |
+
+## API keys (#40)
+
+API keys are random `ldx_<64 hex>` bearer tokens. The plaintext token is
+returned exactly once by `POST /api/keys`; only its SHA-256 and a non-secret
+`prefix` are stored. Keys inherit their owner's role but are limited by their
+scopes: `read` (GET), `write` (mutations: progress, saves, library scan,
+ingest, key management) and `admin` (administrator routes). `admin` implies
+`write`, which implies `read`.
+
+```ts
+interface ApiKey {
+  id: number; userId: number; name: string; prefix: string;
+  scopes: ("read" | "write" | "admin")[];
+  createdAt: string; lastUsedAt: string | null; revokedAt: string | null;
+}
+// POST response adds `secret: string` (never returned again).
+```
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/keys` | own keys, newest first; `?all=true` (admin) lists every account |
+| POST | `/api/keys` | `{ name, scopes?, userId? }` → 201 `ApiKey & { secret }`; `userId` requires admin |
+| DELETE | `/api/keys/{id}` | revoke (idempotent, 204); owner or admin |
+
+`Authorization: Bearer ldx_...` is accepted everywhere a JWT is. Every use
+updates `lastUsedAt`. Revoked or unknown keys get the same 401 as a bad JWT.
+
+## Audit log (#42)
+
+Every security-relevant event is written to `audit_logs` with an actor
+(`user`, `api_key` or `system`), action, optional target, secret-free JSON
+metadata, IP when known, and timestamp. Recorded actions: `login.succeeded`,
+`login.failed`, `user.created|updated|deleted|password_changed`, `api_key.created|revoked`,
+`game.ingested|deleted`, `download.completed`, `settings.updated`,
+`webhook.created|updated|deleted`, `save.uploaded|deleted`, `oidc.login`,
+`oidc.linked`.
+
+```ts
+interface AuditLog {
+  id: number; actorId: number | null; actorKind: "user" | "api_key" | "system";
+  action: string; targetType: string | null; targetId: string | null;
+  metadata: Record<string, unknown>; ip: string | null; createdAt: string;
+}
+interface AuditPage { items: AuditLog[]; nextBefore: number | null }
+```
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/audit` | admin + `admin` scope. Query: `limit` (50, max 200), `before` (id cursor), `actorId`, `actorKind`, `action`, `targetType`, `targetId` |
+
+Newest first. Pass `nextBefore` as `before` to fetch the next page; `null`
+means the last page.
+
+## Webhooks (#41)
+
+Administrators register outbound HTTP endpoints. Deliveries are asynchronous:
+each event is stored in `webhook_deliveries`, signed with HMAC-SHA256 over the
+exact JSON body, retried up to 5 times with exponential backoff (1 s, 2 s, 4 s,
+8 s; base configurable with `LUDEX_WEBHOOKS_BACKOFF_MS`) and a 10 s request
+timeout. Non-2xx responses and network errors are retried; redirects are not
+followed. Loopback/private/link-local targets are rejected unless
+`LUDEX_WEBHOOKS_ALLOW_PRIVATE=true` (tests/LAN only).
+
+Events: `game.ingested`, `game.deleted`, `download.completed`, `user.created`,
+`save.uploaded`. The test endpoint queues a `webhook.test` delivery.
+
+Request headers:
+
+```
+Content-Type: application/json
+X-Ludex-Signature: sha256=<hex HMAC-SHA256 of the raw body with the webhook secret>
+X-Ludex-Event: game.ingested
+X-Ludex-Delivery: 42
+```
+
+Payload:
+
+```json
+{
+  "event": "game.ingested",
+  "timestamp": "2026-11-10T12:00:00Z",
+  "data": { "title": "Celeste", "source": "scan" }
+}
+```
+
+```ts
+interface Webhook {
+  id: number; url: string; events: string[]; enabled: boolean; createdAt: string;
+}
+// POST response adds `secret: string`; PATCH adds it only when rotateSecret=true.
+```
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/webhooks` | admin + `admin` scope; secrets never returned |
+| POST | `/api/webhooks` | `{ url, events, enabled? }` → 201 `Webhook & { secret }` |
+| PATCH | `/api/webhooks/{id}` | `{ url?, events?, enabled?, rotateSecret? }` → `Webhook` (+ new `secret` if rotated) |
+| DELETE | `/api/webhooks/{id}` | 204 |
+| POST | `/api/webhooks/{id}/test` | 202 `{ deliveryId }`; webhook must be enabled |
 
 ## Library
 

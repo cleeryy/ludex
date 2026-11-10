@@ -1347,6 +1347,7 @@ dependencies = [
  "fs2",
  "futures-util",
  "hex",
+ "hmac",
  "http-body-util",
  "jsonwebtoken",
  "ludex-core",

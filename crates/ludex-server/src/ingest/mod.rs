@@ -45,6 +45,8 @@ pub struct IngestContext {
     /// Allow loopback/private targets (tests, LAN mirrors). Mirrors
     /// `LUDEX_INGEST_ALLOW_PRIVATE`.
     pub allow_private: bool,
+    /// Event bus, used for audit and webhook events. `None` in unit tests.
+    pub events: Option<crate::events::EventSink>,
 }
 
 /// Error payload: `{ "error": { "code": ..., "message": ... } }`.
@@ -348,6 +350,16 @@ async fn delete_file(
     let path = state.ctx.games_dir.join(name);
     match fs::remove_file(&path).await {
         Ok(()) => {
+            if let Some(events) = &state.ctx.events {
+                events.emit(
+                    crate::events::Event::new(
+                        crate::audit::actions::GAME_DELETED,
+                        crate::events::Actor::System,
+                    )
+                    .target("game_file", name)
+                    .metadata(serde_json::json!({ "source": "ingest" })),
+                );
+            }
             info!(file = name, "ingest file deleted");
             Ok(StatusCode::NO_CONTENT)
         }

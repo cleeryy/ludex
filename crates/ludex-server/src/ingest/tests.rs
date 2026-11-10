@@ -51,6 +51,7 @@ impl TestEnv {
             data_dir: data.clone(),
             scan_tx,
             allow_private: true,
+            events: None,
         };
         Self {
             root,

@@ -607,6 +607,293 @@ pub struct UserResponse {
     pub user: User,
 }
 
+/// Row of the `api_keys` table.
+#[derive(Debug, sqlx::FromRow)]
+pub struct ApiKeyRow {
+    pub id: i64,
+    pub user_id: i64,
+    pub name: String,
+    pub prefix: String,
+    pub secret_hash: String,
+    pub scopes: String,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+    pub revoked_at: Option<String>,
+}
+
+impl ApiKeyRow {
+    /// Public representation, never including the secret or its hash.
+    #[must_use]
+    pub fn to_public(&self) -> ApiKey {
+        ApiKey {
+            id: self.id,
+            user_id: self.user_id,
+            name: self.name.clone(),
+            prefix: self.prefix.clone(),
+            scopes: crate::api_keys::parse_scopes(&self.scopes)
+                .iter()
+                .map(|scope| scope.as_str().to_string())
+                .collect(),
+            created_at: crate::db::parse_time(&self.created_at).unwrap_or_else(Utc::now),
+            last_used_at: self.last_used_at.as_deref().and_then(crate::db::parse_time),
+            revoked_at: self.revoked_at.as_deref().and_then(crate::db::parse_time),
+        }
+    }
+}
+
+/// API key metadata returned by `/api/keys`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiKey {
+    /// Key id.
+    pub id: i64,
+    /// Owning account.
+    pub user_id: i64,
+    /// Human label.
+    pub name: String,
+    /// Non-secret display prefix.
+    pub prefix: String,
+    /// Granted scopes (`read`, `write`, `admin`).
+    pub scopes: Vec<String>,
+    /// Creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Last successful use, if any.
+    pub last_used_at: Option<DateTime<Utc>>,
+    /// Revocation timestamp, if revoked.
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
+/// `POST /api/keys` request.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateApiKeyRequest {
+    /// Human label.
+    pub name: String,
+    /// Requested scopes; defaults to `["read"]`.
+    #[serde(default)]
+    pub scopes: Option<Vec<String>>,
+    /// Admin only: create the key for another account.
+    #[serde(default)]
+    pub user_id: Option<i64>,
+}
+
+/// `POST /api/keys` response: the plaintext secret is shown exactly once.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateApiKeyResponse {
+    /// Key metadata.
+    #[serde(flatten)]
+    pub key: ApiKey,
+    /// Plaintext token, never stored server-side.
+    pub secret: String,
+}
+
+/// Query string for `GET /api/keys`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiKeyQuery {
+    /// Admin only: list keys for every account.
+    #[serde(default)]
+    pub all: Option<bool>,
+}
+
+/// Row of the `audit_logs` table.
+#[derive(Debug, sqlx::FromRow)]
+pub struct AuditLogRow {
+    pub id: i64,
+    pub actor_id: Option<i64>,
+    pub actor_kind: String,
+    pub action: String,
+    pub target_type: Option<String>,
+    pub target_id: Option<String>,
+    pub metadata: String,
+    pub ip: Option<String>,
+    pub created_at: String,
+}
+
+impl AuditLogRow {
+    /// Public representation with parsed metadata.
+    #[must_use]
+    pub fn to_public(&self) -> AuditLog {
+        AuditLog {
+            id: self.id,
+            actor_id: self.actor_id,
+            actor_kind: self.actor_kind.clone(),
+            action: self.action.clone(),
+            target_type: self.target_type.clone(),
+            target_id: self.target_id.clone(),
+            metadata: serde_json::from_str(&self.metadata)
+                .unwrap_or_else(|_| serde_json::json!({})),
+            ip: self.ip.clone(),
+            created_at: crate::db::parse_time(&self.created_at).unwrap_or_else(Utc::now),
+        }
+    }
+}
+
+/// One audit entry.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditLog {
+    /// Row id, also the pagination cursor.
+    pub id: i64,
+    /// User or API key id, depending on `actor_kind`.
+    pub actor_id: Option<i64>,
+    /// `user`, `api_key` or `system`.
+    pub actor_kind: String,
+    /// Action name.
+    pub action: String,
+    /// Target entity family.
+    pub target_type: Option<String>,
+    /// Target identifier.
+    pub target_id: Option<String>,
+    /// Structured, secret-free detail.
+    pub metadata: serde_json::Value,
+    /// Request address when known.
+    pub ip: Option<String>,
+    /// Timestamp.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Query string for `GET /api/audit`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditQuery {
+    /// Page size, 1..=200 (default 50).
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// Return rows with `id < before` (newest-first cursor).
+    #[serde(default)]
+    pub before: Option<i64>,
+    /// Filter by actor id.
+    #[serde(default)]
+    pub actor_id: Option<i64>,
+    /// Filter by actor kind (`user`, `api_key`, `system`).
+    #[serde(default)]
+    pub actor_kind: Option<String>,
+    /// Filter by exact action.
+    #[serde(default)]
+    pub action: Option<String>,
+    /// Filter by target type.
+    #[serde(default)]
+    pub target_type: Option<String>,
+    /// Filter by target id.
+    #[serde(default)]
+    pub target_id: Option<String>,
+}
+
+/// One page of audit entries.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditPage {
+    /// Newest-first entries.
+    pub items: Vec<AuditLog>,
+    /// Pass as `before` to fetch the next page; `null` on the last page.
+    pub next_before: Option<i64>,
+}
+
+/// Row of the `webhooks` table.
+#[derive(Debug, sqlx::FromRow)]
+pub struct WebhookRow {
+    pub id: i64,
+    pub url: String,
+    pub secret: String,
+    pub events: String,
+    pub enabled: i64,
+    pub created_at: String,
+}
+
+impl WebhookRow {
+    /// Public representation; the HMAC secret is never returned by list/update.
+    #[must_use]
+    pub fn to_public(&self) -> Webhook {
+        Webhook {
+            id: self.id,
+            url: self.url.clone(),
+            events: crate::webhooks::parse_events(&self.events),
+            enabled: self.enabled != 0,
+            created_at: crate::db::parse_time(&self.created_at).unwrap_or_else(Utc::now),
+        }
+    }
+}
+
+/// Webhook metadata.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Webhook {
+    /// Webhook id.
+    pub id: i64,
+    /// Delivery URL.
+    pub url: String,
+    /// Subscribed event names.
+    pub events: Vec<String>,
+    /// Whether deliveries are attempted.
+    pub enabled: bool,
+    /// Creation timestamp.
+    pub created_at: DateTime<Utc>,
+}
+
+/// `POST /api/webhooks` response: the signing secret is shown once.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWebhookResponse {
+    /// Webhook metadata.
+    #[serde(flatten)]
+    pub webhook: Webhook,
+    /// HMAC-SHA256 signing secret.
+    pub secret: String,
+}
+
+/// `POST /api/webhooks` request.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWebhookRequest {
+    /// Delivery URL (http/https, public unless explicitly allowed).
+    pub url: String,
+    /// Event names from the documented list.
+    pub events: Vec<String>,
+    /// Defaults to `true`.
+    #[serde(default)]
+    pub enabled: Option<bool>,
+}
+
+/// `PATCH /api/webhooks/{id}` request.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateWebhookRequest {
+    /// Replacement URL.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Replacement event list.
+    #[serde(default)]
+    pub events: Option<Vec<String>>,
+    /// Enable or disable deliveries.
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    /// Rotate the signing secret and return the new value once.
+    #[serde(default)]
+    pub rotate_secret: Option<bool>,
+}
+
+/// `PATCH /api/webhooks/{id}` response.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateWebhookResponse {
+    /// Webhook metadata.
+    #[serde(flatten)]
+    pub webhook: Webhook,
+    /// New signing secret when `rotateSecret` was requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
+}
+
+/// `POST /api/webhooks/{id}/test` response.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookTestResponse {
+    /// Queued delivery id.
+    pub delivery_id: i64,
+}
+
 /// Deserialises a present field, distinguishing `null` from an absent field.
 ///
 /// `Option<Option<T>>` is `None` when the field is missing (thanks to

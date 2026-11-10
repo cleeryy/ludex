@@ -26,6 +26,20 @@ All notable changes to Ludex are documented here. The format is based on
 - `maxPlayers` and `altTitles` on the API, populated from IGDB where available
   and editable by editors; indexes for the new filter columns.
 
+- API keys for integrations (#40): create/list/revoke `ldx_` bearer tokens with
+  `read`/`write`/`admin` scopes, SHA-256 at rest, one-time secret display and
+  `lastUsedAt` tracking. Keys work anywhere a JWT does.
+- Audit log (#42): append-only `audit_logs` table covering logins, user and API
+  key changes, game ingest/delete, downloads, saves, settings, webhook changes
+  and OIDC login/link; `GET /api/audit` for administrators with `limit`/`before`
+  pagination and actor/action/target filters.
+- Outbound webhooks (#41): admin CRUD plus test delivery, HMAC-SHA256
+  `X-Ludex-Signature`, async delivery with 5 attempts and exponential backoff,
+  10 s timeout and SSRF protection (`LUDEX_WEBHOOKS_ALLOW_PRIVATE` for tests).
+  Events: `game.ingested`, `game.deleted`, `download.completed`,
+  `user.created`, `save.uploaded`.
+- `docs/INTEGRATIONS.md` with curl, signature-verification and payload examples.
+
 ### Changed
 
 - `GET /api/games?q=` now ranks by relevance instead of substring order and
