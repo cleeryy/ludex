@@ -326,6 +326,7 @@ interface LocalSettings {
   streamInstall: boolean;       // remote ZIP/7z installs without storing the archive
   keepArchives: boolean;        // keep the downloaded archive after install
   archivePasswords: string[];   // tried in order
+  bandwidthLimitKib: number;    // global download cap in KiB/s, 0 = unlimited
 }
 
 interface InstalledGame {
@@ -336,9 +337,34 @@ interface InstalledGame {
 
 interface InstallJob {
   jobId: string; gameId: number; versionId: number;
-  phase: "queued" | "downloading" | "extracting" | "finalizing" | "done" | "cancelled" | "error";
+  phase: "queued" | "downloading" | "extracting" | "finalizing" | "paused"
+       | "done" | "cancelled" | "error";
   bytesDone: number; bytesTotal: number | null; speedBps: number;
   message: string | null; installPath: string | null;
+}
+
+interface VerifyIssue {
+  path: string;                 // relative to the install folder, "/" separated
+  expectedSize: number; actualSize: number | null;
+  expectedSha256: string; actualSha256: string | null;
+}
+
+interface VerifyReport {
+  gameId: number;
+  status: "ok" | "issues" | "noManifest";
+  filesChecked: number; bytesChecked: number;
+  missing: VerifyIssue[]; corrupt: VerifyIssue[];
+  extra: { path: string; size: number }[];
+  checkedAt: string; message: string | null;
+}
+
+interface RepairReport {
+  gameId: number;
+  repaired: string[];           // restored relative paths
+  failed: string[];             // damaged paths the archive could not restore
+  fallback: boolean;            // true: a full reinstall is required
+  message: string;
+  verify: VerifyReport;         // state after the repair
 }
 ```
 
@@ -352,12 +378,17 @@ interface InstallJob {
 | `local_server_status` | — | `{ running, url }` |
 | `install_game` | `{ gameId, versionId, serverUrl, token, title, version?, executable?, installDir?, downloadDir?, stream? }` | `InstallJob` (starts background; survives dialog close) |
 | `cancel_install` | `{ jobId }` | `null` |
+| `pause_install` | `{ jobId }` | `InstallJob` (`paused`; keeps the `.part`) |
+| `resume_install` | `{ jobId }` | `InstallJob` (continues with HTTP Range) |
 | `get_install_job` | `{ jobId }` | `InstallJob` |
 | `list_install_jobs` | — | `InstallJob[]` (active + persisted, newest first) |
 | `list_installed` | — | `InstalledGame[]` |
 | `launch_game` | `{ gameId, executable?, args? }` | `{ sessionId }` |
 | `stop_game` | `{ sessionId }` | `null` |
 | `uninstall_game` | `{ gameId }` | `null` |
+| `move_install` | `{ gameId, targetDir }` | `InstalledGame` (new path) |
+| `verify_install` | `{ gameId }` | `VerifyReport` |
+| `repair_install` | `{ gameId }` | `RepairReport` |
 | `open_path` | `{ path }` | `null` |
 | `get_disk_usage` | `{ path }` | `{ totalBytes, freeBytes }` |
 
@@ -366,15 +397,46 @@ Events:
 - `install://progress` → `InstallJob`
 - `install://done` → `InstallJob`
 - `install://error` → `{ jobId, message }`
+- `install://jobs` → `InstallJob[]` (whole queue after any change)
+- `install://move-progress` → `{ gameId, bytesDone, bytesTotal, message }`
+- `install://verify-progress` → `{ gameId, filesDone, filesTotal, bytesDone, bytesTotal, message }`
+- `install://repair-progress` → same shape plus `phase: "downloading" | "extracting" | "restoring" | "verifying"`
 - `game://exited` → `{ sessionId, gameId, minutesPlayed }`
 - `local-server://status` → `{ running, url }`
 
 Native install layout: `{installDir}/{slug}/{versionLabel}/game files` plus a
 desktop SQLite index at `{appDataDir}/ludex-desktop.db` (installed games,
-sessions, settings). Local archive extraction uses
-`GET /api/games/{id}/versions/{vid}/local-path` when the embedded server is in
-local mode; remote installs download with Range resume and delete the temp
+sessions, settings, install jobs, file manifests). Local archive extraction
+uses `GET /api/games/{id}/versions/{vid}/local-path` when the embedded server is
+in local mode; remote installs download with Range resume and delete the temp
 archive by default (`keepArchives` setting false).
+
+### Install lifecycle
+
+- **Pause / resume.** Pausing stops the HTTP body read at the next chunk
+  boundary, flushes and keeps the `.part` file; the job stays in the queue with
+  phase `paused` (persisted across restarts). Resuming sends
+  `Range: bytes=<offset>-` and continues with the same job id. Stream installs
+  cannot be paused (nothing is written to disk to resume from) and
+  `pause_install` returns an actionable error. Cancelling discards the `.part`.
+- **Bandwidth limit.** `bandwidthLimitKib` caps the copy loop of archive
+  downloads, repairs and stream installs. 0 means unlimited. The cap is read
+  when a transfer starts.
+- **Manifests.** At install completion the desktop hashes every installed file
+  (relative path, size, SHA-256) into `install_manifests`. Hashing failures are
+  logged and never fail the install; such installs report `noManifest` until
+  reinstalled. `verify_install` compares sizes first and hashes only matching
+  files; extras are reported but do not count as damage. `repair_install`
+  downloads the version archive (Range resume, or the local library file),
+  extracts it to a temporary folder and copies back only the missing/corrupt
+  files after checking their hashes. When no archive can be obtained it returns
+  `fallback: true` with a message asking for a full reinstall.
+- **Move.** `move_install` takes a new install root and keeps the
+  `{slug}/{versionLabel}` layout. Same filesystem: an atomic rename. Different
+  filesystem: copy to a hidden sibling, verify the byte count, rename into
+  place, then delete the old folder; any failure leaves the original intact.
+  It refuses while the game runs or an install for it is active, and updates
+  the index, the executable path and the manifest path.
 
 ## Embedded server Rust API (used by the desktop app)
 

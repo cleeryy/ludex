@@ -39,11 +39,26 @@ All notable changes to Ludex are documented here. The format is based on
   Events: `game.ingested`, `game.deleted`, `download.completed`,
   `user.created`, `save.uploaded`.
 - `docs/INTEGRATIONS.md` with curl, signature-verification and payload examples.
+- Desktop: move an installed game to another folder or drive (#36). A move on
+  the same filesystem is an atomic rename; a cross-drive move copies, verifies
+  the byte count, then deletes the old folder. The index, executable path and
+  file manifest follow the game.
+- Desktop: verify and repair installed files (#37). Installs now record a
+  manifest (relative path, size, SHA-256); Verify reports missing, corrupt and
+  extra files, and Repair restores only the damaged files from the version
+  archive, with a clear reinstall prompt when no archive is available.
+- Desktop: pause and resume installs (#20). Pausing keeps the partial archive
+  and resuming continues from the byte offset with an HTTP Range request,
+  including after an app restart; paused jobs stay in the queue.
+- Desktop: global bandwidth limit in KiB/s (0 = unlimited) for archive
+  downloads, repairs and stream installs.
 
 ### Changed
 
 - `GET /api/games?q=` now ranks by relevance instead of substring order and
   searches aliases as well as titles. `sort=playtime` is supported.
+- Desktop: the local database is schema v3, adding the `install_manifests`
+  table. The migration is additive and runs automatically on start.
 
 ## [0.2.0] - 2026-11-10
 
