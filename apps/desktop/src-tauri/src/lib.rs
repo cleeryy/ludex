@@ -15,6 +15,7 @@ mod prefix;
 mod presence;
 mod process_tree;
 mod protondb;
+mod saves_detect;
 mod server;
 mod settings;
 mod state;
@@ -135,6 +136,10 @@ pub fn run() {
             commands::reset_wine_prefix,
             commands::run_winetricks,
             commands::protondb_rating,
+            commands::detect_save_paths,
+            commands::get_save_paths,
+            commands::set_save_paths,
+            commands::redetect_save_paths,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Ludex application");

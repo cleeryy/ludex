@@ -35,6 +35,9 @@ ludex-server = { path = "../../../crates/ludex-server", default-features = false
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The Ludusavi manifest is YAML (#107). The manifest is never bundled: Ludex
+# only reads a copy the user installed themselves.
+serde_yaml = "0.9"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "rt-multi-thread", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tokio-tar = "0.3"

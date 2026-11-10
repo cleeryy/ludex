@@ -104,7 +104,8 @@ pub struct CachedRating {
     pub score: Option<f64>,
     pub fetched_at: String,
 }
-const SCHEMA_VERSION: i64 = 7;
+
+const SCHEMA_VERSION: i64 = 8;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -224,6 +225,33 @@ CREATE TABLE IF NOT EXISTS protondb_reports (
 );
 "#;
 
+/// Save folder detection (#107). `save_paths` is the resolved mapping shown in
+/// the UI (manual entries survive re-detection); `save_detection` keeps the last
+/// preview, including sizes and notes, so `get_save_paths` never rescans the
+/// disk. Host paths never leave this machine.
+const SCHEMA_V8: &str = r#"
+CREATE TABLE IF NOT EXISTS save_paths (
+    game_id    INTEGER NOT NULL,
+    path       TEXT    NOT NULL,
+    kind       TEXT    NOT NULL,
+    source     TEXT    NOT NULL,
+    "primary"  INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL,
+    PRIMARY KEY (game_id, path)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS save_paths_primary_idx
+    ON save_paths (game_id) WHERE "primary" = 1;
+
+CREATE TABLE IF NOT EXISTS save_detection (
+    game_id          INTEGER PRIMARY KEY,
+    version_id       INTEGER NOT NULL DEFAULT 0,
+    manifest_version TEXT,
+    detected_at      TEXT    NOT NULL,
+    result_json      TEXT    NOT NULL
+);
+"#;
+
 pub fn open(path: &Path) -> Result<Connection, String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
@@ -291,6 +319,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         connection
             .execute_batch(SCHEMA_V7)
             .map_err(|e| format!("Could not add Linux compatibility tables: {e}"))?;
+    }
+    if version < 8 {
+        connection
+            .execute_batch(SCHEMA_V8)
+            .map_err(|e| format!("Could not add save detection to the desktop database: {e}"))?;
     }
 
     if version < SCHEMA_VERSION {
@@ -1122,6 +1155,185 @@ pub fn remove_manifest(connection: &Connection, game_id: i64) -> Result<bool, St
     Ok(affected > 0)
 }
 
+/// One resolved save path for a game (#107). `source` is `manifest`, `manual`
+/// or `override`; `primary` is the path a future cloud-save snapshot archives
+/// first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePathRecord {
+    pub game_id: i64,
+    pub path: String,
+    pub kind: String,
+    pub source: String,
+    pub primary: bool,
+    pub created_at: String,
+}
+
+const SAVE_PATH_COLUMNS: &str = "game_id, path, kind, source, \"primary\", created_at";
+
+fn map_save_path(row: &rusqlite::Row<'_>) -> rusqlite::Result<SavePathRecord> {
+    Ok(SavePathRecord {
+        game_id: row.get(0)?,
+        path: row.get(1)?,
+        kind: row.get(2)?,
+        source: row.get(3)?,
+        primary: row.get::<_, i64>(4)? != 0,
+        created_at: row.get(5)?,
+    })
+}
+
+/// Every persisted save path for one game, primary first then path order.
+pub fn list_save_paths(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<Vec<SavePathRecord>, String> {
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {SAVE_PATH_COLUMNS} FROM save_paths WHERE game_id = ?1 ORDER BY \"primary\" DESC, path ASC"
+        ))
+        .map_err(|e| format!("Could not read save paths: {e}"))?;
+
+    let rows = statement
+        .query_map(params![game_id], map_save_path)
+        .map_err(|e| format!("Could not read save paths: {e}"))?;
+
+    let mut paths = Vec::new();
+    for row in rows {
+        paths.push(row.map_err(|e| format!("Could not read save paths: {e}"))?);
+    }
+    Ok(paths)
+}
+
+/// Replace the whole mapping for a game in one transaction. Duplicate paths are
+/// dropped and only the first `primary` entry is kept, matching the partial
+/// unique index.
+pub fn replace_save_paths(
+    connection: &Connection,
+    game_id: i64,
+    paths: &[SavePathRecord],
+) -> Result<(), String> {
+    let transaction = connection
+        .unchecked_transaction()
+        .map_err(|e| format!("Could not update the save paths: {e}"))?;
+    transaction
+        .execute(
+            "DELETE FROM save_paths WHERE game_id = ?1",
+            params![game_id],
+        )
+        .map_err(|e| format!("Could not update the save paths: {e}"))?;
+
+    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    let mut primary_used = false;
+    for record in paths {
+        if !seen.insert(record.path.as_str()) {
+            continue;
+        }
+        let primary = record.primary && !primary_used;
+        if primary {
+            primary_used = true;
+        }
+        transaction
+            .execute(
+                r#"INSERT INTO save_paths (game_id, path, kind, source, "primary", created_at)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6)"#,
+                params![
+                    game_id,
+                    record.path,
+                    record.kind,
+                    record.source,
+                    i64::from(primary),
+                    record.created_at,
+                ],
+            )
+            .map_err(|e| format!("Could not record the save path: {e}"))?;
+    }
+
+    transaction
+        .commit()
+        .map_err(|e| format!("Could not update the save paths: {e}"))
+}
+
+/// Remove every save path for a game. Returns the number of rows deleted.
+pub fn delete_save_paths(connection: &Connection, game_id: i64) -> Result<usize, String> {
+    connection
+        .execute(
+            "DELETE FROM save_paths WHERE game_id = ?1",
+            params![game_id],
+        )
+        .map_err(|e| format!("Could not remove the save paths: {e}"))
+}
+
+/// Last detection preview for a game (#107).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveDetectionRecord {
+    pub game_id: i64,
+    pub version_id: i64,
+    pub manifest_version: Option<String>,
+    pub detected_at: String,
+    /// JSON encoding of `saves_detect::Detection` (sizes, notes, warnings).
+    pub result_json: String,
+}
+
+pub fn upsert_save_detection(
+    connection: &Connection,
+    record: &SaveDetectionRecord,
+) -> Result<(), String> {
+    connection
+        .execute(
+            r#"
+            INSERT INTO save_detection
+                (game_id, version_id, manifest_version, detected_at, result_json)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(game_id) DO UPDATE SET
+                version_id       = excluded.version_id,
+                manifest_version = excluded.manifest_version,
+                detected_at      = excluded.detected_at,
+                result_json      = excluded.result_json
+            "#,
+            params![
+                record.game_id,
+                record.version_id,
+                record.manifest_version,
+                record.detected_at,
+                record.result_json,
+            ],
+        )
+        .map_err(|e| format!("Could not record the save detection: {e}"))?;
+    Ok(())
+}
+
+pub fn get_save_detection(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<Option<SaveDetectionRecord>, String> {
+    connection
+        .query_row(
+            "SELECT game_id, version_id, manifest_version, detected_at, result_json
+             FROM save_detection WHERE game_id = ?1",
+            params![game_id],
+            |row| {
+                Ok(SaveDetectionRecord {
+                    game_id: row.get(0)?,
+                    version_id: row.get(1)?,
+                    manifest_version: row.get(2)?,
+                    detected_at: row.get(3)?,
+                    result_json: row.get(4)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the save detection: {e}"))
+}
+
+pub fn delete_save_detection(connection: &Connection, game_id: i64) -> Result<bool, String> {
+    let affected = connection
+        .execute(
+            "DELETE FROM save_detection WHERE game_id = ?1",
+            params![game_id],
+        )
+        .map_err(|e| format!("Could not remove the save detection: {e}"))?;
+    Ok(affected > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1135,6 +1347,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V5).unwrap();
         connection.execute_batch(SCHEMA_V6).unwrap();
         connection.execute_batch(SCHEMA_V7).unwrap();
+        connection.execute_batch(SCHEMA_V8).unwrap();
         connection
     }
 
@@ -1259,6 +1472,14 @@ mod tests {
                 })
                 .unwrap();
             assert_eq!(manifests, 0);
+            let save_paths: i64 = connection
+                .query_row("SELECT COUNT(*) FROM save_paths", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(save_paths, 0);
+            let detections: i64 = connection
+                .query_row("SELECT COUNT(*) FROM save_detection", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(detections, 0);
         }
 
         let _ = std::fs::remove_dir_all(&root);
@@ -1575,5 +1796,145 @@ mod tests {
         store_rating(&connection, &rating).unwrap();
         let back = cached_rating(&connection, 1145360).unwrap().unwrap();
         assert_eq!(back, rating);
+    }
+
+    fn save_path(game_id: i64, path: &str, source: &str, primary: bool) -> SavePathRecord {
+        SavePathRecord {
+            game_id,
+            path: path.into(),
+            kind: "directory".into(),
+            source: source.into(),
+            primary,
+            created_at: "2026-11-10T00:00:00Z".into(),
+        }
+    }
+
+    #[test]
+    fn save_paths_roundtrip_primary_and_delete() {
+        let connection = memory_database();
+        let paths = vec![
+            save_path(7, "/home/player/.local/share/Game", "manifest", false),
+            save_path(7, "/home/player/.config/Game", "manual", true),
+        ];
+        replace_save_paths(&connection, 7, &paths).unwrap();
+
+        let loaded = list_save_paths(&connection, 7).unwrap();
+        assert_eq!(loaded.len(), 2);
+        // Primary first, then path order.
+        assert_eq!(loaded[0].path, "/home/player/.config/Game");
+        assert!(loaded[0].primary);
+        assert_eq!(loaded[0].source, "manual");
+        assert!(!loaded[1].primary);
+
+        // Replace keeps only the new set and clears the old primary.
+        replace_save_paths(&connection, 7, &paths[..1]).unwrap();
+        let loaded = list_save_paths(&connection, 7).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert!(!loaded[0].primary);
+
+        assert_eq!(delete_save_paths(&connection, 7).unwrap(), 1);
+        assert!(list_save_paths(&connection, 7).unwrap().is_empty());
+    }
+
+    #[test]
+    fn save_paths_are_unique_per_game_and_primary() {
+        let connection = memory_database();
+        // The composite primary key rejects a duplicate path for one game.
+        connection
+            .execute(
+                r#"INSERT INTO save_paths (game_id, path, kind, source, "primary", created_at)
+                   VALUES (1, '/saves/game', 'directory', 'manual', 1, '2026-11-10T00:00:00Z')"#,
+                [],
+            )
+            .unwrap();
+        assert!(connection
+            .execute(
+                r#"INSERT INTO save_paths (game_id, path, kind, source, "primary", created_at)
+                   VALUES (1, '/saves/game', 'directory', 'manifest', 0, '2026-11-10T00:00:00Z')"#,
+                [],
+            )
+            .is_err());
+        // The partial unique index allows one primary per game, not per table.
+        assert!(connection
+            .execute(
+                r#"INSERT INTO save_paths (game_id, path, kind, source, "primary", created_at)
+                   VALUES (1, '/saves/other', 'directory', 'manifest', 1, '2026-11-10T00:00:00Z')"#,
+                [],
+            )
+            .is_err());
+        connection
+            .execute(
+                r#"INSERT INTO save_paths (game_id, path, kind, source, "primary", created_at)
+                   VALUES (2, '/saves/other', 'directory', 'manifest', 1, '2026-11-10T00:00:00Z')"#,
+                [],
+            )
+            .unwrap();
+
+        // The helper de-duplicates paths and keeps at most one primary.
+        let duplicates = vec![
+            save_path(3, "/saves/a", "manual", true),
+            save_path(3, "/saves/a", "manifest", true),
+            save_path(3, "/saves/b", "manifest", true),
+        ];
+        replace_save_paths(&connection, 3, &duplicates).unwrap();
+        let loaded = list_save_paths(&connection, 3).unwrap();
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded.iter().filter(|row| row.primary).count(), 1);
+    }
+
+    #[test]
+    fn save_detection_roundtrip_and_delete() {
+        let connection = memory_database();
+        let record = SaveDetectionRecord {
+            game_id: 5,
+            version_id: 52,
+            manifest_version: Some("sha256:abc123456789".into()),
+            detected_at: "2026-11-10T00:00:00Z".into(),
+            result_json: r#"{"detected":true,"saves":[]}"#.into(),
+        };
+        upsert_save_detection(&connection, &record).unwrap();
+        let loaded = get_save_detection(&connection, 5).unwrap().unwrap();
+        assert_eq!(loaded.version_id, 52);
+        assert_eq!(
+            loaded.manifest_version.as_deref(),
+            Some("sha256:abc123456789")
+        );
+        assert_eq!(loaded.result_json, r#"{"detected":true,"saves":[]}"#);
+
+        let updated = SaveDetectionRecord {
+            detected_at: "2026-11-11T00:00:00Z".into(),
+            result_json: r#"{"detected":false,"saves":[]}"#.into(),
+            ..record
+        };
+        upsert_save_detection(&connection, &updated).unwrap();
+        let loaded = get_save_detection(&connection, 5).unwrap().unwrap();
+        assert_eq!(loaded.detected_at, "2026-11-11T00:00:00Z");
+        assert_eq!(loaded.result_json, r#"{"detected":false,"saves":[]}"#);
+
+        assert!(delete_save_detection(&connection, 5).unwrap());
+        assert!(get_save_detection(&connection, 5).unwrap().is_none());
+    }
+
+    #[test]
+    fn save_detection_rows_are_per_game() {
+        let connection = memory_database();
+        for game_id in [1, 2] {
+            upsert_save_detection(
+                &connection,
+                &SaveDetectionRecord {
+                    game_id,
+                    version_id: 0,
+                    manifest_version: None,
+                    detected_at: "2026-11-10T00:00:00Z".into(),
+                    result_json: "{}".into(),
+                },
+            )
+            .unwrap();
+        }
+        assert!(get_save_detection(&connection, 1).unwrap().is_some());
+        assert!(get_save_detection(&connection, 2).unwrap().is_some());
+        assert!(delete_save_detection(&connection, 1).unwrap());
+        assert!(get_save_detection(&connection, 1).unwrap().is_none());
+        assert!(get_save_detection(&connection, 2).unwrap().is_some());
     }
 }

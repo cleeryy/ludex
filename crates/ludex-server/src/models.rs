@@ -92,7 +92,7 @@ pub struct VersionRow {
 }
 
 /// Where an account's identity comes from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum UserSource {
     /// Identity and password are managed by Ludex.
@@ -113,7 +113,7 @@ impl UserSource {
 }
 
 /// Public representation of an account, never including secrets.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct User {
     /// Database identifier.

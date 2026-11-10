@@ -21,6 +21,7 @@ use crate::paths;
 use crate::prefix::{self, PrefixInfo, WinetricksReport};
 use crate::presence::{self, PresenceStatus};
 use crate::protondb::{self, ProtonDbRating};
+use crate::saves_detect::{self, SavePathInput, SavePaths};
 use crate::server::{self, ServerInfo, ServerStatus};
 use crate::settings::{self, LocalSettings};
 use crate::state::AppState;
@@ -370,6 +371,8 @@ pub async fn uninstall_game(app: AppHandle, game_id: i64) -> Result<(), String> 
             .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
         db::remove_installed(&connection, game_id)?;
         db::remove_manifest(&connection, game_id)?;
+        db::delete_save_paths(&connection, game_id)?;
+        db::delete_save_detection(&connection, game_id)?;
     }
 
     Ok(())
@@ -1582,4 +1585,170 @@ pub async fn protondb_rating(
         false,
         false,
     ))
+}
+
+/// Run save detection and persist the resolved mapping (#107).
+fn detect_and_persist(app: &AppHandle, game_id: i64) -> Result<SavePaths, String> {
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+
+    let (game, manual, previous_primary) = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        let game = db::get_installed(&connection, game_id)?
+            .ok_or_else(|| format!("Game {game_id} is not installed on this machine."))?;
+        let rows = db::list_save_paths(&connection, game_id)?;
+        let previous_primary = rows
+            .iter()
+            .find(|row| row.primary)
+            .map(|row| row.path.clone());
+        // Manual and override rows are user-owned: re-detection keeps them.
+        let manual = rows
+            .into_iter()
+            .filter(|row| row.source != saves_detect::SOURCE_MANIFEST)
+            .collect::<Vec<_>>();
+        (game, manual, previous_primary)
+    };
+
+    let detection = saves_detect::detect_for_game(&settings, &game, &manual);
+    let primary = saves_detect::choose_primary(&detection.saves, previous_primary.as_deref());
+    let now = now_rfc3339();
+    let rows = saves_detect::records_from_detection(game_id, &detection, primary.as_deref(), &now);
+    let record = db::SaveDetectionRecord {
+        game_id,
+        version_id: game.version_id,
+        manifest_version: detection.manifest_version.clone(),
+        detected_at: now,
+        result_json: serde_json::to_string(&detection)
+            .map_err(|error| format!("Could not encode the save detection: {error}"))?,
+    };
+
+    {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::replace_save_paths(&connection, game_id, &rows)?;
+        db::upsert_save_detection(&connection, &record)?;
+    }
+
+    Ok(saves_detect::persisted(game_id, rows, Some(record)))
+}
+
+/// Detect this game's save folders (Ludusavi CLI, manifest, then manual paths)
+/// and persist the mapping. Paths stay on this machine (#107).
+#[tauri::command]
+pub async fn detect_save_paths(app: AppHandle, game_id: i64) -> Result<SavePaths, String> {
+    tauri::async_runtime::spawn_blocking(move || detect_and_persist(&app, game_id))
+        .await
+        .map_err(|error| format!("The save detection task failed: {error}"))?
+}
+
+/// Re-run detection after a game launch created new save files (#107).
+#[tauri::command]
+pub async fn redetect_save_paths(app: AppHandle, game_id: i64) -> Result<SavePaths, String> {
+    tauri::async_runtime::spawn_blocking(move || detect_and_persist(&app, game_id))
+        .await
+        .map_err(|error| format!("The save detection task failed: {error}"))?
+}
+
+/// Persisted save mapping and last preview. Never rescans the disk (#107).
+#[tauri::command]
+pub fn get_save_paths(state: State<'_, AppState>, game_id: i64) -> Result<SavePaths, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    let rows = db::list_save_paths(&connection, game_id)?;
+    let detection = db::get_save_detection(&connection, game_id)?;
+    Ok(saves_detect::persisted(game_id, rows, detection))
+}
+
+/// Replace the per-game manual override list (`manual`) or pin paths over the
+/// manifest (`override`). Only one path may be primary (#107).
+#[tauri::command]
+pub fn set_save_paths(
+    state: State<'_, AppState>,
+    game_id: i64,
+    paths: Vec<SavePathInput>,
+) -> Result<SavePaths, String> {
+    let settings = state.settings_snapshot();
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    let game = db::get_installed(&connection, game_id)?
+        .ok_or_else(|| format!("Game {game_id} is not installed on this machine."))?;
+    let previous = db::get_save_detection(&connection, game_id)?;
+    let previous_snapshot: Option<saves_detect::Detection> = previous
+        .as_ref()
+        .and_then(|record| serde_json::from_str(&record.result_json).ok());
+
+    let env = saves_detect::DetectEnv::for_game(&settings, &game);
+    let context = saves_detect::GameContext::from_installed(&game);
+    let now = now_rfc3339();
+    let (mut rows, mut detection) =
+        saves_detect::manual_override(&env, &context, game_id, &paths, &now)?;
+
+    // A user path that matches a previous manifest result is pinned, not a
+    // duplicate: the next re-detection must not silently replace it.
+    if let Some(snapshot) = &previous_snapshot {
+        for row in &mut rows {
+            if snapshot
+                .saves
+                .iter()
+                .any(|save| save.path == row.path && save.source == saves_detect::SOURCE_MANIFEST)
+            {
+                row.source = saves_detect::SOURCE_OVERRIDE.to_string();
+            }
+        }
+        for save in &mut detection.saves {
+            if let Some(row) = rows.iter().find(|row| row.path == save.path) {
+                save.source = row.source.clone();
+            }
+        }
+    }
+
+    let overrides = rows
+        .iter()
+        .filter(|row| row.source == saves_detect::SOURCE_OVERRIDE)
+        .count();
+    let manual = rows.len().saturating_sub(overrides);
+    detection.message = if rows.is_empty() {
+        "No manual save paths. Run detection to find this game's save folders.".to_string()
+    } else if overrides > 0 && manual > 0 {
+        format!(
+            "{} save path(s) set manually: {manual} custom and {overrides} pinned over the manifest.",
+            rows.len()
+        )
+    } else if overrides > 0 {
+        format!("{overrides} save path(s) pinned over the manifest.")
+    } else {
+        format!("{manual} manually configured save path(s).")
+    };
+    detection.source = if overrides > 0 {
+        saves_detect::SOURCE_OVERRIDE
+    } else {
+        saves_detect::SOURCE_MANUAL
+    }
+    .to_string();
+    detection.manifest_version = previous
+        .as_ref()
+        .and_then(|record| record.manifest_version.clone());
+    detection.detected = !rows.is_empty();
+
+    db::replace_save_paths(&connection, game_id, &rows)?;
+    let record = db::SaveDetectionRecord {
+        game_id,
+        version_id: game.version_id,
+        manifest_version: detection.manifest_version.clone(),
+        detected_at: now,
+        result_json: serde_json::to_string(&detection)
+            .map_err(|error| format!("Could not encode the save paths: {error}"))?,
+    };
+    db::upsert_save_detection(&connection, &record)?;
+
+    Ok(saves_detect::persisted(game_id, rows, Some(record)))
 }

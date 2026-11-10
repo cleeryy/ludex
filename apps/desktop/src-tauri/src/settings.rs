@@ -94,6 +94,16 @@ pub struct LocalSettings {
     pub compat_wine_path: String,
     /// Launch mode new games start with on Linux (#89).
     pub default_launch_mode: LaunchMode,
+    /// Ludusavi manifest file used for save detection (#107). Empty means
+    /// auto-discover the usual Ludusavi data folder; the manifest is never
+    /// bundled with Ludex.
+    pub ludusavi_manifest_path: String,
+    /// `ludusavi` executable used for save detection (#107). Empty means look
+    /// for `ludusavi` on PATH.
+    pub ludusavi_binary: String,
+    /// Wine/Proton prefix holding the game's `drive_c` (#107). Empty means
+    /// auto-detect from the Steam compatdata folder, `$WINEPREFIX` or `~/.wine`.
+    pub wine_prefix: String,
 }
 
 impl Default for LocalSettings {
@@ -123,6 +133,9 @@ impl Default for LocalSettings {
             compat_proton_path: String::new(),
             compat_wine_path: String::new(),
             default_launch_mode: LaunchMode::Auto,
+            ludusavi_manifest_path: String::new(),
+            ludusavi_binary: String::new(),
+            wine_prefix: String::new(),
         }
     }
 }
@@ -164,6 +177,9 @@ impl LocalSettings {
         self.compat_umu_path = self.compat_umu_path.trim().to_string();
         self.compat_proton_path = self.compat_proton_path.trim().to_string();
         self.compat_wine_path = self.compat_wine_path.trim().to_string();
+        self.ludusavi_manifest_path = self.ludusavi_manifest_path.trim().to_string();
+        self.ludusavi_binary = self.ludusavi_binary.trim().to_string();
+        self.wine_prefix = self.wine_prefix.trim().to_string();
         self.installer_silent_args = self
             .installer_silent_args
             .drain(..)
@@ -368,6 +384,9 @@ mod tests {
         assert_eq!(json["compatProtonPath"], "");
         assert_eq!(json["compatWinePath"], "");
         assert_eq!(json["defaultLaunchMode"], "auto");
+        assert_eq!(json["ludusaviManifestPath"], "");
+        assert_eq!(json["ludusaviBinary"], "");
+        assert_eq!(json["winePrefix"], "");
     }
 
     #[test]
@@ -382,6 +401,9 @@ mod tests {
         ];
         settings.installer_timeout_secs = 5;
         settings.steam_root = " /steam ".into();
+        settings.ludusavi_manifest_path = " /data/manifest.yaml ".into();
+        settings.ludusavi_binary = " /usr/bin/ludusavi ".into();
+        settings.wine_prefix = " /prefix/pfx ".into();
         settings.normalize(Path::new("/data"));
 
         assert_eq!(settings.discord_client_id, "1234");
@@ -395,6 +417,9 @@ mod tests {
         // Clamped to the documented minimum.
         assert_eq!(settings.installer_timeout_secs, 30);
         assert_eq!(settings.steam_root, "/steam");
+        assert_eq!(settings.ludusavi_manifest_path, "/data/manifest.yaml");
+        assert_eq!(settings.ludusavi_binary, "/usr/bin/ludusavi");
+        assert_eq!(settings.wine_prefix, "/prefix/pfx");
 
         let json = serde_json::to_value(&settings).unwrap();
         assert_eq!(json["discordPresence"], true);
