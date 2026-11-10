@@ -320,9 +320,9 @@ jobs:
         if: steps.changed.outputs.code == 'true'
         run: |
           if [ -f Cargo.lock ]; then
-            cargo build --release --locked -p ludex-server --features embed-web
+            cargo build --release --locked -p ludex-server --bins --features embed-web
           else
-            cargo build --release -p ludex-server --features embed-web
+            cargo build --release -p ludex-server --bins --features embed-web
           fi
 
       - name: Package edge archive
@@ -332,10 +332,12 @@ jobs:
           NAME="ludex-server-edge-x86_64-unknown-linux-gnu"
           mkdir -p "dist/${NAME}"
           cp target/release/ludex-server "dist/${NAME}/"
+          cp target/release/ludex-backup "dist/${NAME}/"
           for file in README.md LICENSE; do
             if [ -f "$file" ]; then cp "$file" "dist/${NAME}/"; fi
           done
           strip "dist/${NAME}/ludex-server" || true
+          strip "dist/${NAME}/ludex-backup" || true
           tar -czf "dist/${NAME}.tar.gz" -C "dist/${NAME}" .
           (cd dist && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
 

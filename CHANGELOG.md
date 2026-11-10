@@ -29,7 +29,28 @@ All notable changes to Ludex are documented here. The format is based on
   file-based configuration and manual `dotnet` build instructions.
 - `docs/INTEGRATIONS.md` gains a "Desktop integrations" section; the desktop
   README documents the new settings, commands and events.
-
+- S3-compatible object storage for game archives (#47):
+  `LUDEX_STORAGE_BACKEND=local|s3` with `LUDEX_S3_ENDPOINT`, `LUDEX_S3_REGION`,
+  `LUDEX_S3_BUCKET`, `LUDEX_S3_ACCESS_KEY`, `LUDEX_S3_SECRET_KEY`,
+  `LUDEX_S3_PATH_STYLE` and `LUDEX_S3_PREFIX`. Archives are uploaded by the
+  scanner (new, replaced or still-local rows); `game_versions` stores
+  `storage_backend`, `object_key` and `etag` (migration `0010_storage_ops.sql`).
+  Downloads and stream installs proxy S3 with HTTP Range support, never
+  redirecting to signed URLs; the local file stays as the fallback. Media and
+  saves stay local. New `docs/STORAGE.md`.
+- Backup and restore CLI (#49): `ludex-backup backup|restore|verify` creates a
+  `.tar.gz` with a `VACUUM INTO` SQLite snapshot, `media/`, `saves/`, a
+  non-secret config manifest and a JSON manifest holding sizes and SHA-256
+  checksums. Restore verifies every checksum, refuses non-empty destinations
+  without `--force`, supports `--dry-run` and `--upload-s3`, and is documented
+  in `docs/BACKUP.md`.
+- Metrics and health details (#48): `GET /metrics` in Prometheus text format
+  (HTTP counts/latency histogram, library/root/ingest/scan/webhook/media/disk/DB
+  gauges, uptime, build and storage backend), protected by
+  `LUDEX_METRICS_TOKEN` when set and rate-limited otherwise; and
+  `GET /api/health/details` with database, disk, library, ingest, watcher,
+  integrity and version/commit details. No paths or secrets are exposed.
+- Docker image now ships `/usr/local/bin/ludex-backup`.
 - Multiple library roots (#45): ordered `library_roots` table with label,
   path, enabled flag and availability, `LUDEX_LIBRARY_ROOTS` configuration,
   admin CRUD at `/api/library/roots` and per-root scans at

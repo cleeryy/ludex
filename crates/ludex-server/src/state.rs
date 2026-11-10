@@ -9,10 +9,13 @@ use tokio::sync::{mpsc, RwLock};
 
 use crate::config::Config;
 use crate::events::EventSink;
+use crate::ingest::IngestHandle;
 use crate::metadata::IgdbClient;
+use crate::metrics::Metrics;
 use crate::models::ScanStatus;
 use crate::oidc::OidcClient;
 use crate::scanner::ScanRequest;
+use crate::storage::ArchiveStorage;
 use crate::watcher::{WatcherHandle, WatcherStatus};
 
 /// State shared by all routes and background tasks.
@@ -48,6 +51,12 @@ pub struct AppState {
     pub integrity_busy: Arc<AtomicBool>,
     /// Guards against two concurrent media garbage collections.
     pub media_gc_busy: Arc<AtomicBool>,
+    /// Game archive storage (local disk or S3-compatible bucket).
+    pub storage: ArchiveStorage,
+    /// In-process Prometheus registry.
+    pub metrics: Arc<Metrics>,
+    /// Ingest manager, used by health details and metrics.
+    pub ingest: Option<IngestHandle>,
 }
 
 impl AppState {
@@ -76,6 +85,7 @@ impl AppState {
         crate::roots::bootstrap(&pool, &config)
             .await
             .expect("bootstrap test roots");
+        let storage = ArchiveStorage::from_config(&config);
         Self {
             config: Arc::new(config),
             pool,
@@ -92,6 +102,9 @@ impl AppState {
             watcher_handle: Arc::new(RwLock::new(None)),
             integrity_busy: Arc::new(AtomicBool::new(false)),
             media_gc_busy: Arc::new(AtomicBool::new(false)),
+            storage,
+            metrics: Arc::new(Metrics::default()),
+            ingest: None,
         }
     }
 }

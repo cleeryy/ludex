@@ -271,6 +271,18 @@ never sent to clients.
 
 Back up `/data` (database + JWT secret) and `/games`. `/media` is a cache.
 
+The built-in CLI creates a consistent, checksummed snapshot of the database,
+`media/`, `saves/` and a non-secret config manifest (game archives stay on
+`/games` or in S3):
+
+```bash
+docker compose exec ludex ludex-backup backup --output /data/backups/manual.tar.gz
+docker compose exec ludex ludex-backup verify /data/backups/manual.tar.gz
+```
+
+See [`BACKUP.md`](./BACKUP.md) for restore, `--dry-run`, `--force` and
+`--upload-s3`.
+
 Cold backup (consistent, simplest):
 
 ```bash

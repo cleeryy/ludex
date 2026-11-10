@@ -4,6 +4,7 @@
 use std::env;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -23,6 +24,94 @@ pub const DEFAULT_MEDIA_GC_GRACE_HOURS: u64 = 24;
 pub const MAX_JSON_BYTES: usize = 10 * 1024 * 1024;
 /// Default maximum size of a single cloud save upload (2 GiB).
 pub const DEFAULT_SAVES_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// Default S3 region when `LUDEX_S3_REGION` is unset.
+pub const DEFAULT_S3_REGION: &str = "us-east-1";
+
+/// Where game archives are stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StorageBackend {
+    /// Archives are read from the library roots on local disk (default).
+    #[default]
+    Local,
+    /// Archives are uploaded to an S3-compatible bucket and proxied on read.
+    S3,
+}
+
+impl StorageBackend {
+    /// Stable identifier used in the database and the API.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::S3 => "s3",
+        }
+    }
+}
+
+impl FromStr for StorageBackend {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "" | "local" | "filesystem" | "disk" => Ok(Self::Local),
+            "s3" | "minio" | "garage" | "r2" | "b2" => Ok(Self::S3),
+            other => anyhow::bail!("unknown storage backend `{other}`; expected `local` or `s3`"),
+        }
+    }
+}
+
+impl std::fmt::Display for StorageBackend {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// S3-compatible object store credentials and addressing.
+#[derive(Clone)]
+pub struct S3Config {
+    /// Custom endpoint (`https://minio.lan:9000`). `None` uses AWS S3.
+    pub endpoint: Option<String>,
+    /// Signing region. Any value works for most S3-compatible servers.
+    pub region: String,
+    /// Bucket holding the game archives.
+    pub bucket: String,
+    /// Access key id.
+    pub access_key: String,
+    /// Secret access key.
+    pub secret_key: String,
+    /// Path-style addressing (`endpoint/bucket/key`). Required by MinIO and
+    /// most self-hosted gateways.
+    pub path_style: bool,
+    /// Optional key prefix, without leading or trailing slashes.
+    pub prefix: Option<String>,
+}
+
+impl std::fmt::Debug for S3Config {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("S3Config")
+            .field("endpoint", &self.endpoint)
+            .field("region", &self.region)
+            .field("bucket", &self.bucket)
+            .field("access_key", &"<redacted>")
+            .field("secret_key", &"<redacted>")
+            .field("path_style", &self.path_style)
+            .field("prefix", &self.prefix)
+            .finish()
+    }
+}
+
+impl S3Config {
+    /// Prefixes an object key, without a leading slash.
+    #[must_use]
+    pub fn key(&self, relative: &str) -> String {
+        let relative = relative.trim_start_matches('/');
+        match self.prefix.as_deref().filter(|prefix| !prefix.is_empty()) {
+            Some(prefix) => format!("{prefix}/{relative}"),
+            None => relative.to_string(),
+        }
+    }
+}
 
 /// Runtime configuration for the Ludex server.
 ///
@@ -105,6 +194,13 @@ pub struct Config {
     /// Public origin used to build the OIDC redirect URI and the SPA callback
     /// URL. Must be an absolute http(s) origin/path without query or fragment.
     pub oidc_public_base_url: Option<String>,
+    /// Game archive storage backend.
+    pub storage_backend: StorageBackend,
+    /// S3 configuration, present when `storage_backend` is [`StorageBackend::S3`].
+    pub s3: Option<S3Config>,
+    /// Bearer token required by `GET /metrics`. `None` keeps it public but
+    /// rate-limited.
+    pub metrics_token: Option<String>,
 }
 
 impl Config {
@@ -144,6 +240,16 @@ impl Config {
                     .collect()
             })
             .unwrap_or_default();
+
+        let storage_backend = env_opt("LUDEX_STORAGE_BACKEND")
+            .map(|value| value.parse::<StorageBackend>())
+            .transpose()
+            .context("LUDEX_STORAGE_BACKEND must be local or s3")?
+            .unwrap_or_default();
+        let s3 = match storage_backend {
+            StorageBackend::Local => None,
+            StorageBackend::S3 => Some(parse_s3_config()?),
+        };
 
         let scan_interval_seconds = env::var("LUDEX_SCAN_INTERVAL_SECONDS")
             .ok()
@@ -233,6 +339,9 @@ impl Config {
             oidc_groups_claim: env_opt("LUDEX_OIDC_GROUPS_CLAIM")
                 .unwrap_or_else(|| "groups".to_string()),
             oidc_public_base_url,
+            storage_backend,
+            s3,
+            metrics_token: env_opt("LUDEX_METRICS_TOKEN"),
         })
     }
 
@@ -280,6 +389,9 @@ impl Config {
             oidc_admin_groups: Vec::new(),
             oidc_groups_claim: "groups".to_string(),
             oidc_public_base_url: None,
+            storage_backend: StorageBackend::Local,
+            s3: None,
+            metrics_token: None,
         }
     }
 
@@ -314,6 +426,12 @@ impl Config {
     #[must_use]
     pub fn oidc_enabled(&self) -> bool {
         self.oidc_issuer.is_some()
+    }
+
+    /// Whether game archives are uploaded to and served from S3.
+    #[must_use]
+    pub fn s3_enabled(&self) -> bool {
+        self.storage_backend == StorageBackend::S3 && self.s3.is_some()
     }
 }
 
@@ -356,6 +474,36 @@ fn env_opt(name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// Reads the S3 settings. Every required value is validated before the server
+/// binds, so a typo fails loudly instead of silently falling back to local
+/// storage. No network call is made here.
+fn parse_s3_config() -> Result<S3Config> {
+    let bucket =
+        env_opt("LUDEX_S3_BUCKET").context("LUDEX_S3_BUCKET is required for s3 storage")?;
+    let access_key =
+        env_opt("LUDEX_S3_ACCESS_KEY").context("LUDEX_S3_ACCESS_KEY is required for s3 storage")?;
+    let secret_key =
+        env_opt("LUDEX_S3_SECRET_KEY").context("LUDEX_S3_SECRET_KEY is required for s3 storage")?;
+    let endpoint =
+        env_opt("LUDEX_S3_ENDPOINT").map(|value| value.trim_end_matches('/').to_string());
+    let prefix = env_opt("LUDEX_S3_PREFIX").map(|value| {
+        value
+            .trim()
+            .trim_matches('/')
+            .trim_start_matches('/')
+            .to_string()
+    });
+    Ok(S3Config {
+        endpoint,
+        region: env_opt("LUDEX_S3_REGION").unwrap_or_else(|| DEFAULT_S3_REGION.to_string()),
+        bucket,
+        access_key,
+        secret_key,
+        path_style: bool_env("LUDEX_S3_PATH_STYLE"),
+        prefix: prefix.filter(|value| !value.is_empty()),
+    })
+}
+
 fn env_path(name: &str, default: &str) -> PathBuf {
     PathBuf::from(env_opt(name).unwrap_or_else(|| default.to_string()))
 }
@@ -390,6 +538,40 @@ mod tests {
         assert!(config.database_url.contains("/tmp/data/ludex.db"));
         assert!(!config.igdb_enabled());
         assert_eq!(config.saves_max_bytes, DEFAULT_SAVES_MAX_BYTES);
+    }
+
+    #[test]
+    fn storage_backend_parses_aliases() {
+        assert_eq!(
+            "local".parse::<StorageBackend>().expect("local"),
+            StorageBackend::Local
+        );
+        assert_eq!(
+            " disk ".parse::<StorageBackend>().expect("disk"),
+            StorageBackend::Local
+        );
+        assert_eq!(
+            "minio".parse::<StorageBackend>().expect("minio"),
+            StorageBackend::S3
+        );
+        assert!("nfs".parse::<StorageBackend>().is_err());
+    }
+
+    #[test]
+    fn s3_prefix_joins_without_duplicate_slashes() {
+        let config = S3Config {
+            endpoint: None,
+            region: "us-east-1".to_string(),
+            bucket: "ludex".to_string(),
+            access_key: "AKIAEXAMPLE".to_string(),
+            secret_key: "super-secret-value".to_string(),
+            path_style: true,
+            prefix: Some("prod".to_string()),
+        };
+        assert_eq!(config.key("/archives/a.zip"), "prod/archives/a.zip");
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("super-secret-value"));
+        assert!(!debug.contains("AKIAEXAMPLE"));
     }
 
     #[test]

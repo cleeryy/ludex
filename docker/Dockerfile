@@ -60,9 +60,9 @@ COPY --from=web-builder /build/apps/web/dist ./apps/web/dist
 RUN cargo clean -p ludex-core -p ludex-server
 
 RUN if [ -f Cargo.lock ]; then \
-      cargo build --release --locked -p ludex-server --features embed-web; \
+      cargo build --release --locked -p ludex-server --bins --features embed-web; \
     else \
-      cargo build --release -p ludex-server --features embed-web; \
+      cargo build --release -p ludex-server --bins --features embed-web; \
     fi
 
 # ---- Runtime --------------------------------------------------------------
@@ -89,7 +89,8 @@ RUN groupadd --gid 1000 ludex \
  && chown -R 1000:1000 /data /games /media /app
 
 COPY --from=rust-builder /build/target/release/ludex-server /usr/local/bin/ludex-server
-RUN chmod 0755 /usr/local/bin/ludex-server
+COPY --from=rust-builder /build/target/release/ludex-backup /usr/local/bin/ludex-backup
+RUN chmod 0755 /usr/local/bin/ludex-server /usr/local/bin/ludex-backup
 
 ENV LUDEX_BIND=0.0.0.0:8080 \
     LUDEX_DATA_DIR=/data \

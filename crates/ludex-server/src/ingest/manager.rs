@@ -30,7 +30,7 @@ use super::types::{
     is_private_ip, parse_http_url, sanitize_title, IngestJob, IngestStatus, Timings, JOBS_FILE,
     PARTS_FILE, PART_SUFFIX, USER_AGENT,
 };
-use super::IngestContext;
+use super::{IngestContext, IngestCounts};
 use crate::audit::actions;
 use crate::events::{Actor, Event};
 
@@ -110,6 +110,25 @@ impl Inner {
 
     pub(crate) fn get_job(&self, id: &str) -> Option<IngestJob> {
         lock_unpoisoned(&self.jobs).get(id).cloned()
+    }
+
+    /// Job counts by lifecycle bucket, used by health details and metrics.
+    pub(crate) fn counts(&self) -> IngestCounts {
+        let jobs = lock_unpoisoned(&self.jobs);
+        let mut counts = IngestCounts {
+            total: i64::try_from(jobs.len()).unwrap_or(i64::MAX),
+            ..IngestCounts::default()
+        };
+        for job in jobs.values() {
+            match job.status {
+                IngestStatus::Queued => counts.queued += 1,
+                IngestStatus::Downloading | IngestStatus::Verifying => counts.running += 1,
+                IngestStatus::Done => counts.done += 1,
+                IngestStatus::Error => counts.failed += 1,
+                IngestStatus::Cancelled => counts.cancelled += 1,
+            }
+        }
+        counts
     }
 
     pub(crate) async fn insert_job(&self, job: IngestJob) {

@@ -13,7 +13,8 @@ use crate::error::ApiError;
 use crate::events::{Actor, Event};
 use crate::extract::JsonBody;
 use crate::models::{
-    AuthResponse, FeatureFlags, HealthResponse, ServerConfig, SetupRequest, SetupStatus,
+    AuthResponse, FeatureFlags, HealthDatabase, HealthDetails, HealthDisk, HealthIngest,
+    HealthLibrary, HealthResponse, HealthWatcher, ServerConfig, SetupRequest, SetupStatus,
 };
 use crate::state::AppState;
 
@@ -21,6 +22,7 @@ use crate::state::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/health", get(health))
+        .route("/health/details", get(health_details))
         .route("/setup/status", get(setup_status))
         .route("/setup", post(setup))
         .route("/config", get(config))
@@ -31,6 +33,58 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         status: "ok",
         version: env!("CARGO_PKG_VERSION"),
         uptime_seconds: state.uptime_seconds(),
+    })
+}
+
+/// Detailed health for dashboards and uptime monitors. No paths or secrets are
+/// included, so the endpoint stays public like `/api/health`.
+async fn health_details(State(state): State<AppState>) -> Json<HealthDetails> {
+    let snapshot = crate::metrics::snapshot(&state).await;
+    let watcher = state.watcher.read().await.clone();
+    let counts = state
+        .ingest
+        .as_ref()
+        .map(|handle| handle.counts())
+        .unwrap_or_default();
+    Json(HealthDetails {
+        status: if snapshot.db_ok { "ok" } else { "degraded" },
+        version: env!("CARGO_PKG_VERSION"),
+        commit: crate::metrics::commit(),
+        uptime_seconds: state.uptime_seconds(),
+        database: HealthDatabase {
+            ok: snapshot.db_ok,
+            size_bytes: snapshot.db_bytes,
+        },
+        disk: HealthDisk {
+            data_free_bytes: snapshot.disk.data_free,
+            games_free_bytes: snapshot.disk.games_free,
+            media_free_bytes: snapshot.disk.media_free,
+        },
+        library: HealthLibrary {
+            games: snapshot.games,
+            versions: snapshot.versions_available,
+            roots_total: snapshot.roots_total,
+            roots_available: snapshot.roots_available,
+            media_files: snapshot.media_files,
+            media_bytes: snapshot.media_bytes,
+        },
+        ingest: HealthIngest {
+            queued: counts.queued,
+            running: counts.running,
+            failed: counts.failed,
+            done: counts.done,
+            cancelled: counts.cancelled,
+            total: counts.total,
+        },
+        watcher: HealthWatcher {
+            enabled: watcher.enabled,
+            pending: watcher.pending,
+            roots: watcher.roots.len(),
+            last_event_at: watcher.last_event_at,
+            last_error: watcher.last_error,
+        },
+        integrity: snapshot.integrity,
+        storage_backend: state.storage.backend().as_str().to_string(),
     })
 }
 

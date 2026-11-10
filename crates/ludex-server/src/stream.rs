@@ -25,7 +25,7 @@ const CHANNEL_CAPACITY: usize = 8;
 /// `expected_bytes` must be the exact tar size returned by
 /// `ludex_core::archive::archive_tar_size`; it is used for the `Content-Length`
 /// header and verified against the core report while streaming.
-pub fn archive_tar_body(path: PathBuf, expected_bytes: u64) -> Body {
+pub fn archive_tar_body(path: PathBuf, expected_bytes: u64, cleanup: Option<PathBuf>) -> Body {
     let (sender, receiver) = mpsc::channel::<Result<Bytes, io::Error>>(CHANNEL_CAPACITY);
 
     tokio::task::spawn_blocking(move || {
@@ -49,6 +49,10 @@ pub fn archive_tar_body(path: PathBuf, expected_bytes: u64) -> Body {
             // The receiver is gone when the client disconnected; that is the
             // expected way this task stops.
             let _ = error_sender.blocking_send(Err(io::Error::other(message)));
+        }
+        // Staged S3 archives are only needed for this response.
+        if let Some(cleanup) = cleanup {
+            let _ = std::fs::remove_file(cleanup);
         }
     });
 
