@@ -6,7 +6,7 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
-## [0.2.4] - 2026-11-10
+## [0.2.5] - 2026-11-10
 
 ### Added
 
