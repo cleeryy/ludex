@@ -116,10 +116,15 @@ extracted game. `install_game` can also override it per call with `downloadDir`.
 - `sessions` — play sessions with `started_at`, `ended_at`, rounded `minutes`
   (sent to the server), exact `seconds` (local reports) and a `synced` flag.
 - `install_jobs` — persisted install jobs: phase, bytes, speed, `.part` path,
-  install path, error, timestamps. Interrupted jobs are marked `error` with a
+  install path, error, timestamps and `stream_completed` (hex bitset of the
+  streamed entry indexes, #115). Interrupted jobs are marked `error` with a
   resume hint at startup; `paused` rows stay paused so they can be resumed after
   a restart. `list_install_jobs` merges active in-memory jobs (fresh snapshots)
   with every persisted row, newest first.
+- `install_stream_manifests` — one row per per-entry stream attempt: staging
+  folder, the manifest JSON and its SHA-256 fingerprint, entry count and total
+  bytes. Written once per attempt; the checkpoint bitset lives on the job row so
+  completing an entry does not rewrite a multi-megabyte manifest.
 - `install_manifests` — one row per installed game: version, install path and
   the JSON manifest (relative path, size, SHA-256 per file). Written at install
   completion and used by `verify_install` / `repair_install`.
@@ -137,14 +142,23 @@ version or `default`; both components are sanitised, no separators, no `..`).
 1. **Local library shortcut** — when the target URL is the embedded server,
    `GET /api/games/{id}/versions/{vid}/local-path` returns the archive path; it
    is extracted in place, with no copy and no download.
-2. **Stream install (remote ZIP)** — when `stream`/`streamInstall` is enabled,
-   the server is not loopback and the version is a ZIP, the desktop calls
-   `GET /api/games/{id}/versions/{vid}/stream` and unpacks the uncompressed tar
-   **while downloading**, with no archive or tar on disk. A 415/404 (or a
-   non-tar content type) falls back transparently to the normal download path.
+2. **Stream install (remote only)** — when `stream`/`streamInstall` is enabled
+   and the server is not loopback, the desktop first tries the resumable
+   per-entry protocol (#115): `GET …/stream/manifest` lists the ZIP central
+   directory and `GET …/stream/entries/{index}` serves one entry with Range
+   support. Files are written directly into staging (no archive on disk), two
+   at a time, then CRC-32 and size are verified before an entry is marked
+   complete. Completed indexes are persisted after every file; the manifest is
+   persisted once and its fingerprint is compared on the next attempt. A retry,
+   pause/resume or app restart keeps completed files, resumes a partial entry
+   with `Range: bytes=<offset>-` and downloads only missing entries; the UI
+   shows `entriesDone/entriesTotal`, the current entry and `resumedEntries`.
+   Cancel stops between entries and keeps completed files when there is at
+   least one. A 404/415 (old server, non-ZIP) falls back to the sequential tar
+   stream (`GET …/stream`, unpacked while downloading), then to the normal
+   download path. `7z`/RAR stay on the sequential stream and are not resumable.
    Progress uses `Content-Length` when exact, else `X-Ludex-Estimated-Bytes`,
-   else indeterminate; an estimate is clamped below 100% until the tar ends.
-   Stream installs are not resumable.
+   else indeterminate; an estimate is clamped below 100% until the stream ends.
 3. **Download** — `GET /api/games/{id}/download?versionId=…` with
    `Authorization: Bearer`, streamed to
    `{downloadDir}/.{gameId}-{versionId}.part` in 1 MiB buffered chunks (never in
@@ -185,14 +199,19 @@ reuses the `.part` file.
 Pause stops the HTTP body read at the next chunk boundary, flushes and keeps the
 `.part` file, then marks the job `paused` and releases the install slot. Resume
 reuses the same job id and sends `Range: bytes=<offset>-`, so a paused download
-continues where it stopped (also after an app restart). Stream installs cannot
-be paused because nothing is written to the download folder; `pause_install`
-returns an actionable error. The optional `bandwidthLimitKib` setting paces the
-copy loop of downloads, repairs and stream installs.
+continues where it stopped (also after an app restart). Per-entry stream
+installs pause too: they stop between entries, keep staging and the checkpoint,
+and resume from the first missing file. Sequential tar installs cannot be
+paused; `pause_install` returns an actionable error. The optional
+`bandwidthLimitKib` setting paces downloads, repairs and stream installs (the
+shared throttle caps the two concurrent entry downloads together).
 
 Cancel aborts the download promptly, deletes the `.part`, removes staging and
 marks the job `cancelled`. Cancel is cooperative during extraction (the core
 extractor is not interruptible mid-entry; staging is removed afterwards).
+Cancelling a per-entry stream install stops between entries and keeps the files
+already downloaded plus the checkpoint, so the next install of the same version
+resumes; when no entry completed, staging and the checkpoint are discarded.
 
 ## Tray, updates and process-tree playtime
 
@@ -432,9 +451,13 @@ by CI; no code signing is configured.
 
 ## Known limitations
 
-- Stream installs are not resumable and cannot be paused (no `.part`); a
-  mid-stream failure removes the staging folder and the retry starts from
-  scratch.
+- Per-entry stream installs resume only when the server exposes
+  `/stream/manifest` and `/stream/entries/{index}` and the archive is a ZIP.
+  7z/RAR (and servers older than #115) use the sequential tar stream or the
+  normal download and restart from zero after a drop; they cannot be paused.
+- Per-entry resume crosses an app restart by re-fetching the manifest and
+  comparing its fingerprint; a replaced archive under the same version id
+  discards the old checkpoint and starts from zero.
 - Repair re-downloads the whole version archive and restores only the damaged
   files; the server has no per-file endpoint yet.
 - Cross-drive moves need free space for a second copy and are untested on

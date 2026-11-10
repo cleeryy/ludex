@@ -204,6 +204,8 @@ payload are ignored. New and existing accounts default to
 | POST | `/api/games/{id}/download-ticket` | `{ versionId? }` → `{ url, expiresAt }` (15 min, no auth needed on the URL) |
 | GET | `/api/games/{id}/download?versionId=&token=` | file stream, Range supported, `Content-Disposition` |
 | GET | `/api/games/{id}/versions/{versionId}/stream?token=` | Stream install: an uncompressed `application/x-tar` of the archive entries, no archive stored on the client. ZIP, 7z and RAR (RAR4/RAR5) are supported; unsupported files return 415 and the client falls back, encrypted archives return 409. Exact `Content-Length`. Same auth rules as download. |
+| GET | `/api/games/{id}/versions/{versionId}/stream/manifest?token=` | Ordered ZIP manifest for resumable per-entry installs (#115): `{ format: "zip", entryCount, totalBytes, totalCompressedBytes, entries: [{ index, path, size, compressedSize, mode, crc32, isDir }] }`. Same auth as `/stream` (Bearer or download ticket). Non-ZIP → `415 stream_unsupported`. |
+| GET | `/api/games/{id}/versions/{versionId}/stream/entries/{index}?token=` | Raw content of one ZIP entry, single HTTP `Range` supported (`206` + `Content-Range`, `416` + `Content-Range: bytes */size`). `Content-Length` is exact. Unknown index → `404 entry_not_found`; directories → `404 entry_not_found`. Same auth as `/stream`. |
 | GET | `/api/games/{id}/versions/latest` | newest non-missing version → `LatestVersion`; 404 `no_versions` when the game has none |
 | GET | `/api/games/{id}/versions/{versionId}/local-path` | embedded/local mode + loopback only → `{ path }`, else 404 |
 
@@ -752,7 +754,7 @@ server with the same auth rules.
 | `s3` backend configured but no usable client | local file if present, else `503 storage_unavailable` |
 | `local` row (including all pre-#47 rows) | served from the library root as before |
 | `GET …/local-path` on an `s3` row | `404 local_path_unavailable` |
-| `GET …/stream` on an `s3` row | archive staged under `{DATA}/tmp`, then streamed as tar |
+| `GET …/stream`, `…/stream/manifest`, `…/stream/entries/{index}` on an `s3` row | archive staged under `{DATA}/tmp`, then streamed/served; the staged copy is removed when the response ends |
 
 Configuration and operations: [`STORAGE.md`](./STORAGE.md).
 
@@ -1038,7 +1040,12 @@ interface InstallJob {
        | "done" | "cancelled" | "error";
   bytesDone: number; bytesTotal: number | null; speedBps: number;
   message: string | null; installPath: string | null;
-  stream: boolean;              // job used the non-resumable tar stream (#114)
+  stream: boolean;              // job used a stream install (#114)
+  resumable: boolean;           // per-entry checkpoint exists and can resume (#115)
+  entriesDone: number | null;   // per-entry stream installs
+  entriesTotal: number | null;
+  currentEntry: string | null;  // entry currently being written
+  resumedEntries: number | null;// files already present when this attempt started
 }
 
 interface VerifyIssue {
@@ -1182,7 +1189,9 @@ Events:
 Native install layout: `{installDir}/{slug}/{versionLabel}/game files` plus a
 desktop SQLite index at `{appDataDir}/ludex-desktop.db` (installed games,
 sessions with exact seconds, settings, install jobs, file manifests, archive
-fingerprints). Local archive extraction
+fingerprints, resumable stream manifests). Per-entry stream checkpoints live in
+`install_stream_manifests` (one manifest per job/version) and the
+`install_jobs.stream_completed` hex bitset (schema v9). Local archive extraction
 uses `GET /api/games/{id}/versions/{vid}/local-path` when the embedded server is
 in local mode; remote installs download with Range resume and delete the temp
 archive by default (`keepArchives` setting false).
@@ -1236,9 +1245,12 @@ archive by default (`keepArchives` setting false).
 - **Pause / resume.** Pausing stops the HTTP body read at the next chunk
   boundary, flushes and keeps the `.part` file; the job stays in the queue with
   phase `paused` (persisted across restarts). Resuming sends
-  `Range: bytes=<offset>-` and continues with the same job id. Stream installs
-  cannot be paused (nothing is written to disk to resume from) and
-  `pause_install` returns an actionable error. Cancelling discards the `.part`.
+  `Range: bytes=<offset>-` and continues with the same job id. Per-entry stream
+  installs pause too: they stop between entries, keep the staging folder and
+  the checkpoint, and resume from the first missing entry. Sequential tar
+  installs cannot be paused and `pause_install` returns an actionable error.
+  Cancelling discards the `.part`; cancelling a per-entry stream install keeps
+  the completed files when at least one exists.
 - **Bandwidth limit.** `bandwidthLimitKib` caps the copy loop of archive
   downloads, repairs and stream installs. 0 means unlimited. The cap is read
   when a transfer starts.
@@ -1302,6 +1314,10 @@ on `shutdown` stops it gracefully.
 
 ## Stream install (ZIP, 7z and RAR)
 
+Stream installs let the desktop install a remote archive without storing it:
+files are written straight into the staging folder. There are two protocols.
+
+**Sequential tar (compatibility).**
 `GET /api/games/{id}/versions/{versionId}/stream` returns an uncompressed tar
 stream of the archive entries. It exists so the desktop can install a remote
 archive without storing it: the client writes extracted files directly from the
@@ -1311,9 +1327,43 @@ archives return 409 `archive_password_required` because the stream route has no
 password parameter. `Content-Length` is set to the exact tar size so the desktop
 can show a percentage.
 
+**Per-entry (resumable, ZIP only, #115).**
+`GET …/stream/manifest` lists the ZIP central directory in order. Each entry has
+a stable `index` (its central-directory position), a sanitized relative `path`,
+uncompressed/compressed sizes, permission bits, CRC-32 and `isDir`.
+`GET …/stream/entries/{index}` serves the raw entry with single-Range support:
+stored entries seek directly to their data offset; DEFLATE/Zstd entries are
+decompressed from the start and the offset is skipped. Directories answer 404;
+out-of-range indexes answer 404 `entry_not_found`; unsatisfiable or malformed
+ranges answer 416 with `Content-Range: bytes */<size>`. Path validation is
+identical to the tar stream: absolute paths, `..`, drive letters, NUL bytes and
+symlinks are rejected.
+
+The desktop persists the manifest and a completed-entry bitset in its SQLite
+index. On retry, pause/resume or app restart it verifies the manifest
+fingerprint (SHA-256 of the JSON), keeps completed files, resumes a partial
+entry with `Range` and requests only missing entries. Cancel stops between
+entries and keeps completed files when at least one exists. 7z/RAR archives and
+servers without these endpoints fall back to the tar stream, then to the normal
+resumable download. No archive is written to the download folder on either
+stream path.
+
 Core API:
 
 ```rust
+pub struct StreamEntry { pub index: usize, pub path: String, pub size: u64,
+    pub compressed_size: u64, pub mode: u32, pub crc32: u32, pub is_dir: bool }
+pub struct StreamManifest { pub format: String, pub entry_count: usize,
+    pub total_bytes: u64, pub total_compressed_bytes: u64, pub entries: Vec<StreamEntry> }
+pub fn zip_stream_manifest(path: &Path) -> Result<StreamManifest, ArchiveError>;
+pub fn zip_entry_info(path: &Path, index: usize) -> Result<StreamEntry, ArchiveError>;
+pub fn write_zip_entry_range<W: std::io::Write>(
+    path: &Path, index: usize, offset: u64, length: Option<u64>, writer: &mut W,
+) -> Result<u64, ArchiveError>;
+pub fn zip_tar_size(path: &Path) -> Result<u64, ArchiveError>;
+pub fn stream_zip_as_tar<W: std::io::Write>(
+    path: &Path, writer: &mut W,
+) -> Result<TarStreamReport, ArchiveError>;
 pub fn archive_tar_size(path: &Path) -> Result<u64, ArchiveError>;
 pub fn stream_archive_as_tar<W: std::io::Write>(
     path: &Path, writer: &mut W,
@@ -1328,6 +1378,8 @@ the stream writer, and the stream re-checks it before completing. RAR streaming
 decompresses entries through libunrar into a private scratch file (libunrar can
 only extract to a path), copied to the tar in 64 KiB chunks and deleted
 immediately; the scratch directory never outlives the request.
+Per-entry entries follow the same rules: sanitised relative paths, no links or
+special files, file modes preserved and chunked copies.
 
 ## Shared Rust core API
 

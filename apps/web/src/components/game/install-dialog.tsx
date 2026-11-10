@@ -8,7 +8,7 @@ import type { GameDetail, GameVersion } from "@/lib/types";
 import { isStreamFailedJob, useDownloads } from "@/state/downloads";
 import { Button, Progress } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
-import { t } from "@/lib/i18n";
+import { t, tn } from "@/lib/i18n";
 
 /**
  * The install dialog starts a background job and then gets out of the way: the
@@ -123,7 +123,8 @@ export function InstallDialog({
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               {t("Continue in background")}
             </Button>
-            {(job.phase === "queued" || job.phase === "downloading") && job.stream !== true ? (
+            {(job.phase === "queued" || job.phase === "downloading") &&
+            (job.stream !== true || job.resumable) ? (
               <Button variant="default" onClick={() => void downloads.pause(job.jobId)}>
                 {t("Pause")}
               </Button>
@@ -180,7 +181,9 @@ export function InstallDialog({
           <div className="flex items-baseline justify-between gap-4">
             <dt className="text-ink-3">{t("Download folder")}</dt>
             <dd className="truncate font-mono text-[11px] text-ink-2">
-              {settings?.streamInstall ? t("Streamed, not stored (not resumable)") : settings?.downloadDir || t("Set in Settings")}
+              {settings?.streamInstall
+                ? t("Streamed, not stored (resumes per file)")
+                : settings?.downloadDir || t("Set in Settings")}
             </dd>
           </div>
           <div className="flex items-baseline justify-between gap-4">
@@ -201,8 +204,31 @@ export function InstallDialog({
               {job.bytesTotal && <span>{t("{done} of {total}", { done: formatBytes(job.bytesDone), total: formatBytes(job.bytesTotal) })}</span>}
               {job.speedBps > 0 && <span>{formatSpeed(job.speedBps)}</span>}
               {eta && <span>{t("{duration} left", { duration: eta })}</span>}
+              {job.entriesTotal ? (
+                <span>
+                  {t("{done}/{total} files", {
+                    done: job.entriesDone ?? 0,
+                    total: job.entriesTotal,
+                  })}
+                </span>
+              ) : null}
               {job.message && <span className="text-ink-2">{job.message}</span>}
             </div>
+            {job.currentEntry && (
+              <p className="truncate font-mono text-[10.5px] text-ink-3" title={job.currentEntry}>
+                {job.currentEntry}
+              </p>
+            )}
+            {job.resumedEntries !== null && job.resumedEntries > 0 && (
+              <p className="text-[11.5px] leading-relaxed text-ink-3">
+                {tn(
+                  job.resumedEntries,
+                  "Resumed {count} file already on disk.",
+                  "Resumed {count} files already on disk.",
+                  { count: job.resumedEntries },
+                )}
+              </p>
+            )}
             {active && (
               <p className="text-[11.5px] leading-relaxed text-ink-3">
                 {t("You can close this window. The install keeps running and stays in Downloads.")}
@@ -210,7 +236,16 @@ export function InstallDialog({
             )}
             {streamFailed && (
               <p className="text-[11.5px] leading-relaxed text-ink-3">
-                {t("The stream cannot be resumed; this retries with a normal resumable download.")}
+                {t(
+                  "This stream has no per-file checkpoint and cannot be resumed; retrying as a download keeps the archive so it can resume.",
+                )}
+              </p>
+            )}
+            {job.stream && job.resumable && !streamFailed && (
+              <p className="text-[11.5px] leading-relaxed text-ink-3">
+                {t(
+                  "Stream installs resume file by file: closing or losing the connection never re-downloads completed files.",
+                )}
               </p>
             )}
             {job.installPath && (
