@@ -1,8 +1,54 @@
 # Releasing Ludex
 
 Releases are tag-driven, E2E-gated and built entirely on GitHub-hosted runners.
-The only secret used is the automatic `GITHUB_TOKEN`; there is no signing key,
-deploy key or self-hosted runner in the release path.
+The only mandatory secret is the automatic `GITHUB_TOKEN`; the desktop updater
+optionally uses a minisign signing key (see *Updater keys and channels*) and
+there is no deploy key or self-hosted runner in the release path.
+
+## Updater keys and channels
+
+The desktop app updates itself through `tauri-plugin-updater`. Releases must be
+signed with a minisign key pair:
+
+```sh
+# once per maintainer machine; keep the private key out of the repository
+pnpm --filter @ludex/desktop exec tauri signer generate -w ~/.tauri/ludex.key
+```
+
+- The **public** key goes into `apps/desktop/src-tauri/tauri.conf.json`
+  (`plugins.updater.pubkey`). It is safe to commit.
+- The **private** key and its password are repository secrets:
+  `TAURI_SIGNING_PRIVATE_KEY` (file contents or path) and
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+- Never commit the private key, the password or a generated `~/.tauri` folder.
+- `bundle.createUpdaterArtifacts` is **off** in the committed config so a release
+  without secrets still builds. Set it to `true` once the two secrets exist: the
+  desktop job then uploads `latest.json` plus `.sig` files next to the bundles.
+  Tauri refuses to build with it on and no private key, which is why it stays off
+  until the key is provisioned.
+
+Without a public key the app reports updates as *not configured* and refuses to
+install (`configured: false`, explicit message). Local dev builds should keep the
+field empty.
+
+### Channels
+
+| Channel | Endpoint | Published from |
+|---|---|---|
+| `stable` | `/releases/latest/download/latest.json` | the newest non-prerelease tag (`vX.Y.Z`) |
+| `early` | `/releases/download/edge/latest.json` | the moving `edge` prerelease |
+
+GitHub's `/releases/latest` skips prereleases, so stable never picks up `edge`.
+To publish the early channel, the `edge` release must carry the updater
+artifacts: build the desktop bundle on the edge commit, upload `latest.json` and
+the platform signatures to the `edge` prerelease with `--clobber`, and keep the
+version in `tauri.conf.json` ahead of the last stable release (for example
+`0.3.0-edge.1`). Until that job exists, `early` clients get a 404 and the check
+reports the HTTP error — stable keeps working.
+
+Signing keys rotate by publishing a release signed with the new key **and**
+shipping the new public key in the previous release, otherwise existing installs
+cannot verify the update.
 
 ## Channels
 
