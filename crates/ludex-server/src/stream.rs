@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use axum::body::Body;
 use bytes::Bytes;
-use ludex_core::archive::stream_archive_as_tar;
+use ludex_core::archive::{stream_archive_as_tar, write_zip_entry_range};
 use tokio::sync::mpsc;
 
 /// Size of each chunk sent to the HTTP body.
@@ -51,6 +51,53 @@ pub fn archive_tar_body(path: PathBuf, expected_bytes: u64, cleanup: Option<Path
             let _ = error_sender.blocking_send(Err(io::Error::other(message)));
         }
         // Staged S3 archives are only needed for this response.
+        if let Some(cleanup) = cleanup {
+            let _ = std::fs::remove_file(cleanup);
+        }
+    });
+
+    let stream = futures_util::stream::unfold(receiver, |mut receiver| async move {
+        receiver.recv().await.map(|item| (item, receiver))
+    });
+    Body::from_stream(stream)
+}
+
+/// Streams one ZIP entry range as an HTTP body (#115).
+///
+/// `length` must be the exact number of bytes the caller advertised in
+/// `Content-Length`; a shorter or longer write is reported as a stream error
+/// instead of silently truncating the response. `cleanup` removes a staged
+/// object-store archive once the response ends.
+pub fn entry_body(
+    path: PathBuf,
+    index: usize,
+    offset: u64,
+    length: u64,
+    cleanup: Option<PathBuf>,
+) -> Body {
+    let (sender, receiver) = mpsc::channel::<Result<Bytes, io::Error>>(CHANNEL_CAPACITY);
+
+    tokio::task::spawn_blocking(move || {
+        let error_sender = sender.clone();
+        let mut writer = ChannelWriter::new(sender);
+        let result = write_zip_entry_range(&path, index, offset, Some(length), &mut writer);
+        let flush_result = writer.flush();
+        drop(writer);
+
+        let failure = match (result, flush_result) {
+            (Ok(written), Ok(())) if written == length => None,
+            (Ok(written), Ok(())) => Some(format!(
+                "entry size mismatch: expected {length} bytes, wrote {written}"
+            )),
+            (Err(error), _) => Some(format!("entry stream failed: {error}")),
+            (Ok(_), Err(error)) => Some(format!("entry flush failed: {error}")),
+        };
+
+        if let Some(message) = failure {
+            // The receiver is gone when the client disconnected; that is the
+            // expected way this task stops.
+            let _ = error_sender.blocking_send(Err(io::Error::other(message)));
+        }
         if let Some(cleanup) = cleanup {
             let _ = std::fs::remove_file(cleanup);
         }

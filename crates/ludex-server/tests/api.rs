@@ -8,7 +8,8 @@ use std::time::Duration;
 use ludex_server::{start, Config, ServerHandle};
 use rand::RngCore;
 use reqwest::header::{
-    CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, RANGE,
+    ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
+    RANGE,
 };
 use reqwest::{Client, Method, StatusCode};
 use serde_json::{json, Value};
@@ -1973,6 +1974,47 @@ fn write_test_zip(path: &Path) {
     archive.finish().expect("finish");
 }
 
+fn write_manifest_zip(path: &Path) {
+    use zip::write::SimpleFileOptions;
+
+    let file = std::fs::File::create(path).expect("zip file");
+    let mut archive = zip::ZipWriter::new(file);
+    archive
+        .add_directory("Resumable/", SimpleFileOptions::default())
+        .expect("directory");
+    archive
+        .start_file("Resumable/game.exe", zip_options())
+        .expect("stored entry");
+    archive.write_all(b"MZ resumable").expect("write");
+    archive
+        .start_file(
+            "Resumable/big.bin",
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+        )
+        .expect("deflated entry");
+    archive
+        .write_all(
+            &(0..300_000)
+                .map(|index| (index % 251) as u8)
+                .collect::<Vec<u8>>(),
+        )
+        .expect("write big");
+    // The scanner ignores archives smaller than 1 MiB.
+    archive
+        .start_file("Resumable/pad.bin", zip_options())
+        .expect("pad");
+    archive
+        .write_all(&vec![0_u8; 1024 * 1024 + 1])
+        .expect("write pad");
+    archive
+        .start_file("Resumable/run.sh", zip_options())
+        .expect("script");
+    archive
+        .write_all(b"#!/bin/sh\nexit 0\n")
+        .expect("write script");
+    archive.finish().expect("finish zip");
+}
+
 fn write_test_7z(path: &Path) {
     let mut writer = sevenz_rust2::SevenZWriter::create(path).expect("create 7z");
     for (name, data) in [
@@ -2215,6 +2257,330 @@ async fn stream_install_zip_as_tar() {
     assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
     let error: Value = response.json().await.expect("unsupported error");
     assert_eq!(error["error"]["code"], "stream_unsupported");
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn stream_manifest_and_entry_ranges() {
+    let server = TestServer::start().await;
+    let (token, _) = server.setup().await;
+
+    let zip_path = server.games_dir.join("Resumable Game (2022).zip");
+    write_manifest_zip(&zip_path);
+    run_scan(&server, &token).await;
+
+    let (_, list) = server.get("/api/games?limit=10", Some(&token)).await;
+    let game_id = list["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|item| item["title"] == "Resumable Game")
+        .and_then(|item| item["id"].as_i64())
+        .expect("game id");
+    let (_, detail) = server
+        .get(&format!("/api/games/{game_id}"), Some(&token))
+        .await;
+    let version_id = detail["versions"][0]["id"].as_i64().expect("version id");
+
+    // Same auth rules as the tar stream.
+    let (status, error) = server
+        .get(
+            &format!("/api/games/{game_id}/versions/{version_id}/stream/manifest"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(error["error"]["code"], "unauthorized");
+    let (status, _) = server
+        .get(
+            &format!(
+                "/api/games/{game_id}/versions/{}/stream/manifest",
+                version_id + 9999
+            ),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, manifest) = server
+        .get(
+            &format!("/api/games/{game_id}/versions/{version_id}/stream/manifest"),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{manifest}");
+    assert_eq!(manifest["format"], "zip");
+    let entries = manifest["entries"].as_array().expect("entries");
+    let paths: Vec<&str> = entries
+        .iter()
+        .map(|entry| entry["path"].as_str().expect("path"))
+        .collect();
+    assert_eq!(
+        paths,
+        vec![
+            "Resumable",
+            "Resumable/game.exe",
+            "Resumable/big.bin",
+            "Resumable/pad.bin",
+            "Resumable/run.sh"
+        ],
+        "entries follow the central directory order"
+    );
+    assert_eq!(manifest["entryCount"].as_u64(), Some(5));
+    assert_eq!(entries[0]["isDir"], true);
+    assert_eq!(entries[1]["isDir"], false);
+    assert_eq!(entries[1]["size"].as_u64(), Some(12));
+    assert_eq!(
+        manifest["totalBytes"].as_u64(),
+        Some(12 + 300_000 + 1024 * 1024 + 1 + 17)
+    );
+    assert!(entries[2]["crc32"].as_u64().unwrap_or(0) > 0);
+    assert_eq!(entries[4]["mode"].as_u64(), Some(0o755));
+    let big_size = entries[2]["size"].as_u64().expect("big size");
+    let big_index = entries[2]["index"].as_u64().expect("big index");
+    let stored_index = entries[1]["index"].as_u64().expect("stored index");
+    let dir_index = entries[0]["index"].as_u64().expect("dir index");
+
+    // Full entry, stored: exact bytes and Content-Length.
+    let response = server
+        .client
+        .get(format!(
+            "{}/api/games/{game_id}/versions/{version_id}/stream/entries/{stored_index}",
+            server.url
+        ))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .expect("stored entry");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok()),
+        Some("12")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get(ACCEPT_RANGES)
+            .and_then(|value| value.to_str().ok()),
+        Some("bytes")
+    );
+    assert_eq!(
+        response.bytes().await.expect("body").as_ref(),
+        b"MZ resumable"
+    );
+
+    // A single range on a deflated entry: 206 + Content-Range.
+    let range_start = big_size - 10;
+    let response = server
+        .client
+        .get(format!(
+            "{}/api/games/{game_id}/versions/{version_id}/stream/entries/{big_index}",
+            server.url
+        ))
+        .bearer_auth(&token)
+        .header(RANGE, format!("bytes={range_start}-"))
+        .send()
+        .await
+        .expect("ranged entry");
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    let expected_range = format!("bytes {range_start}-{}/{big_size}", big_size - 1);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok()),
+        Some(expected_range.as_str())
+    );
+    let expected: Vec<u8> = (0..300_000).map(|index| (index % 251) as u8).collect();
+    let body = response.bytes().await.expect("range body");
+    assert_eq!(body.as_ref(), &expected[range_start as usize..]);
+
+    // Suffix ranges and a middle range are supported too.
+    let response = server
+        .client
+        .get(format!(
+            "{}/api/games/{game_id}/versions/{version_id}/stream/entries/{big_index}",
+            server.url
+        ))
+        .bearer_auth(&token)
+        .header(RANGE, "bytes=-4")
+        .send()
+        .await
+        .expect("suffix entry");
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(
+        response.bytes().await.expect("suffix body").as_ref(),
+        &expected[expected.len() - 4..]
+    );
+
+    // Unsatisfiable and malformed ranges answer 416 with the total size.
+    for range in ["bytes=999999999-", "bytes=10-5", "bytes=0-1,3-4"] {
+        let response = server
+            .client
+            .get(format!(
+                "{}/api/games/{game_id}/versions/{version_id}/stream/entries/{stored_index}",
+                server.url
+            ))
+            .bearer_auth(&token)
+            .header(RANGE, range)
+            .send()
+            .await
+            .expect("bad range");
+        assert_eq!(
+            response.status(),
+            StatusCode::RANGE_NOT_SATISFIABLE,
+            "{range}"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok()),
+            Some("bytes */12"),
+            "{range}"
+        );
+    }
+
+    // Unknown indexes and directory entries are 404s.
+    let (status, error) = server
+        .get(
+            &format!(
+                "/api/games/{game_id}/versions/{version_id}/stream/entries/{}",
+                entries.len() + 10
+            ),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(error["error"]["code"], "entry_not_found");
+    let (status, error) = server
+        .get(
+            &format!("/api/games/{game_id}/versions/{version_id}/stream/entries/{dir_index}"),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(error["error"]["code"], "entry_not_found");
+
+    // Download tickets authenticate both endpoints.
+    let (_, ticket) = server
+        .post(
+            &format!("/api/games/{game_id}/download-ticket"),
+            Some(&token),
+            Some(json!({"versionId": version_id})),
+        )
+        .await;
+    let ticket_token = ticket["url"]
+        .as_str()
+        .expect("ticket url")
+        .rsplit_once("token=")
+        .expect("ticket token")
+        .1;
+    let response = server
+        .client
+        .get(format!(
+            "{}/api/games/{game_id}/versions/{version_id}/stream/entries/{stored_index}?token={ticket_token}",
+            server.url
+        ))
+        .send()
+        .await
+        .expect("ticket entry");
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = server
+        .client
+        .get(format!(
+            "{}/api/games/{game_id}/versions/{version_id}/stream/manifest?token={ticket_token}",
+            server.url
+        ))
+        .send()
+        .await
+        .expect("ticket manifest");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Non-ZIP archives still answer 415 so the client falls back.
+    let rar_path = server.games_dir.join("Resumable Rar (2022).rar");
+    write_test_rar(&rar_path);
+    run_scan(&server, &token).await;
+    let (_, list) = server.get("/api/games?limit=10", Some(&token)).await;
+    let rar_id = list["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|item| item["title"] == "Resumable Rar")
+        .and_then(|item| item["id"].as_i64())
+        .expect("rar game");
+    let (_, rar_detail) = server
+        .get(&format!("/api/games/{rar_id}"), Some(&token))
+        .await;
+    let rar_version = rar_detail["versions"][0]["id"]
+        .as_i64()
+        .expect("rar version");
+    let (status, error) = server
+        .get(
+            &format!("/api/games/{rar_id}/versions/{rar_version}/stream/manifest"),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(error["error"]["code"], "stream_unsupported");
+    let (status, _) = server
+        .get(
+            &format!("/api/games/{rar_id}/versions/{rar_version}/stream/entries/0"),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn stream_manifest_rejects_path_traversal() {
+    let server = TestServer::start().await;
+    let (token, _) = server.setup().await;
+
+    let zip_path = server.games_dir.join("Traversal Game (2022).zip");
+    let file = std::fs::File::create(&zip_path).expect("zip file");
+    let mut archive = zip::ZipWriter::new(file);
+    archive
+        .start_file("Game/../../escape.txt", zip_options())
+        .expect("entry");
+    archive.write_all(b"nope").expect("write");
+    // The scanner ignores archives smaller than 1 MiB.
+    archive
+        .start_file("Game/pad.bin", zip_options())
+        .expect("pad");
+    archive
+        .write_all(&vec![0_u8; 1024 * 1024 + 1])
+        .expect("write pad");
+    archive.finish().expect("finish");
+    run_scan(&server, &token).await;
+
+    let (_, list) = server.get("/api/games?limit=10", Some(&token)).await;
+    let game_id = list["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|item| item["title"] == "Traversal Game")
+        .and_then(|item| item["id"].as_i64())
+        .expect("game id");
+    let (_, detail) = server
+        .get(&format!("/api/games/{game_id}"), Some(&token))
+        .await;
+    let version_id = detail["versions"][0]["id"].as_i64().expect("version id");
+
+    let (status, error) = server
+        .get(
+            &format!("/api/games/{game_id}/versions/{version_id}/stream/manifest"),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(error["error"]["code"], "stream_failed");
 
     server.stop().await;
 }
