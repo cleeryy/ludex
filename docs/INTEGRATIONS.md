@@ -522,6 +522,19 @@ owning client keeps ownership, updates and DRM.
   URI handler process tree is alive; the launcher's own counter stays
   authoritative.
 
+### Game settings and engine adapters
+
+The game page's Settings tab reads config files from the install folder only
+(ini, cfg, Godot `project.godot`, Unity `prefs`, TOML, JSON). Every write is
+type-checked, backed up under `{appDataDir}/config-backups/game-<id>/` and
+recorded with a line diff; the Backups tab restores a previous version. Built-in
+adapters detect Unreal Engine, GOG, Godot and Unity markers and expose
+resolution, window mode, V-Sync, frame limit, quality and language as typed
+controls. Settings stored in the Windows registry, Unreal's `%LOCALAPPDATA%` or
+Godot's `user://` are read-only: Ludex never edits outside the install folder.
+See `docs/CONTRACT.md` for the commands and `apps/desktop/README.md` for the
+format details.
+
 ### Playnite
 
 `integrations/playnite/` is a read-only Playnite library plugin: `GET
