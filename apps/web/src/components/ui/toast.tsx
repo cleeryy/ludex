@@ -2,6 +2,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { AlertTriangle, Check, X } from "lucide-react";
 import { useToast } from "@/state/toasts";
 import { cn } from "@/lib/cn";
+import { t } from "@/lib/i18n";
 
 export function ToastViewport() {
   const { toasts, dismiss } = useToast();
@@ -9,9 +10,9 @@ export function ToastViewport() {
 
   return (
     <div
-      className="pointer-events-none fixed bottom-4 right-4 z-[100] flex w-[min(360px,calc(100vw-32px))] flex-col gap-2"
+      className="pointer-events-none fixed bottom-[calc(56px+env(safe-area-inset-bottom)+12px)] end-4 z-[100] lg:bottom-4 flex w-[min(360px,calc(100vw-32px))] flex-col gap-2"
       role="region"
-      aria-label="Notifications"
+      aria-label={t("Notifications")}
     >
       <AnimatePresence initial={false}>
         {toasts.map((toast) => (
@@ -30,7 +31,7 @@ export function ToastViewport() {
           >
             <span
               className={cn(
-                "absolute inset-y-0 left-0 w-[2px]",
+                "absolute inset-y-0 start-0 w-[2px]",
                 toast.tone === "danger" ? "bg-danger" : toast.tone === "success" ? "bg-ok" : "bg-signal",
               )}
               aria-hidden="true"
@@ -46,7 +47,7 @@ export function ToastViewport() {
               <button
                 type="button"
                 onClick={() => dismiss(toast.id)}
-                aria-label="Dismiss notification"
+                aria-label={t("Dismiss notification")}
                 className="-mr-1 grid size-7 shrink-0 place-items-center rounded-[2px] text-ink-3 hover:bg-surface hover:text-ink"
               >
                 <X className="size-3.5" />

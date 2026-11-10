@@ -4,6 +4,7 @@ import type { Activity, ActivityKind } from "@/lib/types";
 import { formatRelative } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { EmptyState } from "@/components/page";
+import { t, tn, tr } from "@/lib/i18n";
 
 const ICONS: Record<ActivityKind, React.ReactNode> = {
   game_added: <Plus className="size-3.5" aria-hidden="true" />,
@@ -29,37 +30,38 @@ function sentence(activity: Activity): React.ReactNode {
     <Link to={`/game/${activity.game.id}`} className="text-ink underline-offset-4 hover:underline">
       {activity.game.title}
     </Link>
-  ) : null;
+  ) : (
+    t("a game")
+  );
   const collection = activity.collection ? (
     <Link to={`/collections/${activity.collection.id}`} className="text-ink underline-offset-4 hover:underline">
       {activity.collection.name}
     </Link>
-  ) : null;
+  ) : (
+    t("a shelf")
+  );
   const minutes = typeof activity.metadata.minutes === "number" ? activity.metadata.minutes : null;
 
   switch (activity.kind) {
     case "game_added":
-      return <>{who} added {game ?? "a game"} to the library</>;
+      return tr("{who} added {game} to the library", { who, game });
     case "game_installed":
-      return <>{who} installed {game ?? "a game"}</>;
+      return tr("{who} installed {game}", { who, game });
     case "game_played":
-      return (
-        <>
-          {who} played {game ?? "a game"}
-          {minutes ? ` for ${minutes} minutes` : ""}
-        </>
-      );
+      return minutes
+        ? tr("{who} played {game} for {minutes}", { who, game, minutes: tn(minutes, "1 minute", "{count} minutes") })
+        : tr("{who} played {game}", { who, game });
     case "game_completed":
-      return <>{who} finished {game ?? "a game"}</>;
+      return tr("{who} finished {game}", { who, game });
     case "collection_created":
-      return <>{who} created the collection {collection ?? "a shelf"}</>;
+      return tr("{who} created the collection {collection}", { who, collection });
     case "achievement_unlocked": {
       const achievement =
-        typeof activity.metadata.achievementName === "string" ? activity.metadata.achievementName : "an achievement";
-      return <>{who} unlocked {achievement} in {game ?? "a game"}</>;
+        typeof activity.metadata.achievementName === "string" ? activity.metadata.achievementName : t("an achievement");
+      return tr("{who} unlocked {achievement} in {game}", { who, achievement, game });
     }
     default:
-      return <>{who} did something</>;
+      return tr("{who} did something", { who });
   }
 }
 
@@ -77,7 +79,7 @@ export function ActivityRow({ activity, showActor = true }: { activity: Activity
           {showActor ? (
             sentence(activity)
           ) : (
-            sentence({ ...activity, user: { ...activity.user, displayName: null, username: "You" } })
+            sentence({ ...activity, user: { ...activity.user, displayName: null, username: t("You") } })
           )}
         </p>
         <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 font-mono text-[10px] text-ink-3">
@@ -127,7 +129,7 @@ export function ActivityList({
             disabled={loadingMore}
             className="h-9 border border-line px-3 text-[12.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink disabled:opacity-40"
           >
-            {loadingMore ? "Loading…" : "Load more"}
+            {loadingMore ? t("Loading…") : t("Load more")}
           </button>
         </div>
       )}

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/controls";
+import { t } from "@/lib/i18n";
 
 export function PageHeader({
   title,
@@ -73,7 +74,7 @@ export function ErrorState({
       <div className="mt-1 flex gap-2">
         {onRetry && (
           <Button variant="default" onClick={onRetry}>
-            Try again
+            {t("Try again")}
           </Button>
         )}
         {action}

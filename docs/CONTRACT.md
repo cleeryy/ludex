@@ -1418,3 +1418,21 @@ Environment: `LUDEX_ACHIEVEMENT_SCAN_INTERVAL_HOURS` (0 = off),
 `LUDEX_ACHIEVEMENT_PROVIDERS`, `LUDEX_ACHIEVEMENT_SCAN_ROOTS`,
 `LUDEX_ACHIEVEMENT_LOCAL_API_URLS`, `LUDEX_ACHIEVEMENT_GALAXY_DB`,
 `LUDEX_ACHIEVEMENT_ALLOW_REMOTE_APIS`.
+
+## Web client preferences (#23, #29)
+
+These are browser-local values, not server configuration; no API or database
+shape changes.
+
+| Storage | Key | Values |
+|---|---|---|
+| `localStorage` | `ludex.theme` | `dark`, `light`, `system` (default `system`) |
+| `localStorage` | `ludex.locale` | a code from `apps/web/src/locales/manifest.json` (default `en`) |
+| `localStorage` | `ludex.pwa.installDismissedAt` | epoch ms; the install prompt is hidden for 30 days |
+
+The web client applies `theme` and `locale` before the first paint
+(`apps/web/index.html`), sets `<html lang>` and `<html dir>` from the locale
+manifest, and uses `Intl` for dates, numbers, relative times and plural
+categories. The service worker only caches the app shell and the public
+`/api/media/` image route; every other `/api/` request, including auth and JSON,
+bypasses the cache. See `docs/I18N.md`.

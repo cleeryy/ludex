@@ -10,6 +10,7 @@ import { useToast } from "@/state/toasts";
 import { Badge, Button, Progress } from "@/components/ui/controls";
 import { SectionHeader } from "@/components/page";
 import { cn } from "@/lib/cn";
+import { t, tn } from "@/lib/i18n";
 
 /**
  * Verify / repair panel (#37) for an installed game. Verification compares the
@@ -72,7 +73,7 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
     } catch (cause) {
       const message = errorMessage(cause);
       setError(message);
-      push({ title: "Could not verify the files", description: message, tone: "danger" });
+      push({ title: t("Could not verify the files"), description: message, tone: "danger" });
     } finally {
       setBusy(null);
       setProgress(null);
@@ -96,7 +97,7 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
     } catch (cause) {
       const message = errorMessage(cause);
       setError(message);
-      push({ title: "Could not repair the files", description: message, tone: "danger" });
+      push({ title: t("Could not repair the files"), description: message, tone: "danger" });
     } finally {
       setBusy(null);
       setProgress(null);
@@ -109,8 +110,8 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
   return (
     <section className="mt-12" aria-labelledby="installed-files-heading">
       <SectionHeader
-        title="Installed files"
-        description="Checks the files on this disk against the manifest recorded at install time"
+        title={t("Installed files")}
+        description={t("Checks the files on this disk against the manifest recorded at install time")}
         actions={
           <div className="flex items-center gap-1">
             <Button
@@ -122,7 +123,7 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
               disabled={busy !== null}
               onClick={() => void verify()}
             >
-              Verify
+              {t("Verify")}
             </Button>
             <Button
               variant="ghost"
@@ -133,7 +134,7 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
               disabled={busy !== null}
               onClick={() => void repairFiles()}
             >
-              Repair
+              {t("Repair")}
             </Button>
           </div>
         }
@@ -141,13 +142,13 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
       <div id="installed-files-heading" className="border-t border-line pt-4">
         {busy && (
           <div className="max-w-[520px]">
-            <Progress value={percent} label="File check progress" />
+            <Progress value={percent} label={t("File check progress")} />
             <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 font-mono text-[10.5px] text-ink-3">
               <RefreshCw className="size-3 animate-spin" aria-hidden="true" />
-              <span>{progress?.message ?? (busy === "verify" ? "Hashing installed files…" : "Preparing the repair…")}</span>
+              <span>{progress?.message ?? (busy === "verify" ? t("Hashing installed files…") : t("Preparing the repair…"))}</span>
               {progress && progress.filesTotal > 0 && (
                 <span>
-                  {progress.filesDone} / {progress.filesTotal} files
+                  {t("{done} / {total} files", { done: progress.filesDone, total: progress.filesTotal })}
                 </span>
               )}
             </p>
@@ -156,8 +157,7 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
 
         {!busy && !report && (
           <p className="text-[12.5px] leading-relaxed text-ink-3">
-            Verify reads every installed file and reports missing, damaged or extra ones. Repair restores only the
-            damaged files from the server archive.
+            {t("Verify reads every installed file and reports missing, damaged or extra ones. Repair restores only the damaged files from the server archive.")}
           </p>
         )}
 
@@ -165,13 +165,13 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
               <Badge tone={report.status === "ok" ? "ok" : report.status === "issues" ? "danger" : "outline"}>
-                {report.status === "ok" ? "Verified" : report.status === "issues" ? "Needs repair" : "No manifest"}
+                {report.status === "ok" ? t("Verified") : report.status === "issues" ? t("Needs repair") : t("No manifest")}
               </Badge>
               <span className="num text-[11px] text-ink-3">
-                {report.filesChecked} files · {formatBytes(report.bytesChecked)} hashed
+                {t("{files} · {size} hashed", { files: tn(report.filesChecked, "1 file", "{count} files"), size: formatBytes(report.bytesChecked) })}
               </span>
               {report.extra.length > 0 && (
-                <span className="num text-[11px] text-ink-3">{report.extra.length} extra files</span>
+                <span className="num text-[11px] text-ink-3">{tn(report.extra.length, "1 extra file", "{count} extra files")}</span>
               )}
             </div>
 
@@ -180,13 +180,13 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
             )}
 
             {report.status === "ok" && (
-              <p className="text-[12.5px] text-ok">Every file matches the manifest.</p>
+              <p className="text-[12.5px] text-ok">{t("Every file matches the manifest.")}</p>
             )}
 
             {report.status === "issues" && (
               <div className="grid gap-3 sm:grid-cols-2">
-                <FileList title="Missing" files={report.missing.map((issue) => issue.path)} tone="danger" />
-                <FileList title="Corrupt" files={report.corrupt.map((issue) => issue.path)} tone="danger" />
+                <FileList title={t("Missing")} files={report.missing.map((issue) => issue.path)} tone="danger" />
+                <FileList title={t("Corrupt")} files={report.corrupt.map((issue) => issue.path)} tone="danger" />
               </div>
             )}
 
@@ -194,15 +194,14 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
               <div className="flex flex-col gap-1.5 border-l-2 border-line-2 pl-3">
                 <p className={cn("text-[12.5px]", repair.fallback ? "text-danger" : "text-ink-2")}>{repair.message}</p>
                 {repair.repaired.length > 0 && (
-                  <p className="font-mono text-[10.5px] text-ink-3">Restored: {repair.repaired.join(", ")}</p>
+                  <p className="font-mono text-[10.5px] text-ink-3">{t("Restored:")} {repair.repaired.join(", ")}</p>
                 )}
                 {repair.failed.length > 0 && (
-                  <p className="font-mono text-[10.5px] text-danger">Could not restore: {repair.failed.join(", ")}</p>
+                  <p className="font-mono text-[10.5px] text-danger">{t("Could not restore:")} {repair.failed.join(", ")}</p>
                 )}
                 {repair.fallback && (
                   <p className="text-[11.5px] text-ink-3">
-                    Use the install action above to download the game again; your playtime and progress stay on the
-                    server.
+                    {t("Use the install action above to download the game again; your playtime and progress stay on the server.")}
                   </p>
                 )}
               </div>
@@ -234,7 +233,7 @@ function FileList({ title, files, tone }: { title: string; files: string[]; tone
             {file}
           </li>
         ))}
-        {files.length > shown.length && <li>…and {files.length - shown.length} more</li>}
+        {files.length > shown.length && <li>{t("…and {count} more", { count: files.length - shown.length })}</li>}
       </ul>
     </div>
   );

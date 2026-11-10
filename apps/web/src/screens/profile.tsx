@@ -13,6 +13,7 @@ import { AchievementShowcase } from "@/components/community/achievement-showcase
 import { ActivityList } from "@/components/community/activity-list";
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Skeleton } from "@/components/ui/controls";
+import { t } from "@/lib/i18n";
 
 export function ProfileScreen() {
   const { id } = useParams();
@@ -54,10 +55,10 @@ export function ProfileScreen() {
     return (
       <div className="page page-in pt-8">
         <ErrorState
-          title={notFound ? "Profile not found" : "This profile didn’t load"}
+          title={notFound ? t("Profile not found") : t("This profile didn’t load")}
           message={
             notFound
-              ? "This account either has no public profile or no longer exists. Private profiles are hidden from everyone else."
+              ? t("This account either has no public profile or no longer exists. Private profiles are hidden from everyone else.")
               : errorMessage(profile.error)
           }
           onRetry={() => void profile.refetch()}
@@ -67,7 +68,7 @@ export function ProfileScreen() {
               onClick={() => navigate("/community")}
               className="h-11 border border-line px-4 text-sm text-ink-2 hover:text-ink"
             >
-              Back to community
+              {t("Back to community")}
             </button>
           }
         />
@@ -85,8 +86,8 @@ export function ProfileScreen() {
         to="/community"
         className="inline-flex h-8 items-center gap-2 text-[12.5px] text-ink-2 transition-colors hover:text-ink"
       >
-        <ArrowLeft className="size-3.5" aria-hidden="true" />
-        Community
+        <ArrowLeft className="rtl:-scale-x-100 size-3.5" aria-hidden="true" />
+        {t("Community")}
       </Link>
 
       <PageHeader
@@ -102,11 +103,11 @@ export function ProfileScreen() {
         meta={
           <>
             <span className="font-mono">@{data.user.username}</span>
-            {data.user.publicProfile ? <Badge tone="signal">Public</Badge> : <Badge tone="outline">Private</Badge>}
-            <span>Member since {formatDate(data.user.createdAt)}</span>
+            {data.user.publicProfile ? <Badge tone="signal">{t("Public")}</Badge> : <Badge tone="outline">{t("Private")}</Badge>}
+            <span>{t("Member since")} {formatDate(data.user.createdAt)}</span>
             {own && (
               <Link to="/settings" className="inline-flex items-center gap-1 text-ink-3 underline-offset-4 hover:text-ink hover:underline">
-                Edit profile
+                {t("Edit profile")}
                 <ArrowUpRight className="size-3" aria-hidden="true" />
               </Link>
             )}
@@ -118,16 +119,16 @@ export function ProfileScreen() {
       {!data.user.publicProfile && own && (
         <p className="mt-5 flex items-start gap-2 border-l-2 border-line-2 pl-3 text-[12px] leading-relaxed text-ink-3">
           <Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          Only you can see this page. Turn on the public profile in Settings to share your library and activity.
+          {t("Only you can see this page. Turn on the public profile in Settings to share your library and activity.")}
         </p>
       )}
 
-      <section className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label="Profile statistics">
+      <section className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label={t("Profile statistics")}>
         {[
-          { label: "Games in library", value: String(data.stats.games) },
-          { label: "Completed", value: String(data.stats.completed) },
-          { label: "Playtime", value: formatMinutes(data.stats.minutesPlayed) ?? "0m" },
-          { label: "Collections", value: String(data.stats.collections) },
+          { label: t("Games in library"), value: String(data.stats.games) },
+          { label: t("Completed"), value: String(data.stats.completed) },
+          { label: t("Playtime"), value: formatMinutes(data.stats.minutesPlayed) ?? "0m" },
+          { label: t("Collections"), value: String(data.stats.collections) },
         ].map((stat) => (
           <div key={stat.label} className="border border-line bg-surface/40 p-3">
             <p className="num text-[22px] leading-none text-ink">{stat.value}</p>
@@ -140,15 +141,15 @@ export function ProfileScreen() {
 
       <section className="mt-12" aria-labelledby="profile-library">
         <SectionHeader
-          title="Library"
+          title={t("Library")}
           count={data.library.length}
-          description="Games with progress or a bookmark"
+          description={t("Games with progress or a bookmark")}
         />
         {data.library.length === 0 ? (
           <EmptyState
             compact
-            title="Nothing on the shelf yet"
-            description={own ? "Start a game or bookmark one and it will appear here." : `${display} has not recorded any progress yet.`}
+            title={t("Nothing on the shelf yet")}
+            description={own ? t("Start a game or bookmark one and it will appear here.") : `${display} has not recorded any progress yet.`}
           />
         ) : (
           <div id="profile-library" className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
@@ -171,12 +172,12 @@ export function ProfileScreen() {
       </section>
 
       <section className="mt-12" aria-labelledby="profile-collections">
-        <SectionHeader title="Collections" count={data.collections.length} description="Public shelves only" />
+        <SectionHeader title={t("Collections")} count={data.collections.length} description={t("Public shelves only")} />
         {data.collections.length === 0 ? (
           <EmptyState
             compact
-            title="No public collections"
-            description={own ? "Publish a collection from its page to show it here." : `${display} has no public shelves.`}
+            title={t("No public collections")}
+            description={own ? t("Publish a collection from its page to show it here.") : `${display} has no public shelves.`}
           />
         ) : (
           <div id="profile-collections" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -188,14 +189,14 @@ export function ProfileScreen() {
       </section>
 
       <section className="mt-12" aria-labelledby="profile-activity">
-        <SectionHeader title="Activity" description="Newest first" />
+        <SectionHeader title={t("Activity")} description={t("Newest first")} />
         {activity.isPending ? (
           <Skeleton className="h-24 w-full" />
         ) : (
           <ActivityList
             items={items}
-            emptyTitle="No public activity"
-            emptyDescription={own ? "Play a game or create a collection to start the feed." : `${display} has not published any activity yet.`}
+            emptyTitle={t("No public activity")}
+            emptyDescription={own ? t("Play a game or create a collection to start the feed.") : `${display} has not published any activity yet.`}
             hasMore={Boolean(activity.hasNextPage)}
             loadingMore={activity.isFetchingNextPage}
             onLoadMore={() => void activity.fetchNextPage()}

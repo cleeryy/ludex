@@ -5,7 +5,7 @@ import { Download, Play } from "lucide-react";
 import { api } from "@/lib/api";
 import { downloadGame } from "@/lib/download";
 import { errorMessage } from "@/lib/http";
-import { formatBytes, formatMinutes, formatRating, formatRelative, formatYear, stateLabel } from "@/lib/format";
+import { formatBytes, formatMinutes, formatRating, formatRelative, formatYear, stateLabel, formatPercent } from "@/lib/format";
 import { isNative } from "@/lib/native";
 import { installsAvailable } from "@/lib/install";
 import {
@@ -25,6 +25,7 @@ import { GameCard } from "@/components/game/game-card";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { EmptyState, ErrorState, SectionHeader } from "@/components/page";
 import { Button, Skeleton } from "@/components/ui/controls";
+import { t, tn } from "@/lib/i18n";
 
 export function HomeScreen() {
   const navigate = useNavigate();
@@ -85,7 +86,7 @@ export function HomeScreen() {
     try {
       await downloadGame(hero.id, version?.id);
     } catch (cause) {
-      push({ title: "Download did not start", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Download did not start"), description: errorMessage(cause), tone: "danger" });
     }
   };
 
@@ -109,7 +110,7 @@ export function HomeScreen() {
     return (
       <div className="page page-in pt-6">
         <ErrorState
-          title="Home didn’t load"
+          title={t("Home didn’t load")}
           message={errorMessage(error)}
           onRetry={() => void refetch()}
         />
@@ -121,16 +122,16 @@ export function HomeScreen() {
     return (
       <div className="page page-in pt-6">
         <EmptyState
-          title="Nothing on the shelf yet"
+          title={t("Nothing on the shelf yet")}
           description={
             isEditor
-              ? "The games folder is empty. Paste a download link and Ludex will fetch it, verify the archive and index it for you."
-              : "This library is empty. An administrator can add games from the server, or drop archives into the games folder."
+              ? t("The games folder is empty. Paste a download link and Ludex will fetch it, verify the archive and index it for you.")
+              : t("This library is empty. An administrator can add games from the server, or drop archives into the games folder.")
           }
         >
           {isEditor ? (
             <Button variant="primary" icon={<Download className="size-4" />} onClick={() => navigate("/admin/ingest")}>
-              Add games
+              {t("Add games")}
             </Button>
           ) : null}
         </EmptyState>
@@ -147,11 +148,11 @@ export function HomeScreen() {
         launch.mutate({ id: hero.id, title: hero.title, executable: heroInstalled.executable ?? heroDetail.data?.launch.executable })
       }
     >
-      Play
+      {t("Play")}
     </Button>
   ) : heroJob ? (
     <Button variant="default" size="lg" icon={<Download className="size-4" />} onClick={() => navigate("/downloads")}>
-      Installing {heroPct !== null ? `${heroPct.toFixed(0)}%` : ""}
+      {t("Installing {percent}", { percent: heroPct !== null ? formatPercent(heroPct) : "…" })}
     </Button>
   ) : isNative() ? (
     <Button
@@ -161,11 +162,11 @@ export function HomeScreen() {
       disabled={!version}
       onClick={() => setInstallOpen(true)}
     >
-      Install
+      {t("Install")}
     </Button>
   ) : (
     <Button variant="primary" size="lg" icon={<Download className="size-4" />} onClick={() => void download()}>
-      Download
+      {t("Download")}
     </Button>
   );
 
@@ -175,8 +176,8 @@ export function HomeScreen() {
   return (
     <div className="page page-in pt-6">
       <div className="mb-3 flex items-baseline justify-end gap-4 font-mono text-[10.5px] text-ink-3">
-        <span>{games.length} games</span>
-        {installsAvailable() && <span>{installed.size} installed</span>}
+        <span>{tn(games.length, "1 game", "{count} games")}</span>
+        {installsAvailable() && <span>{t("{count} installed", { count: installed.size })}</span>}
       </div>
 
       <section className="force-dark relative overflow-hidden rounded-[2px] border border-line-2">
@@ -200,7 +201,7 @@ export function HomeScreen() {
         <div className="relative flex min-h-[360px] flex-col justify-end gap-3.5 p-6 sm:min-h-[400px] sm:p-8">
           <span className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-[#ffc61a]">
             <span className="h-px w-7 bg-[#ffc61a]" aria-hidden="true" />
-            {hero.lastPlayedAt ? "Continue playing" : "Start here"}
+            {hero.lastPlayedAt ? t("Continue playing") : t("Start here")}
           </span>
           <h1 className="max-w-[20ch] text-[clamp(2.1rem,4vw,3.6rem)] font-semibold leading-[0.95] tracking-[-0.035em] text-[#ece8de]">
             {hero.title}
@@ -209,9 +210,9 @@ export function HomeScreen() {
             <span>{formatYear(hero.releaseDate)}</span>
             <span>{stateLabel(hero.state)}</span>
             {rating && <span>{rating} / 100</span>}
-            {playtime && <span>{playtime} played</span>}
-            {hero.lastPlayedAt && <span>Last played {formatRelative(hero.lastPlayedAt)}</span>}
-            {heroInstalled && <span className="text-[#79c99f]">Installed</span>}
+            {playtime && <span>{t("{duration} played", { duration: playtime })}</span>}
+            {hero.lastPlayedAt && <span>{t("Last played {when}", { when: formatRelative(hero.lastPlayedAt) })}</span>}
+            {heroInstalled && <span className="text-[#79c99f]">{t("Installed")}</span>}
           </div>
           {heroDetail.data?.description && (
             <p className="line-clamp-2 max-w-[58ch] text-[13.5px] leading-relaxed text-[#c9c4b8]">
@@ -221,11 +222,11 @@ export function HomeScreen() {
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {primary}
             <Button variant="default" onClick={() => navigate(`/game/${hero.id}`)}>
-              Game page
+              {t("Game page")}
             </Button>
             {heroJob && (
               <span className="text-[11.5px] text-[#a8a396]">
-                {heroJob.bytesTotal ? `${formatBytes(heroJob.bytesDone)} of ${formatBytes(heroJob.bytesTotal)}` : "Preparing"}
+                {heroJob.bytesTotal ? `${formatBytes(heroJob.bytesDone)} of ${formatBytes(heroJob.bytesTotal)}` : t("Preparing")}
               </span>
             )}
           </div>
@@ -235,11 +236,11 @@ export function HomeScreen() {
       {deviceGames.length > 0 && (
         <section className="mt-12" aria-labelledby="home-device">
           <SectionHeader
-            title="On this device"
-            description="Installed here, newest launch first."
+            title={t("On this device")}
+            description={t("Installed here, newest launch first.")}
             actions={
               <Link to="/downloads" className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
-                Manage installs
+                {t("Manage installs")}
               </Link>
             }
           />
@@ -258,10 +259,10 @@ export function HomeScreen() {
                       <span className="truncate text-[13.5px] font-medium text-ink">{entry.title}</span>
                     )}
                     <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5 font-mono text-[10.5px] text-ink-3">
-                      {entry.version && <span>v{entry.version}</span>}
+                      {entry.version && <span>{`v${entry.version}`}</span>}
                       <span>{formatBytes(entry.sizeBytes)}</span>
-                      {entry.lastLaunchedAt && <span>Last played {formatRelative(entry.lastLaunchedAt)}</span>}
-                      {update && <span className="text-signal-text">Update available</span>}
+                      {entry.lastLaunchedAt && <span>{t("Last played")} {formatRelative(entry.lastLaunchedAt)}</span>}
+                      {update && <span className="text-signal-text">{t("Update available")}</span>}
                     </p>
                   </div>
                   {update && (
@@ -271,7 +272,7 @@ export function HomeScreen() {
                       icon={<Download className="size-3.5" />}
                       onClick={() => updateGame.mutate({ id: entry.gameId, title: entry.title })}
                     >
-                      Update
+                      {t("Update")}
                     </Button>
                   )}
                   <Button
@@ -280,11 +281,11 @@ export function HomeScreen() {
                     icon={<Play className="size-3.5" />}
                     onClick={() => launch.mutate({ id: entry.gameId, title: entry.title, executable: entry.executable })}
                   >
-                    Play
+                    {t("Play")}
                   </Button>
                   {!game && (
                     <span className="font-mono text-[10px] text-ink-3">
-                      {entry.source === "steam" ? "Steam" : "Not in this library"}
+                      {entry.source === "steam" ? t("Steam") : t("Not in this library")}
                     </span>
                   )}
                 </li>
@@ -297,10 +298,10 @@ export function HomeScreen() {
       {recent.length > 0 && (
         <section className="mt-12" aria-labelledby="home-recent">
           <SectionHeader
-            title="Recently played"
+            title={t("Recently played")}
             actions={
               <Link to="/recent" className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
-                See all
+                {t("See all")}
               </Link>
             }
           />
@@ -328,10 +329,10 @@ export function HomeScreen() {
       {shelves.length > 0 && (
         <section className="mt-12" aria-labelledby="home-collections">
           <SectionHeader
-            title="Collections"
+            title={t("Collections")}
             actions={
               <Link to="/collections" className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
-                All collections
+                {t("All collections")}
               </Link>
             }
           />
@@ -344,14 +345,14 @@ export function HomeScreen() {
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-3">
-                    {collection.kind === "smart" ? "Smart" : "Manual"}
+                    {collection.kind === "smart" ? t("Smart") : t("Manual")}
                   </span>
                   <span className="num text-[10.5px] text-ink-3">{collection.gameCount}</span>
                 </div>
                 <div>
                   <p className="truncate text-[14px] font-medium text-ink">{collection.name}</p>
                   <p className="mt-1 truncate font-mono text-[10px] text-ink-3">
-                    {collection.owned ? "Yours" : collection.owner.displayName ?? collection.owner.username}
+                    {collection.owned ? t("Yours") : collection.owner.displayName ?? collection.owner.username}
                   </p>
                 </div>
               </Link>
@@ -362,11 +363,11 @@ export function HomeScreen() {
 
       <section className="mt-12" aria-labelledby="home-all">
         <SectionHeader
-          title="All games"
+          title={t("All games")}
           count={games.length}
           actions={
             <Link to="/library" className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
-              Open the library
+              {t("Open the library")}
             </Link>
           }
         />

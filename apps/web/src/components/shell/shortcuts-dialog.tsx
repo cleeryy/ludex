@@ -1,62 +1,65 @@
 import { Dialog } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/controls";
+import { t } from "@/lib/i18n";
 
-const GROUPS: { title: string; rows: { keys: string[]; label: string }[] }[] = [
+function shortcutGroups(): { title: string; rows: { keys: string[]; label: string }[] }[] {
+  return [
   {
-    title: "Global",
+    title: t("Global"),
     rows: [
-      { keys: ["⌘", "K"], label: "Open the command palette" },
-      { keys: ["/"], label: "Focus library search" },
-      { keys: ["g", "h"], label: "Go home" },
-      { keys: ["g", "l"], label: "Go to the library" },
-      { keys: ["g", "d"], label: "Go to downloads" },
-      { keys: ["g", "s"], label: "Go to settings" },
-      { keys: ["d"], label: "Open downloads" },
-      { keys: ["?"], label: "Show this help" },
-      { keys: ["esc"], label: "Close a dialog, palette or sheet" },
+      { keys: ["⌘", "K"], label: t("Open the command palette") },
+      { keys: ["/"], label: t("Focus library search") },
+      { keys: ["g", "h"], label: t("Go home") },
+      { keys: ["g", "l"], label: t("Go to the library") },
+      { keys: ["g", "d"], label: t("Go to downloads") },
+      { keys: ["g", "s"], label: t("Go to settings") },
+      { keys: ["d"], label: t("Open downloads") },
+      { keys: ["?"], label: t("Show this help") },
+      { keys: ["esc"], label: t("Close a dialog, palette or sheet") },
     ],
   },
   {
-    title: "Library",
+    title: t("Library"),
     rows: [
-      { keys: ["f"], label: "Open the filter panel" },
-      { keys: ["↑", "↓", "←", "→"], label: "Move through the shelf" },
-      { keys: ["↵"], label: "Open the selected game" },
+      { keys: ["f"], label: t("Open the filter panel") },
+      { keys: ["↑", "↓", "←", "→"], label: t("Move through the shelf") },
+      { keys: ["↵"], label: t("Open the selected game") },
     ],
   },
   {
-    title: "Big Picture",
+    title: t("Big Picture"),
     rows: [
-      { keys: ["←", "→"], label: "Select a game" },
-      { keys: ["↑", "↓"], label: "Change shelf" },
-      { keys: ["↵"], label: "Play, install or download" },
-      { keys: ["esc"], label: "Exit Big Picture" },
+      { keys: ["←", "→"], label: t("Select a game") },
+      { keys: ["↑", "↓"], label: t("Change shelf") },
+      { keys: ["↵"], label: t("Play, install or download") },
+      { keys: ["esc"], label: t("Exit Big Picture") },
     ],
   },
   {
-    title: "Gamepad",
+    title: t("Gamepad"),
     rows: [
-      { keys: ["d-pad", "stick"], label: "Move focus" },
-      { keys: ["A"], label: "Select" },
-      { keys: ["B"], label: "Back" },
-      { keys: ["X"], label: "Open filters" },
-      { keys: ["Y"], label: "Open downloads" },
-      { keys: ["LB", "RB"], label: "Switch tabs or shelves" },
+      { keys: ["d-pad", "stick"], label: t("Move focus") },
+      { keys: ["A"], label: t("Select") },
+      { keys: ["B"], label: t("Back") },
+      { keys: ["X"], label: t("Open filters") },
+      { keys: ["Y"], label: t("Open downloads") },
+      { keys: ["LB", "RB"], label: t("Switch tabs or shelves") },
     ],
   },
-];
+  ];
+}
 
 export function ShortcutsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   return (
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Keyboard shortcuts"
-      description="Everything the library can do without a mouse."
+      title={t("Keyboard shortcuts")}
+      description={t("Everything the library can do without a mouse.")}
       size="md"
     >
       <div className="grid gap-7 sm:grid-cols-2">
-        {GROUPS.map((group) => (
+        {shortcutGroups().map((group) => (
           <section key={group.title} aria-label={group.title}>
             <h3 className="mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{group.title}</h3>
             <dl className="border-t border-line">

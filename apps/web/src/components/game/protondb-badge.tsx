@@ -3,6 +3,7 @@ import { CircleHelp } from "lucide-react";
 import { isNative, native } from "@/lib/native";
 import type { ProtonDbRating } from "@/lib/types";
 import { cn } from "@/lib/cn";
+import { t } from "@/lib/i18n";
 
 /**
  * ProtonDB rating for a game (#91).
@@ -33,7 +34,7 @@ export function ProtonDbBadge({ gameId }: { gameId: number }) {
         title={rating.message ?? undefined}
       >
         <CircleHelp className="size-3.5" aria-hidden="true" />
-        {offline ? "ProtonDB offline" : "No ProtonDB reports"}
+        {offline ? t("ProtonDB offline") : t("No ProtonDB reports")}
       </span>
     );
   }
@@ -66,15 +67,15 @@ function TierBadge({ rating, tier }: { rating: ProtonDbRating; tier: string }) {
       href={rating.url ?? `https://www.protondb.com/app/${rating.appId ?? ""}`}
       target="_blank"
       rel="noreferrer noopener"
-      title={hint || "ProtonDB compatibility"}
+      title={hint || t("ProtonDB compatibility")}
       className={cn(
         "inline-flex h-5 items-center gap-1.5 rounded-[2px] border px-1.5 text-[11px] leading-none transition-opacity hover:opacity-80",
         TIER_STYLES[tier] ?? TIER_STYLES.pending,
       )}
     >
       <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-      <span>ProtonDB {label}</span>
-      {cached && <span className="font-mono text-[10px] opacity-70">cached</span>}
+      <span>{t("ProtonDB")} {label}</span>
+      {cached && <span className="font-mono text-[10px] opacity-70">{t("cached")}</span>}
     </a>
   );
 }

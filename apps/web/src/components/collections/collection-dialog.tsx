@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
-import { defaultOperator, defaultRule, evaluateRules, operatorsFor, SMART_FIELDS } from "@/lib/collections";
+import { defaultOperator, defaultRule, evaluateRules, operatorsFor, smartFields } from "@/lib/collections";
 import { formatYear } from "@/lib/format";
 import type { Collection, CollectionKind, SmartField, SmartRule, SmartRules } from "@/lib/types";
 import { useToast } from "@/state/toasts";
@@ -11,6 +11,7 @@ import { useAllGames } from "@/lib/hooks";
 import { Badge, Button, Checkbox, Field, Input, Segmented, Switch, Textarea } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
+import { t } from "@/lib/i18n";
 
 const EMPTY_RULES: SmartRules = { match: "all", rules: [] };
 
@@ -89,11 +90,11 @@ export function CollectionDialog({
   const save = async () => {
     setError(null);
     if (!name.trim()) {
-      setError("Give the collection a name.");
+      setError(t("Give the collection a name."));
       return;
     }
     if (kind === "smart" && rules.rules.some((rule) => rule.value === "" || rule.value === null)) {
-      setError("Every rule needs a value.");
+      setError(t("Every rule needs a value."));
       return;
     }
     setBusy(true);
@@ -117,7 +118,7 @@ export function CollectionDialog({
         await queryClient.invalidateQueries({ queryKey: ["collections"] });
         await queryClient.invalidateQueries({ queryKey: ["collection", collection.id] });
         await queryClient.invalidateQueries({ queryKey: ["collection", collection.id, "games"] });
-        push({ title: "Collection updated", tone: "success" });
+        push({ title: t("Collection updated"), tone: "success" });
       } else {
         const created = await api.createCollection({
           name: name.trim(),
@@ -128,7 +129,7 @@ export function CollectionDialog({
           gameIds: kind === "manual" ? selected : undefined,
         });
         await queryClient.invalidateQueries({ queryKey: ["collections"] });
-        push({ title: "Collection created", description: created.name, tone: "success" });
+        push({ title: t("Collection created"), description: created.name, tone: "success" });
       }
       onOpenChange(false);
     } catch (cause) {
@@ -142,49 +143,49 @@ export function CollectionDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title={editing ? "Edit collection" : "New collection"}
+      title={editing ? t("Edit collection") : t("New collection")}
       description={
         editing
-          ? "Rename it, change who can see it, or switch between a hand-picked shelf and a rule."
-          : "A manual shelf holds the games you pick. A smart shelf fills itself from rules."
+          ? t("Rename it, change who can see it, or switch between a hand-picked shelf and a rule.")
+          : t("A manual shelf holds the games you pick. A smart shelf fills itself from rules.")
       }
       size="lg"
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" loading={busy} onClick={() => void save()}>
-            {editing ? "Save collection" : "Create collection"}
+            {editing ? t("Save collection") : t("Create collection")}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-5">
         <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
-          <Field label="Name" htmlFor="collection-name">
+          <Field label={t("Name")} htmlFor="collection-name">
             <Input
               id="collection-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Friday night co-op"
+              placeholder={t("Friday night co-op")}
               maxLength={80}
             />
           </Field>
-          <Field label="Visibility" hint={isPublic ? "Anyone on the server can read it" : "Only you"}>
+          <Field label={t("Visibility")} hint={isPublic ? t("Anyone on the server can read it") : t("Only you")}>
             <div className="flex h-11 items-center gap-2">
-              <Switch checked={isPublic} onCheckedChange={setIsPublic} label="Public collection" />
-              <Badge tone={isPublic ? "signal" : "outline"}>{isPublic ? "Public" : "Private"}</Badge>
+              <Switch checked={isPublic} onCheckedChange={setIsPublic} label={t("Public collection")} />
+              <Badge tone={isPublic ? "signal" : "outline"}>{isPublic ? t("Public") : t("Private")}</Badge>
             </div>
           </Field>
         </div>
 
-        <Field label="Description" htmlFor="collection-description" hint="Optional. One line is enough.">
+        <Field label={t("Description")} htmlFor="collection-description" hint={t("Optional. One line is enough.")}>
           <Textarea
             id="collection-description"
             value={description}
             onChange={(event) => setDescription(event.target.value)}
-            placeholder="Two controllers, one couch, no excuses."
+            placeholder={t("Two controllers, one couch, no excuses.")}
             rows={2}
             maxLength={2000}
             className="min-h-[72px]"
@@ -192,41 +193,41 @@ export function CollectionDialog({
         </Field>
 
         <div>
-          <p className="pb-2 text-[13px] font-medium text-ink">Kind</p>
+          <p className="pb-2 text-[13px] font-medium text-ink">{t("Kind")}</p>
           <Segmented
             value={kind}
             onChange={setKind}
-            label="Collection kind"
+            label={t("Collection kind")}
             options={[
-              { value: "manual", label: "Manual shelf" },
-              { value: "smart", label: "Smart list" },
+              { value: "manual", label: t("Manual shelf") },
+              { value: "smart", label: t("Smart list") },
             ]}
           />
           <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">
             {kind === "manual"
-              ? "Pick games by hand. You can add or remove them later from the collection page."
-              : "Rules are evaluated when the collection is opened, against your library."}
+              ? t("Pick games by hand. You can add or remove them later from the collection page.")
+              : t("Rules are evaluated when the collection is opened, against your library.")}
           </p>
         </div>
 
         {kind === "manual" ? (
           <div>
             <div className="flex flex-wrap items-baseline justify-between gap-2 pb-2">
-              <p className="text-[13px] font-medium text-ink">Games</p>
+              <p className="text-[13px] font-medium text-ink">{t("Games")}</p>
               <span className="num text-[11.5px] text-ink-3">
-                {selected.length} selected of {games.length}
+                {t("{selected} of {total} selected", { selected: selected.length, total: games.length })}
               </span>
             </div>
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Filter by title"
-              aria-label="Filter games"
+              placeholder={t("Filter by title")}
+              aria-label={t("Filter games")}
               className="mb-2 h-9 text-[13px]"
             />
             <div className="max-h-[260px] overflow-y-auto border border-line">
               {filtered.length === 0 ? (
-                <p className="p-3 text-[12.5px] text-ink-3">No games match that filter.</p>
+                <p className="p-3 text-[12.5px] text-ink-3">{t("No games match that filter.")}</p>
               ) : (
                 filtered.map((game) => {
                   const checked = selected.includes(game.id);
@@ -247,7 +248,7 @@ export function CollectionDialog({
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[13px] text-ink">{game.title}</span>
                         <span className="mt-0.5 block font-mono text-[10px] text-ink-3">
-                          {formatYear(game.releaseDate)} · {game.genres.join(", ") || "Unclassified"}
+                          {formatYear(game.releaseDate)} · {game.genres.join(", ") || t("Unclassified")}
                         </span>
                       </span>
                     </div>
@@ -259,17 +260,17 @@ export function CollectionDialog({
         ) : (
           <div>
             <div className="flex flex-wrap items-center justify-between gap-3 pb-2">
-              <p className="text-[13px] font-medium text-ink">Rules</p>
+              <p className="text-[13px] font-medium text-ink">{t("Rules")}</p>
               <div className="flex items-center gap-2">
-                <span className="text-[11.5px] text-ink-3">Match</span>
+                <span className="text-[11.5px] text-ink-3">{t("Match")}</span>
                 <Segmented
                   value={rules.match}
                   onChange={(match) => setRules((current) => ({ ...current, match }))}
-                  label="Match mode"
+                  label={t("Match mode")}
                   size="sm"
                   options={[
-                    { value: "all", label: "All" },
-                    { value: "any", label: "Any" },
+                    { value: "all", label: t("All") },
+                    { value: "any", label: t("Any") },
                   ]}
                 />
               </div>
@@ -285,7 +286,7 @@ export function CollectionDialog({
                       label={`Rule ${index + 1} field`}
                       value={rule.field}
                       onChange={(field) => changeField(index, field)}
-                      options={SMART_FIELDS.map((field) => ({ value: field.value, label: field.label }))}
+                      options={smartFields().map((field) => ({ value: field.value, label: field.label }))}
                       className="h-9 text-[12.5px]"
                     />
                     <Select
@@ -302,7 +303,7 @@ export function CollectionDialog({
                           onCheckedChange={(value) => patchRule(index, { value })}
                           label={`Rule ${index + 1} installed`}
                         />
-                        <span className="text-[12.5px] text-ink-2">{rule.value ? "Available" : "Not available"}</span>
+                        <span className="text-[12.5px] text-ink-2">{rule.value ? t("Available") : t("Not available")}</span>
                       </div>
                     ) : (
                       <div className="flex gap-2">
@@ -353,15 +354,15 @@ export function CollectionDialog({
                   setRules((current) => ({ ...current, rules: [...current.rules, defaultRule("genre")] }))
                 }
               >
-                Add rule
+                {t("Add rule")}
               </Button>
               <span className="num text-[11.5px] text-ink-3">
-                Matches {previewCount} of {games.length} games
+                {t("{shown} of {total} games", { shown: previewCount, total: games.length })}
               </span>
             </div>
             {rules.rules.length === 0 && (
               <p className="mt-2 border-l-2 border-line-2 pl-3 text-[11.5px] leading-relaxed text-ink-3">
-                A smart collection with no rules stays empty. Add at least one.
+                {t("A smart collection with no rules stays empty. Add at least one.")}
               </p>
             )}
           </div>

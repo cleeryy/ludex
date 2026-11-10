@@ -5,7 +5,7 @@ import { useReducedMotion } from "motion/react";
 import { Gamepad2, LayoutGrid, List, Plus, SlidersHorizontal, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { formatBytes, formatRating, formatYear, stateLabel } from "@/lib/format";
+import { formatBytes, formatRating, formatYear, sortLabel, stateLabel, formatPercent } from "@/lib/format";
 import { isNative } from "@/lib/native";
 import type { GameListQuery, GameSummary } from "@/lib/types";
 import { useBookmark, useGenres, useInstalledMap, useLaunchGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
@@ -23,7 +23,8 @@ import {
   removeFilterChip,
   saveFilters,
   setFilterParam,
-  SORT_LABELS,
+  sortOptions,
+  stateOptions,
   type FilterKey,
 } from "@/lib/library-filters";
 import { focusGamepadTarget, useGamepad, type GamepadAction } from "@/lib/gamepad";
@@ -36,22 +37,37 @@ import { FilterPanel } from "@/components/library/filter-panel";
 import { LibrarySearch } from "@/components/library/search-field";
 import { Badge, Button, Segmented, Skeleton } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
+import { t, tn } from "@/lib/i18n";
 
 export type LibraryMode = "library" | "recent" | "bookmarks" | "index";
 
-const MODE_TITLE: Record<LibraryMode, string> = {
-  library: "Library",
-  recent: "Recently played",
-  bookmarks: "Bookmarks",
-  index: "Index",
-};
+function modeTitle(mode: LibraryMode): string {
+  switch (mode) {
+    case "recent":
+      return t("Recently played");
+    case "bookmarks":
+      return t("Bookmarks");
+    case "index":
+      return t("Index");
+    case "library":
+    default:
+      return t("Library");
+  }
+}
 
-const MODE_DESCRIPTION: Record<LibraryMode, string> = {
-  library: "",
-  recent: "Everything you have launched, most recent first.",
-  bookmarks: "Titles you set aside for later.",
-  index: "Every title in the library, A to Z.",
-};
+function modeDescription(mode: LibraryMode): string {
+  switch (mode) {
+    case "recent":
+      return t("Everything you have launched, most recent first.");
+    case "bookmarks":
+      return t("Titles you set aside for later.");
+    case "index":
+      return t("Every title in the library, A to Z.");
+    case "library":
+    default:
+      return "";
+  }
+}
 
 const MODE_ROUTES: Record<LibraryMode, string> = {
   library: "/library",
@@ -59,8 +75,6 @@ const MODE_ROUTES: Record<LibraryMode, string> = {
   bookmarks: "/bookmarks",
   index: "/all",
 };
-
-const SORT_OPTIONS = Object.entries(SORT_LABELS).map(([value, label]) => ({ value, label }));
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
@@ -268,17 +282,17 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
     <>
       {isEditor && mode === "library" && (
         <Button variant="ghost" size="sm" icon={<Plus className="size-3.5" />} onClick={() => navigate("/admin/ingest")}>
-          Add games
+          {t("Add games")}
         </Button>
       )}
       {mode !== "index" && (
         <Segmented
-          label="Layout"
+          label={t("Layout")}
           value={view}
           onChange={setView}
           options={[
-            { value: "grid", label: "Grid", icon: <LayoutGrid className="size-3.5" /> },
-            { value: "list", label: "List", icon: <List className="size-3.5" /> },
+            { value: "grid", label: t("Grid"), icon: <LayoutGrid className="size-3.5" /> },
+            { value: "list", label: t("List"), icon: <List className="size-3.5" /> },
           ]}
         />
       )}
@@ -288,29 +302,29 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   return (
     <div className="page page-in">
       <PageHeader
-        title={MODE_TITLE[mode]}
+        title={modeTitle(mode)}
         meta={
           <>
-            <span className="num">{items.length} games</span>
+            <span className="num">{tn(items.length, "1 game", "{count} games")}</span>
             {totalBytes > 0 && <span className="num">{formatBytes(totalBytes)}</span>}
             {mode === "recent" ? (
-              <span>Most recent first</span>
+              <span>{t("Most recent first")}</span>
             ) : items.length > 0 && mode !== "index" ? (
               <span>
                 {mode === "library" && filters.q.trim()
-                  ? "Ranked by relevance"
-                  : `Sorted by ${SORT_LABELS[filters.sort] ?? filters.sort}`}
+                  ? t("Ranked by relevance")
+                  : t("Sorted by {sort}", { sort: sortLabel(filters.sort) })}
               </span>
             ) : null}
             {gamepad.connected && (
               <span className="inline-flex items-center gap-1.5 text-ok">
                 <Gamepad2 className="size-3.5" aria-hidden="true" />
-                Gamepad
+                {t("Gamepad")}
               </span>
             )}
           </>
         }
-        description={MODE_DESCRIPTION[mode] || undefined}
+        description={modeDescription(mode) || undefined}
         actions={headerActions}
       />
 
@@ -320,18 +334,10 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
             <LibrarySearch value={filters.q} onCommit={(value) => update("q", value)} className="min-w-0 flex-1 sm:max-w-[340px]" />
             <div className="hidden w-[150px] sm:block">
               <Select
-                label="Filter by progress state"
+                label={t("Filter by progress state")}
                 value={filters.state || "any"}
                 onChange={(value) => update("state", value === "any" ? null : value)}
-                options={[
-                  { value: "any", label: "Any state" },
-                  { value: "unplayed", label: "Unplayed" },
-                  { value: "playing", label: "Playing" },
-                  { value: "completed", label: "Completed" },
-                  { value: "onHold", label: "On hold" },
-                  { value: "abandoned", label: "Abandoned" },
-                  { value: "planToPlay", label: "Planned" },
-                ]}
+                options={stateOptions()}
                 className="h-9 text-[12.5px]"
               />
             </div>
@@ -342,7 +348,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
               onClick={() => setFilterOpen(true)}
               aria-haspopup="dialog"
             >
-              Filters
+              {t("Filters")}
               {chips.length > 0 && (
                 <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-[2px] bg-signal px-1 font-mono text-[9.5px] text-on-signal">
                   {chips.length}
@@ -351,10 +357,10 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
             </Button>
             <div className="w-[150px] md:hidden">
               <Select
-                label="Sort games"
+                label={t("Sort games")}
                 value={filters.sort}
                 onChange={(value) => update("sort", value)}
-                options={SORT_OPTIONS}
+                options={sortOptions()}
                 className="h-9 text-[12.5px]"
               />
             </div>
@@ -366,7 +372,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                   className="flex h-9 items-center gap-1 text-[12.5px] text-ink-3 transition-colors hover:text-ink"
                 >
                   <X className="size-3.5" aria-hidden="true" />
-                  Clear all
+                  {t("Clear all")}
                 </button>
               )}
             </div>
@@ -382,7 +388,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                   !filters.genre ? "text-ink" : "text-ink-3 hover:text-ink-2",
                 )}
               >
-                All
+                {t("All")}
                 {!filters.genre && <span className="absolute inset-x-0 bottom-0 h-[2px] bg-signal" aria-hidden="true" />}
               </button>
               {genres.map((item) => (
@@ -404,13 +410,13 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
           </div>
 
           {chips.length > 0 && (
-            <div className="mt-2.5 flex flex-wrap items-center gap-1.5" aria-label="Active filters">
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5" aria-label={t("Active filters")}>
               {chips.map((chip) => (
                 <button
                   key={`${chip.key}-${chip.label}`}
                   type="button"
                   onClick={() => removeChip(chip.key)}
-                  aria-label={`Remove filter: ${chip.label}`}
+                  aria-label={t("Remove filter: {label}", { label: chip.label })}
                   className="inline-flex h-6 items-center gap-1.5 rounded-[2px] border border-line-2 bg-surface px-1.5 text-[11.5px] text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
                 >
                   {chip.label}
@@ -422,7 +428,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 onClick={clearFilters}
                 className="ml-1 h-6 text-[11.5px] text-ink-3 transition-colors hover:text-ink"
               >
-                Clear all
+                {t("Clear all")}
               </button>
             </div>
           )}
@@ -430,7 +436,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
           {gamepad.connected && (
             <p className="mt-2 hidden items-center gap-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3 sm:flex">
               <Gamepad2 className="size-3" aria-hidden="true" />
-              D-pad move · A open · B back · X filters · Y downloads · LB/RB tabs
+              {t("D-pad move · A open · B back · X filters · Y downloads · LB/RB tabs")}
             </p>
           )}
         </div>
@@ -441,8 +447,8 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
 
         {isError && (
           <ErrorState
-            title="The library didn’t load"
-            message={error instanceof Error ? error.message : "The server did not answer. Check that it is running, then try again."}
+            title={t("The library didn’t load")}
+            message={error instanceof Error ? error.message : t("The server did not answer. Check that it is running, then try again.")}
             onRetry={() => void refetch()}
           />
         )}
@@ -487,12 +493,12 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
         {!isPending && !isError && items.length > 0 && effectiveView === "list" && mode !== "index" && (
           <div className="border-t border-line">
             <div className="grid grid-cols-[2rem_1fr_auto] items-center gap-4 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3 sm:grid-cols-[2rem_1fr_4rem_5rem_3rem] md:grid-cols-[2rem_1fr_4rem_5rem_3rem_6rem]">
-              <span>No.</span>
-              <span>Title</span>
-              <span className="hidden text-right sm:block">Year</span>
-              <span className="text-right">Size</span>
-              <span className="hidden text-right md:block">Score</span>
-              <span className="hidden text-right sm:block">State</span>
+              <span>{t("No.")}</span>
+              <span>{t("Title")}</span>
+              <span className="hidden text-right sm:block">{t("Year")}</span>
+              <span className="text-right">{t("Size")}</span>
+              <span className="hidden text-right md:block">{t("Score")}</span>
+              <span className="hidden text-right sm:block">{t("State")}</span>
             </div>
             {items.map((game) => (
               <Link
@@ -512,10 +518,10 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                   </div>
                   {installingPercent(game.id) !== null ? (
                     <Badge tone="signal" className="hidden shrink-0 sm:inline-flex">
-                      Installing {installingPercent(game.id)!.toFixed(0)}%
+                      {t("Installing {percent}", { percent: formatPercent(installingPercent(game.id)) })}
                     </Badge>
                   ) : (
-                    installed.has(game.id) && <Badge tone="outline" className="hidden shrink-0 sm:inline-flex">Installed</Badge>
+                    installed.has(game.id) && <Badge tone="outline" className="hidden shrink-0 sm:inline-flex">{t("Installed")}</Badge>
                   )}
                 </div>
                 <span className="num hidden text-right text-[11.5px] text-ink-3 sm:block">{formatYear(game.releaseDate)}</span>
@@ -535,11 +541,11 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
         {!isPending && !isError && items.length > 0 && mode === "index" && (
           <div>
             <div className="grid grid-cols-[1fr_auto] items-baseline gap-4 border-t border-line py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
-              <span className="pl-12">Title</span>
+              <span className="pl-12">{t("Title")}</span>
               <div className="flex items-baseline gap-5">
-                <span className="hidden w-12 sm:inline">Year</span>
-                <span className="w-16 text-right">Size</span>
-                <span className="hidden w-20 text-right md:inline">State</span>
+                <span className="hidden w-12 sm:inline">{t("Year")}</span>
+                <span className="w-16 text-right">{t("Size")}</span>
+                <span className="hidden w-20 text-right md:inline">{t("State")}</span>
               </div>
             </div>
             {groups.map(([letter, list]) => (
@@ -557,7 +563,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                         <span className="num shrink-0 text-[10.5px] text-ink-3">{String(game.id).padStart(3, "0")}</span>
                         <span className="truncate text-[15px] text-ink">{game.title}</span>
                         <span className="hidden truncate text-[11.5px] text-ink-3 lg:inline">{game.genres.join(", ")}</span>
-                        {installed.has(game.id) && <Badge tone="outline" className="hidden sm:inline-flex">Installed</Badge>}
+                        {installed.has(game.id) && <Badge tone="outline" className="hidden sm:inline-flex">{t("Installed")}</Badge>}
                       </div>
                       <div className="flex shrink-0 items-baseline gap-5 num text-[11px] text-ink-3">
                         <span className="hidden w-12 sm:inline">{formatYear(game.releaseDate)}</span>
@@ -641,11 +647,11 @@ function LibraryEmpty({
   if (mode === "library" && hasFilters && installedOnly) {
     return (
       <EmptyState
-        title="No installed games"
-        description="Nothing from this library is installed on this machine yet. Install a game from its page, or show the full library."
+        title={t("No installed games")}
+        description={t("Nothing from this library is installed on this machine yet. Install a game from its page, or show the full library.")}
       >
         <Button variant="default" onClick={onClear}>
-          Show all games
+          {t("Show all games")}
         </Button>
       </EmptyState>
     );
@@ -653,11 +659,11 @@ function LibraryEmpty({
   if (hasFilters) {
     return (
       <EmptyState
-        title="No games match"
-        description="Nothing in the library fits those filters. Widen the search, or clear them and start again."
+        title={t("No games match")}
+        description={t("Nothing in the library fits those filters. Widen the search, or clear them and start again.")}
       >
         <Button variant="default" onClick={onClear}>
-          Clear filters
+          {t("Clear filters")}
         </Button>
       </EmptyState>
     );
@@ -665,9 +671,9 @@ function LibraryEmpty({
 
   if (mode === "bookmarks") {
     return (
-      <EmptyState title="No bookmarks yet" description="Bookmark a game from the library and it will wait for you here.">
+      <EmptyState title={t("No bookmarks yet")} description={t("Bookmark a game from the library and it will wait for you here.")}>
         <Button variant="default" onClick={() => navigate("/library")}>
-          Browse the library
+          {t("Browse the library")}
         </Button>
       </EmptyState>
     );
@@ -676,11 +682,11 @@ function LibraryEmpty({
   if (mode === "recent") {
     return (
       <EmptyState
-        title="Nothing played yet"
-        description="Launch a game from the desktop app and it will show up here with its playtime."
+        title={t("Nothing played yet")}
+        description={t("Launch a game from the desktop app and it will show up here with its playtime.")}
       >
         <Button variant="default" onClick={() => navigate("/library")}>
-          Browse the library
+          {t("Browse the library")}
         </Button>
       </EmptyState>
     );
@@ -689,19 +695,19 @@ function LibraryEmpty({
   return (
     <EmptyState
       className="max-w-[760px]"
-      title="Nothing on the shelf yet"
+      title={t("Nothing on the shelf yet")}
       description={
         isEditor
-          ? "The games folder is empty. Paste a download link and Ludex will fetch it, verify the archive and index it for you."
-          : "This library is empty. An administrator can add games from the server, or drop archives into the games folder."
+          ? t("The games folder is empty. Paste a download link and Ludex will fetch it, verify the archive and index it for you.")
+          : t("This library is empty. An administrator can add games from the server, or drop archives into the games folder.")
       }
     >
       {isEditor ? (
         <Button variant="primary" onClick={() => navigate("/admin/ingest")} icon={<Plus className="size-4" />}>
-          Add games
+          {t("Add games")}
         </Button>
       ) : (
-        signedIn && <span className="text-[13px] text-ink-3">Ask an administrator to add the first game.</span>
+        signedIn && <span className="text-[13px] text-ink-3">{t("Ask an administrator to add the first game.")}</span>
       )}
     </EmptyState>
   );

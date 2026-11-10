@@ -1,6 +1,7 @@
 import { ApiError } from "@/lib/http";
 import { USING_MOCKS } from "@/lib/flags";
 import { mockApi } from "@/lib/mock";
+import { t } from "@/lib/i18n";
 import type {
   AchievementScanReport,
   ActivityPage,
@@ -118,7 +119,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
   } catch {
-    throw new ApiError(0, "network_error", "Cannot reach the server. Check that it is running and the address is correct.");
+    throw new ApiError(0, "network_error", t("Cannot reach the server. Check that it is running and the address is correct."));
   }
 
   if (response.status === 401) {
@@ -380,7 +381,7 @@ export const api = {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
     } catch {
-      throw new ApiError(0, "network_error", "Cannot reach the server. Check that it is running.");
+      throw new ApiError(0, "network_error", t("Cannot reach the server. Check that it is running."));
     }
 
     if (response.status === 401) {
@@ -565,10 +566,10 @@ export { ApiError };
 /* ------------------------------ cloud saves ------------------------------ */
 
 function saveErrorMessage(status: number): string {
-  if (status === 401) return "Your session expired. Sign in again.";
-  if (status === 404) return "That save no longer exists.";
-  if (status === 413) return "That save is larger than the server allows (2 GiB).";
-  return `The server refused the request (${status}).`;
+  if (status === 401) return t("Your session expired. Sign in again.");
+  if (status === 404) return t("That save no longer exists.");
+  if (status === 413) return t("That save is larger than the server allows (2 GiB).");
+  return t("The server refused the request ({status}).", { status });
 }
 
 function filenameFromDisposition(disposition: string): string | null {
@@ -602,7 +603,7 @@ function putChunk<T>(
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress?.(event.loaded);
     };
-    xhr.onerror = () => reject(new ApiError(0, "network_error", "Cannot reach the server. Check that it is running."));
+    xhr.onerror = () => reject(new ApiError(0, "network_error", t("Cannot reach the server. Check that it is running.")));
     xhr.onload = () => {
       let payload: unknown = null;
       if (xhr.responseText) {
@@ -654,7 +655,7 @@ function uploadWithProgress<T>(
       if (event.lengthComputable) onProgress?.(event.loaded, event.total);
     };
 
-    xhr.onerror = () => reject(new ApiError(0, "network_error", "Cannot reach the server. Check that it is running."));
+    xhr.onerror = () => reject(new ApiError(0, "network_error", t("Cannot reach the server. Check that it is running.")));
     xhr.onload = () => {
       let payload: unknown = null;
       if (xhr.responseText) {

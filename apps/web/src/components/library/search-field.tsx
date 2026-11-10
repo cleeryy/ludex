@@ -8,6 +8,7 @@ import { consumeSearchFocus, FOCUS_SEARCH_EVENT } from "@/lib/ui-events";
 import { highlightRange } from "@/lib/search";
 import type { GameSuggestion } from "@/lib/types";
 import { GameCover } from "@/components/art/cover";
+import { t } from "@/lib/i18n";
 
 function Highlight({ text, query }: { text: string; query: string }) {
   const range = highlightRange(text, query);
@@ -137,8 +138,8 @@ export function LibrarySearch({
           onFocus={() => setOpen(true)}
           onBlur={() => setOpen(false)}
           onKeyDown={onKeyDown}
-          placeholder="Search titles"
-          aria-label="Search the library"
+          placeholder={t("Search titles")}
+          aria-label={t("Search the library")}
           role="combobox"
           aria-expanded={showDropdown}
           aria-controls={showDropdown ? listId : undefined}
@@ -158,7 +159,7 @@ export function LibrarySearch({
               commit("");
               inputRef.current?.focus();
             }}
-            aria-label="Clear search"
+            aria-label={t("Clear search")}
             className="grid size-5 shrink-0 place-items-center rounded-[2px] text-ink-3 transition-colors hover:text-ink"
           >
             <X className="size-3.5" aria-hidden="true" />
@@ -170,7 +171,7 @@ export function LibrarySearch({
 
       {showDropdown && (
         <div className="absolute inset-x-0 top-[calc(100%+4px)] z-40 overflow-hidden rounded-[2px] border border-line-2 bg-surface shadow-[0_24px_60px_-24px_rgba(0,0,0,0.75)]">
-          <div id={listId} role="listbox" aria-label="Search suggestions" className="max-h-[320px] overflow-y-auto py-1">
+          <div id={listId} role="listbox" aria-label={t("Search suggestions")} className="max-h-[320px] overflow-y-auto py-1">
             {suggestions.map((suggestion, index) => (
               <button
                 key={suggestion.id}
@@ -207,7 +208,7 @@ export function LibrarySearch({
             ))}
             {showEmpty && (
               <p className="px-3 py-6 text-center text-[12.5px] text-ink-3">
-                No suggestion for “{text.trim()}”. Press Enter to search anyway.
+                {t("No suggestion for “{query}”. Press Enter to search anyway.", { query: text.trim() })}
               </p>
             )}
             {suggestions.length > 0 && (
@@ -218,7 +219,7 @@ export function LibrarySearch({
                 className="mt-1 flex w-full items-center gap-2 border-t border-line px-3 py-2 text-left text-[11.5px] text-ink-3 transition-colors hover:text-ink"
               >
                 <Search className="size-3" aria-hidden="true" />
-                Search all titles for “{text.trim()}”
+                {t("Search all titles for “{query}”", { query: text.trim() })}
               </button>
             )}
           </div>

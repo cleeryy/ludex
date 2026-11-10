@@ -15,6 +15,7 @@ import { CollectionDialog } from "@/components/collections/collection-dialog";
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Checkbox, Input, Skeleton } from "@/components/ui/controls";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
+import { t, tn } from "@/lib/i18n";
 
 export function CollectionScreen() {
   const { id } = useParams();
@@ -47,9 +48,9 @@ export function CollectionScreen() {
       void queryClient.invalidateQueries({ queryKey: ["collection-games", collectionId] });
       void queryClient.invalidateQueries({ queryKey: ["collection", collectionId] });
       void queryClient.invalidateQueries({ queryKey: ["collections"] });
-      push({ title: "Removed from the shelf", description: title });
+      push({ title: t("Removed from the shelf"), description: title });
     } catch (cause) {
-      push({ title: "Could not remove the game", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not remove the game"), description: errorMessage(cause), tone: "danger" });
     }
   };
 
@@ -58,10 +59,10 @@ export function CollectionScreen() {
     try {
       await api.deleteCollection(collectionId);
       void queryClient.invalidateQueries({ queryKey: ["collections"] });
-      push({ title: "Collection deleted", tone: "success" });
+      push({ title: t("Collection deleted"), tone: "success" });
       navigate("/collections");
     } catch (cause) {
-      push({ title: "Could not delete the collection", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not delete the collection"), description: errorMessage(cause), tone: "danger" });
       setDeleting(false);
     }
   };
@@ -87,16 +88,16 @@ export function CollectionScreen() {
     return (
       <div className="page page-in pt-8">
         <ErrorState
-          title={notFound ? "Collection not found" : "That shelf didn’t load"}
+          title={notFound ? t("Collection not found") : t("That shelf didn’t load")}
           message={
             notFound
-              ? "It is private, or it no longer exists. Ask the owner to publish it if you expected to see it."
+              ? t("It is private, or it no longer exists. Ask the owner to publish it if you expected to see it.")
               : errorMessage(collection.error)
           }
           onRetry={() => void collection.refetch()}
           action={
             <Button variant="ghost" onClick={() => navigate("/collections")}>
-              All collections
+              {t("All collections")}
             </Button>
           }
         />
@@ -114,8 +115,8 @@ export function CollectionScreen() {
         to="/collections"
         className="inline-flex h-8 items-center gap-2 text-[12.5px] text-ink-2 transition-colors hover:text-ink"
       >
-        <ArrowLeft className="size-3.5" aria-hidden="true" />
-        Collections
+        <ArrowLeft className="rtl:-scale-x-100 size-3.5" aria-hidden="true" />
+        {t("Collections")}
       </Link>
 
       <PageHeader
@@ -124,14 +125,14 @@ export function CollectionScreen() {
         meta={
           <>
             <Badge tone={data.kind === "smart" ? "signal" : "default"}>
-              {data.kind === "smart" ? "Smart" : "Manual"}
+              {data.kind === "smart" ? t("Smart") : t("Manual")}
             </Badge>
-            <Badge tone="outline">{data.isPublic ? "Public" : "Private"}</Badge>
+            <Badge tone="outline">{data.isPublic ? t("Public") : t("Private")}</Badge>
             <span>
               {data.gameCount} {data.gameCount === 1 ? "game" : "games"}
             </span>
             <span>
-              {isOwner ? "Yours" : `By ${data.owner.displayName ?? data.owner.username}`}
+              {isOwner ? t("Yours") : `By ${data.owner.displayName ?? data.owner.username}`}
             </span>
           </>
         }
@@ -141,11 +142,11 @@ export function CollectionScreen() {
             <>
               {data.kind === "manual" && (
                 <Button variant="default" icon={<Plus className="size-4" />} onClick={() => setAddOpen(true)}>
-                  Add games
+                  {t("Add games")}
                 </Button>
               )}
               <Button variant="default" icon={<Pencil className="size-4" />} onClick={() => setEditOpen(true)}>
-                Edit
+                {t("Edit")}
               </Button>
               <Button
                 variant="ghost"
@@ -153,7 +154,7 @@ export function CollectionScreen() {
                 icon={<Trash2 className="size-4" />}
                 onClick={() => setDeleteOpen(true)}
               >
-                Delete
+                {t("Delete")}
               </Button>
             </>
           ) : (
@@ -161,7 +162,7 @@ export function CollectionScreen() {
               to={`/community/u/${data.owner.id}`}
               className="text-[12.5px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
             >
-              {data.owner.displayName ?? data.owner.username}’s profile
+              {t("{name}’s profile", { name: data.owner.displayName ?? data.owner.username })}
             </Link>
           )
         }
@@ -173,15 +174,15 @@ export function CollectionScreen() {
             <div className="flex items-center gap-2">
               <Sparkles className="size-3.5 text-signal-text" aria-hidden="true" />
               <h2 id="rules-heading" className="text-[13px] font-medium text-ink">
-                Rules
+                {t("Rules")}
               </h2>
               <span className="text-[11.5px] text-ink-3">
-                {data.rules.match === "all" ? "All must match" : "Any can match"}
+                {data.rules.match === "all" ? t("All must match") : t("Any can match")}
               </span>
             </div>
             {isOwner && (
               <Button variant="ghost" size="sm" onClick={() => setEditOpen(true)}>
-                Edit rules
+                {t("Edit rules")}
               </Button>
             )}
           </div>
@@ -196,16 +197,16 @@ export function CollectionScreen() {
             </div>
           )}
           <p className="mt-3 text-[11px] leading-relaxed text-ink-3">
-            Playtime and availability are evaluated for the account viewing the shelf. Empty rules match nothing.
+            {t("Playtime and availability are evaluated for the account viewing the shelf. Empty rules match nothing.")}
           </p>
         </section>
       )}
 
       <section className="mt-10" aria-labelledby="collection-games">
         <SectionHeader
-          title={data.kind === "smart" ? "Matching games" : "Games"}
+          title={data.kind === "smart" ? t("Matching games") : t("Games")}
           count={items.length}
-          description={data.kind === "smart" ? "Evaluated live" : undefined}
+          description={data.kind === "smart" ? t("Evaluated live") : undefined}
         />
 
         {games.isPending && (
@@ -217,29 +218,29 @@ export function CollectionScreen() {
         )}
 
         {games.isError && (
-          <ErrorState title="The games didn’t load" message={errorMessage(games.error)} onRetry={() => void games.refetch()} />
+          <ErrorState title={t("The games didn’t load")} message={errorMessage(games.error)} onRetry={() => void games.refetch()} />
         )}
 
         {!games.isPending && !games.isError && items.length === 0 && (
           <EmptyState
             compact
-            title={data.kind === "smart" ? "Nothing matches yet" : "This shelf is empty"}
+            title={data.kind === "smart" ? t("Nothing matches yet") : t("This shelf is empty")}
             description={
               data.kind === "smart"
-                ? "No game in the library satisfies every rule right now. Loosen one, or add more games."
+                ? t("No game in the library satisfies every rule right now. Loosen one, or add more games.")
                 : isOwner
-                  ? "Add games by hand and they will appear here."
-                  : "The owner has not added anything yet."
+                  ? t("Add games by hand and they will appear here.")
+                  : t("The owner has not added anything yet.")
             }
           >
             {isOwner && data.kind === "manual" && (
               <Button variant="default" icon={<Plus className="size-4" />} onClick={() => setAddOpen(true)}>
-                Add games
+                {t("Add games")}
               </Button>
             )}
             {isOwner && data.kind === "smart" && (
               <Button variant="default" onClick={() => setEditOpen(true)}>
-                Edit rules
+                {t("Edit rules")}
               </Button>
             )}
           </EmptyState>
@@ -264,7 +265,7 @@ export function CollectionScreen() {
                   <button
                     type="button"
                     onClick={() => void remove(game.id, game.title)}
-                    aria-label={`Remove ${game.title} from this collection`}
+                    aria-label={t("Remove {title} from this collection", { title: game.title })}
                     className="absolute right-0 top-0 z-[6] grid size-8 place-items-center rounded-[2px] border border-line bg-bg/85 text-ink-3 backdrop-blur-sm transition-colors hover:border-danger/60 hover:text-danger"
                   >
                     <X className="size-3.5" />
@@ -281,9 +282,9 @@ export function CollectionScreen() {
       <ConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
-        title="Delete this collection?"
-        description={`“${data.name}” will be removed. The games stay in the library.`}
-        confirmLabel="Delete collection"
+        title={t("Delete this collection?")}
+        description={t("“{collection}” will be removed. The games stay in the library.", { collection: data.name })}
+        confirmLabel={t("Delete collection")}
         loading={deleting}
         onConfirm={() => void deleteCollection()}
       />
@@ -329,15 +330,15 @@ function AddGamesDialog({
       void queryClient.invalidateQueries({ queryKey: ["collection", collection.id] });
       void queryClient.invalidateQueries({ queryKey: ["collections"] });
       push({
-        title: `${result.added} ${result.added === 1 ? "game" : "games"} added`,
-        description: `${collection.name} now holds ${result.total}.`,
+        title: tn(result.added, "1 game added", "{count} games added"),
+        description: t("{collection} now holds {total}.", { collection: collection.name, total: result.total }),
         tone: "success",
       });
       setSelected([]);
       setSearch("");
       onOpenChange(false);
     } catch (cause) {
-      push({ title: "Could not add the games", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not add the games"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setSaving(false);
     }
@@ -353,15 +354,15 @@ function AddGamesDialog({
         }
         onOpenChange(next);
       }}
-      title="Add games"
-      description="Pick from the library. Games already on this shelf are hidden."
+      title={t("Add games")}
+      description={t("Pick from the library. Games already on this shelf are hidden.")}
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" loading={saving} disabled={!selected.length} onClick={() => void save()}>
-            Add {selected.length || ""}
+            {t("Add")} {selected.length || ""}
           </Button>
         </>
       }
@@ -370,12 +371,12 @@ function AddGamesDialog({
         <Input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Filter the library"
-          aria-label="Filter games"
+          placeholder={t("Filter the library")}
+          aria-label={t("Filter games")}
           className="h-9 text-[13px]"
         />
         <div className="max-h-[360px] overflow-y-auto border border-line">
-          {candidates.length === 0 && <p className="p-4 text-[12.5px] text-ink-3">Nothing left to add.</p>}
+          {candidates.length === 0 && <p className="p-4 text-[12.5px] text-ink-3">{t("Nothing left to add.")}</p>}
           {candidates.map((game) => {
             const checked = selected.includes(game.id);
             return (
@@ -390,11 +391,11 @@ function AddGamesDialog({
                 aria-pressed={checked}
                 className="flex w-full items-center gap-3 border-b border-line px-3 py-2 text-left last:border-0 hover:bg-surface-2"
               >
-                <Checkbox checked={checked} onCheckedChange={() => undefined} label={`Select ${game.title}`} />
+                <Checkbox checked={checked} onCheckedChange={() => undefined} label={t("Select {title}", { title: game.title })} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] text-ink">{game.title}</span>
                   <span className="font-mono text-[10px] text-ink-3">
-                    {formatYear(game.releaseDate)} · {game.genres.slice(0, 2).join(" / ") || "Unfiled"}
+                    {formatYear(game.releaseDate)} · {game.genres.slice(0, 2).join(" / ") || t("Unfiled")}
                   </span>
                 </span>
               </button>

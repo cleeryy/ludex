@@ -39,6 +39,7 @@ import { useSettings } from "@/state/settings";
 import { useToast } from "@/state/toasts";
 import { GameCover } from "@/components/art/cover";
 import { Kbd } from "@/components/ui/controls";
+import { t } from "@/lib/i18n";
 
 interface Item {
   id: string;
@@ -88,33 +89,33 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     };
 
     const navigation: Item[] = [
-      { id: "nav-home", group: "Go to", label: "Home", icon: <House className="size-3.5" />, kbd: "g h", run: go("/") },
-      { id: "nav-library", group: "Go to", label: "Library", icon: <Library className="size-3.5" />, kbd: "g l", run: go("/library") },
+      { id: "nav-home", group: t("Go to"), label: t("Home"), icon: <House className="size-3.5" />, kbd: "g h", run: go("/") },
+      { id: "nav-library", group: t("Go to"), label: t("Library"), icon: <Library className="size-3.5" />, kbd: "g l", run: go("/library") },
       ...(installsAvailable()
         ? [
             {
               id: "nav-downloads",
-              group: "Go to",
-              label: "Downloads",
+              group: t("Go to"),
+              label: t("Downloads"),
               icon: <Download className="size-3.5" />,
               kbd: "g d",
               run: go("/downloads"),
             },
           ]
         : []),
-      { id: "nav-recent", group: "Go to", label: "Recently played", icon: <Clock className="size-3.5" />, run: go("/recent") },
-      { id: "nav-bookmarks", group: "Go to", label: "Bookmarks", icon: <Bookmark className="size-3.5" />, kbd: "g b", run: go("/bookmarks") },
-      { id: "nav-index", group: "Go to", label: "Index", hint: "A–Z list", icon: <ListOrdered className="size-3.5" />, kbd: "g i", run: go("/all") },
-      { id: "nav-news", group: "Go to", label: "News", icon: <Film className="size-3.5" />, run: go("/news") },
-      { id: "nav-bigpicture", group: "Go to", label: "Big Picture mode", icon: <Gamepad2 className="size-3.5" />, run: go("/bigpicture") },
-      { id: "nav-settings", group: "Go to", label: "Settings", icon: <Settings className="size-3.5" />, kbd: "g s", run: go("/settings") },
+      { id: "nav-recent", group: t("Go to"), label: t("Recently played"), icon: <Clock className="size-3.5" />, run: go("/recent") },
+      { id: "nav-bookmarks", group: t("Go to"), label: t("Bookmarks"), icon: <Bookmark className="size-3.5" />, kbd: "g b", run: go("/bookmarks") },
+      { id: "nav-index", group: t("Go to"), label: t("Index"), hint: t("A\u2013Z list"), icon: <ListOrdered className="size-3.5" />, kbd: "g i", run: go("/all") },
+      { id: "nav-news", group: t("Go to"), label: t("News"), icon: <Film className="size-3.5" />, run: go("/news") },
+      { id: "nav-bigpicture", group: t("Go to"), label: t("Big Picture mode"), icon: <Gamepad2 className="size-3.5" />, run: go("/bigpicture") },
+      { id: "nav-settings", group: t("Go to"), label: t("Settings"), icon: <Settings className="size-3.5" />, kbd: "g s", run: go("/settings") },
     ];
 
     const library: Item[] = [
       {
         id: "lib-filters",
-        group: "Library",
-        label: "Open the filter panel",
+        group: t("Library"),
+        label: t("Open the filter panel"),
         icon: <SlidersHorizontal className="size-3.5" />,
         kbd: "f",
         run: () => {
@@ -127,8 +128,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         ? [
             {
               id: "lib-installed",
-              group: "Library",
-              label: "Show installed games",
+              group: t("Library"),
+              label: t("Show installed games"),
               icon: <Gamepad2 className="size-3.5" />,
               run: go("/library?installed=true"),
             },
@@ -136,8 +137,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         : []),
       {
         id: "lib-clear",
-        group: "Library",
-        label: "Clear library filters",
+        group: t("Library"),
+        label: t("Clear library filters"),
         icon: <SlidersHorizontal className="size-3.5" />,
         run: go("/library"),
       },
@@ -145,14 +146,14 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
 
     const admin: Item[] = isEditor
       ? [
-          { id: "adm-ingest", group: "Admin", label: "Ingest", hint: "Add a download", icon: <Download className="size-3.5" />, run: go("/admin/ingest") },
-          { id: "adm-scan", group: "Admin", label: "Library scan", icon: <RefreshCw className="size-3.5" />, run: go("/admin/scan") },
+          { id: "adm-ingest", group: t("Admin"), label: t("Ingest"), hint: t("Add a download"), icon: <Download className="size-3.5" />, run: go("/admin/ingest") },
+          { id: "adm-scan", group: t("Admin"), label: t("Library scan"), icon: <RefreshCw className="size-3.5" />, run: go("/admin/scan") },
           ...(isAdmin
             ? [
-                { id: "adm-users", group: "Admin", label: "Users", icon: <Users className="size-3.5" />, run: go("/admin/users") },
-                { id: "adm-news", group: "Admin", label: "News editor", icon: <ShieldCheck className="size-3.5" />, run: go("/admin/news") },
-                { id: "adm-server", group: "Admin", label: "Server", icon: <Server className="size-3.5" />, run: go("/admin/server") },
-                { id: "adm-authentication", group: "Admin", label: "Authentication", icon: <KeyRound className="size-3.5" />, run: go("/admin/authentication") },
+                { id: "adm-users", group: t("Admin"), label: t("Users"), icon: <Users className="size-3.5" />, run: go("/admin/users") },
+                { id: "adm-news", group: t("Admin"), label: t("News editor"), icon: <ShieldCheck className="size-3.5" />, run: go("/admin/news") },
+                { id: "adm-server", group: t("Admin"), label: t("Server"), icon: <Server className="size-3.5" />, run: go("/admin/server") },
+                { id: "adm-authentication", group: t("Admin"), label: t("Authentication"), icon: <KeyRound className="size-3.5" />, run: go("/admin/authentication") },
               ]
             : []),
         ]
@@ -161,37 +162,37 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     const actions: Item[] = [
       {
         id: "act-random",
-        group: "Actions",
-        label: "Pick a random game",
+        group: t("Actions"),
+        label: t("Pick a random game"),
         icon: <Dice5 className="size-3.5" />,
         run: () => {
           close();
           void api
             .randomGame()
             .then((game) => navigate(`/game/${game.id}`))
-            .catch(() => push({ title: "Nothing to pick", description: "The library is empty." }));
+            .catch(() => push({ title: t("Nothing to pick"), description: t("The library is empty.") }));
         },
       },
       ...(isEditor
         ? [
             {
               id: "act-scan",
-              group: "Actions",
-              label: "Scan the library now",
+              group: t("Actions"),
+              label: t("Scan the library now"),
               icon: <RefreshCw className="size-3.5" />,
               run: () => {
                 close();
                 void api
                   .startScan()
-                  .then(() => push({ title: "Scan started", description: "New files will appear as they are indexed.", tone: "success" }))
-                  .catch((error: Error) => push({ title: "Scan did not start", description: error.message, tone: "danger" }));
+                  .then(() => push({ title: t("Scan started"), description: t("New files will appear as they are indexed."), tone: "success" }))
+                  .catch((error: Error) => push({ title: t("Scan did not start"), description: error.message, tone: "danger" }));
               },
             },
             {
               id: "act-add",
-              group: "Actions",
-              label: "Add a game",
-              hint: "Paste a download URL",
+              group: t("Actions"),
+              label: t("Add a game"),
+              hint: t("Paste a download URL"),
               icon: <Plus className="size-3.5" />,
               run: go("/admin/ingest"),
             },
@@ -199,7 +200,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         : []),
       {
         id: "act-theme",
-        group: "Actions",
+        group: t("Actions"),
         label: resolved === "dark" ? "Switch to the light theme" : "Switch to the dark theme",
         icon: resolved === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />,
         run: () => {
@@ -209,9 +210,9 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       },
       {
         id: "act-shortcuts",
-        group: "Actions",
-        label: "Keyboard shortcuts",
-        hint: "Every shortcut",
+        group: t("Actions"),
+        label: t("Keyboard shortcuts"),
+        hint: t("Every shortcut"),
         icon: <Keyboard className="size-3.5" />,
         kbd: "?",
         run: () => {
@@ -221,8 +222,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       },
       {
         id: "act-signout",
-        group: "Actions",
-        label: "Sign out",
+        group: t("Actions"),
+        label: t("Sign out"),
         icon: <UserRound className="size-3.5" />,
         run: () => {
           close();
@@ -303,7 +304,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
           <motion.div
             role="dialog"
             aria-modal="true"
-            aria-label="Search and commands"
+            aria-label={t("Search and commands")}
             initial={reduce ? false : { opacity: 0, y: -6, scale: 0.995 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={reduce ? { opacity: 0 } : { opacity: 0, y: -4 }}
@@ -317,8 +318,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 ref={inputRef}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search games, jump to a screen, run a command"
-                aria-label="Search games and commands"
+                placeholder={t("Search games, jump to a screen, run a command")}
+                aria-label={t("Search games and commands")}
                 aria-controls={listId}
                 aria-activedescendant={items[active]?.id}
                 role="combobox"
@@ -331,10 +332,10 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               <Kbd>esc</Kbd>
             </div>
 
-            <div ref={listRef} id={listId} role="listbox" aria-label="Results" className="max-h-[min(56vh,440px)] overflow-y-auto py-1">
+            <div ref={listRef} id={listId} role="listbox" aria-label={t("Results")} className="max-h-[min(56vh,440px)] overflow-y-auto py-1">
               {items.length === 0 && (
                 <div className="px-4 py-8 text-center text-[13px] text-ink-3">
-                  Nothing matches “{query}”. Try a title, a genre or a screen name.
+                  {t("Nothing matches “{query}”. Try a title, a genre or a screen name.", { query })}
                 </div>
               )}
               {items.map((item, index) => {
@@ -378,16 +379,16 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 <span className="flex items-center gap-1.5">
                   <Kbd>↑</Kbd>
                   <Kbd>↓</Kbd>
-                  to move
+                  {t("to move")}
                 </span>
                 <span className="flex items-center gap-1.5">
                   <Kbd>↵</Kbd>
-                  to open
+                  {t("to open")}
                 </span>
               </span>
               <span className="flex items-center gap-1.5">
                 <Kbd>/</Kbd>
-                from anywhere
+                {t("from anywhere")}
               </span>
             </div>
           </motion.div>

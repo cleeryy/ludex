@@ -8,6 +8,8 @@ import { useToast } from "@/state/toasts";
 import { Badge, Button } from "@/components/ui/controls";
 import { SectionHeader } from "@/components/page";
 import { cn } from "@/lib/cn";
+import { formatDuration } from "@/lib/format";
+import { t } from "@/lib/i18n";
 
 /**
  * Silent installer panel (#7).
@@ -71,7 +73,7 @@ export function InstallerPanel({
     } catch (cause) {
       const message = errorMessage(cause);
       setError(message);
-      push({ title: "Could not run the installer", description: message, tone: "danger" });
+      push({ title: t("Could not run the installer"), description: message, tone: "danger" });
     } finally {
       setRunning(null);
     }
@@ -81,7 +83,7 @@ export function InstallerPanel({
     try {
       await native.cancelInstaller(gameId);
     } catch (cause) {
-      push({ title: "Could not stop the installer", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not stop the installer"), description: errorMessage(cause), tone: "danger" });
     }
   };
 
@@ -90,9 +92,9 @@ export function InstallerPanel({
       const updated = await native.chooseExecutable(gameId);
       if (!updated) return;
       void queryClient.invalidateQueries({ queryKey: ["installed"] });
-      push({ title: "Executable updated", description: updated.executable ?? undefined, tone: "success" });
+      push({ title: t("Executable updated"), description: updated.executable ?? undefined, tone: "success" });
     } catch (cause) {
-      push({ title: "Could not set the executable", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not set the executable"), description: errorMessage(cause), tone: "danger" });
     }
   };
 
@@ -105,35 +107,33 @@ export function InstallerPanel({
   return (
     <section className="mt-12" aria-labelledby="installer-heading">
       <SectionHeader
-        title="Installer"
-        description="Run the shipped setup program, then record the game executable"
+        title={t("Installer")}
+        description={t("Run the shipped setup program, then record the game executable")}
         actions={
           <Button variant="ghost" size="sm" className="text-ink-2" onClick={() => void pickExecutable()}>
-            Choose executable
+            {t("Choose executable")}
           </Button>
         }
       />
       <div id="installer-heading" className="border-t border-line pt-4">
         <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-ink-3">
-          Some releases are an archive of a setup program. Silent switches are tried in order and the exit code is
-          checked; if every attempt fails you can run the installer interactively.{" "}
+          {t("Some releases are an archive of a setup program. Silent switches are tried in order and the exit code is checked; if every attempt fails you can run the installer interactively.")}{" "}
           {linux
-            ? "On Linux it runs through the game's compatibility tool inside its Wine prefix and the log is captured."
-            : "On Windows the setup program runs directly."}{" "}
-          Current executable: <span className="font-mono text-[11px] text-ink-2">{executable ?? "none recorded"}</span>.
+            ? t("On Linux it runs through the game's compatibility tool inside its Wine prefix and the log is captured.")
+            : t("On Windows the setup program runs directly.")}{" "}
+          {t("Current executable:")} <span className="font-mono text-[11px] text-ink-2">{executable ?? t("none recorded")}</span>.
         </p>
 
         {linux && !linuxTool && (
           <p className="mt-3 border-l-2 border-signal/60 pl-3 text-[12.5px] leading-relaxed text-ink-2">
-            No compatibility tool is installed, so this setup program cannot run yet. Install UMU, GE-Proton/Proton or
-            Wine, then rescan in Settings → Compatibility.
+            {t("No compatibility tool is installed, so this setup program cannot run yet. Install UMU, GE-Proton/Proton or Wine, then rescan in Settings → Compatibility.")}
           </p>
         )}
 
         {installers.length === 0 ? (
           <p className="mt-3 flex items-start gap-2 text-[12.5px] text-ink-3">
             <FileTerminal className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-            No installer was found in this install folder. Use “Choose executable” to point at the game binary.
+            {t("No installer was found in this install folder. Use “Choose executable” to point at the game binary.")}
           </p>
         ) : (
           <div className="mt-4 flex flex-col gap-3">
@@ -166,20 +166,20 @@ export function InstallerPanel({
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
                 <span>
                   {windows
-                    ? "silent plan"
+                    ? t("silent plan")
                     : linux && linuxTool
                       ? `via ${linuxTool}`
                       : linux
-                        ? "no compatibility tool"
-                        : "silent runs are Windows-only"}
+                        ? t("no compatibility tool")
+                        : t("silent runs are Windows-only")}
                 </span>
                 {plan.attempts.map((attempt) => (
                   <span key={attempt.join(" ")} className="border border-line-2 px-1.5 py-0.5">
                     {attempt.join(" ")}
                   </span>
                 ))}
-                <span>{plan.timeoutSecs}s per attempt</span>
-                {plan.prefix && <span className="truncate">prefix {plan.prefix}</span>}
+                <span>{plan.timeoutSecs}{t("s per attempt")}</span>
+                {plan.prefix && <span className="truncate">{t("prefix")} {plan.prefix}</span>}
               </div>
             )}
 
@@ -192,7 +192,7 @@ export function InstallerPanel({
                 disabled={!choice || running !== null || !canRun}
                 onClick={() => void run(false)}
               >
-                Run silently
+                {t("Run silently")}
               </Button>
               <Button
                 variant="default"
@@ -201,11 +201,11 @@ export function InstallerPanel({
                 disabled={!choice || running !== null || !canRun}
                 onClick={() => void run(true)}
               >
-                Run interactively
+                {t("Run interactively")}
               </Button>
               {running && (
                 <Button variant="ghost" size="sm" icon={<Square className="size-3.5" />} onClick={() => void stop()}>
-                  Cancel
+                  {t("Cancel")}
                 </Button>
               )}
             </div>
@@ -214,22 +214,22 @@ export function InstallerPanel({
               <div className="flex flex-col gap-2 border-l-2 border-line-2 pl-3">
                 <div className="flex flex-wrap items-baseline gap-2">
                   <Badge tone={report.success ? "ok" : report.cancelled ? "outline" : "danger"}>
-                    {report.success ? "Installed" : report.cancelled ? "Cancelled" : report.timedOut ? "Timed out" : "Failed"}
+                    {report.success ? t("Installed") : report.cancelled ? t("Cancelled") : report.timedOut ? t("Timed out") : t("Failed")}
                   </Badge>
-                  {report.exitCode !== null && <span className="num text-[11px] text-ink-3">exit {report.exitCode}</span>}
+                  {report.exitCode !== null && <span className="num text-[11px] text-ink-3">{t("exit")} {report.exitCode}</span>}
                   <span className="text-[12px] text-ink-2">{report.message}</span>
                 </div>
                 {report.attempts.length > 0 && (
                   <ul className="flex flex-col gap-0.5 font-mono text-[10.5px] text-ink-3">
                     {report.attempts.map((attempt, index) => (
                       <li key={`${attempt.args.join(" ")}-${index}`} className="truncate">
-                        {attempt.args.length > 0 ? attempt.args.join(" ") : "(no arguments)"} ·{" "}
+                        {attempt.args.length > 0 ? attempt.args.join(" ") : t("(no arguments)")} ·{" "}
                         {attempt.error
                           ? attempt.error
                           : attempt.timedOut
-                            ? "timed out"
+                            ? t("timed out")
                             : `exit ${attempt.exitCode ?? "?"}`}{" "}
-                        · {Math.round(attempt.durationMs / 100) / 10}s
+                        · {formatDuration(attempt.durationMs / 1000)}
                       </li>
                     ))}
                   </ul>
@@ -241,8 +241,7 @@ export function InstallerPanel({
                 )}
                 {!report.success && !report.cancelled && (
                   <p className="text-[11.5px] leading-relaxed text-ink-3">
-                    Run it interactively to see what the installer is asking for. The arguments can be changed in
-                    Settings → Desktop.
+                    {t("Run it interactively to see what the installer is asking for. The arguments can be changed in Settings → Desktop.")}
                   </p>
                 )}
               </div>

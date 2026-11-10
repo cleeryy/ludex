@@ -9,6 +9,7 @@ import { StillPlate } from "@/components/art/cover";
 import { Button, IconButton } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { SectionHeader } from "@/components/page";
+import { t } from "@/lib/i18n";
 
 type MediaItem =
   | { kind: "video"; video: GameVideo }
@@ -84,7 +85,7 @@ export function TrailerPlayer({
       type="button"
       onClick={() => setPlaying(true)}
       className={cn("media-plate group relative block aspect-video w-full overflow-hidden bg-bg-deep text-left", className)}
-      aria-label={`Play trailer: ${video.title || title}`}
+      aria-label={t("Play trailer: {title}", { title: video.title || title })}
     >
       {poster ? (
         <img
@@ -114,11 +115,11 @@ export function TrailerPlayer({
         <span className="min-w-0">
           <span className="block truncate text-[14px] font-medium text-white">{video.title || title}</span>
           <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-[0.14em] text-white/65">
-            {isYoutube ? "YouTube · no cookies until play" : "Video"}
+            {isYoutube ? t("YouTube · no cookies until play") : t("Video")}
           </span>
         </span>
         <span className="hidden shrink-0 border border-white/25 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-white/70 sm:block">
-          Play
+          {t("Play")}
         </span>
       </span>
     </button>
@@ -216,7 +217,7 @@ function MediaLightbox({
   if (!current) return null;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title={`${game.title} — media`} size="lg">
+    <Dialog open={open} onOpenChange={onOpenChange} title={t("{title} — media", { title: game.title })} size="lg">
       <div className="flex flex-col gap-3">
         <div ref={stageRef} className="bg-bg-deep">
           <MediaFrame item={current} game={game} spec={spec} seed={seed} />
@@ -224,27 +225,27 @@ function MediaLightbox({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="font-mono text-[11px] text-ink-3">
             {index + 1} / {items.length}
-            {current.kind === "video" ? " · video" : " · still"}
+            {current.kind === "video" ? t(" · video") : t(" · still")}
           </span>
           <div className="flex flex-wrap gap-2">
             <Button
               variant="default"
               size="sm"
-              icon={<ChevronLeft className="size-3.5" />}
+              icon={<ChevronLeft className="rtl:-scale-x-100 size-3.5" />}
               onClick={() => onIndexChange((index - 1 + items.length) % items.length)}
             >
-              Previous
+              {t("Previous")}
             </Button>
             <Button
               variant="default"
               size="sm"
-              iconRight={<ChevronRight className="size-3.5" />}
+              iconRight={<ChevronRight className="rtl:-scale-x-100 size-3.5" />}
               onClick={() => onIndexChange((index + 1) % items.length)}
             >
-              Next
+              {t("Next")}
             </Button>
             <IconButton
-              label={fullscreen ? "Leave fullscreen" : "Fullscreen"}
+              label={fullscreen ? t("Leave fullscreen") : t("Fullscreen")}
               variant="default"
               onClick={() => void toggleFullscreen()}
             >
@@ -253,7 +254,7 @@ function MediaLightbox({
           </div>
         </div>
         <p className="text-[11.5px] text-ink-3">
-          Arrow keys move through the gallery, Escape closes it. Trailers only load after you press play.
+          {t("Arrow keys move through the gallery, Escape closes it. Trailers only load after you press play.")}
         </p>
       </div>
     </Dialog>
@@ -278,9 +279,9 @@ export function MediaGallery({ game, spec, seed }: { game: GameDetail; spec: Art
       {activeVideo && (
         <section aria-labelledby="trailer-heading" className="mb-12">
           <SectionHeader
-            title="Trailer"
+            title={t("Trailer")}
             count={videos.length}
-            description={videos.length > 1 ? "Choose a video, then press play" : undefined}
+            description={videos.length > 1 ? t("Choose a video, then press play") : undefined}
           />
           <div id="trailer-heading" className="grid gap-3 lg:grid-cols-[1fr_220px]">
             <TrailerPlayer video={activeVideo} title={game.title} />
@@ -309,7 +310,7 @@ export function MediaGallery({ game, spec, seed }: { game: GameDetail; spec: Art
                     <span className="min-w-0">
                       <span className="block truncate text-[12px] text-ink">{video.title}</span>
                       <span className="mt-0.5 block font-mono text-[9.5px] uppercase tracking-[0.1em] text-ink-3">
-                        {index === 0 ? "Featured" : "Trailer"}
+                        {index === 0 ? t("Featured") : t("Trailer")}
                       </span>
                     </span>
                   </button>
@@ -321,7 +322,7 @@ export function MediaGallery({ game, spec, seed }: { game: GameDetail; spec: Art
       )}
 
       <section aria-labelledby="media-heading">
-        <SectionHeader title="Media" count={items.length} description="Stills and videos" />
+        <SectionHeader title={t("Media")} count={items.length} description={t("Stills and videos")} />
         <div id="media-heading" className="nav-scroll -mx-[var(--page-x)] flex gap-3 overflow-x-auto px-[var(--page-x)] pb-2">
           {items.map((item, index) => (
             <button

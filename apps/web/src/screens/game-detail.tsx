@@ -20,7 +20,7 @@ import {
 import { api, assetUrl, USING_MOCKS } from "@/lib/api";
 import { ApiError, errorMessage } from "@/lib/http";
 import { cn } from "@/lib/cn";
-import { formatBytes, formatDate, formatEta, formatMinutes, formatRating, formatRelative, formatSeconds, formatSpeed, formatYear, stateLabel } from "@/lib/format";
+import { formatBytes, formatDate, formatEta, formatMinutes, formatRating, formatRelative, formatSeconds, formatSpeed, formatYear, stateLabel, formatPercent } from "@/lib/format";
 import { isNative, native } from "@/lib/native";
 import type { GameDetail, ProgressState } from "@/lib/types";
 import { useBookmark, useGamePlaytime, useInstalledMap, useLaunchGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
@@ -44,6 +44,7 @@ import { STATE_TONE } from "@/components/game/state";
 import { ErrorState, SectionHeader } from "@/components/page";
 import { Badge, Button, IconButton, Input, Progress, Skeleton } from "@/components/ui/controls";
 import { DropdownMenu, Select, useDropdown } from "@/components/ui/select";
+import { t } from "@/lib/i18n";
 
 const STATES: ProgressState[] = ["unplayed", "playing", "completed", "onHold", "abandoned", "planToPlay"];
 
@@ -95,12 +96,12 @@ export function GameDetailScreen() {
     return (
       <div className="page">
         <ErrorState
-          title={notFound ? "Not in the library" : "This game didn’t load"}
-          message={notFound ? "That game is no longer indexed. It may have been removed from the games folder." : errorMessage(error)}
+          title={notFound ? t("Not in the library") : t("This game didn’t load")}
+          message={notFound ? t("That game is no longer indexed. It may have been removed from the games folder.") : errorMessage(error)}
           onRetry={() => void refetch()}
           action={
             <Button variant="ghost" onClick={back}>
-              Back
+              {t("Back")}
             </Button>
           }
         />
@@ -126,25 +127,25 @@ export function GameDetailScreen() {
       void queryClient.invalidateQueries({ queryKey: ["games"] });
       void queryClient.invalidateQueries({ queryKey: ["stats"] });
     } catch (cause) {
-      push({ title: "Progress not saved", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Progress not saved"), description: errorMessage(cause), tone: "danger" });
     }
   };
 
   const download = async () => {
     if (USING_MOCKS) {
-      push({ title: "Demo build", description: "Downloads and installs need the real server. The browser flow is wired." });
+      push({ title: t("Demo build"), description: t("Downloads and installs need the real server. The browser flow is wired.") });
       return;
     }
     try {
       const ticket = await api.downloadTicket(game.id, version?.id);
       const url = assetUrl(ticket.url);
-      if (!url) throw new Error("The server returned an empty download URL");
+      if (!url) throw new Error(t("The server returned an empty download URL"));
       const anchor = document.createElement("a");
       anchor.href = url;
       anchor.rel = "noopener";
       anchor.click();
     } catch (cause) {
-      push({ title: "Download did not start", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Download did not start"), description: errorMessage(cause), tone: "danger" });
     }
   };
 
@@ -155,7 +156,7 @@ export function GameDetailScreen() {
       icon={<Play className="size-4" />}
       onClick={() => launch.mutate({ id: game.id, title: game.title, executable: isInstalled?.executable ?? game.launch.executable })}
     >
-      Play
+      {t("Play")}
     </Button>
   ) : activeJob?.phase === "paused" ? (
     <Button
@@ -170,11 +171,11 @@ export function GameDetailScreen() {
         })
       }
     >
-      Resume install
+      {t("Resume install")}
     </Button>
   ) : activeJob ? (
     <Button variant="default" size="lg" icon={<Download className="size-4" />} onClick={() => navigate("/downloads")}>
-      Installing {installPct !== null ? `${installPct.toFixed(0)}%` : ""}
+      {t("Installing {percent}", { percent: installPct !== null ? formatPercent(installPct) : "…" })}
     </Button>
   ) : resumableJob ? (
     <Button
@@ -189,15 +190,15 @@ export function GameDetailScreen() {
         })
       }
     >
-      Resume install
+      {t("Resume install")}
     </Button>
   ) : isNative() ? (
     <Button variant="primary" size="lg" icon={<Download className="size-4" />} onClick={() => setInstallOpen(true)}>
-      Install
+      {t("Install")}
     </Button>
   ) : (
     <Button variant="primary" size="lg" icon={<Download className="size-4" />} onClick={() => void download()}>
-      Download
+      {t("Download")}
     </Button>
   );
 
@@ -205,17 +206,17 @@ export function GameDetailScreen() {
     ...(isEditor
       ? [
           {
-            label: "Refresh metadata",
+            label: t("Refresh metadata"),
             icon: <RefreshCw className="size-3.5" />,
             onSelect: () => {
               void api
                 .refreshMetadata(game.id)
-                .then(() => push({ title: "Metadata queued", description: "The server will fetch a fresh copy in the background.", tone: "success" }))
-                .catch((cause: Error) => push({ title: "Could not queue metadata", description: cause.message, tone: "danger" }));
+                .then(() => push({ title: t("Metadata queued"), description: t("The server will fetch a fresh copy in the background."), tone: "success" }))
+                .catch((cause: Error) => push({ title: t("Could not queue metadata"), description: cause.message, tone: "danger" }));
             },
           },
           {
-            label: "Edit launch options",
+            label: t("Edit launch options"),
             icon: <Pencil className="size-3.5" />,
             onSelect: () => {
               setLaunchOpen(true);
@@ -227,17 +228,17 @@ export function GameDetailScreen() {
     ...(isInstalled
       ? [
           {
-            label: "Open install folder",
+            label: t("Open install folder"),
             icon: <FolderOpen className="size-3.5" />,
-            onSelect: () => void native.openPath(isInstalled.installPath).catch((cause: Error) => push({ title: "Could not open the folder", description: cause.message, tone: "danger" })),
+            onSelect: () => void native.openPath(isInstalled.installPath).catch((cause: Error) => push({ title: t("Could not open the folder"), description: cause.message, tone: "danger" })),
           },
           {
-            label: "Move install…",
+            label: t("Move install…"),
             icon: <FolderInput className="size-3.5" />,
             onSelect: () => setMoveOpen(true),
           },
           {
-            label: "Uninstall",
+            label: t("Uninstall"),
             icon: <Trash2 className="size-3.5" />,
             danger: true,
             onSelect: () => {
@@ -245,9 +246,9 @@ export function GameDetailScreen() {
                 .uninstallGame(game.id)
                 .then(() => {
                   void queryClient.invalidateQueries({ queryKey: ["installed"] });
-                  push({ title: "Game removed", description: `${game.title} was uninstalled from this machine.` });
+                  push({ title: t("Game removed"), description: t("{title} was uninstalled from this machine.", { title: game.title }) });
                 })
-                .catch((cause: Error) => push({ title: "Could not uninstall", description: cause.message, tone: "danger" }));
+                .catch((cause: Error) => push({ title: t("Could not uninstall"), description: cause.message, tone: "danger" }));
             },
           },
         ]
@@ -265,8 +266,8 @@ export function GameDetailScreen() {
           onClick={back}
           className="inline-flex h-8 items-center gap-2 text-[12.5px] text-ink-2 transition-colors hover:text-ink"
         >
-          <ArrowLeft className="size-3.5" aria-hidden="true" />
-          Back
+          <ArrowLeft className="rtl:-scale-x-100 size-3.5" aria-hidden="true" />
+          {t("Back")}
         </button>
 
         <div className="mt-[16vh] grid gap-8 lg:mt-[13vh] lg:grid-cols-[250px_1fr] lg:gap-12 xl:grid-cols-[280px_1fr]">
@@ -277,7 +278,7 @@ export function GameDetailScreen() {
             {isInstalled && (
               <p className="mt-3 flex items-center gap-2 text-[11.5px] text-ink-3">
                 <span className="size-1.5 rounded-full bg-ok" aria-hidden="true" />
-                Installed {formatBytes(isInstalled.sizeBytes)}
+                {t("Installed")} {formatBytes(isInstalled.sizeBytes)}
               </p>
             )}
           </div>
@@ -294,7 +295,7 @@ export function GameDetailScreen() {
               <span className="h-3 w-px bg-line-2" aria-hidden="true" />
               <span>{game.genres.join(" / ")}</span>
               <ProtonDbBadge gameId={game.id} />
-              {game.earlyAccess && <Badge tone="signal">Early access</Badge>}
+              {game.earlyAccess && <Badge tone="signal">{t("Early access")}</Badge>}
             </div>
 
             <h1 className="mt-3 max-w-[18ch] text-[clamp(2.4rem,4.6vw,4.25rem)] font-semibold leading-[0.94] tracking-[-0.035em]">
@@ -309,14 +310,14 @@ export function GameDetailScreen() {
                 </span>
               )}
               <span className="num">{formatBytes(game.totalSize)}</span>
-              <span>{game.versionCount === 1 ? "1 version" : `${game.versionCount} versions`}</span>
+              <span>{game.versionCount === 1 ? t("1 version") : `${game.versionCount} versions`}</span>
               {formatMinutes(game.minutesPlayed) && (
                 <span className="flex items-center gap-1.5">
                   <Clock className="size-3.5 text-ink-3" aria-hidden="true" />
                   <span className="num">{formatMinutes(game.minutesPlayed)}</span>
                 </span>
               )}
-              {game.lastPlayedAt && <span className="text-ink-3">Last played {formatRelative(game.lastPlayedAt)}</span>}
+              {game.lastPlayedAt && <span className="text-ink-3">{t("Last played")} {formatRelative(game.lastPlayedAt)}</span>}
             </div>
 
             {game.description && <p className="measure mt-6 text-[14.5px] leading-relaxed text-ink-2">{game.description}</p>}
@@ -331,13 +332,13 @@ export function GameDetailScreen() {
                   loading={updateGame.isPending}
                   onClick={() => updateGame.mutate({ id: game.id, title: game.title })}
                 >
-                  {update.latestVersionLabel ? `Update to v${update.latestVersionLabel}` : "Update"}
+                  {update.latestVersionLabel ? `Update to v${update.latestVersionLabel}` : t("Update")}
                 </Button>
               )}
               {game.versions.length > 1 && version && (
                 <div className="w-[190px]">
                   <Select
-                    label="Game version"
+                    label={t("Game version")}
                     value={version.id}
                     onChange={setVersionId}
                     options={game.versions.map((v) => ({
@@ -355,7 +356,7 @@ export function GameDetailScreen() {
                 onClick={() => setCollectionOpen(true)}
                 className="h-12"
               >
-                Add to collection
+                {t("Add to collection")}
               </Button>
               {isEditor && (
                 <Button
@@ -364,11 +365,11 @@ export function GameDetailScreen() {
                   onClick={() => setShareOpen(true)}
                   className="h-12"
                 >
-                  Share
+                  {t("Share")}
                 </Button>
               )}
               <IconButton
-                label={game.bookmarked ? "Remove bookmark" : "Bookmark"}
+                label={game.bookmarked ? t("Remove bookmark") : t("Bookmark")}
                 variant="default"
                 aria-pressed={game.bookmarked}
                 className={cn("size-12", game.bookmarked && "border-signal/60 text-signal-text")}
@@ -381,15 +382,15 @@ export function GameDetailScreen() {
 
             {activeJob && (
               <div className="mt-4 max-w-[360px]">
-                <Progress value={installPct} label="Install progress" />
+                <Progress value={installPct} label={t("Install progress")} />
                 <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2.5 font-mono text-[10.5px] text-ink-3">
                   <span className="text-ink-2">
-                    {activeJob.phase === "downloading" ? "Downloading" : activeJob.phase === "paused" ? "Paused" : activeJob.phase}
+                    {activeJob.phase === "downloading" ? t("Downloading") : activeJob.phase === "paused" ? t("Paused") : activeJob.phase}
                   </span>
-                  {installPct !== null && <span>{installPct.toFixed(0)}%</span>}
+                  {installPct !== null && <span>{formatPercent(installPct)}</span>}
                   {activeJob.speedBps > 0 && <span>{formatSpeed(activeJob.speedBps)}</span>}
                   {activeJob.bytesTotal && activeJob.speedBps > 0 && (
-                    <span>{formatEta(activeJob.bytesDone, activeJob.bytesTotal, activeJob.speedBps)} left</span>
+                    <span>{t("{duration} left", { duration: formatEta(activeJob.bytesDone, activeJob.bytesTotal, activeJob.speedBps) ?? "" })}</span>
                   )}
                 </p>
               </div>
@@ -400,10 +401,10 @@ export function GameDetailScreen() {
               {isInstalled && (
                 <button
                   type="button"
-                  onClick={() => void native.openPath(isInstalled.installPath).catch((cause: Error) => push({ title: "Could not open the folder", description: cause.message, tone: "danger" }))}
+                  onClick={() => void native.openPath(isInstalled.installPath).catch((cause: Error) => push({ title: t("Could not open the folder"), description: cause.message, tone: "danger" }))}
                   className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
                 >
-                  Open folder
+                  {t("Open folder")}
                 </button>
               )}
             </div>
@@ -421,7 +422,7 @@ export function GameDetailScreen() {
         <div className="mt-14 grid gap-12 lg:grid-cols-[1fr_320px]">
           <div>
             <section aria-labelledby="files-heading">
-              <SectionHeader title="Files" count={game.versions.length} description="Archives on the server" />
+              <SectionHeader title={t("Files")} count={game.versions.length} description={t("Archives on the server")} />
               <div className="border-t border-line" id="files-heading">
                 {game.versions.map((v) => (
                   <div key={v.id} className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line py-3">
@@ -431,7 +432,7 @@ export function GameDetailScreen() {
                         <span>{v.version ? `v${v.version}` : "unversioned"}</span>
                         <span>{formatBytes(v.size)}</span>
                         <span>{formatDate(v.releaseDate)}</span>
-                        {v.earlyAccess && <span className="text-signal-text">early access</span>}
+                        {v.earlyAccess && <span className="text-signal-text">{t("early access")}</span>}
                       </p>
                     </div>
                     <Button
@@ -441,7 +442,7 @@ export function GameDetailScreen() {
                       onClick={() => void download()}
                       className="text-ink-2"
                     >
-                      Download
+                      {t("Download")}
                     </Button>
                   </div>
                 ))}
@@ -463,11 +464,11 @@ export function GameDetailScreen() {
             {isEditor && (
               <section className="mt-12 scroll-mt-6" id="launch-options" aria-labelledby="launch-heading">
                 <SectionHeader
-                  title="Launch options"
-                  description="Used by the desktop app when it starts the game"
+                  title={t("Launch options")}
+                  description={t("Used by the desktop app when it starts the game")}
                   actions={
                     <Button variant="ghost" size="sm" onClick={() => setLaunchOpen((open) => !open)}>
-                      {launchOpen ? "Hide" : "Edit"}
+                      {launchOpen ? t("Hide") : t("Edit")}
                     </Button>
                   }
                 />
@@ -477,10 +478,10 @@ export function GameDetailScreen() {
                   ) : (
                     <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
                       {[
-                        ["Executable", game.launch.executable ?? "Not set"],
-                        ["Parameters", game.launch.parameters ?? "None"],
-                        ["Installer", game.launch.installerExecutable ?? "None"],
-                        ["Uninstaller", game.launch.uninstallerExecutable ?? "None"],
+                        [t("Executable"), game.launch.executable ?? t("Not set")],
+                        [t("Parameters"), game.launch.parameters ?? t("None")],
+                        [t("Installer"), game.launch.installerExecutable ?? t("None")],
+                        [t("Uninstaller"), game.launch.uninstallerExecutable ?? t("None")],
                       ].map(([label, value]) => (
                         <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2">
                           <dt className="text-[12px] text-ink-3">{label}</dt>
@@ -496,14 +497,14 @@ export function GameDetailScreen() {
 
           <aside className="flex flex-col gap-10">
             <section aria-labelledby="details-heading">
-              <SectionHeader title="Details" />
+              <SectionHeader title={t("Details")} />
               <dl id="details-heading" className="border-t border-line">
                 {[
-                  ["Developer", game.developers.join(", ") || "—"],
-                  ["Publisher", game.publishers.join(", ") || "—"],
-                  ["Released", formatDate(game.releaseDate)],
-                  ["Genres", game.genres.join(", ")],
-                  ["Age rating", game.ageRating ? `${game.ageRating}+` : "Not rated"],
+                  [t("Developer"), game.developers.join(", ") || "—"],
+                  [t("Publisher"), game.publishers.join(", ") || "—"],
+                  [t("Released"), formatDate(game.releaseDate)],
+                  [t("Genres"), game.genres.join(", ")],
+                  [t("Age rating"), game.ageRating ? `${game.ageRating}+` : t("Not rated")],
                 ].map(([label, value]) => (
                   <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
                     <dt className="shrink-0 text-[12px] text-ink-3">{label}</dt>
@@ -523,27 +524,27 @@ export function GameDetailScreen() {
             </section>
 
             <section aria-labelledby="progress-heading">
-              <SectionHeader title="Your progress" />
+              <SectionHeader title={t("Your progress")} />
               <div id="progress-heading" className="flex flex-col gap-3 border-t border-line pt-4">
                 <div className="flex items-baseline justify-between gap-4">
-                  <span className="text-[12px] text-ink-3">State</span>
+                  <span className="text-[12px] text-ink-3">{t("State")}</span>
                   <span className={cn("flex items-center gap-1.5 text-[12.5px]", STATE_TONE[game.state].text)}>
                     <span className={cn("size-1.5 rounded-full", STATE_TONE[game.state].dot)} aria-hidden="true" />
                     {stateLabel(game.state)}
                   </span>
                 </div>
                 <div className="flex items-baseline justify-between gap-4">
-                  <span className="text-[12px] text-ink-3">Playtime</span>
-                  <span className="num text-[12.5px] text-ink-2">{totalPlayed ?? "Not played"}</span>
+                  <span className="text-[12px] text-ink-3">{t("Playtime")}</span>
+                  <span className="num text-[12.5px] text-ink-2">{totalPlayed ?? t("Not played")}</span>
                 </div>
                 <div className="flex items-baseline justify-between gap-4">
-                  <span className="text-[12px] text-ink-3">Last session</span>
+                  <span className="text-[12px] text-ink-3">{t("Last session")}</span>
                   <span className="text-[12.5px] text-ink-2">{formatRelative(game.lastPlayedAt)}</span>
                 </div>
                 {isNative() && playtime.data && playtime.data.sessions > 0 && (
                   <div className="pt-2">
                     <div className="flex items-baseline justify-between gap-4">
-                      <span className="text-[12px] text-ink-3">Sessions on this device</span>
+                      <span className="text-[12px] text-ink-3">{t("Sessions on this device")}</span>
                       <span className="num text-[12.5px] text-ink-2">{playtime.data.sessions}</span>
                     </div>
                     <ul className="mt-2 border-t border-line">
@@ -559,7 +560,7 @@ export function GameDetailScreen() {
                     </ul>
                   </div>
                 )}
-                {user && <p className="pt-1 text-[11.5px] leading-relaxed text-ink-3">Progress is stored per account on the server.</p>}
+                {user && <p className="pt-1 text-[11.5px] leading-relaxed text-ink-3">{t("Progress is stored per account on the server.")}</p>}
               </div>
             </section>
           </aside>
@@ -600,10 +601,10 @@ function DetailMenu({ items }: { items: { label: string; icon?: React.ReactNode;
   const menu = useDropdown();
   return (
     <>
-      <IconButton {...menu.triggerProps} label="More actions" variant="default" className="size-12">
+      <IconButton {...menu.triggerProps} label={t("More actions")} variant="default" className="size-12">
         <MoreHorizontal className="size-4" />
       </IconButton>
-      <DropdownMenu {...menu.menuProps} items={items} label="Game actions" />
+      <DropdownMenu {...menu.menuProps} items={items} label={t("Game actions")} />
     </>
   );
 }
@@ -617,12 +618,12 @@ function StatePicker({ state, onChange }: { state: ProgressState; onChange: (sta
         className="flex h-9 items-center gap-2 rounded-[2px] border border-line bg-surface px-3 text-[12.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
       >
         <span className={cn("size-1.5 rounded-full", STATE_TONE[state].dot)} aria-hidden="true" />
-        <span className="text-ink-3">Progress</span>
+        <span className="text-ink-3">{t("Progress")}</span>
         <span className="text-ink">{stateLabel(state)}</span>
       </button>
       <DropdownMenu
         {...menu.menuProps}
-        label="Set progress state"
+        label={t("Set progress state")}
         align="start"
         items={STATES.map((value) => ({
           label: stateLabel(value),
@@ -653,10 +654,10 @@ function LaunchForm({ game, onSaved }: { game: GameDetail; onSaved: () => void }
           uninstallerExecutable: uninstaller || null,
         },
       });
-      push({ title: "Launch options saved", tone: "success" });
+      push({ title: t("Launch options saved"), tone: "success" });
       onSaved();
     } catch (cause) {
-      push({ title: "Could not save", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not save"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setBusy(false);
     }
@@ -665,24 +666,24 @@ function LaunchForm({ game, onSaved }: { game: GameDetail; onSaved: () => void }
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <label className="flex flex-col gap-1.5">
-        <span className="text-[12px] text-ink-2">Executable</span>
+        <span className="text-[12px] text-ink-2">{t("Executable")}</span>
         <Input value={executable} onChange={(event) => setExecutable(event.target.value)} placeholder="Game.exe" className="h-10 font-mono text-[12px]" />
       </label>
       <label className="flex flex-col gap-1.5">
-        <span className="text-[12px] text-ink-2">Parameters</span>
+        <span className="text-[12px] text-ink-2">{t("Parameters")}</span>
         <Input value={parameters} onChange={(event) => setParameters(event.target.value)} placeholder="-windowed" className="h-10 font-mono text-[12px]" />
       </label>
       <label className="flex flex-col gap-1.5">
-        <span className="text-[12px] text-ink-2">Installer</span>
+        <span className="text-[12px] text-ink-2">{t("Installer")}</span>
         <Input value={installer} onChange={(event) => setInstaller(event.target.value)} placeholder="setup.exe" className="h-10 font-mono text-[12px]" />
       </label>
       <label className="flex flex-col gap-1.5">
-        <span className="text-[12px] text-ink-2">Uninstaller</span>
+        <span className="text-[12px] text-ink-2">{t("Uninstaller")}</span>
         <Input value={uninstaller} onChange={(event) => setUninstaller(event.target.value)} placeholder="unins000.exe" className="h-10 font-mono text-[12px]" />
       </label>
       <div className="sm:col-span-2">
         <Button variant="default" loading={busy} onClick={() => void save()}>
-          Save launch options
+          {t("Save launch options")}
         </Button>
       </div>
     </div>

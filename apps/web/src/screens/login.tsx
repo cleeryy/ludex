@@ -9,6 +9,7 @@ import { isNative } from "@/lib/native";
 import { useAuth } from "@/state/auth";
 import { AuthLayout } from "@/components/auth-layout";
 import { Button, Field, Input } from "@/components/ui/controls";
+import { tr, t } from "@/lib/i18n";
 
 export function LoginScreen() {
   const { signIn, signInWithOidc, setup } = useAuth();
@@ -86,23 +87,23 @@ export function LoginScreen() {
 
   return (
     <AuthLayout
-      statement="The shelf you actually own."
-      note="Ludex indexes the archives on your server and serves them to your machines. No storefront, no account anywhere else."
+      statement={t("The shelf you actually own.")}
+      note={t("Ludex indexes the archives on your server and serves them to your machines. No storefront, no account anywhere else.")}
     >
       <form onSubmit={submit} className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
-          <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">Sign in</h1>
+          <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">{t("Sign in")}</h1>
           <p className="flex items-center gap-2 text-[13px] text-ink-3">
             <span>{setup?.serverName ?? "Ludex"}</span>
             <span className="h-3 w-px bg-line-2" aria-hidden="true" />
-            <span className="num">v{setup?.version ?? "0.1.0"}</span>
+            <span className="num">{`v${setup?.version ?? "0.1.0"}`}</span>
           </p>
         </div>
 
         {oidcBusy && (
           <p className="flex items-center gap-2 text-[12.5px] text-ink-2" role="status">
             <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-            Completing sign-in…
+            {t("Completing sign-in…")}
           </p>
         )}
 
@@ -122,11 +123,11 @@ export function LoginScreen() {
               loading={oidcBusy}
               onClick={startOidc}
             >
-              Sign in with {displayName}
+              {t("Sign in with")} {displayName}
             </Button>
             <div className="flex items-center gap-3 text-[11.5px] text-ink-3" aria-hidden="true">
               <span className="h-px flex-1 bg-line" />
-              <span>or use a password</span>
+              <span>{t("or use a password")}</span>
               <span className="h-px flex-1 bg-line" />
             </div>
           </div>
@@ -134,13 +135,12 @@ export function LoginScreen() {
 
         {oidcEnabled && isNative() && (
           <p className="border-l-2 border-line pl-3 text-[11.5px] leading-relaxed text-ink-3">
-            Single sign-on is configured for this server. It runs in the web interface; in the desktop app, use your server
-            password.
+            {t("Single sign-on is configured for this server. It runs in the web interface; in the desktop app, use your server password.")}
           </p>
         )}
 
         <div className="flex flex-col gap-4">
-          <Field label="Username" htmlFor="login-username">
+          <Field label={t("Username")} htmlFor="login-username">
             <Input
               id="login-username"
               name="username"
@@ -149,10 +149,10 @@ export function LoginScreen() {
               required
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              placeholder="Your username"
+              placeholder={t("Your username")}
             />
           </Field>
-          <Field label="Password" htmlFor="login-password">
+          <Field label={t("Password")} htmlFor="login-password">
             <Input
               id="login-password"
               name="password"
@@ -161,7 +161,7 @@ export function LoginScreen() {
               required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="Your password"
+              placeholder={t("Your password")}
             />
           </Field>
         </div>
@@ -172,15 +172,17 @@ export function LoginScreen() {
           </p>
         )}
 
-        <Button type="submit" variant="primary" size="lg" loading={busy} iconRight={<ArrowRight className="size-4" />}>
-          Sign in
+        <Button type="submit" variant="primary" size="lg" loading={busy} iconRight={<ArrowRight className="rtl:-scale-x-100 size-4" />}>
+          {t("Sign in")}
         </Button>
 
         {USING_MOCKS && (
           <div className="border-t border-line pt-4">
             <p className="text-[12.5px] leading-relaxed text-ink-3">
-              Demo data is on. Sign in as <span className="font-mono text-ink-2">mara</span> with the password{" "}
-              <span className="font-mono text-ink-2">{MOCK_PASSWORD}</span>, or use the single sign-on button.
+              {tr("Demo data is on. Sign in as {user} with the password {password}, or use the single sign-on button.", {
+                user: <span className="font-mono text-ink-2">mara</span>,
+                password: <span className="font-mono text-ink-2">{MOCK_PASSWORD}</span>,
+              })}
             </p>
             <Button
               variant="quiet"
@@ -192,7 +194,7 @@ export function LoginScreen() {
                 setError(null);
               }}
             >
-              Fill demo credentials
+              {t("Fill demo credentials")}
             </Button>
           </div>
         )}

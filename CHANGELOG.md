@@ -8,6 +8,21 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Web i18n, themes and PWA (#23, #29, #110): a gettext-style message catalog
+  (`src/lib/i18n.tsx`) with English as the source language, full English and
+  French official locales, community seeds for German, Spanish and Arabic
+  (RTL, unreviewed), lazy locale chunks discovered from `locales/*.json`, a
+  JSON locale manifest that needs no TypeScript change for a new language,
+  `Intl` dates/numbers/plurals, and a CI gate (`scripts/i18n.mjs`) that fails on
+  missing official keys, unknown ids, empty values, placeholder mismatches and
+  stale coverage. Settings gains a grouped language picker with per-locale
+  coverage; the theme bootstrap now runs before first paint and a WCAG AA
+  contrast test covers dark, light and the `force-dark` game stage. The web app
+  is installable (manifest, maskable icons), ships a content-versioned service
+  worker that precaches the shell and public media only, an offline fallback
+  page, dismissible install and update prompts, logical-property RTL support,
+  mirrored directional icons and mobile safe-area/16 px input polish. Docs in
+  `docs/I18N.md`.
 - macOS signing, notarization and Apple Silicon (#27): the release matrix builds
   a universal DMG (`aarch64` + `x86_64`) on `macos-latest`; Tauri signs with the
   hardened runtime and notarizes/staples when the `APPLE_*` secrets exist, and
@@ -50,6 +65,7 @@ All notable changes to Ludex are documented here. The format is based on
   gains automatic-backup status, Sync now, Restore and a conflict dialog, and
   Settings gains the global default, device name and a privacy note. The
   browser build explains that automatic sync needs the desktop app.
+(docs: document i18n, themes and PWA)
 - Achievements framework (#117): per-game and global definitions, per-account
   unlock state with a unique `(user, achievement)` constraint, points, hidden
   definitions, global unlock percentages, and completion summaries. Routes:

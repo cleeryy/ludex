@@ -6,6 +6,7 @@ import { formatBytes } from "@/lib/format";
 import { useToast } from "@/state/toasts";
 import { ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Skeleton } from "@/components/ui/controls";
+import { t } from "@/lib/i18n";
 
 function formatUptime(seconds: number): string {
   const days = Math.floor(seconds / 86400);
@@ -25,50 +26,50 @@ export function ServerScreen() {
   const copy = async (value: string, label: string) => {
     try {
       await navigator.clipboard.writeText(value);
-      push({ title: `${label} copied` });
+      push({ title: t("{label} copied", { label }) });
     } catch {
-      push({ title: "Copy failed", description: "Your browser blocked clipboard access.", tone: "danger" });
+      push({ title: t("Copy failed"), description: t("Your browser blocked clipboard access."), tone: "danger" });
     }
   };
 
   const features = config.data
     ? [
-        ["IGDB metadata", config.data.features.igdb],
-        ["Steam metadata", config.data.features.steam],
-        ["Ingest", config.data.features.ingest],
-        ["Local mode", config.data.features.localMode],
-        ["OIDC sign-in", config.data.features.oidc],
+        [t("IGDB metadata"), config.data.features.igdb],
+        [t("Steam metadata"), config.data.features.steam],
+        [t("Ingest"), config.data.features.ingest],
+        [t("Local mode"), config.data.features.localMode],
+        [t("OIDC sign-in"), config.data.features.oidc],
       ] as const
     : [];
 
   return (
     <div className="page page-in">
       <PageHeader
-        title="Server"
+        title={t("Server")}
         meta={
           <>
             <span className="flex items-center gap-2">
               <span className="size-1.5 rounded-full bg-ok" aria-hidden="true" />
-              Healthy
+              {t("Healthy")}
             </span>
-            {health.data && <span className="num">Up {formatUptime(health.data.uptimeSeconds)}</span>}
-            {USING_MOCKS && <Badge tone="outline">Demo data</Badge>}
+            {health.data && <span className="num">{t("Up")} {formatUptime(health.data.uptimeSeconds)}</span>}
+            {USING_MOCKS && <Badge tone="outline">{t("Demo data")}</Badge>}
           </>
         }
-        description="Read-only view of what this server is running and where it keeps files. Change these through environment variables and restart the container."
+        description={t("Read-only view of what this server is running and where it keeps files. Change these through environment variables and restart the container.")}
       />
 
       {config.isError && <ErrorState message={errorMessage(config.error)} onRetry={() => void config.refetch()} />}
 
       <div className="mt-8 grid gap-10 lg:grid-cols-2">
         <section>
-          <SectionHeader title="Identity" />
+          <SectionHeader title={t("Identity")} />
           <dl className="border-t border-line">
             {[
-              ["Server name", config.data?.serverName ?? "—"],
-              ["Version", config.data?.version ?? "—"],
-              ["Max upload", config.data ? formatBytes(config.data.maxUploadBytes) : "—"],
-              ["Uptime", health.data ? formatUptime(health.data.uptimeSeconds) : "—"],
+              [t("Server name"), config.data?.serverName ?? "—"],
+              [t("Version"), config.data?.version ?? "—"],
+              [t("Max upload"), config.data ? formatBytes(config.data.maxUploadBytes) : "—"],
+              [t("Uptime"), health.data ? formatUptime(health.data.uptimeSeconds) : "—"],
             ].map(([label, value]) => (
               <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
                 <dt className="text-[12.5px] text-ink-3">{label}</dt>
@@ -80,14 +81,14 @@ export function ServerScreen() {
         </section>
 
         <section>
-          <SectionHeader title="Features" description="Set by environment variables" />
+          <SectionHeader title={t("Features")} description={t("Set by environment variables")} />
           <div className="border-t border-line">
             {features.map(([label, enabled]) => (
               <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
                 <span className="text-[12.5px] text-ink-2">{label}</span>
                 <span className="flex items-center gap-1.5 text-[12px] text-ink-3">
                   {enabled ? <Check className="size-3.5 text-ok" aria-hidden="true" /> : <Minus className="size-3.5" aria-hidden="true" />}
-                  {enabled ? "Enabled" : "Off"}
+                  {enabled ? t("Enabled") : t("Off")}
                 </span>
               </div>
             ))}
@@ -95,12 +96,12 @@ export function ServerScreen() {
               Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="my-3 h-3 w-full" />)}
           </div>
           <p className="mt-3 text-[11.5px] leading-relaxed text-ink-3">
-            Metadata providers are tried in order: IGDB when credentials are set, then the Steam store, then the filename alone.
+            {t("Metadata providers are tried in order: IGDB when credentials are set, then the Steam store, then the filename alone.")}
           </p>
         </section>
 
         <section className="lg:col-span-2">
-          <SectionHeader title="Folders" description="Mounted into the container" />
+          <SectionHeader title={t("Folders")} description={t("Mounted into the container")} />
           <div className="border-t border-line">
             {folders.isError && <ErrorState message={errorMessage(folders.error)} onRetry={() => void folders.refetch()} />}
             {folders.isPending &&
@@ -108,9 +109,9 @@ export function ServerScreen() {
             {folders.data &&
               (
                 [
-                  ["Games", folders.data.gamesDir, "Archives and portable executables"],
-                  ["Media", folders.data.mediaDir, "Cached covers, backgrounds, screenshots"],
-                  ["Data", folders.data.dataDir, "SQLite database and JWT secret"],
+                  [t("Games"), folders.data.gamesDir, "Archives and portable executables"],
+                  [t("Media"), folders.data.mediaDir, "Cached covers, backgrounds, screenshots"],
+                  [t("Data"), folders.data.dataDir, "SQLite database and JWT secret"],
                 ] as const
               ).map(([label, path, hint]) => (
                 <div key={label} className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line py-3">
@@ -123,7 +124,7 @@ export function ServerScreen() {
                     <button
                       type="button"
                       onClick={() => void copy(path, `${label} folder`)}
-                      aria-label={`Copy ${label} folder path`}
+                      aria-label={t("Copy {label} folder path", { label })}
                       className="text-ink-3 hover:text-ink"
                     >
                       <Copy className="size-3.5" />
@@ -137,7 +138,7 @@ export function ServerScreen() {
 
       <p className="mt-8 flex items-center gap-2 text-[11.5px] text-ink-3">
         <Lock className="size-3.5" aria-hidden="true" />
-        Configuration is read-only here by design; the server owns its environment.
+        {t("Configuration is read-only here by design; the server owns its environment.")}
       </p>
     </div>
   );

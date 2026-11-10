@@ -5,10 +5,12 @@ import "@fontsource-variable/instrument-sans";
 import "@fontsource-variable/jetbrains-mono";
 import "./styles/index.css";
 import { App } from "./app";
+import { bootstrapI18n } from "./lib/i18n";
+import { initPwa } from "./lib/pwa";
 
 function Root() {
-  // Inline theme bootstrap: applies the stored theme before the first paint
-  // so there is no flash of the wrong surface.
+  // The inline boot script in index.html applies the stored theme and locale
+  // before the first paint. Re-apply here so HMR and tests see the same state.
   useEffect(() => {
     const root = document.documentElement;
     const pref = localStorage.getItem("ludex.theme") ?? "system";
@@ -21,4 +23,12 @@ function Root() {
   return <App />;
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(<Root />);
+async function start() {
+  // Load the persisted locale catalog before the first render so there is no
+  // flash of English for French users.
+  await bootstrapI18n();
+  ReactDOM.createRoot(document.getElementById("root")!).render(<Root />);
+  initPwa();
+}
+
+void start();

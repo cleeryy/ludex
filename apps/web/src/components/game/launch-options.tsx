@@ -4,20 +4,23 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, RotateCcw, TerminalSquare } from "lucide-react";
 import { errorMessage } from "@/lib/http";
 import { isNative, native } from "@/lib/native";
-import { formatBytes } from "@/lib/format";
+import { formatBytes , formatDuration} from "@/lib/format";
 import type { CompatTool, LaunchMode, LaunchOptions, WinetricksReport } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Input, Textarea } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { SectionHeader } from "@/components/page";
 import { cn } from "@/lib/cn";
+import { tr, t } from "@/lib/i18n";
 
-const MODE_OPTIONS: { value: LaunchMode; label: string; hint: string }[] = [
-  { value: "auto", label: "Auto", hint: "Native files run directly; .exe through the best tool" },
-  { value: "native", label: "Native", hint: "Run the file directly, no compatibility layer" },
-  { value: "proton", label: "Proton", hint: "Proton run game.exe" },
-  { value: "umu", label: "UMU", hint: "umu-run, then a Proton build" },
-];
+function modeOptions(): { value: LaunchMode; label: string; hint: string }[] {
+  return [
+    { value: "auto", label: t("Auto"), hint: t("Native files run directly; .exe through the best tool") },
+    { value: "native", label: t("Native"), hint: t("Run the file directly, no compatibility layer") },
+    { value: "proton", label: t("Proton"), hint: t("Proton run game.exe") },
+    { value: "umu", label: t("UMU"), hint: t("umu-run, then a Proton build") },
+  ];
+}
 
 const EMPTY_OPTIONS: LaunchOptions = {
   mode: "auto",
@@ -122,12 +125,12 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
       await queryClient.invalidateQueries({ queryKey: ["prefix-info", gameId] });
       await queryClient.invalidateQueries({ queryKey: ["protondb", gameId] });
       push({
-        title: "Launch options saved",
-        description: `${title} will start with the ${MODE_OPTIONS.find((option) => option.value === next.mode)?.label ?? next.mode} profile.`,
+        title: t("Launch options saved"),
+        description: t("{title} will start with the {profile} profile.", { title, profile: modeOptions().find((option) => option.value === next.mode)?.label ?? next.mode }),
         tone: "success",
       });
     } catch (cause) {
-      push({ title: "Could not save the launch options", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not save the launch options"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setSaving(false);
     }
@@ -138,7 +141,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
       const path = await native.pickFolder("Choose a Wine prefix folder");
       if (path) update({ prefixPath: path });
     } catch (cause) {
-      push({ title: "Could not open the folder picker", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not open the folder picker"), description: errorMessage(cause), tone: "danger" });
     }
   };
 
@@ -148,9 +151,9 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
       await native.resetWinePrefix(gameId);
       setConfirmReset(false);
       await prefixQuery.refetch();
-      push({ title: "Wine prefix deleted", description: "It is recreated empty on the next launch.", tone: "success" });
+      push({ title: t("Wine prefix deleted"), description: t("It is recreated empty on the next launch."), tone: "success" });
     } catch (cause) {
-      push({ title: "Could not delete the prefix", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not delete the prefix"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setResetting(false);
     }
@@ -191,7 +194,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
         tone: report.success ? "success" : "danger",
       });
     } catch (cause) {
-      push({ title: "Could not run winetricks", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not run winetricks"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setRunningVerbs(false);
     }
@@ -207,8 +210,8 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
   return (
     <section className="mt-12" aria-labelledby="linux-launch-heading">
       <SectionHeader
-        title="Linux launch options"
-        description="Proton/UMU tool, Wine prefix and environment"
+        title={t("Linux launch options")}
+        description={t("Proton/UMU tool, Wine prefix and environment")}
         actions={
           draft.steamAppId !== null ? (
             <a
@@ -217,7 +220,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               rel="noreferrer noopener"
               className="text-[11.5px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
             >
-              ProtonDB
+              {t("ProtonDB")}
             </a>
           ) : undefined
         }
@@ -225,35 +228,36 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
       <div id="linux-launch-heading" className="border-t border-line pt-4">
         {scan.data && scan.data.tools.length === 0 && (
           <p className="mb-4 border-l-2 border-signal/60 pl-3 text-[12.5px] leading-relaxed text-ink-2">
-            No compatibility tool is installed. A Windows game cannot start until UMU, GE-Proton/Proton or Wine is
-            available. Install one, then rescan in{" "}
-            <Link to="/settings" className="underline underline-offset-4 hover:text-ink">
-              Settings → Compatibility
-            </Link>
-            .
+            {tr("No compatibility tool is installed. A Windows game cannot start until UMU, GE-Proton/Proton or Wine is available. Install one, then rescan in {settings}.", {
+              settings: (
+                <Link to="/settings" className="underline underline-offset-4 hover:text-ink">
+                  {t("Settings → Compatibility")}
+                </Link>
+              ),
+            })}
           </p>
         )}
 
         <div className="grid gap-5 sm:grid-cols-2">
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-3">Launch mode</span>
+            <span className="text-[12px] text-ink-3">{t("Launch mode")}</span>
             <Select
-              label="Launch mode"
+              label={t("Launch mode")}
               value={draft.mode}
               onChange={(mode) => update({ mode })}
-              options={MODE_OPTIONS}
+              options={modeOptions()}
             />
           </label>
 
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-3">Compatibility tool</span>
+            <span className="text-[12px] text-ink-3">{t("Compatibility tool")}</span>
             <Select
-              label="Compatibility tool"
+              label={t("Compatibility tool")}
               value={draft.mode === "native" ? "" : draft.toolId}
               onChange={(toolId) => update({ toolId })}
               disabled={draft.mode === "native"}
               options={[
-                { value: "", label: "Best available", hint: toolHint },
+                { value: "", label: t("Best available"), hint: toolHint },
                 ...compatibleTools.map((tool) => ({
                   value: tool.id,
                   label: tool.version ? `${tool.name} · ${tool.version}` : tool.name,
@@ -263,13 +267,13 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
             />
             <span className="text-[11px] text-ink-3">
               {scan.data?.umu
-                ? "UMU is preferred, then GE-Proton/Proton, then Wine."
-                : "GE-Proton/Proton is preferred, then Wine."}
+                ? t("UMU is preferred, then GE-Proton/Proton, then Wine.")
+                : t("GE-Proton/Proton is preferred, then Wine.")}
             </span>
           </label>
 
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-3">Steam app id</span>
+            <span className="text-[12px] text-ink-3">{t("Steam app id")}</span>
             <Input
               value={draft.steamAppId ?? ""}
               onChange={(event) => {
@@ -281,11 +285,11 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               spellCheck={false}
               className="h-10 font-mono text-[12px]"
             />
-            <span className="text-[11px] text-ink-3">Used for the ProtonDB rating and `GAMEID`. Optional.</span>
+            <span className="text-[11px] text-ink-3">{t("Used for the ProtonDB rating and `GAMEID`. Optional.")}</span>
           </label>
 
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-3">Environment overrides</span>
+            <span className="text-[12px] text-ink-3">{t("Environment overrides")}</span>
             <Textarea
               value={envText}
               onChange={(event) => setEnvText(event.target.value)}
@@ -294,42 +298,44 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               spellCheck={false}
               className="min-h-[84px] font-mono text-[11.5px]"
             />
-            <span className="text-[11px] text-ink-3">One KEY=VALUE per line. PATH, HOME and LD_* are refused.</span>
+            <span className="text-[11px] text-ink-3">{t("One KEY=VALUE per line. PATH, HOME and LD_* are refused.")}</span>
           </div>
         </div>
 
         <div className="mt-6 border-t border-line pt-4">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <p className="text-[13px] font-medium text-ink">Wine prefix</p>
+            <p className="text-[13px] font-medium text-ink">{t("Wine prefix")}</p>
             <span className="font-mono text-[10.5px] text-ink-3">
               {savedPrefix?.exists
                 ? `${formatBytes(savedPrefix.sizeBytes)} · ${savedPrefix.custom ? "custom" : "default"}`
-                : "not created yet"}
+                : t("not created yet")}
             </span>
           </div>
           <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
-            Each game gets its own prefix. The default lives inside the install folder (<span className="font-mono">.prefix</span>)
-            and is recreated on the next launch after a reset. Proton uses <span className="font-mono">pfx</span> inside it.
+            {tr("Each game gets its own prefix. The default lives inside the install folder ({prefix}) and is recreated on the next launch after a reset. Proton uses {pfx} inside it.", {
+              prefix: <span className="font-mono">.prefix</span>,
+              pfx: <span className="font-mono">pfx</span>,
+            })}
           </p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
             <Input
               value={draft.prefixPath}
               onChange={(event) => update({ prefixPath: event.target.value })}
-              placeholder={savedPrefix?.path ?? "{installDir}/.prefix"}
+              placeholder={savedPrefix?.path ?? "/path/to/games/.prefix"}
               spellCheck={false}
               className="h-10 flex-1 font-mono text-[11.5px]"
             />
             <div className="flex shrink-0 items-center gap-2">
               <Button variant="default" size="sm" className="h-10" icon={<FolderOpen className="size-3.5" />} onClick={() => void pickPrefix()}>
-                Browse
+                {t("Browse")}
               </Button>
               {confirmReset ? (
                 <>
                   <Button variant="danger" size="sm" className="h-10" loading={resetting} onClick={() => void resetPrefix()}>
-                    Confirm delete
+                    {t("Confirm delete")}
                   </Button>
                   <Button variant="ghost" size="sm" className="h-10" onClick={() => setConfirmReset(false)}>
-                    Cancel
+                    {t("Cancel")}
                   </Button>
                 </>
               ) : (
@@ -341,21 +347,20 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
                   disabled={!savedPrefix?.exists}
                   onClick={() => setConfirmReset(true)}
                 >
-                  Reset prefix
+                  {t("Reset prefix")}
                 </Button>
               )}
             </div>
           </div>
           {draft.prefixPath !== savedOptions.prefixPath && (
-            <p className="mt-1.5 text-[11px] text-ink-3">Save to apply the new prefix path.</p>
+            <p className="mt-1.5 text-[11px] text-ink-3">{t("Save to apply the new prefix path.")}</p>
           )}
         </div>
 
         <div className="mt-6 border-t border-line pt-4">
-          <p className="text-[13px] font-medium text-ink">Winetricks verbs</p>
+          <p className="text-[13px] font-medium text-ink">{t("Winetricks verbs")}</p>
           <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
-            Installed on demand in this game prefix, with the Proton Wine build when one is selected. Runs can take
-            several minutes.
+            {t("Installed on demand in this game prefix, with the Proton Wine build when one is selected. Runs can take several minutes.")}
           </p>
           <div className="mt-3 flex flex-wrap gap-1.5">
             {verbs.map((verb) => {
@@ -393,7 +398,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               className="h-9 w-[190px] font-mono text-[11.5px]"
             />
             <Button variant="ghost" size="sm" onClick={addVerb} disabled={!customVerb.trim()}>
-              Add
+              {t("Add")}
             </Button>
             <Button
               variant="default"
@@ -403,7 +408,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               disabled={draft.winetricksVerbs.length === 0 || !scan.data?.winetricks}
               onClick={() => void runVerbs()}
             >
-              Run winetricks
+              {t("Run winetricks")}
             </Button>
             {draft.winetricksVerbs.length > 0 && (
               <span className="font-mono text-[10.5px] text-ink-3">
@@ -411,7 +416,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               </span>
             )}
             {!scan.data?.winetricks && (
-              <span className="text-[11px] text-ink-3">winetricks is not installed.</span>
+              <span className="text-[11px] text-ink-3">{t("winetricks is not installed.")}</span>
             )}
           </div>
 
@@ -419,13 +424,13 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
             <div className="mt-3 border-l-2 border-line-2 pl-3">
               <div className="flex flex-wrap items-baseline gap-2">
                 <Badge tone={verbReport.success ? "ok" : verbReport.timedOut ? "signal" : "danger"}>
-                  {verbReport.success ? "Done" : verbReport.timedOut ? "Timed out" : "Failed"}
+                  {verbReport.success ? t("Done") : verbReport.timedOut ? t("Timed out") : t("Failed")}
                 </Badge>
                 {verbReport.exitCode !== null && (
-                  <span className="num text-[11px] text-ink-3">exit {verbReport.exitCode}</span>
+                  <span className="num text-[11px] text-ink-3">{t("exit")} {verbReport.exitCode}</span>
                 )}
                 <span className="num text-[11px] text-ink-3">
-                  {Math.round(verbReport.durationMs / 1000)}s
+                  {formatDuration(verbReport.durationMs / 1000)}
                 </span>
               </div>
               {verbReport.output && (
@@ -439,12 +444,12 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
 
         <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-4">
           <Button variant="primary" size="sm" loading={saving} disabled={!dirty} onClick={() => void save()}>
-            Save launch options
+            {t("Save launch options")}
           </Button>
-          {dirty && <span className="text-[11.5px] text-ink-3">Unsaved changes</span>}
+          {dirty && <span className="text-[11.5px] text-ink-3">{t("Unsaved changes")}</span>}
           <span className="font-mono text-[10.5px] text-ink-3">
-            {scan.data?.winetricks ? "winetricks detected" : "no winetricks"} ·{" "}
-            {scan.data?.protonfixes ? "protonfixes detected" : "no protonfixes"}
+            {scan.data?.winetricks ? t("winetricks detected") : t("no winetricks")} ·{" "}
+            {scan.data?.protonfixes ? t("protonfixes detected") : t("no protonfixes")}
           </span>
         </div>
 

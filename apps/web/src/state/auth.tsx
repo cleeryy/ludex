@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { api, setApiBase, tokenStore, UNAUTHORIZED_EVENT } from "@/lib/api";
 import { isNative, native } from "@/lib/native";
 import type { SetupStatus, User } from "@/lib/types";
+import { t } from "@/lib/i18n";
 
 interface AuthValue {
   user: User | null;
@@ -80,7 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!cancelled) setReady(true);
       } catch (error) {
         if (cancelled) return;
-        setBootError(error instanceof Error ? error.message : "Cannot reach the server");
+        setBootError(error instanceof Error ? error.message : t("Cannot reach the server"));
         setReady(true);
       }
     }

@@ -3,11 +3,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock, RefreshCw, Trophy } from "lucide-react";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatPercent } from "@/lib/format";
 import type { Achievement } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { EmptyState, SectionHeader } from "@/components/page";
 import { Badge, Button, Progress, Skeleton } from "@/components/ui/controls";
+import { t , tn } from "@/lib/i18n";
 
 /**
  * Achievement section of the game page: progress, definitions and the local
@@ -39,7 +40,7 @@ export function AchievementsPanel({
       });
       const failed = report.providers.filter((provider) => provider.status === "error");
       push({
-        title: "Achievement scan finished",
+        title: t("Achievement scan finished"),
         description:
           report.found === 0
             ? "No achievement files were found for this game. Check the install path in Settings."
@@ -49,7 +50,7 @@ export function AchievementsPanel({
       await queryClient.invalidateQueries({ queryKey: ["game-achievements", gameId] });
       await queryClient.invalidateQueries({ queryKey: ["me-achievements"] });
     } catch (cause) {
-      push({ title: "Scan failed", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Scan failed"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setScanning(false);
     }
@@ -58,7 +59,7 @@ export function AchievementsPanel({
   return (
     <section className="mt-14" aria-labelledby="achievements-heading">
       <SectionHeader
-        title="Achievements"
+        title={t("Achievements")}
         count={data?.total}
         description={data && data.total > 0 ? `${data.unlocked} of ${data.total} · ${data.unlockedPoints}/${data.points} pts` : undefined}
         actions={
@@ -70,7 +71,7 @@ export function AchievementsPanel({
               loading={scanning}
               onClick={() => void scan()}
             >
-              Scan local files
+              {t("Scan local files")}
             </Button>
           ) : undefined
         }
@@ -84,28 +85,28 @@ export function AchievementsPanel({
             <Skeleton className="h-12 w-full" />
           </div>
         ) : isError ? (
-          <p className="text-[12.5px] text-ink-3">Achievements could not be loaded: {errorMessage(error)}</p>
+          <p className="text-[12.5px] text-ink-3">{t("Achievements could not be loaded:")} {errorMessage(error)}</p>
         ) : !data || data.total === 0 ? (
           <EmptyState
             compact
-            title="No achievements yet"
-            description="Achievements arrive from a local scan (Steam emulation files or a Galaxy database) or from an administrator adding them by hand."
+            title={t("No achievements yet")}
+            description={t("Achievements arrive from a local scan (Steam emulation files or a Galaxy database) or from an administrator adding them by hand.")}
           />
         ) : (
           <div className="flex flex-col gap-5">
             <div>
               <div className="flex items-baseline justify-between gap-4 pb-1.5">
-                <span className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-3">Completion</span>
-                <span className="num text-[12px] text-ink-2">{data.completion.toFixed(1)}%</span>
+                <span className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-3">{t("Completion")}</span>
+                <span className="num text-[12px] text-ink-2">{formatPercent(data.completion, 1)}</span>
               </div>
               <Progress
                 value={data.completion}
                 label={`Achievements: ${data.unlocked} of ${data.total} unlocked`}
               />
               <p className="mt-2 flex flex-wrap items-baseline gap-x-3 font-mono text-[10.5px] text-ink-3">
-                <span>{data.total} achievements</span>
-                <span>{data.points} points</span>
-                {data.lastScan && <span>Scanned {formatDate(data.lastScan.scannedAt)}</span>}
+                <span>{tn(data.total, "1 achievement", "{count} achievements")}</span>
+                <span>{tn(data.points, "1 point", "{count} points")}</span>
+                {data.lastScan && <span>{t("Scanned")} {formatDate(data.lastScan.scannedAt)}</span>}
               </p>
             </div>
 
@@ -140,24 +141,24 @@ function AchievementRow({ achievement }: { achievement: Achievement }) {
           {achievement.unlocked ? (
             <Badge tone="signal">
               <Trophy className="mr-1 size-3" aria-hidden="true" />
-              {achievement.points} pts
+              {t("{count} pts", { count: achievement.points })}
             </Badge>
           ) : (
             <span className="inline-flex items-center gap-1 font-mono text-[10.5px] text-ink-3">
               <Lock className="size-3" aria-hidden="true" />
-              {achievement.points} pts
+              {t("{count} pts", { count: achievement.points })}
             </span>
           )}
-          {achievement.hidden && <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">Hidden</span>}
+          {achievement.hidden && <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">{t("Hidden")}</span>}
         </div>
         {achievement.description && (
           <p className="mt-0.5 text-[12px] leading-relaxed text-ink-3">{achievement.description}</p>
         )}
         <p className="mt-1 flex flex-wrap items-baseline gap-x-3 font-mono text-[10px] text-ink-3">
-          <span>{achievement.unlockPercentage.toFixed(1)}% of players</span>
-          {achievement.unlockedAt && <span>Unlocked {formatDate(achievement.unlockedAt)}</span>}
+          <span>{t("{percent} of players", { percent: formatPercent(achievement.unlockPercentage, 1) })}</span>
+          {achievement.unlockedAt && <span>{t("Unlocked")} {formatDate(achievement.unlockedAt)}</span>}
           {achievement.provider !== "manual" && <span>{providerLabel(achievement.provider)}</span>}
-          {secret && <span>Details hidden</span>}
+          {secret && <span>{t("Details hidden")}</span>}
         </p>
       </div>
     </li>

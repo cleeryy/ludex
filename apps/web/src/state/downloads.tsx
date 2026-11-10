@@ -20,6 +20,7 @@ import {
   type JobMeter,
   type SpeedPoint,
 } from "@/lib/eta";
+import { t } from "@/lib/i18n";
 
 const ACTIVE_PHASES: ReadonlySet<InstallJob["phase"]> = new Set(["queued", "downloading", "extracting", "finalizing"]);
 
@@ -285,15 +286,15 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
         announced.current.add(job.jobId);
         installedChanged = true;
         push({
-          title: `${titleFor(job)} installed`,
-          description: "It is ready to play from the library.",
+          title: t("{title} installed", { title: titleFor(job) }),
+          description: t("It is ready to play from the library."),
           tone: "success",
         });
       } else if (job.phase === "error" && !announced.current.has(job.jobId)) {
         announced.current.add(job.jobId);
         push({
-          title: `${titleFor(job)} failed to install`,
-          description: job.message ?? "Open Downloads to resume it.",
+          title: t("{title} failed to install", { title: titleFor(job) }),
+          description: job.message ?? t("Open Downloads to resume it."),
           tone: "danger",
         });
       }
@@ -384,7 +385,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
         await installBridge.cancel(jobId);
         await refresh();
       } catch (cause) {
-        push({ title: "Could not cancel the install", description: errorMessage(cause), tone: "danger" });
+        push({ title: t("Could not cancel the install"), description: errorMessage(cause), tone: "danger" });
       }
     },
     [refresh, push],
@@ -396,7 +397,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
         await installBridge.pause(jobId);
         await refresh();
       } catch (cause) {
-        push({ title: "Could not pause the install", description: errorMessage(cause), tone: "danger" });
+        push({ title: t("Could not pause the install"), description: errorMessage(cause), tone: "danger" });
       }
     },
     [refresh, push],
@@ -430,7 +431,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
           executable: info.executable,
         });
       } catch (cause) {
-        push({ title: "Could not resume the install", description: errorMessage(cause), tone: "danger" });
+        push({ title: t("Could not resume the install"), description: errorMessage(cause), tone: "danger" });
         return null;
       }
     },
@@ -453,7 +454,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
           stream: false,
         });
       } catch (cause) {
-        push({ title: "Could not retry the install as a download", description: errorMessage(cause), tone: "danger" });
+        push({ title: t("Could not retry the install as a download"), description: errorMessage(cause), tone: "danger" });
         return null;
       }
     },
@@ -476,7 +477,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
           stream: true,
         });
       } catch (cause) {
-        push({ title: "Could not retry the stream install", description: errorMessage(cause), tone: "danger" });
+        push({ title: t("Could not retry the stream install"), description: errorMessage(cause), tone: "danger" });
         return null;
       }
     },
@@ -490,7 +491,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
         // install folder or `.part` file.
         await installBridge.remove(jobId);
       } catch (cause) {
-        push({ title: "Could not remove the download from history", description: errorMessage(cause), tone: "danger" });
+        push({ title: t("Could not remove the download from history"), description: errorMessage(cause), tone: "danger" });
         return;
       }
       // Drop it locally right away so the row disappears without waiting for
@@ -524,7 +525,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     } catch (cause) {
       // Keep the history as-is; the next list poll restores nothing that was
       // not already there.
-      push({ title: "Could not clear the download history", description: errorMessage(cause), tone: "danger" });
+      push({ title: t("Could not clear the download history"), description: errorMessage(cause), tone: "danger" });
       return 0;
     }
   }, [refresh, push]);
@@ -534,7 +535,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       try {
         await installBridge.openPath(path);
       } catch {
-        push({ title: "Folder paths live on the desktop", description: path });
+        push({ title: t("Folder paths live on the desktop"), description: path });
       }
     },
     [push],

@@ -9,6 +9,7 @@ import { useAuth } from "@/state/auth";
 import { AuthLayout } from "@/components/auth-layout";
 import { Button, Field, Input } from "@/components/ui/controls";
 import { cn } from "@/lib/cn";
+import { t, tr } from "@/lib/i18n";
 
 type Stage = "choose" | "local" | "remote" | "create" | "login";
 
@@ -27,8 +28,8 @@ export function SetupScreen() {
 
   return (
     <AuthLayout
-      statement="One account. Then the library."
-      note={`${setup?.serverName ?? "This server"} has no users yet. The account you create now is the administrator, and it stays on this machine.`}
+      statement={t("One account. Then the library.")}
+      note={`${setup?.serverName ?? t("This server")} has no users yet. The account you create now is the administrator, and it stays on this machine.`}
     >
       <CreateAdminForm serverName={setup?.serverName ?? "Ludex"} />
     </AuthLayout>
@@ -50,9 +51,9 @@ function CreateAdminForm({ serverName }: { serverName: string }) {
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
-    if (username.trim().length < 3) return setError("Use at least three characters for the username.");
-    if (password.length < 8) return setError("Use at least eight characters for the password.");
-    if (password !== confirm) return setError("The two passwords do not match.");
+    if (username.trim().length < 3) return setError(t("Use at least three characters for the username."));
+    if (password.length < 8) return setError(t("Use at least eight characters for the password."));
+    if (password !== confirm) return setError(t("The two passwords do not match."));
     setBusy(true);
     try {
       await completeSetup({ username: username.trim(), password, serverName: name.trim() || undefined });
@@ -67,17 +68,17 @@ function CreateAdminForm({ serverName }: { serverName: string }) {
   return (
     <form onSubmit={submit} className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">Set up this server</h1>
+        <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">{t("Set up this server")}</h1>
         <p className="measure text-[13px] leading-relaxed text-ink-3">
-          This is the first run. Create the administrator account; everything else is managed from inside the app.
+          {t("This is the first run. Create the administrator account; everything else is managed from inside the app.")}
         </p>
       </div>
 
       <div className="flex flex-col gap-4">
-        <Field label="Server name" htmlFor="setup-server" hint="Shown in the app header and on the login screen.">
+        <Field label={t("Server name")} htmlFor="setup-server" hint={t("Shown in the app header and on the login screen.")}>
           <Input id="setup-server" value={name} onChange={(event) => setName(event.target.value)} maxLength={60} />
         </Field>
-        <Field label="Username" htmlFor="setup-username">
+        <Field label={t("Username")} htmlFor="setup-username">
           <Input
             id="setup-username"
             autoComplete="username"
@@ -85,10 +86,10 @@ function CreateAdminForm({ serverName }: { serverName: string }) {
             required
             value={username}
             onChange={(event) => setUsername(event.target.value)}
-            placeholder="Your username"
+            placeholder={t("Your username")}
           />
         </Field>
-        <Field label="Password" htmlFor="setup-password" hint="At least eight characters.">
+        <Field label={t("Password")} htmlFor="setup-password" hint={t("At least eight characters.")}>
           <Input
             id="setup-password"
             type="password"
@@ -98,7 +99,7 @@ function CreateAdminForm({ serverName }: { serverName: string }) {
             onChange={(event) => setPassword(event.target.value)}
           />
         </Field>
-        <Field label="Confirm password" htmlFor="setup-confirm">
+        <Field label={t("Confirm password")} htmlFor="setup-confirm">
           <Input
             id="setup-confirm"
             type="password"
@@ -116,13 +117,13 @@ function CreateAdminForm({ serverName }: { serverName: string }) {
         </p>
       )}
 
-      <Button type="submit" variant="primary" size="lg" loading={busy} iconRight={<ArrowRight className="size-4" />}>
-        Create administrator
+      <Button type="submit" variant="primary" size="lg" loading={busy} iconRight={<ArrowRight className="rtl:-scale-x-100 size-4" />}>
+        {t("Create administrator")}
       </Button>
 
       {USING_MOCKS && (
         <p className="text-[12px] leading-relaxed text-ink-3">
-          Demo build. This writes a demo administrator to local storage; nothing leaves the browser.
+          {t("Demo build. This writes a demo administrator to local storage; nothing leaves the browser.")}
         </p>
       )}
     </form>
@@ -159,8 +160,8 @@ function DesktopWizard() {
 
   const startLocal = async () => {
     setError(null);
-    if (!gamesDir) return setError("Choose the folder where your game archives live.");
-    if (!installDir) return setError("Choose the folder where games should be installed.");
+    if (!gamesDir) return setError(t("Choose the folder where your game archives live."));
+    if (!installDir) return setError(t("Choose the folder where games should be installed."));
     setBusy(true);
     try {
       const current = await loadSettings();
@@ -187,7 +188,7 @@ function DesktopWizard() {
   const connect = async () => {
     setError(null);
     const url = normalizeUrl(remoteUrl);
-    if (!url) return setError("Enter the address of your Ludex server.");
+    if (!url) return setError(t("Enter the address of your Ludex server."));
     setBusy(true);
     try {
       setApiBase(url);
@@ -230,12 +231,12 @@ function DesktopWizard() {
   if (stage === "create" || stage === "login") {
     return (
       <AuthLayout
-        statement="Connected to your own shelf."
-        note={`${status?.serverName ?? "Server"} at ${normalizeUrl(remoteUrl)}. The account stays on that server.`}
+        statement={t("Connected to your own shelf.")}
+        note={`${status?.serverName ?? t("Server")} at ${normalizeUrl(remoteUrl)}. The account stays on that server.`}
         footer={
           <button type="button" onClick={back} className="flex items-center gap-1.5 hover:text-ink">
-            <ArrowLeft className="size-3" />
-            Use another address
+            <ArrowLeft className="rtl:-scale-x-100 size-3" />
+            {t("Use another address")}
           </button>
         }
       >
@@ -251,41 +252,41 @@ function DesktopWizard() {
 
   return (
     <AuthLayout
-      statement="Your library, on your hardware."
-      note="Local mode runs the Ludex server inside this app on 127.0.0.1. Nothing is exposed to the network unless you choose a remote server."
+      statement={t("Your library, on your hardware.")}
+      note={t("Local mode runs the Ludex server inside this app on 127.0.0.1. Nothing is exposed to the network unless you choose a remote server.")}
     >
       <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
-          <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">Set up Ludex</h1>
+          <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">{t("Set up Ludex")}</h1>
           <p className="text-[13px] leading-relaxed text-ink-3">
-            {stage === "choose" ? "Choose where the library lives." : stage === "local" ? "Point the app at your folders." : "Connect to a server you already run."}
+            {stage === "choose" ? t("Choose where the library lives.") : stage === "local" ? t("Point the app at your folders.") : t("Connect to a server you already run.")}
           </p>
         </div>
 
         {stage !== "choose" && (
           <button type="button" onClick={back} className="flex w-fit items-center gap-1.5 text-[12.5px] text-ink-3 hover:text-ink">
-            <ArrowLeft className="size-3.5" />
-            Back
+            <ArrowLeft className="rtl:-scale-x-100 size-3.5" />
+            {t("Back")}
           </button>
         )}
 
         {stage === "choose" && (
           <div className="flex flex-col gap-2">
             <ModePlate
-              title="Local library"
-              description="Run the server in this app and point it at a folder of archives."
+              title={t("Local library")}
+              description={t("Run the server in this app and point it at a folder of archives.")}
               icon={<HardDrive className="size-4" />}
               onClick={() => setStage("local")}
             />
             <ModePlate
-              title="Connect to a server"
-              description="Use a Ludex server on your network or the internet."
+              title={t("Connect to a server")}
+              description={t("Use a Ludex server on your network or the internet.")}
               icon={<Server className="size-4" />}
               onClick={() => setStage("remote")}
             />
             {USING_MOCKS && (
               <p className="pt-2 text-[12px] leading-relaxed text-ink-3">
-                Demo build. The embedded server is not running here, so local mode will report that it is unavailable. Remote mode and the browser setup work against the mock API.
+                {t("Demo build. The embedded server is not running here, so local mode will report that it is unavailable. Remote mode and the browser setup work against the mock API.")}
               </p>
             )}
           </div>
@@ -294,32 +295,32 @@ function DesktopWizard() {
         {stage === "local" && (
           <div className="flex flex-col gap-4">
             <PathPicker
-              label="Games folder"
-              hint="Archives and portable executables. Ludex scans three levels deep."
+              label={t("Games folder")}
+              hint={t("Archives and portable executables. Ludex scans three levels deep.")}
               value={gamesDir}
               onPick={() => void pick(setGamesDir, "Choose the games folder")}
             />
             <PathPicker
-              label="Install folder"
-              hint="Where extracted games are placed."
+              label={t("Install folder")}
+              hint={t("Where extracted games are placed.")}
               value={installDir}
               onPick={() => void pick(setInstallDir, "Choose the install folder")}
             />
             <PathPicker
-              label="Download cache"
-              hint="Optional. Archives are deleted after extraction by default."
+              label={t("Download cache")}
+              hint={t("Optional. Archives are deleted after extraction by default.")}
               value={downloadDir}
               onPick={() => void pick(setDownloadDir, "Choose the download folder")}
             />
-            <Button variant="primary" size="lg" onClick={() => void startLocal()} loading={busy} iconRight={<ArrowRight className="size-4" />}>
-              Start the local library
+            <Button variant="primary" size="lg" onClick={() => void startLocal()} loading={busy} iconRight={<ArrowRight className="rtl:-scale-x-100 size-4" />}>
+              {t("Start the local library")}
             </Button>
           </div>
         )}
 
         {stage === "remote" && (
           <div className="flex flex-col gap-4">
-            <Field label="Server address" htmlFor="remote-url" hint="For example http://192.168.1.20:8080">
+            <Field label={t("Server address")} htmlFor="remote-url" hint="For example http://192.168.1.20:8080">
               <Input
                 id="remote-url"
                 value={remoteUrl}
@@ -332,8 +333,8 @@ function DesktopWizard() {
                 }}
               />
             </Field>
-            <Button variant="primary" size="lg" onClick={() => void connect()} loading={busy} iconRight={<ArrowRight className="size-4" />}>
-              Connect
+            <Button variant="primary" size="lg" onClick={() => void connect()} loading={busy} iconRight={<ArrowRight className="rtl:-scale-x-100 size-4" />}>
+              {t("Connect")}
             </Button>
           </div>
         )}
@@ -345,7 +346,7 @@ function DesktopWizard() {
         )}
 
         <p className="border-t border-line pt-4 text-[11.5px] leading-relaxed text-ink-3">
-          {setup?.serverName ?? "Ludex"} stores settings in the desktop app, not in this page. You can change the mode later from Settings.
+          {tr("{name} stores settings in the desktop app, not in this page. You can change the mode later from Settings.", { name: setup?.serverName ?? "Ludex" })}
         </p>
       </div>
     </AuthLayout>
@@ -376,7 +377,7 @@ function ModePlate({
       <span className="flex-1">
         <span className="flex items-center justify-between gap-3">
           <span className="text-[14.5px] font-medium text-ink">{title}</span>
-          <ArrowRight className="size-3.5 text-ink-3 transition-transform group-hover:translate-x-0.5" />
+          <ArrowRight className="rtl:-scale-x-100 size-3.5 text-ink-3 transition-transform group-hover:translate-x-0.5" />
         </span>
         <span className="mt-1 block text-[12.5px] leading-relaxed text-ink-3">{description}</span>
       </span>
@@ -399,7 +400,7 @@ function PathPicker({
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-[13px] font-medium text-ink">{label}</span>
-        {value && <Check className="size-3.5 text-ok" aria-label="Selected" />}
+        {value && <Check className="size-3.5 text-ok" aria-label={t("Selected")} />}
       </div>
       <button
         type="button"
@@ -408,9 +409,9 @@ function PathPicker({
       >
         <FolderOpen className="size-4 shrink-0 text-ink-3" aria-hidden="true" />
         <span className={cn("min-w-0 flex-1 truncate font-mono text-[11.5px]", value ? "text-ink-2" : "text-ink-3")}>
-          {value ?? "Choose a folder"}
+          {value ?? t("Choose a folder")}
         </span>
-        <span className="shrink-0 text-[12px] text-ink-3">Browse</span>
+        <span className="shrink-0 text-[12px] text-ink-3">{t("Browse")}</span>
       </button>
       <p className="text-[11.5px] leading-relaxed text-ink-3">{hint}</p>
     </div>
@@ -437,8 +438,8 @@ function RemoteAuthForm({
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
-    if (mode === "create" && password !== confirm) return setError("The two passwords do not match.");
-    if (password.length < 8) return setError("Use at least eight characters for the password.");
+    if (mode === "create" && password !== confirm) return setError(t("The two passwords do not match."));
+    if (password.length < 8) return setError(t("Use at least eight characters for the password."));
     setBusy(true);
     try {
       if (mode === "create") await onCreate({ username: username.trim(), password, serverName });
@@ -454,21 +455,21 @@ function RemoteAuthForm({
     <form onSubmit={submit} className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
         <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">
-          {mode === "create" ? "Create the administrator" : "Sign in"}
+          {mode === "create" ? t("Create the administrator") : t("Sign in")}
         </h1>
         <p className="text-[13px] leading-relaxed text-ink-3">
           {mode === "create" ? `${serverName} has no users yet.` : `Signing in to ${serverName}.`}
         </p>
       </div>
       <div className="flex flex-col gap-4">
-        <Field label="Username" htmlFor="remote-username">
+        <Field label={t("Username")} htmlFor="remote-username">
           <Input id="remote-username" autoComplete="username" autoFocus required value={username} onChange={(event) => setUsername(event.target.value)} />
         </Field>
-        <Field label="Password" htmlFor="remote-password">
+        <Field label={t("Password")} htmlFor="remote-password">
           <Input id="remote-password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
         </Field>
         {mode === "create" && (
-          <Field label="Confirm password" htmlFor="remote-confirm">
+          <Field label={t("Confirm password")} htmlFor="remote-confirm">
             <Input id="remote-confirm" type="password" autoComplete="new-password" required value={confirm} onChange={(event) => setConfirm(event.target.value)} />
           </Field>
         )}
@@ -478,8 +479,8 @@ function RemoteAuthForm({
           {error}
         </p>
       )}
-      <Button type="submit" variant="primary" size="lg" loading={busy} iconRight={<ArrowRight className="size-4" />}>
-        {mode === "create" ? "Create administrator" : "Sign in"}
+      <Button type="submit" variant="primary" size="lg" loading={busy} iconRight={<ArrowRight className="rtl:-scale-x-100 size-4" />}>
+        {mode === "create" ? t("Create administrator") : t("Sign in")}
       </Button>
     </form>
   );
