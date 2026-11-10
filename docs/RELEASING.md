@@ -63,7 +63,14 @@ a stable tag to stop following edge (see [`GITOPS.md`](GITOPS.md)).
 
 ## Version bump (stable)
 
-Before tagging, update every place that carries the version:
+Before tagging, run the bump script:
+
+```bash
+scripts/bump-version.sh 0.3.0
+```
+
+It updates every place that carries the version (and only the package version,
+never a dependency version):
 
 - `Cargo.toml` `[workspace.package].version`
 - `crates/*/Cargo.toml` use `version.workspace = true`; no edit needed unless a
@@ -72,8 +79,25 @@ Before tagging, update every place that carries the version:
 - `apps/desktop/src-tauri/tauri.conf.json` `version`
 - `package.json`, `apps/web/package.json`, `apps/desktop/package.json`,
   `e2e/package.json`
-- `CHANGELOG.md` (move `Unreleased` notes under the new version and date)
-- Refresh `Cargo.lock`, `apps/desktop/src-tauri/Cargo.lock` and `pnpm-lock.yaml`
+
+Then update `CHANGELOG.md` (move `Unreleased` notes under the new version and
+date) and refresh `Cargo.lock`, `apps/desktop/src-tauri/Cargo.lock` and
+`pnpm-lock.yaml`. The script prints the exact commands.
+
+### Milestone releases
+
+The roadmap is cut along the issue milestones, so a release only ships the
+issues closed for that milestone:
+
+| Release | Milestone | Scope |
+|---|---|---|
+| `v0.3.0` | `v0.3` | GameVault import, RAR/7z streaming, share links, OpenAPI, artwork, parental controls, PostgreSQL option, user editing, OIDC admin UI, download ETA/graph, save discovery and auto-sync, download history |
+| `v0.4.0` | `v0.4` | Auth hardening, multipart upload, i18n FR/EN, profiles, controller profiles, emulators, Linux runtimes (UMU/Proton, Steam discovery, ProtonDB, Wine profiles, installers), storage locations, config editor and adapters, custom title bar |
+| `v0.5.0` | `v0.5` | macOS signing, metadata plugins, mobile/PWA, Sunshine/Moonlight, community locales/RTL |
+
+Do not tag a milestone release while an issue carrying that milestone is still
+open; ship it as a patch of the previous line and move the remaining issue, or
+close it with evidence first.
 
 Confirm the license metadata matches the release: v0.2.0 and later is
 AGPL-3.0-or-later. Do not tag until the `LICENSE` file, README badge, Cargo
