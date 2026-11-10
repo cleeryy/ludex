@@ -83,7 +83,9 @@ jobs:
           NAME="ludex-server-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu"
           mkdir -p "dist/${NAME}"
           cp target/release/ludex-server "dist/${NAME}/"
-          cp README.md LICENSE-MIT LICENSE-APACHE "dist/${NAME}/"
+          for file in README.md LICENSE; do
+            if [ -f "$file" ]; then cp "$file" "dist/${NAME}/"; fi
+          done
           strip "dist/${NAME}/ludex-server" || true
           tar -czf "dist/${NAME}.tar.gz" -C "dist/${NAME}" .
           (cd dist && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")

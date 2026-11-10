@@ -3,7 +3,7 @@ name = "ludex-desktop"
 version = "0.2.0"
 description = "Ludex desktop app: install, launch and track DRM-free games"
 authors = ["cleeryy"]
-license = "MIT OR Apache-2.0"
+license = "AGPL-3.0-or-later"
 repository = "https://github.com/cleeryy/ludex"
 edition = "2021"
 

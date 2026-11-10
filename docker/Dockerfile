@@ -65,7 +65,7 @@ FROM debian:bookworm-slim AS runtime
 LABEL org.opencontainers.image.title="Ludex" \
       org.opencontainers.image.description="Self-hosted game library server" \
       org.opencontainers.image.source="https://github.com/cleeryy/ludex" \
-      org.opencontainers.image.licenses="MIT OR Apache-2.0"
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \

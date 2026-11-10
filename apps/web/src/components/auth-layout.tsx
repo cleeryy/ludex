@@ -58,7 +58,16 @@ export function AuthLayout({
         </div>
         <footer className="flex items-center justify-between gap-4 text-[11px] text-ink-3">
           <span className="num">v0.1.0</span>
-          {footer ?? <span>MIT OR Apache-2.0</span>}
+          {footer ?? (
+            <a
+              href="https://github.com/cleeryy/ludex/blob/main/LICENSE"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-ink"
+            >
+              AGPL-3.0
+            </a>
+          )}
         </footer>
       </main>
     </div>

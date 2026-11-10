@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://github.com/cleeryy/ludex/actions/workflows/ci.yml"><img src="https://github.com/cleeryy/ludex/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/cleeryy/ludex/releases"><img src="https://img.shields.io/github/v/release/cleeryy/ludex?include_prereleases&amp;sort=semver" alt="Release"></a>
-  <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="MIT OR Apache-2.0"></a>
+  <a href="#license"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="AGPL-3.0"></a>
   <a href="https://github.com/cleeryy/ludex/pkgs/container/ludex"><img src="https://img.shields.io/badge/ghcr.io-cleeryy%2Fludex-informational" alt="GHCR image"></a>
 </p>
 
@@ -21,7 +21,7 @@
 > Features are marked with the release that introduced them; anything marked
 > *roadmap* is not in v0.2. Bug reports and migration feedback are welcome.
 
-Ludex is a clean-room, MIT OR Apache-2.0 licensed alternative to
+Ludex is a clean-room, AGPL-3.0 licensed alternative to
 [GameVault](https://gamevault.app). It is not affiliated with or endorsed by
 GameVault, and contains no GameVault code.
 
@@ -36,7 +36,7 @@ GameVault, and contains no GameVault code.
 GameVault is source-available, not open source, and its server is a TypeScript
 application backed by PostgreSQL. Ludex takes a different route:
 
-- **Open source, for real.** MIT OR Apache-2.0, no open-core tier, no paid
+- **Open source, for real.** AGPL-3.0, no open-core tier, no paid
   feature gate.
 - **One binary.** Rust + axum + SQLite. No Node runtime, no PostgreSQL,
   no Redis. `docker run` with three volumes is the whole deployment.
@@ -270,8 +270,9 @@ internet. Do not expose the data directory or the SQLite file.
 
 ## License and clean-room statement
 
-Ludex is licensed under **MIT OR Apache-2.0**, at your option. See
-[`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE`](LICENSE-APACHE).
+Ludex v0.2.0 and later is licensed under the **GNU Affero General Public License
+v3.0 or later** (AGPL-3.0-or-later). See [`LICENSE`](LICENSE). v0.1.0 was
+released under MIT OR Apache-2.0; that historical grant is not revoked.
 
 Ludex is an independent clean-room implementation. No GameVault source code was
 copied, translated or vendored. GameVault is a trademark of its respective
