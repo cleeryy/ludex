@@ -30,6 +30,7 @@ import { ScanScreen } from "@/screens/admin/scan";
 import { UsersScreen } from "@/screens/admin/users";
 import { AdminNewsScreen } from "@/screens/admin/news";
 import { ServerScreen } from "@/screens/admin/server";
+import { UploadScreen } from "@/screens/admin/upload";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -182,6 +183,14 @@ export function App() {
                     element={
                       <RequireEditor>
                         <IngestScreen />
+                      </RequireEditor>
+                    }
+                  />
+                  <Route
+                    path="admin/upload"
+                    element={
+                      <RequireEditor>
+                        <UploadScreen />
                       </RequireEditor>
                     }
                   />

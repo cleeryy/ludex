@@ -17,9 +17,11 @@ import type {
   ActivityKind,
   ActivityPage,
   AuthResult,
+  AuthSession,
   Collection,
   CollectionGamesResponse,
   CollectionInput,
+  CompleteUploadResponse,
   GameDetail,
   GameList,
   GameListQuery,
@@ -43,6 +45,8 @@ import type {
   SetupStatus,
   SmartRules,
   SuggestResponse,
+  UploadPartResponse,
+  UploadSession,
   User,
 } from "@/lib/types";
 import { evaluateRules } from "@/lib/collections";
@@ -522,6 +526,10 @@ function startTicker() {
 }
 
 startTicker();
+
+/* ------------------------------ demo state ------------------------------- */
+
+const demoUploads = new Map<string, UploadSession>();
 
 /* ---------------------------------- api ---------------------------------- */
 
@@ -1245,6 +1253,128 @@ export const mockApi = {
   /* collections */
   async installed(): Promise<InstalledGame[]> {
     return [];
+  },
+
+
+  /* sessions */
+  async listSessions(token: string | null): Promise<AuthSession[]> {
+    await latency();
+    const user = currentUser(token);
+    const now = new Date().toISOString();
+    return [
+      {
+        id: 1,
+        userAgent: navigator.userAgent,
+        ip: "127.0.0.1",
+        createdAt: now,
+        lastSeenAt: now,
+        expiresAt: new Date(Date.now() + 7 * 24 * 3600_000).toISOString(),
+        revokedAt: null,
+        current: true,
+      },
+      ...(user.role === "admin"
+        ? []
+        : []),
+    ];
+  },
+
+  async revokeSession(token: string | null, id: number): Promise<void> {
+    await latency();
+    currentUser(token);
+    if (id === 1) fail(400, "session_current", "Sign out to revoke the current session");
+  },
+
+  /* resumable uploads */
+  async initUpload(
+    token: string | null,
+    body: { fileName: string; size: number; sha256?: string | null },
+  ): Promise<UploadSession> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role === "user") fail(403, "forbidden", "Editor role required");
+    const chunkSize = 8 * 1024 * 1024;
+    const now = new Date().toISOString();
+    const upload: UploadSession = {
+      id: `demo-upload-${Date.now().toString(36)}`,
+      fileName: body.fileName,
+      size: body.size,
+      sha256: body.sha256 ?? null,
+      chunkSize,
+      totalParts: Math.max(1, Math.ceil(body.size / chunkSize)),
+      receivedBytes: 0,
+      receivedParts: [],
+      status: "open",
+      createdAt: now,
+      updatedAt: now,
+      gameId: null,
+      versionId: null,
+      error: null,
+    };
+    demoUploads.set(upload.id, upload);
+    return clone(upload);
+  },
+
+  async getUpload(token: string | null, id: string): Promise<UploadSession> {
+    await latency();
+    currentUser(token);
+    const upload = demoUploads.get(id);
+    if (!upload) fail(404, "upload_not_found", "Upload not found");
+    return clone(upload);
+  },
+
+  async uploadPart(
+    token: string | null,
+    id: string,
+    part: number,
+    chunk: Blob,
+    onProgress?: (loaded: number) => void,
+  ): Promise<UploadPartResponse> {
+    currentUser(token);
+    const upload = demoUploads.get(id);
+    if (!upload) fail(404, "upload_not_found", "Upload not found");
+    await sleep(220);
+    onProgress?.(chunk.size);
+    if (!upload.receivedParts.includes(part)) {
+      upload.receivedParts = [...upload.receivedParts, part].sort((a, b) => a - b);
+      upload.receivedBytes += chunk.size;
+    }
+    upload.updatedAt = new Date().toISOString();
+    return {
+      id,
+      part,
+      receivedBytes: upload.receivedBytes,
+      receivedParts: upload.receivedParts.length,
+      totalParts: upload.totalParts,
+    };
+  },
+
+  async completeUpload(token: string | null, id: string): Promise<CompleteUploadResponse> {
+    await latency();
+    currentUser(token);
+    const upload = demoUploads.get(id);
+    if (!upload) fail(404, "upload_not_found", "Upload not found");
+    if (upload.receivedParts.length !== upload.totalParts) {
+      fail(400, "upload_incomplete", "Some chunks are still missing");
+    }
+    const game = visibleGames()[0];
+    upload.status = "complete";
+    upload.gameId = game?.id ?? 1;
+    upload.versionId = game?.versions[0]?.id ?? 1;
+    upload.updatedAt = new Date().toISOString();
+    return {
+      id,
+      gameId: upload.gameId,
+      versionId: upload.versionId,
+      fileName: upload.fileName,
+      size: upload.size,
+      sha256: upload.sha256,
+    };
+  },
+
+  async cancelUpload(token: string | null, id: string): Promise<void> {
+    await latency();
+    currentUser(token);
+    demoUploads.delete(id);
   },
 
 };

@@ -4,9 +4,11 @@ import { mockApi } from "@/lib/mock";
 import type {
   ActivityPage,
   AuthResult,
+  AuthSession,
   Collection,
   CollectionGamesResponse,
   CollectionInput,
+  CompleteUploadResponse,
   GameDetail,
   GameList,
   GameListQuery,
@@ -27,6 +29,8 @@ import type {
   ServerConfig,
   SetupStatus,
   SuggestResponse,
+  UploadPartResponse,
+  UploadSession,
   User,
 } from "@/lib/types";
 
@@ -443,6 +447,47 @@ export const api = {
   },
 
 
+  /* sessions */
+  listSessions(): Promise<AuthSession[]> {
+    return USING_MOCKS ? mockApi.listSessions(tokenStore.get()) : request<AuthSession[]>("/auth/sessions");
+  },
+  revokeSession(id: number): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.revokeSession(tokenStore.get(), id)
+      : request(`/auth/sessions/${id}`, { method: "DELETE" });
+  },
+
+  /* resumable uploads */
+  initUpload(body: { fileName: string; size: number; sha256?: string | null }): Promise<UploadSession> {
+    return USING_MOCKS
+      ? mockApi.initUpload(tokenStore.get(), body)
+      : request<UploadSession>("/uploads", { method: "POST", body });
+  },
+  getUpload(id: string): Promise<UploadSession> {
+    return USING_MOCKS
+      ? mockApi.getUpload(tokenStore.get(), id)
+      : request<UploadSession>(`/uploads/${encodeURIComponent(id)}`);
+  },
+  uploadPart(
+    id: string,
+    part: number,
+    chunk: Blob,
+    onProgress?: (loaded: number) => void,
+  ): Promise<UploadPartResponse> {
+    if (USING_MOCKS) return mockApi.uploadPart(tokenStore.get(), id, part, chunk, onProgress);
+    return putChunk<UploadPartResponse>(`/uploads/${encodeURIComponent(id)}/parts/${part}`, chunk, onProgress);
+  },
+  completeUpload(id: string): Promise<CompleteUploadResponse> {
+    return USING_MOCKS
+      ? mockApi.completeUpload(tokenStore.get(), id)
+      : request<CompleteUploadResponse>(`/uploads/${encodeURIComponent(id)}/complete`, { method: "POST" });
+  },
+  cancelUpload(id: string): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.cancelUpload(tokenStore.get(), id)
+      : request(`/uploads/${encodeURIComponent(id)}`, { method: "DELETE" });
+  },
+
   /* news */
   listNews(): Promise<NewsPost[]> {
     return USING_MOCKS ? mockApi.listNews() : request<NewsPost[]>("/news");
@@ -485,6 +530,55 @@ function filenameFromDisposition(disposition: string): string | null {
   }
   const plain = /filename="?([^";]+)"?/i.exec(disposition);
   return plain?.[1] ?? null;
+}
+
+/**
+ * Raw binary chunk upload. Uses XHR for progress and to keep the body
+ * untouched (a fetch Blob body would otherwise be copied for large chunks).
+ */
+function putChunk<T>(
+  path: string,
+  chunk: Blob,
+  onProgress?: (loaded: number) => void,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", buildUrl(path));
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    const token = tokenStore.get();
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded);
+    };
+    xhr.onerror = () => reject(new ApiError(0, "network_error", "Cannot reach the server. Check that it is running."));
+    xhr.onload = () => {
+      let payload: unknown = null;
+      if (xhr.responseText) {
+        try {
+          payload = JSON.parse(xhr.responseText);
+        } catch {
+          payload = null;
+        }
+      }
+      if (xhr.status === 401) {
+        tokenStore.clear();
+        window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(payload as T);
+        return;
+      }
+      const envelope = payload as { error?: { code?: string; message?: string } } | null;
+      reject(
+        new ApiError(
+          xhr.status,
+          envelope?.error?.code ?? "upload_failed",
+          envelope?.error?.message ?? `The server refused the chunk (${xhr.status}).`,
+        ),
+      );
+    };
+    xhr.send(chunk);
+  });
 }
 
 /**
