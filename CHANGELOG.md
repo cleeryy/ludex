@@ -60,6 +60,12 @@ All notable changes to Ludex are documented here. The format is based on
 - Desktop: the local database is schema v3, adding the `install_manifests`
   table. The migration is additive and runs automatically on start.
 
+### Fixed
+
+- Dialog forms no longer lose focus on every keystroke: the open/close effect no
+  longer re-runs when callers pass inline `onOpenChange` callbacks (news editor,
+  create-user form and every other dialog). Added a Playwright regression test.
+
 ## [0.2.0] - 2026-11-10
 
 ### Added

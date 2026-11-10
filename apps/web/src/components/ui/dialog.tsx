@@ -34,6 +34,17 @@ export function Dialog({
   const titleId = useId();
   const descriptionId = useId();
   const reduce = useReducedMotion();
+  // Callers pass inline callbacks, so their identity changes on every parent
+  // render (for example on each keystroke in a form). Reading them through a
+  // ref keeps the open/close effect keyed to `open` only; otherwise its
+  // cleanup restores focus to the trigger and the setup refocuses the panel,
+  // stealing focus from the input being typed in.
+  const onOpenChangeRef = useRef(onOpenChange);
+  const dismissibleRef = useRef(dismissible);
+  useEffect(() => {
+    onOpenChangeRef.current = onOpenChange;
+    dismissibleRef.current = dismissible;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -41,12 +52,16 @@ export function Dialog({
     const scrollRoot = document.querySelector<HTMLElement>("[data-scroll-root]");
     const previousOverflow = scrollRoot?.style.overflow;
     if (scrollRoot) scrollRoot.style.overflow = "hidden";
-    requestAnimationFrame(() => panelRef.current?.focus({ preventScroll: true }));
+    const frame = requestAnimationFrame(() => {
+      const panel = panelRef.current;
+      // An autoFocus field inside the dialog must keep focus.
+      if (panel && !panel.contains(document.activeElement)) panel.focus({ preventScroll: true });
+    });
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && dismissible) {
+      if (event.key === "Escape" && dismissibleRef.current) {
         event.preventDefault();
-        onOpenChange(false);
+        onOpenChangeRef.current(false);
         return;
       }
       if (event.key !== "Tab") return;
@@ -71,11 +86,12 @@ export function Dialog({
 
     document.addEventListener("keydown", onKeyDown);
     return () => {
+      cancelAnimationFrame(frame);
       document.removeEventListener("keydown", onKeyDown);
       if (scrollRoot) scrollRoot.style.overflow = previousOverflow ?? "";
       previous?.focus?.({ preventScroll: true });
     };
-  }, [open, onOpenChange, dismissible]);
+  }, [open]);
 
   return createPortal(
     <AnimatePresence>
