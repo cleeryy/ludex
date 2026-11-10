@@ -1,5 +1,7 @@
 import type {
   DiskUsage,
+  GamePlaytime,
+  GameUpdate,
   InstallGameArgs,
   InstallJob,
   InstalledGame,
@@ -7,6 +9,9 @@ import type {
   MoveProgress,
   RepairProgress,
   RepairReport,
+  UpdateInstalled,
+  UpdateProgress,
+  UpdateStatus,
   VerifyProgress,
   VerifyReport,
 } from "@/lib/types";
@@ -91,6 +96,50 @@ export const native = {
     return invoke<InstallJob>("get_install_job", { jobId });
   },
 
+  async listRecentGames(limit?: number): Promise<InstalledGame[]> {
+    if (!isNative()) return [];
+    try {
+      return await invoke<InstalledGame[]>("list_recent_games", { limit });
+    } catch {
+      return [];
+    }
+  },
+
+  async getGamePlaytime(gameId: number, days?: number, sessions?: number): Promise<GamePlaytime | null> {
+    if (!isNative()) return null;
+    try {
+      return await invoke<GamePlaytime>("get_game_playtime", { gameId, days, sessions });
+    } catch {
+      return null;
+    }
+  },
+
+  async checkGameUpdates(): Promise<GameUpdate[]> {
+    if (!isNative()) return [];
+    try {
+      return await invoke<GameUpdate[]>("check_game_updates");
+    } catch {
+      return [];
+    }
+  },
+
+  async updateGame(gameId: number): Promise<InstallJob> {
+    return invoke<InstallJob>("update_game", { gameId });
+  },
+
+  async checkForUpdates(manual = true): Promise<UpdateStatus> {
+    return invoke<UpdateStatus>("check_for_updates", { manual });
+  },
+
+  async installUpdate(): Promise<UpdateStatus> {
+    return invoke<UpdateStatus>("install_update");
+  },
+
+  async restartApp(): Promise<void> {
+    if (!isNative()) return;
+    await invoke<null>("restart_app");
+  },
+
   async listInstalled(): Promise<InstalledGame[]> {
     if (!isNative()) return [];
     try {
@@ -164,8 +213,35 @@ export const native = {
     return listen<RepairProgress>("install://repair-progress", handler);
   },
 
-  async onGameExited(handler: (payload: { sessionId: string; gameId: number; minutesPlayed: number }) => void): Promise<() => void> {
-    return listen<{ sessionId: string; gameId: number; minutesPlayed: number }>("game://exited", handler);
+  async onGameExited(
+    handler: (payload: { sessionId: string; gameId: number; minutesPlayed: number; secondsPlayed: number }) => void,
+  ): Promise<() => void> {
+    return listen<{ sessionId: string; gameId: number; minutesPlayed: number; secondsPlayed: number }>(
+      "game://exited",
+      handler,
+    );
+  },
+
+  /** Tray navigation: the menu asked the UI to open a route. */
+  async onNavigate(handler: (path: string) => void): Promise<() => void> {
+    return listen<string>("ui://navigate", handler);
+  },
+
+  /** Tray "Recent games": launch this game immediately. */
+  async onLaunchGame(handler: (gameId: number) => void): Promise<() => void> {
+    return listen<number>("ui://launch", handler);
+  },
+
+  async onUpdateAvailable(handler: (status: UpdateStatus) => void): Promise<() => void> {
+    return listen<UpdateStatus>("update://available", handler);
+  },
+
+  async onUpdateProgress(handler: (progress: UpdateProgress) => void): Promise<() => void> {
+    return listen<UpdateProgress>("update://progress", handler);
+  },
+
+  async onUpdateInstalled(handler: (payload: UpdateInstalled) => void): Promise<() => void> {
+    return listen<UpdateInstalled>("update://installed", handler);
   },
 
   async onLocalServerStatus(handler: (payload: { running: boolean; url: string | null }) => void): Promise<() => void> {
@@ -192,4 +268,8 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   keepArchives: false,
   archivePasswords: [],
   bandwidthLimitKib: 0,
+  closeToTray: true,
+  updateChannel: "stable",
+  checkUpdatesOnStartup: true,
+  lastUpdateCheckAt: null,
 };

@@ -222,6 +222,10 @@ const DEFAULT_SETTINGS: LocalSettings = {
   keepArchives: false,
   archivePasswords: [],
   bandwidthLimitKib: 0,
+  closeToTray: true,
+  updateChannel: "stable",
+  checkUpdatesOnStartup: true,
+  lastUpdateCheckAt: null,
 };
 
 function loadSettings(): LocalSettings {

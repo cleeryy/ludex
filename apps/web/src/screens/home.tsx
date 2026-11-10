@@ -8,7 +8,15 @@ import { errorMessage } from "@/lib/http";
 import { formatBytes, formatMinutes, formatRating, formatRelative, formatYear, stateLabel } from "@/lib/format";
 import { isNative } from "@/lib/native";
 import { installsAvailable } from "@/lib/install";
-import { useAllGames, useBookmark, useInstalledMap, useLaunchGame } from "@/lib/hooks";
+import {
+  useAllGames,
+  useBookmark,
+  useInstalledMap,
+  useLaunchGame,
+  useRecentGames,
+  useUpdateGame,
+  useUpdateMap,
+} from "@/lib/hooks";
 import { useIsEditor } from "@/state/auth";
 import { useDownloads } from "@/state/downloads";
 import { useToast } from "@/state/toasts";
@@ -25,6 +33,9 @@ export function HomeScreen() {
   const installed = useInstalledMap();
   const downloads = useDownloads();
   const launch = useLaunchGame();
+  const updates = useUpdateMap();
+  const updateGame = useUpdateGame();
+  const recentOnDevice = useRecentGames(6);
   const bookmark = useBookmark();
   const [installOpen, setInstallOpen] = useState(false);
 
@@ -59,6 +70,9 @@ export function HomeScreen() {
   const heroPct = heroJob?.bytesTotal ? Math.min(100, (heroJob.bytesDone / heroJob.bytesTotal) * 100) : heroJob ? 0 : null;
 
   const recent = played.filter((game) => game.id !== hero?.id).slice(0, 8);
+
+  const gamesById = useMemo(() => new Map(games.map((game) => [game.id, game])), [games]);
+  const deviceGames = (recentOnDevice.data ?? []).filter((entry) => entry.gameId !== hero?.id);
 
   const installingPercent = (gameId: number): number | null => {
     const job = downloads.jobForGame(gameId);
@@ -218,6 +232,60 @@ export function HomeScreen() {
         </div>
       </section>
 
+      {deviceGames.length > 0 && (
+        <section className="mt-12" aria-labelledby="home-device">
+          <SectionHeader
+            title="On this device"
+            description="Installed here, newest launch first."
+            actions={
+              <Link to="/downloads" className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
+                Manage installs
+              </Link>
+            }
+          />
+          <ul id="home-device" className="border-t border-line">
+            {deviceGames.map((entry) => {
+              const game = gamesById.get(entry.gameId);
+              const update = updates.get(entry.gameId);
+              return (
+                <li key={entry.gameId} className="flex items-center gap-4 border-b border-line py-3">
+                  <div className="min-w-0 flex-1">
+                    <Link to={`/game/${entry.gameId}`} className="truncate text-[13.5px] font-medium text-ink hover:underline">
+                      {entry.title}
+                    </Link>
+                    <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5 font-mono text-[10.5px] text-ink-3">
+                      {entry.version && <span>v{entry.version}</span>}
+                      <span>{formatBytes(entry.sizeBytes)}</span>
+                      {entry.lastLaunchedAt && <span>Last played {formatRelative(entry.lastLaunchedAt)}</span>}
+                      {update && <span className="text-signal-text">Update available</span>}
+                    </p>
+                  </div>
+                  {update && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<Download className="size-3.5" />}
+                      onClick={() => updateGame.mutate({ id: entry.gameId, title: entry.title })}
+                    >
+                      Update
+                    </Button>
+                  )}
+                  <Button
+                    variant="default"
+                    size="sm"
+                    icon={<Play className="size-3.5" />}
+                    onClick={() => launch.mutate({ id: entry.gameId, title: entry.title, executable: entry.executable })}
+                  >
+                    Play
+                  </Button>
+                  {!game && <span className="font-mono text-[10px] text-ink-3">Not in this library</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       {recent.length > 0 && (
         <section className="mt-12" aria-labelledby="home-recent">
           <SectionHeader
@@ -305,10 +373,16 @@ export function HomeScreen() {
               index={game.id}
               installed={installed.get(game.id)}
               installing={installingPercent(game.id)}
+              update={updates.get(game.id)}
               onBookmark={() => bookmark.mutate({ id: game.id, bookmarked: !game.bookmarked })}
               onPlay={
                 isNative() && installed.has(game.id)
                   ? () => launch.mutate({ id: game.id, title: game.title, executable: installed.get(game.id)?.executable })
+                  : undefined
+              }
+              onUpdate={
+                isNative() && updates.has(game.id)
+                  ? () => updateGame.mutate({ id: game.id, title: game.title })
                   : undefined
               }
             />

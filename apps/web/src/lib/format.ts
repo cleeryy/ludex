@@ -33,6 +33,17 @@ export function formatMinutes(minutes: number | null | undefined): string | null
   return `${hours}h ${rest}m`;
 }
 
+/** Duration from seconds: `45s`, `12m`, `3h 05m`. */
+export function formatSeconds(seconds: number | null | undefined): string | null {
+  if (!seconds || seconds <= 0) return null;
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}h` : `${hours}h ${String(rest).padStart(2, "0")}m`;
+}
+
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   const date = new Date(iso);

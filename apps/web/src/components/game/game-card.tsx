@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
-import { Bookmark, BookmarkCheck, Play } from "lucide-react";
-import type { GameSummary, InstalledGame } from "@/lib/types";
+import { Bookmark, BookmarkCheck, Play, RefreshCw } from "lucide-react";
+import type { GameSummary, GameUpdate, InstalledGame } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { formatBytes, formatMinutes, formatRating, formatYear } from "@/lib/format";
 import { GameCover } from "@/components/art/cover";
@@ -12,16 +12,21 @@ export function GameCard({
   index,
   installed,
   installing,
+  update,
   onBookmark,
   onPlay,
+  onUpdate,
 }: {
   game: GameSummary;
   index: number;
   installed?: InstalledGame;
   /** Percent complete while an install job is active. */
   installing?: number | null;
+  /** Newer version available on the server (#30). */
+  update?: GameUpdate;
   onBookmark: (next: boolean) => void;
   onPlay?: () => void;
+  onUpdate?: () => void;
 }) {
   const played = formatMinutes(game.minutesPlayed);
 
@@ -44,6 +49,13 @@ export function GameCard({
         {installing !== null && installing !== undefined ? (
           <span className="absolute left-2 top-2 z-[5] inline-flex h-5 items-center rounded-[2px] bg-signal px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-on-signal">
             Installing {installing > 0 ? `${installing.toFixed(0)}%` : ""}
+          </span>
+        ) : update ? (
+          <span
+            className="absolute left-2 top-2 z-[5] inline-flex h-5 items-center rounded-[2px] bg-signal px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-on-signal"
+            title={update.latestVersionLabel ? `Version ${update.latestVersionLabel} is available` : "An update is available"}
+          >
+            Update
           </span>
         ) : installed ? (
           <span className="absolute left-2 top-2 z-[5] inline-flex h-5 items-center rounded-[2px] bg-ink px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-bg">
@@ -82,6 +94,18 @@ export function GameCard({
           </div>
         </div>
         <div className="-my-2 -mr-2 flex shrink-0 items-center">
+          {update && onUpdate && !installing && (
+            <Tooltip label={update.latestVersionLabel ? `Update to ${update.latestVersionLabel}` : "Update"}>
+              <button
+                type="button"
+                onClick={onUpdate}
+                aria-label={`Update ${game.title}`}
+                className="grid size-10 place-items-center rounded-[2px] text-signal-text transition-colors hover:bg-surface hover:text-signal-text max-sm:size-11"
+              >
+                <RefreshCw className="size-[15px]" />
+              </button>
+            </Tooltip>
+          )}
           {installed && !installing && onPlay && (
             <Tooltip label="Play">
               <button

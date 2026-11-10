@@ -176,6 +176,8 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     }
     if (installedChanged) {
       void queryClient.invalidateQueries({ queryKey: ["installed"] });
+      void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
+      void queryClient.invalidateQueries({ queryKey: ["game-updates"] });
       void queryClient.invalidateQueries({ queryKey: ["games"] });
       void queryClient.invalidateQueries({ queryKey: ["game"] });
     }

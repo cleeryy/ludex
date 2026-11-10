@@ -8,7 +8,7 @@ import { cn } from "@/lib/cn";
 import { formatBytes, formatRating, formatYear, stateLabel } from "@/lib/format";
 import { isNative } from "@/lib/native";
 import type { GameListQuery, GameSummary } from "@/lib/types";
-import { useBookmark, useGenres, useInstalledMap, useLaunchGame } from "@/lib/hooks";
+import { useBookmark, useGenres, useInstalledMap, useLaunchGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
 import { useDownloads } from "@/state/downloads";
 import { installsAvailable } from "@/lib/install";
 import { useAuth, useIsEditor } from "@/state/auth";
@@ -72,6 +72,8 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   const { view, setView } = useSettings();
   const genres = useGenres();
   const installed = useInstalledMap();
+  const updates = useUpdateMap();
+  const updateGame = useUpdateGame();
   const bookmark = useBookmark();
   const launch = useLaunchGame();
   const downloads = useDownloads();
@@ -465,10 +467,16 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 index={game.id}
                 installed={installed.get(game.id)}
                 installing={installingPercent(game.id)}
+                update={updates.get(game.id)}
                 onBookmark={() => toggleBookmark(game)}
                 onPlay={
                   isNative() && installed.has(game.id)
                     ? () => launch.mutate({ id: game.id, title: game.title, executable: installed.get(game.id)?.executable })
+                    : undefined
+                }
+                onUpdate={
+                  isNative() && updates.has(game.id)
+                    ? () => updateGame.mutate({ id: game.id, title: game.title })
                     : undefined
                 }
               />

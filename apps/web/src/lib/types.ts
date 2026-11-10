@@ -50,6 +50,10 @@ export interface GameVersion {
   version: string | null;
   releaseDate: string | null;
   earlyAccess: boolean;
+  /** Sampled archive fingerprint (`sha256-sample:`), null until computed. */
+  archiveHash?: string | null;
+  /** Last time the version row changed. */
+  updatedAt?: string | null;
   downloadUrl: string;
 }
 
@@ -399,6 +403,14 @@ export interface LocalSettings {
   archivePasswords: string[];
   /** Global download cap in KiB/s. 0 means unlimited. */
   bandwidthLimitKib: number;
+  /** Closing the window hides Ludex to the tray instead of quitting. */
+  closeToTray: boolean;
+  /** Release channel followed by the app updater. */
+  updateChannel: "stable" | "early";
+  /** Check for app updates at startup (throttled to once per 24 h). */
+  checkUpdatesOnStartup: boolean;
+  /** Last update check, RFC 3339. */
+  lastUpdateCheckAt: string | null;
 }
 
 export interface InstalledGame {
@@ -411,6 +423,8 @@ export interface InstalledGame {
   sizeBytes: number;
   installedAt: string;
   lastLaunchedAt: string | null;
+  /** Fingerprint of the archive this install came from, when known. */
+  archiveHash?: string | null;
 }
 
 /**
@@ -438,6 +452,72 @@ export interface InstallJob {
   speedBps: number;
   message: string | null;
   installPath: string | null;
+}
+
+/** A game with a newer version on the server (#30). */
+export interface GameUpdate {
+  gameId: number;
+  title: string;
+  installedVersionId: number;
+  installedVersion: string | null;
+  latestVersionId: number;
+  latestVersionLabel: string | null;
+  archiveSize: number;
+  archiveHash: string | null;
+  updatedAt: string | null;
+  reason: "newVersion" | "replacedArchive";
+}
+
+export interface PlaySession {
+  id: string;
+  gameId: number;
+  startedAt: string;
+  endedAt: string | null;
+  minutes: number;
+  seconds: number;
+}
+
+export interface DayPlaytime {
+  day: string;
+  seconds: number;
+}
+
+export interface GamePlaytime {
+  gameId: number;
+  totalSeconds: number;
+  sessions: number;
+  firstPlayedAt: string | null;
+  lastPlayedAt: string | null;
+  byDay: DayPlaytime[];
+  recentSessions: PlaySession[];
+}
+
+export interface UpdateInfo {
+  version: string;
+  currentVersion: string;
+  notes: string | null;
+  publishedAt: string | null;
+}
+
+/** Result of an application update check (#16). */
+export interface UpdateStatus {
+  configured: boolean;
+  channel: "stable" | "early";
+  currentVersion: string;
+  lastCheckedAt: string | null;
+  available: UpdateInfo | null;
+  message: string | null;
+}
+
+export interface UpdateProgress {
+  downloaded: number;
+  total: number | null;
+  percent: number | null;
+}
+
+export interface UpdateInstalled {
+  version: string;
+  restarted: boolean;
 }
 
 export interface DiskUsage {
