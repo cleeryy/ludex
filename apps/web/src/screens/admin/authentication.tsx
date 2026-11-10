@@ -35,7 +35,8 @@ interface FormState {
   adminGroups: string;
 }
 
-const PRESETS = [
+function presets() {
+  return [
   {
     id: "authentik",
     label: "Authentik",
@@ -64,7 +65,10 @@ const PRESETS = [
     scopes: "openid profile email",
     groupsClaim: "groups",
   },
-] as const;
+  ] as const;
+}
+
+type Preset = ReturnType<typeof presets>[number];
 
 function toForm(settings: OidcSettings): FormState {
   return {
@@ -217,7 +221,7 @@ export function AuthenticationScreen() {
     }
   };
 
-  const applyPreset = (preset: (typeof PRESETS)[number]) => {
+  const applyPreset = (preset: Preset) => {
     if (!form) return;
     setForm({
       ...form,
@@ -298,7 +302,7 @@ export function AuthenticationScreen() {
             <section>
               <SectionHeader title={t("Provider")} description={t("The issuer URL is the base of the discovery document.")} />
               <div className="mt-4 flex flex-wrap gap-2">
-                {PRESETS.map((preset) => (
+                {presets().map((preset) => (
                   <Button key={preset.id} type="button" variant="default" size="sm" onClick={() => applyPreset(preset)}>
                     {preset.label}
                   </Button>
