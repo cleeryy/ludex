@@ -28,6 +28,32 @@ import { EmptyState, ErrorState, SectionHeader } from "@/components/page";
 import { Button, Skeleton } from "@/components/ui/controls";
 import { t, tn } from "@/lib/i18n";
 
+/** Source label for an imported entry (#13, #116). */
+function sourceLabel(source: string): string {
+  switch (source) {
+    case "steam":
+      return t("Steam");
+    case "epic":
+      return t("Epic");
+    case "gog":
+      return t("GOG");
+    case "ea":
+      return t("EA app");
+    case "ubisoft":
+      return t("Ubisoft");
+    case "xbox":
+      return t("Xbox");
+    case "itch":
+      return t("itch.io");
+    case "heroic":
+      return t("Heroic");
+    case "lutris":
+      return t("Lutris");
+    default:
+      return source;
+  }
+}
+
 export function HomeScreen() {
   const navigate = useNavigate();
   const { push } = useToast();
@@ -288,7 +314,7 @@ export function HomeScreen() {
                   </Button>
                   {!game && (
                     <span className="font-mono text-[10px] text-ink-3">
-                      {entry.source === "steam" ? t("Steam") : t("Not in this library")}
+                      {entry.source ? sourceLabel(entry.source) : t("Not in this library")}
                     </span>
                   )}
                 </li>

@@ -13,6 +13,9 @@ import type {
   InstalledGame,
   InstallerPlan,
   InstallerReport,
+  LauncherImportEntry,
+  LauncherImportReport,
+  LauncherPreview,
   LaunchOptions,
   LocalSettings,
   MoveProgress,
@@ -284,6 +287,16 @@ export const native = {
 
   async steamImport(appIds: number[]): Promise<SteamImportReport> {
     return invoke<SteamImportReport>("steam_import", { appIds });
+  },
+
+  /* ------------------- launcher discovery (#116) ------------------------- */
+
+  async launcherScan(): Promise<LauncherPreview> {
+    return invoke<LauncherPreview>("launcher_scan");
+  },
+
+  async launcherImport(entries: LauncherImportEntry[]): Promise<LauncherImportReport> {
+    return invoke<LauncherImportReport>("launcher_import", { entries });
   },
 
   /* -------------------- Linux compatibility (#89-#93) -------------------- */

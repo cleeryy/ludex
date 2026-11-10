@@ -69,13 +69,24 @@ pub async fn launch(
         installed.ok_or_else(|| format!("Game {game_id} is not installed on this device."))?;
 
     let install_path = PathBuf::from(&installed.install_path);
-    if !install_path.is_dir() {
+    let external_uri = installed
+        .launch_uri
+        .as_deref()
+        .map(str::trim)
+        .filter(|uri| !uri.is_empty());
+    // Launcher imports (#116) own no files here: the client may not expose an
+    // install folder at all (Xbox Start menu entries), so only a real Ludex
+    // install has to exist on disk.
+    if external_uri.is_none() && !install_path.is_dir() {
         return Err(format!(
             "The install folder is missing: {}. Reinstall the game.",
             install_path.display()
         ));
     }
-    let prefix = crate::linux_gaming::prefix_for(&install_path, &options.prefix_path)?;
+    let prefix = match external_uri {
+        Some(_) => PathBuf::new(),
+        None => crate::linux_gaming::prefix_for(&install_path, &options.prefix_path)?,
+    };
 
     {
         let processes = state
@@ -87,9 +98,9 @@ pub async fn launch(
         }
     }
 
-    let executable_path = match installed.launch_uri.as_deref().map(str::trim) {
-        Some(uri) if !uri.is_empty() => None,
-        _ => Some(resolve_executable(
+    let executable_path = match external_uri {
+        Some(_) => None,
+        None => Some(resolve_executable(
             &install_path,
             Some(&prefix),
             executable.as_deref(),

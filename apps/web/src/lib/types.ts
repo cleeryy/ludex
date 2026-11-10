@@ -605,7 +605,8 @@ export interface InstalledGame {
   /** Fingerprint of the archive this install came from, when known. */
   archiveHash?: string | null;
   /** `steam` entries were imported from a Steam library and launch through Steam. */
-  source?: "ludex" | "steam";
+  /** `ludex` entries were installed here; everything else is a launcher import (#116). */
+  source?: "ludex" | LauncherId;
   /** External launch URI for imported entries (`steam://rungameid/…`). */
   launchUri?: string | null;
 }
@@ -694,6 +695,79 @@ export interface SteamSkip {
 export interface SteamImportReport {
   imported: InstalledGame[];
   skipped: SteamSkip[];
+}
+
+/** Launchers the desktop importer can read (#116). */
+export type LauncherId =
+  | "steam"
+  | "epic"
+  | "gog"
+  | "ea"
+  | "ubisoft"
+  | "xbox"
+  | "itch"
+  | "heroic"
+  | "lutris";
+
+/** One game another launcher installed on this machine (#116). */
+export interface LauncherGame {
+  source: LauncherId;
+  externalId: string;
+  name: string;
+  installDir: string | null;
+  /** URI that starts the game through its launcher. */
+  launchUri: string | null;
+  sizeBytes: number;
+  lastPlayed: number | null;
+  /** Launcher-side detail (Epic namespace, GOG product id, cave id). */
+  detail: string | null;
+  /** Why the entry cannot be imported without a manual launch URI. */
+  issue: string | null;
+  /** Server game matched by title, when unambiguous. */
+  matchedGameId: number | null;
+  matchedTitle: string | null;
+  imported: boolean;
+  /** Id used when nothing matched. */
+  localGameId: number;
+}
+
+export interface LauncherSource {
+  id: LauncherId;
+  label: string;
+  found: number;
+  available: boolean;
+  detail: string;
+}
+
+export interface LauncherPreview {
+  roots: string[];
+  games: LauncherGame[];
+  sources: LauncherSource[];
+  warnings: string[];
+  /** False when the server could not be listed, so nothing is pre-matched. */
+  matched: boolean;
+}
+
+/** One selected launcher game sent to `launcher_import`. */
+export interface LauncherImportEntry {
+  source: LauncherId;
+  externalId: string;
+  /** Manual mapping to a Ludex game, overriding title matching. */
+  gameId?: number | null;
+  /** Manual launch URI for launchers without a documented deep link. */
+  launchUri?: string | null;
+}
+
+export interface LauncherSkip {
+  source: string;
+  externalId: string;
+  title: string;
+  reason: string;
+}
+
+export interface LauncherImportReport {
+  imported: InstalledGame[];
+  skipped: LauncherSkip[];
 }
 
 /**
