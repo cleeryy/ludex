@@ -73,6 +73,16 @@ pub mod actions {
     pub const SESSION_REVOKED: &str = "session.revoked";
     /// Resumable archive upload completed and indexed.
     pub const UPLOAD_COMPLETED: &str = "upload.completed";
+    /// An achievement was unlocked for an account.
+    pub const ACHIEVEMENT_UNLOCKED: &str = "achievement.unlocked";
+    /// A local achievement provider scan finished.
+    pub const ACHIEVEMENT_SCANNED: &str = "achievement.scanned";
+    /// A manual achievement definition was created.
+    pub const ACHIEVEMENT_DEFINITION_CREATED: &str = "achievement.definition_created";
+    /// A manual achievement definition was updated.
+    pub const ACHIEVEMENT_DEFINITION_UPDATED: &str = "achievement.definition_updated";
+    /// A manual achievement definition was deleted.
+    pub const ACHIEVEMENT_DEFINITION_DELETED: &str = "achievement.definition_deleted";
 }
 
 /// Writes one event to `audit_logs`. Failures are logged, never propagated:

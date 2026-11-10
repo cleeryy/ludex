@@ -6,6 +6,33 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Achievements framework (#117): per-game and global definitions, per-account
+  unlock state with a unique `(user, achievement)` constraint, points, hidden
+  definitions, global unlock percentages, and completion summaries. Routes:
+  `GET /api/games/{id}/achievements`, `GET /api/me/achievements`,
+  `GET /api/users/{id}/achievements` (follows the community profile opt-in),
+  admin `POST/PATCH/DELETE /api/games/{id}/achievements[/{key}]`, idempotent
+  `POST /api/games/{id}/achievements/{key}/unlock`, and
+  `POST /api/games/{id}/achievements/scan`. New unlocks emit
+  `achievement.unlocked` (audit + webhooks). The game page gains an
+  achievements section (progress, points, locked/unlocked states, hidden
+  masking, per-achievement unlock percentage, icon fallback) and public
+  profiles show an achievement showcase. Desktop and web demo data included.
+  Migration `0013_achievements.sql`; documented in the generated OpenAPI
+  document (routes in `openapi::ROUTES`, `ToSchema` DTOs); contract and
+  `docs/ACHIEVEMENTS.md`.
+- Local achievement providers (#118): `game_files` (Steam emulation
+  `UserStats/Stats.ini`, `steam_settings/achievements.ini` and Goldberg
+  `steam_settings/achievements.json`), `gog_galaxy_api` (loopback JSON with
+  configurable `{appId}` URL patterns) and `gog_galaxy_sqlite` (read-only
+  `galaxy-2.0.db` introspection). Scans are allowlisted
+  (`LUDEX_ACHIEVEMENT_SCAN_ROOTS`), idempotent, tolerant of malformed files,
+  record per-provider outcomes and raw payloads, and can rescan on a schedule
+  (`LUDEX_ACHIEVEMENT_SCAN_INTERVAL_HOURS`, 0 = off) from the remembered source
+  per game and account.
+
 ## [0.2.2] - 2026-11-10
 
 ### Added
@@ -120,7 +147,6 @@ All notable changes to Ludex are documented here. The format is based on
   normal scanner. New "Upload game" admin screen with drag-and-drop and
   resume-after-reload.
 - Docs: `docs/OPENAPI.md`, `docs/SECURITY.md`, contract and changelog updates.
->>>>>>> fe157c3 (docs: contract, OpenAPI and security model for the new API surface)
 - Desktop silent installers (#7): `installer_plan`, `run_installer`,
   `cancel_installer`, `set_executable` and `choose_executable`. Silent switch
   presets (`/S`, `/silent`, `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`,

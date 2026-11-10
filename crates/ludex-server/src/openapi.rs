@@ -1153,6 +1153,92 @@ pub const ROUTES: &[RouteDoc] = &[
         Auth::Editor,
         Payload::Schema("IngestStats"),
     ),
+    // Achievements
+    route(
+        HttpMethod::Get,
+        "/games/{id}/achievements",
+        "Achievements",
+        "Achievements of a game for the current account",
+        Auth::Session,
+        Payload::Schema("GameAchievements"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/games/{id}/achievements",
+            "Achievements",
+            "Create a manual achievement definition",
+            Auth::Admin,
+            Payload::Schema("DefinitionResponse"),
+        ),
+        "DefinitionInput",
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/games/{id}/achievements/scan",
+                "Achievements",
+                "Scan local achievement providers",
+                Auth::Editor,
+                Payload::Schema("ScanReport"),
+            ),
+            "ScanRequest",
+        ),
+        200,
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/games/{id}/achievements/{key}",
+            "Achievements",
+            "Update a manual achievement definition",
+            Auth::Admin,
+            Payload::Schema("DefinitionResponse"),
+        ),
+        "DefinitionPatch",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/games/{id}/achievements/{key}",
+            "Achievements",
+            "Delete an achievement definition and its unlocks",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/games/{id}/achievements/{key}/unlock",
+                "Achievements",
+                "Unlock an achievement (idempotent)",
+                Auth::Editor,
+                Payload::Schema("UnlockResponse"),
+            ),
+            "UnlockRequest",
+        ),
+        200,
+    ),
+    route(
+        HttpMethod::Get,
+        "/me/achievements",
+        "Achievements",
+        "Achievements unlocked by the current account",
+        Auth::Session,
+        Payload::Schema("UserAchievements"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/users/{id}/achievements",
+        "Achievements",
+        "Public achievement showcase",
+        Auth::Session,
+        Payload::Schema("UserAchievements"),
+    ),
 ];
 
 /// Concrete list shape used by `GET /api/games`.
@@ -1493,6 +1579,19 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::ingest::VerifyResponse>()
         .schema_from::<crate::ingest::types::CreateDownloadRequest>()
         .schema_from::<crate::ingest::types::UpdateDownloadRequest>()
+        .schema_from::<crate::achievements::Achievement>()
+        .schema_from::<crate::achievements::GameAchievements>()
+        .schema_from::<crate::achievements::ScanSummary>()
+        .schema_from::<crate::achievements::UserAchievements>()
+        .schema_from::<crate::achievements::AchievementUser>()
+        .schema_from::<crate::achievements::ScanReport>()
+        .schema_from::<crate::achievements::ProviderReport>()
+        .schema_from::<crate::achievements::ScanRequest>()
+        .schema_from::<crate::achievements::DefinitionInput>()
+        .schema_from::<crate::achievements::DefinitionPatch>()
+        .schema_from::<crate::achievements::UnlockRequest>()
+        .schema_from::<crate::routes::achievements::DefinitionResponse>()
+        .schema_from::<crate::routes::achievements::UnlockResponse>()
         .security_scheme(
             "bearerAuth",
             SecurityScheme::Http(
@@ -1526,6 +1625,10 @@ pub fn document() -> OpenApi {
         ("Shares", "Public, unauthenticated share links"),
         ("Uploads", "Resumable archive uploads"),
         ("Ingest", "URL download manager"),
+        (
+            "Achievements",
+            "Definitions, unlocks and local provider scans",
+        ),
     ]
     .into_iter()
     .map(|(name, description)| {

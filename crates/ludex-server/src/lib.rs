@@ -25,6 +25,7 @@ use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::trace::{MakeSpan, TraceLayer};
 use tracing::Span;
 
+pub mod achievements;
 pub mod api_keys;
 pub mod audit;
 pub mod auth;
@@ -218,6 +219,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
         watcher_handle: Arc::new(RwLock::new(None)),
         integrity_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         media_gc_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        achievement_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         storage: ArchiveStorage::from_config(&config),
         metrics: Arc::new(metrics::Metrics::default()),
         ingest: Some(ingest_handle),
@@ -246,7 +248,8 @@ async fn prepare(config: Config) -> Result<Prepared> {
         state.clone(),
         cancel_rx.clone(),
     ));
-    tokio::spawn(media_gc::scheduled_worker(state.clone(), cancel_rx));
+    tokio::spawn(media_gc::scheduled_worker(state.clone(), cancel_rx.clone()));
+    tokio::spawn(achievements::scheduled_worker(state.clone(), cancel_rx));
     tokio::spawn(uploads::cleanup_worker(state.clone()));
     // Initial scan in the background; never blocks startup.
     let _ = state.scan_tx.try_send(ScanRequest::all());

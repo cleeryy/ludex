@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { CheckCircle2, Download, ListPlus, Play, Plus } from "lucide-react";
+import { CheckCircle2, Download, ListPlus, Play, Plus, Trophy } from "lucide-react";
 import type { Activity, ActivityKind } from "@/lib/types";
 import { formatRelative } from "@/lib/format";
 import { cn } from "@/lib/cn";
@@ -11,6 +11,7 @@ const ICONS: Record<ActivityKind, React.ReactNode> = {
   game_played: <Play className="size-3.5" aria-hidden="true" />,
   game_completed: <CheckCircle2 className="size-3.5" aria-hidden="true" />,
   collection_created: <ListPlus className="size-3.5" aria-hidden="true" />,
+  achievement_unlocked: <Trophy className="size-3.5" aria-hidden="true" />,
 };
 
 const TONES: Record<ActivityKind, string> = {
@@ -19,6 +20,7 @@ const TONES: Record<ActivityKind, string> = {
   game_played: "border-signal/50 text-signal-text",
   game_completed: "border-ok/40 text-ok",
   collection_created: "border-line-2 text-ink-2",
+  achievement_unlocked: "border-signal/50 text-signal-text",
 };
 
 function sentence(activity: Activity): React.ReactNode {
@@ -51,6 +53,11 @@ function sentence(activity: Activity): React.ReactNode {
       return <>{who} finished {game ?? "a game"}</>;
     case "collection_created":
       return <>{who} created the collection {collection ?? "a shelf"}</>;
+    case "achievement_unlocked": {
+      const achievement =
+        typeof activity.metadata.achievementName === "string" ? activity.metadata.achievementName : "an achievement";
+      return <>{who} unlocked {achievement} in {game ?? "a game"}</>;
+    }
     default:
       return <>{who} did something</>;
   }

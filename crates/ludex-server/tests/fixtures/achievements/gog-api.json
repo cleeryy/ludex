@@ -1,0 +1,21 @@
+{
+  "achievements": [
+    {
+      "achievementId": "ACH_FIRST",
+      "name": "First Steps",
+      "description": "Finish the prologue.",
+      "unlocked": true,
+      "dateUnlocked": "2026-02-03T04:05:06Z",
+      "points": 20
+    },
+    {
+      "achievementId": "ACH_SECOND",
+      "name": "Second Wind",
+      "description": "Finish the game without dying.",
+      "unlocked": false,
+      "points": 50,
+      "hidden": true
+    }
+  ],
+  "appId": "1234567890"
+}

@@ -101,7 +101,8 @@ written to the audit trail.
 ## Webhooks
 
 Register an endpoint (admin only). `events` accepts `game.ingested`,
-`game.deleted`, `download.completed`, `user.created` and `save.uploaded`.
+`game.deleted`, `download.completed`, `user.created`, `save.uploaded` and
+`achievement.unlocked`.
 
 ```bash
 curl -sS -X POST https://ludex.example.com/api/webhooks \

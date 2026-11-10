@@ -757,6 +757,15 @@ export const DEMO_ACTIVITIES: Activity[] = [
     game: { id: 14, title: "Outer Wilds", coverUrl: null, releaseYear: 2019 },
     collection: null,
   },
+  {
+    id: 11,
+    kind: "achievement_unlocked",
+    createdAt: "2026-11-10T20:08:00Z",
+    metadata: { achievementName: "Against the Clock", points: 40, provider: "game_files" },
+    user: { id: 1, username: "mara", displayName: "Mara", avatarUrl: null },
+    game: { id: 14, title: "Outer Wilds", coverUrl: null, releaseYear: 2019 },
+    collection: null,
+  },
 ];
 
 export const DEMO_GENRES = [
