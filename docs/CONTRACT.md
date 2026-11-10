@@ -716,6 +716,10 @@ interface LocalSettings {
   installerSilentArgs: string[][];   // silent install attempts (#7), empty = presets
   installerTimeoutSecs: number;      // per attempt, default 600, clamped 30-7200
   steamRoot: string;                 // Steam folder override (#13), empty = detect
+  compatUmuPath: string;             // umu-run override (#90), empty = detect
+  compatProtonPath: string;          // Proton folder/script override (#90), empty = detect
+  compatWinePath: string;            // wine override (#90), empty = detect
+  defaultLaunchMode: "auto" | "native" | "proton" | "umu"; // new games on Linux (#89)
 }
 
 interface InstalledGame {
@@ -730,7 +734,7 @@ interface InstalledGame {
   launchUri: string | null;
 }
 
-/** Preview of a silent installer run (#7). */
+/** Preview of a silent installer run (#7, #93). */
 interface InstallerPlan {
   executable: string | null;
   detected: string[];       // installer-looking files in the install folder
@@ -738,6 +742,8 @@ interface InstallerPlan {
   timeoutSecs: number;
   interactive: boolean;
   platform: string;         // "windows", "linux", "macos"
+  compatTool: string | null; // Linux: tool a run would use (UMU/Proton/Wine)
+  prefix: string | null;     // Wine prefix the installer would write into
 }
 
 interface InstallerAttempt {
@@ -752,6 +758,8 @@ interface InstallerReport {
   exitCode: number | null; attempts: InstallerAttempt[];
   recordedExecutable: string | null; // set after a successful install
   candidates: string[];              // exe picker suggestions
+  compatTool: string | null;         // Linux tool used (#93)
+  logTail: string | null;            // last 8 KiB of the Linux installer log
   message: string;
 }
 
@@ -777,6 +785,61 @@ interface SteamPreview {
 interface SteamImportReport {
   imported: InstalledGame[];
   skipped: { appId: number; title: string; reason: string }[];
+}
+
+/** How a game is started on Linux (#89); stored per game in the desktop index. */
+interface LaunchOptions {
+  mode: "auto" | "native" | "proton" | "umu";
+  toolId: string;                    // compat_scan tool id, empty = best available
+  prefixPath: string;                // empty = {installPath}/.prefix (#92)
+  env: Record<string, string>;       // DXVK_*, PROTON_*, WINEDLLOVERRIDES…
+  winetricksVerbs: string[];         // run on demand in the game prefix
+  steamAppId: number | null;         // ProtonDB (#91) and GAMEID
+}
+
+/** One detected Steam/Proton/UMU/Wine tool (#90). */
+interface CompatTool {
+  id: string;                        // "umu:<path>", "proton:<dir>", "wine:<path>"
+  name: string;
+  kind: "umu" | "proton" | "wine";
+  version: string | null;            // Proton `version` file when present
+  path: string;                      // umu-run, proton script or wine binary
+  protonPath: string | null;         // Proton folder (PROTONPATH)
+  source: string;                    // "path" | "steam" | "compatibilitytools.d" | "override"
+  steamRoot: string | null;
+}
+
+interface CompatScan {
+  platform: string; linux: boolean;
+  steamRoots: string[];              // libraries whose Proton builds were read
+  tools: CompatTool[];               // UMU first, then GE/Proton, then Wine
+  umu: string | null; proton: string | null; wine: string | null;
+  winetricks: string | null; protonfixes: string | null;
+  defaultMode: "auto" | "native" | "proton" | "umu";
+  steamClientPath: string | null;    // STEAM_COMPAT_CLIENT_INSTALL_PATH
+  suggestedVerbs: string[];
+  warnings: string[];
+}
+
+interface PrefixInfo {                // #92
+  gameId: number; path: string; custom: boolean;
+  exists: boolean; sizeBytes: number;
+}
+
+interface WinetricksReport {
+  verbs: string[]; success: boolean; timedOut: boolean;
+  exitCode: number | null; output: string; durationMs: number;
+}
+
+/** ProtonDB summary (#91), cached seven days in the desktop index. */
+interface ProtonDbRating {
+  appId: number | null;
+  status: "ok" | "cached" | "stale" | "unavailable" | "notFound" | "noAppId";
+  tier: "platinum" | "gold" | "silver" | "bronze" | "borked" | "pending" | null;
+  bestTier: string | null; trendingTier: string | null; confidence: string | null;
+  total: number; score: number | null;
+  url: string | null;                // https://www.protondb.com/app/<id>
+  fetchedAt: string | null; message: string | null;
 }
 
 /** A game with a newer version on the server (#30). */
@@ -876,11 +939,18 @@ interface RepairReport {
 | `check_for_updates` | `{ manual? }` | `UpdateStatus`; manual checks bypass the 24 h throttle |
 | `install_update` | — | `UpdateStatus` after download+install; refuses when no signing key is configured |
 | `restart_app` | — | `null` (restarts Ludex; Linux/macOS after an update) |
-| `installer_plan` | `{ gameId?, executable? }` | `InstallerPlan`; never runs anything |
-| `run_installer` | `{ gameId, executable?, interactive?, args? }` | `InstallerReport`; silent runs are Windows-only, interactive runs use no arguments and no timeout |
+| `installer_plan` | `{ gameId?, executable? }` | `InstallerPlan`; never runs anything. On Linux `compatTool`/`prefix` show the tool a run would use |
+| `run_installer` | `{ gameId, executable?, interactive?, args? }` | `InstallerReport`; Windows runs `setup.exe` directly, Linux through UMU/Proton/Wine (#93); interactive runs use no arguments and no timeout |
 | `cancel_installer` | `{ gameId }` | `null`; stops a running installer at the next poll |
-| `set_executable` | `{ gameId, executable }` | `InstalledGame`; the file must be inside the install folder |
+| `set_executable` | `{ gameId, executable }` | `InstalledGame`; the file must be inside the install folder or its Wine prefix |
 | `choose_executable` | `{ gameId }` | `InstalledGame \| null`; system file dialog, records the pick |
+| `compat_scan` | — | `CompatScan`; detects Steam roots, Proton builds, UMU, Wine, winetricks and protonfixes (#90) |
+| `get_launch_options` | `{ gameId }` | `LaunchOptions`; defaults when nothing was saved (#89) |
+| `set_launch_options` | `{ gameId, options }` | `LaunchOptions`; validates env names, verbs and prefix (#89, #92) |
+| `wine_prefix_info` | `{ gameId }` | `PrefixInfo`; path, custom flag, existence and size (#92) |
+| `reset_wine_prefix` | `{ gameId }` | `null`; deletes the game prefix after UI confirmation, refuses while the game runs |
+| `run_winetricks` | `{ gameId, verbs? }` | `WinetricksReport`; runs `winetricks -q <verbs>` with the game prefix, 30 min timeout (#92) |
+| `protondb_rating` | `{ gameId, appId?, refresh? }` | `ProtonDbRating`; cached 7 days, never fails offline (#91) |
 | `presence_status` | — | `PresenceStatus` (never blocks on the IPC socket) |
 | `steam_scan` | — | `SteamPreview`; reads Steam metadata, matches titles, marks imports |
 | `steam_import` | `{ appIds }` | `SteamImportReport`; no download, launches through Steam |
@@ -901,7 +971,10 @@ Events:
 - `update://available` → `UpdateStatus` (startup check found a version)
 - `update://progress` → `{ downloaded, total, percent }`
 - `update://installed` → `{ version, restarted }`
-- `installer://done` → `{ gameId, success, exitCode }` (#7)
+- `installer://done` → `{ gameId, success, exitCode, tool }` (#7, #93; `tool` is
+  the Linux compatibility tool or `null`)
+- `launch_game` returns `{ sessionId, tool }`; `tool` is the Linux
+  compatibility tool name when one was used (#89)
 
 Native install layout: `{installDir}/{slug}/{versionLabel}/game files` plus a
 desktop SQLite index at `{appDataDir}/ludex-desktop.db` (installed games,
@@ -917,9 +990,29 @@ archive by default (`keepArchives` setting false).
   `/S`, `/silent`, `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`, `--silent`) in
   order, treats exit codes `0` and `3010` as success, kills an attempt after
   `installerTimeoutSecs` and moves on. After success it records the game binary
-  it finds (never the installer). On a non-Windows host silent runs are refused;
-  `installer_plan` still reports the plan. An interactive run sends no arguments
-  and has no timeout. Nothing runs without an explicit command.
+  it finds (never the installer), including a binary the setup program wrote
+  inside the Wine prefix. Windows runs `setup.exe` directly; Linux runs it
+  through the game's UMU/Proton/Wine tool with the game prefix and captures the
+  log (`logTail`); macOS refuses. An interactive run sends no arguments and has
+  no timeout. Nothing runs without an explicit command.
+- **Linux compatibility (#89, #90, #91, #92, #93).** `compat_scan` reports Steam
+  roots, `compatibilitytools.d` and `steamapps/common` Proton builds,
+  `umu-run`, system `wine`/`wine64`, `winetricks` and `protonfixes`; every path
+  can be overridden in Settings → Compatibility. Per game, `launchOptions`
+  chooses `auto | native | proton | umu`, a tool id, a Wine prefix (default
+  `{installPath}/.prefix`), environment overrides and winetricks verbs.
+  `auto` runs native files directly and Windows `.exe` through UMU, then the
+  best GE-Proton/Proton build, then Wine; the error names what is missing when
+  none is installed. UMU gets `PROTONPATH`, `GAMEID`, `UMU_LOG`,
+  `STEAM_COMPAT_DATA_PATH`, `STEAM_COMPAT_CLIENT_INSTALL_PATH` and
+  `WINEPREFIX`; Proton gets the Steam compatibility variables and
+  `WINEPREFIX=<prefix>/pfx`; Wine gets `WINEPREFIX=<prefix>`. Playtime tracking
+  is unchanged (the launched process tree is sampled). `protondb_rating` reads
+  `protondb.com/api/v1/reports/summaries/<appid>.json`, caches summaries for
+  seven days in the desktop SQLite index, returns stale data instead of failing
+  offline, and supports a manual `steamAppId`. `wine_prefix_info`,
+  `reset_wine_prefix` and `run_winetricks` manage the prefix; reset refuses
+  while the game runs and never deletes an install folder or its ancestor.
 - **Discord presence.** Optional, off by default, uses the local Discord IPC
   (application id, no bot token). Payload: game title, public cover URL
   (`https`, non-private host), session start; idle when nothing runs.

@@ -27,14 +27,40 @@ All notable changes to Ludex are documented here. The format is based on
   per-row "Remove from history" action (with a confirmation for failed or
   interrupted jobs) and "Clear finished" now persists instead of hiding rows
   client-side. Install folders, archives and `.part` downloads are kept.
+- Desktop Linux compatibility detection (#90): `compat_scan` reports Steam
+  roots, Proton builds in `steamapps/common` and `compatibilitytools.d`,
+  `umu-run`, `wine`/`wine64`, `winetricks` and `protonfixes`, with per-path
+  overrides (`compatUmuPath`, `compatProtonPath`, `compatWinePath`) and a
+  Settings → Compatibility panel. Detection is filesystem-only and unit tested
+  with fixture trees.
+- Desktop Proton/UMU launches (#89): per-game `launchOptions` (`auto`, `native`,
+  `proton`, `umu`), tool selection (UMU → GE-Proton/Proton → Wine) with
+  fallbacks, and the environment each mode needs (`PROTONPATH`, `GAMEID`,
+  `UMU_LOG`, `STEAM_COMPAT_DATA_PATH`, `STEAM_COMPAT_CLIENT_INSTALL_PATH`,
+  `WINEPREFIX`). `auto` is the Linux default for `.exe`; no tool means an
+  explicit error. Playtime tracking is unchanged.
+- ProtonDB ratings (#91): `protondb_rating` fetches the public summary, caches
+  it in SQLite for seven days, degrades to stale/offline instead of failing, and
+  supports a manual Steam app id. The game page shows the tier badge with a
+  ProtonDB link.
+- Per-game Wine prefixes (#92): `{installPath}/.prefix` by default or a custom
+  path, `wine_prefix_info`, `reset_wine_prefix` with a confirmation and safety
+  checks, validated environment overrides, and on-demand
+  `run_winetricks` (`-q`, Proton Wine binary, 30-minute timeout, bounded log).
+- Repack installers under Proton/Wine (#93): `run_installer` now runs on Linux
+  through the game's UMU/Proton/Wine tool in the game prefix, captures the log
+  (`logTail`) and detects the installed binary under `drive_c`. Windows
+  behaviour is unchanged; macOS asks for a manual run.
+- Settings: `defaultLaunchMode` and the three compatibility path overrides;
+  schema v6 adds `game_launch_options` and `protondb_reports`.
 - Desktop silent installers (#7): `installer_plan`, `run_installer`,
   `cancel_installer`, `set_executable` and `choose_executable`. Silent switch
   presets (`/S`, `/silent`, `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`,
   `--silent`) are tried in order with per-attempt timeouts, exit-code handling
   (`0` and `3010` count as installed), cancellation and an interactive fallback;
   the game executable is recorded afterwards. Configurable with
-  `installerSilentArgs` and `installerTimeoutSecs`. Windows-only execution,
-  cross-platform tests.
+  `installerSilentArgs` and `installerTimeoutSecs`. Windows execution plus a
+  Linux compatibility launch; cross-platform tests.
 - Desktop Discord Rich Presence (#12): optional `discordPresence` setting and
   `discordClientId` application id, game title/cover/elapsed time, idle state,
   reconnect with backoff, `presence_status` and clean no-op without Discord.

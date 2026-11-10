@@ -1,6 +1,7 @@
 //! Tauri commands exposed to the web UI (`docs/CONTRACT.md`, Desktop section).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -8,14 +9,18 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
+use crate::compat::{self, CompatScan};
 use crate::db::{self, GamePlaytime, InstalledGame};
 use crate::install::{self, InstallJob, InstallParams};
 use crate::installer::{self, AttemptReport};
 use crate::launch::{self, LaunchResult};
+use crate::linux_gaming::{self, LaunchMode, LaunchOptions};
 use crate::maintenance::{self, RepairReport};
 use crate::manifest::VerifyReport;
 use crate::paths;
+use crate::prefix::{self, PrefixInfo, WinetricksReport};
 use crate::presence::{self, PresenceStatus};
+use crate::protondb::{self, ProtonDbRating};
 use crate::server::{self, ServerInfo, ServerStatus};
 use crate::settings::{self, LocalSettings};
 use crate::state::AppState;
@@ -500,6 +505,10 @@ pub struct InstallerPlan {
     pub timeout_secs: u64,
     pub interactive: bool,
     pub platform: String,
+    /// Linux: the compatibility tool a run would go through (#93).
+    pub compat_tool: Option<String>,
+    /// Wine prefix the installer would write into.
+    pub prefix: Option<String>,
 }
 
 /// Outcome of a silent or interactive installer run.
@@ -518,6 +527,10 @@ pub struct InstallerReport {
     pub recorded_executable: Option<String>,
     /// Programs that look launchable after the installer ran, for the picker.
     pub candidates: Vec<String>,
+    /// Linux compatibility tool used for the run (#93).
+    pub compat_tool: Option<String>,
+    /// Last lines of the installer log captured on Linux.
+    pub log_tail: Option<String>,
     pub message: String,
 }
 
@@ -542,10 +555,14 @@ pub fn installer_plan(
     executable: Option<String>,
 ) -> Result<InstallerPlan, String> {
     let settings = state.settings_snapshot();
-    let detected = match game_id {
-        Some(game_id) => installer_candidates(&installed_or_error(&state, game_id)?),
-        None => Vec::new(),
+    let installed = match game_id {
+        Some(game_id) => Some(installed_or_error(&state, game_id)?),
+        None => None,
     };
+    let detected = installed
+        .as_ref()
+        .map(installer_candidates)
+        .unwrap_or_default();
     let requested = executable
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
@@ -557,6 +574,35 @@ pub fn installer_plan(
         }
     });
 
+    // Linux: report the tool and prefix a run would use (#93).
+    let mut compat_tool = None;
+    let mut prefix = None;
+    if let Some(installed) = &installed {
+        if cfg!(all(unix, not(target_os = "macos"))) {
+            let options = {
+                let connection = state
+                    .db
+                    .lock()
+                    .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+                db::get_launch_options(&connection, installed.game_id)?
+            };
+            if let Ok(path) = linux_gaming::prefix_for(
+                &PathBuf::from(&installed.install_path),
+                &options.prefix_path,
+            ) {
+                prefix = Some(path.to_string_lossy().to_string());
+            }
+            let scan = compat::scan(&settings);
+            let mode = match options.mode {
+                LaunchMode::Umu | LaunchMode::Proton => options.mode,
+                _ => LaunchMode::Auto,
+            };
+            compat_tool = linux_gaming::select_tool(&scan.tools, mode, &options.tool_id)
+                .ok()
+                .map(|selection| selection.name);
+        }
+    }
+
     Ok(InstallerPlan {
         executable,
         detected,
@@ -564,6 +610,8 @@ pub fn installer_plan(
         timeout_secs: settings.installer_timeout_secs,
         interactive: false,
         platform: std::env::consts::OS.to_string(),
+        compat_tool,
+        prefix,
     })
 }
 
@@ -592,6 +640,13 @@ pub async fn run_installer(
     }
 
     let current = state.settings_snapshot();
+    let options = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::get_launch_options(&connection, game_id)?
+    };
     let candidates = installer_candidates(&installed);
     let requested = executable
         .map(|value| value.trim().to_string())
@@ -630,14 +685,48 @@ pub async fn run_installer(
         std::time::Duration::from_secs(current.installer_timeout_secs)
     };
 
-    // Silent installers drive Windows setup programs; elsewhere the plan stays
-    // available but nothing is executed.
-    if !interactive && !cfg!(windows) {
+    // Windows runs the setup program directly. Linux runs it through the same
+    // UMU/Proton/Wine tool as the game (#93); macOS has no supported path.
+    let mut compatibility_tool: Option<String> = None;
+    let mut prefix_used: Option<PathBuf> = None;
+    let mut log_path: Option<PathBuf> = None;
+
+    let base = if cfg!(windows) {
+        installer::Invocation::direct(installer_path.clone(), install_root.clone())
+    } else if cfg!(all(unix, not(target_os = "macos"))) {
+        let prefix = linux_gaming::prefix_for(&install_root, &options.prefix_path)?;
+        std::fs::create_dir_all(&prefix).map_err(|error| {
+            format!(
+                "Could not create the Wine prefix {}: {error}",
+                prefix.display()
+            )
+        })?;
+
+        let scan = compat::scan(&current);
+        let mode = match options.mode {
+            LaunchMode::Umu | LaunchMode::Proton => options.mode,
+            _ => LaunchMode::Auto,
+        };
+        let mut selection = linux_gaming::select_tool(&scan.tools, mode, &options.tool_id)?;
+        selection.client_install_path = scan.steam_client_path.as_deref().map(PathBuf::from);
+        let plan = linux_gaming::build_launch(&selection, &installer_path, &[], &prefix, &options)?;
+
+        let log = state
+            .app_data
+            .join("installer-logs")
+            .join(format!("{game_id}-{}", uuid::Uuid::new_v4()))
+            .with_extension("log");
+        compatibility_tool = Some(plan.tool_name.clone());
+        prefix_used = Some(prefix);
+        log_path = Some(log.clone());
+
+        installer::compat_invocation(&plan, &install_root, Some(log))
+    } else {
         return Err(
-            "Silent installer runs are Windows-only. Run the installer manually on this platform."
+            "Installer automation is not available on macOS. Run the setup program manually."
                 .to_string(),
         );
-    }
+    };
 
     let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     {
@@ -651,11 +740,6 @@ pub async fn run_installer(
         running.insert(game_id, std::sync::Arc::clone(&cancel));
     }
 
-    let base = installer::Invocation {
-        executable: installer_path.clone(),
-        args: Vec::new(),
-        working_dir: install_root.clone(),
-    };
     let report = tokio::task::spawn_blocking(move || {
         installer::run_plan(&installer::SystemRunner, &base, &attempts, timeout, &cancel)
     })
@@ -668,20 +752,26 @@ pub async fn run_installer(
     let report = report.map_err(|error| format!("The installer task failed: {error}"))?;
     let exit_code = report.last_exit_code();
     let timed_out = report.timed_out();
+    let log_tail = log_path.as_deref().and_then(prefix::read_tail);
 
     // After a successful install, record the game binary the installer left
-    // behind (never the installer itself).
+    // behind (never the installer itself). On Linux that is usually inside the
+    // Wine prefix, not next to `setup.exe`.
     let mut recorded_executable = None;
     if report.success {
-        let picked =
-            crate::bridge::pick_executable(&install_root, &installed.title).filter(|path| {
-                path != &installer_path
-                    && path
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .map(|name| !installer::is_installer_name(name))
-                        .unwrap_or(false)
-            });
+        let picked = installer::detect_installed_executable(
+            &install_root,
+            prefix_used.as_deref(),
+            &installed.title,
+        )
+        .filter(|path| {
+            path != &installer_path
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| !installer::is_installer_name(name))
+                    .unwrap_or(false)
+        });
         if let Some(path) = picked {
             let value = path.to_string_lossy().to_string();
             let connection = state
@@ -693,19 +783,33 @@ pub async fn run_installer(
         }
     }
 
-    let candidates = installer_candidates(&installed);
+    let mut candidates = installer_candidates(&installed);
+    if let Some(path) = &recorded_executable {
+        let relative = Path::new(path)
+            .strip_prefix(&install_root)
+            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| path.clone());
+        if !candidates.contains(&relative) {
+            candidates.push(relative);
+        }
+    }
+
+    let via = compatibility_tool
+        .as_deref()
+        .map(|tool| format!(" via {tool}"))
+        .unwrap_or_default();
     let message = if report.cancelled {
         "Installer cancelled.".to_string()
     } else if report.success {
         match &recorded_executable {
             Some(path) => format!(
-                "Installer finished (exit code {}). Recorded {} as the game executable.",
+                "Installer finished{via} (exit code {}). Recorded {} as the game executable.",
                 exit_code
                     .map(|code| code.to_string())
                     .unwrap_or_else(|| "n/a".into()),
                 path
             ),
-            None => "Installer finished. Choose the game executable to launch it.".to_string(),
+            None => format!("Installer finished{via}. Choose the game executable to launch it."),
         }
     } else if timed_out {
         format!(
@@ -720,7 +824,9 @@ pub async fn run_installer(
                 .unwrap_or_else(|| "unknown".into())
         )
     } else {
-        "Every silent switch was rejected. Run the installer interactively, or set the arguments in the desktop settings.".to_string()
+        format!(
+            "Every silent switch was rejected{via}. Run the installer interactively, or set the arguments in the desktop settings."
+        )
     };
 
     let _ = app.emit(
@@ -729,6 +835,7 @@ pub async fn run_installer(
             "gameId": game_id,
             "success": report.success,
             "exitCode": exit_code,
+            "tool": compatibility_tool,
         }),
     );
 
@@ -743,6 +850,8 @@ pub async fn run_installer(
         attempts: report.attempts,
         recorded_executable,
         candidates,
+        compat_tool: compatibility_tool,
+        log_tail,
         message,
     })
 }
@@ -770,6 +879,14 @@ pub fn set_executable(
 ) -> Result<InstalledGame, String> {
     let installed = installed_or_error(&state, game_id)?;
     let root = PathBuf::from(&installed.install_path);
+    let options = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::get_launch_options(&connection, game_id)?
+    };
+    let prefix = linux_gaming::prefix_for(&root, &options.prefix_path).ok();
     let candidate = PathBuf::from(executable.trim());
     let full = if candidate.is_absolute() {
         candidate
@@ -779,9 +896,14 @@ pub fn set_executable(
     if !full.is_file() {
         return Err(format!("That file does not exist: {}", full.display()));
     }
-    if !paths::is_inside(&root, &full) {
+    let allowed = paths::is_inside(&root, &full)
+        || prefix
+            .as_deref()
+            .map(|prefix| paths::is_inside(prefix, &full))
+            .unwrap_or(false);
+    if !allowed {
         return Err(format!(
-            "Refusing to use {} because it is outside the install folder.",
+            "Refusing to use {} because it is outside the install folder and the Wine prefix.",
             full.display()
         ));
     }
@@ -839,12 +961,28 @@ pub async fn choose_executable(
     let path = picked
         .into_path()
         .map_err(|error| format!("Invalid file path: {error}"))?;
-    if !paths::is_inside(&install_root, &path) {
-        return Err("Choose a file inside the game's install folder.".to_string());
-    }
 
     let state = app.state::<AppState>();
     let installed = installed_or_error(&state, game_id)?;
+    let prefix = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        let options = db::get_launch_options(&connection, game_id)?;
+        linux_gaming::prefix_for(&install_root, &options.prefix_path).ok()
+    };
+    let allowed = paths::is_inside(&install_root, &path)
+        || prefix
+            .as_deref()
+            .map(|prefix| paths::is_inside(prefix, &path))
+            .unwrap_or(false);
+    if !allowed {
+        return Err(
+            "Choose a file inside the game's install folder or its Wine prefix.".to_string(),
+        );
+    }
+
     let value = path.to_string_lossy().to_string();
     {
         let connection = state
@@ -1109,4 +1247,339 @@ pub async fn steam_import(app: AppHandle, app_ids: Vec<u32>) -> Result<SteamImpo
 
     crate::tray::refresh_menu(&app);
     Ok(SteamImportReport { imported, skipped })
+}
+
+/* ------------- Linux compatibility (#89, #90, #91, #92, #93) ------------- */
+
+/// Detect Steam roots, Proton builds, UMU, Wine, winetricks and protonfixes.
+#[tauri::command]
+pub async fn compat_scan(app: AppHandle) -> Result<CompatScan, String> {
+    let settings = app.state::<AppState>().settings_snapshot();
+    tokio::task::spawn_blocking(move || compat::scan(&settings))
+        .await
+        .map_err(|error| format!("The compatibility scan failed: {error}"))
+}
+
+/// Per-game launch options; defaults when nothing was saved yet.
+#[tauri::command]
+pub fn get_launch_options(
+    state: State<'_, AppState>,
+    game_id: i64,
+) -> Result<LaunchOptions, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    let mut options = db::get_launch_options(&connection, game_id)?;
+    if !db::has_launch_options(&connection, game_id)? {
+        let default = state.settings_snapshot().default_launch_mode;
+        if default != LaunchMode::Auto {
+            options.mode = default;
+        }
+    }
+    Ok(options)
+}
+
+/// Save launch mode, tool, prefix, environment overrides and winetricks verbs.
+#[tauri::command]
+pub fn set_launch_options(
+    state: State<'_, AppState>,
+    game_id: i64,
+    options: LaunchOptions,
+) -> Result<LaunchOptions, String> {
+    let installed = installed_or_error(&state, game_id)?;
+    let install_root = PathBuf::from(&installed.install_path);
+
+    let mut options = options;
+    options.normalize();
+    options.env = linux_gaming::validate_env(&options.env)?;
+    options.winetricks_verbs = linux_gaming::validate_verbs(&options.winetricks_verbs)?;
+    if options.steam_app_id == Some(0) {
+        options.steam_app_id = None;
+    }
+
+    let prefix = linux_gaming::prefix_for(&install_root, &options.prefix_path)?;
+    if !options.prefix_path.trim().is_empty() && prefix == install_root {
+        return Err("The Wine prefix cannot be the install folder itself.".to_string());
+    }
+
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    db::save_launch_options(&connection, game_id, &options, &now_rfc3339())?;
+    Ok(options)
+}
+
+/// Size and location of a game's Wine prefix (#92).
+#[tauri::command]
+pub async fn wine_prefix_info(app: AppHandle, game_id: i64) -> Result<PrefixInfo, String> {
+    let state = app.state::<AppState>();
+    let installed = installed_or_error(&state, game_id)?;
+    let install_root = PathBuf::from(&installed.install_path);
+    let options = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::get_launch_options(&connection, game_id)?
+    };
+
+    tokio::task::spawn_blocking(move || prefix::info(game_id, &install_root, &options))
+        .await
+        .map_err(|error| format!("Could not inspect the Wine prefix: {error}"))?
+}
+
+/// Delete a game's Wine prefix after an explicit confirmation in the UI (#92).
+#[tauri::command]
+pub async fn reset_wine_prefix(app: AppHandle, game_id: i64) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let installed = installed_or_error(&state, game_id)?;
+    let install_root = PathBuf::from(&installed.install_path);
+    let options = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::get_launch_options(&connection, game_id)?
+    };
+
+    {
+        let processes = state
+            .processes
+            .lock()
+            .map_err(|_| "The process list is unavailable; restart Ludex.".to_string())?;
+        if processes.values().any(|entry| entry.game_id == game_id) {
+            return Err("Stop the game before deleting its Wine prefix.".to_string());
+        }
+    }
+
+    let prefix = linux_gaming::prefix_for(&install_root, &options.prefix_path)?;
+    tokio::task::spawn_blocking(move || prefix::remove(&prefix, &install_root))
+        .await
+        .map_err(|error| format!("Could not delete the Wine prefix: {error}"))?
+}
+
+/// Run the stored (or supplied) winetricks verbs in the game prefix (#92).
+#[tauri::command]
+pub async fn run_winetricks(
+    app: AppHandle,
+    game_id: i64,
+    verbs: Option<Vec<String>>,
+) -> Result<WinetricksReport, String> {
+    let state = app.state::<AppState>();
+    let installed = installed_or_error(&state, game_id)?;
+    let install_root = PathBuf::from(&installed.install_path);
+    let options = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::get_launch_options(&connection, game_id)?
+    };
+
+    let verbs = match verbs.filter(|verbs| !verbs.is_empty()) {
+        Some(verbs) => verbs,
+        None => options.winetricks_verbs.clone(),
+    };
+    let verbs = linux_gaming::validate_verbs(&verbs)?;
+    if verbs.is_empty() {
+        return Err("Choose at least one winetricks verb first.".to_string());
+    }
+
+    let settings = state.settings_snapshot();
+    let scan = compat::scan(&settings);
+    let winetricks = scan.winetricks.clone().ok_or_else(|| {
+        "winetricks is not installed. Install the winetricks package, then rescan in Settings → Compatibility."
+            .to_string()
+    })?;
+
+    let prefix_path = linux_gaming::prefix_for(&install_root, &options.prefix_path)?;
+    std::fs::create_dir_all(&prefix_path).map_err(|error| {
+        format!(
+            "Could not create the Wine prefix {}: {error}",
+            prefix_path.display()
+        )
+    })?;
+
+    let mode = match options.mode {
+        LaunchMode::Umu | LaunchMode::Proton => options.mode,
+        _ => LaunchMode::Auto,
+    };
+    let selection = linux_gaming::select_tool(&scan.tools, mode, &options.tool_id)
+        .ok()
+        .map(|mut selection| {
+            selection.client_install_path = scan.steam_client_path.as_deref().map(PathBuf::from);
+            selection
+        });
+
+    let command = linux_gaming::build_winetricks(
+        Path::new(&winetricks),
+        &verbs,
+        &prefix_path,
+        selection.as_ref(),
+    )?;
+
+    tokio::task::spawn_blocking(move || {
+        prefix::run_winetricks(&command, prefix::WINETRICKS_TIMEOUT)
+    })
+    .await
+    .map_err(|error| format!("The winetricks task failed: {error}"))?
+}
+
+fn rating_from_cache(cached: &db::CachedRating, stale: bool, from_cache: bool) -> ProtonDbRating {
+    let summary = protondb::Summary {
+        tier: cached.tier.clone(),
+        best_tier: cached.best_tier.clone(),
+        trending_tier: cached.trending_tier.clone(),
+        confidence: cached.confidence.clone(),
+        total: cached.total,
+        score: cached.score,
+    };
+    ProtonDbRating::from_summary(
+        cached.app_id,
+        &summary,
+        &cached.fetched_at,
+        stale,
+        from_cache,
+    )
+}
+
+/// ProtonDB rating for a game (#91), cached for seven days.
+///
+/// Never fails for network reasons: a stale cache is returned with
+/// `status: "stale"`, otherwise `status: "unavailable"`.
+#[tauri::command]
+pub async fn protondb_rating(
+    app: AppHandle,
+    game_id: i64,
+    app_id: Option<u32>,
+    refresh: Option<bool>,
+) -> Result<ProtonDbRating, String> {
+    let state = app.state::<AppState>();
+    let installed = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::get_installed(&connection, game_id)?
+    };
+    let options = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::get_launch_options(&connection, game_id)?
+    };
+
+    let app_id = protondb::resolve_app_id(
+        app_id,
+        options.steam_app_id,
+        installed
+            .as_ref()
+            .and_then(|game| game.launch_uri.as_deref()),
+    );
+    let Some(app_id) = app_id else {
+        return Ok(ProtonDbRating::no_app_id());
+    };
+
+    let cached = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::cached_rating(&connection, app_id)?
+    };
+
+    let now = chrono::Utc::now();
+    if !refresh.unwrap_or(false) {
+        if let Some(cached) = &cached {
+            if protondb::cache_is_fresh(&cached.fetched_at, now, protondb::CACHE_TTL_DAYS) {
+                return Ok(rating_from_cache(cached, false, true));
+            }
+        }
+    }
+
+    let fetch = state
+        .http
+        .get(protondb::summary_url(app_id))
+        .timeout(Duration::from_secs(8))
+        .send()
+        .await;
+
+    let response = match fetch {
+        Ok(response) => response,
+        Err(error) => {
+            return Ok(match cached {
+                Some(cached) => rating_from_cache(&cached, true, false),
+                None => {
+                    ProtonDbRating::unavailable(app_id, format!("ProtonDB is unreachable: {error}"))
+                }
+            })
+        }
+    };
+
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(ProtonDbRating::not_found(app_id));
+    }
+    if !response.status().is_success() {
+        return Ok(match cached {
+            Some(cached) => rating_from_cache(&cached, true, false),
+            None => ProtonDbRating::unavailable(
+                app_id,
+                format!("ProtonDB returned HTTP {}.", response.status()),
+            ),
+        });
+    }
+
+    let body = match response.text().await {
+        Ok(body) => body,
+        Err(error) => {
+            return Ok(match cached {
+                Some(cached) => rating_from_cache(&cached, true, false),
+                None => {
+                    ProtonDbRating::unavailable(app_id, format!("Could not read ProtonDB: {error}"))
+                }
+            })
+        }
+    };
+
+    let summary = match protondb::parse_summary(&body) {
+        Ok(summary) => summary,
+        Err(error) => {
+            return Ok(match cached {
+                Some(cached) => rating_from_cache(&cached, true, false),
+                None => ProtonDbRating::unavailable(app_id, error),
+            })
+        }
+    };
+
+    let fetched_at = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let record = db::CachedRating {
+        app_id,
+        tier: summary.tier.clone(),
+        best_tier: summary.best_tier.clone(),
+        trending_tier: summary.trending_tier.clone(),
+        confidence: summary.confidence.clone(),
+        total: summary.total,
+        score: summary.score,
+        fetched_at: fetched_at.clone(),
+    };
+    {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        if let Err(error) = db::store_rating(&connection, &record) {
+            tracing::warn!(error = %error, "could not cache the ProtonDB rating");
+        }
+    }
+
+    Ok(ProtonDbRating::from_summary(
+        app_id,
+        &summary,
+        &fetched_at,
+        false,
+        false,
+    ))
 }

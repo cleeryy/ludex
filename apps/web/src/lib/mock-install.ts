@@ -250,6 +250,10 @@ const DEFAULT_SETTINGS: LocalSettings = {
   installerSilentArgs: [],
   installerTimeoutSecs: 600,
   steamRoot: "",
+  compatUmuPath: "",
+  compatProtonPath: "",
+  compatWinePath: "",
+  defaultLaunchMode: "auto",
 };
 
 function loadSettings(): LocalSettings {

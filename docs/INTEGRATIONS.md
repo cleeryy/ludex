@@ -214,9 +214,88 @@ with silent switches.
   found, use **Choose executable**.
 - When every silent attempt fails the panel offers an interactive run (no
   arguments, no timeout). Cancelling keeps the files the installer already wrote.
-- Silent runs are Windows-only: `run_installer` refuses to execute anywhere else
-  but `installer_plan` still reports the plan. An installer that needs elevation
-  fails to start; run it interactively instead.
+- Windows runs the setup program directly. On Linux it runs through the game's
+  UMU/Proton/Wine tool inside the game prefix and captures the log (the last
+  8 KiB is shown in the panel). macOS refuses and asks for a manual run.
+  Installers that need elevation fail to start; run them interactively instead.
+
+### Linux gaming: Proton, UMU, ProtonDB and Wine prefixes
+
+Linux plays Windows games through a compatibility layer. Ludex does not ship
+one; it detects what the machine already has and runs the game through it.
+Nothing is required at build time and every path is optional at runtime.
+
+**Detection (`compat_scan`, Settings → Compatibility).** One scan reports:
+
+- Steam roots (`~/.steam/steam`, `~/.local/share/Steam`, Flatpak, extra
+  libraries in `libraryfolders.vdf`) and the Proton builds inside
+  `steamapps/common` (`Proton - Experimental`, `Proton 9.0`, GE-Proton…) and
+  `compatibilitytools.d`.
+- `umu-run` from `PATH`, `~/.local/bin`, `~/.local/share/umu`, `/usr/bin` and
+  `/usr/local/bin`.
+- System `wine` / `wine64`, `winetricks` and an optional `protonfixes` checkout.
+- Every path can be overridden (`compatUmuPath`, `compatProtonPath`,
+  `compatWinePath`); a bad override is a warning, not a failure.
+
+The scan is pure filesystem inspection (plus `wine --version`), so it is unit
+tested against fixture directory trees without Steam installed.
+
+**Launch modes (`launchOptions.mode`).**
+
+| Mode | Behaviour |
+|---|---|
+| `auto` (default) | Native files run directly; a Windows `.exe` goes through UMU, then the best GE-Proton/Proton build, then Wine |
+| `native` | Run the file as-is (`.sh` through `sh`, `.exe` through Wine when that was the explicit choice) |
+| `proton` | `<proton>/proton run game.exe` |
+| `umu` | `umu-run game.exe` with a local Proton build when one is detected, else UMU's own `GE-Proton` |
+
+Tool order is UMU → GE-Proton → Proton Experimental → numbered Proton → Wine.
+A stored tool id that no longer exists falls back to the best available tool
+instead of breaking the launch. With nothing installed the launch fails with an
+actionable message naming UMU, Proton and Wine.
+
+The environment built for each mode:
+
+- **UMU**: `PROTONPATH` (Proton folder or `GE-Proton`), `GAMEID` (the Steam app
+  id, else `0`), `UMU_LOG=warn`, `STEAM_COMPAT_DATA_PATH`,
+  `STEAM_COMPAT_CLIENT_INSTALL_PATH`, `WINEPREFIX`.
+- **Proton**: `STEAM_COMPAT_DATA_PATH=<prefix>`,
+  `STEAM_COMPAT_CLIENT_INSTALL_PATH=<Steam root>`; Proton creates its Wine
+  prefix in `<prefix>/pfx` and `WINEPREFIX` points there.
+- **Wine**: `WINEPREFIX=<prefix>`.
+
+Per-game environment overrides (`DXVK_HUD`, `PROTON_NO_ESYNC`,
+`WINEDLLOVERRIDES`…) are applied last. Names must match
+`[A-Za-z_][A-Za-z0-9_]*`; `PATH`, `HOME`, `LD_PRELOAD`, `LD_LIBRARY_PATH` and
+`PYTHONPATH` are refused. Playtime, the process tree, Discord presence and the
+tray behave exactly as for native games.
+
+**Wine prefixes (#92).** Each game gets `{installPath}/.prefix` unless a custom
+absolute path is set. The Prefix section on the game page shows its size,
+offers a folder picker, and deletes it after an inline confirmation. Reset
+refuses while the game is running and never deletes the install folder or one
+of its ancestors. The prefix is recreated empty on the next launch.
+
+**Winetricks.** The stored verb list (plus common suggestions such as
+`corefonts`, `vcrun2019`, `dotnet48`, `dxvk`) is run on demand as
+`winetricks -q <verbs>` with `WINEPREFIX` set to the game prefix, the Proton
+Wine binary when a Proton build is selected, and a 30-minute timeout. Output is
+bounded and shown in the panel. Verbs are validated: lowercase identifiers,
+no leading flag, at most 32.
+
+**ProtonDB (#91).** The game page shows a ProtonDB badge (Platinum/Gold/
+Silver/Bronze/Borked) linking to `protondb.com/app/<appid>`. The rating comes
+from `https://www.protondb.com/api/v1/reports/summaries/<appid>.json` with an
+8 s timeout and is cached in the desktop SQLite index for seven days. Offline,
+the last cached tier is shown as `stale`; with no cache the badge degrades to
+"ProtonDB offline". A game without a Steam match uses the manual Steam app id
+in its launch options. The page never waits on the network to render.
+
+**What still needs a real gaming box.** Detection, command building, prefix
+validation and ProtonDB parsing are unit tested on Linux CI, but the following
+were not executed in CI and need a machine with Steam/Proton/UMU and a display:
+starting a real Proton/UMU game, a real `setup.exe` under Proton, winetricks
+against a real prefix, and Steam's own `steam://` handler under UMU.
 
 ### Discord Rich Presence
 

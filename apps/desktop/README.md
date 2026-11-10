@@ -96,6 +96,10 @@ mode 0600 on Unix because it holds the JWT). Defaults:
 | `installerSilentArgs` | `[]` → built-in silent switch presets (#7) |
 | `installerTimeoutSecs` | `600` (clamped to 30–7200) |
 | `steamRoot` | empty → Steam auto-detection (#13) |
+| `compatUmuPath` | empty → UMU auto-detection (#90) |
+| `compatProtonPath` | empty → Proton auto-detection (#90) |
+| `compatWinePath` | empty → Wine auto-detection (#90) |
+| `defaultLaunchMode` | `auto` (new Linux games, #89) |
 
 `save_settings` deep-merges partial payloads, so a wizard can save one field at
 a time. An empty `downloadDir` is meaningful: the effective directory is
@@ -119,6 +123,11 @@ extracted game. `install_game` can also override it per call with `downloadDir`.
 - `install_manifests` — one row per installed game: version, install path and
   the JSON manifest (relative path, size, SHA-256 per file). Written at install
   completion and used by `verify_install` / `repair_install`.
+- `game_launch_options` — per-game Linux launch mode, tool id, Wine prefix,
+  environment overrides (JSON), winetricks verbs (JSON) and manual Steam app id
+  (#89, #91, #92). Deleted with the installed row.
+- `protondb_reports` — ProtonDB summaries cached by app id with their fetch
+  time; stale rows are kept so an offline machine still shows the last tier.
 
 ## Install pipeline
 
@@ -258,13 +267,51 @@ run one:
 - One attempt is killed after `installerTimeoutSecs`; `cancel_installer` kills
   the current one and stops the plan.
 - After success the app records the game binary (never the installer) and emits
-  `installer://done`. `choose_executable` / `set_executable` fix the choice.
-- Silent runs are Windows-only. The command builder, attempt selection,
-  exit-code policy, timeout and cancellation are unit tested with an injected
-  runner, so the logic is covered on Linux; `run_installer` refuses to execute
-  there.
+  `installer://done`. On Linux the binary is searched inside the game prefix
+  (`drive_c`) too. `choose_executable` / `set_executable` fix the choice.
+- Windows runs `setup.exe` directly. Linux runs it through the game's
+  UMU/Proton/Wine tool in the game prefix and captures stdout/stderr to
+  `{appDataDir}/installer-logs/<game>-<uuid>.log`; `InstallerReport.logTail`
+  carries the last 8 KiB. macOS refuses with a manual-run message.
+- The command builder, attempt selection, exit-code policy, timeout and
+  cancellation are unit tested with an injected runner; the Linux invocation
+  (`umu-run setup.exe …` / `proton run setup.exe …`) is a pure builder test.
 - Installers that need elevation fail to start; run them interactively.
-  `Executable` overrides always have to resolve inside the install folder.
+  `Executable` overrides always have to resolve inside the install folder or the
+  game's Wine prefix.
+
+### Linux compatibility (#89, #90, #91, #92, #93)
+
+Linux runs Windows games through Proton or UMU; Ludex detects what is installed
+and builds the launch. Nothing is a build dependency.
+
+- `compat_scan` inspects Steam roots (`steamapps/libraryfolders.vdf` and
+  `steamapps/common`), `compatibilitytools.d`, `umu-run`, `wine`/`wine64`,
+  `winetricks` and `protonfixes`. Settings → **Compatibility** lists the tools
+  and accepts overrides (`compatUmuPath`, `compatProtonPath`, `compatWinePath`).
+- `get_launch_options` / `set_launch_options` store, per game: mode
+  (`auto|native|proton|umu`), preferred tool id, Wine prefix, environment
+  overrides and winetricks verbs. `auto` is the default; a Windows `.exe` uses
+  UMU, then GE-Proton/Proton, then Wine. A missing tool produces an explicit
+  error naming what to install.
+- Environment: UMU gets `PROTONPATH`, `GAMEID`, `UMU_LOG`,
+  `STEAM_COMPAT_DATA_PATH`, `STEAM_COMPAT_CLIENT_INSTALL_PATH` and
+  `WINEPREFIX`; Proton gets the Steam compatibility variables and its Wine
+  prefix at `<prefix>/pfx`; Wine gets `WINEPREFIX=<prefix>`. Playtime/process
+  tree tracking is unchanged.
+- `wine_prefix_info` reports path/size, `reset_wine_prefix` deletes it after a
+  UI confirmation (never the install folder or an ancestor, refused while
+  running), `run_winetricks` runs `winetricks -q <verbs>` in the prefix with a
+  30-minute timeout and bounded output.
+- `protondb_rating` fetches
+  `protondb.com/api/v1/reports/summaries/<appid>.json`, caches it in SQLite for
+  seven days and returns stale data offline. The game page shows the badge next
+  to the title; the Steam app id can be set manually in the launch options.
+- Helpers are pure and unit tested: tool selection/fallbacks, launch env,
+  prefix derivation, env and verb validation, winetricks builder, ProtonDB
+  parsing and cache TTL, installer invocation. A real Steam/Proton/UMU launch,
+  a real `setup.exe` under Proton and winetricks on a real prefix still need a
+  gaming machine.
 
 ### Discord Rich Presence (#12)
 
@@ -345,14 +392,15 @@ for it.
 | `update://available` | `UpdateStatus` |
 | `update://progress` | `{ downloaded, total, percent }` |
 | `update://installed` | `{ version, restarted }` |
-| `installer://done` | `{ gameId, success, exitCode }` |
+| `installer://done` | `{ gameId, success, exitCode, tool }` (`tool` = Linux compatibility tool or `null`) |
 
 ## Launching and playtime
 
 - Windows: the executable is spawned with `current_dir` set to the install
   folder.
-- Linux: `.sh` through `sh`, `.exe` through `wine` (clear error when Wine is
-  missing), `.AppImage`/ELF get the executable bit, then run directly.
+- Linux: `auto` runs native files directly and sends a Windows `.exe` through
+  the best compatibility tool (UMU → GE-Proton/Proton → Wine, see below);
+  `.sh` through `sh`, `.AppImage`/ELF get the executable bit and run directly.
 - macOS: `.app` bundles through `open`, other files directly.
 - `args` is split with quote support (backslashes kept, Windows paths intact).
 
@@ -403,8 +451,12 @@ by CI; no code signing is configured.
   report `configured: false` and cannot install updates.
 - The `early` channel requires the moving `edge` prerelease to publish
   `latest.json` (see `docs/RELEASING.md`).
-- Silent installer runs are Windows-only and untested against real installers in
-  CI; the command builder and the exit-code/timeout policy are unit tested.
+- Silent installer execution (Windows and Linux-through-Proton/UMU) is not
+  tested against real installers in CI; the command builder, Linux invocation
+  and the exit-code/timeout policy are unit tested.
+- A real Proton/UMU launch, winetricks against a real prefix and the installer
+  under Proton need a gaming machine with Steam/Proton/UMU and a display; CI
+  covers detection fixtures, environment builders and path/verb validation.
 - Discord presence needs a Discord application id and a running Discord client;
   neither is available in CI, so only the payload and state machine are tested.
 - Steam import paths are tested with fixtures, not against a real Steam install;

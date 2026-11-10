@@ -1,4 +1,5 @@
 import type {
+  CompatScan,
   DiskUsage,
   GamePlaytime,
   GameUpdate,
@@ -7,9 +8,12 @@ import type {
   InstalledGame,
   InstallerPlan,
   InstallerReport,
+  LaunchOptions,
   LocalSettings,
   MoveProgress,
   PresenceStatus,
+  PrefixInfo,
+  ProtonDbRating,
   RepairProgress,
   RepairReport,
   SteamImportReport,
@@ -19,6 +23,7 @@ import type {
   UpdateStatus,
   VerifyProgress,
   VerifyReport,
+  WinetricksReport,
 } from "@/lib/types";
 
 /**
@@ -266,6 +271,37 @@ export const native = {
     return invoke<SteamImportReport>("steam_import", { appIds });
   },
 
+  /* -------------------- Linux compatibility (#89-#93) -------------------- */
+
+  async compatScan(): Promise<CompatScan> {
+    return invoke<CompatScan>("compat_scan");
+  },
+
+  async getLaunchOptions(gameId: number): Promise<LaunchOptions> {
+    return invoke<LaunchOptions>("get_launch_options", { gameId });
+  },
+
+  async setLaunchOptions(gameId: number, options: LaunchOptions): Promise<LaunchOptions> {
+    return invoke<LaunchOptions>("set_launch_options", { gameId, options });
+  },
+
+  async winePrefixInfo(gameId: number): Promise<PrefixInfo> {
+    return invoke<PrefixInfo>("wine_prefix_info", { gameId });
+  },
+
+  async resetWinePrefix(gameId: number): Promise<void> {
+    if (!isNative()) throw nativeUnavailable();
+    await invoke<null>("reset_wine_prefix", { gameId });
+  },
+
+  async runWinetricks(gameId: number, verbs?: string[]): Promise<WinetricksReport> {
+    return invoke<WinetricksReport>("run_winetricks", { gameId, verbs: verbs ?? null });
+  },
+
+  async protondbRating(gameId: number, appId?: number | null, refresh = false): Promise<ProtonDbRating> {
+    return invoke<ProtonDbRating>("protondb_rating", { gameId, appId: appId ?? null, refresh });
+  },
+
   async onInstallProgress(handler: (job: InstallJob) => void): Promise<() => void> {
     return listen<InstallJob>("install://progress", handler);
   },
@@ -368,4 +404,8 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   installerSilentArgs: [],
   installerTimeoutSecs: 600,
   steamRoot: "",
+  compatUmuPath: "",
+  compatProtonPath: "",
+  compatWinePath: "",
+  defaultLaunchMode: "auto",
 };

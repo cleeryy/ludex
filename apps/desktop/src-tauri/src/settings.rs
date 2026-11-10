@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::linux_gaming::LaunchMode;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -84,6 +86,14 @@ pub struct LocalSettings {
     pub installer_timeout_secs: u64,
     /// Steam root overriding discovery (#13). Empty means auto-detect.
     pub steam_root: String,
+    /// `umu-run` override for the compatibility scan (#90). Empty = detect.
+    pub compat_umu_path: String,
+    /// Proton folder (or its `proton` script) override (#90). Empty = detect.
+    pub compat_proton_path: String,
+    /// `wine` override for the compatibility scan (#90). Empty = detect.
+    pub compat_wine_path: String,
+    /// Launch mode new games start with on Linux (#89).
+    pub default_launch_mode: LaunchMode,
 }
 
 impl Default for LocalSettings {
@@ -109,6 +119,10 @@ impl Default for LocalSettings {
             installer_silent_args: Vec::new(),
             installer_timeout_secs: 600,
             steam_root: String::new(),
+            compat_umu_path: String::new(),
+            compat_proton_path: String::new(),
+            compat_wine_path: String::new(),
+            default_launch_mode: LaunchMode::Auto,
         }
     }
 }
@@ -147,6 +161,9 @@ impl LocalSettings {
             .collect();
         self.discord_client_id = self.discord_client_id.trim().to_string();
         self.steam_root = self.steam_root.trim().to_string();
+        self.compat_umu_path = self.compat_umu_path.trim().to_string();
+        self.compat_proton_path = self.compat_proton_path.trim().to_string();
+        self.compat_wine_path = self.compat_wine_path.trim().to_string();
         self.installer_silent_args = self
             .installer_silent_args
             .drain(..)
@@ -347,6 +364,10 @@ mod tests {
         assert_eq!(json["installerSilentArgs"], serde_json::json!([]));
         assert_eq!(json["installerTimeoutSecs"], 600);
         assert_eq!(json["steamRoot"], "");
+        assert_eq!(json["compatUmuPath"], "");
+        assert_eq!(json["compatProtonPath"], "");
+        assert_eq!(json["compatWinePath"], "");
+        assert_eq!(json["defaultLaunchMode"], "auto");
     }
 
     #[test]
@@ -428,6 +449,24 @@ mod tests {
             resolve_download_dir(&settings, install_root, Some("/tmp/custom")),
             PathBuf::from("/tmp/custom")
         );
+    }
+
+    #[test]
+    fn compatibility_settings_are_trimmed_and_roundtrip() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.compat_umu_path = " /usr/bin/umu-run ".into();
+        settings.compat_proton_path = " /opt/GE-Proton9-20 ".into();
+        settings.compat_wine_path = " ".into();
+        settings.default_launch_mode = LaunchMode::Proton;
+        settings.normalize(Path::new("/data"));
+
+        assert_eq!(settings.compat_umu_path, "/usr/bin/umu-run");
+        assert_eq!(settings.compat_proton_path, "/opt/GE-Proton9-20");
+        assert!(settings.compat_wine_path.is_empty());
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["defaultLaunchMode"], "proton");
+        let back: LocalSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(back.default_launch_mode, LaunchMode::Proton);
     }
 
     #[test]

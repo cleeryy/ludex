@@ -16,6 +16,7 @@ import { PageHeader, SectionHeader } from "@/components/page";
 import { Button, Field, Input, Switch, Textarea } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { DesktopUpdatePanel } from "@/components/settings/desktop-update";
+import { CompatibilityPanel } from "@/components/settings/compatibility-panel";
 import { SteamImportPanel } from "@/components/settings/steam-import";
 import { PresenceStatus } from "@/components/settings/presence-status";
 
@@ -93,6 +94,7 @@ export function SettingsScreen() {
     try {
       await installBridge.saveSettings(draft);
       await queryClient.invalidateQueries({ queryKey: ["desktop-settings"] });
+      await queryClient.invalidateQueries({ queryKey: ["compat-scan"] });
       push({ title: "Desktop settings saved", tone: "success" });
     } catch (cause) {
       push({ title: "Could not save the settings", description: errorMessage(cause), tone: "danger" });
@@ -573,6 +575,8 @@ export function SettingsScreen() {
                     </div>
                   </div>
                 </div>
+
+                {isNative() && <CompatibilityPanel draft={draft} update={update} />}
 
                 <DesktopUpdatePanel />
 

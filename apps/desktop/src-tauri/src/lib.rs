@@ -2,15 +2,19 @@
 
 mod bridge;
 mod commands;
+mod compat;
 mod db;
 mod install;
 mod installer;
 mod launch;
+mod linux_gaming;
 mod maintenance;
 mod manifest;
 mod paths;
+mod prefix;
 mod presence;
 mod process_tree;
+mod protondb;
 mod server;
 mod settings;
 mod state;
@@ -124,6 +128,13 @@ pub fn run() {
             commands::presence_status,
             commands::steam_scan,
             commands::steam_import,
+            commands::compat_scan,
+            commands::get_launch_options,
+            commands::set_launch_options,
+            commands::wine_prefix_info,
+            commands::reset_wine_prefix,
+            commands::run_winetricks,
+            commands::protondb_rating,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Ludex application");

@@ -64,8 +64,44 @@ pub fn exit_code_is_success(code: Option<i32>) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Invocation {
     pub executable: PathBuf,
+    /// Arguments that always come first: the installer path itself, or
+    /// `run <installer>` for a Proton script. Silent switches follow.
+    pub pre_args: Vec<String>,
     pub args: Vec<String>,
     pub working_dir: PathBuf,
+    /// Extra environment for a Linux compatibility launch (`WINEPREFIX`, …).
+    pub env: Vec<(String, String)>,
+    /// Capture stdout/stderr to this file instead of discarding them.
+    pub log_path: Option<PathBuf>,
+}
+
+impl Invocation {
+    pub fn direct(executable: PathBuf, working_dir: PathBuf) -> Self {
+        Self {
+            executable,
+            pre_args: Vec::new(),
+            args: Vec::new(),
+            working_dir,
+            env: Vec::new(),
+            log_path: None,
+        }
+    }
+}
+
+/// Wrap a UMU/Proton/Wine launch plan as an installer invocation.
+pub fn compat_invocation(
+    plan: &crate::linux_gaming::LaunchPlan,
+    working_dir: &Path,
+    log_path: Option<PathBuf>,
+) -> Invocation {
+    Invocation {
+        executable: plan.program.clone(),
+        pre_args: plan.args.clone(),
+        args: Vec::new(),
+        working_dir: working_dir.to_path_buf(),
+        env: plan.env_pairs(),
+        log_path,
+    }
 }
 
 /// Outcome of one attempt.
@@ -135,11 +171,38 @@ impl Runner for SystemRunner {
     ) -> Result<RunOutcome, String> {
         let mut command = Command::new(&invocation.executable);
         command
+            .args(&invocation.pre_args)
             .args(&invocation.args)
             .current_dir(&invocation.working_dir)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .envs(invocation.env.iter().map(|(key, value)| (key, value)))
+            .stdin(Stdio::null());
+
+        match &invocation.log_path {
+            Some(log) => {
+                if let Some(parent) = log.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(log)
+                    .map_err(|error| {
+                        format!(
+                            "Could not create the installer log {}: {error}",
+                            log.display()
+                        )
+                    })?;
+                let errors = file
+                    .try_clone()
+                    .map_err(|error| format!("Could not open the installer log: {error}"))?;
+                command
+                    .stdout(Stdio::from(file))
+                    .stderr(Stdio::from(errors));
+            }
+            None => {
+                command.stdout(Stdio::null()).stderr(Stdio::null());
+            }
+        }
 
         let mut child = command.spawn().map_err(|error| {
             format!(
@@ -207,8 +270,11 @@ pub fn run_plan(
 
         let invocation = Invocation {
             executable: base.executable.clone(),
+            pre_args: base.pre_args.clone(),
             args: args.clone(),
             working_dir: base.working_dir.clone(),
+            env: base.env.clone(),
+            log_path: base.log_path.clone(),
         };
         let started = Instant::now();
         let outcome = runner.run(&invocation, timeout, cancel);
@@ -333,6 +399,88 @@ pub fn resolve_installer(install_root: &Path, requested: &str) -> Result<PathBuf
     Ok(full)
 }
 
+/// Find the game binary an installer left behind.
+///
+/// The install folder is checked first (native installers), then the game's
+/// Wine prefix (`drive_c`): a Windows setup program installs under
+/// `Program Files` inside the prefix, not in the folder holding `setup.exe`.
+/// System directories and installers/uninstallers are skipped.
+pub fn detect_installed_executable(
+    install_root: &Path,
+    prefix: Option<&Path>,
+    title: &str,
+) -> Option<PathBuf> {
+    if let Some(found) = crate::bridge::pick_executable(install_root, title) {
+        return Some(found);
+    }
+    let prefix = prefix?;
+    let drive = prefix.join("drive_c");
+    if !drive.is_dir() {
+        return None;
+    }
+
+    let wanted = crate::steam::normalize_title(title);
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    let mut stack: Vec<(PathBuf, usize)> = vec![(drive.clone(), 0)];
+    let mut visited = 0usize;
+
+    while let Some((directory, depth)) = stack.pop() {
+        if depth > 6 || visited > 20_000 || candidates.len() >= 200 {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            visited += 1;
+            let path = entry.path();
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_dir() {
+                let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+                // Windows system folders never hold the game binary.
+                if depth == 0 && matches!(name.as_str(), "windows" | "programdata") {
+                    continue;
+                }
+                stack.push((path, depth + 1));
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            let lower = name.to_ascii_lowercase();
+            if !lower.ends_with(".exe") || is_installer_name(&name) {
+                continue;
+            }
+            if lower.starts_with("unins") || lower.contains("uninstall") {
+                continue;
+            }
+            candidates.push(path);
+        }
+    }
+
+    candidates.sort_by(|left, right| {
+        let score = |path: &PathBuf| {
+            let stem = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(crate::steam::normalize_title)
+                .unwrap_or_default();
+            if !wanted.is_empty() && stem.contains(&wanted) {
+                0
+            } else {
+                1
+            }
+        };
+        score(left)
+            .cmp(&score(right))
+            .then_with(|| left.to_string_lossy().cmp(&right.to_string_lossy()))
+    });
+    candidates.into_iter().next()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,11 +517,10 @@ mod tests {
     }
 
     fn base() -> Invocation {
-        Invocation {
-            executable: PathBuf::from("/games/hades/setup.exe"),
-            args: Vec::new(),
-            working_dir: PathBuf::from("/games/hades"),
-        }
+        Invocation::direct(
+            PathBuf::from("/games/hades/setup.exe"),
+            PathBuf::from("/games/hades"),
+        )
     }
 
     fn ok(code: Option<i32>) -> Result<RunOutcome, String> {
@@ -557,6 +704,105 @@ mod tests {
         assert!(report.success);
         assert_eq!(runner.calls().len(), 1);
         assert!(runner.calls()[0].args.is_empty());
+    }
+
+    #[test]
+    fn compat_runs_keep_the_installer_as_a_pre_argument() {
+        let runner = MockRunner::new(vec![ok(Some(1)), ok(Some(0))]);
+        let cancel = AtomicBool::new(false);
+        let mut invocation = Invocation::direct(
+            PathBuf::from("/usr/bin/umu-run"),
+            PathBuf::from("/games/hades"),
+        );
+        invocation.pre_args = vec!["/games/hades/setup.exe".to_string()];
+        invocation.env = vec![("WINEPREFIX".into(), "/games/hades/.prefix".into())];
+        // The attempt switches are appended after the installer path, not
+        // instead of it.
+        let report = run_plan(
+            &runner,
+            &invocation,
+            &[vec!["/VERYSILENT".into()], vec!["--silent".into()]],
+            Duration::from_secs(5),
+            &cancel,
+        );
+
+        assert!(report.success);
+        let calls = runner.calls();
+        assert_eq!(calls[0].pre_args, invocation.pre_args);
+        assert_eq!(calls[0].args, vec!["/VERYSILENT".to_string()]);
+        assert_eq!(calls[0].env, invocation.env);
+        assert_eq!(calls[1].args, vec!["--silent".to_string()]);
+    }
+
+    #[test]
+    fn compat_invocation_wraps_a_proton_plan() {
+        use crate::linux_gaming::{self, LaunchOptions};
+
+        let proton = crate::compat::CompatTool {
+            id: "proton:/games/GE-Proton9-20".into(),
+            name: "GE-Proton9-20".into(),
+            kind: crate::compat::ToolKind::Proton,
+            version: None,
+            path: "/games/GE-Proton9-20/proton".into(),
+            proton_path: Some("/games/GE-Proton9-20".into()),
+            source: "compatibilitytools.d".into(),
+            steam_root: None,
+        };
+        let selection =
+            linux_gaming::select_tool(&[proton], linux_gaming::LaunchMode::Proton, "").unwrap();
+        let plan = linux_gaming::build_launch(
+            &selection,
+            Path::new("/games/hades/setup.exe"),
+            &[],
+            Path::new("/games/hades/.prefix"),
+            &LaunchOptions::default(),
+        )
+        .unwrap();
+        let invocation = compat_invocation(&plan, Path::new("/games/hades"), None);
+        assert_eq!(
+            invocation.executable,
+            PathBuf::from("/games/GE-Proton9-20/proton")
+        );
+        assert_eq!(
+            invocation.pre_args,
+            vec!["run".to_string(), "/games/hades/setup.exe".to_string()]
+        );
+        assert_eq!(
+            invocation
+                .env
+                .iter()
+                .find(|(key, _)| key == "STEAM_COMPAT_DATA_PATH")
+                .map(|(_, value)| value.as_str()),
+            Some("/games/hades/.prefix")
+        );
+    }
+
+    #[test]
+    fn installed_executable_is_found_inside_the_wine_prefix() {
+        let root = std::env::temp_dir().join(format!(
+            "ludex-installer-prefix-{}",
+            crate::util::short_id(&uuid::Uuid::new_v4().to_string())
+        ));
+        let install = root.join("hades");
+        let prefix = install.join(".prefix");
+        std::fs::create_dir_all(prefix.join("drive_c/Program Files/Hades")).unwrap();
+        std::fs::create_dir_all(prefix.join("drive_c/windows/system32")).unwrap();
+        std::fs::write(install.join("setup.exe"), b"x").unwrap();
+        std::fs::write(prefix.join("drive_c/Program Files/Hades/Hades.exe"), b"x").unwrap();
+        std::fs::write(prefix.join("drive_c/windows/system32/cmd.exe"), b"x").unwrap();
+        std::fs::write(
+            prefix.join("drive_c/Program Files/Hades/unins000.exe"),
+            b"x",
+        )
+        .unwrap();
+
+        let found = detect_installed_executable(&install, Some(&prefix), "Hades").unwrap();
+        assert!(found.ends_with("drive_c/Program Files/Hades/Hades.exe"));
+        // Without a prefix only the install folder is searched: the setup
+        // program itself is never recorded as the game.
+        assert!(detect_installed_executable(&install, None, "Hades").is_none());
+
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

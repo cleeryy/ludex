@@ -421,6 +421,14 @@ export interface LocalSettings {
   installerTimeoutSecs: number;
   /** Steam root overriding auto-discovery (#13). Empty = detect. */
   steamRoot: string;
+  /** `umu-run` override for the compatibility scan (#90). Empty = detect. */
+  compatUmuPath: string;
+  /** Proton folder or `proton` script override (#90). Empty = detect. */
+  compatProtonPath: string;
+  /** `wine` override for the compatibility scan (#90). Empty = detect. */
+  compatWinePath: string;
+  /** Launch mode new games start with on Linux (#89). */
+  defaultLaunchMode: LaunchMode;
 }
 
 export interface InstalledGame {
@@ -451,6 +459,10 @@ export interface InstallerPlan {
   timeoutSecs: number;
   interactive: boolean;
   platform: string;
+  /** Linux: compatibility tool a run would go through (#93). */
+  compatTool?: string | null;
+  /** Wine prefix the installer would write into. */
+  prefix?: string | null;
 }
 
 export interface InstallerAttempt {
@@ -473,6 +485,10 @@ export interface InstallerReport {
   attempts: InstallerAttempt[];
   recordedExecutable: string | null;
   candidates: string[];
+  /** Linux compatibility tool used for the run (#93). */
+  compatTool?: string | null;
+  /** Last lines of the installer log captured on Linux. */
+  logTail?: string | null;
   message: string;
 }
 
@@ -685,4 +701,87 @@ export interface VerifyProgress {
 
 export interface RepairProgress extends VerifyProgress {
   phase: "downloading" | "extracting" | "restoring" | "verifying";
+}
+
+/* --------------------- Linux compatibility (#89-#93) --------------------- */
+
+export type LaunchMode = "auto" | "native" | "proton" | "umu";
+
+/** How a game is started on Linux; stored locally per game. */
+export interface LaunchOptions {
+  mode: LaunchMode;
+  /** Preferred `compat_scan` tool id; empty = best available. */
+  toolId: string;
+  /** Custom Wine prefix; empty = `{installPath}/.prefix`. */
+  prefixPath: string;
+  /** Extra environment variables (`DXVK_*`, `PROTON_*`, `WINEDLLOVERRIDES`…). */
+  env: Record<string, string>;
+  /** Winetricks verbs run on demand in the game prefix. */
+  winetricksVerbs: string[];
+  /** Steam app id for ProtonDB and `GAMEID`. */
+  steamAppId: number | null;
+}
+
+export interface CompatTool {
+  id: string;
+  name: string;
+  kind: "umu" | "proton" | "wine";
+  version: string | null;
+  /** Executable: `umu-run`, the `proton` script or the `wine` binary. */
+  path: string;
+  protonPath: string | null;
+  /** `path`, `steam`, `compatibilitytools.d` or `override`. */
+  source: string;
+  steamRoot: string | null;
+}
+
+export interface CompatScan {
+  platform: string;
+  /** True on Linux, where the compatibility panel applies. */
+  linux: boolean;
+  steamRoots: string[];
+  tools: CompatTool[];
+  umu: string | null;
+  proton: string | null;
+  wine: string | null;
+  winetricks: string | null;
+  protonfixes: string | null;
+  defaultMode: LaunchMode;
+  steamClientPath: string | null;
+  suggestedVerbs: string[];
+  warnings: string[];
+}
+
+export interface PrefixInfo {
+  gameId: number;
+  path: string;
+  custom: boolean;
+  exists: boolean;
+  sizeBytes: number;
+}
+
+export interface WinetricksReport {
+  verbs: string[];
+  success: boolean;
+  timedOut: boolean;
+  exitCode: number | null;
+  output: string;
+  durationMs: number;
+}
+
+export type ProtonDbStatus = "ok" | "cached" | "stale" | "unavailable" | "notFound" | "noAppId";
+
+/** ProtonDB summary for a Steam app id (#91). */
+export interface ProtonDbRating {
+  appId: number | null;
+  status: ProtonDbStatus;
+  tier: string | null;
+  bestTier: string | null;
+  trendingTier: string | null;
+  confidence: string | null;
+  total: number;
+  score: number | null;
+  url: string | null;
+  fetchedAt: string | null;
+  message: string | null;
 }
