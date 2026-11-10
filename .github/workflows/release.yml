@@ -179,6 +179,9 @@ jobs:
           - platform: ubuntu-24.04
             label: Linux x64 (AppImage, deb)
             args: "--bundles appimage,deb"
+          - platform: macos-latest
+            label: macOS universal (dmg)
+            args: "--target universal-apple-darwin --bundles dmg"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -212,6 +215,10 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Add macOS universal targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
@@ -238,6 +245,14 @@ jobs:
           # `bundle.createUpdaterArtifacts` is false in tauri.conf.json.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS signing + notarization (#27). Empty secrets leave the build
+          # unsigned: Gatekeeper then warns and the release notes say so.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}

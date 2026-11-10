@@ -50,6 +50,56 @@ Signing keys rotate by publishing a release signed with the new key **and**
 shipping the new public key in the previous release, otherwise existing installs
 cannot verify the update.
 
+## macOS signing, notarization and Apple Silicon (#27)
+
+The release matrix builds a **universal** macOS DMG
+(`--target universal-apple-darwin`) on `macos-latest`. Signing and notarization
+are driven by the standard Tauri environment variables, so provisioning the
+secrets enables them without a workflow change:
+
+| Secret | Value |
+|---|---|
+| `APPLE_CERTIFICATE` | base64 of the Developer ID Application `.p12` |
+| `APPLE_CERTIFICATE_PASSWORD` | password of that `.p12` |
+| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: Name (TEAMID)` |
+| `APPLE_ID` | Apple ID e-mail used for notarization |
+| `APPLE_PASSWORD` | app-specific password for that Apple ID |
+| `APPLE_TEAM_ID` | 10-character team identifier |
+
+```bash
+# Export the certificate from Keychain as .p12, then:
+base64 -i DeveloperID.p12 | tr -d '\n' | gh secret set APPLE_CERTIFICATE
+gh secret set APPLE_CERTIFICATE_PASSWORD
+gh secret set APPLE_SIGNING_IDENTITY
+gh secret set APPLE_ID
+gh secret set APPLE_PASSWORD
+gh secret set APPLE_TEAM_ID
+```
+
+Without the secrets the DMG is still built and published **unsigned**: Tauri
+logs that no signing identity was provided, Gatekeeper warns on first launch,
+and the release notes must say so. With the secrets, Tauri signs with the
+hardened runtime, submits to `notarytool` and staples the ticket.
+
+Verify a release artifact on a Mac:
+
+```bash
+spctl --assess --type execute --verbose=4 "Ludex.app"
+codesign --verify --deep --strict --verbose=2 "Ludex.app"
+xcrun stapler validate "Ludex.dmg"
+```
+
+Apple Silicon notes:
+
+- The universal binary is tested by the `macos-check` CI job on `macos-latest`
+  (arm64) with `cargo check --locked`; the release job builds both slices.
+- Minimum system version is macOS 11.0 (Apple Silicon baseline).
+- WebKit behaviour, native file dialogs and app bundles are exercised manually
+  on macOS; Wine/CrossOver is **not** required for native `.app`/`.sh` games and
+  is unsupported for `.exe` games on macOS (Linux handles those, #89/#92).
+- The updater artifacts follow the same signing keys; a rotated certificate
+  requires shipping the new public key in the previous release.
+
 ## Channels
 
 | Channel | Trigger | Artifact | Use |

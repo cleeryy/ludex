@@ -84,7 +84,7 @@ application backed by PostgreSQL. Ludex takes a different route:
 | Discord Rich Presence, Steam, Playnite integration | roadmap |
 | Gamepad navigation, tray icon, auto-updater | roadmap |
 | Themes, translations, multiple profiles | roadmap |
-| macOS desktop build | experimental, unsigned |
+| macOS desktop build | v0.2.2+ universal DMG; signed/notarized when the release secrets are configured, unsigned otherwise |
 
 The API is documented in [`docs/CONTRACT.md`](docs/CONTRACT.md), integrations
 (API keys, audit log, webhooks) in

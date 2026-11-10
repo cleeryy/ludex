@@ -88,7 +88,7 @@ Legend:
 | Web UI (browse/download) | Yes | Yes | Served by the server. |
 | Windows desktop | Yes | Yes | Tauri 2, NSIS; unsigned in v0.1. |
 | Linux desktop | Yes | Yes | AppImage and `.deb`; unsigned. |
-| macOS desktop | Beta | Experimental | Unsigned; build from source. |
+| macOS desktop | Beta | Partial | Universal DMG from CI; Developer ID signing + notarization activate with the release secrets (#27), unsigned builds are published otherwise. |
 | Android | Yes | No | Responsive web only. |
 | iOS | Beta | No | Not planned for v0.1. |
 | Local mode without a server | No | Yes | Desktop embeds `ludex-server` on loopback. |

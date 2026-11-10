@@ -136,6 +136,31 @@ jobs:
             cargo check
           fi
 
+  macos-check:
+    name: Desktop (macOS cargo check)
+    runs-on: macos-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      - name: Check desktop crate on Apple Silicon
+        working-directory: apps/desktop/src-tauri
+        run: |
+          if [ -f Cargo.lock ]; then
+            cargo check --locked
+          else
+            cargo check
+          fi
+
   e2e:
     name: E2E
     runs-on: ubuntu-24.04
