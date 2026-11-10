@@ -1592,7 +1592,7 @@ fn detect_and_persist(app: &AppHandle, game_id: i64) -> Result<SavePaths, String
     let state = app.state::<AppState>();
     let settings = state.settings_snapshot();
 
-    let (game, manual, previous_primary) = {
+    let (game, manual, previous_primary, launch_options) = {
         let connection = state
             .db
             .lock()
@@ -1609,10 +1609,18 @@ fn detect_and_persist(app: &AppHandle, game_id: i64) -> Result<SavePaths, String
             .into_iter()
             .filter(|row| row.source != saves_detect::SOURCE_MANIFEST)
             .collect::<Vec<_>>();
-        (game, manual, previous_primary)
+        let launch_options = db::get_launch_options(&connection, game_id)?;
+        (game, manual, previous_primary, launch_options)
     };
 
-    let detection = saves_detect::detect_for_game(&settings, &game, &manual);
+    let prefix_override = crate::util::non_empty(Some(launch_options.prefix_path.as_str()));
+    let detection = saves_detect::detect_for_game(
+        &settings,
+        &game,
+        &manual,
+        prefix_override,
+        launch_options.steam_app_id,
+    );
     let primary = saves_detect::choose_primary(&detection.saves, previous_primary.as_deref());
     let now = now_rfc3339();
     let rows = saves_detect::records_from_detection(game_id, &detection, primary.as_deref(), &now);
@@ -1685,9 +1693,18 @@ pub fn set_save_paths(
     let previous_snapshot: Option<saves_detect::Detection> = previous
         .as_ref()
         .and_then(|record| serde_json::from_str(&record.result_json).ok());
+    let launch_options = db::get_launch_options(&connection, game_id)?;
 
-    let env = saves_detect::DetectEnv::for_game(&settings, &game);
-    let context = saves_detect::GameContext::from_installed(&game);
+    let env = saves_detect::DetectEnv::for_game(
+        &settings,
+        &game,
+        crate::util::non_empty(Some(launch_options.prefix_path.as_str())),
+        launch_options.steam_app_id,
+    );
+    let mut context = saves_detect::GameContext::from_installed(&game);
+    if context.steam_app_id.is_none() {
+        context.steam_app_id = launch_options.steam_app_id;
+    }
     let now = now_rfc3339();
     let (mut rows, mut detection) =
         saves_detect::manual_override(&env, &context, game_id, &paths, &now)?;

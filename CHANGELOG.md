@@ -8,6 +8,16 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Save folder detection (#107): the desktop app resolves a game's save files
+  and folders from a user-installed Ludusavi CLI (preview API), a user-provided
+  Ludusavi manifest, or manual per-game paths. Steam App ID and normalized
+  title matching, store/OS `when` filters, Windows/Linux/Wine path templates
+  (`<base>`, `<home>`, `<winAppData>`, `<winLocalAppData>`, `<winDocuments>`,
+  prefix `drive_c/users/<user>`, multi-profile aggregation) and a per-game
+  primary path. Paths stay on the machine; the manifest is never bundled.
+  Detection results are persisted with sizes, timestamps, source and notes,
+  manual overrides survive re-detection, and traversal/symlink escapes are
+  rejected. Covered by 17 unit tests with fixture manifest and prefix trees.
 - Stream installs for RAR4/RAR5 (#8): `archive_tar_size` and
   `stream_archive_as_tar` now plan and stream RAR archives with the same
   bounded-memory, path-sanitised tar writer as ZIP/7z; encrypted archives are
