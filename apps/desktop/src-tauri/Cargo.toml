@@ -1,6 +1,6 @@
 [package]
 name = "ludex-desktop"
-version = "0.2.3"
+version = "0.2.4"
 description = "Ludex desktop app: install, launch and track DRM-free games"
 authors = ["cleeryy"]
 license = "AGPL-3.0-or-later"

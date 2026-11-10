@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-11-10
+
 ### Added
 
 - Updater signing provisioned (#124): minisign key pair generated, private key
