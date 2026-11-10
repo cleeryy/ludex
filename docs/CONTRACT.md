@@ -358,7 +358,7 @@ interface PublicProfileResponse {
 }
 type ActivityKind =
   | "game_added" | "game_installed" | "game_played"
-  | "game_completed" | "collection_created";
+  | "game_completed" | "collection_created" | "achievement_unlocked";
 interface Activity {
   id: number; kind: ActivityKind; createdAt: string;
   metadata: Record<string, unknown>;
@@ -1265,3 +1265,68 @@ interface UploadSession {
 | `LUDEX_UPLOAD_MAX_BYTES` | `107374182400` | Largest accepted archive upload |
 | `LUDEX_UPLOAD_TTL_HOURS` | `24` | Stale upload cleanup age |
 | `LUDEX_OPENAPI_DOCS` | `false` | Serve `/api/docs` |
+
+## Achievements (#117, #118)
+
+Definitions are per game; `gameId: null` marks a global achievement. Unlocks
+are per account and immutable (the first timestamp wins). Hidden definitions
+are masked to `{ name: "Hidden achievement", description: null, iconUrl: null }`
+until the requested account unlocks them. A showcase is only visible when the
+target account enabled `publicProfile`; otherwise `GET
+/api/users/{id}/achievements` returns 404 `profile_not_found`.
+
+```ts
+type AchievementProvider = "manual" | "game_files" | "gog_galaxy_api" | "gog_galaxy_sqlite";
+
+interface Achievement {
+  id: number; gameId: number | null; gameTitle: string | null; coverUrl: string | null;
+  key: string; name: string; description: string | null; iconUrl: string | null;
+  points: number; hidden: boolean; provider: AchievementProvider;
+  unlocked: boolean; unlockedAt: string | null;
+  progress: number;              // 0..1
+  unlockPercentage: number;      // 0..100, share of activated accounts
+  source: string | null;         // where the unlock came from when unlocked
+}
+
+interface GameAchievements {
+  gameId: number; total: number; unlocked: number;
+  points: number; unlockedPoints: number;
+  completion: number;            // 0..100, one decimal
+  achievements: Achievement[];
+  lastScan: { scannedAt: string; providers: string[]; found: number; unlocked: number } | null;
+}
+
+interface UserAchievements {
+  user: { id: number; username: string; displayName: string | null; publicProfile: boolean };
+  unlocked: number; unlockedPoints: number; games: number;
+  achievements: Achievement[];   // newest unlock first
+}
+
+interface AchievementScanReport {
+  gameId: number; userId: number; scannedAt: string;
+  found: number; unlocked: number;
+  providers: { provider: string; status: "ok" | "skipped" | "error"; found: number; unlocked: number; message: string | null }[];
+  warnings: string[];
+}
+```
+
+| Method | Route | Auth | Notes |
+|---|---|---|---|
+| GET | `/api/games/{id}/achievements` | read | `GameAchievements`; 404 `game_not_found` |
+| GET | `/api/me/achievements` | read | `UserAchievements` for the caller |
+| GET | `/api/users/{id}/achievements` | read | Public showcase; 404 `profile_not_found` when private |
+| POST | `/api/games/{id}/achievements` | admin | `{ key, name, description?, iconPath?, points?, hidden? }` → 201 `{ gameId, key }`; 409 `achievement_exists` |
+| PATCH | `/api/games/{id}/achievements/{key}` | admin | partial `{ name?, description?, iconPath?, points?, hidden? }` → `{ gameId, key }`; 404 `achievement_not_found` |
+| DELETE | `/api/games/{id}/achievements/{key}` | admin | 204, cascades unlocks |
+| POST | `/api/games/{id}/achievements/{key}/unlock` | write | `{ userId?, source? }` → `{ unlocked: boolean, achievement }`; `unlocked` is false on a repeat; `userId` for another account is admin-only |
+| POST | `/api/games/{id}/achievements/scan` | write | `{ installPath?, appId?, providers? }` → `AchievementScanReport`; 400 `invalid_install_path` / `unknown_provider`, 403 `path_not_allowed` |
+
+Scans are idempotent and server-side: `installPath` must live under
+`LUDEX_ACHIEVEMENT_SCAN_ROOTS` (default: the library roots). New unlocks emit
+`achievement.unlocked` to the audit log and webhooks. See
+`docs/ACHIEVEMENTS.md` for the provider formats and environment variables.
+
+Environment: `LUDEX_ACHIEVEMENT_SCAN_INTERVAL_HOURS` (0 = off),
+`LUDEX_ACHIEVEMENT_PROVIDERS`, `LUDEX_ACHIEVEMENT_SCAN_ROOTS`,
+`LUDEX_ACHIEVEMENT_LOCAL_API_URLS`, `LUDEX_ACHIEVEMENT_GALAXY_DB`,
+`LUDEX_ACHIEVEMENT_ALLOW_REMOTE_APIS`.

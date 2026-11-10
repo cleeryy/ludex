@@ -90,7 +90,8 @@ The API is documented in [`docs/CONTRACT.md`](docs/CONTRACT.md), integrations
 (API keys, audit log, webhooks) in
 [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md), object storage in
 [`docs/STORAGE.md`](docs/STORAGE.md), backup/restore in
-[`docs/BACKUP.md`](docs/BACKUP.md), the design in
+[`docs/BACKUP.md`](docs/BACKUP.md), achievements and local providers in
+[`docs/ACHIEVEMENTS.md`](docs/ACHIEVEMENTS.md), the design in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and the honest GameVault
 comparison in [`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md).
 
