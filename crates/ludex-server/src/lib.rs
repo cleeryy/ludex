@@ -36,6 +36,7 @@ pub mod metadata;
 pub mod models;
 pub mod oidc;
 pub mod routes;
+pub mod saves;
 pub mod scanner;
 pub mod sql;
 pub mod state;
@@ -228,7 +229,7 @@ fn spawn_server(
 }
 
 fn build_router(state: &AppState, ingest_ctx: &ingest::IngestContext) -> Router {
-    let api = routes::api_router();
+    let api = routes::api_router(state.config.saves_max_bytes);
     let app = Router::new().nest("/api", api);
     let app = web::attach(app, state);
     let app = app.with_state(state.clone());

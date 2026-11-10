@@ -79,7 +79,8 @@ application backed by PostgreSQL. Ludex takes a different route:
 | Scan an existing GameVault archive volume | v0.1 |
 | GameVault metadata/progress import | roadmap |
 | Share links, collections, community view | roadmap |
-| Cloud saves via Ludusavi | roadmap |
+| Cloud saves per user (manual `.zip` snapshots) | v0.2 |
+| Ludusavi automatic save discovery | roadmap |
 | Discord Rich Presence, Steam, Playnite integration | roadmap |
 | Gamepad navigation, tray icon, auto-updater | roadmap |
 | Themes, translations, multiple profiles | roadmap |

@@ -15,6 +15,7 @@ import type {
   NewsPost,
   ProgressState,
   Role,
+  SaveSnapshot,
   ScanStatus,
   ServerConfig,
   SetupStatus,
@@ -297,6 +298,60 @@ export const api = {
     return USING_MOCKS ? mockApi.ingestStats(tokenStore.get()) : request<IngestStats>("/ingest/stats");
   },
 
+  /* cloud saves */
+  listSaves(gameId: number): Promise<SaveSnapshot[]> {
+    return USING_MOCKS
+      ? mockApi.listSaves(tokenStore.get(), gameId)
+      : request(`/games/${gameId}/saves`);
+  },
+
+  uploadSave(gameId: number, file: File, label?: string, onProgress?: (loaded: number, total: number) => void): Promise<SaveSnapshot> {
+    if (USING_MOCKS) return mockApi.uploadSave(tokenStore.get(), gameId, file, label);
+    return uploadWithProgress<SaveSnapshot>(`/games/${gameId}/saves`, file, label, onProgress);
+  },
+
+  deleteSave(id: number): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.deleteSave(tokenStore.get(), id)
+      : request(`/saves/${id}`, { method: "DELETE" });
+  },
+
+  async downloadSave(id: number): Promise<void> {
+    if (USING_MOCKS) {
+      await mockApi.downloadSave(tokenStore.get(), id);
+      return;
+    }
+    const token = tokenStore.get();
+    let response: Response;
+    try {
+      response = await fetch(buildUrl(`/saves/${id}/download`), {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+    } catch {
+      throw new ApiError(0, "network_error", "Cannot reach the server. Check that it is running.");
+    }
+
+    if (response.status === 401) {
+      tokenStore.clear();
+      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+    }
+
+    if (!response.ok) {
+      throw new ApiError(response.status, "download_failed", saveErrorMessage(response.status));
+    }
+
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition") ?? "";
+    const filename = filenameFromDisposition(disposition) ?? `ludex-save-${id}.zip`;
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.rel = "noopener";
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  },
+
   /* news */
   listNews(): Promise<NewsPost[]> {
     return USING_MOCKS ? mockApi.listNews() : request<NewsPost[]>("/news");
@@ -317,3 +372,84 @@ export const api = {
 };
 
 export { ApiError };
+
+/* ------------------------------ cloud saves ------------------------------ */
+
+function saveErrorMessage(status: number): string {
+  if (status === 401) return "Your session expired. Sign in again.";
+  if (status === 404) return "That save no longer exists.";
+  if (status === 413) return "That save is larger than the server allows (2 GiB).";
+  return `The server refused the request (${status}).`;
+}
+
+function filenameFromDisposition(disposition: string): string | null {
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  if (utf8?.[1]) {
+    try {
+      return decodeURIComponent(utf8[1]);
+    } catch {
+      return utf8[1];
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(disposition);
+  return plain?.[1] ?? null;
+}
+
+/**
+ * XHR instead of fetch: upload progress is only reliably available through
+ * `xhr.upload.onprogress`, and saves can be large. Bearer auth is set by hand
+ * because FormData must not set Content-Type.
+ */
+function uploadWithProgress<T>(
+  path: string,
+  file: File,
+  label: string | undefined,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", buildUrl(path));
+    const token = tokenStore.get();
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded, event.total);
+    };
+
+    xhr.onerror = () => reject(new ApiError(0, "network_error", "Cannot reach the server. Check that it is running."));
+    xhr.onload = () => {
+      let payload: unknown = null;
+      if (xhr.responseText) {
+        try {
+          payload = JSON.parse(xhr.responseText);
+        } catch {
+          payload = null;
+        }
+      }
+
+      if (xhr.status === 401) {
+        tokenStore.clear();
+        window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(payload as T);
+        return;
+      }
+
+      const envelope = payload as { error?: { code?: string; message?: string } } | null;
+      reject(
+        new ApiError(
+          xhr.status,
+          envelope?.error?.code ?? "upload_failed",
+          envelope?.error?.message ?? saveErrorMessage(xhr.status),
+        ),
+      );
+    };
+
+    const form = new FormData();
+    form.append("file", file);
+    if (label?.trim()) form.append("label", label.trim());
+    xhr.send(form);
+  });
+}

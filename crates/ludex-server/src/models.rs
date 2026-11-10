@@ -121,6 +121,56 @@ pub struct NewsRow {
     pub updated_at: String,
 }
 
+/// Public representation of a cloud save snapshot.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveSnapshot {
+    /// Snapshot id.
+    pub id: i64,
+    /// Game the snapshot belongs to.
+    pub game_id: i64,
+    /// User-supplied label.
+    pub label: String,
+    /// Sanitized client file name.
+    pub file_name: String,
+    /// Archive size in bytes.
+    pub size: i64,
+    /// Lowercase hex SHA-256 of the archive.
+    pub sha256: String,
+    /// Upload timestamp.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Row of the `save_snapshots` table.
+#[derive(Debug, sqlx::FromRow)]
+pub struct SaveSnapshotRow {
+    pub id: i64,
+    pub user_id: i64,
+    pub game_id: i64,
+    pub version_id: Option<i64>,
+    pub label: String,
+    pub file_name: String,
+    pub size: i64,
+    pub sha256: String,
+    pub created_at: String,
+}
+
+impl SaveSnapshotRow {
+    /// Public representation, hiding the owning account and version metadata.
+    #[must_use]
+    pub fn to_public(self) -> SaveSnapshot {
+        SaveSnapshot {
+            id: self.id,
+            game_id: self.game_id,
+            label: self.label,
+            file_name: self.file_name,
+            size: self.size,
+            sha256: self.sha256,
+            created_at: crate::db::parse_time(&self.created_at).unwrap_or_else(Utc::now),
+        }
+    }
+}
+
 /// Scanner status exposed by `GET /api/library/scan`.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]

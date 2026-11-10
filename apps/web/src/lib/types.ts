@@ -67,6 +67,16 @@ export interface GameDetail extends GameSummary {
   launch: GameLaunchOptions;
 }
 
+export interface SaveSnapshot {
+  id: number;
+  gameId: number;
+  label: string;
+  fileName: string;
+  size: number;
+  sha256: string;
+  createdAt: string;
+}
+
 export interface NewsPost {
   id: number;
   title: string;

@@ -115,6 +115,30 @@ interface ScanStatus {
 | PUT | `/api/games/{id}/bookmark` | `{ bookmarked }` | `{ bookmarked }` |
 | GET | `/api/stats` | — | `{ games, versions, totalBytes, users, byState: Record<ProgressState, number> }` |
 
+## Cloud saves (per user)
+
+Manual per-user save snapshots (v1). The desktop can later automate this with
+Ludusavi; the server stores opaque archives and never inspects them.
+
+```ts
+interface SaveSnapshot {
+  id: number; gameId: number; label: string; fileName: string;
+  size: number; sha256: string; createdAt: string;
+}
+```
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/games/{id}/saves` | current user's snapshots, newest first |
+| POST | `/api/games/{id}/saves` | multipart `file` + optional `label`; max 2 GiB; returns 201 `SaveSnapshot` |
+| GET | `/api/saves/{id}/download` | owner (or admin) download, `Content-Disposition` |
+| DELETE | `/api/saves/{id}` | owner (or admin), 204 |
+
+Storage: `{data_dir}/saves/{user_id}/{game_id}/{snapshot_id}-{sanitized_name}`.
+A user can never see another user's snapshots. The desktop UI offers "Upload
+save archive (.zip)" and "Download/restore"; automatic save-file discovery is a
+follow-up (Ludusavi).
+
 ## Users (admin)
 
 | Method | Route | Notes |
