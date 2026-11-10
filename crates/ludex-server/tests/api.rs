@@ -1,10 +1,15 @@
 //! End-to-end HTTP tests against a real server on an ephemeral port.
 
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::io::{Cursor, Read, Write};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use ludex_server::{start, Config, ServerHandle};
-use reqwest::header::{CONTENT_DISPOSITION, CONTENT_RANGE, RANGE};
+use rand::RngCore;
+use reqwest::header::{
+    CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, RANGE,
+};
 use reqwest::{Client, Method, StatusCode};
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -971,4 +976,321 @@ async fn local_mode_provisions_admin_and_local_paths() {
 
     let _ = handle.shutdown.send(());
     tokio::time::sleep(Duration::from_millis(50)).await;
+}
+
+fn zip_options() -> zip::write::SimpleFileOptions {
+    zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored)
+}
+
+fn write_test_zip(path: &Path) {
+    let file = std::fs::File::create(path).expect("zip file");
+    let mut archive = zip::ZipWriter::new(file);
+    archive
+        .start_file("Game/game.exe", zip_options())
+        .expect("entry");
+    archive.write_all(b"MZ ludex stream").expect("write");
+    archive
+        .start_file("Game/data/readme.txt", zip_options())
+        .expect("entry");
+    archive.write_all(b"hello from ludex").expect("write");
+    archive
+        .start_file("Game/pad.bin", zip_options())
+        .expect("entry");
+    archive
+        .write_all(&vec![0_u8; 1024 * 1024 + 1])
+        .expect("write");
+    let long_name = format!("Game/{}.txt", "long-name-segment-".repeat(8));
+    archive
+        .start_file(&long_name, zip_options())
+        .expect("long entry");
+    archive.write_all(b"long name content").expect("write");
+    archive.finish().expect("finish");
+}
+
+fn write_test_7z(path: &Path) {
+    let mut writer = sevenz_rust2::SevenZWriter::create(path).expect("create 7z");
+    for (name, data) in [
+        ("Seven/game.exe", b"MZ seven stream".as_slice()),
+        ("Seven/data.txt", b"seven data".as_slice()),
+    ] {
+        let entry = sevenz_rust2::SevenZArchiveEntry::new_file(name);
+        writer
+            .push_archive_entry(entry, Some(Cursor::new(data.to_vec())))
+            .expect("7z entry");
+    }
+    let mut pad = vec![0_u8; 1024 * 1024 + 1];
+    rand::thread_rng().fill_bytes(&mut pad);
+    let entry = sevenz_rust2::SevenZArchiveEntry::new_file("Seven/pad.bin");
+    writer
+        .push_archive_entry(entry, Some(Cursor::new(pad)))
+        .expect("7z pad");
+    writer.finish().expect("finish 7z");
+    let size = std::fs::metadata(path).expect("7z metadata").len();
+    assert!(
+        size > 1024 * 1024,
+        "7z fixture must exceed the scanner minimum, got {size} bytes"
+    );
+}
+
+fn write_test_rar(path: &Path) {
+    let mut file = std::fs::File::create(path).expect("rar file");
+    file.write_all(b"Rar!\x1a\x07\x00").expect("magic");
+    file.set_len(1024 * 1024 + 1).expect("size");
+}
+
+fn read_tar(body: &[u8]) -> HashMap<String, Vec<u8>> {
+    let mut archive = tar::Archive::new(Cursor::new(body));
+    let mut files = HashMap::new();
+    for entry in archive.entries().expect("tar entries") {
+        let mut entry = entry.expect("tar entry");
+        let path = entry
+            .path()
+            .expect("tar path")
+            .to_string_lossy()
+            .trim_start_matches("./")
+            .to_string();
+        let mut contents = Vec::new();
+        entry.read_to_end(&mut contents).expect("tar contents");
+        files.insert(path, contents);
+    }
+    files
+}
+
+#[tokio::test]
+async fn stream_install_zip_as_tar() {
+    let server = TestServer::start().await;
+    let (token, _) = server.setup().await;
+
+    let zip_path = server.games_dir.join("Stream Game (2020).zip");
+    write_test_zip(&zip_path);
+    let rar_path = server.games_dir.join("Rar Game (2020).rar");
+    write_test_rar(&rar_path);
+    run_scan(&server, &token).await;
+
+    let (_, list) = server.get("/api/games?limit=10", Some(&token)).await;
+    let items = list["items"].as_array().expect("items");
+    let zip_game = items
+        .iter()
+        .find(|item| item["title"] == "Stream Game")
+        .expect("zip game");
+    let zip_game_id = zip_game["id"].as_i64().expect("zip game id");
+    let (_, detail) = server
+        .get(&format!("/api/games/{zip_game_id}"), Some(&token))
+        .await;
+    let version_id = detail["versions"][0]["id"]
+        .as_i64()
+        .expect("zip version id");
+
+    let (status, error) = server
+        .get(
+            &format!("/api/games/{zip_game_id}/versions/{version_id}/stream"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(error["error"]["code"], "unauthorized");
+
+    let (status, _) = server
+        .get(
+            &format!(
+                "/api/games/{zip_game_id}/versions/{}/stream",
+                version_id + 9999
+            ),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, _) = server
+        .get(
+            &format!(
+                "/api/games/{}/versions/{version_id}/stream",
+                zip_game_id + 9999
+            ),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let response = server
+        .client
+        .get(format!(
+            "{}/api/games/{zip_game_id}/versions/{version_id}/stream",
+            server.url
+        ))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .expect("stream");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/x-tar")
+    );
+    assert!(response
+        .headers()
+        .get(CONTENT_DISPOSITION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("attachment;") && value.contains(".tar")));
+    assert_eq!(
+        response
+            .headers()
+            .get(CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("private, no-store")
+    );
+    let content_length: u64 = response
+        .headers()
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok())
+        .expect("content length");
+    let body = response.bytes().await.expect("tar body");
+    assert_eq!(content_length, body.len() as u64);
+    let files = read_tar(&body);
+    assert_eq!(
+        files.get("Game/game.exe").map(Vec::as_slice),
+        Some(b"MZ ludex stream".as_slice())
+    );
+    assert_eq!(
+        files.get("Game/data/readme.txt").map(Vec::as_slice),
+        Some(b"hello from ludex".as_slice())
+    );
+    assert_eq!(
+        files.get("Game/pad.bin").map(Vec::len),
+        Some(1024 * 1024 + 1)
+    );
+    let long_name = format!("Game/{}.txt", "long-name-segment-".repeat(8));
+    assert_eq!(
+        files.get(&long_name).map(Vec::as_slice),
+        Some(b"long name content".as_slice())
+    );
+
+    // Ticket authentication must work for the stream route too.
+    let (status, ticket) = server
+        .post(
+            &format!("/api/games/{zip_game_id}/download-ticket"),
+            Some(&token),
+            Some(json!({"versionId": version_id})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{ticket}");
+    let ticket_url = ticket["url"].as_str().expect("ticket url");
+    let ticket_token = ticket_url.rsplit_once("token=").expect("ticket token").1;
+    let response = server
+        .client
+        .get(format!(
+            "{}/api/games/{zip_game_id}/versions/{version_id}/stream?token={ticket_token}",
+            server.url
+        ))
+        .send()
+        .await
+        .expect("ticket stream");
+    assert_eq!(response.status(), StatusCode::OK);
+    let ticket_length: u64 = response
+        .headers()
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok())
+        .expect("ticket content length");
+    let ticket_body = response.bytes().await.expect("ticket tar body");
+    assert_eq!(ticket_length, ticket_body.len() as u64);
+    assert!(read_tar(&ticket_body).contains_key("Game/game.exe"));
+
+    // Non-ZIP archives are rejected with 415; clients fall back to /download.
+    let rar_game = items
+        .iter()
+        .find(|item| item["title"] == "Rar Game")
+        .expect("rar game");
+    let rar_game_id = rar_game["id"].as_i64().expect("rar game id");
+    let (_, rar_detail) = server
+        .get(&format!("/api/games/{rar_game_id}"), Some(&token))
+        .await;
+    let rar_version_id = rar_detail["versions"][0]["id"]
+        .as_i64()
+        .expect("rar version id");
+    let response = server
+        .client
+        .get(format!(
+            "{}/api/games/{rar_game_id}/versions/{rar_version_id}/stream",
+            server.url
+        ))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .expect("rar stream");
+    assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    let error: Value = response.json().await.expect("rar error");
+    assert_eq!(error["error"]["code"], "stream_unsupported");
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn stream_install_7z_as_tar() {
+    let server = TestServer::start().await;
+    let (token, _) = server.setup().await;
+
+    let seven_path = server.games_dir.join("Seven Game (2021).7z");
+    write_test_7z(&seven_path);
+    run_scan(&server, &token).await;
+
+    let (_, list) = server.get("/api/games?limit=10", Some(&token)).await;
+    let game = list["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|item| item["title"] == "Seven Game")
+        .expect("7z game");
+    let game_id = game["id"].as_i64().expect("game id");
+    let (_, detail) = server
+        .get(&format!("/api/games/{game_id}"), Some(&token))
+        .await;
+    let version_id = detail["versions"][0]["id"].as_i64().expect("version id");
+
+    let response = server
+        .client
+        .get(format!(
+            "{}/api/games/{game_id}/versions/{version_id}/stream",
+            server.url
+        ))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .expect("7z stream");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/x-tar")
+    );
+    let content_length: u64 = response
+        .headers()
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok())
+        .expect("content length");
+    let body = response.bytes().await.expect("7z tar body");
+    assert_eq!(content_length, body.len() as u64);
+
+    let files = read_tar(&body);
+    assert_eq!(
+        files.get("Seven/game.exe").map(Vec::as_slice),
+        Some(b"MZ seven stream".as_slice())
+    );
+    assert_eq!(
+        files.get("Seven/data.txt").map(Vec::as_slice),
+        Some(b"seven data".as_slice())
+    );
+    assert_eq!(
+        files.get("Seven/pad.bin").map(Vec::len),
+        Some(1024 * 1024 + 1)
+    );
+
+    server.stop().await;
 }

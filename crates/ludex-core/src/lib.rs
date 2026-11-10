@@ -28,8 +28,9 @@ pub mod naming;
 pub mod slug;
 
 pub use archive::{
-    detect_format, extract_archive, is_archive_path, sanitize_entry_path, verify_archive,
-    ArchiveError, ArchiveFormat, ArchiveReport, ExtractOptions, ExtractProgress, ExtractReport,
+    archive_tar_size, detect_format, extract_archive, is_archive_path, sanitize_entry_path,
+    stream_archive_as_tar, stream_zip_as_tar, verify_archive, zip_tar_size, ArchiveError,
+    ArchiveFormat, ArchiveReport, ExtractOptions, ExtractProgress, ExtractReport, TarStreamReport,
 };
 pub use exe::{is_installer, pick_executable};
 pub use models::{

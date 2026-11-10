@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -16,13 +16,15 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
-import { api, assetUrl, getApiBase, tokenStore, USING_MOCKS } from "@/lib/api";
+import { api, assetUrl, USING_MOCKS } from "@/lib/api";
 import { ApiError, errorMessage } from "@/lib/http";
 import { cn } from "@/lib/cn";
-import { formatBytes, formatDate, formatMinutes, formatRating, formatRelative, formatYear, stateLabel } from "@/lib/format";
+import { formatBytes, formatDate, formatEta, formatMinutes, formatRating, formatRelative, formatSpeed, formatYear, stateLabel } from "@/lib/format";
 import { isNative, native } from "@/lib/native";
-import type { GameDetail, GameVersion, InstallJob, ProgressState } from "@/lib/types";
+import type { GameDetail, ProgressState } from "@/lib/types";
 import { useBookmark, useInstalledMap, useLaunchGame } from "@/lib/hooks";
+import { useDownloads } from "@/state/downloads";
+import { InstallDialog } from "@/components/game/install-dialog";
 import { useAuth, useIsEditor } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { GameBackdrop, GameCover, StillPlate } from "@/components/art/cover";
@@ -47,6 +49,7 @@ export function GameDetailScreen() {
   const installed = useInstalledMap();
   const bookmark = useBookmark();
   const launch = useLaunchGame();
+  const downloads = useDownloads();
   const [installOpen, setInstallOpen] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [launchOpen, setLaunchOpen] = useState(false);
@@ -64,7 +67,7 @@ export function GameDetailScreen() {
   }, [game, versionId]);
 
   const back = () => {
-    if (location.key === "default") navigate("/");
+    if (location.key === "default") navigate("/library");
     else navigate(-1);
   };
 
@@ -91,6 +94,9 @@ export function GameDetailScreen() {
   if (!game) return null;
 
   const isInstalled = installed.get(game.id);
+  const activeJob = downloads.jobForGame(game.id);
+  const resumableJob = downloads.resumableForGame(game.id);
+  const installPct = activeJob?.bytesTotal ? Math.min(100, (activeJob.bytesDone / activeJob.bytesTotal) * 100) : null;
   const canPlay = isNative() && Boolean(isInstalled);
   const spec = artFromUrl(game.backgroundUrl, game.title);
 
@@ -131,6 +137,25 @@ export function GameDetailScreen() {
       onClick={() => launch.mutate({ id: game.id, title: game.title, executable: isInstalled?.executable ?? game.launch.executable })}
     >
       Play
+    </Button>
+  ) : activeJob ? (
+    <Button variant="default" size="lg" icon={<Download className="size-4" />} onClick={() => navigate("/downloads")}>
+      Installing {installPct !== null ? `${installPct.toFixed(0)}%` : ""}
+    </Button>
+  ) : resumableJob ? (
+    <Button
+      variant="default"
+      size="lg"
+      icon={<Download className="size-4" />}
+      onClick={() =>
+        void downloads.resume(resumableJob, {
+          title: game.title,
+          version: version?.version,
+          executable: game.launch.executable,
+        })
+      }
+    >
+      Resume install
     </Button>
   ) : isNative() ? (
     <Button variant="primary" size="lg" icon={<Download className="size-4" />} onClick={() => setInstallOpen(true)}>
@@ -285,6 +310,20 @@ export function GameDetailScreen() {
               {menu.length > 0 && <DetailMenu items={menu} />}
             </div>
 
+            {activeJob && (
+              <div className="mt-4 max-w-[360px]">
+                <Progress value={installPct} label="Install progress" />
+                <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2.5 font-mono text-[10.5px] text-ink-3">
+                  <span className="text-ink-2">{activeJob.phase === "downloading" ? "Downloading" : activeJob.phase}</span>
+                  {installPct !== null && <span>{installPct.toFixed(0)}%</span>}
+                  {activeJob.speedBps > 0 && <span>{formatSpeed(activeJob.speedBps)}</span>}
+                  {activeJob.bytesTotal && activeJob.speedBps > 0 && (
+                    <span>{formatEta(activeJob.bytesDone, activeJob.bytesTotal, activeJob.speedBps)} left</span>
+                  )}
+                </p>
+              </div>
+            )}
+
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <StatePicker state={game.state} onChange={setProgress} />
               {isInstalled && (
@@ -352,6 +391,7 @@ export function GameDetailScreen() {
                 ))}
               </div>
             </section>
+
 
             {isEditor && (
               <section className="mt-12 scroll-mt-6" id="launch-options" aria-labelledby="launch-heading">
@@ -441,13 +481,7 @@ export function GameDetailScreen() {
       </div>
 
       {version && (
-        <InstallDialog
-          open={installOpen}
-          onOpenChange={setInstallOpen}
-          game={game}
-          version={version}
-          onInstalled={() => void queryClient.invalidateQueries({ queryKey: ["installed"] })}
-        />
+        <InstallDialog open={installOpen} onOpenChange={setInstallOpen} game={game} version={version} />
       )}
 
       <Dialog
@@ -607,161 +641,6 @@ function LaunchForm({ game, onSaved }: { game: GameDetail; onSaved: () => void }
         </Button>
       </div>
     </div>
-  );
-}
-
-function InstallDialog({
-  open,
-  onOpenChange,
-  game,
-  version,
-  onInstalled,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  game: GameDetail;
-  version: GameVersion;
-  onInstalled: () => void;
-}) {
-  const { push } = useToast();
-  const [job, setJob] = useState<InstallJob | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
-  const announced = useRef(false);
-
-  const { data: settings } = useQuery({
-    queryKey: ["native-settings"],
-    queryFn: () => native.getSettings(),
-    enabled: isNative() && open,
-  });
-
-  useEffect(() => {
-    if (!open) {
-      setJob(null);
-      setError(null);
-      setStarting(false);
-      announced.current = false;
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || !job || job.phase === "done" || job.phase === "error" || job.phase === "cancelled") return;
-    const timer = setInterval(() => {
-      void native
-        .getInstallJob(job.jobId)
-        .then(setJob)
-        .catch(() => undefined);
-    }, 1200);
-    return () => clearInterval(timer);
-  }, [open, job]);
-
-  useEffect(() => {
-    if (job?.phase === "done" && !announced.current) {
-      announced.current = true;
-      onInstalled();
-      push({ title: `${game.title} installed`, description: "It is ready to play from the library.", tone: "success" });
-    }
-  }, [job?.phase, game.title, onInstalled, push]);
-
-  const start = async () => {
-    setError(null);
-    setStarting(true);
-    try {
-      const token = tokenStore.get();
-      if (!token) throw new Error("Sign in again before installing");
-      const next = await native.installGame({
-        gameId: game.id,
-        versionId: version.id,
-        serverUrl: getApiBase(),
-        token,
-        title: game.title,
-        version: version.version,
-        executable: game.launch.executable,
-        installDir: settings?.installDir || null,
-      });
-      setJob(next);
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setStarting(false);
-    }
-  };
-
-  const pct = job?.bytesTotal ? Math.min(100, (job.bytesDone / job.bytesTotal) * 100) : null;
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={onOpenChange}
-      title={`Install ${game.title}`}
-      description={version.version ? `Version ${version.version} · ${formatBytes(version.size)}` : formatBytes(version.size)}
-      size="sm"
-      footer={
-        job?.phase === "done" ? (
-          <Button variant="primary" onClick={() => onOpenChange(false)}>
-            Done
-          </Button>
-        ) : job && job.phase !== "error" && job.phase !== "cancelled" ? (
-          <Button
-            variant="danger"
-            onClick={() => {
-              void native.cancelInstall(job.jobId);
-            }}
-          >
-            Cancel install
-          </Button>
-        ) : (
-          <>
-            <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              Close
-            </Button>
-            <Button variant="primary" loading={starting} onClick={() => void start()}>
-              {job ? "Try again" : "Install"}
-            </Button>
-          </>
-        )
-      }
-    >
-      <div className="flex flex-col gap-4">
-        <dl className="flex flex-col gap-2 text-[12.5px]">
-          <div className="flex items-baseline justify-between gap-4">
-            <dt className="text-ink-3">Install folder</dt>
-            <dd className="truncate font-mono text-[11px] text-ink-2">{settings?.installDir || "Set in Settings"}</dd>
-          </div>
-          <div className="flex items-baseline justify-between gap-4">
-            <dt className="text-ink-3">Archive</dt>
-            <dd className="truncate font-mono text-[11px] text-ink-2">{version.fileName}</dd>
-          </div>
-        </dl>
-
-        {job && (
-          <div className="flex flex-col gap-2 border-t border-line pt-4">
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="text-[12.5px] capitalize text-ink">{job.phase}</span>
-              {pct !== null && <span className="num text-[11.5px] text-ink-3">{pct.toFixed(0)}%</span>}
-            </div>
-            <Progress value={pct} label="Install progress" />
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
-              <span>{formatBytes(job.bytesDone)}</span>
-              {job.bytesTotal && <span>of {formatBytes(job.bytesTotal)}</span>}
-              {job.speedBps > 0 && <span>{formatBytes(job.speedBps, 0)}/s</span>}
-              {job.message && <span className="text-ink-2">{job.message}</span>}
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
-            {error}
-          </p>
-        )}
-        {job?.phase === "error" && job.message && (
-          <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
-            {job.message}
-          </p>
-        )}
-      </div>
-    </Dialog>
   );
 }
 

@@ -1,22 +1,25 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, HardDrive, Monitor, Moon, Sun } from "lucide-react";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
+import { installBridge, installsAvailable } from "@/lib/install";
 import { isNative, native } from "@/lib/native";
 import { formatBytes, formatDate } from "@/lib/format";
+import type { DiskUsage, LocalSettings } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { useAuth } from "@/state/auth";
 import { useSettings, type ThemePref } from "@/state/settings";
 import { useToast } from "@/state/toasts";
 import { PageHeader, SectionHeader } from "@/components/page";
-import { Button, Field, Input } from "@/components/ui/controls";
+import { Button, Field, Input, Switch, Textarea } from "@/components/ui/controls";
 
 export function SettingsScreen() {
   const { user, refreshUser } = useAuth();
   const { theme, setTheme, resolved } = useSettings();
   const { push } = useToast();
-  const nativeMode = isNative();
+  const queryClient = useQueryClient();
+  const desktopAvailable = installsAvailable();
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -24,17 +27,61 @@ export function SettingsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const { data: settings } = useQuery({
-    queryKey: ["native-settings"],
-    queryFn: () => native.getSettings(),
-    enabled: nativeMode,
+  const [draft, setDraft] = useState<LocalSettings | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const settingsQuery = useQuery({
+    queryKey: ["desktop-settings"],
+    queryFn: () => installBridge.settings(),
+    enabled: desktopAvailable,
+  });
+  const settings = settingsQuery.data ?? null;
+
+  useEffect(() => {
+    if (settings) setDraft(settings);
+  }, [settings]);
+
+  const dirty = Boolean(draft && settings && JSON.stringify(draft) !== JSON.stringify(settings));
+
+  const installDisk = useQuery<DiskUsage>({
+    queryKey: ["disk", draft?.installDir],
+    queryFn: () => installBridge.diskUsage(draft!.installDir),
+    enabled: desktopAvailable && Boolean(draft?.installDir),
+    staleTime: 30_000,
+  });
+  const downloadDisk = useQuery<DiskUsage>({
+    queryKey: ["disk", draft?.downloadDir],
+    queryFn: () => installBridge.diskUsage(draft!.downloadDir),
+    enabled: desktopAvailable && Boolean(draft?.downloadDir),
+    staleTime: 30_000,
   });
 
-  const { data: disk } = useQuery({
-    queryKey: ["disk", settings?.installDir],
-    queryFn: () => native.getDiskUsage(settings!.installDir),
-    enabled: nativeMode && Boolean(settings?.installDir),
-  });
+  const update = (patch: Partial<LocalSettings>) => setDraft((current) => (current ? { ...current, ...patch } : current));
+
+  const pick = async (key: "installDir" | "downloadDir", title: string) => {
+    const path = await native.pickFolder(title);
+    if (path) update({ [key]: path } as Partial<LocalSettings>);
+    else if (!isNative()) {
+      push({
+        title: "Folder picker needs the desktop app",
+        description: "You can type a path here in the browser.",
+      });
+    }
+  };
+
+  const saveDesktop = async () => {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      await installBridge.saveSettings(draft);
+      await queryClient.invalidateQueries({ queryKey: ["desktop-settings"] });
+      push({ title: "Desktop settings saved", tone: "success" });
+    } catch (cause) {
+      push({ title: "Could not save the settings", description: errorMessage(cause), tone: "danger" });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const changePassword = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -60,7 +107,7 @@ export function SettingsScreen() {
     <div className="page page-in">
       <PageHeader title="Settings" meta={user ? <span className="num">Signed in as {user.username}</span> : undefined} />
 
-      <div className="mt-8 grid max-w-[980px] gap-10 lg:grid-cols-[1fr_1fr]">
+      <div className="mt-8 grid max-w-[980px] gap-10 lg:grid-cols-2">
         <section>
           <SectionHeader title="Account" />
           <dl className="border-t border-line">
@@ -152,49 +199,186 @@ export function SettingsScreen() {
               </Button>
             </div>
           </form>
-
-          {nativeMode && (
-            <div className="mt-10">
-              <SectionHeader title="Desktop" description="Paths and storage on this machine." />
-              <dl className="border-t border-line">
-                {[
-                  ["Mode", settings?.mode === "local" ? "Local library" : "Remote server"],
-                  ["Server", settings?.serverUrl || "—"],
-                  ["Games folder", settings?.gamesDir ?? "—"],
-                  ["Install folder", settings?.installDir || "—"],
-                  ["Download cache", settings?.downloadDir || "—"],
-                ].map(([label, value]) => (
-                  <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-                    <dt className="shrink-0 text-[12.5px] text-ink-3">{label}</dt>
-                    <dd className="truncate font-mono text-[11.5px] text-ink-2" title={value}>
-                      {value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-              {disk && (
-                <p className="mt-3 flex items-center gap-2 text-[12px] text-ink-3">
-                  <HardDrive className="size-3.5" aria-hidden="true" />
-                  <span className="num">{formatBytes(disk.freeBytes)} free</span>
-                  <span>of</span>
-                  <span className="num">{formatBytes(disk.totalBytes)}</span>
-                </p>
-              )}
-              {settings?.installDir && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="mt-2 px-0"
-                  icon={<FolderOpen className="size-3.5" />}
-                  onClick={() => void native.openPath(settings.installDir).catch((cause: Error) => push({ title: "Could not open the folder", description: cause.message, tone: "danger" }))}
-                >
-                  Open install folder
-                </Button>
-              )}
-            </div>
-          )}
         </section>
       </div>
+
+      {desktopAvailable && (
+        <section className="mt-12 max-w-[980px]">
+          <SectionHeader
+            title="Desktop"
+            description="Where games are installed, how archives are downloaded, and how passwords are tried."
+          />
+          <div className="border-t border-line pt-5">
+            {settingsQuery.isPending && <p className="text-[13px] text-ink-3">Loading desktop settings…</p>}
+            {settingsQuery.isError && (
+              <p className="text-[13px] text-danger">{errorMessage(settingsQuery.error)}</p>
+            )}
+
+            {draft && (
+              <>
+                <div className="mb-6 flex flex-wrap items-baseline gap-x-6 gap-y-1 font-mono text-[10.5px] text-ink-3">
+                  <span>Mode: {draft.mode === "local" ? "Local library" : "Remote server"}</span>
+                  {draft.serverUrl && <span className="truncate">Server: {draft.serverUrl}</span>}
+                  {!isNative() && <span className="text-signal-text">Preview values from the demo adapter</span>}
+                </div>
+
+                <div className="grid gap-8 lg:grid-cols-2">
+                  <div className="flex flex-col gap-5">
+                    <PathField
+                      label="Install folder"
+                      hint="Each game gets its own folder and version subfolder."
+                      value={draft.installDir}
+                      onChange={(value) => update({ installDir: value })}
+                      onPick={() => void pick("installDir", "Choose the install folder")}
+                      disk={installDisk.data}
+                    />
+                    <PathField
+                      label="Download folder"
+                      hint="Temporary archives. Ignored when stream installs are on."
+                      value={draft.downloadDir}
+                      onChange={(value) => update({ downloadDir: value })}
+                      onPick={() => void pick("downloadDir", "Choose the download folder")}
+                      disk={downloadDisk.data}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-start justify-between gap-6 border-b border-line pb-4">
+                      <div>
+                        <p className="text-[13px] font-medium text-ink">Stream installs from the server</p>
+                        <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
+                          ZIP archives only. Files are written as they arrive, so the archive never touches the disk. Uses
+                          more bandwidth and cannot be resumed mid-file; non-ZIP archives fall back to a normal download.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={draft.streamInstall}
+                        onCheckedChange={(streamInstall) => update({ streamInstall })}
+                        label="Stream installs from the server"
+                      />
+                    </div>
+
+                    <div className="flex items-start justify-between gap-6 border-b border-line py-4">
+                      <div>
+                        <p className="text-[13px] font-medium text-ink">Keep downloaded archives</p>
+                        <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
+                          Leave the archive in the download folder after a successful install. Off by default; the desktop
+                          deletes it to save space.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={draft.keepArchives}
+                        onCheckedChange={(keepArchives) => update({ keepArchives })}
+                        label="Keep downloaded archives"
+                      />
+                    </div>
+
+                    <div className="pt-4">
+                      <label htmlFor="archive-passwords" className="text-[13px] font-medium text-ink">
+                        Archive passwords
+                      </label>
+                      <p className="mt-1 mb-2 text-[11.5px] leading-relaxed text-ink-3">
+                        Tried in order when an archive is encrypted. One per line, or separated by commas.
+                      </p>
+                      <Textarea
+                        id="archive-passwords"
+                        value={draft.archivePasswords.join("\n")}
+                        onChange={(event) =>
+                          update({
+                            archivePasswords: event.target.value
+                              .split(/[\n,]+/)
+                              .map((entry) => entry.trim())
+                              .filter(Boolean),
+                          })
+                        }
+                        placeholder={"first-password\nsecond-password"}
+                        rows={3}
+                        className="min-h-[84px] font-mono text-[12px]"
+                      />
+                      <p className="mt-1 text-[11px] text-ink-3">
+                        {draft.archivePasswords.length === 0
+                          ? "No passwords. Encrypted archives will fail to extract."
+                          : `${draft.archivePasswords.length} ${draft.archivePasswords.length === 1 ? "password" : "passwords"} stored locally in the desktop settings.`}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-4">
+                  <Button variant="primary" onClick={() => void saveDesktop()} loading={saving} disabled={!dirty}>
+                    Save desktop settings
+                  </Button>
+                  {dirty && <span className="text-[11.5px] text-ink-3">Unsaved changes</span>}
+                  {draft.installDir && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="ml-auto text-ink-3"
+                      icon={<FolderOpen className="size-3.5" />}
+                      onClick={() => void installBridge.openPath(draft.installDir).catch(() => push({ title: "Folder paths live on the desktop" }))}
+                    >
+                      Open install folder
+                    </Button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </section>
+      )}
+
+      {!desktopAvailable && (
+        <p className="mt-10 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+          Install folders, stream installs and archive passwords are available in the Ludex desktop app.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function PathField({
+  label,
+  hint,
+  value,
+  onChange,
+  onPick,
+  disk,
+}: {
+  label: string;
+  hint: string;
+  value: string;
+  onChange: (value: string) => void;
+  onPick: () => void;
+  disk?: DiskUsage;
+}) {
+  const id = `path-${label.toLowerCase().replace(/\s+/g, "-")}`;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[13px] font-medium text-ink" htmlFor={id}>
+        {label}
+      </label>
+      <div className="flex items-stretch gap-2">
+        <Input
+          id={id}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          spellCheck={false}
+          className="h-10 font-mono text-[11.5px]"
+          placeholder="/home/user/Games"
+        />
+        <Button variant="default" size="sm" className="h-10 shrink-0" onClick={onPick} icon={<FolderOpen className="size-3.5" />}>
+          Browse
+        </Button>
+      </div>
+      <p className="flex flex-wrap items-baseline gap-x-2 text-[11.5px] leading-relaxed text-ink-3">
+        <span>{hint}</span>
+        {disk && (
+          <span className="num inline-flex items-center gap-1 text-ink-3">
+            <HardDrive className="size-3" aria-hidden="true" />
+            {formatBytes(disk.freeBytes)} free of {formatBytes(disk.totalBytes)}
+          </span>
+        )}
+      </p>
     </div>
   );
 }

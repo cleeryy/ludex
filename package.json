@@ -1,12 +1,16 @@
 {
   "name": "ludex",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "license": "AGPL-3.0-or-later",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "dev": "pnpm --filter @ludex/web dev",
     "build": "pnpm --filter @ludex/web build",
     "check": "pnpm --filter @ludex/web check",
+    "e2e": "pnpm --filter @ludex/e2e test",
+    "e2e:install": "pnpm --filter @ludex/e2e exec playwright install chromium",
+    "e2e:report": "pnpm --filter @ludex/e2e exec playwright show-report",
     "desktop:dev": "pnpm --filter @ludex/desktop dev",
     "desktop:build": "pnpm --filter @ludex/desktop build",
     "desktop:dist": "pnpm --filter @ludex/desktop dist"

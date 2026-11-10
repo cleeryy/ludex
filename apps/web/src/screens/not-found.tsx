@@ -12,7 +12,7 @@ export function NotFoundScreen() {
         The page you asked for is not in the catalogue. It may have been moved, or the link may be older than this server.
       </p>
       <div className="mt-7 flex flex-wrap gap-2">
-        <Link to="/">
+        <Link to="/library">
           <Button variant="primary">Back to the library</Button>
         </Link>
         <Link to="/all">

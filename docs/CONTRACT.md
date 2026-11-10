@@ -103,6 +103,7 @@ interface ScanStatus {
 | POST | `/api/games/{id}/refresh-metadata` | editor; 202 `{ queued: true }` |
 | POST | `/api/games/{id}/download-ticket` | `{ versionId? }` → `{ url, expiresAt }` (15 min, no auth needed on the URL) |
 | GET | `/api/games/{id}/download?versionId=&token=` | file stream, Range supported, `Content-Disposition` |
+| GET | `/api/games/{id}/versions/{versionId}/stream?token=` | Stream install: an uncompressed `application/x-tar` of the archive entries, no archive stored on the client. ZIP and 7z are supported; RAR/unknown return 415 and the client falls back. Exact `Content-Length`. Same auth rules as download. |
 | GET | `/api/games/{id}/versions/{versionId}/local-path` | embedded/local mode + loopback only → `{ path }`, else 404 |
 
 ### Progress / bookmarks
@@ -176,8 +177,11 @@ interface LocalSettings {
   token: string | null;         // JWT
   gamesDir: string | null;      // local library folder
   installDir: string;           // where games are installed
-  downloadDir: string;          // temp archives
+  downloadDir: string;          // temp archives; empty = {installDir}/.ludex-tmp
   serverPort: number;           // preferred embedded port, 0 = random
+  streamInstall: boolean;       // remote ZIP/7z installs without storing the archive
+  keepArchives: boolean;        // keep the downloaded archive after install
+  archivePasswords: string[];   // tried in order
 }
 
 interface InstalledGame {
@@ -202,9 +206,10 @@ interface InstallJob {
 | `local_server_start` | — | `{ url, token }` |
 | `local_server_stop` | — | `null` |
 | `local_server_status` | — | `{ running, url }` |
-| `install_game` | `{ gameId, versionId, serverUrl, token, title, version?, executable?, installDir? }` | `InstallJob` (starts background) |
+| `install_game` | `{ gameId, versionId, serverUrl, token, title, version?, executable?, installDir?, downloadDir?, stream? }` | `InstallJob` (starts background; survives dialog close) |
 | `cancel_install` | `{ jobId }` | `null` |
 | `get_install_job` | `{ jobId }` | `InstallJob` |
+| `list_install_jobs` | — | `InstallJob[]` (active + persisted, newest first) |
 | `list_installed` | — | `InstalledGame[]` |
 | `launch_game` | `{ gameId, executable?, args? }` | `{ sessionId }` |
 | `stop_game` | `{ sessionId }` | `null` |
@@ -249,6 +254,28 @@ pub async fn start(config: Config) -> anyhow::Result<ServerHandle>;
 `start` binds, migrates, bootstraps the local admin when `config.local_mode`,
 spawns the HTTP server, and returns once the listener is ready. Dropping/sending
 on `shutdown` stops it gracefully.
+
+## Stream install (ZIP)
+
+`GET /api/games/{id}/versions/{versionId}/stream` returns an uncompressed tar
+stream of the ZIP entries. It exists so the desktop can install a remote ZIP
+without storing the archive: the client writes extracted files directly from
+the tar stream. Only ZIP is supported in v0.2; non-ZIP returns 415 and the
+client falls back to the normal download+extract path. `Content-Length` is set
+to the exact tar size so the desktop can show a percentage.
+
+Core API:
+
+```rust
+pub fn zip_tar_size(path: &Path) -> Result<u64, ArchiveError>;
+pub fn stream_zip_as_tar<W: std::io::Write>(
+    path: &Path, writer: &mut W,
+) -> Result<TarStreamReport, ArchiveError>;
+pub struct TarStreamReport { pub files: u64, pub bytes: u64, pub tar_bytes: u64 }
+```
+
+Tar entries must use sanitized relative paths, reject traversal/symlinks, keep
+file modes when available, and never load a whole entry into memory.
 
 ## Shared Rust core API
 

@@ -2,6 +2,8 @@ import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isNative, native } from "@/lib/native";
 import { api } from "@/lib/api";
+import { USING_MOCKS } from "@/lib/flags";
+import { mockInstalls } from "@/lib/mock-install";
 import type { GameDetail, GameList, InstalledGame } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 
@@ -9,10 +11,19 @@ import { useToast } from "@/state/toasts";
 export function useInstalledGames() {
   return useQuery({
     queryKey: ["installed"],
-    queryFn: () => native.listInstalled(),
-    enabled: isNative(),
+    queryFn: () => (USING_MOCKS ? mockInstalls.installed() : native.listInstalled()),
+    enabled: isNative() || USING_MOCKS,
     staleTime: 10_000,
     refetchOnWindowFocus: true,
+  });
+}
+
+/** The whole library, used by Home, Downloads and the install manager. */
+export function useAllGames() {
+  return useQuery({
+    queryKey: ["games", "all"],
+    queryFn: () => api.listGames({ limit: 200 }),
+    staleTime: 60_000,
   });
 }
 

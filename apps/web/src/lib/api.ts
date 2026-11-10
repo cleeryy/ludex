@@ -1,4 +1,5 @@
 import { ApiError } from "@/lib/http";
+import { USING_MOCKS } from "@/lib/flags";
 import { mockApi } from "@/lib/mock";
 import type {
   AuthResult,
@@ -25,8 +26,7 @@ import type {
    VITE_USE_MOCKS=false, and false in production unless it is set to true.
    -------------------------------------------------------------------------- */
 
-const flag = import.meta.env.VITE_USE_MOCKS as string | undefined;
-export const USING_MOCKS = flag === "true" || (flag === undefined && import.meta.env.DEV);
+export { USING_MOCKS };
 
 export const TOKEN_KEY = "ludex.token";
 

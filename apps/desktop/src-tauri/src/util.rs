@@ -20,6 +20,22 @@ pub fn short_id(id: &str) -> String {
         .collect()
 }
 
+/// Human-readable byte count for error messages (`1.5 GiB`).
+pub fn human_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit + 1 < UNITS.len() {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{} {}", bytes, UNITS[0])
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
 /// Deep-merge `patch` into `base`. Objects merge recursively, everything else
 /// replaces the previous value. Used so a partial settings payload from the web
 /// UI never resets unrelated preferences.
@@ -49,6 +65,13 @@ pub fn merge_json(base: &mut Value, patch: Value) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn formats_bytes() {
+        assert_eq!(human_bytes(512), "512 B");
+        assert_eq!(human_bytes(1536), "1.5 KiB");
+        assert_eq!(human_bytes(2 * 1024 * 1024 * 1024), "2.0 GiB");
+    }
 
     #[test]
     fn merge_keeps_untouched_keys() {

@@ -106,6 +106,8 @@ pub fn install_game(
     version: Option<String>,
     executable: Option<String>,
     install_dir: Option<String>,
+    download_dir: Option<String>,
+    stream: Option<bool>,
     token: Option<String>,
 ) -> Result<InstallJob, String> {
     install::begin(
@@ -119,6 +121,8 @@ pub fn install_game(
             version,
             executable,
             install_dir,
+            download_dir,
+            stream,
         },
     )
 }
@@ -148,8 +152,8 @@ pub fn get_install_job(app: AppHandle, job_id: String) -> Result<InstallJob, Str
     }
 }
 
-/// Extension to the contract: recent install jobs (including interrupted ones
-/// from a previous run) so the UI can offer to resume them.
+/// All install jobs (active + persisted, newest first) so the UI can show the
+/// queue and offer to resume interrupted jobs after a restart.
 #[tauri::command]
 pub fn list_install_jobs(app: AppHandle) -> Result<Vec<InstallJob>, String> {
     install::list(&app)

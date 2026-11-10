@@ -244,19 +244,19 @@ fn map_igdb(game: &IgdbGame) -> ProviderMetadata {
         .cover
         .as_ref()
         .and_then(|image| image.url.as_deref())
-        .map(|url| igdb_image_url(url, "t_cover_big"));
+        .map(|url| igdb_image_url(url, "t_cover_big_2x"));
     let screenshots: Vec<String> = game
         .screenshots
         .iter()
         .filter_map(|image| image.url.as_deref())
-        .map(|url| igdb_image_url(url, "t_1080p"))
+        .map(|url| igdb_image_url(url, "t_1080p_2x"))
         .take(8)
         .collect();
     let artwork = game
         .artworks
         .iter()
         .filter_map(|image| image.url.as_deref())
-        .map(|url| igdb_image_url(url, "t_1080p"))
+        .map(|url| igdb_image_url(url, "t_1080p_2x"))
         .next();
     let background_url = artwork.or_else(|| screenshots.first().cloned());
     let trailers: Vec<Trailer> = game
@@ -1114,15 +1114,15 @@ mod tests {
     fn igdb_urls_get_a_scheme_and_size() {
         let raw = "//images.igdb.com/igdb/image/upload/t_thumb/abc123.jpg";
         assert_eq!(
-            igdb_image_url(raw, "t_cover_big"),
-            "https://images.igdb.com/igdb/image/upload/t_cover_big/abc123.jpg"
+            igdb_image_url(raw, "t_cover_big_2x"),
+            "https://images.igdb.com/igdb/image/upload/t_cover_big_2x/abc123.jpg"
         );
         assert_eq!(
-            igdb_image_url("images.igdb.com/x/t_thumb/y.jpg", "t_1080p"),
-            "https://images.igdb.com/x/t_1080p/y.jpg"
+            igdb_image_url("images.igdb.com/x/t_thumb/y.jpg", "t_1080p_2x"),
+            "https://images.igdb.com/x/t_1080p_2x/y.jpg"
         );
         assert_eq!(
-            igdb_image_url("https://cdn.example/a.jpg", "t_cover_big"),
+            igdb_image_url("https://cdn.example/a.jpg", "t_cover_big_2x"),
             "https://cdn.example/a.jpg"
         );
     }

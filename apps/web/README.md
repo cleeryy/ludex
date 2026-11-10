@@ -49,7 +49,9 @@ src/
   app.tsx                 providers, routing, boot gate
   lib/
     api.ts                the only network surface + assetUrl() + token store
+    install.ts            install bridge (Tauri commands or mock job manager)
     mock.ts               mock adapter (dev/demo)
+    mock-install.ts       in-browser install jobs, installed games and desktop settings
     native.ts             Tauri bridge, every contract command, browser fallbacks
     art.ts                palettes, motifs, deterministic art for missing covers
     types.ts              docs/CONTRACT.md, verbatim
@@ -59,17 +61,32 @@ src/
     art/cover.tsx         generated covers, backdrops, stills
     ui/                   button, input, dialog, popover, select, toast, …
     shell/                app frame, rail, command palette
-    game/                 card, state marks
-  screens/                setup, login, library, detail, news, settings, 404, admin/*
+    game/                 card, state marks, install dialog
+  screens/                home, library, downloads, big-picture, detail, setup, login,
+                          news, settings, 404, admin/*
   styles/index.css        tokens, base layer, component classes
 ```
+
+## Routes
+
+`/` Home · `/library` Library · `/recent` · `/bookmarks` · `/all` Index · `/downloads` ·
+`/game/:id` · `/bigpicture` (full-screen console mode) · `/news` · `/settings` ·
+`/admin/{ingest,scan,users,news,server}` · `/setup` · `/login`.
+
+## Background installs
+
+In the desktop app, installs run outside the page. The rail shows an active count, a strip at the
+bottom of every screen shows the leading job with aggregate percent, speed and ETA, and
+`/downloads` lists active jobs and resumable history. Closing the install dialog does not cancel
+anything. With `VITE_USE_MOCKS` on, `mock-install.ts` provides advancing jobs and two installed
+games so the same UI can be reviewed in a browser.
 
 ## Native bridge
 
 `native.ts` detects `window.__TAURI_INTERNALS__`, then dynamic-imports `@tauri-apps/api/core` and
 `@tauri-apps/api/event`. Every command in `docs/CONTRACT.md` is wrapped and typed. In a browser:
 
-- reads return empty (`listInstalled` → `[]`, `getSettings` → `null`),
+- reads return empty (`listInstalled` / `listInstallJobs` → `[]`, `getSettings` → `null`),
 - actions throw a friendly error (“That needs the Ludex desktop app…”),
 - the UI shows **Download** instead of **Install/Play**, and the setup wizard skips local mode.
 
@@ -91,3 +108,7 @@ mobile library and detail). They are generated from the mock adapter.
   Browser setup creates the server administrator through `POST /api/setup`.
 - Library pagination is capped at 200 items per request (the contract default is 48; the UI asks
   for more because the demo library is small). A “load more” control is not built yet.
+- Big Picture keyboard navigation is tested; gamepad support uses the Gamepad API and needs a
+  physical controller to verify.
+- Stream installs and resuming persisted jobs depend on the desktop commands; the browser mock
+  advances jobs but does not extract archives.

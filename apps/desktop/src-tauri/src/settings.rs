@@ -34,6 +34,8 @@ pub struct LocalSettings {
     pub download_dir: String,
     /// Preferred embedded server port, 0 = random.
     pub server_port: u16,
+    /// Install remote ZIP versions from the tar stream (no archive on disk).
+    pub stream_install: bool,
     /// Keep the downloaded archive after a successful install.
     pub keep_archives: bool,
     /// Passwords tried, in order, when extracting an archive.
@@ -50,6 +52,7 @@ impl Default for LocalSettings {
             install_dir: String::new(),
             download_dir: String::new(),
             server_port: 0,
+            stream_install: true,
             keep_archives: false,
             archive_passwords: Vec::new(),
         }
@@ -60,7 +63,9 @@ impl LocalSettings {
     pub fn for_app_data(app_data: &Path) -> Self {
         Self {
             install_dir: app_data.join("Games").to_string_lossy().to_string(),
-            download_dir: app_data.join("Downloads").to_string_lossy().to_string(),
+            // Empty means "same volume as the install folder": the effective
+            // download dir becomes `{installDir}/.ludex-tmp`.
+            download_dir: String::new(),
             ..Self::default()
         }
     }
@@ -71,9 +76,7 @@ impl LocalSettings {
         if self.install_dir.trim().is_empty() {
             self.install_dir = defaults.install_dir;
         }
-        if self.download_dir.trim().is_empty() {
-            self.download_dir = defaults.download_dir;
-        }
+        // `downloadDir` empty is meaningful: use `{installDir}/.ludex-tmp`.
         self.install_dir = self.install_dir.trim().to_string();
         self.download_dir = self.download_dir.trim().to_string();
         self.server_url = self.server_url.trim().trim_end_matches('/').to_string();
@@ -118,15 +121,43 @@ pub fn validate(settings: &LocalSettings) -> Result<(), String> {
     Ok(())
 }
 
+/// Effective download directory for an install.
+///
+/// Priority: the per-install `downloadDir` override, then the user setting,
+/// then `{installDir}/.ludex-tmp` so the archive lands on the same volume as
+/// the extracted game.
+pub fn resolve_download_dir(
+    settings: &LocalSettings,
+    install_root: &Path,
+    override_dir: Option<&str>,
+) -> PathBuf {
+    if let Some(directory) = override_dir
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return PathBuf::from(directory);
+    }
+    let configured = settings.download_dir.trim();
+    if !configured.is_empty() {
+        return PathBuf::from(configured);
+    }
+    install_root.join(".ludex-tmp")
+}
+
 pub fn ensure_dirs(settings: &LocalSettings) -> Result<(), String> {
-    for (label, path) in [
-        ("install", settings.install_path()),
-        ("download", settings.download_path()),
-    ] {
-        fs::create_dir_all(&path).map_err(|e| {
+    let install_dir = settings.install_path();
+    fs::create_dir_all(&install_dir).map_err(|e| {
+        format!(
+            "Could not create the install folder {}: {e}",
+            install_dir.display()
+        )
+    })?;
+    if !settings.download_dir.trim().is_empty() {
+        let download_dir = settings.download_path();
+        fs::create_dir_all(&download_dir).map_err(|e| {
             format!(
-                "Could not create the {label} folder {}: {e}",
-                path.display()
+                "Could not create the download folder {}: {e}",
+                download_dir.display()
             )
         })?;
     }
@@ -227,9 +258,15 @@ mod tests {
         let dir = Path::new("/tmp/ludex-test");
         let settings = LocalSettings::for_app_data(dir);
         assert!(settings.install_dir.ends_with("Games"));
-        assert!(settings.download_dir.ends_with("Downloads"));
+        assert!(settings.download_dir.is_empty());
         assert_eq!(settings.mode, Mode::Local);
         assert!(!settings.keep_archives);
+        assert!(settings.stream_install);
+
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["streamInstall"], true);
+        assert_eq!(json["downloadDir"], "");
+        assert_eq!(json["keepArchives"], false);
     }
 
     #[test]
@@ -243,6 +280,32 @@ mod tests {
         assert_eq!(settings.server_url, "http://127.0.0.1:1234");
         assert!(settings.games_dir.is_none());
         assert!(!settings.install_dir.is_empty());
+        assert!(settings.download_dir.is_empty());
+    }
+
+    #[test]
+    fn download_dir_priority() {
+        let install_root = Path::new("/games");
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+
+        assert_eq!(
+            resolve_download_dir(&settings, install_root, None),
+            PathBuf::from("/games/.ludex-tmp")
+        );
+        assert_eq!(
+            resolve_download_dir(&settings, install_root, Some(" /tmp/custom ")),
+            PathBuf::from("/tmp/custom")
+        );
+
+        settings.download_dir = "/var/tmp/ludex".into();
+        assert_eq!(
+            resolve_download_dir(&settings, install_root, None),
+            PathBuf::from("/var/tmp/ludex")
+        );
+        assert_eq!(
+            resolve_download_dir(&settings, install_root, Some("/tmp/custom")),
+            PathBuf::from("/tmp/custom")
+        );
     }
 
     #[test]

@@ -79,14 +79,18 @@ mode 0600 on Unix because it holds the JWT). Defaults:
 |---|---|
 | `mode` | `local` |
 | `installDir` | `{appDataDir}/Games` |
-| `downloadDir` | `{appDataDir}/Downloads` |
+| `downloadDir` | empty → `{installDir}/.ludex-tmp` (same volume) |
 | `serverPort` | `0` (random) |
 | `gamesDir` | `null` until picked |
 | `serverUrl` / `token` | filled by the embedded server |
+| `streamInstall` | `false` |
+| `keepArchives` | `false` |
+| `archivePasswords` | `[]` (tried in order before the empty password) |
 
-Desktop-only extras (the web UI may omit them; `save_settings` deep-merges
-partial payloads): `keepArchives` (default `false`) and `archivePasswords`
-(tried in order before the empty password).
+`save_settings` deep-merges partial payloads, so a wizard can save one field at
+a time. An empty `downloadDir` is meaningful: the effective directory is
+`{installDir}/.ludex-tmp`, keeping the archive on the same volume as the
+extracted game. `install_game` can also override it per call with `downloadDir`.
 
 ## Local index
 
@@ -97,8 +101,8 @@ partial payloads): `keepArchives` (default `false`) and `archivePasswords`
 - `sessions` — play sessions, with `synced` flag for offline playtime.
 - `install_jobs` — persisted install jobs: phase, bytes, speed, `.part` path,
   install path, error, timestamps. Interrupted jobs are marked `error` with a
-  resume hint at startup and stay visible via `get_install_job`; the
-  `list_install_jobs` extension returns the recent history.
+  resume hint at startup. `list_install_jobs` merges active in-memory jobs
+  (fresh snapshots) with every persisted row, newest first.
 
 ## Install pipeline
 
@@ -108,30 +112,41 @@ version or `default`; both components are sanitised, no separators, no `..`).
 1. **Local library shortcut** — when the target URL is the embedded server,
    `GET /api/games/{id}/versions/{vid}/local-path` returns the archive path; it
    is extracted in place, with no copy and no download.
-2. **Download** — `GET /api/games/{id}/download?versionId=…` with
+2. **Stream install (remote ZIP)** — when `stream`/`streamInstall` is enabled,
+   the server is not loopback and the version is a ZIP, the desktop calls
+   `GET /api/games/{id}/versions/{vid}/stream` and unpacks the uncompressed tar
+   **while downloading**, with no archive or tar on disk. A 415/404 (or a
+   non-tar content type) falls back transparently to the normal download path.
+   Progress uses `Content-Length` when exact, else `X-Ludex-Estimated-Bytes`,
+   else indeterminate; an estimate is clamped below 100% until the tar ends.
+   Stream installs are not resumable.
+3. **Download** — `GET /api/games/{id}/download?versionId=…` with
    `Authorization: Bearer`, streamed to
    `{downloadDir}/.{gameId}-{versionId}.part` in 1 MiB buffered chunks (never in
    RAM), with `Range` resume, redirects, `Accept-Encoding: identity` and
-   `install://progress` events at most every 250 ms. A 416 whose
-   `Content-Range` total equals the part size means the download is already
-   complete; the file is kept for extraction instead of re-downloading it.
-3. **Single-file games** — `.exe`, `.sh`, `.AppImage`, `.bat`, `.cmd` and files
+   `install://progress` events at most every 250 ms (a 400 ms heartbeat covers
+   quiet periods). A 416 whose `Content-Range` total equals the part size means
+   the download is already complete; the file is kept for extraction instead of
+   re-downloading it. Free space is checked before writing: less than the
+   archive size aborts with an actionable error. The job message warns that
+   peak usage is archive + extracted, and the archive is deleted right after a
+   successful extraction unless `keepArchives` is set.
+4. **Single-file games** — `.exe`, `.sh`, `.AppImage`, `.bat`, `.cmd` and files
    with a PE/ELF/shebang header are not archives: they are copied into the
    install folder (streamed with progress) and used as the executable directly.
-4. **Extraction** — `ludex_core::archive::extract_archive` in
+5. **Extraction** — `ludex_core::archive::extract_archive` in
    `spawn_blocking`, staging at `{installDir}/.{slug}.staging-{jobId}`, with the
    configured passwords. Progress uses entries and bytes when available.
-5. **Executable detection** — `ludex_core::exe::pick_executable`, or the
+6. **Executable detection** — `ludex_core::exe::pick_executable`, or the
    `executable` override from the command (must stay inside the game folder).
    When nothing is found the install still succeeds with `executable: null`;
    the UI can open the folder and pick a binary later. The install folder is
    never deleted in that case.
-6. **Finalise** — `fs::rename` staging → final; across devices it falls back to
+7. **Finalise** — `fs::rename` staging → final; across devices it falls back to
    a recursive copy with progress. An existing install is kept as a hidden
    backup until the move succeeds, then removed.
-7. **Index + cleanup** — row upsert in `installed_games`; the temp archive is
-   deleted unless `keepArchives`. Failures keep the `.part` file for resume and
-   only remove the staging folder.
+8. **Index** — row upsert in `installed_games`. Failures keep the `.part` file
+   for resume and only remove the staging folder.
 
 Only one install runs at a time (a semaphore); additional jobs stay `queued`
 with a message and start automatically. `install_game` for a version that is
@@ -149,6 +164,7 @@ extractor is not interruptible mid-entry; staging is removed afterwards).
 | `install://progress` | `InstallJob` |
 | `install://done` | `InstallJob` |
 | `install://error` | `{ jobId, message }` |
+| `install://jobs` | `InstallJob[]` (full refreshed list on queue/finish) |
 | `game://exited` | `{ sessionId, gameId, minutesPlayed }` |
 | `local-server://status` | `{ running, url }` |
 
@@ -188,9 +204,10 @@ by CI; no code signing is configured.
 
 ## Known limitations
 
-- `list_install_jobs` is an additive command (not in `docs/CONTRACT.md`); the UI
-  can ignore it and rely on `get_install_job` with a remembered id.
+- Stream installs are not resumable (no `.part`); a mid-stream failure removes
+  the staging folder and the retry starts from scratch.
 - Reinstalling into a different `installDir` leaves the previous folder on disk
   (the row is replaced).
 - Extraction progress cannot be cancelled mid-archive; cancellation is applied
   between phases.
+- `stop_game` kills the direct child only; child processes are not tracked.

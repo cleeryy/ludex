@@ -1,4 +1,4 @@
-import type { DiskUsage, InstallJob, InstalledGame, LocalSettings } from "@/lib/types";
+import type { DiskUsage, InstallGameArgs, InstallJob, InstalledGame, LocalSettings } from "@/lib/types";
 
 /**
  * Native bridge. Everything is a no-op or a friendly rejection in a browser;
@@ -50,17 +50,17 @@ export const native = {
     return invoke<{ running: boolean; url: string | null }>("local_server_status");
   },
 
-  async installGame(args: {
-    gameId: number;
-    versionId: number;
-    serverUrl: string;
-    token: string;
-    title: string;
-    version?: string | null;
-    executable?: string | null;
-    installDir?: string | null;
-  }): Promise<InstallJob> {
-    return invoke<InstallJob>("install_game", args);
+  async installGame(args: InstallGameArgs): Promise<InstallJob> {
+    return invoke<InstallJob>("install_game", { ...args });
+  },
+
+  async listInstallJobs(): Promise<InstallJob[]> {
+    if (!isNative()) return [];
+    try {
+      return await invoke<InstallJob[]>("list_install_jobs");
+    } catch {
+      return [];
+    }
   },
 
   async cancelInstall(jobId: string): Promise<void> {
@@ -116,6 +116,11 @@ export const native = {
     return listen<{ jobId: string; message: string }>("install://error", handler);
   },
 
+  /** The desktop may broadcast the whole job list; harmless if the event is absent. */
+  async onInstallJobs(handler: (jobs: InstallJob[]) => void): Promise<() => void> {
+    return listen<InstallJob[]>("install://jobs", handler);
+  },
+
   async onGameExited(handler: (payload: { sessionId: string; gameId: number; minutesPlayed: number }) => void): Promise<() => void> {
     return listen<{ sessionId: string; gameId: number; minutesPlayed: number }>("game://exited", handler);
   },
@@ -140,4 +145,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   installDir: "",
   downloadDir: "",
   serverPort: 0,
+  streamInstall: true,
+  keepArchives: false,
+  archivePasswords: [],
 };
