@@ -286,7 +286,14 @@ export const api = {
   },
   updateUser(
     id: number,
-    patch: { username?: string; email?: string | null; password?: string; role?: Role; activated?: boolean },
+    patch: {
+      username?: string;
+      email?: string | null;
+      password?: string;
+      role?: Role;
+      activated?: boolean;
+      ageLimit?: number | null;
+    },
   ): Promise<User> {
     return USING_MOCKS
       ? mockApi.updateUser(tokenStore.get(), id, patch)

@@ -697,6 +697,7 @@ export const mockApi = {
       activated: true,
       avatarUrl: null,
       createdAt: nowIso(),
+      ageLimit: null,
       source: "local",
       oidcIssuer: null,
     };
@@ -886,6 +887,7 @@ export const mockApi = {
       activated: true,
       avatarUrl: null,
       createdAt: nowIso(),
+      ageLimit: null,
       source: "local",
       oidcIssuer: null,
     };
@@ -897,7 +899,14 @@ export const mockApi = {
   async updateUser(
     token: string | null,
     id: number,
-    patch: { username?: string; email?: string | null; password?: string; role?: Role; activated?: boolean },
+    patch: {
+      username?: string;
+      email?: string | null;
+      password?: string;
+      role?: Role;
+      activated?: boolean;
+      ageLimit?: number | null;
+    },
   ): Promise<User> {
     await latency();
     const me = currentUser(token);
@@ -931,6 +940,11 @@ export const mockApi = {
     if (patch.password !== undefined) passwords.set(user.id, patch.password);
     if (patch.role) user.role = patch.role;
     if (patch.activated !== undefined) user.activated = patch.activated;
+    if (patch.ageLimit !== undefined && patch.ageLimit !== null) {
+      if (!Number.isInteger(patch.ageLimit) || patch.ageLimit < 0 || patch.ageLimit > 21)
+        fail(400, "invalid_age_limit", "The age limit must be between 0 and 21");
+    }
+    if (patch.ageLimit !== undefined) user.ageLimit = patch.ageLimit;
     persistUsers();
     return clone(user);
   },

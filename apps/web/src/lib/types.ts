@@ -21,6 +21,8 @@ export interface User {
   source: UserSource;
   /** Identity provider that owns an `oidc` account, when known. */
   oidcIssuer: string | null;
+  /** Maximum age rating this account may access; `null` = unrestricted (#39). */
+  ageLimit: number | null;
 }
 
 export interface GameSummary {

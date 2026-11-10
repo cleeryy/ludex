@@ -12,6 +12,7 @@ import {
   ListPlus,
   MoreHorizontal,
   Pencil,
+  Palette,
   Play,
   RefreshCw,
   Share2,
@@ -27,6 +28,7 @@ import { useBookmark, useGamePlaytime, useInstalledMap, useLaunchGame, useUpdate
 import { useDownloads } from "@/state/downloads";
 import { AchievementsPanel } from "@/components/game/achievements";
 import { CloudSaves } from "@/components/game/cloud-saves";
+import { ArtworkDialog } from "@/components/game/artwork-dialog";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { InstallFiles } from "@/components/game/install-files";
 import { InstallerPanel } from "@/components/game/installer-panel";
@@ -67,6 +69,7 @@ export function GameDetailScreen() {
   const [moveOpen, setMoveOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [artworkOpen, setArtworkOpen] = useState(false);
   const [launchOpen, setLaunchOpen] = useState(false);
 
   const { data: game, isPending, isError, error, refetch } = useQuery({
@@ -359,14 +362,24 @@ export function GameDetailScreen() {
                 {t("Add to collection")}
               </Button>
               {isEditor && (
-                <Button
-                  variant="default"
-                  icon={<Share2 className="size-4" />}
-                  onClick={() => setShareOpen(true)}
-                  className="h-12"
-                >
-                  {t("Share")}
-                </Button>
+                <>
+                  <Button
+                    variant="default"
+                    icon={<Palette className="size-4" />}
+                    onClick={() => setArtworkOpen(true)}
+                    className="h-12"
+                  >
+                    Artwork
+                  </Button>
+                  <Button
+                    variant="default"
+                    icon={<Share2 className="size-4" />}
+                    onClick={() => setShareOpen(true)}
+                    className="h-12"
+                  >
+                    {t("Share")}
+                  </Button>
+                </>
               )}
               <IconButton
                 label={game.bookmarked ? t("Remove bookmark") : t("Bookmark")}
@@ -591,6 +604,7 @@ export function GameDetailScreen() {
         gameTitle={game.title}
       />
       <ShareDialog open={shareOpen} onOpenChange={setShareOpen} game={game} />
+      <ArtworkDialog open={artworkOpen} onOpenChange={setArtworkOpen} game={game} />
     </div>
   );
 }

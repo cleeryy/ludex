@@ -21,7 +21,14 @@ function roleOptions(): { value: Role; label: string }[] {
   ];
 }
 
-type UserPatch = { username?: string; email?: string | null; password?: string; role?: Role; activated?: boolean };
+type UserPatch = {
+  username?: string;
+  email?: string | null;
+  password?: string;
+  role?: Role;
+  activated?: boolean;
+  ageLimit?: number | null;
+};
 
 /** A readable label for an issuer URL, keeping the full value as the title. */
 function issuerLabel(issuer: string | null): string {
@@ -226,6 +233,7 @@ function EditUserDialog({
   const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState<Role>(target?.role ?? "user");
   const [activated, setActivated] = useState(target?.activated ?? true);
+  const [ageLimit, setAgeLimit] = useState(target?.ageLimit?.toString() ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -234,6 +242,7 @@ function EditUserDialog({
     setEmail(target?.email ?? "");
     setRole(target?.role ?? "user");
     setActivated(target?.activated ?? true);
+    setAgeLimit(target?.ageLimit?.toString() ?? "");
     setPassword("");
     setShowPassword(false);
     setError(null);
@@ -255,6 +264,11 @@ function EditUserDialog({
     }
     if (role !== target.role) patch.role = role;
     if (activated !== target.activated) patch.activated = activated;
+    const parsedAge = ageLimit.trim() === "" ? null : Number(ageLimit);
+    if (parsedAge !== null && (!Number.isInteger(parsedAge) || parsedAge < 0 || parsedAge > 21)) {
+      return setError("The age limit must be a whole number between 0 and 21, or empty.");
+    }
+    if (parsedAge !== target.ageLimit) patch.ageLimit = parsedAge;
     if (Object.keys(patch).length === 0) {
       onOpenChange(false);
       return;
@@ -376,6 +390,22 @@ function EditUserDialog({
         )}
         <Field label={t("Role")} htmlFor="edit-role">
           <Select label={t("Role")} id="edit-role" value={role} onChange={setRole} options={roleOptions()} />
+        </Field>
+        <Field
+          label="Age limit"
+          htmlFor="edit-age-limit"
+          hint="Hide games rated above this number (0–21). Leave empty for no restriction. Unrated games stay visible."
+        >
+          <Input
+            id="edit-age-limit"
+            type="number"
+            min={0}
+            max={21}
+            inputMode="numeric"
+            placeholder="No limit"
+            value={ageLimit}
+            onChange={(event) => setAgeLimit(event.target.value)}
+          />
         </Field>
         <div className="flex items-center justify-between gap-4">
           <div>

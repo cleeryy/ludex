@@ -494,6 +494,7 @@ export const DEMO_USERS: User[] = [
     createdAt: "2026-02-11T09:00:00Z",
     source: "local",
     oidcIssuer: null,
+    ageLimit: null,
   },
   {
     id: 2,
@@ -505,6 +506,7 @@ export const DEMO_USERS: User[] = [
     createdAt: "2026-03-04T18:20:00Z",
     source: "oidc",
     oidcIssuer: "https://sso.cleeryy.cloud",
+    ageLimit: null,
   },
   {
     id: 3,
@@ -516,6 +518,7 @@ export const DEMO_USERS: User[] = [
     createdAt: "2026-04-22T11:45:00Z",
     source: "local",
     oidcIssuer: null,
+    ageLimit: null,
   },
   {
     id: 4,
@@ -527,6 +530,7 @@ export const DEMO_USERS: User[] = [
     createdAt: "2026-06-30T14:05:00Z",
     source: "local",
     oidcIssuer: null,
+    ageLimit: null,
   },
 ];
 

@@ -29,24 +29,27 @@ All notable changes to Ludex are documented here. The format is based on
   publishes an explicitly unsigned DMG otherwise. New `macos-check` CI job runs
   `cargo check --locked` on Apple Silicon; minimum macOS is 11.0 and
   `docs/RELEASING.md` documents certificate export, secrets and verification.
-- Parental controls (#39, server side): `users.age_limit` (0–21, nullable) is
+- Parental controls (#39): `users.age_limit` (0–21, nullable) is
   enforced in game lists, the random picker, title suggestions, game detail and
   download tickets. Restricted games answer exactly like missing ones (404
   `game_not_found`) so the library cannot be enumerated, and the refusal is
   audited as `game.access_denied` with `reason=age_restricted`. Unrated games
   stay visible; administrators can raise or clear the limit through
   `PATCH /api/users/{id}` (`ageLimit`, `null` clears). Migration
-  `0016_parental.sql`, integration tests for list/detail/download/suggest and
-  limit validation.
-- Custom artwork upload (#38, API): editors can `POST /api/games/{id}/artwork`
+  `0016_parental.sql`. The admin user editor exposes the age limit (empty =
+  unrestricted). Integration tests cover list/detail/download/suggest and limit
+  validation.
+- Custom artwork upload (#38): editors can `POST /api/games/{id}/artwork`
   (multipart `kind=cover|background`, `file`) to replace a cover or background.
   Images are sniffed from their magic bytes (PNG/JPEG/WebP/GIF, SVG rejected),
   capped at 8 MiB and stored in the media cache under a cache-busting name; the
   game row is updated and the change audited (`game.artwork_updated`).
   `DELETE /api/games/{id}/artwork?kind=...` resets to provider art and removes
   the custom file. Routes are in the OpenAPI table and covered by integration
-  tests. Migration numbering fixed after the achievements merge (OIDC settings
-  is `0014_oidc_settings.sql`, save sync `0015_save_sync.sql`).
+  tests. The game page gains an editor "Artwork" dialog with local preview,
+  upload and reset-to-provider confirmation. Migration numbering fixed after the
+  achievements merge (OIDC settings is `0014_oidc_settings.sql`, save sync
+  `0015_save_sync.sql`).
 - Automatic cloud save sync (#108): the desktop app archives the save paths
   detected in #107 after `game://exited` (3 s debounce), hashes the archive and
   uploads it as an `auto` snapshot. An unchanged SHA-256 is a no-op, empty
