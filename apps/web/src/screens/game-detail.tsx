@@ -28,6 +28,8 @@ import { CloudSaves } from "@/components/game/cloud-saves";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { InstallFiles } from "@/components/game/install-files";
 import { InstallerPanel } from "@/components/game/installer-panel";
+import { LaunchOptionsPanel } from "@/components/game/launch-options";
+import { ProtonDbBadge } from "@/components/game/protondb-badge";
 import { MoveInstallDialog } from "@/components/game/move-install";
 import { MediaGallery } from "@/components/game/media-gallery";
 import { AddToCollectionDialog } from "@/components/collections/add-to-collection";
@@ -287,6 +289,7 @@ export function GameDetailScreen() {
               )}
               <span className="h-3 w-px bg-line-2" aria-hidden="true" />
               <span>{game.genres.join(" / ")}</span>
+              <ProtonDbBadge gameId={game.id} />
               {game.earlyAccess && <Badge tone="signal">Early access</Badge>}
             </div>
 
@@ -433,6 +436,10 @@ export function GameDetailScreen() {
 
             {isInstalled && isNative() && (
               <InstallerPanel gameId={game.id} title={game.title} executable={isInstalled.executable} />
+            )}
+
+            {isInstalled && isNative() && (
+              <LaunchOptionsPanel gameId={game.id} title={game.title} />
             )}
 
             <CloudSaves gameId={game.id} title={game.title} />

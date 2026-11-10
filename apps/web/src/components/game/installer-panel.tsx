@@ -97,6 +97,9 @@ export function InstallerPanel({
   };
 
   const windows = plan?.platform === "windows";
+  const linux = plan?.platform === "linux";
+  const linuxTool = plan?.compatTool ?? null;
+  const canRun = windows || (linux && Boolean(linuxTool));
   const installers = plan?.detected ?? [];
 
   return (
@@ -113,9 +116,19 @@ export function InstallerPanel({
       <div id="installer-heading" className="border-t border-line pt-4">
         <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-ink-3">
           Some releases are an archive of a setup program. Silent switches are tried in order and the exit code is
-          checked; if every attempt fails you can run the installer interactively. Current executable:{" "}
-          <span className="font-mono text-[11px] text-ink-2">{executable ?? "none recorded"}</span>.
+          checked; if every attempt fails you can run the installer interactively.{" "}
+          {linux
+            ? "On Linux it runs through the game's compatibility tool inside its Wine prefix and the log is captured."
+            : "On Windows the setup program runs directly."}{" "}
+          Current executable: <span className="font-mono text-[11px] text-ink-2">{executable ?? "none recorded"}</span>.
         </p>
+
+        {linux && !linuxTool && (
+          <p className="mt-3 border-l-2 border-signal/60 pl-3 text-[12.5px] leading-relaxed text-ink-2">
+            No compatibility tool is installed, so this setup program cannot run yet. Install UMU, GE-Proton/Proton or
+            Wine, then rescan in Settings → Compatibility.
+          </p>
+        )}
 
         {installers.length === 0 ? (
           <p className="mt-3 flex items-start gap-2 text-[12.5px] text-ink-3">
@@ -151,13 +164,22 @@ export function InstallerPanel({
 
             {plan && (
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
-                <span>{windows ? "silent plan" : "silent runs are Windows-only"}</span>
+                <span>
+                  {windows
+                    ? "silent plan"
+                    : linux && linuxTool
+                      ? `via ${linuxTool}`
+                      : linux
+                        ? "no compatibility tool"
+                        : "silent runs are Windows-only"}
+                </span>
                 {plan.attempts.map((attempt) => (
                   <span key={attempt.join(" ")} className="border border-line-2 px-1.5 py-0.5">
                     {attempt.join(" ")}
                   </span>
                 ))}
                 <span>{plan.timeoutSecs}s per attempt</span>
+                {plan.prefix && <span className="truncate">prefix {plan.prefix}</span>}
               </div>
             )}
 
@@ -167,7 +189,7 @@ export function InstallerPanel({
                 size="sm"
                 icon={<TerminalSquare className="size-3.5" />}
                 loading={running === "silent"}
-                disabled={!choice || running !== null || !windows}
+                disabled={!choice || running !== null || !canRun}
                 onClick={() => void run(false)}
               >
                 Run silently
@@ -176,7 +198,7 @@ export function InstallerPanel({
                 variant="default"
                 size="sm"
                 loading={running === "interactive"}
-                disabled={!choice || running !== null || !windows}
+                disabled={!choice || running !== null || !canRun}
                 onClick={() => void run(true)}
               >
                 Run interactively
@@ -211,6 +233,11 @@ export function InstallerPanel({
                       </li>
                     ))}
                   </ul>
+                )}
+                {report.logTail && (
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap border border-line bg-surface p-2 font-mono text-[10.5px] leading-relaxed text-ink-3">
+                    {report.logTail}
+                  </pre>
                 )}
                 {!report.success && !report.cancelled && (
                   <p className="text-[11.5px] leading-relaxed text-ink-3">
