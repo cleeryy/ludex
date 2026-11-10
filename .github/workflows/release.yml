@@ -273,7 +273,7 @@ jobs:
           prerelease: false
           # The updater manifest is assembled in the `updater-manifest` job so
           # parallel platform builds cannot clobber each other's latest.json.
-          includeUpdaterJson: false
+          uploadUpdaterJson: false
           args: ${{ matrix.args }}
 
   updater-manifest:
