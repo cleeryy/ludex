@@ -6,6 +6,22 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Updater signing provisioned (#124): minisign key pair generated, private key
+  and password stored as GitHub Actions secrets, public key committed in
+  `plugins.updater.pubkey`, `bundle.createUpdaterArtifacts` enabled. Release
+  builds now sign the Windows NSIS and Linux AppImage bundles (`.sig` assets);
+  a new `updater-manifest` job assembles a single stable `latest.json` with the
+  version, notes, `pub_date` and per-platform URL + signature, and the desktop
+  job fails fast when the secrets are missing. Docs cover offline key backup,
+  rotation (ship the new public key in the previous release) and post-release
+  verification. The `early` channel is documented as unpublished until an edge
+  desktop build exists.
+- Big Picture now enters real borderless fullscreen on desktop and restores the
+  previous window state on every exit path, with the minimal Tauri window
+  permissions and a graceful fallback when the OS refuses (#126).
+
 ## [0.2.3] - 2026-11-10
 
 ### Added

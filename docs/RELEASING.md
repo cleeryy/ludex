@@ -19,24 +19,31 @@ pnpm --filter @ludex/desktop exec tauri signer generate -w ~/.tauri/ludex.key
   (`plugins.updater.pubkey`). It is safe to commit.
 - The **private** key and its password are repository secrets:
   `TAURI_SIGNING_PRIVATE_KEY` (file contents or path) and
-  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-- Never commit the private key, the password or a generated `~/.tauri` folder.
-- `bundle.createUpdaterArtifacts` is **off** in the committed config so a release
-  without secrets still builds. Set it to `true` once the two secrets exist: the
-  desktop job then uploads `latest.json` plus `.sig` files next to the bundles.
-  Tauri refuses to build with it on and no private key, which is why it stays off
-  until the key is provisioned.
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. They are provisioned: the committed
+  `plugins.updater.pubkey` matches them, and
+  `bundle.createUpdaterArtifacts` is **true**.
+- The private key and password were generated once into `~/.tauri/ludex.key` /
+  `~/.tauri/ludex.key.password` (mode 0600). Back both up **offline** (password
+  manager or encrypted backup); they are the only way to sign future updates.
+  Never commit them or paste them into an issue, log or chat.
+- The desktop job fails fast when artifacts are enabled but the secrets are
+  missing. The `updater-manifest` job downloads the platform `.sig` assets,
+  writes a single `latest.json` (stable) and uploads it after every platform
+  build, so parallel Windows/Linux jobs cannot clobber each other.
+- Rotation: publish one release signed with the **old** key that contains the
+  **new** public key, then swap the secret. Existing installs verify the old
+  signature and accept the new key from that update. Revocation without a
+  transitional release requires a manual reinstall.
 
-Without a public key the app reports updates as *not configured* and refuses to
-install (`configured: false`, explicit message). Local dev builds should keep the
-field empty.
+Local dev builds should keep `createUpdaterArtifacts` off (or use a throwaway
+key); unsigned dev builds report updates as *not configured*.
 
 ### Channels
 
 | Channel | Endpoint | Published from |
 |---|---|---|
 | `stable` | `/releases/latest/download/latest.json` | the newest non-prerelease tag (`vX.Y.Z`) |
-| `early` | `/releases/download/edge/latest.json` | the moving `edge` prerelease |
+| `early` | `/releases/download/edge/latest.json` | the moving `edge` prerelease — **not published yet**: the edge workflow builds the server only, so the app reports the channel as unavailable instead of offering a broken update |
 
 GitHub's `/releases/latest` skips prereleases, so stable never picks up `edge`.
 To publish the early channel, the `edge` release must carry the updater
@@ -152,6 +159,22 @@ close it with evidence first.
 Confirm the license metadata matches the release: v0.2.0 and later is
 AGPL-3.0-or-later. Do not tag until the `LICENSE` file, README badge, Cargo
 `license` fields, `package.json` and Tauri metadata agree.
+
+## Post-release verification (updater)
+
+```bash
+TAG=v0.2.4
+gh release view "$TAG" --json assets --jq '.assets[].name' \
+  | grep -E 'latest.json|setup.exe.sig|AppImage.sig'
+curl -fsSL "https://github.com/cleeryy/ludex/releases/latest/download/latest.json" | python3 -m json.tool
+```
+
+- `latest.json` has `version`, `notes`, `pub_date`, and
+  `platforms.windows-x86_64` / `platforms.linux-x86_64`, each with a `signature`
+  and a release-download `url`.
+- Install the previous stable build, check for updates, download and install.
+- Truncate a copy of an artifact and confirm the updater rejects it.
+- Confirm `latest` resolves to the stable release (prereleases are skipped).
 
 ## Pre-release checklist
 

@@ -237,6 +237,18 @@ jobs:
         shell: bash
         run: pnpm --filter @ludex/web build
 
+      - name: Verify the updater signing key is provisioned (#124)
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEY:-}" ] || [ -z "${PASSWORD:-}" ]; then
+            echo "::error::bundle.createUpdaterArtifacts is true but TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD are missing. Add the repository secrets (docs/RELEASING.md) or turn updater artifacts off."
+            exit 1
+          fi
+
       - name: Build desktop bundles and upload
         uses: tauri-apps/tauri-action@v0
         env:
@@ -259,7 +271,97 @@ jobs:
           releaseName: "Ludex ${{ github.ref_name }}"
           releaseDraft: false
           prerelease: false
+          # The updater manifest is assembled in the `updater-manifest` job so
+          # parallel platform builds cannot clobber each other's latest.json.
+          includeUpdaterJson: false
           args: ${{ matrix.args }}
+
+  updater-manifest:
+    name: Updater manifest (latest.json)
+    runs-on: ubuntu-24.04
+    needs: desktop
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download signatures from the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/updater
+          gh release download "$TAG" --pattern "*.sig" --dir dist/updater
+          ls -la dist/updater
+
+      - name: Build latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime
+          import glob
+          import json
+          import os
+          import subprocess
+
+          tag = os.environ["TAG"]
+          repo = os.environ["GH_REPO"]
+          version = json.load(open("apps/desktop/src-tauri/tauri.conf.json"))["version"]
+          assets = json.loads(
+              subprocess.check_output(["gh", "release", "view", tag, "--json", "assets"])
+          )["assets"]
+          names = {asset["name"] for asset in assets}
+
+          def signature(path):
+              with open(path, encoding="utf-8") as handle:
+                  return handle.read().strip()
+
+          def url(name):
+              return f"https://github.com/{repo}/releases/download/{tag}/{name}"
+
+          platforms = {}
+          for path in glob.glob("dist/updater/*.sig"):
+              asset = os.path.basename(path)[:-4]
+              if asset not in names:
+                  continue
+              if asset.endswith("-setup.exe"):
+                  platforms["windows-x86_64"] = {"signature": signature(path), "url": url(asset)}
+              elif asset.endswith(".AppImage"):
+                  platforms["linux-x86_64"] = {"signature": signature(path), "url": url(asset)}
+
+          if "windows-x86_64" not in platforms or "linux-x86_64" not in platforms:
+              raise SystemExit(
+                  f"updater manifest incomplete: {sorted(platforms)}; signed assets missing from {tag}"
+              )
+
+          manifest = {
+              "version": version,
+              "notes": f"Ludex {tag}. See the release notes on GitHub.",
+              "pub_date": datetime.datetime.now(datetime.timezone.utc)
+              .replace(microsecond=0)
+              .isoformat()
+              .replace("+00:00", "Z"),
+              "platforms": platforms,
+          }
+          with open("dist/updater/latest.json", "w", encoding="utf-8") as handle:
+              json.dump(manifest, handle, indent=2)
+              handle.write("\n")
+          print(json.dumps(manifest, indent=2))
+          PY
+
+      - name: Upload latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" dist/updater/latest.json --clobber
 
   docker:
     name: Docker image (GHCR)

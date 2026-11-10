@@ -57,11 +57,11 @@
         "section": "games"
       }
     },
-    "createUpdaterArtifacts": false
+    "createUpdaterArtifacts": true
   },
   "plugins": {
     "updater": {
-      "pubkey": "",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY3REYxRjdENkY4NDI1RDgKUldUWUpZUnZmUi9mWjdndnFKc3dvVkJSak9HeWdIYlJDZ0NreVVFRjVwUUZMWXBpRW53RHRoc0MK",
       "endpoints": [
         "https://github.com/cleeryy/ludex/releases/latest/download/latest.json"
       ],
