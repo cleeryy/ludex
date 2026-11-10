@@ -24,6 +24,7 @@ import { isNative, native } from "@/lib/native";
 import type { GameDetail, ProgressState } from "@/lib/types";
 import { useBookmark, useInstalledMap, useLaunchGame } from "@/lib/hooks";
 import { useDownloads } from "@/state/downloads";
+import { CloudSaves } from "@/components/game/cloud-saves";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { useAuth, useIsEditor } from "@/state/auth";
 import { useToast } from "@/state/toasts";
@@ -392,6 +393,7 @@ export function GameDetailScreen() {
               </div>
             </section>
 
+            <CloudSaves gameId={game.id} title={game.title} />
 
             {isEditor && (
               <section className="mt-12 scroll-mt-6" id="launch-options" aria-labelledby="launch-heading">

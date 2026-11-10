@@ -1,4 +1,5 @@
 import { DEMO_GAMES, DEMO_NEWS, DEMO_PASSWORD, DEMO_SERVER_NAME, DEMO_USERS } from "@/data/demo";
+import { hashString } from "@/lib/art";
 import { ApiError, sleep } from "@/lib/http";
 import type {
   AuthResult,
@@ -15,6 +16,7 @@ import type {
   NewsPost,
   ProgressState,
   Role,
+  SaveSnapshot,
   ScanStatus,
   ServerConfig,
   SetupStatus,
@@ -101,6 +103,40 @@ let jobs: IngestJob[] = [
     updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 25).toISOString(),
   },
 ];
+
+const demoHash = (seed: string): string =>
+  Array.from({ length: 8 }, (_, index) => hashString(`${seed}:${index}`).toString(16).padStart(8, "0")).join("");
+
+let saves: SaveSnapshot[] = [
+  {
+    id: 1,
+    gameId: 14,
+    label: "Before the quantum moon",
+    fileName: "outer-wilds-quantum-moon.zip",
+    size: Math.round(4.2 * MB),
+    sha256: demoHash("outer-wilds-quantum-moon"),
+    createdAt: "2026-11-08T22:14:00Z",
+  },
+  {
+    id: 2,
+    gameId: 14,
+    label: "Endgame, Ash Twin",
+    fileName: "outer-wilds-ash-twin.zip",
+    size: Math.round(8.9 * MB),
+    sha256: demoHash("outer-wilds-ash-twin"),
+    createdAt: "2026-10-27T19:02:00Z",
+  },
+  {
+    id: 3,
+    gameId: 7,
+    label: "Chapter 4, before the clock",
+    fileName: "it-takes-two-chapter-4.zip",
+    size: Math.round(12.1 * MB),
+    sha256: demoHash("it-takes-two-chapter-4"),
+    createdAt: "2026-11-06T20:41:00Z",
+  },
+];
+let nextSaveId = 4;
 
 let scan: ScanStatus = {
   running: false,
@@ -655,6 +691,46 @@ export const mockApi = {
       gameCount: visibleGames().length,
       activeJobs: jobs.filter((j) => j.status === "downloading" || j.status === "queued").length,
     };
+  },
+
+  async listSaves(token: string | null, gameId: number): Promise<SaveSnapshot[]> {
+    await latency();
+    currentUser(token);
+    return clone(
+      saves
+        .filter((save) => save.gameId === gameId)
+        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
+    );
+  },
+
+  async uploadSave(token: string | null, gameId: number, file: File, label?: string): Promise<SaveSnapshot> {
+    await latency();
+    currentUser(token);
+    if (!file) fail(400, "missing_file", "Choose a save archive first");
+    if (file.size > 2 * 1024 ** 3) fail(413, "file_too_large", "Saves are limited to 2 GiB");
+    const snapshot: SaveSnapshot = {
+      id: nextSaveId++,
+      gameId,
+      label: label?.trim() || file.name.replace(/\.zip$/i, ""),
+      fileName: file.name,
+      size: file.size,
+      sha256: demoHash(`${file.name}:${file.size}`),
+      createdAt: nowIso(),
+    };
+    saves = [snapshot, ...saves];
+    return clone(snapshot);
+  },
+
+  async deleteSave(token: string | null, id: number): Promise<void> {
+    await latency();
+    currentUser(token);
+    saves = saves.filter((save) => save.id !== id);
+  },
+
+  async downloadSave(token: string | null, id: number): Promise<void> {
+    await latency();
+    currentUser(token);
+    if (!saves.some((save) => save.id === id)) fail(404, "save_not_found", "That save no longer exists");
   },
 
   async listNews(): Promise<NewsPost[]> {

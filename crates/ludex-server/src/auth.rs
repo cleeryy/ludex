@@ -57,6 +57,12 @@ pub struct AuthUser {
 }
 
 impl AuthUser {
+    /// Whether the caller is an administrator.
+    #[must_use]
+    pub fn is_admin(&self) -> bool {
+        self.role == Role::Admin
+    }
+
     /// Rejects the request unless the caller is an administrator.
     pub fn require_admin(&self) -> Result<(), ApiError> {
         if self.role == Role::Admin {

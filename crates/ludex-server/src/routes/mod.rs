@@ -6,6 +6,7 @@ pub mod library;
 pub mod media;
 pub mod news;
 pub mod oidc;
+pub mod saves;
 pub mod system;
 pub mod users;
 
@@ -15,7 +16,7 @@ use crate::error::ApiError;
 use crate::state::AppState;
 
 /// Builds the authenticated/public API router. Paths are relative to `/api`.
-pub fn api_router() -> Router<AppState> {
+pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
     Router::new()
         .merge(system::router())
         .merge(auth::router())
@@ -25,6 +26,7 @@ pub fn api_router() -> Router<AppState> {
         .merge(library::router())
         .merge(news::router())
         .merge(media::router())
+        .merge(saves::router(saves_max_bytes))
         .fallback(api_not_found)
 }
 

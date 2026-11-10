@@ -15,6 +15,9 @@ pub const DEFAULT_BIND: &str = "0.0.0.0:8080";
 pub const DEFAULT_SCAN_INTERVAL_SECONDS: u64 = 300;
 /// Maximum JSON request body accepted by the API (10 MiB).
 pub const MAX_JSON_BYTES: usize = 10 * 1024 * 1024;
+/// Default maximum size of a single cloud save upload (2 GiB).
+pub const DEFAULT_SAVES_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
 /// Runtime configuration for the Ludex server.
 ///
 /// Every field can be set through `LUDEX_*` environment variables with
@@ -53,6 +56,8 @@ pub struct Config {
     pub ingest_allow_private: bool,
     /// Interval between automatic library scans. Zero disables periodic scans.
     pub scan_interval: Duration,
+    /// Maximum size of a single cloud save upload, in bytes.
+    pub saves_max_bytes: u64,
     /// OIDC issuer URL. `None` disables SSO.
     pub oidc_issuer: Option<String>,
     /// OIDC client id.
@@ -125,6 +130,20 @@ impl Config {
             .context("LUDEX_SCAN_INTERVAL_SECONDS must be an integer")?
             .unwrap_or(DEFAULT_SCAN_INTERVAL_SECONDS);
 
+        let saves_max_bytes = match env_opt("LUDEX_SAVES_MAX_BYTES") {
+            Some(value) => {
+                let parsed = value
+                    .parse::<u64>()
+                    .context("LUDEX_SAVES_MAX_BYTES must be an integer")?;
+                anyhow::ensure!(
+                    parsed > 0,
+                    "LUDEX_SAVES_MAX_BYTES must be greater than zero"
+                );
+                parsed
+            }
+            None => DEFAULT_SAVES_MAX_BYTES,
+        };
+
         Ok(Self {
             bind,
             data_dir,
@@ -141,6 +160,7 @@ impl Config {
             local_mode: bool_env("LUDEX_LOCAL_MODE"),
             ingest_allow_private: bool_env("LUDEX_INGEST_ALLOW_PRIVATE"),
             scan_interval: Duration::from_secs(scan_interval_seconds),
+            saves_max_bytes,
             oidc_issuer: env_opt("LUDEX_OIDC_ISSUER"),
             oidc_client_id: env_opt("LUDEX_OIDC_CLIENT_ID"),
             oidc_client_secret: env_opt("LUDEX_OIDC_CLIENT_SECRET"),
@@ -181,6 +201,7 @@ impl Config {
             local_mode: true,
             ingest_allow_private: false,
             scan_interval: Duration::from_secs(DEFAULT_SCAN_INTERVAL_SECONDS),
+            saves_max_bytes: DEFAULT_SAVES_MAX_BYTES,
             oidc_issuer: None,
             oidc_client_id: None,
             oidc_client_secret: None,
@@ -276,6 +297,7 @@ mod tests {
         assert_eq!(config.bind.port(), 0);
         assert!(config.database_url.contains("/tmp/data/ludex.db"));
         assert!(!config.igdb_enabled());
+        assert_eq!(config.saves_max_bytes, DEFAULT_SAVES_MAX_BYTES);
     }
 
     #[test]
