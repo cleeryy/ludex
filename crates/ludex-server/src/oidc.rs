@@ -22,9 +22,11 @@ use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use url::Url;
 
+use crate::audit::actions;
 use crate::config::Config;
 use crate::db;
 use crate::error::ApiError;
+use crate::events::{Actor, Event};
 use crate::state::AppState;
 
 /// Pending authorization request lifetime.
@@ -665,6 +667,13 @@ pub async fn provision_user(
                     .map_err(ApiError::from)?;
             }
         }
+        state.events.emit(
+            Event::new(actions::OIDC_LOGIN, Actor::System)
+                .target("user", user.id.to_string())
+                .metadata(serde_json::json!({
+                    "issuer": identity.issuer,
+                })),
+        );
         return Ok(user.id);
     }
 
@@ -699,6 +708,13 @@ pub async fn provision_user(
                 .execute(&state.pool)
                 .await
                 .map_err(ApiError::from)?;
+                state.events.emit(
+                    Event::new(actions::OIDC_LINKED, Actor::System)
+                        .target("user", user.id.to_string())
+                        .metadata(serde_json::json!({
+                            "issuer": identity.issuer,
+                        })),
+                );
                 return Ok(user.id);
             }
             _ => {
@@ -749,7 +765,18 @@ pub async fn provision_user(
             ApiError::from(error)
         }
     })?;
-    Ok(result.last_insert_rowid())
+    let id = result.last_insert_rowid();
+    state.events.emit(
+        Event::new(actions::USER_CREATED, Actor::System)
+            .target("user", id.to_string())
+            .metadata(serde_json::json!({
+                "username": username,
+                "role": role.as_str(),
+                "source": "oidc",
+                "issuer": identity.issuer,
+            })),
+    );
+    Ok(id)
 }
 
 #[derive(Debug, sqlx::FromRow)]

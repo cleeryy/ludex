@@ -18,6 +18,7 @@ use ludex_core::models::{
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
+use crate::api_keys::Scope;
 use crate::auth::{authenticate_token, bearer_token, issue_download_ticket, AuthUser};
 use crate::db;
 use crate::error::ApiError;
@@ -828,6 +829,7 @@ async fn set_progress(
     ApiPath(game_id): ApiPath<i64>,
     JsonBody(request): JsonBody<ProgressRequest>,
 ) -> Result<Json<ProgressUpdate>, ApiError> {
+    user.require_scope(Scope::Write)?;
     ensure_game(&state, game_id).await?;
     let last_played = if request.state == ProgressState::Playing {
         Some(db::db_time(db::now()))
@@ -857,6 +859,7 @@ async fn report_playtime(
     ApiPath(game_id): ApiPath<i64>,
     JsonBody(request): JsonBody<PlaytimeRequest>,
 ) -> Result<Json<ProgressUpdate>, ApiError> {
+    user.require_scope(Scope::Write)?;
     ensure_game(&state, game_id).await?;
     let minutes = request.minutes.clamp(1, 1440);
     let ended_at = db::now();
@@ -902,6 +905,7 @@ async fn set_bookmark(
     ApiPath(game_id): ApiPath<i64>,
     JsonBody(request): JsonBody<BookmarkRequest>,
 ) -> Result<Json<BookmarkResponse>, ApiError> {
+    user.require_scope(Scope::Write)?;
     ensure_game(&state, game_id).await?;
     if request.bookmarked {
         sqlx::query(

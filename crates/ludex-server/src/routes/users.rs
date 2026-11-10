@@ -5,10 +5,13 @@ use axum::http::StatusCode;
 use axum::routing::{get, patch};
 use axum::{Json, Router};
 use ludex_core::models::Role;
+use serde_json::json;
 
+use crate::audit::actions;
 use crate::auth::{hash_password, AuthUser};
 use crate::db;
 use crate::error::ApiError;
+use crate::events::Event;
 use crate::extract::{ApiPath, JsonBody};
 use crate::models::{CreateUserRequest, UpdateUserRequest, UserRow};
 use crate::sql::{bind_query, Bind};
@@ -25,7 +28,7 @@ async fn list(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> Result<Json<Vec<ludex_core::models::User>>, ApiError> {
-    user.require_admin()?;
+    user.require_admin_access()?;
     let rows = sqlx::query_as::<_, UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path, created_at, updated_at
          FROM users ORDER BY id",
@@ -41,7 +44,7 @@ async fn create(
     user: AuthUser,
     JsonBody(request): JsonBody<CreateUserRequest>,
 ) -> Result<(StatusCode, Json<ludex_core::models::User>), ApiError> {
-    user.require_admin()?;
+    user.require_admin_access()?;
     let username = super::validate_username(&request.username)?;
     super::validate_password(&request.password)?;
     let email = super::validate_email(request.email)?;
@@ -79,6 +82,16 @@ async fn create(
     .await
     .map_err(ApiError::from)?;
 
+    state.events.emit(
+        Event::new(actions::USER_CREATED, user.actor())
+            .target("user", created.id.to_string())
+            .metadata(json!({
+                "username": created.username,
+                "role": role.as_str(),
+                "source": "admin",
+            })),
+    );
+
     Ok((StatusCode::CREATED, Json(created.to_public())))
 }
 
@@ -88,12 +101,13 @@ async fn update(
     ApiPath(id): ApiPath<i64>,
     JsonBody(request): JsonBody<UpdateUserRequest>,
 ) -> Result<Json<ludex_core::models::User>, ApiError> {
-    caller.require_admin()?;
+    caller.require_admin_access()?;
     let target = fetch_user(&state, id).await?;
     let current_role = target.role.parse::<Role>().unwrap_or(Role::User);
     let current_active = target.activated != 0;
     let new_role = request.role.unwrap_or(current_role);
     let new_active = request.activated.unwrap_or(current_active);
+    let email_changed = request.email.is_some();
 
     if id == caller.id && current_active && !new_active {
         return Err(ApiError::unprocessable(
@@ -137,6 +151,16 @@ async fn update(
         .map_err(ApiError::from)?;
 
     let updated = fetch_user(&state, id).await?;
+    state.events.emit(
+        Event::new(actions::USER_UPDATED, caller.actor())
+            .target("user", id.to_string())
+            .metadata(json!({
+                "username": updated.username,
+                "role": new_role.as_str(),
+                "activated": new_active,
+                "emailChanged": email_changed,
+            })),
+    );
     Ok(Json(updated.to_public()))
 }
 
@@ -145,7 +169,7 @@ async fn delete_user(
     caller: AuthUser,
     ApiPath(id): ApiPath<i64>,
 ) -> Result<StatusCode, ApiError> {
-    caller.require_admin()?;
+    caller.require_admin_access()?;
     if id == caller.id {
         return Err(ApiError::conflict(
             "cannot_delete_self",
@@ -161,6 +185,14 @@ async fn delete_user(
         .execute(&state.pool)
         .await
         .map_err(ApiError::from)?;
+    state.events.emit(
+        Event::new(actions::USER_DELETED, caller.actor())
+            .target("user", id.to_string())
+            .metadata(json!({
+                "username": target.username,
+                "role": target.role,
+            })),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 

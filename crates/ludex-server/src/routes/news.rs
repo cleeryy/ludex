@@ -43,7 +43,7 @@ async fn create(
     user: AuthUser,
     JsonBody(request): JsonBody<CreateNewsRequest>,
 ) -> Result<(StatusCode, Json<NewsPost>), ApiError> {
-    user.require_admin()?;
+    user.require_admin_access()?;
     let title = validate_text(&request.title, "title")?;
     let body = validate_text(&request.body, "body")?;
     let now = db::db_time(db::now());
@@ -70,7 +70,7 @@ async fn update(
     ApiPath(id): ApiPath<i64>,
     JsonBody(request): JsonBody<UpdateNewsRequest>,
 ) -> Result<Json<NewsPost>, ApiError> {
-    user.require_admin()?;
+    user.require_admin_access()?;
     fetch(&state, id).await?;
 
     let mut sets = Vec::new();
@@ -103,7 +103,7 @@ async fn delete_post(
     user: AuthUser,
     ApiPath(id): ApiPath<i64>,
 ) -> Result<StatusCode, ApiError> {
-    user.require_admin()?;
+    user.require_admin_access()?;
     let result = sqlx::query("DELETE FROM news WHERE id = ?")
         .bind(id)
         .execute(&state.pool)

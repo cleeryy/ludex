@@ -66,6 +66,8 @@ async fn main() -> Result<()> {
         http,
         igdb,
         oidc: None,
+        events: ludex_server::events::channel().0,
+        webhooks_notify: Arc::new(tokio::sync::Notify::new()),
     };
 
     let ids = sqlx::query_scalar::<_, i64>("SELECT id FROM games ORDER BY id")

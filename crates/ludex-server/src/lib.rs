@@ -25,10 +25,13 @@ use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::trace::{MakeSpan, TraceLayer};
 use tracing::Span;
 
+pub mod api_keys;
+pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod events;
 pub mod extract;
 pub mod ingest;
 pub mod media;
@@ -42,6 +45,7 @@ pub mod sql;
 pub mod state;
 pub mod stream;
 pub mod web;
+pub mod webhooks;
 
 pub use config::Config;
 
@@ -168,6 +172,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
     let (scan_tx, scan_rx) = mpsc::channel::<()>(4);
     let (cancel_tx, cancel_rx) = watch::channel(false);
     let oidc = OidcClient::from_config(&config, http.clone())?;
+    let (events, event_rx) = events::channel();
 
     let state = AppState {
         config: Arc::new(config.clone()),
@@ -179,6 +184,8 @@ async fn prepare(config: Config) -> Result<Prepared> {
         http,
         igdb,
         oidc,
+        events,
+        webhooks_notify: Arc::new(tokio::sync::Notify::new()),
     };
 
     let token = bootstrap_admin(&state).await?;
@@ -188,10 +195,13 @@ async fn prepare(config: Config) -> Result<Prepared> {
         data_dir: config.data_dir.clone(),
         scan_tx: scan_tx.clone(),
         allow_private: config.ingest_allow_private,
+        events: Some(state.events.clone()),
     };
     let router = build_router(&state, &ingest_ctx);
 
     tokio::spawn(scanner::worker(state.clone(), scan_rx, cancel_rx));
+    tokio::spawn(events::worker(state.clone(), event_rx));
+    tokio::spawn(webhooks::worker(state.clone()));
     // Initial scan in the background; never blocks startup.
     let _ = state.scan_tx.try_send(());
 
@@ -353,6 +363,15 @@ async fn bootstrap_admin(state: &AppState) -> Result<String> {
         let username = unique_username(state, "ludex").await?;
         let password = auth::generate_password();
         let id = create_user(state, &username, &password, Role::Admin).await?;
+        state.events.emit(
+            events::Event::new(audit::actions::USER_CREATED, events::Actor::System)
+                .target("user", id.to_string())
+                .metadata(serde_json::json!({
+                    "username": username,
+                    "role": Role::Admin.as_str(),
+                    "source": "local_bootstrap",
+                })),
+        );
         tracing::info!(username = %username, "provisioned local administrator");
         return auth::issue_access_token(&state.jwt_secret, id, Role::Admin);
     }
@@ -376,6 +395,15 @@ async fn bootstrap_admin(state: &AppState) -> Result<String> {
         return Ok(String::new());
     }
     let id = create_user(state, username, password, Role::Admin).await?;
+    state.events.emit(
+        events::Event::new(audit::actions::USER_CREATED, events::Actor::System)
+            .target("user", id.to_string())
+            .metadata(serde_json::json!({
+                "username": username,
+                "role": Role::Admin.as_str(),
+                "source": "bootstrap",
+            })),
+    );
     tracing::info!(username = %username, "provisioned bootstrap administrator");
     auth::issue_access_token(&state.jwt_secret, id, Role::Admin)
 }

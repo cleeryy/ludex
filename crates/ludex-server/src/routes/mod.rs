@@ -1,7 +1,9 @@
 //! HTTP routes, nested under `/api` by [`crate::build_router`].
 
+pub mod audit;
 pub mod auth;
 pub mod games;
+pub mod keys;
 pub mod library;
 pub mod media;
 pub mod news;
@@ -10,6 +12,7 @@ pub mod saves;
 pub mod search;
 pub mod system;
 pub mod users;
+pub mod webhooks;
 
 use axum::Router;
 
@@ -29,6 +32,9 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(news::router())
         .merge(media::router())
         .merge(saves::router(saves_max_bytes))
+        .merge(keys::router())
+        .merge(audit::router())
+        .merge(webhooks::router())
         .fallback(api_not_found)
 }
 

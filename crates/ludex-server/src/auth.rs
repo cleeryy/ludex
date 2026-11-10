@@ -16,7 +16,9 @@ use rand::distributions::Alphanumeric;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
+use crate::api_keys::{self, Scope};
 use crate::error::ApiError;
+use crate::events::Actor;
 use crate::state::AppState;
 
 /// Access token lifetime.
@@ -54,6 +56,10 @@ pub struct AuthUser {
     pub username: String,
     /// Role from the database (authoritative over the token claim).
     pub role: Role,
+    /// API key id when the request used `Authorization: Bearer ldx_...`.
+    pub api_key_id: Option<i64>,
+    /// Scopes of the API key; `None` for JWT sessions, which are unrestricted.
+    pub scopes: Option<Vec<Scope>>,
 }
 
 impl AuthUser {
@@ -61,6 +67,36 @@ impl AuthUser {
     #[must_use]
     pub fn is_admin(&self) -> bool {
         self.role == Role::Admin
+    }
+
+    /// Whether the credential carries a capability. JWTs carry every scope.
+    #[must_use]
+    pub fn has_scope(&self, required: Scope) -> bool {
+        match &self.scopes {
+            None => true,
+            Some(scopes) => scopes.iter().any(|scope| scope.allows(required)),
+        }
+    }
+
+    /// Rejects the request unless the credential carries `required`.
+    pub fn require_scope(&self, required: Scope) -> Result<(), ApiError> {
+        if self.has_scope(required) {
+            Ok(())
+        } else {
+            Err(ApiError::forbidden(
+                "insufficient_scope",
+                format!("This API key is missing the '{}' scope", required.as_str()),
+            ))
+        }
+    }
+
+    /// Audit actor for this caller.
+    #[must_use]
+    pub fn actor(&self) -> Actor {
+        match self.api_key_id {
+            Some(id) => Actor::ApiKey { id },
+            None => Actor::User { id: self.id },
+        }
     }
 
     /// Rejects the request unless the caller is an administrator.
@@ -75,10 +111,17 @@ impl AuthUser {
         }
     }
 
+    /// Rejects the request unless the caller is an administrator whose
+    /// credential carries the `admin` scope.
+    pub fn require_admin_access(&self) -> Result<(), ApiError> {
+        self.require_admin()?;
+        self.require_scope(Scope::Admin)
+    }
+
     /// Rejects the request unless the caller can edit the library.
     pub fn require_editor(&self) -> Result<(), ApiError> {
         if matches!(self.role, Role::Admin | Role::Editor) {
-            Ok(())
+            self.require_scope(Scope::Write)
         } else {
             Err(ApiError::forbidden("forbidden", "Editor role required"))
         }
@@ -204,13 +247,35 @@ pub fn bearer_token(headers: &axum::http::HeaderMap) -> Option<String> {
 }
 
 /// Resolves an access token into an [`AuthUser`], checking the database.
+///
+/// `ldx_`-prefixed tokens are API keys; everything else is a JWT.
 pub async fn authenticate_token(state: &AppState, token: &str) -> Result<AuthUser, ApiError> {
+    if token.starts_with(api_keys::TOKEN_PREFIX) {
+        let key = api_keys::authenticate(state, token)
+            .await?
+            .ok_or_else(ApiError::unauthorized)?;
+        return load_auth_user(state, key.user_id, Some(key.key_id), Some(key.scopes)).await;
+    }
+
     let claims = decode_access(&state.jwt_secret, token).ok_or_else(ApiError::unauthorized)?;
+    let user_id = claims
+        .sub
+        .parse::<i64>()
+        .map_err(|_| ApiError::unauthorized())?;
+    load_auth_user(state, user_id, None, None).await
+}
+
+async fn load_auth_user(
+    state: &AppState,
+    user_id: i64,
+    api_key_id: Option<i64>,
+    scopes: Option<Vec<Scope>>,
+) -> Result<AuthUser, ApiError> {
     let row = sqlx::query_as::<_, crate::models::UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path, created_at, updated_at
          FROM users WHERE id = ?",
     )
-    .bind(claims.sub.parse::<i64>().map_err(|_| ApiError::unauthorized())?)
+    .bind(user_id)
     .fetch_optional(&state.pool)
     .await
     .map_err(ApiError::from)?
@@ -227,6 +292,8 @@ pub async fn authenticate_token(state: &AppState, token: &str) -> Result<AuthUse
         id: row.id,
         username: row.username,
         role: row.role.parse::<Role>().unwrap_or(Role::User),
+        api_key_id,
+        scopes,
     })
 }
 

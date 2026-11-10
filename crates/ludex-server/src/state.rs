@@ -7,6 +7,7 @@ use sqlx::SqlitePool;
 use tokio::sync::{mpsc, RwLock};
 
 use crate::config::Config;
+use crate::events::EventSink;
 use crate::metadata::IgdbClient;
 use crate::models::ScanStatus;
 use crate::oidc::OidcClient;
@@ -32,6 +33,10 @@ pub struct AppState {
     pub igdb: Option<IgdbClient>,
     /// OIDC client, present when SSO is configured.
     pub oidc: Option<OidcClient>,
+    /// Audit + webhook event bus.
+    pub events: EventSink,
+    /// Wakes the webhook delivery worker when a delivery is queued.
+    pub webhooks_notify: Arc<tokio::sync::Notify>,
 }
 
 impl AppState {

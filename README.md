@@ -86,7 +86,9 @@ application backed by PostgreSQL. Ludex takes a different route:
 | Themes, translations, multiple profiles | roadmap |
 | macOS desktop build | experimental, unsigned |
 
-The API is documented in [`docs/CONTRACT.md`](docs/CONTRACT.md), the design in
+The API is documented in [`docs/CONTRACT.md`](docs/CONTRACT.md), integrations
+(API keys, audit log, webhooks) in
+[`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md), the design in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and the honest GameVault
 comparison in [`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md).
 

@@ -1,0 +1,76 @@
+//! Persistent audit trail.
+//!
+//! Every [`Event`](crate::events::Event) is written to `audit_logs` by the
+//! event worker. Secrets (passwords, tokens, webhook secrets) must never be
+//! placed in an event's metadata.
+
+use sqlx::SqlitePool;
+
+use crate::events::Event;
+
+/// Stable action names recorded in `audit_logs.action` and used as webhook
+/// event names where the two overlap.
+pub mod actions {
+    /// Successful password login.
+    pub const LOGIN_SUCCEEDED: &str = "login.succeeded";
+    /// Rejected password login.
+    pub const LOGIN_FAILED: &str = "login.failed";
+    /// Account created by an administrator, setup or OIDC provisioning.
+    pub const USER_CREATED: &str = "user.created";
+    /// Account role, email or activation changed.
+    pub const USER_UPDATED: &str = "user.updated";
+    /// Account deleted.
+    pub const USER_DELETED: &str = "user.deleted";
+    /// Account password changed.
+    pub const USER_PASSWORD_CHANGED: &str = "user.password_changed";
+    /// API key created.
+    pub const API_KEY_CREATED: &str = "api_key.created";
+    /// API key revoked.
+    pub const API_KEY_REVOKED: &str = "api_key.revoked";
+    /// A new game entered the library.
+    pub const GAME_INGESTED: &str = "game.ingested";
+    /// A library file was deleted.
+    pub const GAME_DELETED: &str = "game.deleted";
+    /// A download job completed.
+    pub const DOWNLOAD_COMPLETED: &str = "download.completed";
+    /// Server settings written (initial setup).
+    pub const SETTINGS_UPDATED: &str = "settings.updated";
+    /// Webhook created.
+    pub const WEBHOOK_CREATED: &str = "webhook.created";
+    /// Webhook updated.
+    pub const WEBHOOK_UPDATED: &str = "webhook.updated";
+    /// Webhook deleted.
+    pub const WEBHOOK_DELETED: &str = "webhook.deleted";
+    /// Cloud save snapshot uploaded.
+    pub const SAVE_UPLOADED: &str = "save.uploaded";
+    /// Cloud save snapshot deleted.
+    pub const SAVE_DELETED: &str = "save.deleted";
+    /// Successful OIDC login on an already-linked account.
+    pub const OIDC_LOGIN: &str = "oidc.login";
+    /// OIDC identity linked to an existing local account.
+    pub const OIDC_LINKED: &str = "oidc.linked";
+}
+
+/// Writes one event to `audit_logs`. Failures are logged, never propagated:
+/// auditing must not turn a successful operation into an HTTP error.
+pub async fn record(pool: &SqlitePool, event: &Event) {
+    let metadata = serde_json::to_string(&event.metadata).unwrap_or_else(|_| "{}".to_string());
+    let result = sqlx::query(
+        "INSERT INTO audit_logs
+            (actor_id, actor_kind, action, target_type, target_id, metadata, ip, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(event.actor.id())
+    .bind(event.actor.kind())
+    .bind(&event.action)
+    .bind(event.target_type.as_deref())
+    .bind(event.target_id.as_deref())
+    .bind(metadata)
+    .bind(event.ip.map(|ip| ip.to_string()))
+    .bind(crate::db::db_time(crate::db::now()))
+    .execute(pool)
+    .await;
+    if let Err(error) = result {
+        tracing::error!(error = %error, action = %event.action, "could not write audit log");
+    }
+}
