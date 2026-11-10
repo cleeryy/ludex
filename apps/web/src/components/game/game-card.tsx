@@ -37,6 +37,7 @@ export function GameCard({
         />
         <Link
           to={`/game/${game.id}`}
+          data-gamepad-target="true"
           className="absolute inset-0 z-[4] rounded-[2px]"
           aria-label={`Open ${game.title}`}
         />

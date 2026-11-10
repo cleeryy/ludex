@@ -37,7 +37,9 @@ import { Badge, IconButton, Kbd } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { DropdownMenu, useDropdown, type MenuEntry } from "@/components/ui/select";
 import { CommandPalette } from "@/components/shell/command-palette";
+import { ShortcutsDialog } from "@/components/shell/shortcuts-dialog";
 import { useGenres, useInstalledGames, useNativeEvents } from "@/lib/hooks";
+import { OPEN_SHORTCUTS_EVENT, openFiltersPanel, requestSearchFocus } from "@/lib/ui-events";
 import { useDownloads } from "@/state/downloads";
 import { formatSpeed } from "@/lib/format";
 
@@ -47,6 +49,7 @@ const SORTS = [
   { value: "rating", label: "Rating" },
   { value: "addedAt", label: "Date added" },
   { value: "lastPlayed", label: "Last played" },
+  { value: "playtime", label: "Playtime" },
 ];
 
 function RailLink({
@@ -488,30 +491,80 @@ function DownloadsStrip() {
 
 export function AppShell() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   useNativeEvents();
   const scrollRef = useRef<HTMLElement>(null);
   const positions = useRef(new Map<string, number>());
 
   useEffect(() => {
+    const onOpenHelp = () => setHelpOpen(true);
+    window.addEventListener(OPEN_SHORTCUTS_EVENT, onOpenHelp);
+    return () => window.removeEventListener(OPEN_SHORTCUTS_EVENT, onOpenHelp);
+  }, []);
+
+  useEffect(() => {
+    let gPressedAt = 0;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const typing = Boolean(target?.closest('input, textarea, select, [contenteditable="true"]'));
+      const modal = Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'));
+
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setPaletteOpen((open) => !open);
         return;
       }
-      if (event.key === "/" && !typing) {
-        if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      if (event.key === "Escape") {
+        if (paletteOpen) setPaletteOpen(false);
+        return;
+      }
+      if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (modal) return;
+
+      const key = event.key.toLowerCase();
+      if (key === "g") {
+        gPressedAt = Date.now();
+        return;
+      }
+      if (gPressedAt && Date.now() - gPressedAt < 1200) {
+        const routes: Record<string, string> = {
+          h: "/",
+          l: "/library",
+          d: "/downloads",
+          s: "/settings",
+          b: "/bookmarks",
+          i: "/all",
+        };
+        if (routes[key]) {
+          event.preventDefault();
+          gPressedAt = 0;
+          navigate(routes[key]);
+          return;
+        }
+        gPressedAt = 0;
+      }
+
+      if (event.key === "/") {
         event.preventDefault();
-        setPaletteOpen(true);
+        navigate("/library");
+        requestSearchFocus();
+      } else if (event.key === "?") {
+        event.preventDefault();
+        setHelpOpen(true);
+      } else if (key === "d") {
+        event.preventDefault();
+        navigate("/downloads");
+      } else if (key === "f" && location.pathname === "/library") {
+        event.preventDefault();
+        openFiltersPanel();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [location.pathname, navigate, paletteOpen]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -540,6 +593,7 @@ export function AppShell() {
       <MobileNav onMore={() => setMoreOpen(true)} />
       <MobileMenu open={moreOpen} onOpenChange={setMoreOpen} />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   );
 }

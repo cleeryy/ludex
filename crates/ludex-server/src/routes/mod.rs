@@ -7,6 +7,7 @@ pub mod media;
 pub mod news;
 pub mod oidc;
 pub mod saves;
+pub mod search;
 pub mod system;
 pub mod users;
 
@@ -22,6 +23,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(auth::router())
         .merge(oidc::router())
         .merge(games::router())
+        .merge(search::router())
         .merge(users::router())
         .merge(library::router())
         .merge(news::router())

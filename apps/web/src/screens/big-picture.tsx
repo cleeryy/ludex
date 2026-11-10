@@ -9,6 +9,7 @@ import { errorMessage } from "@/lib/http";
 import { formatBytes, formatMinutes, formatRating, formatRelative, formatYear, stateLabel } from "@/lib/format";
 import { isNative } from "@/lib/native";
 import { useAllGames, useInstalledMap, useLaunchGame } from "@/lib/hooks";
+import { useGamepad, type GamepadAction } from "@/lib/gamepad";
 import { useDownloads } from "@/state/downloads";
 import { useToast } from "@/state/toasts";
 import { Wordmark } from "@/components/brand";
@@ -160,49 +161,18 @@ export function BigPictureScreen() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  useEffect(() => {
-    let frame = 0;
-    const previous = new Map<number, boolean>();
-    const lastAxis = new Map<string, number>();
-
-    const axisFire = (key: string, fn: () => void) => {
-      const now = performance.now();
-      const last = lastAxis.get(key) ?? 0;
-      if (now - last > 170) {
-        lastAxis.set(key, now);
-        fn();
-      }
-    };
-
-    const loop = () => {
-      const pads = navigator.getGamepads?.() ?? [];
-      const pad = Array.from(pads).find((entry) => entry?.connected);
-      if (pad && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
-        const press = (button: number) => Boolean(pad.buttons[button]?.pressed);
-        const edge = (button: number) => press(button) && !previous.get(button);
-        const x = pad.axes[0] ?? 0;
-        const y = pad.axes[1] ?? 0;
-
-        if (edge(14)) actions.current.left();
-        else if (x < -0.6) axisFire("left", actions.current.left);
-        if (edge(15)) actions.current.right();
-        else if (x > 0.6) axisFire("right", actions.current.right);
-        if (edge(12)) actions.current.up();
-        else if (y < -0.6) axisFire("up", actions.current.up);
-        if (edge(13)) actions.current.down();
-        else if (y > 0.6) axisFire("down", actions.current.down);
-
-        if (edge(0)) actions.current.confirm();
-        if (edge(1)) actions.current.back();
-        if (edge(3)) actions.current.downloads();
-
-        for (let button = 0; button < pad.buttons.length; button++) previous.set(button, press(button));
-      }
-      frame = requestAnimationFrame(loop);
-    };
-    frame = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(frame);
-  }, []);
+  // Gamepad: d-pad/stick moves, A confirms, B exits, Y opens downloads and the
+  // shoulders change shelf (the same action as up/down).
+  const onGamepad = (action: GamepadAction) => {
+    if (action === "left") move(-1);
+    else if (action === "right") move(1);
+    else if (action === "up" || action === "prevTab") switchShelf(-1);
+    else if (action === "down" || action === "nextTab") switchShelf(1);
+    else if (action === "confirm") confirm();
+    else if (action === "back") exit();
+    else if (action === "downloads") navigate("/downloads");
+  };
+  const gamepad = useGamepad(onGamepad, { enabled: !installOpen });
 
   const time = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(clock);
 
@@ -419,7 +389,9 @@ export function BigPictureScreen() {
           </span>
           <span className="ml-auto flex items-center gap-1.5">
             <Gamepad2 className="size-3.5" aria-hidden="true" />
-            Gamepad: stick or d-pad, A, B, Y
+            {gamepad.connected
+              ? "Gamepad: stick or d-pad, A, B, Y, LB/RB shelf"
+              : "Keyboard only — connect a controller for couch navigation"}
           </span>
         </footer>
       </main>

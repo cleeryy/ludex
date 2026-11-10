@@ -1,12 +1,14 @@
 import { DEMO_GAMES, DEMO_NEWS, DEMO_PASSWORD, DEMO_SERVER_NAME, DEMO_USERS } from "@/data/demo";
 import { hashString } from "@/lib/art";
 import { ApiError, sleep } from "@/lib/http";
+import { normalizeSearch, scoreSearch } from "@/lib/search";
 import type {
   AuthResult,
   GameDetail,
   GameList,
   GameListQuery,
   GamePatch,
+  GameSuggestion,
   GameSummary,
   IngestJob,
   IngestStats,
@@ -20,6 +22,7 @@ import type {
   ScanStatus,
   ServerConfig,
   SetupStatus,
+  SuggestResponse,
   User,
 } from "@/lib/types";
 
@@ -206,6 +209,7 @@ function summary(game: GameDetail): GameSummary {
     minutesPlayed,
     bookmarked,
     lastPlayedAt,
+    maxPlayers,
   } = game;
   return {
     id,
@@ -223,19 +227,45 @@ function summary(game: GameDetail): GameSummary {
     minutesPlayed,
     bookmarked,
     lastPlayedAt,
+    maxPlayers,
   };
 }
 
 function filterGames(query: GameListQuery): GameSummary[] {
-  const q = query.q?.trim().toLowerCase();
+  const q = query.q?.trim();
   let items = visibleGames().filter((g) => {
-    if (q && !g.title.toLowerCase().includes(q) && !g.genres.some((x) => x.toLowerCase().includes(q))) return false;
+    if (q) {
+      const score = Math.max(scoreSearch(q, g.title, g.altTitles), scoreSearch(q, g.sortTitle, g.altTitles));
+      if (score <= 0) return false;
+    }
     if (query.genre && !g.genres.includes(query.genre)) return false;
     if (query.state && g.state !== query.state) return false;
     if (query.bookmarked && !g.bookmarked) return false;
     if (typeof query.earlyAccess === "boolean" && g.earlyAccess !== query.earlyAccess) return false;
+    if (query.yearFrom && Number(g.releaseDate?.slice(0, 4) ?? 0) < query.yearFrom) return false;
+    if (query.yearTo && Number(g.releaseDate?.slice(0, 4) ?? 0) > query.yearTo) return false;
+    if (query.players && (g.maxPlayers ?? 0) < query.players) return false;
+    if (query.playtimeMin !== undefined && g.minutesPlayed < query.playtimeMin) return false;
+    if (query.playtimeMax !== undefined && g.minutesPlayed > query.playtimeMax) return false;
+    if (query.minRating !== undefined && (g.rating ?? 0) < query.minRating) return false;
+    if (query.provider && g.provider?.slug !== query.provider) return false;
     return true;
   });
+
+  if (q) {
+    const normalized = normalizeSearch(q);
+    const relevance = (g: GameDetail) => scoreNormalizedFor(normalized, g);
+    items = items.sort((a, b) => relevance(b) - relevance(a) || a.sortTitle.localeCompare(b.sortTitle));
+    return items.map((game) => {
+      const found = bestMatch(q, game);
+      return {
+        ...summary(game),
+        matchedField: found?.field,
+        matchedTitle: found?.text,
+        matchScore: found?.score,
+      };
+    });
+  }
 
   const sort = query.sort ?? "title";
   const dir = (query.order ?? (sort === "title" ? "asc" : "desc")) === "asc" ? 1 : -1;
@@ -249,6 +279,8 @@ function filterGames(query: GameListQuery): GameSummary[] {
         return g.id;
       case "lastPlayed":
         return g.lastPlayedAt ? Date.parse(g.lastPlayedAt) : 0;
+      case "playtime":
+        return g.minutesPlayed;
       default:
         return g.sortTitle;
     }
@@ -262,6 +294,27 @@ function filterGames(query: GameListQuery): GameSummary[] {
   });
 
   return items.map(summary);
+}
+
+function scoreNormalizedFor(normalized: string, game: GameDetail): number {
+  return Math.max(
+    scoreSearch(normalized, game.title, game.altTitles),
+    scoreSearch(normalized, game.sortTitle, game.altTitles),
+  );
+}
+
+function bestMatch(query: string, game: GameDetail): { field: "title" | "sortTitle" | "altTitle"; text: string; score: number } | null {
+  const candidates: { field: "title" | "sortTitle" | "altTitle"; text: string }[] = [
+    { field: "title", text: game.title },
+    ...(game.sortTitle !== game.title ? [{ field: "sortTitle" as const, text: game.sortTitle }] : []),
+    ...game.altTitles.map((alias) => ({ field: "altTitle" as const, text: alias })),
+  ];
+  let best: { field: "title" | "sortTitle" | "altTitle"; text: string; score: number } | null = null;
+  for (const candidate of candidates) {
+    const score = scoreSearch(query, candidate.text);
+    if (score > 0 && (!best || score > best.score + 0.5)) best = { ...candidate, score };
+  }
+  return best;
 }
 
 /* --------------------------------- ticking -------------------------------- */
@@ -369,6 +422,27 @@ export const mockApi = {
     return { items: items.slice(start, start + limit), total: items.length, page, limit };
   },
 
+  async suggestGames(query: string, limit = 8): Promise<SuggestResponse> {
+    await latency();
+    const q = query.trim();
+    if (!q) return { query: "", suggestions: [] };
+    const scored = visibleGames()
+      .map((game) => ({ game, match: bestMatch(q, game) }))
+      .filter((entry) => entry.match !== null)
+      .sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0) || a.game.sortTitle.localeCompare(b.game.sortTitle))
+      .slice(0, limit);
+    const suggestions: GameSuggestion[] = scored.map(({ game, match }) => ({
+      id: game.id,
+      title: game.title,
+      year: game.releaseDate ? Number(game.releaseDate.slice(0, 4)) : null,
+      coverUrl: game.coverUrl,
+      matchedField: match?.field ?? "title",
+      matchedTitle: match?.text ?? game.title,
+      score: match?.score ?? 0,
+    }));
+    return { query: q, suggestions };
+  },
+
   async getGame(id: number): Promise<GameDetail> {
     await latency();
     const game = visibleGames().find((g) => g.id === id);
@@ -389,8 +463,10 @@ export const mockApi = {
     if (user.role === "user") fail(403, "forbidden", "Editor role required");
     const game = games.find((g) => g.id === id);
     if (!game) fail(404, "game_not_found", "That game is not in the library");
-    Object.assign(game, patch);
-    if (patch.launch) game.launch = { ...game.launch, ...patch.launch };
+    const { players, launch, ...rest } = patch;
+    Object.assign(game, rest);
+    if (players !== undefined) game.maxPlayers = players;
+    if (launch) game.launch = { ...game.launch, ...launch };
     if (patch.title) game.sortTitle = patch.title.toLowerCase();
     return clone(game);
   },

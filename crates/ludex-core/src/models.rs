@@ -184,6 +184,18 @@ pub struct GameSummary {
     pub bookmarked: bool,
     /// Last launch timestamp for the requesting user.
     pub last_played_at: Option<DateTime<Utc>>,
+    /// Highest supported player count, when known.
+    #[serde(default)]
+    pub max_players: Option<u32>,
+    /// Field that matched the search query (`title`, `sortTitle`, `altTitle`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matched_field: Option<String>,
+    /// Title or alias text that matched the query.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matched_title: Option<String>,
+    /// Relevance score (0-1000) when the row came from a search.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub match_score: Option<f64>,
 }
 
 /// One downloadable file (archive or executable) of a game.
@@ -271,6 +283,9 @@ pub struct GameDetail {
     pub age_rating: Option<u8>,
     /// Metadata provider reference.
     pub provider: Option<ProviderRef>,
+    /// Alternative titles (provider aliases) used by fuzzy search.
+    #[serde(default)]
+    pub alt_titles: Vec<String>,
     /// Files backing this game.
     pub versions: Vec<GameVersion>,
     /// Launch configuration.
@@ -358,6 +373,10 @@ mod tests {
             minutes_played: 90,
             bookmarked: true,
             last_played_at: None,
+            max_players: Some(1),
+            matched_field: None,
+            matched_title: None,
+            match_score: None,
         }
     }
 
@@ -421,6 +440,7 @@ mod tests {
                 id: "1659040".into(),
                 url: None,
             }),
+            alt_titles: vec!["Hitman III".into()],
             versions: vec![GameVersion {
                 id: 7,
                 file_name: "HITMAN 3 (v3.10.1) (2021).7z".into(),

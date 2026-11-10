@@ -28,6 +28,10 @@ interface Seed {
   publishers: string[];
   tags: string[];
   executable: string;
+  /** Highest supported player count (defaults to 1). */
+  players?: number;
+  /** Provider aliases used by fuzzy search. */
+  altTitles?: string[];
 }
 
 const seeds: Seed[] = [
@@ -86,6 +90,8 @@ const seeds: Seed[] = [
     publishers: ["Activision"],
     tags: ["Co-op", "Zombies", "Controller"],
     executable: "BlackOps3.exe",
+    players: 4,
+    altTitles: ["CoD: Black Ops III", "Black Ops 3"],
   },
   {
     slug: "cat-quest-ii",
@@ -105,6 +111,7 @@ const seeds: Seed[] = [
     publishers: ["The Gentlebros"],
     tags: ["Co-op", "Couch co-op", "Family"],
     executable: "CatQuest2.exe",
+    players: 2,
   },
   {
     slug: "forza-horizon-6",
@@ -166,6 +173,7 @@ const seeds: Seed[] = [
     publishers: ["Electronic Arts"],
     tags: ["Co-op only", "Split screen", "Story rich"],
     executable: "ItTakesTwo.exe",
+    players: 2,
   },
   {
     slug: "little-nightmares",
@@ -242,6 +250,7 @@ const seeds: Seed[] = [
     publishers: ["Sony Interactive Entertainment"],
     tags: ["Open world", "Story rich", "Controller"],
     executable: "SpiderMan2.exe",
+    altTitles: ["Spider-Man 2", "Spiderman 2"],
   },
   {
     slug: "minecraft-dungeons",
@@ -261,6 +270,7 @@ const seeds: Seed[] = [
     publishers: ["Xbox Game Studios"],
     tags: ["Couch co-op", "Family", "Loot"],
     executable: "Dungeons.exe",
+    players: 4,
   },
   {
     slug: "minecraft-dungeons-ii",
@@ -338,6 +348,7 @@ const seeds: Seed[] = [
     publishers: ["Sony Interactive Entertainment"],
     tags: ["Co-op", "Family", "Couch co-op"],
     executable: "Sackboy.exe",
+    players: 4,
   },
   {
     slug: "uncharted-legacy-of-thieves-collection",
@@ -434,6 +445,8 @@ export const DEMO_GAMES: GameDetail[] = seeds.map((seed, i) => {
     tags: seed.tags,
     ageRating: seed.age,
     provider: { slug: "demo", id: `demo-${seed.slug}`, url: null },
+    altTitles: seed.altTitles ?? [],
+    maxPlayers: seed.players ?? 1,
     versions,
     launch: {
       executable: seed.executable,
