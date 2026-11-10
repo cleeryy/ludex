@@ -544,6 +544,8 @@ export interface InstallJob {
   speedBps: number;
   message: string | null;
   installPath: string | null;
+  /** True when the job used the non-resumable stream install (#114). */
+  stream: boolean;
 }
 
 /** A game with a newer version on the server (#30). */

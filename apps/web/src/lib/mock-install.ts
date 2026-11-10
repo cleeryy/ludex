@@ -84,9 +84,10 @@ function job(
   version: string,
   message: string | null,
   installPath: string | null = null,
+  stream = false,
 ): InstallJob {
   meta.set(jobId, { title, version });
-  return { jobId, gameId, versionId, phase, bytesDone, bytesTotal, speedBps, message, installPath };
+  return { jobId, gameId, versionId, phase, bytesDone, bytesTotal, speedBps, message, installPath, stream };
 }
 
 let jobs: InstallJob[] = [
@@ -101,6 +102,8 @@ let jobs: InstallJob[] = [
     "Forza Horizon 6",
     "1.0.118",
     "Downloading archive",
+    null,
+    true,
   ),
   job("job_ln3", 10, 101, "queued", 0, Math.round(18.5 * GB), 0, "Little Nightmares III", "1.0.3", "Waiting for a slot"),
   job(
@@ -114,6 +117,20 @@ let jobs: InstallJob[] = [
     "Marvel's Spider-Man 2",
     "1.2.1",
     "Not enough free space on the install volume",
+  ),
+  job(
+    "job_bodycam",
+    16,
+    161,
+    "error",
+    Math.round(40.7 * 1024 ** 3),
+    Math.round(55.9 * 1024 ** 3),
+    0,
+    "Bodycam",
+    "1.0",
+    "The stream was interrupted while writing pakchunk47-Windows.pak. Stream installs are not resumable.",
+    null,
+    true,
   ),
   job(
     "job_hitman",
@@ -272,6 +289,7 @@ export const mockInstalls = {
       speedBps: 0,
       message: "Queued",
       installPath: null,
+      stream: args.stream ?? false,
     };
     phaseEnds.set(id, now() + 1500);
     jobs = [next, ...jobs];

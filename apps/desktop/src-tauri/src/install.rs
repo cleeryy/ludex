@@ -92,6 +92,9 @@ pub struct InstallJob {
     pub speed_bps: u64,
     pub message: Option<String>,
     pub install_path: Option<String>,
+    /// True when this job used the non-resumable tar stream (#114). The UI
+    /// offers "Retry as download" instead of "Resume" for a failed stream job.
+    pub stream: bool,
 }
 
 impl InstallJob {
@@ -117,6 +120,7 @@ impl InstallJob {
             speed_bps: record.speed_bps.max(0) as u64,
             message,
             install_path: record.install_path,
+            stream: record.stream,
         }
     }
 }
@@ -224,6 +228,7 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
         speed_bps: 0,
         message: Some("Queued".to_string()),
         install_path: None,
+        stream: stream_requested(params.stream, &settings, &params.server_url),
     };
 
     let entry = Arc::new(JobEntry {
@@ -763,6 +768,7 @@ fn persist(app: &AppHandle, entry: &JobEntry) {
         } else {
             None
         },
+        stream: job.stream,
         created_at: entry.created_at.clone(),
         updated_at: now_rfc3339(),
     };
@@ -854,6 +860,10 @@ async fn execute(
                     status = status.as_u16(),
                     "stream install unsupported, falling back to download"
                 );
+                // The job is now a normal, resumable download: a failure must
+                // offer "Resume", not the stream-specific retry (#114).
+                entry.update(|job| job.stream = false);
+                persist(app, entry);
                 let _ = tokio::fs::remove_dir_all(&staging).await;
             }
             Err(failure) => return Err(failure),

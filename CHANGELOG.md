@@ -178,6 +178,13 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- Stream install failures are actionable (#114): install jobs persist a
+  `stream` flag, a dropped stream shows "Retry as download" (the resumable
+  Range path) as the primary action plus a warned "Retry stream", and
+  "Resume" is never offered for a stream job. Pausing is refused for stream
+  jobs in the UI, the error no longer depends on parsing English text, and the
+  Settings/install-dialog copy explains that streams cannot resume. The failed
+  history row and its message are kept for diagnostics.
 - Dialog forms no longer lose focus on every keystroke: the open/close effect no
   longer re-runs when callers pass inline `onOpenChange` callbacks (news editor,
   create-user form and every other dialog). Added a Playwright regression test.

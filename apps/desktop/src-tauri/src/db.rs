@@ -90,7 +90,7 @@ pub struct PendingSession {
     pub minutes: i64,
 }
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -178,6 +178,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS installed_games_launch_uri_idx
     ON installed_games (launch_uri) WHERE launch_uri IS NOT NULL;
 "#;
 
+/// Issue #114: remember that a job used the stream-install path so the UI can
+/// offer "Retry as download" without parsing an English error message.
+const SCHEMA_V6: &str = r#"
+ALTER TABLE install_jobs ADD COLUMN stream INTEGER NOT NULL DEFAULT 0;
+"#;
+
 pub fn open(path: &Path) -> Result<Connection, String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
@@ -235,6 +241,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         connection
             .execute_batch(SCHEMA_V5)
             .map_err(|e| format!("Could not add external imports to the desktop database: {e}"))?;
+    }
+    if version < 6 {
+        connection
+            .execute_batch(SCHEMA_V6)
+            .map_err(|e| format!("Could not add stream flags to the desktop database: {e}"))?;
     }
 
     if version < SCHEMA_VERSION {
@@ -620,6 +631,8 @@ pub struct InstallJobRecord {
     pub part_path: Option<String>,
     pub install_path: Option<String>,
     pub error: Option<String>,
+    /// True when the job used the non-resumable tar stream (#114).
+    pub stream: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -630,8 +643,8 @@ pub fn upsert_install_job(connection: &Connection, job: &InstallJobRecord) -> Re
             r#"
             INSERT INTO install_jobs
                 (job_id, game_id, version_id, phase, bytes_done, bytes_total,
-                 speed_bps, part_path, install_path, error, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                 speed_bps, part_path, install_path, error, stream, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
             ON CONFLICT(job_id) DO UPDATE SET
                 phase        = excluded.phase,
                 bytes_done   = excluded.bytes_done,
@@ -640,6 +653,7 @@ pub fn upsert_install_job(connection: &Connection, job: &InstallJobRecord) -> Re
                 part_path    = excluded.part_path,
                 install_path = excluded.install_path,
                 error        = excluded.error,
+                stream       = excluded.stream,
                 updated_at   = excluded.updated_at
             "#,
             params![
@@ -653,6 +667,7 @@ pub fn upsert_install_job(connection: &Connection, job: &InstallJobRecord) -> Re
                 job.part_path,
                 job.install_path,
                 job.error,
+                i64::from(job.stream),
                 job.created_at,
                 job.updated_at,
             ],
@@ -673,12 +688,13 @@ fn map_install_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<InstallJobRecord
         part_path: row.get(7)?,
         install_path: row.get(8)?,
         error: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
+        stream: row.get::<_, i64>(10)? != 0,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
     })
 }
 
-const INSTALL_JOB_COLUMNS: &str = "job_id, game_id, version_id, phase, bytes_done, bytes_total, speed_bps, part_path, install_path, error, created_at, updated_at";
+const INSTALL_JOB_COLUMNS: &str = "job_id, game_id, version_id, phase, bytes_done, bytes_total, speed_bps, part_path, install_path, error, stream, created_at, updated_at";
 
 pub fn get_install_job(
     connection: &Connection,
@@ -877,6 +893,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V3).unwrap();
         connection.execute_batch(SCHEMA_V4).unwrap();
         connection.execute_batch(SCHEMA_V5).unwrap();
+        connection.execute_batch(SCHEMA_V6).unwrap();
         connection
     }
 
@@ -952,6 +969,7 @@ mod tests {
             part_path: Some("/tmp/game.part".into()),
             install_path: Some("/tmp/game".into()),
             error: None,
+            stream: true,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         };
@@ -959,6 +977,7 @@ mod tests {
         let loaded = get_install_job(&connection, "job-1").unwrap().unwrap();
         assert_eq!(loaded.bytes_done, 1024);
         assert_eq!(loaded.part_path.as_deref(), Some("/tmp/game.part"));
+        assert!(loaded.stream);
 
         assert_eq!(
             mark_interrupted_jobs(&connection, "interrupted", "2026-01-01T00:10:00Z").unwrap(),
@@ -1050,6 +1069,7 @@ mod tests {
             part_path: Some("/tmp/game.part".into()),
             install_path: None,
             error: None,
+            stream: false,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         };

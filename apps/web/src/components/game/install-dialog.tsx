@@ -5,7 +5,7 @@ import { installBridge } from "@/lib/install";
 import { errorMessage } from "@/lib/http";
 import { formatBytes, formatEta, formatSpeed, installPhaseLabel } from "@/lib/format";
 import type { GameDetail, GameVersion } from "@/lib/types";
-import { useDownloads } from "@/state/downloads";
+import { isStreamFailedJob, useDownloads } from "@/state/downloads";
 import { Button, Progress } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 
@@ -78,11 +78,31 @@ export function InstallDialog({
     }
   };
 
+  const retryAsDownload = async () => {
+    if (!job) return;
+    setError(null);
+    setStarting(true);
+    try {
+      await downloads.retryAsDownload(job, {
+        title: game.title,
+        version: version.version,
+        executable: game.launch.executable,
+      });
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setStarting(false);
+    }
+  };
+
   const pct = job?.bytesTotal ? Math.min(100, (job.bytesDone / job.bytesTotal) * 100) : null;
   const paused = job?.phase === "paused";
   const active = job && ["queued", "downloading", "extracting", "finalizing"].includes(job.phase);
   const failed = job && ["error", "cancelled", "interrupted"].includes(job.phase);
-  const resumable = paused || failed;
+  // A stream install cannot resume: offer a normal download retry instead of a
+  // Resume button that would restart the stream from zero (#114).
+  const streamFailed = job ? isStreamFailedJob(job) : false;
+  const resumable = !streamFailed && (paused || failed);
   const eta = job && active && job.bytesTotal ? formatEta(job.bytesDone, job.bytesTotal, job.speedBps) : null;
 
   return (
@@ -102,13 +122,31 @@ export function InstallDialog({
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               Continue in background
             </Button>
-            {job.phase === "queued" || job.phase === "downloading" ? (
+            {(job.phase === "queued" || job.phase === "downloading") && job.stream !== true ? (
               <Button variant="default" onClick={() => void downloads.pause(job.jobId)}>
                 Pause
               </Button>
             ) : null}
             <Button variant="danger" onClick={() => void downloads.cancel(job.jobId)}>
               Cancel
+            </Button>
+          </>
+        ) : streamFailed ? (
+          <>
+            <Button variant="ghost" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                job &&
+                void downloads.retryStream(job, { title: game.title, version: version.version, executable: game.launch.executable })
+              }
+            >
+              Retry stream
+            </Button>
+            <Button variant="primary" loading={starting} onClick={() => void retryAsDownload()} icon={<Download className="size-4" />}>
+              Retry as download
             </Button>
           </>
         ) : resumable ? (
@@ -141,7 +179,7 @@ export function InstallDialog({
           <div className="flex items-baseline justify-between gap-4">
             <dt className="text-ink-3">Download folder</dt>
             <dd className="truncate font-mono text-[11px] text-ink-2">
-              {settings?.streamInstall ? "Streamed, not stored" : settings?.downloadDir || "Set in Settings"}
+              {settings?.streamInstall ? "Streamed, not stored (not resumable)" : settings?.downloadDir || "Set in Settings"}
             </dd>
           </div>
           <div className="flex items-baseline justify-between gap-4">
@@ -167,6 +205,11 @@ export function InstallDialog({
             {active && (
               <p className="text-[11.5px] leading-relaxed text-ink-3">
                 You can close this window. The install keeps running and stays in Downloads.
+              </p>
+            )}
+            {streamFailed && (
+              <p className="text-[11.5px] leading-relaxed text-ink-3">
+                The stream cannot be resumed; this retries with a normal resumable download.
               </p>
             )}
             {job.installPath && (

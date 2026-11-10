@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Check, FolderOpen, Pause, Play, RefreshCw, X } from "lucide-react";
+import { Check, Download, FolderOpen, Pause, Play, RefreshCw, X } from "lucide-react";
 import { installsAvailable } from "@/lib/install";
-import { isActiveJob, useDownloads } from "@/state/downloads";
+import { isActiveJob, isStreamFailedJob, useDownloads } from "@/state/downloads";
 import { useAllGames } from "@/lib/hooks";
 import { formatBytes, formatEta, formatSpeed, installPhaseLabel } from "@/lib/format";
 import type { InstallJob } from "@/lib/types";
@@ -39,7 +39,20 @@ export function DownloadsScreen() {
     );
   }
 
-  const { active, history, activeCount, aggregate, titleFor, cancel, pause, resume, clearHistory, openFolder } = downloads;
+  const {
+    active,
+    history,
+    activeCount,
+    aggregate,
+    titleFor,
+    cancel,
+    pause,
+    resume,
+    retryAsDownload,
+    retryStream,
+    clearHistory,
+    openFolder,
+  } = downloads;
 
   const clear = async () => {
     await clearHistory();
@@ -129,6 +142,8 @@ export function DownloadsScreen() {
               onPause={() => void pause(job.jobId)}
               onOpenFolder={job.installPath ? () => void openFolder(job.installPath!) : undefined}
               onResume={() => void resume(job, { title: titleFor(job) })}
+              onRetryAsDownload={() => void retryAsDownload(job, { title: titleFor(job) })}
+              onRetryStream={() => void retryStream(job, { title: titleFor(job) })}
             />
           ))}
         </div>
@@ -151,6 +166,8 @@ function JobRow({
   onPause,
   onOpenFolder,
   onResume,
+  onRetryAsDownload,
+  onRetryStream,
 }: {
   job: InstallJob;
   title: string;
@@ -160,13 +177,18 @@ function JobRow({
   onPause: () => void;
   onOpenFolder?: () => void;
   onResume: () => void;
+  onRetryAsDownload?: () => void;
+  onRetryStream?: () => void;
 }) {
   const active = isActiveJob(job);
   const paused = job.phase === "paused";
   const pct = job.bytesTotal ? Math.min(100, (job.bytesDone / job.bytesTotal) * 100) : null;
   const eta = active && !paused && job.bytesTotal && job.speedBps ? formatEta(job.bytesDone, job.bytesTotal, job.speedBps) : null;
-  const resumable = paused || job.phase === "error" || job.phase === "cancelled" || job.phase === "interrupted";
-  const pausable = job.phase === "queued" || job.phase === "downloading";
+  // Stream installs cannot resume: a failed one gets a normal download retry
+  // instead of a Resume button that would silently restart from zero.
+  const streamFailed = isStreamFailedJob(job);
+  const resumable = !streamFailed && (paused || job.phase === "error" || job.phase === "cancelled" || job.phase === "interrupted");
+  const pausable = !streamFailed && (job.phase === "queued" || job.phase === "downloading") && job.stream !== true;
   const done = job.phase === "done";
   const showMessage =
     Boolean(job.message) && !["Downloading archive", "Queued", "Resuming", "Paused"].includes(job.message ?? "");
@@ -250,6 +272,32 @@ function JobRow({
             >
               Resume
             </Button>
+          )}
+          {streamFailed && onRetryAsDownload && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-signal-text"
+              icon={<Download className="size-3.5" />}
+              onClick={onRetryAsDownload}
+            >
+              Retry as download
+            </Button>
+          )}
+          {streamFailed && onRetryStream && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-ink-2"
+              icon={<RefreshCw className="size-3.5" />}
+              onClick={onRetryStream}
+              title="Restarts the stream from zero; it cannot resume after a drop"
+            >
+              Retry stream
+            </Button>
+          )}
+          {streamFailed && (
+            <span className="px-1 text-[11px] leading-snug text-ink-3">Stream installs restart from zero; a download can resume.</span>
           )}
           {onOpenFolder && (
             <Button variant="ghost" size="sm" className="text-ink-3" icon={<FolderOpen className="size-3.5" />} onClick={onOpenFolder}>

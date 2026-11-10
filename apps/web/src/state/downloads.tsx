@@ -16,12 +16,23 @@ const ACTIVE_PHASES: ReadonlySet<InstallJob["phase"]> = new Set(["queued", "down
 export const isPausedJob = (job: InstallJob): boolean => job.phase === "paused";
 export const isActiveJob = (job: InstallJob): boolean => ACTIVE_PHASES.has(job.phase) || isPausedJob(job);
 
+const FAILED_PHASES: ReadonlySet<InstallJob["phase"]> = new Set(["error", "cancelled", "interrupted"]);
+
+/**
+ * A failed stream install cannot resume from bytes: the staging files were
+ * never written through the resumable `.part` path. Use the persisted `stream`
+ * flag, never the English error message (#114).
+ */
+export const isStreamFailedJob = (job: InstallJob): boolean => job.stream === true && FAILED_PHASES.has(job.phase);
+
 export interface StartInstallInput {
   gameId: number;
   versionId: number;
   title: string;
   version?: string | null;
   executable?: string | null;
+  /** Overrides the stream-install setting for this job (e.g. retry as a normal download). */
+  stream?: boolean;
 }
 
 export interface ResumeInfo {
@@ -49,6 +60,8 @@ interface DownloadsValue {
   cancel: (jobId: string) => Promise<void>;
   pause: (jobId: string) => Promise<void>;
   resume: (job: InstallJob, info: ResumeInfo) => Promise<InstallJob | null>;
+  retryAsDownload: (job: InstallJob, info: ResumeInfo) => Promise<InstallJob | null>;
+  retryStream: (job: InstallJob, info: ResumeInfo) => Promise<InstallJob | null>;
   clearHistory: () => Promise<void>;
   openFolder: (path: string) => Promise<void>;
   jobForGame: (gameId: number) => InstallJob | undefined;
@@ -232,7 +245,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
         token: tokenStore.get() ?? "",
         installDir: settings?.installDir || undefined,
         downloadDir: settings?.downloadDir || undefined,
-        stream: settings?.streamInstall ?? false,
+        stream: input.stream ?? settings?.streamInstall ?? false,
       });
       setTitles((current) => ({ ...current, [job.jobId]: input.title }));
       setJobs((current) => [job, ...current.filter((entry) => entry.jobId !== job.jobId)]);
@@ -301,6 +314,52 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     [active, refresh, startInstall, push],
   );
 
+  const retryAsDownload = useCallback(
+    async (job: InstallJob, info: ResumeInfo): Promise<InstallJob | null> => {
+      const existing = active.find((entry) => entry.gameId === job.gameId && entry.jobId !== job.jobId);
+      if (existing) return existing;
+      try {
+        // A failed stream install cannot be resumed; restart it through the
+        // normal download path so the archive lands on disk and can resume.
+        return await startInstall({
+          gameId: job.gameId,
+          versionId: job.versionId,
+          title: info.title,
+          version: info.version,
+          executable: info.executable,
+          stream: false,
+        });
+      } catch (cause) {
+        push({ title: "Could not retry the install as a download", description: errorMessage(cause), tone: "danger" });
+        return null;
+      }
+    },
+    [active, startInstall, push],
+  );
+
+  const retryStream = useCallback(
+    async (job: InstallJob, info: ResumeInfo): Promise<InstallJob | null> => {
+      const existing = active.find((entry) => entry.gameId === job.gameId && entry.jobId !== job.jobId);
+      if (existing) return existing;
+      try {
+        // Explicit, warned-about restart of the stream path: it starts from
+        // zero and cannot resume after another drop.
+        return await startInstall({
+          gameId: job.gameId,
+          versionId: job.versionId,
+          title: info.title,
+          version: info.version,
+          executable: info.executable,
+          stream: true,
+        });
+      } catch (cause) {
+        push({ title: "Could not retry the stream install", description: errorMessage(cause), tone: "danger" });
+        return null;
+      }
+    },
+    [active, startInstall, push],
+  );
+
   const clearHistory = useCallback(async () => {
     const finished = history.filter((job) => job.phase === "done" || job.phase === "cancelled").map((job) => job.jobId);
     setHidden((current) => new Set([...current, ...finished]));
@@ -331,13 +390,15 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       cancel,
       pause,
       resume,
+      retryAsDownload,
+      retryStream,
       clearHistory,
       openFolder,
       jobForGame,
       resumableForGame,
       titleFor,
     }),
-    [available, jobs, active, history, aggregate, startInstall, cancel, pause, resume, clearHistory, openFolder, jobForGame, resumableForGame, titleFor],
+    [available, jobs, active, history, aggregate, startInstall, cancel, pause, resume, retryAsDownload, retryStream, clearHistory, openFolder, jobForGame, resumableForGame, titleFor],
   );
 
   return <DownloadsContext.Provider value={value}>{children}</DownloadsContext.Provider>;

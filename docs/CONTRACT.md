@@ -743,6 +743,7 @@ interface InstallJob {
        | "done" | "cancelled" | "error";
   bytesDone: number; bytesTotal: number | null; speedBps: number;
   message: string | null; installPath: string | null;
+  stream: boolean;              // job used the non-resumable tar stream (#114)
 }
 
 interface VerifyIssue {
