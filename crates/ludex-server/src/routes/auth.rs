@@ -1,13 +1,18 @@
 //! Authentication routes.
 
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use serde_json::json;
+use std::net::SocketAddr;
 
+use crate::api_keys::Scope;
+use crate::audit::actions;
 use crate::auth::{hash_password, issue_access_token, verify_password, AuthUser};
 use crate::db;
 use crate::error::ApiError;
+use crate::events::{Actor, Event};
 use crate::extract::JsonBody;
 use crate::models::{AuthResponse, ChangePasswordRequest, LoginRequest, UserResponse, UserRow};
 use crate::state::AppState;
@@ -23,8 +28,10 @@ pub fn router() -> Router<AppState> {
 
 async fn login(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     JsonBody(request): JsonBody<LoginRequest>,
 ) -> Result<Json<AuthResponse>, ApiError> {
+    let ip = Some(peer.ip());
     let row = sqlx::query_as::<_, UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path, created_at, updated_at
          FROM users WHERE username = ?",
@@ -35,12 +42,30 @@ async fn login(
     .map_err(ApiError::from)?;
 
     let Some(row) = row else {
+        state.events.emit(
+            Event::new(actions::LOGIN_FAILED, Actor::System)
+                .target("user", request.username.trim())
+                .metadata(json!({ "reason": "unknown_user" }))
+                .ip(ip),
+        );
         return Err(ApiError::invalid_credentials());
     };
     if !verify_password(&request.password, &row.password_hash) {
+        state.events.emit(
+            Event::new(actions::LOGIN_FAILED, Actor::User { id: row.id })
+                .target("user", row.id.to_string())
+                .metadata(json!({ "username": row.username, "reason": "bad_password" }))
+                .ip(ip),
+        );
         return Err(ApiError::invalid_credentials());
     }
     if row.activated == 0 {
+        state.events.emit(
+            Event::new(actions::LOGIN_FAILED, Actor::User { id: row.id })
+                .target("user", row.id.to_string())
+                .metadata(json!({ "username": row.username, "reason": "account_disabled" }))
+                .ip(ip),
+        );
         return Err(ApiError::forbidden(
             "account_disabled",
             "This account is disabled",
@@ -49,6 +74,12 @@ async fn login(
 
     let user = row.to_public();
     let token = issue_access_token(&state.jwt_secret, user.id, user.role)?;
+    state.events.emit(
+        Event::new(actions::LOGIN_SUCCEEDED, Actor::User { id: user.id })
+            .target("user", user.id.to_string())
+            .metadata(json!({ "username": user.username }))
+            .ip(ip),
+    );
     Ok(Json(AuthResponse { token, user }))
 }
 
@@ -77,6 +108,7 @@ async fn change_password(
     user: AuthUser,
     JsonBody(request): JsonBody<ChangePasswordRequest>,
 ) -> Result<StatusCode, ApiError> {
+    user.require_scope(Scope::Write)?;
     let row = sqlx::query_as::<_, UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path, created_at, updated_at
          FROM users WHERE id = ?",
@@ -102,5 +134,10 @@ async fn change_password(
         .execute(&state.pool)
         .await
         .map_err(ApiError::from)?;
+    state.events.emit(
+        Event::new(actions::USER_PASSWORD_CHANGED, user.actor())
+            .target("user", user.id.to_string())
+            .metadata(json!({ "username": user.username })),
+    );
     Ok(StatusCode::NO_CONTENT)
 }

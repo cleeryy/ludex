@@ -11,7 +11,9 @@ use ludex_core::naming::{grouping_key, parse_filename, ParsedName};
 use tokio::sync::{mpsc, watch};
 use walkdir::{DirEntry, WalkDir};
 
+use crate::audit::actions;
 use crate::db;
+use crate::events::{Actor, Event};
 use crate::state::AppState;
 
 /// Directory names that never contain library files.
@@ -192,6 +194,20 @@ pub async fn run_scan(state: &AppState) {
     );
 
     if !new_games.is_empty() {
+        for game_id in &new_games {
+            let title = sqlx::query_scalar::<_, String>("SELECT title FROM games WHERE id = ?")
+                .bind(game_id)
+                .fetch_optional(&state.pool)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            state.events.emit(
+                Event::new(actions::GAME_INGESTED, Actor::System)
+                    .target("game", game_id.to_string())
+                    .metadata(serde_json::json!({ "title": title, "source": "scan" })),
+            );
+        }
         tokio::spawn(enrich_batch(state.clone(), new_games));
     }
 }
@@ -332,15 +348,15 @@ async fn upsert_version(state: &AppState, game_id: i64, candidate: &Candidate) -
 }
 
 async fn mark_missing(state: &AppState, seen: &HashSet<String>) -> Result<i64> {
-    let rows = sqlx::query_as::<_, (i64, String)>(
-        "SELECT id, file_path FROM game_versions WHERE missing = 0",
+    let rows = sqlx::query_as::<_, (i64, i64, String)>(
+        "SELECT id, game_id, file_path FROM game_versions WHERE missing = 0",
     )
     .fetch_all(&state.pool)
     .await
     .context("list indexed versions")?;
 
     let mut removed = 0;
-    for (id, file_path) in rows {
+    for (id, game_id, file_path) in rows {
         if seen.contains(&file_path) {
             continue;
         }
@@ -349,6 +365,11 @@ async fn mark_missing(state: &AppState, seen: &HashSet<String>) -> Result<i64> {
             .execute(&state.pool)
             .await
             .context("mark version missing")?;
+        state.events.emit(
+            Event::new(actions::GAME_DELETED, Actor::System)
+                .target("game", game_id.to_string())
+                .metadata(serde_json::json!({ "filePath": file_path, "source": "scan" })),
+        );
         removed += 1;
     }
     Ok(removed)

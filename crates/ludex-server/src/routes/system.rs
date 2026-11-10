@@ -5,10 +5,12 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use ludex_core::models::{Role, User};
 
+use crate::audit::actions;
 use crate::auth::{hash_password, issue_access_token};
 use crate::config::MAX_JSON_BYTES;
 use crate::db;
 use crate::error::ApiError;
+use crate::events::{Actor, Event};
 use crate::extract::JsonBody;
 use crate::models::{
     AuthResponse, FeatureFlags, HealthResponse, ServerConfig, SetupRequest, SetupStatus,
@@ -89,11 +91,11 @@ async fn setup(
         ));
     }
 
-    if let Some(server_name) = request
+    let server_name = request
         .server_name
         .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty())
-    {
+        .filter(|name| !name.is_empty());
+    if let Some(server_name) = &server_name {
         sqlx::query(
             "INSERT INTO settings (key, value) VALUES ('server_name', ?)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -114,6 +116,22 @@ async fn setup(
         avatar_url: None,
         created_at: db::now(),
     };
+    state.events.emit(
+        Event::new(actions::USER_CREATED, Actor::System)
+            .target("user", user.id.to_string())
+            .metadata(serde_json::json!({
+                "username": user.username,
+                "role": user.role.as_str(),
+                "source": "setup",
+            })),
+    );
+    state.events.emit(
+        Event::new(actions::SETTINGS_UPDATED, Actor::User { id: user.id })
+            .target("settings", "server")
+            .metadata(serde_json::json!({
+                "serverName": server_name,
+            })),
+    );
     let token = issue_access_token(&state.jwt_secret, user.id, user.role)?;
     Ok(Json(AuthResponse { token, user }))
 }

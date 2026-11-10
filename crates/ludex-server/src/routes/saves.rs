@@ -12,9 +12,12 @@ use axum::routing::{delete, get};
 use axum::{Json, Router};
 use tokio_util::io::ReaderStream;
 
+use crate::api_keys::Scope;
+use crate::audit::actions;
 use crate::auth::AuthUser;
 use crate::db;
 use crate::error::ApiError;
+use crate::events::Event;
 use crate::extract::{ApiPath, MultipartBody};
 use crate::media::content_disposition;
 use crate::models::{SaveSnapshot, SaveSnapshotRow};
@@ -67,6 +70,7 @@ async fn upload(
     ApiPath(game_id): ApiPath<i64>,
     MultipartBody(mut multipart): MultipartBody,
 ) -> Result<(StatusCode, Json<SaveSnapshot>), ApiError> {
+    user.require_scope(Scope::Write)?;
     ensure_game(&state, game_id).await?;
 
     let mut pending: Option<PendingSave> = None;
@@ -157,6 +161,19 @@ async fn upload(
         return Err(ApiError::internal());
     }
 
+    state.events.emit(
+        Event::new(actions::SAVE_UPLOADED, user.actor())
+            .target("save", snapshot_id.to_string())
+            .metadata(serde_json::json!({
+                "snapshotId": snapshot_id,
+                "gameId": game_id,
+                "userId": user.id,
+                "size": size,
+                "sha256": sha256,
+                "label": label,
+            })),
+    );
+
     Ok((
         StatusCode::CREATED,
         Json(SaveSnapshot {
@@ -215,6 +232,7 @@ async fn delete_snapshot(
     user: AuthUser,
     ApiPath(id): ApiPath<i64>,
 ) -> Result<StatusCode, ApiError> {
+    user.require_scope(Scope::Write)?;
     let row = fetch_snapshot(&state, id).await?;
     ensure_access(&user, &row)?;
 
@@ -238,6 +256,16 @@ async fn delete_snapshot(
         &row.file_name,
     )
     .await;
+    state.events.emit(
+        Event::new(actions::SAVE_DELETED, user.actor())
+            .target("save", row.id.to_string())
+            .metadata(serde_json::json!({
+                "snapshotId": row.id,
+                "gameId": row.game_id,
+                "ownerId": row.user_id,
+                "fileName": row.file_name,
+            })),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
