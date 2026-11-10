@@ -8,7 +8,7 @@
 
 use std::path::{Component, Path, PathBuf};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -16,12 +16,13 @@ use std::time::{Duration, Instant};
 use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
 use tokio_stream::StreamExt;
 use tokio_util::io::StreamReader;
 use tokio_util::sync::CancellationToken;
 
-use crate::db::{self, InstalledGame};
+use crate::db::{self, InstallManifestRecord, InstalledGame};
+use crate::manifest;
 use crate::paths;
 use crate::settings::{self, LocalSettings, Mode};
 use crate::state::{AppState, JobEntry};
@@ -37,6 +38,7 @@ pub enum InstallPhase {
     Downloading,
     Extracting,
     Finalizing,
+    Paused,
     Done,
     Cancelled,
     Error,
@@ -49,6 +51,7 @@ impl InstallPhase {
             InstallPhase::Downloading => "downloading",
             InstallPhase::Extracting => "extracting",
             InstallPhase::Finalizing => "finalizing",
+            InstallPhase::Paused => "paused",
             InstallPhase::Done => "done",
             InstallPhase::Cancelled => "cancelled",
             InstallPhase::Error => "error",
@@ -61,6 +64,7 @@ impl InstallPhase {
             "downloading" => InstallPhase::Downloading,
             "extracting" => InstallPhase::Extracting,
             "finalizing" => InstallPhase::Finalizing,
+            "paused" => InstallPhase::Paused,
             "done" => InstallPhase::Done,
             "cancelled" => InstallPhase::Cancelled,
             _ => InstallPhase::Error,
@@ -98,6 +102,7 @@ impl InstallJob {
             Some(match phase {
                 InstallPhase::Done => "Installed".to_string(),
                 InstallPhase::Cancelled => "Install cancelled".to_string(),
+                InstallPhase::Paused => "Paused".to_string(),
                 InstallPhase::Error => INTERRUPTED_MESSAGE.to_string(),
                 _ => "Interrupted".to_string(),
             })
@@ -139,8 +144,10 @@ struct InstallErrorEvent {
 }
 
 #[derive(Debug)]
-enum Failure {
+pub(crate) enum Failure {
     Cancelled,
+    /// The user paused the job: the `.part` file is kept for a Range resume.
+    Paused,
     Failed(String),
 }
 
@@ -219,6 +226,8 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
     let entry = Arc::new(JobEntry {
         params,
         cancel: CancellationToken::new(),
+        pause: std::sync::Mutex::new(CancellationToken::new()),
+        running: AtomicBool::new(false),
         job: std::sync::Mutex::new(job.clone()),
         created_at: now_rfc3339(),
         part_path: std::sync::Mutex::new(Some(planned_part.to_string_lossy().to_string())),
@@ -228,30 +237,72 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
     {
         // Check and insert under one lock so two concurrent installs for the
         // same version cannot both start.
-        let mut jobs = state
-            .jobs
-            .lock()
-            .map_err(|_| "The install queue is unavailable; restart Ludex.".to_string())?;
-        if let Some(existing) = jobs.values().find(|entry| {
-            entry.params.game_id == game_id
-                && entry.params.version_id == version_id
-                && !entry.snapshot().phase.is_terminal()
-        }) {
-            return Ok(existing.snapshot());
+        let existing = {
+            let mut jobs = state
+                .jobs
+                .lock()
+                .map_err(|_| "The install queue is unavailable; restart Ludex.".to_string())?;
+            match jobs.values().find(|entry| {
+                entry.params.game_id == game_id
+                    && entry.params.version_id == version_id
+                    && !entry.snapshot().phase.is_terminal()
+            }) {
+                Some(existing) => Some(Arc::clone(existing)),
+                None => {
+                    jobs.insert(job_id.clone(), Arc::clone(&entry));
+                    None
+                }
+            }
+        };
+
+        if let Some(existing) = existing {
+            let snapshot = existing.snapshot();
+            if snapshot.phase == InstallPhase::Paused {
+                // `install_game` doubles as "resume": keep the same job (and its
+                // `.part` path) so the download continues with HTTP Range.
+                existing.clear_pause();
+                existing.update(|job| {
+                    job.phase = InstallPhase::Queued;
+                    job.speed_bps = 0;
+                    job.message = Some("Queued".to_string());
+                });
+                persist(app, &existing);
+                emit_jobs(app);
+                start_run(app, &existing);
+                return Ok(existing.snapshot());
+            }
+            return Ok(snapshot);
         }
-        jobs.insert(job_id.clone(), Arc::clone(&entry));
+    }
+
+    // A new attempt replaces any paused/active row for the same version, so the
+    // job list does not keep a stale paused entry after a restart.
+    if let Ok(connection) = state.db.lock() {
+        if let Err(error) =
+            db::supersede_install_jobs(&connection, game_id, version_id, &now_rfc3339())
+        {
+            tracing::warn!(error = %error, "could not supersede the previous install jobs");
+        }
     }
 
     persist(app, &entry);
     emit_jobs(app);
-
-    let handle = app.clone();
-    let spawned_id = job_id.clone();
-    tauri::async_runtime::spawn(async move {
-        run(handle, spawned_id).await;
-    });
+    start_run(app, &entry);
 
     Ok(job)
+}
+
+/// Spawn the worker for a job, unless one is already running. Pausing stops the
+/// worker; resuming calls this again with the same entry.
+fn start_run(app: &AppHandle, entry: &Arc<JobEntry>) {
+    if entry.running.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let handle = app.clone();
+    let job_id = entry.snapshot().job_id;
+    tauri::async_runtime::spawn(async move {
+        run(handle, job_id).await;
+    });
 }
 
 pub fn job(app: &AppHandle, job_id: &str) -> Result<InstallJob, String> {
@@ -332,10 +383,108 @@ pub fn cancel(app: &AppHandle, job_id: &str) -> Result<(), String> {
     match entry {
         Some(entry) => {
             entry.cancel.cancel();
+            // A paused job has no worker waiting on the token: finish it here so
+            // its partial archive is cleaned up.
+            if entry.snapshot().phase == InstallPhase::Paused {
+                let paths = planned_paths(&state, &entry);
+                let handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    finalize_cancelled(&handle, &entry, &paths).await;
+                });
+            }
             Ok(())
         }
         None => Err(format!("Unknown install job: {job_id}")),
     }
+}
+
+/// Pause a queued or downloading job.
+///
+/// The download loop stops at the next chunk boundary, flushes the partial
+/// archive to disk and the job moves to the `paused` phase. Resuming continues
+/// from the same byte offset with an HTTP Range request. Stream installs cannot
+/// be paused: nothing is written to the download folder, so there is no offset
+/// to resume from.
+pub fn pause(app: &AppHandle, job_id: &str) -> Result<InstallJob, String> {
+    let state = app.state::<AppState>();
+    let entry = {
+        let jobs = state
+            .jobs
+            .lock()
+            .map_err(|_| "The install queue is unavailable; restart Ludex.".to_string())?;
+        jobs.get(job_id).cloned()
+    }
+    .ok_or_else(|| {
+        "This install job is from a previous session. Start the install again from the game page."
+            .to_string()
+    })?;
+
+    let snapshot = entry.snapshot();
+    match snapshot.phase {
+        InstallPhase::Paused => Ok(snapshot),
+        InstallPhase::Queued => {
+            entry.request_pause();
+            entry.update(|job| {
+                job.phase = InstallPhase::Paused;
+                job.speed_bps = 0;
+                job.message = Some("Paused".to_string());
+            });
+            persist(app, &entry);
+            emit_jobs(app);
+            Ok(entry.snapshot())
+        }
+        InstallPhase::Downloading => {
+            if stream_requested(
+                entry.params.stream,
+                &state.settings_snapshot(),
+                &entry.params.server_url,
+            ) {
+                return Err(
+                    "Stream installs cannot be paused. Turn off stream installs in Settings, then retry."
+                        .to_string(),
+                );
+            }
+            entry.request_pause();
+            // The worker flushes the `.part` file and emits the paused state.
+            Ok(entry.snapshot())
+        }
+        _ => Err(
+            "This install is not downloading, so it cannot be paused. Wait for it to finish or cancel it."
+                .to_string(),
+        ),
+    }
+}
+
+/// Resume a paused job from its byte offset. Returns the running job.
+pub fn resume(app: &AppHandle, job_id: &str) -> Result<InstallJob, String> {
+    let state = app.state::<AppState>();
+    let entry = {
+        let jobs = state
+            .jobs
+            .lock()
+            .map_err(|_| "The install queue is unavailable; restart Ludex.".to_string())?;
+        jobs.get(job_id).cloned()
+    }
+    .ok_or_else(|| {
+        "This install job is from a previous session. Start the install again from the game page to resume it."
+            .to_string()
+    })?;
+
+    let snapshot = entry.snapshot();
+    if snapshot.phase != InstallPhase::Paused {
+        return Ok(snapshot);
+    }
+
+    entry.clear_pause();
+    entry.update(|job| {
+        job.phase = InstallPhase::Queued;
+        job.speed_bps = 0;
+        job.message = Some("Resuming".to_string());
+    });
+    persist(app, &entry);
+    emit_jobs(app);
+    start_run(app, &entry);
+    Ok(entry.snapshot())
 }
 
 fn planned_paths(state: &AppState, entry: &JobEntry) -> JobPaths {
@@ -371,7 +520,36 @@ fn planned_paths(state: &AppState, entry: &JobEntry) -> JobPaths {
     }
 }
 
+/// Clears the `running` flag when the worker exits, however it exits.
+struct RunGuard<'a>(&'a AtomicBool);
+
+impl Drop for RunGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 async fn run(app: AppHandle, job_id: String) {
+    run_job(app.clone(), job_id.clone()).await;
+
+    // A resume can land while the worker is finishing a pause: `start_run` sees
+    // `running = true` and does nothing. Pick the job up again once the flag is
+    // clear so it never stays queued without a worker.
+    let state = app.state::<AppState>();
+    let entry = {
+        match state.jobs.lock() {
+            Ok(jobs) => jobs.get(&job_id).cloned(),
+            Err(_) => None,
+        }
+    };
+    if let Some(entry) = entry {
+        if entry.snapshot().phase == InstallPhase::Queued && !entry.cancel.is_cancelled() {
+            start_run(&app, &entry);
+        }
+    }
+}
+
+async fn run_job(app: AppHandle, job_id: String) {
     let state = app.state::<AppState>();
     let entry = {
         match state.jobs.lock() {
@@ -383,6 +561,7 @@ async fn run(app: AppHandle, job_id: String) {
         tracing::warn!(job_id = %job_id, "install job disappeared before it started");
         return;
     };
+    let _guard = RunGuard(&entry.running);
 
     let mut job_paths = planned_paths(&state, &entry);
     entry.set_part_path(
@@ -392,12 +571,18 @@ async fn run(app: AppHandle, job_id: String) {
             .map(|path| path.to_string_lossy().to_string()),
     );
 
-    // One install at a time; queued jobs wait here.
+    // One install at a time; queued jobs wait here. A pause while queued moves
+    // the job out of the queue without ever touching the disk.
     let slots = Arc::clone(&state.install_slots);
+    let pause = entry.pause_token();
     let permit = tokio::select! {
         biased;
         _ = entry.cancel.cancelled() => {
             finalize_cancelled(&app, &entry, &job_paths).await;
+            return;
+        }
+        _ = pause.cancelled() => {
+            finalize_paused(&app, &entry, &job_paths).await;
             return;
         }
         permit = slots.acquire_owned() => match permit {
@@ -412,6 +597,11 @@ async fn run(app: AppHandle, job_id: String) {
     if entry.cancel.is_cancelled() {
         drop(permit);
         finalize_cancelled(&app, &entry, &job_paths).await;
+        return;
+    }
+    if entry.pause_token().is_cancelled() {
+        drop(permit);
+        finalize_paused(&app, &entry, &job_paths).await;
         return;
     }
 
@@ -449,6 +639,8 @@ async fn run(app: AppHandle, job_id: String) {
         if let Some(staging) = job_paths.staging.as_deref() {
             let _ = tokio::fs::remove_dir_all(staging).await;
         }
+        // Cancelling discards the partial archive; pausing keeps it so the
+        // next attempt resumes with HTTP Range.
         if matches!(&result, Err(Failure::Cancelled)) {
             if let Some(part) = job_paths.part.as_deref() {
                 let _ = tokio::fs::remove_file(part).await;
@@ -475,10 +667,36 @@ async fn run(app: AppHandle, job_id: String) {
         Err(Failure::Cancelled) => {
             finalize_cancelled(&app, &entry, &job_paths).await;
         }
+        Err(Failure::Paused) => {
+            finalize_paused(&app, &entry, &job_paths).await;
+        }
         Err(Failure::Failed(message)) => {
             finalize_error(&app, &entry, message);
         }
     }
+}
+
+/// Stop a job while keeping its partial archive. The next `install_game` or
+/// `resume_install` continues from `bytesDone` with a Range request.
+async fn finalize_paused(app: &AppHandle, entry: &JobEntry, job_paths: &JobPaths) {
+    // A cancel that raced with the pause must win: the user asked for the
+    // partial archive to be discarded.
+    if entry.cancel.is_cancelled() {
+        finalize_cancelled(app, entry, job_paths).await;
+        return;
+    }
+    if let Some(staging) = job_paths.staging.as_deref() {
+        let _ = tokio::fs::remove_dir_all(staging).await;
+    }
+    entry.update(|job| {
+        job.phase = InstallPhase::Paused;
+        job.speed_bps = 0;
+        job.message = Some("Paused".to_string());
+    });
+    persist(app, entry);
+    let _ = app.emit("install://progress", entry.snapshot());
+    emit_jobs(app);
+    tracing::info!(job_id = %entry.snapshot().job_id, "install paused");
 }
 
 async fn finalize_cancelled(app: &AppHandle, entry: &JobEntry, job_paths: &JobPaths) {
@@ -581,6 +799,7 @@ async fn execute(
     entry.set_install_path(Some(final_path.to_string_lossy().to_string()));
 
     let job_id = entry.snapshot().job_id;
+    let pause = entry.pause_token();
     let staging = install_root.join(format!(".{slug}.staging-{}", short_id(&job_id)));
     job_paths.staging = Some(staging.clone());
     if staging.exists() {
@@ -592,7 +811,7 @@ async fn execute(
         })?;
     }
 
-    check_cancel(&entry.cancel)?;
+    check_stop(&entry.cancel, &pause)?;
 
     // 1. Local library shortcut: ask the embedded server for the archive path.
     let mut archive: Option<PathBuf> = None;
@@ -859,7 +1078,12 @@ async fn execute(
 
     let executable_path = relative_executable.map(|relative| final_path.join(relative));
 
-    // 6. Index the install.
+    // 6. Record the file manifest (relative path, size, SHA-256) so the install
+    // can be verified and repaired later. Hashing a large game takes a while, so
+    // progress is reported with the finalizing phase.
+    record_manifest(app, entry, &final_path, &params).await;
+
+    // 7. Index the install.
     let size_bytes = {
         let path = final_path.clone();
         tokio::task::spawn_blocking(move || paths::dir_size(&path))
@@ -902,9 +1126,105 @@ async fn execute(
     Ok(final_path)
 }
 
+/// Build and persist the manifest after the files are in their final folder.
+/// A failure here never fails the install: the game is playable, it just cannot
+/// be verified until it is reinstalled.
+async fn record_manifest(
+    app: &AppHandle,
+    entry: &Arc<JobEntry>,
+    root: &Path,
+    params: &InstallParams,
+) {
+    set_progress(
+        app,
+        entry,
+        InstallPhase::Finalizing,
+        0,
+        None,
+        0,
+        Some("Recording file manifest".to_string()),
+    );
+
+    let handle = app.clone();
+    let job_entry = Arc::clone(entry);
+    let path = root.to_path_buf();
+    let built = tokio::task::spawn_blocking(move || {
+        let mut last = Instant::now();
+        manifest::build_manifest(&path, &mut |progress| {
+            if last.elapsed() < Duration::from_millis(250) {
+                return;
+            }
+            last = Instant::now();
+            job_entry.update(|job| {
+                job.phase = InstallPhase::Finalizing;
+                job.bytes_done = progress.bytes_done;
+                job.bytes_total = Some(progress.bytes_total.max(1));
+                job.speed_bps = 0;
+                job.message = Some(format!(
+                    "Hashing {} of {} files",
+                    progress.files_done, progress.files_total
+                ));
+            });
+            let _ = handle.emit("install://progress", job_entry.snapshot());
+        })
+    })
+    .await;
+
+    let manifest = match built {
+        Ok(Ok(manifest)) => manifest,
+        Ok(Err(error)) => {
+            tracing::warn!(error = %error, "could not build the file manifest");
+            return;
+        }
+        Err(error) => {
+            tracing::warn!(error = %error, "the manifest task failed");
+            return;
+        }
+    };
+
+    let encoded = match serde_json::to_string(&manifest) {
+        Ok(encoded) => encoded,
+        Err(error) => {
+            tracing::warn!(error = %error, "could not encode the file manifest");
+            return;
+        }
+    };
+
+    let state = app.state::<AppState>();
+    let record = InstallManifestRecord {
+        game_id: params.game_id,
+        version_id: params.version_id,
+        install_path: root.to_string_lossy().to_string(),
+        manifest: encoded,
+        files: manifest.entries.len() as i64,
+        bytes: manifest.total_bytes as i64,
+        created_at: manifest.created_at.clone(),
+        updated_at: now_rfc3339(),
+    };
+    match state.db.lock() {
+        Ok(connection) => {
+            if let Err(error) = db::upsert_manifest(&connection, &record) {
+                tracing::warn!(error = %error, "could not persist the file manifest");
+            }
+        }
+        Err(_) => tracing::warn!("could not persist the file manifest: database unavailable"),
+    };
+}
+
 fn check_cancel(cancel: &CancellationToken) -> Result<(), Failure> {
     if cancel.is_cancelled() {
         Err(Failure::Cancelled)
+    } else {
+        Ok(())
+    }
+}
+
+/// Cancel wins over pause when both are requested.
+fn check_stop(cancel: &CancellationToken, pause: &CancellationToken) -> Result<(), Failure> {
+    if cancel.is_cancelled() {
+        Err(Failure::Cancelled)
+    } else if pause.is_cancelled() {
+        Err(Failure::Paused)
     } else {
         Ok(())
     }
@@ -930,7 +1250,7 @@ fn set_progress(
     let _ = app.emit("install://progress", entry.snapshot());
 }
 
-fn absolute_path(path: PathBuf) -> Result<PathBuf, String> {
+pub(crate) fn absolute_path(path: PathBuf) -> Result<PathBuf, String> {
     if path.is_absolute() {
         Ok(path)
     } else {
@@ -940,7 +1260,10 @@ fn absolute_path(path: PathBuf) -> Result<PathBuf, String> {
     }
 }
 
-async fn local_archive_path(state: &AppState, params: &InstallParams) -> Option<PathBuf> {
+pub(crate) async fn local_archive_path(
+    state: &AppState,
+    params: &InstallParams,
+) -> Option<PathBuf> {
     let base = params.server_url.trim_end_matches('/');
     if base.is_empty() || !is_local_server(state, base) {
         return None;
@@ -1006,21 +1329,56 @@ fn is_loopback_url(url: &str) -> bool {
     )
 }
 
-async fn download(
-    app: &AppHandle,
-    entry: &JobEntry,
-    params: &InstallParams,
-    part: &Path,
-) -> Result<(), Failure> {
-    let state = app.state::<AppState>();
-    let client = state.http.clone();
-    let base = params.server_url.trim_end_matches('/');
-    if base.is_empty() {
-        return Err(Failure::Failed(
-            "No server URL was provided for this download.".to_string(),
-        ));
+/// Snapshot passed to the download progress callback.
+pub(crate) struct DownloadProgress {
+    pub done: u64,
+    pub total: Option<u64>,
+    pub speed_bps: u64,
+    pub message: String,
+}
+
+/// Paces a copy loop to a KiB/s cap. `0` disables throttling.
+#[derive(Debug)]
+pub(crate) struct Throttle {
+    bytes_per_sec: f64,
+    started: Instant,
+    sent: u64,
+}
+
+impl Throttle {
+    pub(crate) fn new(limit_kib: u64) -> Option<Self> {
+        (limit_kib > 0).then(|| Self {
+            bytes_per_sec: limit_kib.saturating_mul(1024) as f64,
+            started: Instant::now(),
+            sent: 0,
+        })
     }
 
+    /// Record `bytes` and return how long the caller must sleep to stay on
+    /// schedule. The average rate converges on the configured cap.
+    pub(crate) fn pace(&mut self, bytes: usize) -> Option<Duration> {
+        self.sent = self.sent.saturating_add(bytes as u64);
+        let expected = Duration::from_secs_f64(self.sent as f64 / self.bytes_per_sec);
+        expected.checked_sub(self.started.elapsed())
+    }
+}
+
+/// Download `url` into `part`, resuming an existing file with HTTP Range.
+///
+/// The `.part` file is kept when the user pauses; cancelling is handled by the
+/// caller (which deletes it). `progress` is called at most every 250 ms.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn download_file(
+    client: &reqwest::Client,
+    url: &str,
+    token: Option<&str>,
+    part: &Path,
+    title: &str,
+    cancel: &CancellationToken,
+    pause: &CancellationToken,
+    bandwidth_kib: u64,
+    mut progress: impl FnMut(DownloadProgress) + Send,
+) -> Result<(), Failure> {
     if let Some(parent) = part.parent() {
         tokio::fs::create_dir_all(parent).await.map_err(|e| {
             Failure::Failed(format!(
@@ -1030,11 +1388,6 @@ async fn download(
         })?;
     }
 
-    let url = format!(
-        "{base}/api/games/{}/download?versionId={}",
-        params.game_id, params.version_id
-    );
-    let cancel = entry.cancel.clone();
     let mut existing = tokio::fs::metadata(part)
         .await
         .map(|metadata| metadata.len())
@@ -1042,9 +1395,10 @@ async fn download(
 
     let mut restarted = false;
     let mut response = loop {
-        let mut request = client.get(&url);
-        request = request.header(reqwest::header::ACCEPT_ENCODING, "identity");
-        if let Some(token) = non_empty(params.token.as_deref()) {
+        let mut request = client
+            .get(url)
+            .header(reqwest::header::ACCEPT_ENCODING, "identity");
+        if let Some(token) = token {
             request = request.bearer_auth(token);
         }
         if existing > 0 {
@@ -1053,8 +1407,7 @@ async fn download(
 
         let response = request.send().await.map_err(|e| {
             Failure::Failed(format!(
-                "Could not reach the server to download \"{}\": {e}",
-                params.title
+                "Could not reach the server to download \"{title}\": {e}"
             ))
         })?;
         let status = response.status();
@@ -1069,15 +1422,12 @@ async fn download(
                 .and_then(|value| value.to_str().ok())
                 .and_then(parse_star_total);
             if existing > 0 && total == Some(existing) {
-                set_progress(
-                    app,
-                    entry,
-                    InstallPhase::Downloading,
-                    existing,
-                    Some(existing),
-                    0,
-                    Some("Download already complete".to_string()),
-                );
+                progress(DownloadProgress {
+                    done: existing,
+                    total: Some(existing),
+                    speed_bps: 0,
+                    message: "Download already complete".to_string(),
+                });
                 return Ok(());
             }
             if existing > 0 && !restarted {
@@ -1152,15 +1502,12 @@ async fn download(
         }
     }
 
-    set_progress(
-        app,
-        entry,
-        InstallPhase::Downloading,
+    progress(DownloadProgress {
         done,
         total,
-        0,
-        Some(download_message(&params.title)),
-    );
+        speed_bps: 0,
+        message: download_message(title),
+    });
 
     let file = if append {
         tokio::fs::OpenOptions::new()
@@ -1183,6 +1530,7 @@ async fn download(
     };
 
     let mut writer = tokio::io::BufWriter::with_capacity(1024 * 1024, file);
+    let mut throttle = Throttle::new(bandwidth_kib);
     let mut last_emit = Instant::now();
     let mut last_instant = Instant::now();
     let mut last_bytes = done;
@@ -1191,9 +1539,12 @@ async fn download(
         tokio::select! {
             biased;
             _ = cancel.cancelled() => {
-                drop(writer);
-                let _ = tokio::fs::remove_file(part).await;
+                let _ = writer.flush().await;
                 return Err(Failure::Cancelled);
+            }
+            _ = pause.cancelled() => {
+                let _ = writer.flush().await;
+                return Err(Failure::Paused);
             }
             chunk = response.chunk() => {
                 match chunk {
@@ -1205,18 +1556,35 @@ async fn download(
                             ))
                         })?;
                         done = done.saturating_add(bytes.len() as u64);
+
+                        if let Some(throttle) = throttle.as_mut() {
+                            if let Some(delay) = throttle.pace(bytes.len()) {
+                                if delay > Duration::from_millis(2) {
+                                    tokio::select! {
+                                        biased;
+                                        _ = cancel.cancelled() => {
+                                            let _ = writer.flush().await;
+                                            return Err(Failure::Cancelled);
+                                        }
+                                        _ = pause.cancelled() => {
+                                            let _ = writer.flush().await;
+                                            return Err(Failure::Paused);
+                                        }
+                                        _ = tokio::time::sleep(delay) => {}
+                                    }
+                                }
+                            }
+                        }
+
                         if last_emit.elapsed() >= Duration::from_millis(250) {
                             let elapsed = last_instant.elapsed().as_secs_f64().max(0.001);
                             let speed = ((done.saturating_sub(last_bytes)) as f64 / elapsed) as u64;
-                            set_progress(
-                                app,
-                                entry,
-                                InstallPhase::Downloading,
+                            progress(DownloadProgress {
                                 done,
                                 total,
-                                speed,
-                                Some(download_message(&params.title)),
-                            );
+                                speed_bps: speed,
+                                message: download_message(title),
+                            });
                             last_emit = Instant::now();
                             last_instant = Instant::now();
                             last_bytes = done;
@@ -1248,17 +1616,63 @@ async fn download(
         ))
     })?;
 
-    set_progress(
-        app,
-        entry,
-        InstallPhase::Downloading,
+    progress(DownloadProgress {
         done,
-        Some(total.unwrap_or(done)),
-        0,
-        Some("Download complete".to_string()),
-    );
+        total: Some(total.unwrap_or(done)),
+        speed_bps: 0,
+        message: "Download complete".to_string(),
+    });
 
     Ok(())
+}
+
+async fn download(
+    app: &AppHandle,
+    entry: &Arc<JobEntry>,
+    params: &InstallParams,
+    part: &Path,
+) -> Result<(), Failure> {
+    let state = app.state::<AppState>();
+    let client = state.http.clone();
+    let bandwidth_kib = state.settings_snapshot().bandwidth_limit_kib;
+    let base = params.server_url.trim_end_matches('/');
+    if base.is_empty() {
+        return Err(Failure::Failed(
+            "No server URL was provided for this download.".to_string(),
+        ));
+    }
+
+    let url = format!(
+        "{base}/api/games/{}/download?versionId={}",
+        params.game_id, params.version_id
+    );
+    let cancel = entry.cancel.clone();
+    let pause = entry.pause_token();
+    let handle = app.clone();
+    let job_entry = Arc::clone(entry);
+
+    download_file(
+        &client,
+        &url,
+        non_empty(params.token.as_deref()),
+        part,
+        &params.title,
+        &cancel,
+        &pause,
+        bandwidth_kib,
+        move |update| {
+            job_entry.update(|job| {
+                job.phase = InstallPhase::Downloading;
+                job.bytes_done = update.done;
+                job.bytes_total = update.total;
+                job.speed_bps = update.speed_bps;
+                job.message = Some(update.message);
+            });
+            persist(&handle, &job_entry);
+            let _ = handle.emit("install://progress", job_entry.snapshot());
+        },
+    )
+    .await
 }
 
 /// Delete the temp archive as soon as extraction/copy succeeded, or keep it
@@ -1359,6 +1773,7 @@ async fn stream_install(
     staging: &Path,
 ) -> Result<StreamOutcome, Failure> {
     let state = app.state::<AppState>();
+    let bandwidth_kib = state.settings_snapshot().bandwidth_limit_kib;
     let base = params.server_url.trim_end_matches('/');
     if base.is_empty() {
         return Ok(StreamOutcome::Unsupported(reqwest::StatusCode::NOT_FOUND));
@@ -1484,7 +1899,7 @@ async fn stream_install(
     let unpacked = tokio::select! {
         biased;
         _ = entry.cancel.cancelled() => Err(Failure::Cancelled),
-        result = unpack_tar_stream(reader, staging) => result,
+        result = unpack_tar_stream(reader, staging, bandwidth_kib) => result,
     };
     progress_task.abort();
     let files = unpacked?;
@@ -1508,7 +1923,7 @@ async fn stream_install(
 ///
 /// Only regular files and directories are accepted; absolute paths, `..`
 /// components, symlinks, hard links and special files abort the install.
-async fn unpack_tar_stream<R>(reader: R, staging: &Path) -> Result<u64, Failure>
+async fn unpack_tar_stream<R>(reader: R, staging: &Path, bandwidth_kib: u64) -> Result<u64, Failure>
 where
     R: AsyncRead + Unpin,
 {
@@ -1583,12 +1998,35 @@ where
                 target.display()
             ))
         })?;
-        tokio::io::copy(&mut entry, &mut file).await.map_err(|e| {
-            Failure::Failed(format!(
-                "The stream was interrupted while writing {}: {e}. Stream installs are not resumable.",
-                target.display()
-            ))
-        })?;
+
+        // Copy in chunks so the global bandwidth cap applies to stream installs
+        // too. A pause is not offered here: the tar has no offset to resume.
+        let mut throttle = Throttle::new(bandwidth_kib);
+        let mut buffer = vec![0u8; 64 * 1024];
+        loop {
+            let read = entry.read(&mut buffer).await.map_err(|e| {
+                Failure::Failed(format!(
+                    "The stream was interrupted while writing {}: {e}. Stream installs are not resumable.",
+                    target.display()
+                ))
+            })?;
+            if read == 0 {
+                break;
+            }
+            file.write_all(&buffer[..read]).await.map_err(|e| {
+                Failure::Failed(format!(
+                    "Could not write the streamed file {}: {e}",
+                    target.display()
+                ))
+            })?;
+            if let Some(throttle) = throttle.as_mut() {
+                if let Some(delay) = throttle.pace(read) {
+                    if delay > Duration::from_millis(2) {
+                        tokio::time::sleep(delay).await;
+                    }
+                }
+            }
+        }
         file.flush().await.map_err(|e| {
             Failure::Failed(format!("Could not flush {} to disk: {e}", target.display()))
         })?;
@@ -1902,7 +2340,7 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
 
-        let files = unpack_tar_stream(&bytes[..], &root).await.unwrap();
+        let files = unpack_tar_stream(&bytes[..], &root, 0).await.unwrap();
         assert_eq!(files, 1);
         assert_eq!(std::fs::read(root.join("bin/game.sh")).unwrap(), data);
 
@@ -1916,6 +2354,7 @@ mod tests {
             InstallPhase::Downloading,
             InstallPhase::Extracting,
             InstallPhase::Finalizing,
+            InstallPhase::Paused,
             InstallPhase::Done,
             InstallPhase::Cancelled,
             InstallPhase::Error,
@@ -1924,5 +2363,141 @@ mod tests {
         }
         assert!(InstallPhase::Done.is_terminal());
         assert!(!InstallPhase::Downloading.is_terminal());
+        assert!(!InstallPhase::Paused.is_terminal());
+    }
+
+    fn download_temp_dir(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "ludex-download-{label}-{}",
+            crate::util::short_id(&uuid::Uuid::new_v4().to_string())
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[tokio::test]
+    async fn pause_then_resume_produces_identical_bytes() {
+        let payload: Vec<u8> = (0..512 * 1024).map(|index| (index % 251) as u8).collect();
+        let server = crate::test_support::serve_bytes(payload.clone()).await;
+        let root = download_temp_dir("pause");
+        let part = root.join("archive.part");
+        let client = reqwest::Client::builder().build().unwrap();
+
+        let cancel = CancellationToken::new();
+        let pause = CancellationToken::new();
+        let pause_from_progress = pause.clone();
+        let mut paused_once = false;
+
+        let first = download_file(
+            &client,
+            &server.url,
+            None,
+            &part,
+            "Paused game",
+            &cancel,
+            &pause,
+            256,
+            move |update| {
+                if update.done > 0 && !paused_once {
+                    paused_once = true;
+                    pause_from_progress.cancel();
+                }
+            },
+        )
+        .await;
+        assert!(matches!(&first, Err(Failure::Paused)));
+
+        let partial = std::fs::metadata(&part).unwrap().len();
+        assert!(partial > 0, "the partial archive must be kept");
+        assert!(
+            partial < payload.len() as u64,
+            "the download should stop before the end"
+        );
+
+        // Resume from the byte offset with a fresh pause token.
+        let pause = CancellationToken::new();
+        download_file(
+            &client,
+            &server.url,
+            None,
+            &part,
+            "Paused game",
+            &cancel,
+            &pause,
+            0,
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        let (size, sha256) = manifest::hash_file(&part).unwrap();
+        assert_eq!(size, payload.len() as u64);
+        let source = root.join("source.bin");
+        std::fs::write(&source, &payload).unwrap();
+        let expected = manifest::hash_file(&source).unwrap().1;
+        assert_eq!(sha256, expected, "resume must produce the same bytes");
+
+        let ranges = server.ranges.lock().unwrap().clone();
+        assert!(
+            ranges.iter().any(|range| range.starts_with("bytes=")),
+            "the resume must use a Range request, got {ranges:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn bandwidth_limit_slows_the_download() {
+        let payload = vec![3u8; 256 * 1024];
+        let server = crate::test_support::serve_bytes(payload.clone()).await;
+        let root = download_temp_dir("throttle");
+        let part = root.join("archive.part");
+        let client = reqwest::Client::builder().build().unwrap();
+
+        let started = Instant::now();
+        download_file(
+            &client,
+            &server.url,
+            None,
+            &part,
+            "Throttled game",
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            512,
+            |_| {},
+        )
+        .await
+        .unwrap();
+        let elapsed = started.elapsed();
+
+        assert_eq!(
+            std::fs::metadata(&part).unwrap().len(),
+            payload.len() as u64
+        );
+        // 256 KiB at 512 KiB/s is ~0.5 s; allow a loose lower bound for slow CI.
+        assert!(
+            elapsed >= Duration::from_millis(300),
+            "the download ignored the bandwidth limit: {elapsed:?}"
+        );
+        assert!(
+            elapsed <= Duration::from_secs(10),
+            "the throttle stalled the download: {elapsed:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn throttle_paces_bytes() {
+        let mut throttle = Throttle::new(256).unwrap();
+        let started = Instant::now();
+        for _ in 0..2 {
+            if let Some(delay) = throttle.pace(32 * 1024) {
+                std::thread::sleep(delay);
+            }
+        }
+        // 64 KiB at 256 KiB/s is ~0.25 s.
+        assert!(started.elapsed() >= Duration::from_millis(180));
+        assert!(Throttle::new(0).is_none());
     }
 }

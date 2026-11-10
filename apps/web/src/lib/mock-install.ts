@@ -1,7 +1,15 @@
 import { DEMO_GAMES } from "@/data/demo";
 import { USING_MOCKS } from "@/lib/flags";
 import { slugify } from "@/lib/art";
-import type { DiskUsage, InstallGameArgs, InstallJob, InstalledGame, LocalSettings } from "@/lib/types";
+import type {
+  DiskUsage,
+  InstallGameArgs,
+  InstallJob,
+  InstalledGame,
+  LocalSettings,
+  RepairReport,
+  VerifyReport,
+} from "@/lib/types";
 
 /**
  * Browser-side stand-in for the desktop install manager. Only used when the
@@ -213,6 +221,7 @@ const DEFAULT_SETTINGS: LocalSettings = {
   streamInstall: true,
   keepArchives: false,
   archivePasswords: [],
+  bandwidthLimitKib: 0,
 };
 
 function loadSettings(): LocalSettings {
@@ -272,6 +281,18 @@ export const mockInstalls = {
     return Promise.resolve();
   },
 
+  pause(jobId: string): Promise<InstallJob> {
+    const target = jobs.find((entry) => entry.jobId === jobId);
+    if (!target) return Promise.reject(new Error("Unknown install job"));
+    if (target.phase === "queued" || target.phase === "downloading") {
+      target.phase = "paused";
+      target.speedBps = 0;
+      target.message = "Paused";
+      emit();
+    }
+    return Promise.resolve(clone(target));
+  },
+
   resume(jobId: string): Promise<InstallJob | null> {
     const target = jobs.find((entry) => entry.jobId === jobId);
     if (!target) return Promise.resolve(null);
@@ -310,6 +331,42 @@ export const mockInstalls = {
   saveSettings(settings: LocalSettings): Promise<LocalSettings | null> {
     localStorage.setItem("ludex.demo.desktop", JSON.stringify(settings));
     return Promise.resolve(clone(settings));
+  },
+
+  moveInstall(gameId: number, targetDir: string): Promise<InstalledGame> {
+    const entry = installed.find((game) => game.gameId === gameId);
+    if (!entry) return Promise.reject(new Error("Game is not installed"));
+    const slug = entry.installPath.split("/").slice(-2).join("/");
+    entry.installPath = `${targetDir.replace(/\/+$/, "")}/${slug}`;
+    emit();
+    return Promise.resolve(clone(entry));
+  },
+
+  verifyInstall(gameId: number): Promise<VerifyReport> {
+    const entry = installed.find((game) => game.gameId === gameId);
+    if (!entry) return Promise.reject(new Error("Game is not installed"));
+    return Promise.resolve({
+      gameId,
+      status: "ok",
+      filesChecked: 1842,
+      bytesChecked: entry.sizeBytes,
+      missing: [],
+      corrupt: [],
+      extra: [],
+      checkedAt: new Date().toISOString(),
+      message: null,
+    });
+  },
+
+  repairInstall(gameId: number): Promise<RepairReport> {
+    return this.verifyInstall(gameId).then((verify) => ({
+      gameId,
+      repaired: [],
+      failed: [],
+      fallback: false,
+      message: "All files match the manifest. Nothing to repair.",
+      verify,
+    }));
   },
 
   diskUsage(path: string): Promise<DiskUsage> {

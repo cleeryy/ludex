@@ -40,6 +40,8 @@ pub struct LocalSettings {
     pub keep_archives: bool,
     /// Passwords tried, in order, when extracting an archive.
     pub archive_passwords: Vec<String>,
+    /// Global download bandwidth cap in KiB/s. 0 = unlimited.
+    pub bandwidth_limit_kib: u64,
 }
 
 impl Default for LocalSettings {
@@ -55,6 +57,7 @@ impl Default for LocalSettings {
             stream_install: true,
             keep_archives: false,
             archive_passwords: Vec::new(),
+            bandwidth_limit_kib: 0,
         }
     }
 }
@@ -267,6 +270,7 @@ mod tests {
         assert_eq!(json["streamInstall"], true);
         assert_eq!(json["downloadDir"], "");
         assert_eq!(json["keepArchives"], false);
+        assert_eq!(json["bandwidthLimitKib"], 0);
     }
 
     #[test]

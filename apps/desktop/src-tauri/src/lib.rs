@@ -5,10 +5,14 @@ mod commands;
 mod db;
 mod install;
 mod launch;
+mod maintenance;
+mod manifest;
 mod paths;
 mod server;
 mod settings;
 mod state;
+#[cfg(test)]
+mod test_support;
 mod util;
 
 use tauri::{Manager, RunEvent};
@@ -64,12 +68,17 @@ pub fn run() {
             commands::local_server_status,
             commands::install_game,
             commands::cancel_install,
+            commands::pause_install,
+            commands::resume_install,
             commands::get_install_job,
             commands::list_install_jobs,
             commands::list_installed,
             commands::launch_game,
             commands::stop_game,
             commands::uninstall_game,
+            commands::move_install,
+            commands::verify_install,
+            commands::repair_install,
             commands::open_path,
             commands::get_disk_usage,
         ])

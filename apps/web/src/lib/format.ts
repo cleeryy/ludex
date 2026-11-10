@@ -102,6 +102,8 @@ export function installPhaseLabel(phase: string): string {
       return "Extracting";
     case "finalizing":
       return "Finalizing";
+    case "paused":
+      return "Paused";
     case "done":
       return "Installed";
     case "cancelled":

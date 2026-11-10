@@ -273,6 +273,35 @@ export function SettingsScreen() {
                       />
                     </div>
 
+                    <div className="border-b border-line py-4">
+                      <label htmlFor="bandwidth-limit" className="text-[13px] font-medium text-ink">
+                        Bandwidth limit
+                      </label>
+                      <p className="mt-1 mb-2 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
+                        Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id="bandwidth-limit"
+                          type="number"
+                          min={0}
+                          step={64}
+                          inputMode="numeric"
+                          value={draft.bandwidthLimitKib}
+                          onChange={(event) =>
+                            update({ bandwidthLimitKib: Math.max(0, Math.round(Number(event.target.value) || 0)) })
+                          }
+                          className="h-10 w-[150px] font-mono text-[12px]"
+                        />
+                        <span className="text-[11.5px] text-ink-3">KiB/s</span>
+                        <span className="num text-[11px] text-ink-3">
+                          {draft.bandwidthLimitKib > 0
+                            ? `≈ ${formatBytes(draft.bandwidthLimitKib * 1024)}/s`
+                            : "Unlimited"}
+                        </span>
+                      </div>
+                    </div>
+
                     <div className="pt-4">
                       <label htmlFor="archive-passwords" className="text-[13px] font-medium text-ink">
                         Archive passwords

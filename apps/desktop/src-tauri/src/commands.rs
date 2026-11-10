@@ -11,6 +11,8 @@ use tauri_plugin_opener::OpenerExt;
 use crate::db::{self, InstalledGame};
 use crate::install::{self, InstallJob, InstallParams};
 use crate::launch::{self, LaunchResult};
+use crate::maintenance::{self, RepairReport};
+use crate::manifest::VerifyReport;
 use crate::paths;
 use crate::server::{self, ServerInfo, ServerStatus};
 use crate::settings::{self, LocalSettings};
@@ -133,6 +135,16 @@ pub fn cancel_install(app: AppHandle, job_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn pause_install(app: AppHandle, job_id: String) -> Result<InstallJob, String> {
+    install::pause(&app, &job_id)
+}
+
+#[tauri::command]
+pub fn resume_install(app: AppHandle, job_id: String) -> Result<InstallJob, String> {
+    install::resume(&app, &job_id)
+}
+
+#[tauri::command]
 pub fn get_install_job(app: AppHandle, job_id: String) -> Result<InstallJob, String> {
     match install::job(&app, &job_id) {
         Ok(job) => Ok(job),
@@ -223,9 +235,33 @@ pub async fn uninstall_game(app: AppHandle, game_id: i64) -> Result<(), String> 
             .lock()
             .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
         db::remove_installed(&connection, game_id)?;
+        db::remove_manifest(&connection, game_id)?;
     }
 
     Ok(())
+}
+
+/// Move an installed game to another install root. Refuses while the game is
+/// running or an install for it is active.
+#[tauri::command]
+pub async fn move_install(
+    app: AppHandle,
+    game_id: i64,
+    target_dir: String,
+) -> Result<InstalledGame, String> {
+    maintenance::move_install(&app, game_id, target_dir).await
+}
+
+/// Compare the installed files with their manifest.
+#[tauri::command]
+pub async fn verify_install(app: AppHandle, game_id: i64) -> Result<VerifyReport, String> {
+    maintenance::verify_install(&app, game_id).await
+}
+
+/// Restore missing/corrupt files from the version archive.
+#[tauri::command]
+pub async fn repair_install(app: AppHandle, game_id: i64) -> Result<RepairReport, String> {
+    maintenance::repair_install(&app, game_id).await
 }
 
 #[tauri::command]

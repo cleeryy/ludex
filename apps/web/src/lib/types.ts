@@ -250,6 +250,8 @@ export interface LocalSettings {
   keepArchives: boolean;
   /** Archive passwords, tried in order. */
   archivePasswords: string[];
+  /** Global download cap in KiB/s. 0 means unlimited. */
+  bandwidthLimitKib: number;
 }
 
 export interface InstalledGame {
@@ -273,6 +275,7 @@ export type InstallPhase =
   | "downloading"
   | "extracting"
   | "finalizing"
+  | "paused"
   | "done"
   | "cancelled"
   | "error"
@@ -306,4 +309,59 @@ export interface InstallGameArgs {
   installDir?: string | null;
   downloadDir?: string | null;
   stream?: boolean;
+}
+
+export interface VerifyIssue {
+  path: string;
+  expectedSize: number;
+  actualSize: number | null;
+  expectedSha256: string;
+  actualSha256: string | null;
+}
+
+export interface VerifyExtra {
+  path: string;
+  size: number;
+}
+
+export interface VerifyReport {
+  gameId: number;
+  status: "ok" | "issues" | "noManifest";
+  filesChecked: number;
+  bytesChecked: number;
+  missing: VerifyIssue[];
+  corrupt: VerifyIssue[];
+  extra: VerifyExtra[];
+  checkedAt: string;
+  message: string | null;
+}
+
+export interface RepairReport {
+  gameId: number;
+  repaired: string[];
+  failed: string[];
+  /** Ludex could not repair in place; a full reinstall is required. */
+  fallback: boolean;
+  message: string;
+  verify: VerifyReport;
+}
+
+export interface MoveProgress {
+  gameId: number;
+  bytesDone: number;
+  bytesTotal: number;
+  message: string;
+}
+
+export interface VerifyProgress {
+  gameId: number;
+  filesDone: number;
+  filesTotal: number;
+  bytesDone: number;
+  bytesTotal: number;
+  message: string;
+}
+
+export interface RepairProgress extends VerifyProgress {
+  phase: "downloading" | "extracting" | "restoring" | "verifying";
 }

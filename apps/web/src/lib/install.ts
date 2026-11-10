@@ -1,7 +1,15 @@
 import { USING_MOCKS } from "@/lib/flags";
 import { isNative, native } from "@/lib/native";
 import { mockInstalls } from "@/lib/mock-install";
-import type { DiskUsage, InstallGameArgs, InstallJob, LocalSettings } from "@/lib/types";
+import type {
+  DiskUsage,
+  InstallGameArgs,
+  InstallJob,
+  InstalledGame,
+  LocalSettings,
+  RepairReport,
+  VerifyReport,
+} from "@/lib/types";
 
 /**
  * One surface for desktop installs. In Tauri this talks to the Rust commands;
@@ -23,9 +31,12 @@ export const installBridge = {
     return USING_MOCKS ? mockInstalls.cancel(jobId) : native.cancelInstall(jobId);
   },
 
-  /** Mock-only: keeps the bytes already received. Native resumes through install_game. */
-  resumeMock(jobId: string): Promise<InstallJob | null> {
-    return USING_MOCKS ? mockInstalls.resume(jobId) : Promise.resolve(null);
+  pause(jobId: string): Promise<InstallJob> {
+    return USING_MOCKS ? mockInstalls.pause(jobId) : native.pauseInstall(jobId);
+  },
+
+  resume(jobId: string): Promise<InstallJob | null> {
+    return USING_MOCKS ? mockInstalls.resume(jobId) : native.resumeInstall(jobId);
   },
 
   clearCompleted(): Promise<void> {
@@ -46,6 +57,18 @@ export const installBridge = {
 
   openPath(path: string): Promise<void> {
     return native.openPath(path);
+  },
+
+  moveInstall(gameId: number, targetDir: string): Promise<InstalledGame> {
+    return USING_MOCKS ? mockInstalls.moveInstall(gameId, targetDir) : native.moveInstall(gameId, targetDir);
+  },
+
+  verifyInstall(gameId: number): Promise<VerifyReport> {
+    return USING_MOCKS ? mockInstalls.verifyInstall(gameId) : native.verifyInstall(gameId);
+  },
+
+  repairInstall(gameId: number): Promise<RepairReport> {
+    return USING_MOCKS ? mockInstalls.repairInstall(gameId) : native.repairInstall(gameId);
   },
 
   subscribe(listener: () => void): () => void {
