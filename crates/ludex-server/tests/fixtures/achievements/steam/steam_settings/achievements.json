@@ -1,0 +1,17 @@
+[
+  {
+    "name": "ACH_WIN",
+    "displayName": "First Win",
+    "description": "Win a single match.",
+    "hidden": 0,
+    "icon": "ach_win.jpg",
+    "points": 10
+  },
+  {
+    "name": "ACH_SECRET",
+    "displayName": "The Long Way",
+    "description": "Find the room nobody talks about.",
+    "hidden": 1,
+    "icon": "ach_secret.jpg"
+  }
+]

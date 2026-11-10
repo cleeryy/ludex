@@ -26,6 +26,12 @@ pub const MAX_JSON_BYTES: usize = 10 * 1024 * 1024;
 pub const DEFAULT_SAVES_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 /// Default S3 region when `LUDEX_S3_REGION` is unset.
 pub const DEFAULT_S3_REGION: &str = "us-east-1";
+/// Providers enabled when `LUDEX_ACHIEVEMENT_PROVIDERS` is unset.
+pub const DEFAULT_ACHIEVEMENT_PROVIDERS: &[&str] =
+    &["game_files", "gog_galaxy_api", "gog_galaxy_sqlite"];
+/// Loopback JSON patterns tried by the `gog_galaxy_api` provider.
+pub const DEFAULT_ACHIEVEMENT_API_URLS: &[&str] =
+    &["http://localhost:29662/api/achievements?appId={appId}"];
 
 /// Where game archives are stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -237,6 +243,18 @@ pub struct Config {
     /// Bearer token required by `GET /metrics`. `None` keeps it public but
     /// rate-limited.
     pub metrics_token: Option<String>,
+    /// Interval between automatic achievement rescans. Zero disables the job.
+    pub achievement_scan_interval: Duration,
+    /// Directories a scan may read (`LUDEX_ACHIEVEMENT_SCAN_ROOTS`).
+    pub achievement_scan_roots: Vec<PathBuf>,
+    /// Enabled local achievement providers.
+    pub achievement_providers: Vec<String>,
+    /// Loopback URL patterns used by the JSON provider.
+    pub achievement_local_api_urls: Vec<String>,
+    /// Explicit GOG Galaxy database path.
+    pub achievement_galaxy_db: Option<PathBuf>,
+    /// Allow non-loopback targets for the JSON provider (tests only).
+    pub achievement_allow_remote_apis: bool,
 }
 
 impl Config {
@@ -402,6 +420,42 @@ impl Config {
             None => DEFAULT_UPLOAD_TTL_HOURS,
         };
 
+        let achievement_scan_interval_hours = env_opt("LUDEX_ACHIEVEMENT_SCAN_INTERVAL_HOURS")
+            .map(|value| value.parse::<u64>())
+            .transpose()
+            .context("LUDEX_ACHIEVEMENT_SCAN_INTERVAL_HOURS must be an integer")?
+            .unwrap_or(0);
+        let achievement_scan_roots =
+            parse_path_list(env_opt("LUDEX_ACHIEVEMENT_SCAN_ROOTS").as_deref())
+                .unwrap_or_else(|| library_roots.clone());
+        let achievement_providers = match env_opt("LUDEX_ACHIEVEMENT_PROVIDERS") {
+            Some(value) => {
+                let providers = split_list(&value);
+                if providers
+                    .iter()
+                    .any(|provider| provider.eq_ignore_ascii_case("none"))
+                {
+                    Vec::new()
+                } else {
+                    providers
+                }
+            }
+            None => DEFAULT_ACHIEVEMENT_PROVIDERS
+                .iter()
+                .map(|provider| (*provider).to_string())
+                .collect(),
+        };
+        let achievement_local_api_urls = env_opt("LUDEX_ACHIEVEMENT_LOCAL_API_URLS")
+            .map(|value| split_list(&value))
+            .filter(|urls| !urls.is_empty())
+            .unwrap_or_else(|| {
+                DEFAULT_ACHIEVEMENT_API_URLS
+                    .iter()
+                    .map(|url| (*url).to_string())
+                    .collect()
+            });
+        let achievement_galaxy_db = env_opt("LUDEX_ACHIEVEMENT_GALAXY_DB").map(PathBuf::from);
+
         Ok(Self {
             bind,
             data_dir,
@@ -458,6 +512,12 @@ impl Config {
             storage_backend,
             s3,
             metrics_token: env_opt("LUDEX_METRICS_TOKEN"),
+            achievement_scan_interval: Duration::from_secs(achievement_scan_interval_hours * 3_600),
+            achievement_scan_roots,
+            achievement_providers,
+            achievement_local_api_urls,
+            achievement_galaxy_db,
+            achievement_allow_remote_apis: bool_env("LUDEX_ACHIEVEMENT_ALLOW_REMOTE_APIS"),
         })
     }
 
@@ -518,6 +578,18 @@ impl Config {
             storage_backend: StorageBackend::Local,
             s3: None,
             metrics_token: None,
+            achievement_scan_interval: Duration::ZERO,
+            achievement_scan_roots: vec![games_dir],
+            achievement_providers: DEFAULT_ACHIEVEMENT_PROVIDERS
+                .iter()
+                .map(|provider| (*provider).to_string())
+                .collect(),
+            achievement_local_api_urls: DEFAULT_ACHIEVEMENT_API_URLS
+                .iter()
+                .map(|url| (*url).to_string())
+                .collect(),
+            achievement_galaxy_db: None,
+            achievement_allow_remote_apis: false,
         }
     }
 
@@ -591,6 +663,27 @@ pub fn parse_library_roots(value: Option<&str>, games_dir: &Path) -> Vec<PathBuf
         roots.insert(0, games_dir.to_path_buf());
     }
     roots
+}
+
+/// Splits a comma-separated environment value into trimmed, non-empty entries.
+#[must_use]
+pub fn split_list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Parses a comma-separated list of paths, de-duplicated and in order.
+#[must_use]
+pub fn parse_path_list(value: Option<&str>) -> Option<Vec<PathBuf>> {
+    let paths = split_list(value?)
+        .into_iter()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    (!paths.is_empty()).then_some(paths)
 }
 
 fn env_opt(name: &str) -> Option<String> {
@@ -739,5 +832,29 @@ mod tests {
         assert_eq!(config.library_roots, vec![PathBuf::from("/tmp/games")]);
         assert_eq!(config.media_gc_interval, Duration::ZERO);
         assert_eq!(config.media_gc_grace, Duration::from_secs(24 * 3_600));
+        assert_eq!(config.achievement_scan_interval, Duration::ZERO);
+        assert_eq!(config.achievement_providers.len(), 3);
+        assert_eq!(
+            config.achievement_scan_roots,
+            vec![PathBuf::from("/tmp/games")]
+        );
+        assert!(!config.achievement_allow_remote_apis);
+    }
+
+    #[test]
+    fn achievement_path_lists_are_trimmed_and_empty_is_none() {
+        assert_eq!(
+            parse_path_list(Some(" /mnt/games , , /mnt/extra ")),
+            Some(vec![
+                PathBuf::from("/mnt/games"),
+                PathBuf::from("/mnt/extra")
+            ])
+        );
+        assert_eq!(parse_path_list(Some("  , ")), None);
+        assert_eq!(parse_path_list(None), None);
+        assert_eq!(
+            split_list(" game_files , gog_galaxy_api "),
+            vec!["game_files".to_string(), "gog_galaxy_api".to_string()]
+        );
     }
 }

@@ -1,5 +1,6 @@
 //! HTTP routes, nested under `/api` by [`crate::build_router`].
 
+pub mod achievements;
 pub mod audit;
 pub mod auth;
 pub mod collections;
@@ -48,6 +49,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(share::router())
         .merge(uploads::router())
         .merge(openapi::router())
+        .merge(achievements::router())
         .fallback(api_not_found)
 }
 

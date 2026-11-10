@@ -29,6 +29,7 @@ pub const EVENTS: &[&str] = &[
     actions::DOWNLOAD_COMPLETED,
     actions::USER_CREATED,
     actions::SAVE_UPLOADED,
+    actions::ACHIEVEMENT_UNLOCKED,
 ];
 
 /// Event name used by the test-delivery endpoint.

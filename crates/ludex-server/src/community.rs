@@ -24,6 +24,8 @@ pub mod kinds {
     pub const GAME_COMPLETED: &str = "game_completed";
     /// A collection was created.
     pub const COLLECTION_CREATED: &str = "collection_created";
+    /// An achievement was unlocked (public definitions only).
+    pub const ACHIEVEMENT_UNLOCKED: &str = "achievement_unlocked";
 }
 
 /// Writes one activity row. Failures are logged, never propagated: a feed
