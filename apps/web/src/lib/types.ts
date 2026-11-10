@@ -62,10 +62,23 @@ export interface GameLaunchOptions {
   uninstallerParameters: string | null;
 }
 
+export interface GameVideo {
+  title: string;
+  url: string;
+  thumbnailUrl: string | null;
+  /** Provider video id (YouTube id for IGDB trailers). */
+  videoId?: string | null;
+  /** `youtube` or `file`. */
+  provider?: string | null;
+}
+
 export interface GameDetail extends GameSummary {
   description: string | null;
   screenshots: string[];
-  trailers: { title: string; url: string; thumbnailUrl: string | null }[];
+  /** Deprecated alias of `videos`, kept for older clients. */
+  trailers: GameVideo[];
+  /** Trailers and other videos, with provider metadata. */
+  videos: GameVideo[];
   developers: string[];
   publishers: string[];
   tags: string[];
@@ -232,6 +245,140 @@ export interface GamePatch {
   altTitles?: string[];
   players?: number | null;
   launch?: Partial<GameLaunchOptions>;
+}
+
+/* ------------------------------- community ------------------------------- */
+
+export type CollectionKind = "manual" | "smart";
+
+export type SmartField =
+  | "genre"
+  | "year"
+  | "players"
+  | "playtime"
+  | "rating"
+  | "installed"
+  | "provider"
+  | "title";
+
+export type SmartOperator = "is" | "contains" | "gte" | "lte" | "between";
+
+export interface SmartRule {
+  field: SmartField;
+  op?: SmartOperator;
+  value: string | number | boolean;
+  value2?: string | number;
+}
+
+export interface SmartRules {
+  match: "all" | "any";
+  rules: SmartRule[];
+}
+
+export interface CollectionOwner {
+  id: number;
+  username: string;
+  displayName: string | null;
+}
+
+export interface Collection {
+  id: number;
+  name: string;
+  description: string | null;
+  isPublic: boolean;
+  kind: CollectionKind;
+  rules: SmartRules;
+  gameCount: number;
+  owner: CollectionOwner;
+  owned: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CollectionInput {
+  name: string;
+  description?: string | null;
+  isPublic?: boolean;
+  kind?: CollectionKind;
+  rules?: SmartRules;
+  gameIds?: number[];
+}
+
+export interface CollectionGamesResponse {
+  added: number;
+  total: number;
+}
+
+export interface ActivityUser {
+  id: number;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
+export interface ActivityGame {
+  id: number;
+  title: string;
+  coverUrl: string | null;
+  releaseYear: number | null;
+}
+
+export interface ActivityCollection {
+  id: number;
+  name: string;
+}
+
+export type ActivityKind =
+  | "game_added"
+  | "game_installed"
+  | "game_played"
+  | "game_completed"
+  | "collection_created";
+
+export interface Activity {
+  id: number;
+  kind: ActivityKind;
+  createdAt: string;
+  metadata: Record<string, unknown>;
+  user: ActivityUser;
+  game: ActivityGame | null;
+  collection: ActivityCollection | null;
+}
+
+export interface ActivityPage {
+  items: Activity[];
+  nextBefore: number | null;
+}
+
+export interface PublicProfile {
+  id: number;
+  username: string;
+  displayName: string | null;
+  bio: string | null;
+  avatarUrl: string | null;
+  publicProfile: boolean;
+  createdAt: string;
+}
+
+export interface PublicStats {
+  games: number;
+  completed: number;
+  minutesPlayed: number;
+  bookmarked: number;
+  collections: number;
+}
+
+export interface PublicProfileResponse {
+  user: PublicProfile;
+  stats: PublicStats;
+  library: GameSummary[];
+  collections: Collection[];
+}
+
+export interface ProfilePatch {
+  publicProfile?: boolean;
+  displayName?: string | null;
+  bio?: string | null;
 }
 
 /* ------------------------------- desktop -------------------------------- */

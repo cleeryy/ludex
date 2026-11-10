@@ -2,7 +2,11 @@ import { ApiError } from "@/lib/http";
 import { USING_MOCKS } from "@/lib/flags";
 import { mockApi } from "@/lib/mock";
 import type {
+  ActivityPage,
   AuthResult,
+  Collection,
+  CollectionGamesResponse,
+  CollectionInput,
   GameDetail,
   GameList,
   GameListQuery,
@@ -13,7 +17,10 @@ import type {
   LibraryFile,
   LibraryStats,
   NewsPost,
+  ProfilePatch,
   ProgressState,
+  PublicProfile,
+  PublicProfileResponse,
   Role,
   SaveSnapshot,
   ScanStatus,
@@ -153,7 +160,6 @@ const query = (q: GameListQuery): Record<string, string | number | boolean | und
 });
 
 export const api = {
-  /* public */
   setupStatus(): Promise<SetupStatus> {
     return USING_MOCKS ? mockApi.setupStatus() : request<SetupStatus>("/setup/status", { auth: false });
   },
@@ -365,6 +371,78 @@ export const api = {
     setTimeout(() => URL.revokeObjectURL(url), 30_000);
   },
 
+  /* collections */
+  listCollections(): Promise<Collection[]> {
+    return USING_MOCKS ? mockApi.listCollections(tokenStore.get()) : request<Collection[]>("/collections");
+  },
+  getCollection(id: number): Promise<Collection> {
+    return USING_MOCKS ? mockApi.getCollection(tokenStore.get(), id) : request<Collection>(`/collections/${id}`);
+  },
+  createCollection(body: CollectionInput): Promise<Collection> {
+    return USING_MOCKS
+      ? mockApi.createCollection(tokenStore.get(), body)
+      : request<Collection>("/collections", { method: "POST", body });
+  },
+  updateCollection(id: number, body: Partial<CollectionInput>): Promise<Collection> {
+    return USING_MOCKS
+      ? mockApi.updateCollection(tokenStore.get(), id, body)
+      : request<Collection>(`/collections/${id}`, { method: "PATCH", body });
+  },
+  deleteCollection(id: number): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.deleteCollection(tokenStore.get(), id)
+      : request(`/collections/${id}`, { method: "DELETE" });
+  },
+  collectionGames(id: number, page = 1, limit = 96): Promise<GameList> {
+    return USING_MOCKS
+      ? mockApi.collectionGames(tokenStore.get(), id, page, limit)
+      : request<GameList>(`/collections/${id}/games`, { query: { page, limit } });
+  },
+  addCollectionGames(id: number, gameIds: number[]): Promise<CollectionGamesResponse> {
+    return USING_MOCKS
+      ? mockApi.addCollectionGames(tokenStore.get(), id, gameIds)
+      : request<CollectionGamesResponse>(`/collections/${id}/games`, { method: "POST", body: { gameIds } });
+  },
+  removeCollectionGame(id: number, gameId: number): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.removeCollectionGame(tokenStore.get(), id, gameId)
+      : request(`/collections/${id}/games/${gameId}`, { method: "DELETE" });
+  },
+
+  /* community */
+  myProfile(): Promise<PublicProfile> {
+    return USING_MOCKS ? mockApi.myProfile(tokenStore.get()) : request<PublicProfile>("/me/profile");
+  },
+  updateProfile(patch: ProfilePatch): Promise<PublicProfile> {
+    return USING_MOCKS
+      ? mockApi.updateProfile(tokenStore.get(), patch)
+      : request<PublicProfile>("/me/profile", { method: "PATCH", body: patch });
+  },
+  communityFeed(limit = 20, before?: number): Promise<ActivityPage> {
+    return USING_MOCKS
+      ? mockApi.communityFeed(tokenStore.get(), limit, before)
+      : request<ActivityPage>("/community/feed", { query: { limit, before } });
+  },
+  communityUsers(): Promise<PublicProfile[]> {
+    return USING_MOCKS ? mockApi.communityUsers(tokenStore.get()) : request<PublicProfile[]>("/community/users");
+  },
+  communityUser(id: number): Promise<PublicProfileResponse> {
+    return USING_MOCKS
+      ? mockApi.communityUser(tokenStore.get(), id)
+      : request<PublicProfileResponse>(`/community/users/${id}`);
+  },
+  communityUserActivity(id: number, limit = 20, before?: number): Promise<ActivityPage> {
+    return USING_MOCKS
+      ? mockApi.communityUserActivity(tokenStore.get(), id, limit, before)
+      : request<ActivityPage>(`/community/users/${id}/activity`, { query: { limit, before } });
+  },
+  reportInstalled(id: number): Promise<{ recorded: boolean }> {
+    return USING_MOCKS
+      ? mockApi.reportInstalled(tokenStore.get(), id)
+      : request<{ recorded: boolean }>(`/games/${id}/installed`, { method: "POST" });
+  },
+
+
   /* news */
   listNews(): Promise<NewsPost[]> {
     return USING_MOCKS ? mockApi.listNews() : request<NewsPost[]>("/news");
@@ -382,6 +460,7 @@ export const api = {
   deleteNews(id: number): Promise<void> {
     return USING_MOCKS ? mockApi.deleteNews(tokenStore.get(), id) : request(`/news/${id}`, { method: "DELETE" });
   },
+
 };
 
 export { ApiError };

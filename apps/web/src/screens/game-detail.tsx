@@ -5,12 +5,11 @@ import {
   ArrowLeft,
   Bookmark,
   BookmarkCheck,
-  ChevronLeft,
-  ChevronRight,
   Clock,
   Download,
   FolderInput,
   FolderOpen,
+  ListPlus,
   MoreHorizontal,
   Pencil,
   Play,
@@ -29,14 +28,15 @@ import { CloudSaves } from "@/components/game/cloud-saves";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { InstallFiles } from "@/components/game/install-files";
 import { MoveInstallDialog } from "@/components/game/move-install";
+import { MediaGallery } from "@/components/game/media-gallery";
+import { AddToCollectionDialog } from "@/components/collections/add-to-collection";
 import { useAuth, useIsEditor } from "@/state/auth";
 import { useToast } from "@/state/toasts";
-import { GameBackdrop, GameCover, StillPlate } from "@/components/art/cover";
+import { GameBackdrop, GameCover } from "@/components/art/cover";
 import { artFromUrl, hashString } from "@/lib/art";
 import { STATE_TONE } from "@/components/game/state";
 import { ErrorState, SectionHeader } from "@/components/page";
 import { Badge, Button, IconButton, Input, Progress, Skeleton } from "@/components/ui/controls";
-import { Dialog } from "@/components/ui/dialog";
 import { DropdownMenu, Select, useDropdown } from "@/components/ui/select";
 
 const STATES: ProgressState[] = ["unplayed", "playing", "completed", "onHold", "abandoned", "planToPlay"];
@@ -56,7 +56,7 @@ export function GameDetailScreen() {
   const downloads = useDownloads();
   const [installOpen, setInstallOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
-  const [lightbox, setLightbox] = useState<number | null>(null);
+  const [collectionOpen, setCollectionOpen] = useState(false);
   const [launchOpen, setLaunchOpen] = useState(false);
 
   const { data: game, isPending, isError, error, refetch } = useQuery({
@@ -323,6 +323,14 @@ export function GameDetailScreen() {
                   />
                 </div>
               )}
+              <Button
+                variant="default"
+                icon={<ListPlus className="size-4" />}
+                onClick={() => setCollectionOpen(true)}
+                className="h-12"
+              >
+                Add to collection
+              </Button>
               <IconButton
                 label={game.bookmarked ? "Remove bookmark" : "Bookmark"}
                 variant="default"
@@ -370,24 +378,7 @@ export function GameDetailScreen() {
       <div className="relative z-10 -mt-16 h-16 bg-gradient-to-b from-transparent to-bg" aria-hidden="true" />
 
       <div className="page pt-8">
-        {game.screenshots.length > 0 && (
-          <section aria-labelledby="media-heading">
-            <SectionHeader title="Media" count={game.screenshots.length} />
-            <div id="media-heading" className="nav-scroll -mx-[var(--page-x)] flex gap-3 overflow-x-auto px-[var(--page-x)] pb-2">
-              {game.screenshots.map((url, index) => (
-                <button
-                  key={url}
-                  type="button"
-                  onClick={() => setLightbox(index)}
-                  className="group relative w-[240px] shrink-0 overflow-hidden rounded-[2px] border border-line text-left transition-colors hover:border-line-2 sm:w-[300px]"
-                  aria-label={`Open still ${index + 1}`}
-                >
-                  <ScreenshotPlate url={url} spec={spec} seed={hashString(game.title)} index={index} />
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
+        <MediaGallery game={game} spec={spec} seed={hashString(game.title)} />
 
         <div className="mt-14 grid gap-12 lg:grid-cols-[1fr_320px]">
           <div>
@@ -527,73 +518,17 @@ export function GameDetailScreen() {
           }}
         />
       )}
-
-      <Dialog
-        open={lightbox !== null}
-        onOpenChange={(open) => !open && setLightbox(null)}
-        title={`${game.title} — still ${(lightbox ?? 0) + 1}`}
-        size="lg"
-      >
-        {lightbox !== null && (
-          <div className="flex flex-col gap-3">
-            <ScreenshotPlate url={game.screenshots[lightbox]} spec={spec} seed={hashString(game.title)} index={lightbox} />
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-[11px] text-ink-3">
-                {lightbox + 1} / {game.screenshots.length}
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  variant="default"
-                  size="sm"
-                  icon={<ChevronLeft className="size-3.5" />}
-                  disabled={lightbox === 0}
-                  onClick={() => setLightbox((current) => Math.max(0, (current ?? 0) - 1))}
-                >
-                  Previous
-                </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  iconRight={<ChevronRight className="size-3.5" />}
-                  disabled={lightbox === game.screenshots.length - 1}
-                  onClick={() => setLightbox((current) => Math.min(game.screenshots.length - 1, (current ?? 0) + 1))}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-      </Dialog>
+      <AddToCollectionDialog
+        open={collectionOpen}
+        onOpenChange={setCollectionOpen}
+        gameId={game.id}
+        gameTitle={game.title}
+      />
     </div>
   );
 }
 
 /* --------------------------------- pieces -------------------------------- */
-
-function ScreenshotPlate({
-  url,
-  spec,
-  seed,
-  index,
-}: {
-  url: string;
-  spec: ReturnType<typeof artFromUrl>;
-  seed: number;
-  index: number;
-}) {
-  const src = assetUrl(url);
-  const demo = !url || url.startsWith("demo://");
-  return (
-    <div className="media-plate aspect-video w-full">
-      {demo ? (
-        <StillPlate spec={spec} seed={seed} index={index} className="absolute inset-0 h-full w-full" />
-      ) : (
-        <img src={src ?? ""} alt="" className="h-full w-full object-cover" loading="lazy" />
-      )}
-    </div>
-  );
-}
 
 function DetailMenu({ items }: { items: { label: string; icon?: React.ReactNode; danger?: boolean; onSelect: () => void }[] }) {
   const menu = useDropdown();

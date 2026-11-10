@@ -19,6 +19,10 @@ import { DownloadsScreen } from "@/screens/downloads";
 import { BigPictureScreen } from "@/screens/big-picture";
 import { GameDetailScreen } from "@/screens/game-detail";
 import { NewsScreen } from "@/screens/news";
+import { CollectionsScreen } from "@/screens/collections";
+import { CollectionScreen } from "@/screens/collection";
+import { CommunityScreen } from "@/screens/community";
+import { ProfileScreen } from "@/screens/profile";
 import { SettingsScreen } from "@/screens/settings";
 import { NotFoundScreen } from "@/screens/not-found";
 import { IngestScreen } from "@/screens/admin/ingest";
@@ -167,6 +171,10 @@ export function App() {
                   <Route path="bookmarks" element={<LibraryScreen mode="bookmarks" />} />
                   <Route path="all" element={<LibraryScreen mode="index" />} />
                   <Route path="game/:id" element={<GameDetailScreen />} />
+                  <Route path="collections" element={<CollectionsScreen />} />
+                  <Route path="collections/:id" element={<CollectionScreen />} />
+                  <Route path="community" element={<CommunityScreen />} />
+                  <Route path="community/u/:id" element={<ProfileScreen />} />
                   <Route path="news" element={<NewsScreen />} />
                   <Route path="settings" element={<SettingsScreen />} />
                   <Route

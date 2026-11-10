@@ -1,9 +1,25 @@
-import { DEMO_GAMES, DEMO_NEWS, DEMO_PASSWORD, DEMO_SERVER_NAME, DEMO_USERS } from "@/data/demo";
+import {
+  DEMO_ACTIVITIES,
+  DEMO_COLLECTION_GAMES,
+  DEMO_COLLECTIONS,
+  DEMO_GAMES,
+  DEMO_NEWS,
+  DEMO_PASSWORD,
+  DEMO_PROFILES,
+  DEMO_SERVER_NAME,
+  DEMO_USERS,
+} from "@/data/demo";
 import { hashString } from "@/lib/art";
 import { ApiError, sleep } from "@/lib/http";
 import { normalizeSearch, scoreSearch } from "@/lib/search";
 import type {
+  Activity,
+  ActivityKind,
+  ActivityPage,
   AuthResult,
+  Collection,
+  CollectionGamesResponse,
+  CollectionInput,
   GameDetail,
   GameList,
   GameListQuery,
@@ -16,15 +32,20 @@ import type {
   LibraryFile,
   LibraryStats,
   NewsPost,
+  ProfilePatch,
   ProgressState,
+  PublicProfile,
+  PublicProfileResponse,
   Role,
   SaveSnapshot,
   ScanStatus,
   ServerConfig,
   SetupStatus,
+  SmartRules,
   SuggestResponse,
   User,
 } from "@/lib/types";
+import { evaluateRules } from "@/lib/collections";
 
 /**
  * Mock adapter. Behaves like the real API: latency, error envelopes, filters,
@@ -140,6 +161,152 @@ let saves: SaveSnapshot[] = [
   },
 ];
 let nextSaveId = 4;
+
+
+/* ------------------------------ collections ------------------------------ */
+
+let collections: Collection[] = clone(DEMO_COLLECTIONS);
+let collectionMembers: Record<number, number[]> = clone(DEMO_COLLECTION_GAMES);
+let profiles: PublicProfile[] = clone(DEMO_PROFILES);
+let activities: Activity[] = clone(DEMO_ACTIVITIES);
+let nextCollectionId = Math.max(0, ...collections.map((collection) => collection.id)) + 1;
+let nextActivityId = Math.max(0, ...activities.map((activity) => activity.id)) + 1;
+
+function collectionGameIds(collection: Collection): number[] {
+  if (collection.kind === "manual") return collectionMembers[collection.id] ?? [];
+  return visibleGames()
+    .filter((game) => evaluateRules(collection.rules, game))
+    .map((game) => game.id);
+}
+
+function visibleCollections(viewer: User): Collection[] {
+  return collections
+    .filter((collection) => collection.owner.id === viewer.id || collection.isPublic)
+    .map((collection) => decorateCollection(collection, viewer))
+    .sort((a, b) => Number(b.owned) - Number(a.owned) || a.name.localeCompare(b.name));
+}
+
+function decorateCollection(collection: Collection, viewer: User): Collection {
+  return {
+    ...collection,
+    gameCount: collectionGameIds(collection).length,
+    owned: collection.owner.id === viewer.id,
+  };
+}
+
+function findCollection(id: number, viewer: User): Collection {
+  const collection = collections.find((entry) => entry.id === id);
+  if (!collection) fail(404, "collection_not_found", "Collection not found");
+  if (collection.owner.id !== viewer.id && !collection.isPublic) {
+    fail(404, "collection_not_found", "Collection not found");
+  }
+  return collection;
+}
+
+function ownedCollection(id: number, viewer: User): Collection {
+  const collection = collections.find((entry) => entry.id === id);
+  if (!collection || collection.owner.id !== viewer.id) {
+    fail(404, "collection_not_found", "Collection not found");
+  }
+  return collection;
+}
+
+const SMART_FIELDS = ["genre", "year", "players", "playtime", "rating", "installed", "provider", "title"];
+
+function validateRules(rules: SmartRules): void {
+  if (rules.match !== "all" && rules.match !== "any") fail(400, "invalid_rules", "match must be all or any");
+  for (const rule of rules.rules) {
+    if (!SMART_FIELDS.includes(rule.field)) fail(400, "invalid_rules", `Unknown rule field: ${rule.field}`);
+    if (rule.field === "installed" && typeof rule.value !== "boolean") {
+      fail(400, "invalid_rules", "installed expects true or false");
+    }
+  }
+}
+
+/* ------------------------------- community ------------------------------- */
+
+function profileFor(user: User): PublicProfile {
+  let profile = profiles.find((entry) => entry.id === user.id);
+  if (!profile) {
+    profile = {
+      id: user.id,
+      username: user.username,
+      displayName: null,
+      bio: null,
+      avatarUrl: user.avatarUrl,
+      publicProfile: false,
+      createdAt: user.createdAt,
+    };
+    profiles = [...profiles, profile];
+  }
+  return profile;
+}
+
+function activityUser(user: User) {
+  const profile = profileFor(user);
+  return {
+    id: user.id,
+    username: user.username,
+    displayName: profile.displayName,
+    avatarUrl: profile.avatarUrl,
+  };
+}
+
+function recordActivity(
+  user: User,
+  kind: ActivityKind,
+  options: { gameId?: number | null; collectionId?: number | null; metadata?: Record<string, unknown>; dedupeMinutes?: number } = {},
+): void {
+  const { gameId = null, collectionId = null, metadata = {}, dedupeMinutes = 0 } = options;
+  if (dedupeMinutes > 0) {
+    const since = Date.now() - dedupeMinutes * 60_000;
+    const duplicate = activities.some(
+      (activity) =>
+        activity.user.id === user.id &&
+        activity.kind === kind &&
+        (activity.game?.id ?? null) === gameId &&
+        Date.parse(activity.createdAt) >= since,
+    );
+    if (duplicate) return;
+  }
+  const game = gameId === null ? null : visibleGames().find((entry) => entry.id === gameId) ?? null;
+  const collection = collectionId === null ? null : collections.find((entry) => entry.id === collectionId) ?? null;
+  activities = [
+    ...activities,
+    {
+      id: nextActivityId++,
+      kind,
+      createdAt: nowIso(),
+      metadata,
+      user: activityUser(user),
+      game: game
+        ? { id: game.id, title: game.title, coverUrl: game.coverUrl, releaseYear: game.releaseDate ? Number(game.releaseDate.slice(0, 4)) : null }
+        : null,
+      collection: collection ? { id: collection.id, name: collection.name } : null,
+    },
+  ];
+}
+
+function activityPage(list: Activity[], limit: number, before?: number | null): ActivityPage {
+  const sorted = [...list].sort((a, b) => b.id - a.id);
+  const filtered = before ? sorted.filter((activity) => activity.id < before) : sorted;
+  const items = filtered.slice(0, limit);
+  const nextBefore = filtered.length > limit ? items[items.length - 1]?.id ?? null : null;
+  return { items, nextBefore };
+}
+
+function profileStats(userId: number, viewer: User): PublicProfileResponse["stats"] {
+  const profile = profiles.find((entry) => entry.id === userId);
+  if (!profile) return { games: 0, completed: 0, minutesPlayed: 0, bookmarked: 0, collections: 0 };
+  const shelf = visibleGames().filter((game) => game.state !== "unplayed" || game.minutesPlayed > 0 || game.bookmarked);
+  return {
+    games: shelf.length,
+    completed: shelf.filter((game) => game.state === "completed").length,
+    minutesPlayed: shelf.reduce((total, game) => total + game.minutesPlayed, 0),
+    bookmarked: shelf.filter((game) => game.bookmarked).length,
+    collections: collections.filter((collection) => collection.owner.id === userId && (collection.isPublic || viewer.id === userId)).length,
+  };
+}
 
 let scan: ScanStatus = {
   running: false,
@@ -481,22 +648,29 @@ export const mockApi = {
 
   async setProgress(token: string | null, id: number, state: ProgressState) {
     await latency();
-    currentUser(token);
+    const user = currentUser(token);
     const game = games.find((g) => g.id === id);
     if (!game) fail(404, "game_not_found", "That game is not in the library");
+    const existed = game.state !== "unplayed" || game.minutesPlayed > 0 || Boolean(game.lastPlayedAt);
     game.state = state;
     if (state === "playing" && !game.lastPlayedAt) game.lastPlayedAt = nowIso();
+    if (!existed) recordActivity(user, "game_added", { gameId: id });
+    if (state === "playing") recordActivity(user, "game_played", { gameId: id, dedupeMinutes: 30 });
+    if (state === "completed") recordActivity(user, "game_completed", { gameId: id, dedupeMinutes: 60 });
     return { state: game.state, minutesPlayed: game.minutesPlayed, lastPlayedAt: game.lastPlayedAt };
   },
 
   async addPlaytime(token: string | null, id: number, minutes: number) {
     await latency();
-    currentUser(token);
+    const user = currentUser(token);
     const game = games.find((g) => g.id === id);
     if (!game) fail(404, "game_not_found", "That game is not in the library");
+    const existed = game.state !== "unplayed" || game.minutesPlayed > 0 || Boolean(game.lastPlayedAt);
     game.minutesPlayed += Math.max(0, Math.round(minutes));
     game.lastPlayedAt = nowIso();
     if (game.state === "unplayed" || game.state === "planToPlay") game.state = "playing";
+    if (!existed) recordActivity(user, "game_added", { gameId: id });
+    recordActivity(user, "game_played", { gameId: id, metadata: { minutes }, dedupeMinutes: 30 });
     return { state: game.state, minutesPlayed: game.minutesPlayed, lastPlayedAt: game.lastPlayedAt };
   },
 
@@ -850,6 +1024,208 @@ export const mockApi = {
     news = news.filter((n) => n.id !== id);
   },
 
+  /* collections */
+  async listCollections(token: string | null): Promise<Collection[]> {
+    await latency();
+    const user = currentUser(token);
+    return clone(visibleCollections(user));
+  },
+
+  async getCollection(token: string | null, id: number): Promise<Collection> {
+    await latency();
+    const user = currentUser(token);
+    return clone(decorateCollection(findCollection(id, user), user));
+  },
+
+  async createCollection(token: string | null, body: CollectionInput): Promise<Collection> {
+    await latency();
+    const user = currentUser(token);
+    const name = body.name.trim();
+    if (!name) fail(400, "invalid_name", "Give the collection a name");
+    if (collections.some((entry) => entry.owner.id === user.id && entry.name.toLowerCase() === name.toLowerCase())) {
+      fail(409, "collection_exists", "You already have a collection with that name");
+    }
+    const kind = body.kind ?? "manual";
+    const rules = body.rules ?? { match: "all", rules: [] };
+    if (kind === "smart") validateRules(rules);
+    const id = nextCollectionId++;
+    const now = nowIso();
+    const collection: Collection = {
+      id,
+      name,
+      description: body.description?.trim() || null,
+      isPublic: Boolean(body.isPublic),
+      kind,
+      rules,
+      gameCount: 0,
+      owner: { id: user.id, username: user.username, displayName: profileFor(user).displayName },
+      owned: true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    collections = [...collections, collection];
+    if (kind === "manual" && body.gameIds?.length) {
+      const valid = body.gameIds.filter((gameId) => visibleGames().some((game) => game.id === gameId));
+      collectionMembers[id] = [...new Set(valid)];
+    } else {
+      collectionMembers[id] = [];
+    }
+    recordActivity(user, "collection_created", { collectionId: id, metadata: { name, kind, gameCount: collectionMembers[id]?.length ?? 0 } });
+    return clone(decorateCollection(collection, user));
+  },
+
+  async updateCollection(token: string | null, id: number, body: Partial<CollectionInput>): Promise<Collection> {
+    await latency();
+    const user = currentUser(token);
+    const collection = ownedCollection(id, user);
+    if (body.name !== undefined) {
+      const name = body.name.trim();
+      if (!name) fail(400, "invalid_name", "Give the collection a name");
+      if (collections.some((entry) => entry.id !== id && entry.owner.id === user.id && entry.name.toLowerCase() === name.toLowerCase())) {
+        fail(409, "collection_exists", "You already have a collection with that name");
+      }
+      collection.name = name;
+    }
+    if (body.description !== undefined) collection.description = body.description?.trim() || null;
+    if (body.isPublic !== undefined) collection.isPublic = body.isPublic;
+    if (body.rules !== undefined) {
+      if (collection.kind === "smart") validateRules(body.rules);
+      collection.rules = body.rules;
+    }
+    if (body.kind !== undefined && body.kind !== collection.kind) {
+      collection.kind = body.kind;
+      if (body.kind === "smart") {
+        if (body.rules) validateRules(body.rules);
+        else validateRules(collection.rules);
+        collectionMembers[id] = [];
+      }
+    }
+    collection.updatedAt = nowIso();
+    collections = collections.map((entry) => (entry.id === id ? collection : entry));
+    return clone(decorateCollection(collection, user));
+  },
+
+  async deleteCollection(token: string | null, id: number): Promise<void> {
+    await latency();
+    const user = currentUser(token);
+    ownedCollection(id, user);
+    collections = collections.filter((entry) => entry.id !== id);
+    delete collectionMembers[id];
+    activities = activities.map((activity) =>
+      activity.collection?.id === id ? { ...activity, collection: null } : activity,
+    );
+  },
+
+  async collectionGames(token: string | null, id: number, page = 1, limit = 96): Promise<GameList> {
+    await latency();
+    const user = currentUser(token);
+    const collection = findCollection(id, user);
+    const ids = collectionGameIds(collection);
+    const items = visibleGames()
+      .filter((game) => ids.includes(game.id))
+      .sort((a, b) => b.id - a.id);
+    const start = (page - 1) * limit;
+    return { items: items.slice(start, start + limit).map(summary), total: items.length, page, limit };
+  },
+
+  async addCollectionGames(token: string | null, id: number, gameIds: number[]): Promise<CollectionGamesResponse> {
+    await latency();
+    const user = currentUser(token);
+    const collection = ownedCollection(id, user);
+    if (collection.kind === "smart") fail(409, "smart_collection", "Smart collections are built from rules");
+    if (gameIds.some((gameId) => !visibleGames().some((game) => game.id === gameId))) {
+      fail(404, "game_not_found", "One of those games is not in the library");
+    }
+    const current = collectionMembers[id] ?? [];
+    const next = [...current];
+    let added = 0;
+    for (const gameId of gameIds) {
+      if (!next.includes(gameId)) {
+        next.push(gameId);
+        added += 1;
+      }
+    }
+    collectionMembers[id] = next;
+    collection.updatedAt = nowIso();
+    return { added, total: next.length };
+  },
+
+  async removeCollectionGame(token: string | null, id: number, gameId: number): Promise<void> {
+    await latency();
+    const user = currentUser(token);
+    const collection = ownedCollection(id, user);
+    if (collection.kind === "smart") fail(409, "smart_collection", "Smart collections are built from rules");
+    collectionMembers[id] = (collectionMembers[id] ?? []).filter((entry) => entry !== gameId);
+    collection.updatedAt = nowIso();
+  },
+
+  /* community */
+  async myProfile(token: string | null): Promise<PublicProfile> {
+    await latency();
+    return clone(profileFor(currentUser(token)));
+  },
+
+  async updateProfile(token: string | null, patch: ProfilePatch): Promise<PublicProfile> {
+    await latency();
+    const user = currentUser(token);
+    const profile = profileFor(user);
+    if (patch.publicProfile !== undefined) profile.publicProfile = patch.publicProfile;
+    if (patch.displayName !== undefined) profile.displayName = patch.displayName?.trim() || null;
+    if (patch.bio !== undefined) profile.bio = patch.bio?.trim() || null;
+    if (patch.displayName && patch.displayName.length > 64) fail(400, "invalid_display_name", "Display names are limited to 64 characters");
+    if (patch.bio && patch.bio.length > 500) fail(400, "invalid_bio", "Bios are limited to 500 characters");
+    profiles = profiles.map((entry) => (entry.id === profile.id ? profile : entry));
+    return clone(profile);
+  },
+
+  async communityFeed(token: string | null, limit = 20, before?: number | null): Promise<ActivityPage> {
+    await latency();
+    currentUser(token);
+    const publicIds = new Set(profiles.filter((profile) => profile.publicProfile).map((profile) => profile.id));
+    return clone(activityPage(activities.filter((activity) => publicIds.has(activity.user.id)), limit, before));
+  },
+
+  async communityUsers(token: string | null): Promise<PublicProfile[]> {
+    await latency();
+    currentUser(token);
+    return clone(profiles.filter((profile) => profile.publicProfile));
+  },
+
+  async communityUser(token: string | null, id: number): Promise<PublicProfileResponse> {
+    await latency();
+    const viewer = currentUser(token);
+    const profile = profiles.find((entry) => entry.id === id);
+    if (!profile || (!profile.publicProfile && viewer.id !== id)) fail(404, "profile_not_found", "Profile not found");
+    const shelf = visibleGames()
+      .filter((game) => game.state !== "unplayed" || game.minutesPlayed > 0 || game.bookmarked)
+      .sort((a, b) => Date.parse(b.lastPlayedAt ?? "") - Date.parse(a.lastPlayedAt ?? ""));
+    return clone({
+      user: profile,
+      stats: profileStats(id, viewer),
+      library: shelf.slice(0, 60).map(summary),
+      collections: collections
+        .filter((collection) => collection.owner.id === id && (collection.isPublic || viewer.id === id))
+        .map((collection) => decorateCollection(collection, viewer)),
+    });
+  },
+
+  async communityUserActivity(token: string | null, id: number, limit = 20, before?: number | null): Promise<ActivityPage> {
+    await latency();
+    const viewer = currentUser(token);
+    const profile = profiles.find((entry) => entry.id === id);
+    if (!profile || (!profile.publicProfile && viewer.id !== id)) fail(404, "profile_not_found", "Profile not found");
+    return clone(activityPage(activities.filter((activity) => activity.user.id === id), limit, before));
+  },
+
+  async reportInstalled(token: string | null, id: number): Promise<{ recorded: boolean }> {
+    await latency();
+    const user = currentUser(token);
+    if (!visibleGames().some((game) => game.id === id)) fail(404, "game_not_found", "That game is not in the library");
+    const before = activities.length;
+    recordActivity(user, "game_installed", { gameId: id, metadata: { source: "desktop" }, dedupeMinutes: 60 });
+    return { recorded: activities.length > before };
+  },
+
   async config(): Promise<ServerConfig> {
     await latency();
     return {
@@ -866,10 +1242,11 @@ export const mockApi = {
     return { status: "ok", version: "0.1.0", uptimeSeconds: 412_800 };
   },
 
-  /** Not part of the contract: the desktop bridge owns installs. */
+  /* collections */
   async installed(): Promise<InstalledGame[]> {
     return [];
   },
+
 };
 
 export const MOCK_PASSWORD = DEMO_PASSWORD;

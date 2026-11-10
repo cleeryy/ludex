@@ -13,6 +13,7 @@ import {
   HardDrive,
   House,
   ListOrdered,
+  ListPlus,
   LogOut,
   Moon,
   MoreHorizontal,
@@ -110,6 +111,8 @@ function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
         <RailLink label="Recently played" icon={<Clock className="size-4" />} active={path === "/recent"} onClick={() => go("/recent")} />
         <RailLink label="Bookmarks" icon={<Bookmark className="size-4" />} active={path === "/bookmarks"} onClick={() => go("/bookmarks")} />
         <RailLink label="Index" icon={<ListOrdered className="size-4" />} active={path === "/all"} onClick={() => go("/all")} />
+        <RailLink label="Collections" icon={<ListPlus className="size-4" />} active={path.startsWith("/collections")} onClick={() => go("/collections")} />
+        <RailLink label="Community" icon={<Users className="size-4" />} active={path.startsWith("/community")} onClick={() => go("/community")} />
         {downloads.available && (
           <RailLink
             label="Installed"
@@ -420,6 +423,8 @@ function MobileMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open
         {downloads.available && (
           <Row label="Installed games" icon={<HardDrive className="size-3.5" />} onClick={() => go("/library?installed=true")} />
         )}
+        <Row label="Collections" icon={<ListPlus className="size-3.5" />} onClick={() => go("/collections")} />
+        <Row label="Community" icon={<Users className="size-3.5" />} onClick={() => go("/community")} />
         <Row label="Big Picture mode" icon={<Gamepad2 className="size-3.5" />} onClick={() => go("/bigpicture")} />
         <Row label="Settings" icon={<Settings className="size-3.5" />} onClick={() => go("/settings")} />
         <div className="pb-1 pt-4 text-[11.5px] text-ink-3">Genres</div>
