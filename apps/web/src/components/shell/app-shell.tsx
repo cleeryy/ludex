@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowUpDown,
   Bookmark,
   ChevronDown,
+  ChevronRight,
   Clock,
   Dice5,
   Download,
   Film,
+  HardDrive,
+  House,
   ListOrdered,
   LogOut,
   Moon,
@@ -21,6 +24,7 @@ import {
   Sun,
   Users,
   Library as LibraryIcon,
+  Gamepad2,
 } from "lucide-react";
 import { api, USING_MOCKS } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -33,7 +37,9 @@ import { Badge, IconButton, Kbd } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { DropdownMenu, useDropdown, type MenuEntry } from "@/components/ui/select";
 import { CommandPalette } from "@/components/shell/command-palette";
-import { useGenres, useNativeEvents } from "@/lib/hooks";
+import { useGenres, useInstalledGames, useNativeEvents } from "@/lib/hooks";
+import { useDownloads } from "@/state/downloads";
+import { formatSpeed } from "@/lib/format";
 
 const SORTS = [
   { value: "title", label: "Title" },
@@ -48,19 +54,23 @@ function RailLink({
   icon,
   active,
   count,
+  highlight,
   onClick,
 }: {
   label: string;
   icon: React.ReactNode;
   active: boolean;
   count?: number;
+  highlight?: boolean;
   onClick: () => void;
 }) {
   return (
     <button type="button" className="rail-link w-full text-left" data-active={active} onClick={onClick} aria-current={active ? "page" : undefined}>
       <span className="grid size-4 place-items-center text-current opacity-80">{icon}</span>
       <span className="truncate">{label}</span>
-      {typeof count === "number" && <span className="rail-count">{count}</span>}
+      {typeof count === "number" && count > 0 && (
+        <span className={highlight ? "rail-count text-signal-text" : "rail-count"}>{count}</span>
+      )}
     </button>
   );
 }
@@ -73,20 +83,49 @@ function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
   const isAdmin = useIsAdmin();
   const { setup } = useAuth();
   const genres = useGenres();
+  const downloads = useDownloads();
+  const { data: installedGames } = useInstalledGames();
   const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: () => api.stats(), staleTime: 30_000 });
 
   const path = location.pathname;
   const genre = params.get("genre");
+  const installedOnly = params.get("installed") === "true";
   const go = (to: string) => navigate(to);
 
   return (
     <div className="flex h-full flex-col">
       <nav aria-label="Library" className="flex flex-1 flex-col gap-0.5 overflow-y-auto py-5">
         <p className="px-5 pb-2 text-[11.5px] text-ink-3">Browse</p>
-        <RailLink label="Library" icon={<LibraryIcon className="size-4" />} active={path === "/" && !genre} count={stats?.games} onClick={() => go("/")} />
+        <RailLink label="Home" icon={<House className="size-4" />} active={path === "/"} onClick={() => go("/")} />
+        <RailLink
+          label="Library"
+          icon={<LibraryIcon className="size-4" />}
+          active={path === "/library" && !genre && !installedOnly}
+          count={stats?.games}
+          onClick={() => go("/library")}
+        />
         <RailLink label="Recently played" icon={<Clock className="size-4" />} active={path === "/recent"} onClick={() => go("/recent")} />
         <RailLink label="Bookmarks" icon={<Bookmark className="size-4" />} active={path === "/bookmarks"} onClick={() => go("/bookmarks")} />
         <RailLink label="Index" icon={<ListOrdered className="size-4" />} active={path === "/all"} onClick={() => go("/all")} />
+        {downloads.available && (
+          <RailLink
+            label="Installed"
+            icon={<HardDrive className="size-4" />}
+            active={path === "/library" && installedOnly}
+            count={installedGames?.length}
+            onClick={() => go("/library?installed=true")}
+          />
+        )}
+        {downloads.available && (
+          <RailLink
+            label="Downloads"
+            icon={<Download className="size-4" />}
+            active={path === "/downloads"}
+            count={downloads.activeCount}
+            highlight
+            onClick={() => go("/downloads")}
+          />
+        )}
         <RailLink label="News" icon={<Film className="size-4" />} active={path === "/news"} onClick={() => go("/news")} />
 
         {genres.length > 0 && (
@@ -100,8 +139,8 @@ function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
             key={item}
             label={item}
             icon={<span className="size-1.5 rounded-full bg-current opacity-60" />}
-            active={path === "/" && genre === item}
-            onClick={() => go(`/?genre=${encodeURIComponent(item)}`)}
+            active={path === "/library" && genre === item}
+            onClick={() => go(`/library?genre=${encodeURIComponent(item)}`)}
           />
         ))}
 
@@ -233,7 +272,7 @@ function Topbar({ onOpenPalette }: { onOpenPalette: () => void }) {
   const { push } = useToast();
   const [randomizing, setRandomizing] = useState(false);
   const [params] = useSearchParams();
-  const showSort = location.pathname === "/" || location.pathname === "/bookmarks";
+  const showSort = location.pathname === "/library" || location.pathname === "/bookmarks";
   const onLibrary = location.pathname === "/";
 
   const random = async () => {
@@ -285,6 +324,11 @@ function Topbar({ onOpenPalette }: { onOpenPalette: () => void }) {
           <IconButton label="Pick a random game" variant="ghost" onClick={random} loading={randomizing}>
             <Dice5 className="size-4" />
           </IconButton>
+          <span className="hidden sm:block">
+            <IconButton label="Big Picture mode" variant="ghost" onClick={() => navigate("/bigpicture")}>
+              <Gamepad2 className="size-4" />
+            </IconButton>
+          </span>
           {showSort && <SortMenu />}
           <div className="mx-1.5 hidden h-5 w-px bg-line sm:block" aria-hidden="true" />
           <UserMenu />
@@ -300,16 +344,16 @@ function MobileNav({ onMore }: { onMore: () => void }) {
   const path = location.pathname;
 
   const items = [
-    { label: "Library", icon: <LibraryIcon className="size-4" />, to: "/", active: path === "/" },
+    { label: "Home", icon: <House className="size-4" />, to: "/", active: path === "/" },
+    { label: "Library", icon: <LibraryIcon className="size-4" />, to: "/library", active: path === "/library" },
     { label: "Recent", icon: <Clock className="size-4" />, to: "/recent", active: path === "/recent" },
     { label: "Saved", icon: <Bookmark className="size-4" />, to: "/bookmarks", active: path === "/bookmarks" },
-    { label: "Index", icon: <ListOrdered className="size-4" />, to: "/all", active: path === "/all" },
   ];
 
   return (
     <nav
       aria-label="Primary"
-      className="fixed inset-x-0 bottom-0 z-40 flex h-[calc(56px+env(safe-area-inset-bottom))] items-stretch border-t border-line bg-bg pb-[env(safe-area-inset-bottom)] lg:hidden"
+      className="flex h-[calc(56px+env(safe-area-inset-bottom))] shrink-0 items-stretch border-t border-line bg-bg pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
       {items.map((item) => (
         <button
@@ -346,6 +390,7 @@ function MobileMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open
   const isAdmin = useIsAdmin();
   const { resolved, setTheme } = useSettings();
   const { signOut, user } = useAuth();
+  const downloads = useDownloads();
   const go = (to: string) => {
     onOpenChange(false);
     navigate(to);
@@ -366,6 +411,13 @@ function MobileMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open
     <Dialog open={open} onOpenChange={onOpenChange} title="Menu" description={user ? `Signed in as ${user.username}` : undefined} size="sm">
       <div className="max-h-[60vh] overflow-y-auto">
         <Row label="News" icon={<Film className="size-3.5" />} onClick={() => go("/news")} />
+        {downloads.available && (
+          <Row label="Downloads" icon={<Download className="size-3.5" />} onClick={() => go("/downloads")} />
+        )}
+        {downloads.available && (
+          <Row label="Installed games" icon={<HardDrive className="size-3.5" />} onClick={() => go("/library?installed=true")} />
+        )}
+        <Row label="Big Picture mode" icon={<Gamepad2 className="size-3.5" />} onClick={() => go("/bigpicture")} />
         <Row label="Settings" icon={<Settings className="size-3.5" />} onClick={() => go("/settings")} />
         <div className="pb-1 pt-4 text-[11.5px] text-ink-3">Genres</div>
         <div className="flex flex-wrap gap-1.5 pb-4">
@@ -397,6 +449,40 @@ function MobileMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open
         <Row label="Sign out" icon={<LogOut className="size-3.5" />} onClick={() => void signOut()} />
       </div>
     </Dialog>
+  );
+}
+
+function DownloadsStrip() {
+  const { active, activeCount, aggregate, titleFor } = useDownloads();
+  if (active.length === 0) return null;
+  const job = active[0];
+  const pct = aggregate?.percent ?? null;
+
+  return (
+    <Link
+      to="/downloads"
+      aria-label={`Downloads: ${titleFor(job)}${pct !== null ? `, ${pct.toFixed(0)} percent` : ""}`}
+      className="relative flex h-10 shrink-0 items-center gap-3 border-t border-line bg-surface-2 px-4 text-[12px] text-ink-2 transition-colors hover:bg-surface"
+    >
+      <span className="absolute inset-x-0 top-0 h-[2px] bg-line" aria-hidden="true">
+        <span
+          className="block h-full bg-signal transition-[width] duration-500"
+          style={{ width: pct !== null ? `${pct}%` : "30%" }}
+        />
+      </span>
+      <Download className="size-3.5 shrink-0 text-signal-text" aria-hidden="true" />
+      <span className="min-w-0 truncate text-ink">{titleFor(job)}</span>
+      {activeCount > 1 && <span className="num shrink-0 text-ink-3">+{activeCount - 1}</span>}
+      <span className="num ml-auto shrink-0">{pct !== null ? `${pct.toFixed(0)}%` : "Preparing"}</span>
+      {aggregate?.speedBps ? (
+        <span className="num hidden shrink-0 text-ink-3 sm:inline">{formatSpeed(aggregate.speedBps)}</span>
+      ) : null}
+      {aggregate?.eta ? <span className="num hidden shrink-0 text-ink-3 md:inline">{aggregate.eta} left</span> : null}
+      <span className="hidden shrink-0 items-center gap-1 text-ink-3 sm:flex">
+        Downloads
+        <ChevronRight className="size-3" aria-hidden="true" />
+      </span>
+    </Link>
   );
 }
 
@@ -444,12 +530,13 @@ export function AppShell() {
         <main
           ref={scrollRef}
           data-scroll-root
-          className="min-w-0 flex-1 overflow-y-auto overscroll-contain pb-24 lg:pb-0"
+          className="min-w-0 flex-1 overflow-y-auto overscroll-contain pb-8"
           onScroll={(event) => positions.current.set(location.key, event.currentTarget.scrollTop)}
         >
           <Outlet />
         </main>
       </div>
+      <DownloadsStrip />
       <MobileNav onMore={() => setMoreOpen(true)} />
       <MobileMenu open={moreOpen} onOpenChange={setMoreOpen} />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />

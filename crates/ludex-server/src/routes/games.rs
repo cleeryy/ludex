@@ -10,6 +10,7 @@ use axum::response::Response;
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chrono::Duration;
+use ludex_core::archive::{archive_tar_size, detect_format, ArchiveError, ArchiveFormat};
 use ludex_core::models::{
     GameDetail, GameSummary, GameVersion, LaunchInfo, Paginated, ProgressState, ProgressUpdate,
     ProviderRef, Stats, Trailer,
@@ -24,12 +25,13 @@ use crate::extract::{ApiPath, ApiQuery, JsonBody};
 use crate::media::content_disposition;
 use crate::models::{
     BookmarkRequest, BookmarkResponse, DownloadQuery, GameDetailRow, GameListRow, GameQuery,
-    LocalPathResponse, PlaytimeRequest, ProgressRequest, RefreshResponse, TicketRequest,
-    TicketResponse, UpdateGameRequest, VersionRow,
+    LocalPathResponse, PlaytimeRequest, ProgressRequest, RefreshResponse, StreamQuery,
+    TicketRequest, TicketResponse, UpdateGameRequest, VersionRow,
 };
 use crate::scanner;
 use crate::sql::{bind_query, bind_query_as, bind_query_scalar, Bind};
 use crate::state::AppState;
+use crate::stream::archive_tar_body;
 
 const LIST_COLUMNS: &str = "g.id, g.title, g.sort_title, g.release_date, g.cover_path, \
 g.background_path, g.rating, g.genres_json, g.early_access, \
@@ -62,6 +64,10 @@ pub fn router() -> Router<AppState> {
         .route("/games/{id}/refresh-metadata", post(refresh_metadata))
         .route("/games/{id}/download-ticket", post(download_ticket))
         .route("/games/{id}/download", get(download))
+        .route(
+            "/games/{id}/versions/{version_id}/stream",
+            get(stream_version),
+        )
         .route(
             "/games/{id}/versions/{version_id}/local-path",
             get(local_path),
@@ -479,13 +485,14 @@ async fn newest_version(state: &AppState, game_id: i64) -> Result<i64, ApiError>
     .ok_or_else(|| ApiError::not_found("version_not_found", "No downloadable version"))
 }
 
-async fn download(
-    State(state): State<AppState>,
-    ApiPath(game_id): ApiPath<i64>,
-    ApiQuery(query): ApiQuery<DownloadQuery>,
-    headers: HeaderMap,
-) -> Result<Response, ApiError> {
-    let version_id = if let Some(ticket) = query.token.as_deref() {
+async fn authorize_version(
+    state: &AppState,
+    headers: &HeaderMap,
+    game_id: i64,
+    requested_version: Option<i64>,
+    ticket: Option<&str>,
+) -> Result<i64, ApiError> {
+    if let Some(ticket) = ticket {
         let decoded = crate::auth::decode_download_ticket(&state.jwt_secret, ticket)
             .ok_or_else(ApiError::unauthorized)?;
         if decoded.game_id != game_id {
@@ -494,7 +501,7 @@ async fn download(
                 "Ticket does not match this game",
             ));
         }
-        if let Some(requested) = query.version_id {
+        if let Some(requested) = requested_version {
             if requested != decoded.version_id {
                 return Err(ApiError::forbidden(
                     "ticket_mismatch",
@@ -502,15 +509,31 @@ async fn download(
                 ));
             }
         }
-        decoded.version_id
-    } else {
-        let token = bearer_token(&headers).ok_or_else(ApiError::unauthorized)?;
-        authenticate_token(&state, &token).await?;
-        match query.version_id {
-            Some(version_id) => version_id,
-            None => newest_version(&state, game_id).await?,
-        }
-    };
+        return Ok(decoded.version_id);
+    }
+
+    let token = bearer_token(headers).ok_or_else(ApiError::unauthorized)?;
+    authenticate_token(state, &token).await?;
+    match requested_version {
+        Some(version_id) => Ok(version_id),
+        None => newest_version(state, game_id).await,
+    }
+}
+
+async fn download(
+    State(state): State<AppState>,
+    ApiPath(game_id): ApiPath<i64>,
+    ApiQuery(query): ApiQuery<DownloadQuery>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let version_id = authorize_version(
+        &state,
+        &headers,
+        game_id,
+        query.version_id,
+        query.token.as_deref(),
+    )
+    .await?;
 
     let version = fetch_version(&state, game_id, version_id).await?;
     if version.missing != 0 {
@@ -559,6 +582,95 @@ async fn download(
         HeaderValue::from_static("private, no-store"),
     );
     Ok(Response::from_parts(parts, Body::new(body)))
+}
+
+async fn stream_version(
+    State(state): State<AppState>,
+    ApiPath((game_id, version_id)): ApiPath<(i64, i64)>,
+    ApiQuery(query): ApiQuery<StreamQuery>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let version_id = authorize_version(
+        &state,
+        &headers,
+        game_id,
+        Some(version_id),
+        query.token.as_deref(),
+    )
+    .await?;
+
+    let version = fetch_version(&state, game_id, version_id).await?;
+    if version.missing != 0 {
+        return Err(ApiError::not_found(
+            "file_not_found",
+            "This version is no longer available",
+        ));
+    }
+    let path = scanner::resolve_relative(&state.config.games_dir, &version.file_path)
+        .ok_or_else(ApiError::internal)?;
+    let metadata = tokio::fs::metadata(&path).await.map_err(|_| {
+        ApiError::not_found("file_not_found", "The library file is missing from disk")
+    })?;
+    if !metadata.is_file() {
+        return Err(ApiError::not_found(
+            "file_not_found",
+            "The library file is missing from disk",
+        ));
+    }
+
+    let format = match detect_format(&path) {
+        Ok(format) => format,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(ApiError::not_found(
+                "file_not_found",
+                "The library file is missing from disk",
+            ));
+        }
+        Err(error) => {
+            return Err(ApiError::unprocessable(
+                "stream_failed",
+                format!("Could not inspect the archive: {error}"),
+            ));
+        }
+    };
+    if !matches!(format, ArchiveFormat::Zip | ArchiveFormat::SevenZip) {
+        return Err(stream_unsupported());
+    }
+
+    let size_path = path.clone();
+    let tar_size = tokio::task::spawn_blocking(move || archive_tar_size(&size_path))
+        .await
+        .map_err(|error| {
+            ApiError::unprocessable(
+                "stream_failed",
+                format!("Archive size task failed: {error}"),
+            )
+        })?
+        .map_err(map_archive_error)?;
+
+    let title = fetch_game_title(&state, game_id).await?;
+    let file_name = if title.trim().is_empty() {
+        "game.tar".to_string()
+    } else {
+        format!("{}.tar", title.trim())
+    };
+    let disposition = HeaderValue::from_str(&content_disposition(&file_name))
+        .map_err(|_| ApiError::internal())?;
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/x-tar"),
+        )
+        .header(header::CONTENT_LENGTH, tar_size)
+        .header(header::CONTENT_DISPOSITION, disposition)
+        .header(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("private, no-store"),
+        )
+        .body(archive_tar_body(path, tar_size))
+        .map_err(|_| ApiError::internal())
 }
 
 async fn local_path(
@@ -756,6 +868,40 @@ async fn ensure_game(state: &AppState, id: i64) -> Result<(), ApiError> {
     exists
         .map(|_| ())
         .ok_or_else(|| ApiError::not_found("game_not_found", "Game not found"))
+}
+
+async fn fetch_game_title(state: &AppState, game_id: i64) -> Result<String, ApiError> {
+    sqlx::query_scalar::<_, String>("SELECT title FROM games WHERE id = ?")
+        .bind(game_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ApiError::not_found("game_not_found", "Game not found"))
+}
+
+fn stream_unsupported() -> ApiError {
+    ApiError::new(
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        "stream_unsupported",
+        "Stream install is only available for ZIP and 7z archives; use the normal download endpoint",
+    )
+}
+
+fn map_archive_error(error: ArchiveError) -> ApiError {
+    match error {
+        ArchiveError::PasswordRequired => ApiError::conflict(
+            "archive_password_required",
+            "This archive is encrypted and cannot be streamed",
+        ),
+        ArchiveError::UnsupportedFormat => stream_unsupported(),
+        ArchiveError::Io(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            ApiError::not_found("file_not_found", "The library file is missing from disk")
+        }
+        other => ApiError::unprocessable(
+            "stream_failed",
+            format!("Could not stream the archive: {other}"),
+        ),
+    }
 }
 
 async fn fetch_version(

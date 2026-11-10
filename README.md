@@ -17,16 +17,16 @@
   <a href="https://github.com/cleeryy/ludex/pkgs/container/ludex"><img src="https://img.shields.io/badge/ghcr.io-cleeryy%2Fludex-informational" alt="GHCR image"></a>
 </p>
 
-> **Status: v0.1.0 — first release.** The API and database schema may still change.
-> Features are marked with their status below; anything marked *roadmap* is not in
-> v0.1. Bug reports and migration feedback are welcome.
+> **Status: v0.2.0 — current release line.** The API and database schema may still change.
+> Features are marked with the release that introduced them; anything marked
+> *roadmap* is not in v0.2. Bug reports and migration feedback are welcome.
 
 Ludex is a clean-room, MIT OR Apache-2.0 licensed alternative to
 [GameVault](https://gamevault.app). It is not affiliated with or endorsed by
 GameVault, and contains no GameVault code.
 
 <p align="center">
-  <img src="apps/web/screenshots/01-library.png" alt="Ludex web library with demo data" width="72%">
+  <img src="apps/web/screenshots/01-home.png" alt="Ludex Home with demo data" width="72%">
   <br>
   <sub>The Ludex library (demo data). The same UI runs in the browser and the desktop app.</sub>
 </p>
@@ -64,6 +64,11 @@ application backed by PostgreSQL. Ludex takes a different route:
 | Multiple versions per game | v0.1 |
 | Download with HTTP Range, resumable, short-lived tickets | v0.1 |
 | Ingest queue: URL download only (no web upload in v0.1), resume, magic-byte detection, verify | v0.1 |
+| Downloads manager: queue/history, background installs, cancel/resume | v0.2 |
+| Custom install and download folders | v0.2 |
+| Stream install for ZIP and 7z (no archive retained) | v0.2 |
+| Big Picture mode (keyboard/gamepad) | v0.2 |
+| Higher-resolution IGDB covers/backgrounds | v0.2 |
 | Web UI served by the server | v0.1 |
 | Users and roles (`admin`, `editor`, `user`) | v0.1 |
 | News posts | v0.1 |
@@ -121,7 +126,7 @@ docker compose up -d --build
 ```
 
 The image is published as `ghcr.io/cleeryy/ludex`. Pin a version in production
-(`ghcr.io/cleeryy/ludex:v0.1.0`) rather than tracking `latest`.
+(`ghcr.io/cleeryy/ludex:v0.2.0`) rather than tracking `latest`.
 
 ## Desktop app
 

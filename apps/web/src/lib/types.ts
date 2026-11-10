@@ -190,6 +190,12 @@ export interface LocalSettings {
   installDir: string;
   downloadDir: string;
   serverPort: number;
+  /** Remote ZIP installs stream a tar of the archive entries instead of storing it. */
+  streamInstall: boolean;
+  /** Keep the downloaded archive after a successful install. */
+  keepArchives: boolean;
+  /** Archive passwords, tried in order. */
+  archivePasswords: string[];
 }
 
 export interface InstalledGame {
@@ -204,7 +210,19 @@ export interface InstalledGame {
   lastLaunchedAt: string | null;
 }
 
-export type InstallPhase = "queued" | "downloading" | "extracting" | "finalizing" | "done" | "cancelled" | "error";
+/**
+ * "interrupted" is a desktop-only state for jobs persisted across an app
+ * restart; the server contract only defines the other seven.
+ */
+export type InstallPhase =
+  | "queued"
+  | "downloading"
+  | "extracting"
+  | "finalizing"
+  | "done"
+  | "cancelled"
+  | "error"
+  | "interrupted";
 
 export interface InstallJob {
   jobId: string;
@@ -221,4 +239,17 @@ export interface InstallJob {
 export interface DiskUsage {
   totalBytes: number;
   freeBytes: number;
+}
+
+export interface InstallGameArgs {
+  gameId: number;
+  versionId: number;
+  serverUrl: string;
+  token: string;
+  title: string;
+  version?: string | null;
+  executable?: string | null;
+  installDir?: string | null;
+  downloadDir?: string | null;
+  stream?: boolean;
 }

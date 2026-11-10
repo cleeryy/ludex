@@ -409,6 +409,15 @@ pub struct DownloadQuery {
     pub token: Option<String>,
 }
 
+/// Query string for the ZIP stream-install route.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamQuery {
+    /// Short-lived download ticket, accepted instead of a Bearer token.
+    #[serde(default)]
+    pub token: Option<String>,
+}
+
 /// Local path response.
 #[derive(Debug, Serialize)]
 pub struct LocalPathResponse {

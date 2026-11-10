@@ -11,12 +11,15 @@ export function GameCard({
   game,
   index,
   installed,
+  installing,
   onBookmark,
   onPlay,
 }: {
   game: GameSummary;
   index: number;
   installed?: InstalledGame;
+  /** Percent complete while an install job is active. */
+  installing?: number | null;
   onBookmark: (next: boolean) => void;
   onPlay?: () => void;
 }) {
@@ -37,9 +40,18 @@ export function GameCard({
           className="absolute inset-0 z-[4] rounded-[2px]"
           aria-label={`Open ${game.title}`}
         />
-        {installed && (
+        {installing !== null && installing !== undefined ? (
+          <span className="absolute left-2 top-2 z-[5] inline-flex h-5 items-center rounded-[2px] bg-signal px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-on-signal">
+            Installing {installing > 0 ? `${installing.toFixed(0)}%` : ""}
+          </span>
+        ) : installed ? (
           <span className="absolute left-2 top-2 z-[5] inline-flex h-5 items-center rounded-[2px] bg-ink px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-bg">
             Installed
+          </span>
+        ) : null}
+        {installing !== null && installing !== undefined && (
+          <span className="absolute inset-x-0 bottom-0 z-[5] h-[3px] bg-line/60" aria-hidden="true">
+            <span className="block h-full bg-signal transition-[width] duration-500" style={{ width: `${installing}%` }} />
           </span>
         )}
         <div
@@ -69,7 +81,7 @@ export function GameCard({
           </div>
         </div>
         <div className="-my-2 -mr-2 flex shrink-0 items-center">
-          {installed && onPlay && (
+          {installed && !installing && onPlay && (
             <Tooltip label="Play">
               <button
                 type="button"

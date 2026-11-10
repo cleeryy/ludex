@@ -950,6 +950,403 @@ fn normalize_seven_zip_error(
     error
 }
 
+// ---------------------------------------------------------------------------
+// Streaming install (archive -> uncompressed tar)
+// ---------------------------------------------------------------------------
+
+/// Tar block size, in bytes.
+const TAR_BLOCK: u64 = 512;
+/// Two zero blocks terminate a tar archive.
+const TAR_END_BLOCKS: u64 = 1024;
+/// Size of the name field in a GNU header.
+const TAR_NAME_FIELD: usize = 100;
+/// Pseudo path used by GNU tar for long-name entries.
+const TAR_LONG_NAME_PATH: &str = "././@LongLink";
+
+/// Result of [`stream_archive_as_tar`] or [`stream_zip_as_tar`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TarStreamReport {
+    /// Number of file entries written.
+    pub files: u64,
+    /// Sum of the uncompressed file sizes, in bytes.
+    pub bytes: u64,
+    /// Exact number of tar bytes written (including headers and end blocks).
+    pub tar_bytes: u64,
+}
+
+/// Computes the exact size of the tar stream [`stream_archive_as_tar`] would
+/// produce for `path`.
+///
+/// Supports ZIP and 7z. RAR cannot be streamed without a temporary file, so it
+/// returns [`ArchiveError::UnsupportedFormat`]. No entry data is decompressed.
+pub fn archive_tar_size(path: &Path) -> Result<u64, ArchiveError> {
+    match detect_format(path)? {
+        ArchiveFormat::Zip => zip_tar_size(path),
+        ArchiveFormat::SevenZip => seven_zip_tar_size(path),
+        _ => Err(ArchiveError::UnsupportedFormat),
+    }
+}
+
+/// Streams `path` as an uncompressed tar archive to `writer`.
+///
+/// Supports ZIP (including Zip64 and zstd-compressed entries) and 7z. RAR
+/// returns [`ArchiveError::UnsupportedFormat`]. Entry paths are sanitised with
+/// [`sanitize_entry_path`], link entries are rejected, and entry data is copied
+/// in chunks (never loaded whole in memory).
+pub fn stream_archive_as_tar<W: Write>(
+    path: &Path,
+    writer: &mut W,
+) -> Result<TarStreamReport, ArchiveError> {
+    match detect_format(path)? {
+        ArchiveFormat::Zip => stream_zip_as_tar(path, writer),
+        ArchiveFormat::SevenZip => stream_seven_zip_as_tar(path, writer),
+        _ => Err(ArchiveError::UnsupportedFormat),
+    }
+}
+
+/// Exact tar size for a ZIP archive, without decompressing any entry.
+///
+/// Returns [`ArchiveError::UnsupportedFormat`] for non-ZIP files,
+/// [`ArchiveError::PasswordRequired`] for encrypted entries and
+/// [`ArchiveError::UnsafeEntry`] for traversal or link entries.
+pub fn zip_tar_size(path: &Path) -> Result<u64, ArchiveError> {
+    if detect_format(path)? != ArchiveFormat::Zip {
+        return Err(ArchiveError::UnsupportedFormat);
+    }
+    let file = File::open(path)?;
+    let mut archive = ZipArchive::new(BufReader::new(file)).map_err(map_zip_error)?;
+    let entries = collect_zip_tar_entries(&mut archive)?;
+    Ok(tar_total_len(entries.iter().map(|item| &item.entry)))
+}
+
+/// Streams a ZIP archive as an uncompressed tar to `writer`.
+///
+/// Encrypted ZIPs are rejected with [`ArchiveError::PasswordRequired`] because
+/// this API has no password parameter. The returned [`TarStreamReport::tar_bytes`]
+/// equals [`zip_tar_size`] for a valid archive.
+pub fn stream_zip_as_tar<W: Write>(
+    path: &Path,
+    writer: &mut W,
+) -> Result<TarStreamReport, ArchiveError> {
+    if detect_format(path)? != ArchiveFormat::Zip {
+        return Err(ArchiveError::UnsupportedFormat);
+    }
+    let file = File::open(path)?;
+    let mut archive = ZipArchive::new(BufReader::new(file)).map_err(map_zip_error)?;
+    let entries = collect_zip_tar_entries(&mut archive)?;
+
+    let mut counter = ByteCounter::new(writer);
+    let mut report = TarStreamReport::default();
+    {
+        let mut builder = tar::Builder::new(&mut counter);
+        for item in &entries {
+            let mut data = archive.by_index(item.index).map_err(map_zip_error)?;
+            write_tar_entry(&mut builder, &item.entry, &mut data)?;
+            report.files += 1;
+            report.bytes = report.bytes.saturating_add(item.entry.size);
+        }
+        builder.finish()?;
+    }
+    counter.flush()?;
+    report.tar_bytes = counter.count();
+    Ok(report)
+}
+
+fn seven_zip_tar_size(path: &Path) -> Result<u64, ArchiveError> {
+    let reader = SevenZReader::open(path, Password::empty()).map_err(map_seven_zip_error)?;
+    let entries = collect_seven_zip_tar_entries(reader.archive())?;
+    Ok(tar_total_len(entries.iter()))
+}
+
+fn stream_seven_zip_as_tar<W: Write>(
+    path: &Path,
+    writer: &mut W,
+) -> Result<TarStreamReport, ArchiveError> {
+    let mut reader = SevenZReader::open(path, Password::empty()).map_err(map_seven_zip_error)?;
+    let expected = collect_seven_zip_tar_entries(reader.archive())?;
+    let expected_bytes = expected
+        .iter()
+        .fold(0_u64, |total, entry| total.saturating_add(entry.size));
+
+    let mut counter = ByteCounter::new(writer);
+    let mut report = TarStreamReport::default();
+    {
+        let mut builder = tar::Builder::new(&mut counter);
+        let mut failure: Option<ArchiveError> = None;
+        let outcome = reader.for_each_entries(|entry, data| {
+            if failure.is_some() {
+                return Ok(false);
+            }
+            if entry.is_directory() || entry.is_anti_item() {
+                return Ok(true);
+            }
+            let result = (|| -> Result<(), ArchiveError> {
+                let relative = sanitize_entry_path(entry.name())?;
+                let name = tar_name(&relative);
+                let mode = tar_mode(&name, seven_zip_unix_mode(entry.windows_attributes));
+                let tar_entry = TarEntry {
+                    name,
+                    size: entry.size(),
+                    mode,
+                };
+                write_tar_entry(&mut builder, &tar_entry, data)?;
+                report.files += 1;
+                report.bytes = report.bytes.saturating_add(entry.size());
+                Ok(())
+            })();
+            match result {
+                Ok(()) => Ok(true),
+                Err(error) => {
+                    failure = Some(error);
+                    Ok(false)
+                }
+            }
+        });
+
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        outcome.map_err(map_seven_zip_error)?;
+        builder.finish()?;
+    }
+    counter.flush()?;
+    report.tar_bytes = counter.count();
+
+    // Guards against a 7z reader that yields a different entry set than its
+    // metadata, which would break the advertised Content-Length.
+    if report.files != expected.len() as u64 || report.bytes != expected_bytes {
+        return Err(ArchiveError::InvalidArchive(
+            "7z entry set changed while streaming".to_string(),
+        ));
+    }
+    Ok(report)
+}
+
+/// One file entry as it appears in the generated tar stream.
+#[derive(Debug, Clone)]
+struct TarEntry {
+    /// Sanitised relative path with `/` separators.
+    name: String,
+    /// Uncompressed size in bytes.
+    size: u64,
+    /// Permission bits (0o644 by default, 0o755 for scripts).
+    mode: u32,
+}
+
+/// A ZIP entry selected for the tar stream.
+#[derive(Debug, Clone)]
+struct ZipTarEntry {
+    /// Index in the central directory.
+    index: usize,
+    /// Tar metadata.
+    entry: TarEntry,
+}
+
+/// Selects and validates the ZIP entries that will be streamed.
+fn collect_zip_tar_entries(
+    archive: &mut ZipArchive<BufReader<File>>,
+) -> Result<Vec<ZipTarEntry>, ArchiveError> {
+    let mut entries = Vec::new();
+    for index in 0..archive.len() {
+        let entry = archive.by_index_raw(index).map_err(map_zip_error)?;
+        if entry.is_dir() {
+            continue;
+        }
+        if entry.is_symlink() {
+            return Err(ArchiveError::UnsafeEntry(format!(
+                "link entry: {}",
+                entry.name()
+            )));
+        }
+        if entry.encrypted() {
+            return Err(ArchiveError::PasswordRequired);
+        }
+        let relative = sanitize_entry_path(entry.name())?;
+        let name = tar_name(&relative);
+        let mode = tar_mode(&name, entry.unix_mode());
+        entries.push(ZipTarEntry {
+            index,
+            entry: TarEntry {
+                name,
+                size: entry.size(),
+                mode,
+            },
+        });
+    }
+    Ok(entries)
+}
+
+/// Selects and validates the 7z entries that will be streamed.
+fn collect_seven_zip_tar_entries(archive: &SevenZipArchive) -> Result<Vec<TarEntry>, ArchiveError> {
+    if seven_zip_is_encrypted(archive) {
+        return Err(ArchiveError::PasswordRequired);
+    }
+    let mut entries = Vec::new();
+    for entry in &archive.files {
+        if entry.is_directory() || entry.is_anti_item() {
+            continue;
+        }
+        if is_link_attr(entry.windows_attributes) {
+            return Err(ArchiveError::UnsafeEntry(format!(
+                "link entry: {}",
+                entry.name()
+            )));
+        }
+        let relative = sanitize_entry_path(entry.name())?;
+        let name = tar_name(&relative);
+        let mode = tar_mode(&name, seven_zip_unix_mode(entry.windows_attributes));
+        entries.push(TarEntry {
+            name,
+            size: entry.size(),
+            mode,
+        });
+    }
+    Ok(entries)
+}
+
+/// Total tar length for a set of entries: one header + padded data each, plus
+/// the two terminating zero blocks.
+fn tar_total_len<'a>(entries: impl IntoIterator<Item = &'a TarEntry>) -> u64 {
+    entries.into_iter().fold(TAR_END_BLOCKS, |total, entry| {
+        total.saturating_add(tar_entry_len(entry))
+    })
+}
+
+/// Exact tar bytes for one entry, including a GNU long-name entry when the
+/// path does not fit in the 100-byte header name field.
+fn tar_entry_len(entry: &TarEntry) -> u64 {
+    let mut total = TAR_BLOCK.saturating_add(round_up_block(entry.size));
+    if entry.name.len() > TAR_NAME_FIELD {
+        total = total
+            .saturating_add(TAR_BLOCK)
+            .saturating_add(round_up_block(entry.name.len() as u64 + 1));
+    }
+    total
+}
+
+/// Rounds a byte length up to the next tar block boundary (0 stays 0).
+fn round_up_block(len: u64) -> u64 {
+    len.div_ceil(TAR_BLOCK).saturating_mul(TAR_BLOCK)
+}
+
+/// Writes one tar header (and GNU long-name header when needed) followed by
+/// `data`. The layout matches [`tar_entry_len`] exactly.
+fn write_tar_entry<W: Write, R: Read + ?Sized>(
+    builder: &mut tar::Builder<W>,
+    entry: &TarEntry,
+    data: &mut R,
+) -> Result<(), ArchiveError> {
+    let mut header = tar::Header::new_gnu();
+    header.set_entry_type(tar::EntryType::Regular);
+    header.set_size(entry.size);
+    header.set_mode(entry.mode);
+    header.set_uid(0);
+    header.set_gid(0);
+    header.set_mtime(0);
+
+    if entry.name.len() > TAR_NAME_FIELD {
+        let bytes = entry.name.as_bytes();
+        let mut long_header = tar::Header::new_gnu();
+        long_header.set_entry_type(tar::EntryType::GNULongName);
+        long_header.set_size(bytes.len() as u64);
+        long_header.set_mode(0o644);
+        long_header.set_uid(0);
+        long_header.set_gid(0);
+        long_header.set_mtime(0);
+        long_header.set_path(TAR_LONG_NAME_PATH)?;
+        long_header.set_cksum();
+
+        let mut long_name = Vec::with_capacity(bytes.len() + 1);
+        long_name.extend_from_slice(bytes);
+        long_name.push(0);
+        builder.append(&long_header, long_name.as_slice())?;
+
+        header.set_path(truncate_utf8(&entry.name, TAR_NAME_FIELD))?;
+    } else {
+        header.set_path(entry.name.as_str())?;
+    }
+
+    header.set_cksum();
+    builder.append(&header, data)?;
+    Ok(())
+}
+
+/// Converts a sanitised relative path to a `/`-separated tar name.
+fn tar_name(relative: &Path) -> String {
+    relative.to_string_lossy().replace('\\', "/")
+}
+
+/// Permission bits for a tar entry: ZIP/7z mode when present, 0o644 otherwise,
+/// and 0o755 for shell scripts and AppImages.
+fn tar_mode(name: &str, unix_mode: Option<u32>) -> u32 {
+    if is_script_name(name) {
+        return 0o755;
+    }
+    match unix_mode {
+        Some(mode) if mode & 0o777 != 0 => mode & 0o777,
+        _ => 0o644,
+    }
+}
+
+fn is_script_name(name: &str) -> bool {
+    Path::new(name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("sh") || extension.eq_ignore_ascii_case("appimage")
+        })
+}
+
+/// Unix permission bits stored in a 7z attribute field, when it looks like a
+/// Unix mode rather than a Windows attribute bitmask.
+fn seven_zip_unix_mode(attributes: u32) -> Option<u32> {
+    if attributes & 0o170_000 == 0 {
+        None
+    } else {
+        Some(attributes & 0o777)
+    }
+}
+
+/// Truncates `input` to at most `max` bytes on a UTF-8 character boundary.
+fn truncate_utf8(input: &str, max: usize) -> &str {
+    if input.len() <= max {
+        return input;
+    }
+    let mut end = max;
+    while end > 0 && !input.is_char_boundary(end) {
+        end -= 1;
+    }
+    &input[..end]
+}
+
+/// Write wrapper that counts the bytes that actually reached the sink.
+struct ByteCounter<'a, W: Write> {
+    inner: &'a mut W,
+    bytes: u64,
+}
+
+impl<'a, W: Write> ByteCounter<'a, W> {
+    fn new(inner: &'a mut W) -> Self {
+        Self { inner, bytes: 0 }
+    }
+
+    fn count(&self) -> u64 {
+        self.bytes
+    }
+}
+
+impl<W: Write> Write for ByteCounter<'_, W> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let written = self.inner.write(buffer)?;
+        self.bytes = self.bytes.saturating_add(written as u64);
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1368,5 +1765,233 @@ mod tests {
         assert!(snapshots
             .iter()
             .any(|snapshot| snapshot.bytes_done >= PROGRESS_STEP_BYTES));
+    }
+
+    fn read_tar_entries(buffer: &[u8]) -> Vec<(String, u32, Vec<u8>)> {
+        let mut archive = tar::Archive::new(Cursor::new(buffer));
+        let mut entries = Vec::new();
+        for entry in archive.entries().expect("tar entries") {
+            let mut entry = entry.expect("tar entry");
+            let path = entry
+                .path()
+                .expect("tar path")
+                .to_string_lossy()
+                .to_string();
+            let mode = entry.header().mode().expect("tar mode");
+            let mut data = Vec::new();
+            entry.read_to_end(&mut data).expect("read tar entry");
+            entries.push((path, mode, data));
+        }
+        entries
+    }
+
+    #[test]
+    fn zip_tar_stream_roundtrip() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let zip_path = temp.path().join("library.zip");
+        let big = vec![7_u8; 2 * 1024 * 1024];
+        write_zip(
+            &zip_path,
+            &[
+                ("Game/readme.txt", b"hello"),
+                ("Game/data.bin", &big),
+                ("Game/unicode-é.txt", "café".as_bytes()),
+                ("Game/run.sh", b"#!/bin/sh\n"),
+                ("Game/empty.txt", b""),
+            ],
+        );
+
+        let size = zip_tar_size(&zip_path).expect("tar size");
+        assert!(size > 1024);
+
+        let mut buffer = Vec::new();
+        let report = stream_zip_as_tar(&zip_path, &mut buffer).expect("stream tar");
+        assert_eq!(report.files, 5);
+        assert_eq!(
+            report.bytes,
+            5 + big.len() as u64 + "café".len() as u64 + 10
+        );
+        assert_eq!(report.tar_bytes, buffer.len() as u64);
+        assert_eq!(report.tar_bytes, size);
+
+        let entries = read_tar_entries(&buffer);
+        assert_eq!(entries.len(), 5);
+        let find = |name: &str| {
+            entries
+                .iter()
+                .find(|(path, _, _)| path == name)
+                .unwrap_or_else(|| panic!("missing tar entry {name}"))
+        };
+        assert_eq!(find("Game/readme.txt").2, b"hello");
+        assert_eq!(find("Game/data.bin").2.len(), big.len());
+        assert_eq!(find("Game/data.bin").2, big);
+        assert_eq!(find("Game/unicode-é.txt").2, "café".as_bytes());
+        assert_eq!(find("Game/run.sh").2, b"#!/bin/sh\n");
+        assert_eq!(find("Game/run.sh").1 & 0o777, 0o755);
+        assert_eq!(find("Game/readme.txt").1 & 0o777, 0o644);
+        assert!(find("Game/empty.txt").2.is_empty());
+    }
+
+    #[test]
+    fn zip_tar_long_path_is_exact() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let zip_path = temp.path().join("long.zip");
+        let long_name = format!("Game/{}/file.txt", "a".repeat(120));
+        write_zip(&zip_path, &[(long_name.as_str(), b"long path payload")]);
+
+        let size = zip_tar_size(&zip_path).expect("tar size");
+        assert_eq!(
+            size,
+            512 + 512 + 512 + 512 + 1024,
+            "long-name header + data block + main header + end blocks"
+        );
+
+        let mut buffer = Vec::new();
+        let report = stream_zip_as_tar(&zip_path, &mut buffer).expect("stream tar");
+        assert_eq!(report.tar_bytes, size);
+        assert_eq!(report.tar_bytes, buffer.len() as u64);
+
+        let entries = read_tar_entries(&buffer);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].0, long_name);
+        assert_eq!(entries[0].2, b"long path payload");
+    }
+
+    #[test]
+    fn zip_tar_rejects_non_zip_and_corrupt() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let text_path = temp.path().join("notes.txt");
+        fs::write(&text_path, b"plain text").expect("write text");
+        assert!(matches!(
+            zip_tar_size(&text_path),
+            Err(ArchiveError::UnsupportedFormat)
+        ));
+        assert!(matches!(
+            stream_zip_as_tar(&text_path, &mut Vec::new()),
+            Err(ArchiveError::UnsupportedFormat)
+        ));
+        assert!(matches!(
+            archive_tar_size(&text_path),
+            Err(ArchiveError::UnsupportedFormat)
+        ));
+        assert!(matches!(
+            stream_archive_as_tar(&text_path, &mut Vec::new()),
+            Err(ArchiveError::UnsupportedFormat)
+        ));
+
+        let corrupt_path = temp.path().join("corrupt.zip");
+        fs::write(&corrupt_path, b"PK\x03\x04this is not a zip file").expect("write corrupt");
+        assert!(matches!(
+            zip_tar_size(&corrupt_path),
+            Err(ArchiveError::InvalidArchive(_))
+        ));
+        assert!(matches!(
+            stream_zip_as_tar(&corrupt_path, &mut Vec::new()),
+            Err(ArchiveError::InvalidArchive(_))
+        ));
+    }
+
+    #[test]
+    fn zip_tar_rejects_traversal_and_links() {
+        let temp = tempfile::tempdir().expect("tempdir");
+
+        let traversal_path = temp.path().join("traversal.zip");
+        write_zip(&traversal_path, &[("../evil.txt", b"nope")]);
+        assert!(matches!(
+            zip_tar_size(&traversal_path),
+            Err(ArchiveError::UnsafeEntry(_))
+        ));
+        assert!(matches!(
+            stream_zip_as_tar(&traversal_path, &mut Vec::new()),
+            Err(ArchiveError::UnsafeEntry(_))
+        ));
+
+        let link_path = temp.path().join("link.zip");
+        write_zip_with_symlink(&link_path);
+        assert!(matches!(
+            zip_tar_size(&link_path),
+            Err(ArchiveError::UnsafeEntry(_))
+        ));
+        assert!(matches!(
+            stream_zip_as_tar(&link_path, &mut Vec::new()),
+            Err(ArchiveError::UnsafeEntry(_))
+        ));
+    }
+
+    #[test]
+    fn seven_zip_tar_stream_roundtrip() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive_path = temp.path().join("library.7z");
+        write_seven_zip(
+            &archive_path,
+            &[
+                ("Game/alpha.txt", b"alpha"),
+                ("Game/beta.sh", b"#!/bin/sh\n"),
+                ("Game/empty.txt", b""),
+            ],
+        );
+
+        let size = archive_tar_size(&archive_path).expect("7z tar size");
+        assert!(size > 1024);
+
+        let mut buffer = Vec::new();
+        let report = stream_archive_as_tar(&archive_path, &mut buffer).expect("stream 7z tar");
+        assert_eq!(report.files, 3);
+        assert_eq!(report.bytes, 5 + 10);
+        assert_eq!(report.tar_bytes, buffer.len() as u64);
+        assert_eq!(report.tar_bytes, size);
+
+        let entries = read_tar_entries(&buffer);
+        let find = |name: &str| {
+            entries
+                .iter()
+                .find(|(path, _, _)| path == name)
+                .unwrap_or_else(|| panic!("missing tar entry {name}"))
+        };
+        assert_eq!(find("Game/alpha.txt").2, b"alpha");
+        assert_eq!(find("Game/beta.sh").2, b"#!/bin/sh\n");
+        assert_eq!(find("Game/beta.sh").1 & 0o777, 0o755);
+        assert!(find("Game/empty.txt").2.is_empty());
+    }
+
+    #[test]
+    fn seven_zip_tar_requires_password() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let source = temp.path().join("source");
+        fs::create_dir_all(source.join("Game")).expect("mkdir");
+        fs::write(source.join("Game/secret.txt"), b"secret").expect("write");
+
+        let archive_path = temp.path().join("encrypted.7z");
+        sevenz_rust2::compress_to_path_encrypted(
+            &source,
+            &archive_path,
+            Password::from("ludex-test"),
+        )
+        .expect("compress encrypted 7z");
+
+        assert!(matches!(
+            archive_tar_size(&archive_path),
+            Err(ArchiveError::PasswordRequired)
+        ));
+        assert!(matches!(
+            stream_archive_as_tar(&archive_path, &mut Vec::new()),
+            Err(ArchiveError::PasswordRequired)
+        ));
+    }
+
+    #[test]
+    fn rar_tar_stream_is_unsupported() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let rar_path = temp.path().join("fake.rar");
+        fs::write(&rar_path, b"Rar!\x1a\x07\x00not really").expect("write rar");
+
+        assert!(matches!(
+            archive_tar_size(&rar_path),
+            Err(ArchiveError::UnsupportedFormat)
+        ));
+        assert!(matches!(
+            stream_archive_as_tar(&rar_path, &mut Vec::new()),
+            Err(ArchiveError::UnsupportedFormat)
+        ));
     }
 }

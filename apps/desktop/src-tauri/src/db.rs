@@ -406,18 +406,36 @@ pub fn get_install_job(
         .map_err(|e| format!("Could not read the install job: {e}"))
 }
 
-pub fn recent_install_jobs(
+/// Most recent persisted job for a game version, used to resume a `.part`
+/// file even when the download folder changed between attempts.
+pub fn latest_install_job_for_version(
     connection: &Connection,
-    limit: u32,
-) -> Result<Vec<InstallJobRecord>, String> {
+    game_id: i64,
+    version_id: i64,
+) -> Result<Option<InstallJobRecord>, String> {
+    connection
+        .query_row(
+            &format!(
+                "SELECT {INSTALL_JOB_COLUMNS} FROM install_jobs WHERE game_id = ?1 AND version_id = ?2 ORDER BY updated_at DESC LIMIT 1"
+            ),
+            params![game_id, version_id],
+            map_install_job,
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the install job: {e}"))
+}
+
+/// Every persisted job, newest first. Used by `list_install_jobs` so the UI
+/// can show active and historical jobs in one list.
+pub fn all_install_jobs(connection: &Connection) -> Result<Vec<InstallJobRecord>, String> {
     let mut statement = connection
         .prepare(&format!(
-            "SELECT {INSTALL_JOB_COLUMNS} FROM install_jobs ORDER BY updated_at DESC LIMIT ?1"
+            "SELECT {INSTALL_JOB_COLUMNS} FROM install_jobs ORDER BY created_at DESC, job_id DESC"
         ))
         .map_err(|e| format!("Could not read install jobs: {e}"))?;
 
     let rows = statement
-        .query_map(params![limit], map_install_job)
+        .query_map([], map_install_job)
         .map_err(|e| format!("Could not read install jobs: {e}"))?;
 
     let mut jobs = Vec::new();
@@ -506,7 +524,8 @@ mod tests {
         let loaded = get_install_job(&connection, "job-1").unwrap().unwrap();
         assert_eq!(loaded.phase, "error");
         assert_eq!(loaded.error.as_deref(), Some("interrupted"));
-        assert_eq!(recent_install_jobs(&connection, 10).unwrap().len(), 1);
+        assert_eq!(all_install_jobs(&connection).unwrap().len(), 1);
+        assert_eq!(all_install_jobs(&connection).unwrap().len(), 1);
     }
 
     #[test]

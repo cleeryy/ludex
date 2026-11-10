@@ -10,6 +10,8 @@ import {
   Dice5,
   Download,
   Film,
+  Gamepad2,
+  House,
   Library,
   ListOrdered,
   Moon,
@@ -24,6 +26,7 @@ import {
   Users,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { installsAvailable } from "@/lib/install";
 import { cn } from "@/lib/cn";
 import { formatYear, stateLabel } from "@/lib/format";
 import { useAuth, useIsAdmin, useIsEditor } from "@/state/auth";
@@ -80,11 +83,24 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     };
 
     const navigation: Item[] = [
-      { id: "nav-library", group: "Go to", label: "Library", icon: <Library className="size-3.5" />, run: go("/") },
+      { id: "nav-home", group: "Go to", label: "Home", icon: <House className="size-3.5" />, run: go("/") },
+      { id: "nav-library", group: "Go to", label: "Library", icon: <Library className="size-3.5" />, run: go("/library") },
+      ...(installsAvailable()
+        ? [
+            {
+              id: "nav-downloads",
+              group: "Go to",
+              label: "Downloads",
+              icon: <Download className="size-3.5" />,
+              run: go("/downloads"),
+            },
+          ]
+        : []),
       { id: "nav-recent", group: "Go to", label: "Recently played", icon: <Clock className="size-3.5" />, run: go("/recent") },
       { id: "nav-bookmarks", group: "Go to", label: "Bookmarks", icon: <Bookmark className="size-3.5" />, run: go("/bookmarks") },
       { id: "nav-index", group: "Go to", label: "Index", hint: "A–Z list", icon: <ListOrdered className="size-3.5" />, run: go("/all") },
       { id: "nav-news", group: "Go to", label: "News", icon: <Film className="size-3.5" />, run: go("/news") },
+      { id: "nav-bigpicture", group: "Go to", label: "Big Picture mode", icon: <Gamepad2 className="size-3.5" />, run: go("/bigpicture") },
       { id: "nav-settings", group: "Go to", label: "Settings", icon: <Settings className="size-3.5" />, run: go("/settings") },
     ];
 

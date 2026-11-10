@@ -8,6 +8,8 @@ import { formatBytes, formatRating, formatYear, stateLabel } from "@/lib/format"
 import { isNative } from "@/lib/native";
 import type { GameListQuery, GameSummary, ProgressState } from "@/lib/types";
 import { useBookmark, useGenres, useInstalledMap, useLaunchGame } from "@/lib/hooks";
+import { useDownloads } from "@/state/downloads";
+import { installsAvailable } from "@/lib/install";
 import { useAuth, useIsEditor } from "@/state/auth";
 import { useSettings } from "@/state/settings";
 import { EmptyState, ErrorState, PageHeader } from "@/components/page";
@@ -61,11 +63,13 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   const installed = useInstalledMap();
   const bookmark = useBookmark();
   const launch = useLaunchGame();
+  const downloads = useDownloads();
 
   const q = params.get("q") ?? "";
   const genre = params.get("genre") ?? "";
   const state = (params.get("state") as ProgressState | null) ?? null;
   const early = params.get("earlyAccess") === "true";
+  const installedOnly = params.get("installed") === "true" && installsAvailable();
   const sort = (params.get("sort") ?? (mode === "recent" ? "lastPlayed" : "title")) as NonNullable<GameListQuery["sort"]>;
   const order = (params.get("order") ?? (sort === "title" ? "asc" : "desc")) as NonNullable<GameListQuery["order"]>;
 
@@ -92,10 +96,14 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   });
 
   const all = data?.items ?? [];
-  const items = useMemo(() => (mode === "recent" ? all.filter((game) => game.lastPlayedAt) : all), [all, mode]);
+  const items = useMemo(() => {
+    let list = mode === "recent" ? all.filter((game) => game.lastPlayedAt) : all;
+    if (installedOnly) list = list.filter((game) => installed.has(game.id));
+    return list;
+  }, [all, mode, installedOnly, installed]);
 
   const totalBytes = items.reduce((sum, game) => sum + game.totalSize, 0);
-  const hasFilters = Boolean(q || genre || state || early);
+  const hasFilters = Boolean(q || genre || state || early || installedOnly);
   const effectiveView = mode === "index" ? "list" : view;
 
   const update = (key: string, value: string | null) => {
@@ -107,11 +115,17 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
 
   const clearFilters = () => {
     const next = new URLSearchParams(params);
-    for (const key of ["q", "genre", "state", "earlyAccess"]) next.delete(key);
+    for (const key of ["q", "genre", "state", "earlyAccess", "installed"]) next.delete(key);
     setParams(next, { replace: true });
   };
 
   const toggleBookmark = (game: GameSummary) => bookmark.mutate({ id: game.id, bookmarked: !game.bookmarked });
+
+  const installingPercent = (gameId: number): number | null => {
+    const job = downloads.jobForGame(gameId);
+    if (!job) return null;
+    return job.bytesTotal ? (job.bytesDone / job.bytesTotal) * 100 : 0;
+  };
 
   const groups = useMemo(() => {
     if (mode !== "index") return [];
@@ -239,6 +253,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
           <LibraryEmpty
             mode={mode}
             hasFilters={hasFilters}
+            installedOnly={installedOnly}
             isEditor={isEditor}
             signedIn={Boolean(user)}
             onClear={clearFilters}
@@ -253,6 +268,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 game={game}
                 index={game.id}
                 installed={installed.get(game.id)}
+                installing={installingPercent(game.id)}
                 onBookmark={() => toggleBookmark(game)}
                 onPlay={
                   isNative() && installed.has(game.id)
@@ -289,7 +305,13 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                     <p className="truncate text-[14px] text-ink">{game.title}</p>
                     <p className="truncate text-[11.5px] text-ink-3">{game.genres.join(", ")}</p>
                   </div>
-                  {installed.has(game.id) && <Badge tone="outline" className="hidden shrink-0 sm:inline-flex">Installed</Badge>}
+                  {installingPercent(game.id) !== null ? (
+                    <Badge tone="signal" className="hidden shrink-0 sm:inline-flex">
+                      Installing {installingPercent(game.id)!.toFixed(0)}%
+                    </Badge>
+                  ) : (
+                    installed.has(game.id) && <Badge tone="outline" className="hidden shrink-0 sm:inline-flex">Installed</Badge>
+                  )}
                 </div>
                 <span className="num hidden text-right text-[11.5px] text-ink-3 sm:block">{formatYear(game.releaseDate)}</span>
                 <span className="num text-right text-[11.5px] text-ink-3">{formatBytes(game.totalSize)}</span>
@@ -388,17 +410,31 @@ function LibrarySkeleton({ view }: { view: "grid" | "list" }) {
 function LibraryEmpty({
   mode,
   hasFilters,
+  installedOnly,
   isEditor,
   signedIn,
   onClear,
 }: {
   mode: LibraryMode;
   hasFilters: boolean;
+  installedOnly: boolean;
   isEditor: boolean;
   signedIn: boolean;
   onClear: () => void;
 }) {
   const navigate = useNavigate();
+  if (mode === "library" && hasFilters && installedOnly) {
+    return (
+      <EmptyState
+        title="No installed games"
+        description="Nothing from this library is installed on this machine yet. Install a game from its page, or show the full library."
+      >
+        <Button variant="default" onClick={onClear}>
+          Show all games
+        </Button>
+      </EmptyState>
+    );
+  }
   if (hasFilters) {
     return (
       <EmptyState
@@ -415,7 +451,7 @@ function LibraryEmpty({
   if (mode === "bookmarks") {
     return (
       <EmptyState title="No bookmarks yet" description="Bookmark a game from the library and it will wait for you here.">
-        <Button variant="default" onClick={() => navigate("/")}>
+        <Button variant="default" onClick={() => navigate("/library")}>
           Browse the library
         </Button>
       </EmptyState>
@@ -428,7 +464,7 @@ function LibraryEmpty({
         title="Nothing played yet"
         description="Launch a game from the desktop app and it will show up here with its playtime."
       >
-        <Button variant="default" onClick={() => navigate("/")}>
+        <Button variant="default" onClick={() => navigate("/library")}>
           Browse the library
         </Button>
       </EmptyState>

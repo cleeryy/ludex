@@ -92,6 +92,29 @@ export function titleCase(input: string): string {
   return input.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+export function installPhaseLabel(phase: string): string {
+  switch (phase) {
+    case "queued":
+      return "Queued";
+    case "downloading":
+      return "Downloading";
+    case "extracting":
+      return "Extracting";
+    case "finalizing":
+      return "Finalizing";
+    case "done":
+      return "Installed";
+    case "cancelled":
+      return "Cancelled";
+    case "error":
+      return "Failed";
+    case "interrupted":
+      return "Interrupted";
+    default:
+      return phase;
+  }
+}
+
 /** "onHold" -> "On hold", "planToPlay" -> "Planned" */
 export function stateLabel(state: string): string {
   switch (state) {

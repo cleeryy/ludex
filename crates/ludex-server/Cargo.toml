@@ -48,3 +48,6 @@ rust-embed = { version = "8", optional = true, features = ["axum"] }
 http-body-util = "0.1"
 tower = { workspace = true, features = ["util"] }
 tempfile.workspace = true
+zip.workspace = true
+sevenz-rust2.workspace = true
+tar = "0.4"

@@ -140,6 +140,33 @@ cycled motif per still, so a demo library has a coherent “press kit”.
 - `src/lib/native.ts` is the Tauri bridge: every command in the contract, typed, dynamic-imported,
   no-op or friendly rejection in a browser. Installed games are merged into the library by game id.
 
+
+
+## Installs, Home and Big Picture
+
+**Installs are background jobs.** `DownloadsProvider` owns one list for the whole app, fed by
+`list_install_jobs`, the `install://*` events and a 1s poll while anything is active. The same job
+appears in three places, all reading that list: the rail badge, the compact strip at the bottom of
+the shell (title, aggregate percent, speed, ETA, click for `/downloads`), and the Downloads screen
+(active rows with bytes/speed/ETA/cancel/open folder, history with resume/open folder/clear
+finished). The install dialog starts a job and can be closed; the job keeps running. Starting an
+install for a game that already has an active job returns the existing one.
+
+**Home** is the default route: a dark plate hero for the most recently played installed game (or
+the last played game), with Play/Install/Download, followed by a horizontal Recently played shelf
+and an All games grid. It uses the same plates and type as the library; it is not a separate visual
+system.
+
+**Big Picture** (`/bigpicture`) is a full-screen console layout: a large cover plate, the selected
+game's title and actions on ink, one shelf with captions, and a strip of key hints. Arrow keys,
+Enter, Escape and the Gamepad API (stick, d-pad, A/B/Y) drive it. It reuses the dark stage and the
+plate system, so it reads as the same product at ten feet.
+
+**Desktop settings** live in Settings: install and download folders with a folder picker and free
+space, stream installs (ZIP tar stream; saves disk, uses bandwidth, no mid-file resume), keep
+archives, and an archive password list tried in order. Paths are editable text so the settings can
+be inspected in a browser against the mock adapter.
+
 ## Voice
 
 Short, confident, sentence case. Actions keep their name through the flow (“Install” → “Installing”

@@ -6,13 +6,17 @@ import { useAuth, useIsAdmin, useIsEditor } from "@/state/auth";
 import { SettingsProvider } from "@/state/settings";
 import { ToastProvider } from "@/state/toasts";
 import { AuthProvider } from "@/state/auth";
+import { DownloadsProvider } from "@/state/downloads";
 import { Wordmark } from "@/components/brand";
 import { Button } from "@/components/ui/controls";
 import { ToastViewport } from "@/components/ui/toast";
 import { AppShell } from "@/components/shell/app-shell";
 import { LoginScreen } from "@/screens/login";
 import { SetupScreen } from "@/screens/setup";
+import { HomeScreen } from "@/screens/home";
 import { LibraryScreen } from "@/screens/library";
+import { DownloadsScreen } from "@/screens/downloads";
+import { BigPictureScreen } from "@/screens/big-picture";
 import { GameDetailScreen } from "@/screens/game-detail";
 import { NewsScreen } from "@/screens/news";
 import { SettingsScreen } from "@/screens/settings";
@@ -122,6 +126,7 @@ export function App() {
       <SettingsProvider>
         <ToastProvider>
           <AuthProvider>
+            <DownloadsProvider>
             <HashRouter>
               <Routes>
                 <Route
@@ -129,6 +134,14 @@ export function App() {
                   element={
                     <Gate>
                       <SetupScreen />
+                    </Gate>
+                  }
+                />
+                <Route
+                  path="/bigpicture"
+                  element={
+                    <Gate>
+                      <BigPictureScreen />
                     </Gate>
                   }
                 />
@@ -147,7 +160,9 @@ export function App() {
                     </Gate>
                   }
                 >
-                  <Route index element={<LibraryScreen mode="library" />} />
+                  <Route index element={<HomeScreen />} />
+                  <Route path="library" element={<LibraryScreen mode="library" />} />
+                  <Route path="downloads" element={<DownloadsScreen />} />
                   <Route path="recent" element={<LibraryScreen mode="recent" />} />
                   <Route path="bookmarks" element={<LibraryScreen mode="bookmarks" />} />
                   <Route path="all" element={<LibraryScreen mode="index" />} />
@@ -199,6 +214,7 @@ export function App() {
               </Routes>
             </HashRouter>
             <ToastViewport />
+            </DownloadsProvider>
           </AuthProvider>
         </ToastProvider>
       </SettingsProvider>

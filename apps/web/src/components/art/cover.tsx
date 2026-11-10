@@ -408,6 +408,36 @@ export function GameCover({
   );
 }
 
+/* ---------------------------------- plate --------------------------------- */
+
+/** Bare artwork, no gradient or copy. Used by the Home hero. */
+export function ArtPlate({
+  title,
+  artUrl,
+  className,
+}: {
+  title: string;
+  artUrl: string | null;
+  className?: string;
+}) {
+  const spec = artFromUrl(artUrl, title);
+  const demo = !artUrl || artUrl.startsWith("demo://");
+  const seed = hashString(artUrl ?? title);
+  const src = assetUrl(artUrl);
+
+  return (
+    <div className={cn("overflow-hidden bg-bg-deep", className)} style={plateStyle(spec)} aria-hidden="true">
+      {demo ? (
+        <svg className="h-full w-full" viewBox="0 0 300 400" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <Motif spec={spec} seed={seed} />
+        </svg>
+      ) : (
+        <img src={src ?? ""} alt="" className="h-full w-full object-cover" />
+      )}
+    </div>
+  );
+}
+
 /* -------------------------------- backdrop -------------------------------- */
 
 export function GameBackdrop({
@@ -448,7 +478,7 @@ export function GameBackdrop({
       />
       <div
         className="absolute inset-0"
-        style={{ background: "linear-gradient(90deg, var(--bg) 0%, transparent 34%)" }}
+        style={{ background: "linear-gradient(90deg, rgba(5,5,5,0.9) 0%, rgba(5,5,5,0.68) 45%, rgba(5,5,5,0.3) 75%, rgba(5,5,5,0.08) 100%)" }}
       />
     </div>
   );

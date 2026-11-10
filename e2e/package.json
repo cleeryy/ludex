@@ -1,0 +1,16 @@
+{
+  "name": "@ludex/e2e",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Browser end-to-end tests for Ludex (Playwright, Chromium only)",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report",
+    "install:browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0"
+  }
+}

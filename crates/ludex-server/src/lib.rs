@@ -38,6 +38,7 @@ pub mod routes;
 pub mod scanner;
 pub mod sql;
 pub mod state;
+pub mod stream;
 pub mod web;
 
 pub use config::Config;
