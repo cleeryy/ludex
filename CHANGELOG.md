@@ -8,6 +8,30 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Multiple library roots (#45): ordered `library_roots` table with label,
+  path, enabled flag and availability, `LUDEX_LIBRARY_ROOTS` configuration,
+  admin CRUD at `/api/library/roots` and per-root scans at
+  `/api/library/roots/{id}/scan`. Versions record their root, identical
+  archives mirrored across roots are indexed once (SHA-256), and a missing or
+  unmounted root marks its versions `root_unavailable` instead of deleting
+  games. Existing installs are backfilled to root #1 by migration
+  `0006_library_ops.sql`.
+- Optional folder watcher (#44): `notify`-based recursive watch of enabled
+  roots with a debounced scan trigger (`LUDEX_WATCHER_ENABLED`,
+  `LUDEX_WATCHER_DEBOUNCE_MS`), ignored partial/hidden files, runtime root
+  changes and `GET /api/library/watcher` status.
+- Integrity checks (#43): SHA-256 baselines for archives
+  (`game_versions.content_hash`) and cached media (`media_manifest`), a
+  scheduled read-only check (`LUDEX_INTEGRITY_INTERVAL_HOURS`) and
+  `/api/integrity/check` + `/api/integrity/reports` endpoints with
+  `missing`/`corrupt`/`size_mismatch` findings. Nothing is deleted.
+- Media cache garbage collection (#18): `POST /api/media/gc` (dry-run by
+  default) removes only unreferenced artwork older than
+  `LUDEX_MEDIA_GC_GRACE_HOURS`, with an optional schedule
+  (`LUDEX_MEDIA_GC_INTERVAL_HOURS`) and a `media_gc_runs` history.
+- `docs/LIBRARY.md` documenting roots, watcher, integrity and GC operations,
+  including platform limits and safety rules.
+
 - Advanced library filters: genre, release year range, player count, playtime
   range, installed state, metadata provider, minimum rating and sort by
   playtime. Filters combine, live in the URL, persist in localStorage, and are

@@ -272,9 +272,87 @@ interface Webhook {
 
 | Method | Route | Notes |
 |---|---|---|
-| POST | `/api/library/scan` | admin/editor; 202 `{ started: boolean }` |
+| POST | `/api/library/scan` | admin/editor; 202 `{ started: boolean }`; scans every enabled root |
 | GET | `/api/library/scan` | `ScanStatus` |
 | GET | `/api/library/folders` | `{ gamesDir, mediaDir, dataDir }` (admin) |
+| GET | `/api/library/roots` | admin + `admin` scope; `LibraryRoot[]`, ordered |
+| POST | `/api/library/roots` | admin; `{ path, label?, enabled? }` → 201 `LibraryRoot`; 409 `root_exists` |
+| PATCH | `/api/library/roots/{id}` | admin; `{ label?, path?, enabled?, position? }` → `LibraryRoot` |
+| DELETE | `/api/library/roots/{id}?force=` | admin; 204; 409 `root_not_empty` unless `force=true` |
+| POST | `/api/library/roots/{id}/scan` | admin/editor; 202 `{ started, rootId }`; scans that root only |
+| GET | `/api/library/watcher` | admin; `LibraryWatcherStatus` |
+
+```ts
+interface LibraryRoot {
+  id: number; label: string; path: string;
+  enabled: boolean; available: boolean; position: number;
+  createdAt: string; lastScanAt: string | null; lastError: string | null;
+  versionCount: number;
+}
+
+interface LibraryWatcherStatus {
+  enabled: boolean; debounceMs: number;
+  roots: { id: number; label: string; path: string }[];
+  lastEventAt: string | null; lastScanAt: string | null;
+  pending: boolean; lastError: string | null;
+}
+```
+
+A root whose path is missing or unmounted is reported with `available: false`
+and a `lastError`; its versions keep `missing = 0` and downloads answer
+`404 root_unavailable`. Removing a root keeps games, progress and cloud saves.
+See [`LIBRARY.md`](./LIBRARY.md) for scan ordering, mirror deduplication and
+watcher platform limits.
+
+## Integrity checks
+
+| Method | Route | Notes |
+|---|---|---|
+| POST | `/api/integrity/check` | admin + `admin` scope; `{ scope?: "all" \| "archives" \| "media" }` → 202 `{ reportId, status }`; 409 `integrity_running` |
+| GET | `/api/integrity/reports?limit=` | admin; newest first, `limit` 1–200 (default 20) |
+| GET | `/api/integrity/reports/{id}` | admin; `{ report, findings }`; 404 `report_not_found` |
+
+```ts
+type IntegrityScope = "all" | "archives" | "media";
+
+interface IntegrityReport {
+  id: number; scope: IntegrityScope;
+  status: "running" | "completed" | "failed";
+  checked: number; findingsCount: number;
+  error: string | null; startedAt: string; finishedAt: string | null;
+}
+
+interface IntegrityFinding {
+  id: number; kind: "missing" | "corrupt" | "size_mismatch";
+  targetType: "archive" | "media"; targetId: string | null;
+  path: string | null; detail: string | null; createdAt: string;
+}
+```
+
+Checks never delete anything: findings are informational. The first successful
+hash of an archive or media file becomes its baseline. Scheduled by
+`LUDEX_INTEGRITY_INTERVAL_HOURS` (default 168, `0` disables).
+
+## Media cache garbage collection
+
+| Method | Route | Notes |
+|---|---|---|
+| POST | `/api/media/gc?dryRun=true\|false` | admin + `admin` scope; `dryRun` defaults to `true` |
+
+```ts
+interface MediaGcResult {
+  dryRun: boolean; graceHours: number;
+  scanned: number; referenced: number;
+  orphanFiles: number; orphanBytes: number;
+  deletedFiles: number; deletedBytes: number;
+  candidates: string[]; // up to 100 orphan file names
+  startedAt: string; finishedAt: string;
+}
+```
+
+Only unreferenced files older than `LUDEX_MEDIA_GC_GRACE_HOURS` (default 24)
+are removed; files referenced by a game or user row are never deleted. A
+scheduled run is enabled by `LUDEX_MEDIA_GC_INTERVAL_HOURS` (default `0`).
 
 ## Ingest (admin/editor) — adapted from gv-downloader
 
