@@ -1352,7 +1352,7 @@ dependencies = [
  "ludex-core",
  "mime_guess",
  "password-hash",
- "rand 0.8.8",
+ "rand 0.10.3",
  "reqwest",
  "rust-embed",
  "serde",
