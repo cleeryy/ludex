@@ -1,6 +1,6 @@
 # Ludex architecture
 
-Ludex is a clean-room, open-source (MIT OR Apache-2.0) self-hosted game library for
+Ludex is a clean-room, open-source (AGPL-3.0-or-later) self-hosted game library for
 DRM-free games, written in Rust. It provides:
 
 - `ludex-server`: a single static binary that indexes a folder of archives, enriches
