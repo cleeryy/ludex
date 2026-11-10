@@ -341,10 +341,12 @@ async fn download_completes_and_detects_format() {
         std::fs::read(env.games.join("My Game (2).zip")).expect("finished file"),
         payload
     );
-    assert!(
-        env.scan_rx.try_recv().is_ok(),
-        "a library scan should be triggered"
-    );
+    // The job is marked Done before the scan signal is sent; wait for it
+    // instead of assuming both happen before the next poll.
+    tokio::time::timeout(Duration::from_secs(2), env.scan_rx.recv())
+        .await
+        .expect("a library scan should be triggered")
+        .expect("the scan channel should stay open");
 }
 
 #[tokio::test]
