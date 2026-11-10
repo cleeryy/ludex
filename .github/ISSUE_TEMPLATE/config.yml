@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/cleeryy/ludex/security/advisories/new
+    about: Report vulnerabilities privately. Do not open a public issue.
+  - name: Deployment and migration docs
+    url: https://github.com/cleeryy/ludex/blob/main/docs/DEPLOY.md
+    about: Docker, binary, reverse proxy, backups and troubleshooting.
+  - name: Feature parity and roadmap
+    url: https://github.com/cleeryy/ludex/blob/main/docs/FEATURE-PARITY.md
+    about: Check what is shipped in v0.2 and what is still roadmap.

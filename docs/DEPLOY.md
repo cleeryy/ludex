@@ -313,6 +313,9 @@ Database migrations run automatically at startup and are forward-only. To roll
 back, restore the pre-upgrade `/data` backup and the previous image tag. Never
 run two server instances against the same `/data` directory.
 
+For the CT258 pull-based updater (edge prerelease, SHA-256 verification,
+automatic rollback, systemd timer), see [`GITOPS.md`](GITOPS.md).
+
 ## Healthcheck and monitoring
 
 - Endpoint: `GET /api/health` → `{"status":"ok","version":"...","uptimeSeconds":...}`.

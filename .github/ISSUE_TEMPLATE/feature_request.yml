@@ -1,0 +1,74 @@
+name: Feature request
+description: Propose a capability or an improvement for Ludex.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check `docs/FEATURE-PARITY.md` and the open issues first. This tracker is
+        for product features, not for game requests or DRM circumvention.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can you not do today, and who is affected?
+      placeholder: I cannot tell which games are installed on a second machine without opening each detail page.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behaviour you want, not only the implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds, existing features, or simpler options.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Server / API
+        - Web UI
+        - Desktop app
+        - Library / metadata
+        - Downloads / installs
+        - Users / security
+        - Deployment / operations
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - Small (one screen or endpoint)
+        - Medium (one subsystem)
+        - Large (cross-cutting or new platform)
+        - Not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: This request does not involve DRM circumvention, piracy or game streaming.
+          required: true

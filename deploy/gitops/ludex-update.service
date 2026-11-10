@@ -1,0 +1,18 @@
+[Unit]
+Description=Ludex pull-based update (GitOps)
+Documentation=https://github.com/cleeryy/ludex/blob/main/docs/GITOPS.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ludex-update
+EnvironmentFile=-/etc/ludex/update.env
+User=root
+Group=root
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/ludex
+TimeoutStartSec=180
+Nice=10

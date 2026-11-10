@@ -189,3 +189,173 @@ jobs:
             e2e/test-results
           if-no-files-found: ignore
           retention-days: 7
+
+  desktop-smoke:
+    name: Desktop smoke (xvfb)
+    runs-on: ubuntu-24.04
+    # Advisory until the Tauri window check is stable on every runner. The
+    # release gate is E2E; this job catches gross desktop regressions.
+    continue-on-error: true
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Tauri and X11 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            xvfb \
+            xdotool
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "${{ hashFiles('pnpm-lock.yaml') != '' && 'pnpm' || '' }}"
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      - name: Install dependencies
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+          else
+            pnpm install --no-frozen-lockfile
+          fi
+
+      - name: Build desktop debug binary
+        run: pnpm --dir apps/desktop tauri build --debug --no-bundle
+
+      - name: Smoke test the window under Xvfb
+        run: xvfb-run -a -s "-screen 0 1440x900x24" scripts/desktop-smoke.sh
+
+  edge-release:
+    name: Edge release (main)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [rust, web, e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for server-affecting changes
+        id: changed
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin || true
+          previous="$(git rev-list -n 1 refs/tags/edge 2>/dev/null || true)"
+          if [ -z "$previous" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "no edge tag yet; publishing the first edge build"
+          elif git diff --quiet "$previous" HEAD -- \
+            crates apps/web Cargo.toml Cargo.lock package.json pnpm-lock.yaml pnpm-workspace.yaml docker; then
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "no server-affecting changes since edge ($previous); skipping"
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "server-affecting changes since edge ($previous)"
+          fi
+
+      - name: Install pnpm
+        if: steps.changed.outputs.code == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Install Node
+        if: steps.changed.outputs.code == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "${{ hashFiles('pnpm-lock.yaml') != '' && 'pnpm' || '' }}"
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install Rust
+        if: steps.changed.outputs.code == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        if: steps.changed.outputs.code == 'true'
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install web dependencies
+        if: steps.changed.outputs.code == 'true'
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+          else
+            pnpm install --no-frozen-lockfile
+          fi
+
+      - name: Build web UI
+        if: steps.changed.outputs.code == 'true'
+        run: pnpm --filter @ludex/web build
+
+      - name: Build server with embedded web
+        if: steps.changed.outputs.code == 'true'
+        run: |
+          if [ -f Cargo.lock ]; then
+            cargo build --release --locked -p ludex-server --features embed-web
+          else
+            cargo build --release -p ludex-server --features embed-web
+          fi
+
+      - name: Package edge archive
+        if: steps.changed.outputs.code == 'true'
+        run: |
+          set -euo pipefail
+          NAME="ludex-server-edge-x86_64-unknown-linux-gnu"
+          mkdir -p "dist/${NAME}"
+          cp target/release/ludex-server "dist/${NAME}/"
+          for file in README.md LICENSE; do
+            if [ -f "$file" ]; then cp "$file" "dist/${NAME}/"; fi
+          done
+          strip "dist/${NAME}/ludex-server" || true
+          tar -czf "dist/${NAME}.tar.gz" -C "dist/${NAME}" .
+          (cd dist && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
+
+      - name: Publish edge prerelease
+        if: steps.changed.outputs.code == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          TAG="edge"
+          NOTES="Rolling prerelease built from main at ${SHA}. E2E-gated; not for production."
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "$TAG" "$SHA"
+          git push origin "refs/tags/${TAG}" --force
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --prerelease --title "Ludex edge" --notes "$NOTES"
+          else
+            gh release create "$TAG" --prerelease --title "Ludex edge" --notes "$NOTES"
+          fi
+          gh release upload "$TAG" dist/*.tar.gz dist/*.sha256 --clobber
