@@ -18,11 +18,17 @@ function youtubeEmbed(videoId: string): string {
   return `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&modestbranding=1&autoplay=1`;
 }
 
+/** Rows enriched before the provider field existed still carry YouTube URLs. */
+function youtubeId(video: GameVideo): string | null {
+  if (video.videoId) return video.videoId;
+  const match = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{6,})/.exec(video.url);
+  return match?.[1] ?? null;
+}
+
 function videoPoster(video: GameVideo): string | null {
   if (video.thumbnailUrl) return video.thumbnailUrl;
-  if (video.provider === "youtube" && video.videoId) {
-    return `https://img.youtube.com/vi/${video.videoId}/hqdefault.jpg`;
-  }
+  const id = youtubeId(video);
+  if (id) return `https://img.youtube.com/vi/${id}/hqdefault.jpg`;
   return null;
 }
 
@@ -40,7 +46,8 @@ export function TrailerPlayer({
   const [playing, setPlaying] = useState(false);
   const reduce = useReducedMotion();
   const poster = videoPoster(video);
-  const isYoutube = video.provider === "youtube" && Boolean(video.videoId);
+  const id = youtubeId(video);
+  const isYoutube = Boolean(id);
 
   useEffect(() => {
     setPlaying(false);
@@ -51,7 +58,7 @@ export function TrailerPlayer({
       <div className={cn("media-plate aspect-video w-full overflow-hidden bg-black", className)}>
         {isYoutube ? (
           <iframe
-            src={youtubeEmbed(video.videoId!)}
+            src={youtubeEmbed(id!)}
             title={video.title || title}
             className="h-full w-full"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
