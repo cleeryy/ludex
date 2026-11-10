@@ -87,6 +87,10 @@ mode 0600 on Unix because it holds the JWT). Defaults:
 | `keepArchives` | `false` |
 | `archivePasswords` | `[]` (tried in order before the empty password) |
 | `bandwidthLimitKib` | `0` (unlimited; caps installs, repairs and streams) |
+| `closeToTray` | `true` (closing the window hides to the tray) |
+| `updateChannel` | `stable` (`early` follows the `edge` prerelease) |
+| `checkUpdatesOnStartup` | `true` (at most once per 24 h) |
+| `lastUpdateCheckAt` | `null` until the first check |
 
 `save_settings` deep-merges partial payloads, so a wizard can save one field at
 a time. An empty `downloadDir` is meaningful: the effective directory is
@@ -98,8 +102,10 @@ extracted game. `install_game` can also override it per call with `downloadDir`.
 `{appDataDir}/ludex-desktop.db` (SQLite, WAL, `user_version` migrations):
 
 - `installed_games` — one row per installed game (`game_id` PK, version, title,
-  install path, executable, size, timestamps, internal `install_root`).
-- `sessions` — play sessions, with `synced` flag for offline playtime.
+  install path, executable, size, timestamps, archive fingerprint, internal
+  `install_root`).
+- `sessions` — play sessions with `started_at`, `ended_at`, rounded `minutes`
+  (sent to the server), exact `seconds` (local reports) and a `synced` flag.
 - `install_jobs` — persisted install jobs: phase, bytes, speed, `.part` path,
   install path, error, timestamps. Interrupted jobs are marked `error` with a
   resume hint at startup; `paused` rows stay paused so they can be resumed after
@@ -174,6 +180,62 @@ Cancel aborts the download promptly, deletes the `.part`, removes staging and
 marks the job `cancelled`. Cancel is cooperative during extraction (the core
 extractor is not interruptible mid-entry; staging is removed afterwards).
 
+## Tray, updates and process-tree playtime
+
+### Tray icon (#15)
+
+A tray icon is created at startup with Show/Hide, Downloads, a Recent games
+submenu (the five most recently launched installs, from
+`installed_games.last_launched_at`), Check for updates and Quit. Left click
+toggles the window, the tooltip reports running/paused downloads, and the menu
+is rebuilt after a launch or a finished install. `closeToTray` (default true)
+makes the window close button hide to the tray; quit explicitly from the menu.
+On macOS hiding switches the activation policy to accessory and showing restores
+it. Linux needs `libayatana-appindicator3` at build time (already in the CI
+dependencies).
+
+### Application updates (#16)
+
+`tauri-plugin-updater` with two channels:
+
+| Channel | Endpoint |
+|---|---|
+| `stable` | `https://github.com/cleeryy/ludex/releases/latest/download/latest.json` |
+| `early` | `https://github.com/cleeryy/ludex/releases/download/edge/latest.json` |
+
+Checks run at startup (throttled to once per 24 h) and on demand from Settings or
+the tray. `check_for_updates` returns `UpdateStatus`; `install_update` downloads
+with `update://progress` events and installs. On Windows the installer restarts
+the app; elsewhere the UI offers `restart_app`. The public key lives in
+`tauri.conf.json` (`plugins.updater.pubkey`); when it is empty the status is
+`configured: false` and installs are refused with an explicit message instead of
+failing at verification time. Keys and channel publishing are documented in
+[`docs/RELEASING.md`](../../docs/RELEASING.md).
+
+### Game updates (#30)
+
+`check_game_updates` asks the server for `GET /api/games/{id}/versions/latest`
+and compares it with the local row: a different version id is a new version; an
+identical id with a different archive fingerprint means the archive was replaced
+in place. `update_game` reuses the normal install pipeline (stream or archive)
+into staging and only removes the previous folder after the new install is in
+place and indexed, so a failed update leaves a playable install. Save files live
+outside the install folder and are never touched. Install fingerprints are
+recorded at install time from the downloaded archive (`sha256-sample:` over the
+size plus the first and last MiB, see `ludex_core::fingerprint`); stream installs
+have no archive to fingerprint and fall back to version ids.
+
+### Playtime process tree (#26)
+
+The launch watchdog samples the process list once per second and keeps the
+session open while **any descendant** of the launched PID is alive, attributing
+the whole session to the root game. `stop_game` kills the whole tree
+(children first). Sessions close when the tree is empty, so crashes and forced
+kills still record the time played. Limits: a child spawned and orphaned between
+two samples is lost (launchers that exit in under a second), and PID reuse can
+extend a session in pathological cases. On macOS `open` is tracked, so the game
+itself is not a descendant; sessions may end when `open` exits.
+
 ## Move, verify and repair
 
 - `move_install(gameId, targetDir)` keeps the `{slug}/{versionLabel}` layout
@@ -204,8 +266,13 @@ extractor is not interruptible mid-entry; staging is removed afterwards).
 | `install://move-progress` | `{ gameId, bytesDone, bytesTotal, message }` |
 | `install://verify-progress` | `{ gameId, filesDone, filesTotal, bytesDone, bytesTotal, message }` |
 | `install://repair-progress` | same as verify plus `phase` |
-| `game://exited` | `{ sessionId, gameId, minutesPlayed }` |
+| `game://exited` | `{ sessionId, gameId, minutesPlayed, secondsPlayed }` |
 | `local-server://status` | `{ running, url }` |
+| `ui://navigate` | route string requested by the tray |
+| `ui://launch` | `gameId` from the tray's Recent games |
+| `update://available` | `UpdateStatus` |
+| `update://progress` | `{ downloaded, total, percent }` |
+| `update://installed` | `{ version, restarted }` |
 
 ## Launching and playtime
 
@@ -216,11 +283,12 @@ extractor is not interruptible mid-entry; staging is removed afterwards).
 - macOS: `.app` bundles through `open`, other files directly.
 - `args` is split with quote support (backslashes kept, Windows paths intact).
 
-A watchdog thread polls the child, records the session (rounded to the nearest
-minute), updates `last_launched_at`, emits `game://exited` and posts
-`{ minutes }` to `/api/games/{id}/playtime`. Failures leave `sessions.synced = 0`
-and are retried at the next launch/exit. `stop_game` kills the direct child
-(child processes are not tracked) and the watchdog still reports the session.
+A watchdog thread polls the process tree, records the session (exact seconds,
+plus minutes rounded to the nearest minute for the server), updates
+`last_launched_at`, emits `game://exited` and posts `{ minutes }` to
+`/api/games/{id}/playtime`. Failures leave `sessions.synced = 0` and are retried
+at the next launch/exit. `stop_game` kills the whole process tree and the
+watchdog still reports the session.
 
 ## Safety
 
@@ -254,4 +322,11 @@ by CI; no code signing is configured.
   (the row is replaced).
 - Extraction progress cannot be cancelled mid-archive; cancellation is applied
   between phases.
-- `stop_game` kills the direct child only; child processes are not tracked.
+- Process-tree tracking samples once per second: a launcher that exits in under
+  a second before its child is observed can end the session early, and a child
+  reparented to PID 1 between two samples is lost. macOS tracks `open`, not the
+  game, for the same reason.
+- The updater needs a release signing key; source builds and unreleased tags
+  report `configured: false` and cannot install updates.
+- The `early` channel requires the moving `edge` prerelease to publish
+  `latest.json` (see `docs/RELEASING.md`).

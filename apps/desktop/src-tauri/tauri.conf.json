@@ -29,12 +29,17 @@
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https: asset: http://asset.localhost; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http: https: ws: wss:; media-src 'self' data: blob: http: https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
       "devCsp": null,
-      "capabilities": ["default"]
+      "capabilities": [
+        "default"
+      ]
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "appimage"],
+    "targets": [
+      "deb",
+      "appimage"
+    ],
     "publisher": "cleeryy",
     "copyright": "Copyright © 2026 cleeryy",
     "category": "Game",
@@ -50,6 +55,18 @@
     "linux": {
       "deb": {
         "section": "games"
+      }
+    },
+    "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": [
+        "https://github.com/cleeryy/ludex/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

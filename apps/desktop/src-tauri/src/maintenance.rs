@@ -586,6 +586,7 @@ pub async fn repair_install(app: &AppHandle, game_id: i64) -> Result<RepairRepor
         install_dir: None,
         download_dir: None,
         stream: None,
+        replace_path: None,
     };
 
     let mut archive = install::local_archive_path(&state, &params).await;
@@ -897,6 +898,7 @@ mod tests {
             size_bytes: 0,
             installed_at: "2026-01-01T00:00:00Z".into(),
             last_launched_at: None,
+            archive_hash: None,
             install_root: Some(root.into()),
         }
     }

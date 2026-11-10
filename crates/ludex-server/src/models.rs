@@ -81,6 +81,8 @@ pub struct VersionRow {
     pub early_access: i64,
     pub missing: i64,
     pub root_unavailable: i64,
+    pub archive_hash: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 /// Row of the `users` table, including the password hash.

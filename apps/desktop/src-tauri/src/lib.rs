@@ -8,14 +8,18 @@ mod launch;
 mod maintenance;
 mod manifest;
 mod paths;
+mod process_tree;
 mod server;
 mod settings;
 mod state;
 #[cfg(test)]
 mod test_support;
+mod tray;
+mod updater;
+mod updates;
 mod util;
 
-use tauri::{Manager, RunEvent};
+use tauri::{Manager, RunEvent, WindowEvent};
 use tracing_subscriber::EnvFilter;
 
 pub fn run() {
@@ -30,18 +34,30 @@ pub fn run() {
     let app = tauri::Builder::default()
         // The single-instance plugin must be registered first.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            tray::show_window(app);
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Registered even without a signing key: the plugin refuses to install
+        // and `updater::check_now` reports the missing key explicitly.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let app = window.app_handle();
+                // Close-to-tray (#15): hide instead of quitting. Quit from the
+                // tray menu or the app menu.
+                if tray::close_to_tray(app) {
+                    api.prevent_close();
+                    tray::hide_window(app);
+                }
+            }
+        })
         .setup(|app| {
             let state = state::AppState::new(app.handle()).map_err(std::io::Error::other)?;
             app.manage(state);
+
+            tray::init(app.handle()).map_err(std::io::Error::other)?;
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -55,7 +71,11 @@ pub fn run() {
                 .await;
 
                 server::autostart(handle.clone()).await;
-                launch::sync_pending(handle).await;
+                launch::sync_pending(handle.clone()).await;
+                tray::refresh_menu(&handle);
+
+                // Throttled to once per 24 h; a no-op without release keys.
+                updater::check_on_startup(handle.clone()).await;
             });
             Ok(())
         })
@@ -73,12 +93,19 @@ pub fn run() {
             commands::get_install_job,
             commands::list_install_jobs,
             commands::list_installed,
+            commands::list_recent_games,
+            commands::get_game_playtime,
             commands::launch_game,
             commands::stop_game,
             commands::uninstall_game,
             commands::move_install,
             commands::verify_install,
             commands::repair_install,
+            commands::check_game_updates,
+            commands::update_game,
+            commands::check_for_updates,
+            commands::install_update,
+            commands::restart_app,
             commands::open_path,
             commands::get_disk_usage,
         ])

@@ -40,7 +40,23 @@ interface GameSummary {
 interface GameVersion {
   id: number; fileName: string; size: number; version: string | null;
   releaseDate: string | null; earlyAccess: boolean;
+  /** Cheap archive fingerprint (`sha256-sample:<hex>`), null until computed. */
+  archiveHash: string | null;
+  /** Last time the version row changed (indexed, renamed or re-hashed). */
+  updatedAt: string | null;
   downloadUrl: string; // /api/games/{id}/download?versionId={id}
+}
+
+/** Newest available version, used by desktop clients to detect updates. */
+interface LatestVersion {
+  gameId: number; versionId: number;
+  versionLabel: string | null;   // parsed from the file name
+  fileName: string;
+  archiveHash: string | null;    // `sha256-sample:<hex>` sampled fingerprint
+  archiveSize: number;           // bytes
+  updatedAt: string | null;      // RFC 3339
+  earlyAccess: boolean;
+  downloadUrl: string;
 }
 
 interface GameVideo {
@@ -123,7 +139,18 @@ interface ScanStatus {
 | POST | `/api/games/{id}/download-ticket` | `{ versionId? }` → `{ url, expiresAt }` (15 min, no auth needed on the URL) |
 | GET | `/api/games/{id}/download?versionId=&token=` | file stream, Range supported, `Content-Disposition` |
 | GET | `/api/games/{id}/versions/{versionId}/stream?token=` | Stream install: an uncompressed `application/x-tar` of the archive entries, no archive stored on the client. ZIP and 7z are supported; RAR/unknown return 415 and the client falls back. Exact `Content-Length`. Same auth rules as download. |
+| GET | `/api/games/{id}/versions/latest` | newest non-missing version → `LatestVersion`; 404 `no_versions` when the game has none |
 | GET | `/api/games/{id}/versions/{versionId}/local-path` | embedded/local mode + loopback only → `{ path }`, else 404 |
+
+### Version fingerprints
+
+`archiveHash` is a **sampled** fingerprint, not a full content hash: SHA-256 over
+the file size, the first MiB and the last MiB (`sha256-sample:<hex>`, see
+`ludex_core::fingerprint`). It changes when an archive is replaced, costs two
+read windows per file, and is computed by the scanner (new files immediately,
+older rows over the next scans). `updatedAt` moves whenever the row is
+re-indexed. Clients compare `versionId` first and fall back to the fingerprint
+when a version was re-uploaded in place.
 
 ### Library filters and search
 
@@ -517,12 +544,49 @@ interface LocalSettings {
   keepArchives: boolean;        // keep the downloaded archive after install
   archivePasswords: string[];   // tried in order
   bandwidthLimitKib: number;    // global download cap in KiB/s, 0 = unlimited
+  closeToTray: boolean;         // closing the window hides to the tray (default true)
+  updateChannel: "stable" | "early"; // app updater channel (default stable)
+  checkUpdatesOnStartup: boolean;    // throttled to once per 24 h
+  lastUpdateCheckAt: string | null;  // RFC 3339, drives the throttle
 }
 
 interface InstalledGame {
   gameId: number; versionId: number; title: string; version: string | null;
   installPath: string; executable: string | null; sizeBytes: number;
   installedAt: string; lastLaunchedAt: string | null;
+  /** Fingerprint of the archive this install came from, when known. */
+  archiveHash: string | null;
+}
+
+/** A game with a newer version on the server (#30). */
+interface GameUpdate {
+  gameId: number; title: string;
+  installedVersionId: number; installedVersion: string | null;
+  latestVersionId: number; latestVersionLabel: string | null;
+  archiveSize: number; archiveHash: string | null; updatedAt: string | null;
+  reason: "newVersion" | "replacedArchive";
+}
+
+interface PlaySession {
+  id: string; gameId: number; startedAt: string; endedAt: string | null;
+  minutes: number; seconds: number;
+}
+
+interface GamePlaytime {
+  gameId: number; totalSeconds: number; sessions: number;
+  firstPlayedAt: string | null; lastPlayedAt: string | null;
+  byDay: { day: string; seconds: number }[];   // UTC days, newest first, 30 days
+  recentSessions: PlaySession[];               // newest first
+}
+
+interface UpdateStatus {
+  configured: boolean;              // false: build has no signing key
+  channel: "stable" | "early";
+  currentVersion: string;
+  lastCheckedAt: string | null;
+  available: { version: string; currentVersion: string; notes: string | null;
+               publishedAt: string | null } | null;
+  message: string | null;
 }
 
 interface InstallJob {
@@ -581,6 +645,13 @@ interface RepairReport {
 | `repair_install` | `{ gameId }` | `RepairReport` |
 | `open_path` | `{ path }` | `null` |
 | `get_disk_usage` | `{ path }` | `{ totalBytes, freeBytes }` |
+| `list_recent_games` | `{ limit? }` | `InstalledGame[]`, newest launch first (default 8, max 50) |
+| `get_game_playtime` | `{ gameId, days?, sessions? }` | `GamePlaytime` (defaults: 30 days, 10 sessions) |
+| `check_game_updates` | — | `GameUpdate[]`; per-game failures are skipped |
+| `update_game` | `{ gameId }` | `InstallJob`; installs the newest server version, keeps the previous install until the new files are in place |
+| `check_for_updates` | `{ manual? }` | `UpdateStatus`; manual checks bypass the 24 h throttle |
+| `install_update` | — | `UpdateStatus` after download+install; refuses when no signing key is configured |
+| `restart_app` | — | `null` (restarts Ludex; Linux/macOS after an update) |
 
 Events:
 
@@ -591,12 +662,18 @@ Events:
 - `install://move-progress` → `{ gameId, bytesDone, bytesTotal, message }`
 - `install://verify-progress` → `{ gameId, filesDone, filesTotal, bytesDone, bytesTotal, message }`
 - `install://repair-progress` → same shape plus `phase: "downloading" | "extracting" | "restoring" | "verifying"`
-- `game://exited` → `{ sessionId, gameId, minutesPlayed }`
+- `game://exited` → `{ sessionId, gameId, minutesPlayed, secondsPlayed }`
 - `local-server://status` → `{ running, url }`
+- `ui://navigate` → `string` (tray menu asked for a route, e.g. `/downloads`)
+- `ui://launch` → `number` (tray "Recent games" item; the UI calls `launch_game`)
+- `update://available` → `UpdateStatus` (startup check found a version)
+- `update://progress` → `{ downloaded, total, percent }`
+- `update://installed` → `{ version, restarted }`
 
 Native install layout: `{installDir}/{slug}/{versionLabel}/game files` plus a
 desktop SQLite index at `{appDataDir}/ludex-desktop.db` (installed games,
-sessions, settings, install jobs, file manifests). Local archive extraction
+sessions with exact seconds, settings, install jobs, file manifests, archive
+fingerprints). Local archive extraction
 uses `GET /api/games/{id}/versions/{vid}/local-path` when the embedded server is
 in local mode; remote installs download with Range resume and delete the temp
 archive by default (`keepArchives` setting false).
@@ -621,6 +698,25 @@ archive by default (`keepArchives` setting false).
   extracts it to a temporary folder and copies back only the missing/corrupt
   files after checking their hashes. When no archive can be obtained it returns
   `fallback: true` with a message asking for a full reinstall.
+- **Game updates (#30).** `check_game_updates` compares each installed game with
+  `GET /api/games/{id}/versions/latest`: a different `versionId` is a
+  `newVersion`, an identical id with a different `archiveHash` is a
+  `replacedArchive`. `update_game` reuses the install pipeline into staging; the
+  previous folder is untouched until the new install is in place and indexed,
+  then removed. Saves live outside the install folder and are never modified.
+- **Playtime sessions (#26).** A session is opened at launch and closed when the
+  whole process tree is empty (polled once per second), not only when the direct
+  child exits. `sessions` stores `started_at`, `ended_at`, `minutes` (rounded,
+  for the server) and `seconds` (exact, for local reports). `get_game_playtime`
+  aggregates totals, per-UTC-day buckets and the recent sessions.
+- **Tray (#15).** `closeToTray` (default true) hides the window instead of
+  quitting; the tray menu offers Show/Hide, Downloads, Recent games (from
+  `installed_games.last_launched_at`), Check for updates and Quit. Left click
+  toggles the window and the tooltip reports active downloads.
+- **App updates (#16).** `stable` follows the latest GitHub release, `early`
+  follows the moving `edge` prerelease. Checks run at startup at most once per
+  24 h plus on demand. Install requires a configured signing key; without one the
+  status reports `configured: false` and `install_update` refuses explicitly.
 - **Move.** `move_install` takes a new install root and keeps the
   `{slug}/{versionLabel}` layout. Same filesystem: an atomic rename. Different
   filesystem: copy to a hidden sibling, verify the byte count, rename into

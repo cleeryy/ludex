@@ -85,6 +85,9 @@ struct Candidate {
     relative: String,
     file_name: String,
     size: i64,
+    /// Archive mtime in Unix nanoseconds, used to detect same-size replacements
+    /// within the same second.
+    modified: i64,
     parsed: ParsedName,
     content_hash: Option<String>,
 }
@@ -306,6 +309,8 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
         }
     };
 
+    let fingerprinted = backfill_fingerprints(state).await;
+
     {
         let mut status = state.scan.write().await;
         status.running = false;
@@ -324,6 +329,7 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
         removed,
         roots = scanned_roots.len(),
         unavailable_roots = unavailable_roots.len(),
+        fingerprinted,
         new_games = new_games.len(),
         "library scan finished"
     );
@@ -461,8 +467,9 @@ async fn upsert_version(state: &AppState, game_id: i64, candidate: &Candidate) -
     let version = candidate.parsed.version.clone();
     let early_access = i64::from(looks_early_access(&candidate.file_name));
 
-    let existing = sqlx::query_scalar::<_, i64>(
-        "SELECT id FROM game_versions WHERE root_id = ? AND file_path = ? LIMIT 1",
+    let existing = sqlx::query_as::<_, (i64, i64, Option<String>, Option<i64>)>(
+        "SELECT id, size, archive_hash, file_modified FROM game_versions
+         WHERE root_id = ? AND file_path = ? LIMIT 1",
     )
     .bind(candidate.root_id)
     .bind(&candidate.relative)
@@ -470,13 +477,24 @@ async fn upsert_version(state: &AppState, game_id: i64, candidate: &Candidate) -
     .await
     .context("find indexed version")?;
 
-    if let Some(id) = existing {
+    if let Some((id, previous_size, previous_hash, previous_modified)) = existing {
+        // Re-fingerprint when the archive was replaced (size or mtime changed)
+        // or when the row predates the fingerprint column.
+        let replaced = previous_size != candidate.size
+            || previous_modified.unwrap_or(-1) != candidate.modified;
+        let fingerprint = if previous_hash.is_none() || replaced {
+            fingerprint_for(candidate).await
+        } else {
+            previous_hash
+        };
         sqlx::query(
             "UPDATE game_versions SET
                 game_id = ?, file_name = ?, size = ?, version = ?,
                 release_date = COALESCE(?, release_date), early_access = ?,
                 missing = 0, root_unavailable = 0,
-                content_hash = COALESCE(?, content_hash), indexed_at = ?
+                content_hash = COALESCE(?, content_hash),
+                archive_hash = ?, file_modified = ?, updated_at = ?,
+                indexed_at = ?
              WHERE id = ?",
         )
         .bind(game_id)
@@ -486,18 +504,24 @@ async fn upsert_version(state: &AppState, game_id: i64, candidate: &Candidate) -
         .bind(release_date)
         .bind(early_access)
         .bind(candidate.content_hash.as_deref())
-        .bind(now)
+        .bind(fingerprint)
+        .bind(candidate.modified)
+        .bind(&now)
+        .bind(&now)
         .bind(id)
         .execute(&state.pool)
         .await
         .context("update game version")?;
         Ok(false)
     } else {
+        // Index the row first so the version is downloadable immediately; the
+        // fingerprint is filled in right after (it reads up to 2 MiB).
         sqlx::query(
             "INSERT INTO game_versions
                 (game_id, root_id, file_path, file_name, size, version, release_date,
-                 early_access, missing, root_unavailable, content_hash, indexed_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)",
+                 early_access, missing, root_unavailable, content_hash, indexed_at,
+                 archive_hash, file_modified, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, NULL, ?, ?)",
         )
         .bind(game_id)
         .bind(candidate.root_id)
@@ -508,12 +532,97 @@ async fn upsert_version(state: &AppState, game_id: i64, candidate: &Candidate) -
         .bind(release_date)
         .bind(early_access)
         .bind(candidate.content_hash.as_deref())
-        .bind(now)
+        .bind(&now)
+        .bind(candidate.modified)
+        .bind(&now)
         .execute(&state.pool)
         .await
         .context("insert game version")?;
+
+        if let Some(fingerprint) = fingerprint_for(candidate).await {
+            sqlx::query(
+                "UPDATE game_versions SET archive_hash = ?, updated_at = ?
+                 WHERE root_id = ? AND file_path = ?",
+            )
+            .bind(fingerprint)
+            .bind(db::db_time(db::now()))
+            .bind(candidate.root_id)
+            .bind(&candidate.relative)
+            .execute(&state.pool)
+            .await
+            .context("store the archive fingerprint")?;
+        }
         Ok(true)
     }
+}
+
+/// Cheap archive fingerprint for a discovered file, computed off the async
+/// runtime. A failure is logged and leaves the row without a fingerprint: the
+/// file is still indexed and update detection falls back to version ids.
+async fn fingerprint_for(candidate: &Candidate) -> Option<String> {
+    let path = candidate.root_path.join(&candidate.relative);
+    let relative = candidate.relative.clone();
+    match tokio::task::spawn_blocking(move || ludex_core::archive_fingerprint(&path)).await {
+        Ok(Ok(value)) => Some(value),
+        Ok(Err(error)) => {
+            tracing::debug!(path = %relative, error = %error, "could not fingerprint archive");
+            None
+        }
+        Err(error) => {
+            tracing::debug!(path = %relative, error = %error, "fingerprint task failed");
+            None
+        }
+    }
+}
+
+/// Fill fingerprints for rows indexed before the column existed (or whose
+/// archive was unreadable during a previous scan). Bounded per scan so a huge
+/// library does not turn every scan into a full read pass.
+async fn backfill_fingerprints(state: &AppState) -> i64 {
+    let rows = sqlx::query_as::<_, (i64, String, String)>(
+        "SELECT v.id, v.file_path, r.path
+         FROM game_versions v
+         JOIN library_roots r ON r.id = v.root_id
+         WHERE v.archive_hash IS NULL AND v.missing = 0 AND v.root_unavailable = 0
+           AND r.available = 1
+         LIMIT 200",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    let mut updated = 0;
+    for (id, relative, root_path) in rows {
+        let path = PathBuf::from(root_path).join(&relative);
+        let relative_for_log = relative.clone();
+        let fingerprint = match tokio::task::spawn_blocking(move || {
+            ludex_core::archive_fingerprint(&path)
+        })
+        .await
+        {
+            Ok(Ok(value)) => value,
+            Ok(Err(error)) => {
+                tracing::debug!(path = %relative_for_log, error = %error, "could not fingerprint archive");
+                continue;
+            }
+            Err(error) => {
+                tracing::debug!(path = %relative_for_log, error = %error, "fingerprint task failed");
+                continue;
+            }
+        };
+        let result = sqlx::query(
+            "UPDATE game_versions SET archive_hash = ?, updated_at = COALESCE(updated_at, indexed_at) WHERE id = ?",
+        )
+        .bind(fingerprint)
+        .bind(id)
+        .execute(&state.pool)
+        .await;
+        match result {
+            Ok(_) => updated += 1,
+            Err(error) => tracing::debug!(error = %error, "could not store archive fingerprint"),
+        }
+    }
+    updated
 }
 
 /// Marks versions of scanned, available roots as missing when they vanished.
@@ -758,12 +867,19 @@ fn candidate_from_entry(root: &Path, entry: &DirEntry) -> Option<Candidate> {
         return None;
     }
     let relative = relative_path(root, path)?;
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| i64::try_from(duration.as_nanos()).unwrap_or(i64::MAX))
+        .unwrap_or(0);
     Some(Candidate {
         root_id: 0,
         root_path: root.to_path_buf(),
         relative,
         file_name: file_name.clone(),
         size: i64::try_from(size).unwrap_or(i64::MAX),
+        modified,
         parsed: parse_filename(&file_name),
         content_hash: None,
     })

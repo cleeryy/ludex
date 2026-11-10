@@ -12,8 +12,8 @@ use axum::{Json, Router};
 use chrono::Duration;
 use ludex_core::archive::{archive_tar_size, detect_format, ArchiveError, ArchiveFormat};
 use ludex_core::models::{
-    GameDetail, GameSummary, GameVersion, LaunchInfo, Paginated, ProgressState, ProgressUpdate,
-    ProviderRef, Stats, Trailer,
+    GameDetail, GameSummary, GameVersion, LatestVersion, LaunchInfo, Paginated, ProgressState,
+    ProgressUpdate, ProviderRef, Stats, Trailer,
 };
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
@@ -67,6 +67,7 @@ pub fn router() -> Router<AppState> {
         .route("/games/{id}/refresh-metadata", post(refresh_metadata))
         .route("/games/{id}/download-ticket", post(download_ticket))
         .route("/games/{id}/download", get(download))
+        .route("/games/{id}/versions/latest", get(latest_version))
         .route(
             "/games/{id}/versions/{version_id}/stream",
             get(stream_version),
@@ -365,7 +366,7 @@ async fn fetch_detail(state: &AppState, user_id: i64, id: i64) -> Result<GameDet
 
     let versions = sqlx::query_as::<_, VersionRow>(
         "SELECT id, root_id, file_path, file_name, size, version, release_date,
-                early_access, missing, root_unavailable
+                early_access, missing, root_unavailable, archive_hash, updated_at
          FROM game_versions WHERE game_id = ? AND missing = 0
          ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC",
     )
@@ -419,11 +420,47 @@ async fn fetch_detail(state: &AppState, user_id: i64, id: i64) -> Result<GameDet
                 version: version.version,
                 release_date: version.release_date.as_deref().and_then(db::parse_time),
                 early_access: version.early_access != 0,
+                archive_hash: version.archive_hash,
+                updated_at: version.updated_at.as_deref().and_then(db::parse_time),
                 download_url: format!("/api/games/{id}/download?versionId={}", version.id),
             })
             .collect(),
         launch,
     })
+}
+
+/// Newest available version with the metadata desktop clients need to detect
+/// updates (version label, archive fingerprint, size, last update).
+async fn latest_version(
+    State(state): State<AppState>,
+    _user: AuthUser,
+    ApiPath(id): ApiPath<i64>,
+) -> Result<Json<LatestVersion>, ApiError> {
+    ensure_game(&state, id).await?;
+
+    let row = sqlx::query_as::<_, VersionRow>(
+        "SELECT id, root_id, file_path, file_name, size, version, release_date,
+                early_access, missing, root_unavailable, archive_hash, updated_at
+         FROM game_versions WHERE game_id = ? AND missing = 0
+         ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC LIMIT 1",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::from)?
+    .ok_or_else(|| ApiError::not_found("no_versions", "This game has no available version"))?;
+
+    Ok(Json(LatestVersion {
+        game_id: id,
+        version_id: row.id,
+        version_label: row.version,
+        file_name: row.file_name,
+        archive_hash: row.archive_hash,
+        archive_size: row.size,
+        updated_at: row.updated_at.as_deref().and_then(db::parse_time),
+        early_access: row.early_access != 0,
+        download_url: format!("/api/games/{id}/download?versionId={}", row.id),
+    }))
 }
 
 async fn update_game(
@@ -1135,7 +1172,7 @@ async fn fetch_version(
 ) -> Result<VersionRow, ApiError> {
     sqlx::query_as::<_, VersionRow>(
         "SELECT id, root_id, file_path, file_name, size, version, release_date,
-                early_access, missing, root_unavailable
+                early_access, missing, root_unavailable, archive_hash, updated_at
          FROM game_versions WHERE id = ? AND game_id = ?",
     )
     .bind(version_id)

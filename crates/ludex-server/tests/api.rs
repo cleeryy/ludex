@@ -1117,8 +1117,15 @@ async fn local_mode_provisions_admin_and_local_paths() {
                 .json()
                 .await
                 .expect("json");
-            let version_id = detail["versions"][0]["id"].as_i64().expect("version id");
-            break (game_id, version_id);
+            // The game row is indexed before its first version row; a scan in
+            // progress can therefore show a game with no versions for a moment.
+            if let Some(version_id) = detail["versions"]
+                .as_array()
+                .and_then(|versions| versions.first())
+                .and_then(|version| version["id"].as_i64())
+            {
+                break (game_id, version_id);
+            }
         }
         assert!(
             tokio::time::Instant::now() < deadline,
@@ -1973,5 +1980,91 @@ async fn stream_install_7z_as_tar() {
         Some(1024 * 1024 + 1)
     );
 
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn latest_version_exposes_update_metadata() {
+    let server = TestServer::start().await;
+    let (token, _) = server.setup().await;
+
+    let old = server.write_game("Hades (2020) v1.0.zip", 1024 * 1024 + 10);
+    let new = server.write_game("Hades (2020) v1.2.zip", 1024 * 1024 + 40);
+    run_scan(&server, &token).await;
+
+    let (_, list) = server.get("/api/games?limit=10", Some(&token)).await;
+    let game_id = list["items"][0]["id"].as_i64().expect("id");
+
+    let (status, latest) = server
+        .get(
+            &format!("/api/games/{game_id}/versions/latest"),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{latest}");
+    assert_eq!(latest["gameId"], game_id);
+    assert_eq!(latest["versionLabel"], "1.2");
+    assert_eq!(latest["fileName"], "Hades (2020) v1.2.zip");
+    assert_eq!(latest["archiveSize"], (1024 * 1024 + 40) as i64);
+    assert_eq!(latest["earlyAccess"], false);
+    let hash = latest["archiveHash"].as_str().expect("archive fingerprint");
+    assert!(hash.starts_with("sha256-sample:"), "{hash}");
+    assert!(latest["updatedAt"].as_str().is_some(), "{latest}");
+    assert!(latest["downloadUrl"]
+        .as_str()
+        .expect("download url")
+        .contains("/api/games/"));
+
+    // The detail payload carries the same fingerprint on each version.
+    let (_, detail) = server
+        .get(&format!("/api/games/{game_id}"), Some(&token))
+        .await;
+    let versions = detail["versions"].as_array().expect("versions");
+    assert_eq!(versions.len(), 2);
+    assert!(versions.iter().all(|version| version["archiveHash"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("sha256-sample:"))));
+
+    // Replacing the archive content changes the fingerprint without a rescan.
+    let mut replacement = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&new)
+        .expect("open");
+    use std::io::{Seek, SeekFrom, Write};
+    replacement.seek(SeekFrom::Start(0)).expect("seek");
+    replacement
+        .write_all(b"replaced archive bytes")
+        .expect("write");
+    drop(replacement);
+    let status = run_scan(&server, &token).await;
+    assert_eq!(
+        status["errors"].as_array().map(Vec::len),
+        Some(0),
+        "{status}"
+    );
+
+    let (_, updated) = server
+        .get(
+            &format!("/api/games/{game_id}/versions/latest"),
+            Some(&token),
+        )
+        .await;
+    assert_ne!(updated["archiveHash"], latest["archiveHash"]);
+
+    // Unknown games and games without versions are explicit 404s.
+    let (status, body) = server
+        .get("/api/games/999999/versions/latest", Some(&token))
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+
+    // Authentication is required.
+    let (status, _) = server
+        .get(&format!("/api/games/{game_id}/versions/latest"), None)
+        .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // Both files are still on disk: the scan never rewrites the library.
+    assert!(old.exists());
+    assert!(new.exists());
     server.stop().await;
 }

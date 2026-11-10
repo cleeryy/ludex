@@ -53,6 +53,31 @@ All notable changes to Ludex are documented here. The format is based on
 - Demo data and mock coverage for trailers, collections (manual and smart),
   public profiles and the activity feed.
 
+- Desktop: tray icon (#15) with Show/Hide, Downloads, a Recent games submenu,
+  Check for updates and Quit; left click toggles the window and the tooltip
+  reports active downloads. `closeToTray` (default true) hides the window
+  instead of quitting, and Home lists the games installed on this device with
+  one-click launch.
+- Desktop: in-app updates (#16) with `stable` and `early` channels, a startup
+  check throttled to once per 24 h, manual checks in Settings, download progress
+  and a restart prompt. Builds without a signing key report the missing key and
+  refuse to install instead of failing silently.
+- Desktop: game update detection (#30). The server exposes
+  `GET /api/games/{id}/versions/latest` with the version label, archive size,
+  sampled archive fingerprint and last update; installed games show an
+  "Update" badge and button on cards and on the game page, and `update_game`
+  reuses the install pipeline, keeps the previous install until the new files
+  are in place, and never touches save files.
+- Desktop: process-tree playtime tracking (#26). Sessions stay open while any
+  descendant of the launched game runs, `stop_game` kills the whole tree, and
+  the desktop DB records exact seconds. The game page shows "Played Xh" and the
+  recent sessions on this device.
+- Server: `game_versions.archive_hash`, `file_modified` and `updated_at`
+  (migration 0009), computed by the scanner; `archiveHash` and `updatedAt` on
+  `GameVersion`.
+- Core: `ludex_core::fingerprint` — a cheap sampled archive fingerprint
+  (`sha256-sample:` over size + first/last MiB) shared by the server scanner and
+  the desktop installer.
 - Advanced library filters: genre, release year range, player count, playtime
   range, installed state, metadata provider, minimum rating and sort by
   playtime. Filters combine, live in the URL, persist in localStorage, and are
@@ -100,6 +125,9 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Changed
 
+- Desktop: the local database is schema v4, adding `installed_games.archive_hash`
+  and `sessions.seconds` (exact durations; `minutes` is still synced to the
+  server). `game://exited` gains `secondsPlayed`.
 - `GET /api/games?q=` now ranks by relevance instead of substring order and
   searches aliases as well as titles. `sort=playtime` is supported.
 - Desktop: the local database is schema v3, adding the `install_manifests`

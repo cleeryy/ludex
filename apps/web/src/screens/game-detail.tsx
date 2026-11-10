@@ -19,10 +19,10 @@ import {
 import { api, assetUrl, USING_MOCKS } from "@/lib/api";
 import { ApiError, errorMessage } from "@/lib/http";
 import { cn } from "@/lib/cn";
-import { formatBytes, formatDate, formatEta, formatMinutes, formatRating, formatRelative, formatSpeed, formatYear, stateLabel } from "@/lib/format";
+import { formatBytes, formatDate, formatEta, formatMinutes, formatRating, formatRelative, formatSeconds, formatSpeed, formatYear, stateLabel } from "@/lib/format";
 import { isNative, native } from "@/lib/native";
 import type { GameDetail, ProgressState } from "@/lib/types";
-import { useBookmark, useInstalledMap, useLaunchGame } from "@/lib/hooks";
+import { useBookmark, useGamePlaytime, useInstalledMap, useLaunchGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
 import { useDownloads } from "@/state/downloads";
 import { CloudSaves } from "@/components/game/cloud-saves";
 import { InstallDialog } from "@/components/game/install-dialog";
@@ -54,6 +54,8 @@ export function GameDetailScreen() {
   const bookmark = useBookmark();
   const launch = useLaunchGame();
   const downloads = useDownloads();
+  const updates = useUpdateMap();
+  const updateGame = useUpdateGame();
   const [installOpen, setInstallOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
@@ -64,6 +66,9 @@ export function GameDetailScreen() {
     queryFn: () => api.getGame(gameId),
     enabled: Number.isFinite(gameId),
   });
+
+  // Desktop playtime for this game (#26): totals and recent sessions.
+  const playtime = useGamePlaytime(gameId);
 
   const [versionId, setVersionId] = useState<number | null>(null);
   const version = useMemo(() => {
@@ -99,11 +104,13 @@ export function GameDetailScreen() {
   if (!game) return null;
 
   const isInstalled = installed.get(game.id);
+  const update = updates.get(game.id);
   const activeJob = downloads.jobForGame(game.id);
   const resumableJob = downloads.resumableForGame(game.id);
   const installPct = activeJob?.bytesTotal ? Math.min(100, (activeJob.bytesDone / activeJob.bytesTotal) * 100) : null;
   const canPlay = isNative() && Boolean(isInstalled);
   const spec = artFromUrl(game.backgroundUrl, game.title);
+  const totalPlayed = formatSeconds(playtime.data?.totalSeconds) ?? formatMinutes(game.minutesPlayed);
 
   const setProgress = async (state: ProgressState) => {
     try {
@@ -308,6 +315,17 @@ export function GameDetailScreen() {
 
             <div className="mt-7 flex flex-wrap items-center gap-2">
               {primary}
+              {update && isInstalled && !activeJob && (
+                <Button
+                  variant="default"
+                  size="lg"
+                  icon={<RefreshCw className="size-4" />}
+                  loading={updateGame.isPending}
+                  onClick={() => updateGame.mutate({ id: game.id, title: game.title })}
+                >
+                  {update.latestVersionLabel ? `Update to v${update.latestVersionLabel}` : "Update"}
+                </Button>
+              )}
               {game.versions.length > 1 && version && (
                 <div className="w-[190px]">
                   <Select
@@ -488,12 +506,31 @@ export function GameDetailScreen() {
                 </div>
                 <div className="flex items-baseline justify-between gap-4">
                   <span className="text-[12px] text-ink-3">Playtime</span>
-                  <span className="num text-[12.5px] text-ink-2">{formatMinutes(game.minutesPlayed) ?? "Not played"}</span>
+                  <span className="num text-[12.5px] text-ink-2">{totalPlayed ?? "Not played"}</span>
                 </div>
                 <div className="flex items-baseline justify-between gap-4">
                   <span className="text-[12px] text-ink-3">Last session</span>
                   <span className="text-[12.5px] text-ink-2">{formatRelative(game.lastPlayedAt)}</span>
                 </div>
+                {isNative() && playtime.data && playtime.data.sessions > 0 && (
+                  <div className="pt-2">
+                    <div className="flex items-baseline justify-between gap-4">
+                      <span className="text-[12px] text-ink-3">Sessions on this device</span>
+                      <span className="num text-[12.5px] text-ink-2">{playtime.data.sessions}</span>
+                    </div>
+                    <ul className="mt-2 border-t border-line">
+                      {playtime.data.recentSessions.slice(0, 5).map((session) => (
+                        <li
+                          key={session.id}
+                          className="flex items-baseline justify-between gap-3 border-b border-line py-1.5 font-mono text-[10.5px] text-ink-3"
+                        >
+                          <span>{formatDate(session.startedAt)}</span>
+                          <span className="text-ink-2">{formatSeconds(session.seconds) ?? `${session.minutes}m`}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {user && <p className="pt-1 text-[11.5px] leading-relaxed text-ink-3">Progress is stored per account on the server.</p>}
               </div>
             </section>

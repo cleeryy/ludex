@@ -14,6 +14,8 @@ import { useSettings, type ThemePref } from "@/state/settings";
 import { useToast } from "@/state/toasts";
 import { PageHeader, SectionHeader } from "@/components/page";
 import { Button, Field, Input, Switch, Textarea } from "@/components/ui/controls";
+import { Select } from "@/components/ui/select";
+import { DesktopUpdatePanel } from "@/components/settings/desktop-update";
 
 export function SettingsScreen() {
   const { user, refreshUser } = useAuth();
@@ -430,8 +432,58 @@ export function SettingsScreen() {
                           : `${draft.archivePasswords.length} ${draft.archivePasswords.length === 1 ? "password" : "passwords"} stored locally in the desktop settings.`}
                       </p>
                     </div>
+
+                    <div className="flex items-start justify-between gap-6 border-b border-line py-4">
+                      <div>
+                        <p className="text-[13px] font-medium text-ink">Close to tray</p>
+                        <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
+                          Closing the window keeps Ludex running in the system tray so downloads continue. Quit from the
+                          tray menu.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={draft.closeToTray}
+                        onCheckedChange={(closeToTray) => update({ closeToTray })}
+                        label="Close to tray"
+                      />
+                    </div>
+
+                    <div className="flex items-start justify-between gap-6 border-b border-line py-4">
+                      <div>
+                        <p className="text-[13px] font-medium text-ink">Check for updates at startup</p>
+                        <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
+                          At most once every 24 hours. Manual checks from this page always run.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={draft.checkUpdatesOnStartup}
+                        onCheckedChange={(checkUpdatesOnStartup) => update({ checkUpdatesOnStartup })}
+                        label="Check for updates at startup"
+                      />
+                    </div>
+
+                    <div className="py-4">
+                      <p className="text-[13px] font-medium text-ink">Update channel</p>
+                      <p className="mt-1 mb-2 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
+                        Early access builds come from the <span className="font-mono">edge</span> prerelease and can be
+                        rough. Save the settings to switch.
+                      </p>
+                      <div className="w-[220px]">
+                        <Select
+                          label="Update channel"
+                          value={draft.updateChannel}
+                          onChange={(updateChannel) => update({ updateChannel })}
+                          options={[
+                            { value: "stable", label: "Stable", hint: "Latest release" },
+                            { value: "early", label: "Early access", hint: "edge prerelease" },
+                          ]}
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
+
+                <DesktopUpdatePanel />
 
                 <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-4">
                   <Button variant="primary" onClick={() => void saveDesktop()} loading={saving} disabled={!dirty}>
