@@ -167,6 +167,7 @@ pub async fn worker(
 
 /// Runs one complete scan. Errors are recorded in the status, never returned.
 pub async fn run_scan(state: &AppState, request: ScanRequest) {
+    let scan_started = std::time::Instant::now();
     {
         let mut status = state.scan.write().await;
         status.running = true;
@@ -322,6 +323,7 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
         status.errors = errors;
     }
 
+    state.metrics.record_scan(scan_started.elapsed());
     tracing::info!(
         scanned,
         added,

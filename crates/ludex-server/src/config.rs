@@ -9,6 +9,8 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use ludex_core::models::Role;
 
+use crate::storage::StorageConfig;
+
 /// Default bind address when `LUDEX_BIND` is unset.
 pub const DEFAULT_BIND: &str = "0.0.0.0:8080";
 /// Default scan interval, in seconds.
@@ -105,6 +107,11 @@ pub struct Config {
     /// Public origin used to build the OIDC redirect URI and the SPA callback
     /// URL. Must be an absolute http(s) origin/path without query or fragment.
     pub oidc_public_base_url: Option<String>,
+    /// Media storage backend (`local` by default, `s3` for object storage).
+    pub storage: StorageConfig,
+    /// Optional bearer token for `GET /metrics`. When unset, only an
+    /// administrator session or API key may scrape.
+    pub metrics_token: Option<String>,
 }
 
 impl Config {
@@ -233,6 +240,8 @@ impl Config {
             oidc_groups_claim: env_opt("LUDEX_OIDC_GROUPS_CLAIM")
                 .unwrap_or_else(|| "groups".to_string()),
             oidc_public_base_url,
+            storage: StorageConfig::from_env()?,
+            metrics_token: env_opt("LUDEX_METRICS_TOKEN"),
         })
     }
 
@@ -280,6 +289,8 @@ impl Config {
             oidc_admin_groups: Vec::new(),
             oidc_groups_claim: "groups".to_string(),
             oidc_public_base_url: None,
+            storage: StorageConfig::default(),
+            metrics_token: None,
         }
     }
 

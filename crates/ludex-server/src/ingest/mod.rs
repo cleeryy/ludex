@@ -88,6 +88,15 @@ fn json_rejection(rejection: JsonRejection) -> ApiErrorResponse {
     )
 }
 
+/// Ingest jobs by state, for `GET /metrics`. Empty when no ingest manager has
+/// been created for this data directory yet.
+#[must_use]
+pub fn status_counts(data_dir: &Path) -> Vec<(&'static str, usize)> {
+    manager::existing_state(data_dir)
+        .map(|state| state.status_counts())
+        .unwrap_or_default()
+}
+
 /// Build the ingest routes (full paths under `/api/ingest`).
 pub fn router(ctx: IngestContext) -> Router {
     let state = manager::shared_state(&ctx);

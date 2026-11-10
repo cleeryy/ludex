@@ -97,6 +97,16 @@ impl Inner {
         lock_unpoisoned(&self.jobs).len()
     }
 
+    /// Number of jobs per state, for metrics.
+    pub(crate) fn status_counts(&self) -> Vec<(&'static str, usize)> {
+        let jobs = lock_unpoisoned(&self.jobs).clone();
+        let mut counts = std::collections::BTreeMap::new();
+        for job in jobs.values() {
+            *counts.entry(job.status.as_str()).or_insert(0_usize) += 1;
+        }
+        counts.into_iter().collect()
+    }
+
     pub(crate) fn jobs_sorted(&self) -> Vec<IngestJob> {
         let mut jobs: Vec<IngestJob> = lock_unpoisoned(&self.jobs).values().cloned().collect();
         jobs.sort_by(|left, right| {
@@ -314,6 +324,11 @@ fn lock_unpoisoned<T>(mutex: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     }
+}
+
+/// Looks up the live ingest state for a data directory without creating it.
+pub(crate) fn existing_state(data_dir: &Path) -> Option<Arc<Inner>> {
+    lock_unpoisoned(registry()).get(data_dir).cloned()
 }
 
 pub(crate) fn shared_state(ctx: &IngestContext) -> Arc<Inner> {

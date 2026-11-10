@@ -320,7 +320,7 @@ async fn deliver_one(state: &AppState, delivery: DueDelivery) {
     )
     .bind(status_code)
     .bind(attempts)
-    .bind(next_attempt)
+    .bind(next_attempt.as_deref())
     .bind(delivered)
     .bind(&error)
     .bind(delivery.id)
@@ -330,6 +330,13 @@ async fn deliver_one(state: &AppState, delivery: DueDelivery) {
         tracing::error!(error = %error, delivery = delivery.id, "could not update webhook delivery");
         return;
     }
+    state.metrics.record_webhook(if error.is_none() {
+        "delivered"
+    } else if next_attempt.is_some() {
+        "retry"
+    } else {
+        "dropped"
+    });
 
     if let Some(error) = error {
         tracing::warn!(

@@ -58,6 +58,10 @@ async fn main() -> Result<()> {
     ludex_server::roots::bootstrap(&pool, &config)
         .await
         .context("bootstrap library roots")?;
+    let storage = config
+        .storage
+        .build(&config.media_dir)
+        .context("build media storage backend")?;
     let (scan_tx, _scan_rx) = mpsc::channel(1);
     let state = AppState {
         config: Arc::new(config),
@@ -75,6 +79,8 @@ async fn main() -> Result<()> {
         watcher_handle: Arc::new(RwLock::new(None)),
         integrity_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         media_gc_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        storage,
+        metrics: Arc::new(ludex_server::metrics::Metrics::new()),
     };
 
     let ids = sqlx::query_scalar::<_, i64>("SELECT id FROM games ORDER BY id")

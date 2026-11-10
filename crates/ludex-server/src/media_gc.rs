@@ -66,6 +66,12 @@ pub fn interval(config: &crate::config::Config) -> Option<Duration> {
 /// function never deletes a file whose name is referenced by any game or user
 /// row, even when it is old.
 pub async fn run(state: &AppState, dry_run: bool) -> Result<MediaGcResult, ApiError> {
+    if state.storage.local_dir().is_none() {
+        return Err(ApiError::bad_request(
+            "media_gc_unsupported",
+            "Media garbage collection is only available with the local storage backend",
+        ));
+    }
     if state
         .media_gc_busy
         .compare_exchange(

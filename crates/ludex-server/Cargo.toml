@@ -45,6 +45,10 @@ url = "2"
 tokio-util = { version = "0.7", features = ["io"] }
 fs2.workspace = true
 base64 = "0.22"
+async-trait = "0.1"
+object_store = { version = "0.14", default-features = false, features = ["aws"] }
+flate2 = "1"
+tar = "0.4"
 rust-embed = { version = "8", optional = true, features = ["axum"] }
 
 [dev-dependencies]

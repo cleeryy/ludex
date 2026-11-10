@@ -696,6 +696,7 @@ async fn download(
         query.token.as_deref(),
     )
     .await?;
+    let _active_download = state.metrics.track_download();
 
     let version = fetch_version(&state, game_id, version_id).await?;
     if version.missing != 0 {
@@ -772,6 +773,7 @@ async fn stream_version(
         query.token.as_deref(),
     )
     .await?;
+    let _active_download = state.metrics.track_download();
 
     let version = fetch_version(&state, game_id, version_id).await?;
     if version.missing != 0 {

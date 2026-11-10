@@ -5,9 +5,11 @@ use std::path::{Component, Path};
 use anyhow::{Context, Result};
 use axum::body::Body;
 use axum::http::{header, HeaderValue, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use sha2::{Digest, Sha256};
-use tokio_util::io::ReaderStream;
+
+use crate::state::AppState;
+use crate::storage::{MediaBody, StorageBackend};
 
 /// Maximum size of a cached artwork file (25 MiB).
 const MAX_IMAGE_BYTES: usize = 25 * 1024 * 1024;
@@ -30,11 +32,15 @@ pub fn safe_media_name(name: &str) -> bool {
     matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
 }
 
-/// Downloads a remote image into the media directory and returns its file name.
+/// Downloads a remote image into the media backend and returns its file name.
 ///
 /// Files are content-addressed by the source URL, so repeated enrichment passes
 /// never download the same artwork twice.
-pub async fn download_media(http: &reqwest::Client, media_dir: &Path, url: &str) -> Result<String> {
+pub async fn download_media(
+    http: &reqwest::Client,
+    storage: &dyn StorageBackend,
+    url: &str,
+) -> Result<String> {
     let parsed = url::Url::parse(url).with_context(|| format!("invalid image URL: {url}"))?;
     if !matches!(parsed.scheme(), "http" | "https") {
         anyhow::bail!("unsupported image scheme: {}", parsed.scheme());
@@ -48,8 +54,7 @@ pub async fn download_media(http: &reqwest::Client, media_dir: &Path, url: &str)
         .unwrap_or_else(|| "jpg".to_string());
     let digest = Sha256::digest(url.as_bytes());
     let name = format!("{}.{}", hex::encode(digest), extension);
-    let destination = media_dir.join(&name);
-    if tokio::fs::try_exists(&destination).await.unwrap_or(false) {
+    if storage.exists_media(&name).await.unwrap_or(false) {
         return Ok(name);
     }
 
@@ -63,6 +68,11 @@ pub async fn download_media(http: &reqwest::Client, media_dir: &Path, url: &str)
     {
         anyhow::bail!("artwork exceeds {MAX_IMAGE_BYTES} bytes");
     }
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
     let bytes = response.bytes().await.context("read artwork body")?;
     if bytes.len() > MAX_IMAGE_BYTES {
         anyhow::bail!("artwork exceeds {MAX_IMAGE_BYTES} bytes");
@@ -70,23 +80,15 @@ pub async fn download_media(http: &reqwest::Client, media_dir: &Path, url: &str)
     if bytes.is_empty() {
         anyhow::bail!("empty artwork response");
     }
-
-    tokio::fs::create_dir_all(media_dir)
+    let content_type = content_type.unwrap_or_else(|| {
+        mime_guess::from_path(&name)
+            .first_or_octet_stream()
+            .to_string()
+    });
+    storage
+        .put_media(&name, bytes, &content_type)
         .await
-        .context("create media directory")?;
-    let temporary = media_dir.join(format!(".tmp-{}", uuid::Uuid::new_v4()));
-    tokio::fs::write(&temporary, &bytes)
-        .await
-        .context("write artwork")?;
-    match tokio::fs::rename(&temporary, &destination).await {
-        Ok(()) => {}
-        Err(error) => {
-            let _ = tokio::fs::remove_file(&temporary).await;
-            if !tokio::fs::try_exists(&destination).await.unwrap_or(false) {
-                return Err(error).context("store artwork");
-            }
-        }
-    }
+        .context("store artwork")?;
     Ok(name)
 }
 
@@ -129,33 +131,31 @@ fn percent_encode(value: &str) -> String {
 }
 
 /// Streams a cached media file with immutable cache headers.
-pub async fn serve_media(media_dir: &Path, name: &str) -> Result<Response, StatusCode> {
+pub async fn serve_media(storage: &dyn StorageBackend, name: &str) -> Result<Response, StatusCode> {
     if !safe_media_name(name) {
         return Err(StatusCode::NOT_FOUND);
     }
-    let path = media_dir.join(name);
-    let metadata = tokio::fs::metadata(&path)
+    let stored = storage
+        .read_media(name)
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-    if !metadata.is_file() {
-        return Err(StatusCode::NOT_FOUND);
-    }
-    let file = tokio::fs::File::open(&path)
-        .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-    let content_type = mime_guess::from_path(&path)
-        .first_or_octet_stream()
-        .to_string();
-    let body = Body::from_stream(ReaderStream::new(file));
+        .map_err(|error| {
+            tracing::warn!(file = %name, error = %error, "could not read cached artwork");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let body = match stored.body {
+        MediaBody::Bytes(bytes) => Body::from(bytes),
+        MediaBody::Stream(stream) => Body::from_stream(stream),
+    };
 
     Response::builder()
         .status(StatusCode::OK)
         .header(
             header::CONTENT_TYPE,
-            HeaderValue::from_str(&content_type)
+            HeaderValue::from_str(&stored.content_type)
                 .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
         )
-        .header(header::CONTENT_LENGTH, metadata.len())
+        .header(header::CONTENT_LENGTH, stored.len)
         .header(
             header::CACHE_CONTROL,
             HeaderValue::from_static("public, max-age=31536000, immutable"),
@@ -164,9 +164,21 @@ pub async fn serve_media(media_dir: &Path, name: &str) -> Result<Response, Statu
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-/// Converts a streamed media response into an axum response.
-pub async fn media_response(media_dir: &Path, name: &str) -> Response {
-    match serve_media(media_dir, name).await {
+/// Serves a media file, redirecting to the public object URL when the S3
+/// backend is configured with `LUDEX_S3_PUBLIC_BASE_URL`.
+pub async fn media_response(state: &AppState, name: &str) -> Response {
+    if !safe_media_name(name) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if let Some(url) = state.storage.media_public_url(name) {
+        let mut response = Redirect::temporary(&url).into_response();
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=300"),
+        );
+        return response;
+    }
+    match serve_media(state.storage.as_ref(), name).await {
         Ok(response) => response,
         Err(status) => status.into_response(),
     }
@@ -175,6 +187,57 @@ pub async fn media_response(media_dir: &Path, name: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::ObjectStorage;
+    use axum::http::StatusCode;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn media_is_streamed_from_object_storage() {
+        let storage = ObjectStorage::with_store(
+            Arc::new(object_store::memory::InMemory::new()),
+            "ludex-test",
+            "ludex",
+            None,
+        );
+        storage
+            .put_media(
+                "abc.jpg",
+                bytes::Bytes::from_static(b"object-bytes"),
+                "image/jpeg",
+            )
+            .await
+            .unwrap();
+
+        let response = serve_media(&storage, "abc.jpg").await.expect("serve");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("image/jpeg")
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_LENGTH)
+                .and_then(|value| value.to_str().ok()),
+            Some("12")
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(&body[..], b"object-bytes");
+
+        assert_eq!(
+            serve_media(&storage, "missing.jpg").await.unwrap_err(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            serve_media(&storage, "../escape.jpg").await.unwrap_err(),
+            StatusCode::NOT_FOUND
+        );
+    }
 
     #[test]
     fn media_names_are_single_components() {

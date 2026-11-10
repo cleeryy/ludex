@@ -36,6 +36,19 @@ pub enum IngestStatus {
 }
 
 impl IngestStatus {
+    /// Stable lowercase label (matches the JSON representation).
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Downloading => "downloading",
+            Self::Verifying => "verifying",
+            Self::Done => "done",
+            Self::Error => "error",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
     /// Queued, downloading or verifying: a task owns the job right now.
     pub fn is_active(self) -> bool {
         matches!(self, Self::Queued | Self::Downloading | Self::Verifying)

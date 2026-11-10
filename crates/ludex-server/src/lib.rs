@@ -28,6 +28,7 @@ use tracing::Span;
 pub mod api_keys;
 pub mod audit;
 pub mod auth;
+pub mod backup;
 pub mod collections;
 pub mod community;
 pub mod config;
@@ -40,6 +41,7 @@ pub mod integrity;
 pub mod media;
 pub mod media_gc;
 pub mod metadata;
+pub mod metrics;
 pub mod models;
 pub mod oidc;
 pub mod roots;
@@ -48,6 +50,7 @@ pub mod saves;
 pub mod scanner;
 pub mod sql;
 pub mod state;
+pub mod storage;
 pub mod stream;
 pub mod watcher;
 pub mod web;
@@ -70,6 +73,8 @@ pub struct ServerHandle {
     pub token: String,
     /// Sending on this channel (or dropping it) stops the server gracefully.
     pub shutdown: oneshot::Sender<()>,
+    /// Exclusive `{data_dir}/ludex.lock` handle, held until the server stops.
+    _instance_lock: std::fs::File,
 }
 
 /// Runs the standalone server until ctrl-c or SIGTERM.
@@ -82,6 +87,7 @@ pub async fn run(config: Config) -> Result<()> {
     );
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let _instance_lock = prepared.instance_lock;
     let server = spawn_server(
         prepared.listener,
         prepared.router,
@@ -120,6 +126,7 @@ pub async fn start(config: Config) -> Result<ServerHandle> {
         url: prepared.url,
         token: prepared.token,
         shutdown: shutdown_tx,
+        _instance_lock: prepared.instance_lock,
     })
 }
 
@@ -131,6 +138,7 @@ struct Prepared {
     token: String,
     cancel: watch::Sender<bool>,
     ingest_ctx: ingest::IngestContext,
+    instance_lock: std::fs::File,
 }
 
 async fn prepare(config: Config) -> Result<Prepared> {
@@ -152,6 +160,19 @@ async fn prepare(config: Config) -> Result<Prepared> {
         .with_context(|| format!("create media directory {}", config.media_dir.display()))?;
 
     let secret = load_or_create_secret(&config).await?;
+    let instance_lock = backup::lock_instance(&config.data_dir)?;
+    let storage = config
+        .storage
+        .build(&config.media_dir)
+        .context("build media storage backend")?;
+    if config.storage.kind != storage::StorageKind::Local {
+        tracing::info!(
+            backend = %config.storage.kind,
+            prefix = %config.storage.prefix,
+            public_reads = config.storage.public_reads(),
+            "media cache uses object storage"
+        );
+    }
     let pool = db::connect(&config.database_url).await?;
     // Registers `LUDEX_LIBRARY_ROOTS` and backfills the seeded root. Extra
     // roots are never created on disk: a missing path means "not mounted" and
@@ -201,6 +222,8 @@ async fn prepare(config: Config) -> Result<Prepared> {
         watcher_handle: Arc::new(RwLock::new(None)),
         integrity_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         media_gc_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        storage,
+        metrics: Arc::new(metrics::Metrics::new()),
     };
 
     let watcher_handle = watcher::start(&state).await;
@@ -236,6 +259,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
         token,
         cancel: cancel_tx,
         ingest_ctx,
+        instance_lock,
     })
 }
 
@@ -263,7 +287,7 @@ fn spawn_server(
 
 fn build_router(state: &AppState, ingest_ctx: &ingest::IngestContext) -> Router {
     let api = routes::api_router(state.config.saves_max_bytes);
-    let app = Router::new().nest("/api", api);
+    let app = Router::new().nest("/api", api).merge(metrics::router());
     let app = web::attach(app, state);
     let app = app.with_state(state.clone());
 
@@ -275,10 +299,14 @@ fn build_router(state: &AppState, ingest_ctx: &ingest::IngestContext) -> Router 
     let app = app.merge(ingest_router);
 
     // Apply cross-cutting layers after merging so every route (including
-    // ingest) gets CORS, tracing and the body limit.
+    // ingest) gets CORS, tracing, metrics and the body limit.
     app.layer(DefaultBodyLimit::max(config::MAX_JSON_BYTES))
         .layer(cors_layer())
         .layer(TraceLayer::new_for_http().make_span_with(RequestSpan))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            metrics::track_http,
+        ))
 }
 
 /// Trace span that records the path but never the query string: download

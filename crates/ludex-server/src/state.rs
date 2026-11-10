@@ -10,9 +10,11 @@ use tokio::sync::{mpsc, RwLock};
 use crate::config::Config;
 use crate::events::EventSink;
 use crate::metadata::IgdbClient;
+use crate::metrics::Metrics;
 use crate::models::ScanStatus;
 use crate::oidc::OidcClient;
 use crate::scanner::ScanRequest;
+use crate::storage::StorageBackend;
 use crate::watcher::{WatcherHandle, WatcherStatus};
 
 /// State shared by all routes and background tasks.
@@ -48,6 +50,10 @@ pub struct AppState {
     pub integrity_busy: Arc<AtomicBool>,
     /// Guards against two concurrent media garbage collections.
     pub media_gc_busy: Arc<AtomicBool>,
+    /// Media cache backend (`local` files or S3-compatible object storage).
+    pub storage: Arc<dyn StorageBackend>,
+    /// Prometheus registry and process counters.
+    pub metrics: Arc<Metrics>,
 }
 
 impl AppState {
@@ -76,6 +82,10 @@ impl AppState {
         crate::roots::bootstrap(&pool, &config)
             .await
             .expect("bootstrap test roots");
+        let storage = config
+            .storage
+            .build(&config.media_dir)
+            .expect("build test storage backend");
         Self {
             config: Arc::new(config),
             pool,
@@ -92,6 +102,8 @@ impl AppState {
             watcher_handle: Arc::new(RwLock::new(None)),
             integrity_busy: Arc::new(AtomicBool::new(false)),
             media_gc_busy: Arc::new(AtomicBool::new(false)),
+            storage,
+            metrics: Arc::new(Metrics::new()),
         }
     }
 }

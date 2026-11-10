@@ -33,6 +33,16 @@ services:
       LUDEX_MEDIA_GC_GRACE_HOURS: ${LUDEX_MEDIA_GC_GRACE_HOURS:-24}
       LUDEX_MEDIA_GC_INTERVAL_HOURS: ${LUDEX_MEDIA_GC_INTERVAL_HOURS:-0}
       LUDEX_JWT_SECRET: ${LUDEX_JWT_SECRET:-}
+      LUDEX_METRICS_TOKEN: ${LUDEX_METRICS_TOKEN:-}
+      LUDEX_STORAGE_BACKEND: ${LUDEX_STORAGE_BACKEND:-local}
+      LUDEX_S3_BUCKET: ${LUDEX_S3_BUCKET:-}
+      LUDEX_S3_REGION: ${LUDEX_S3_REGION:-us-east-1}
+      LUDEX_S3_ENDPOINT: ${LUDEX_S3_ENDPOINT:-}
+      LUDEX_S3_ACCESS_KEY: ${LUDEX_S3_ACCESS_KEY:-}
+      LUDEX_S3_SECRET_KEY: ${LUDEX_S3_SECRET_KEY:-}
+      LUDEX_S3_PATH_STYLE: ${LUDEX_S3_PATH_STYLE:-true}
+      LUDEX_S3_PREFIX: ${LUDEX_S3_PREFIX:-ludex}
+      LUDEX_S3_PUBLIC_BASE_URL: ${LUDEX_S3_PUBLIC_BASE_URL:-}
       RUST_LOG: ${RUST_LOG:-ludex_server=info,tower_http=warn}
     # The image already runs as uid/gid 1000. Keep it explicit, and make sure
     # ./games ./media ./data are writable by that uid (see docs/DEPLOY.md).

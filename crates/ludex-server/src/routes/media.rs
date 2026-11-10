@@ -22,7 +22,7 @@ pub fn router() -> Router<AppState> {
 }
 
 async fn media(State(state): State<AppState>, ApiPath(name): ApiPath<String>) -> Response {
-    crate::media::media_response(&state.config.media_dir, &name).await
+    crate::media::media_response(&state, &name).await
 }
 
 async fn gc(

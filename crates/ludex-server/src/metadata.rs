@@ -3,7 +3,6 @@
 //! media directory and only local `/api/media/...` URLs are stored.
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -546,12 +545,12 @@ pub async fn enrich_game(state: &AppState, game_id: i64) {
         return;
     };
 
-    let media_dir = state.config.media_dir.as_path();
-    let cover = cache_optional(&state.http, media_dir, metadata.cover_url.as_deref()).await;
-    let mut screenshot_names = cache_images(&state.http, media_dir, &metadata.screenshots).await;
+    let storage = state.storage.as_ref();
+    let cover = cache_optional(&state.http, storage, metadata.cover_url.as_deref()).await;
+    let mut screenshot_names = cache_images(&state.http, storage, &metadata.screenshots).await;
     screenshot_names.retain(|name| name.is_some());
     let background =
-        match cache_optional(&state.http, media_dir, metadata.background_url.as_deref()).await {
+        match cache_optional(&state.http, storage, metadata.background_url.as_deref()).await {
             Some(name) => Some(name),
             None => screenshot_names.iter().flatten().next().cloned(),
         };
@@ -633,9 +632,13 @@ fn list_or_none(values: &[String]) -> Option<String> {
     (!values.is_empty()).then(|| db::dump_json_list(values))
 }
 
-async fn cache_optional(http: &Client, media_dir: &Path, url: Option<&str>) -> Option<String> {
+async fn cache_optional(
+    http: &Client,
+    storage: &dyn crate::storage::StorageBackend,
+    url: Option<&str>,
+) -> Option<String> {
     let url = url?;
-    match download_media(http, media_dir, url).await {
+    match download_media(http, storage, url).await {
         Ok(name) => Some(name),
         Err(error) => {
             tracing::warn!(error = %error, "failed to cache artwork");
@@ -644,14 +647,17 @@ async fn cache_optional(http: &Client, media_dir: &Path, url: Option<&str>) -> O
     }
 }
 
-async fn cache_images(http: &Client, media_dir: &Path, urls: &[String]) -> Vec<Option<String>> {
+async fn cache_images(
+    http: &Client,
+    storage: &dyn crate::storage::StorageBackend,
+    urls: &[String],
+) -> Vec<Option<String>> {
     use futures_util::StreamExt;
     futures_util::stream::iter(urls.iter().cloned())
         .map(|url| {
             let http = http.clone();
-            let media_dir = media_dir.to_path_buf();
             async move {
-                match download_media(&http, &media_dir, &url).await {
+                match download_media(&http, storage, &url).await {
                     Ok(name) => Some(name),
                     Err(error) => {
                         tracing::warn!(error = %error, "failed to cache screenshot");

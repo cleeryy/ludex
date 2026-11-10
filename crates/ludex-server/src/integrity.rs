@@ -350,6 +350,11 @@ async fn check_media(
     checked: &mut i64,
     findings: &mut i64,
 ) -> Result<()> {
+    // Media checks compare cached files against their SHA-256 baseline on
+    // disk. A remote (S3) cache is verified by the object store, not here.
+    if state.storage.local_dir().is_none() {
+        return Ok(());
+    }
     let referenced = referenced_media(&state.pool).await?;
     for name in referenced {
         if !safe_media_name(&name) {
