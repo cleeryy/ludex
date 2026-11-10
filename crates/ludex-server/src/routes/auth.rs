@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 
 use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde_json::json;
 
@@ -25,9 +25,10 @@ use crate::error::ApiError;
 use crate::events::{Actor, Event};
 use crate::extract::{ApiPath, JsonBody};
 use crate::models::{
-    AuthResponse, AuthSession, AuthSessionRow, ChangePasswordRequest, LoginRequest, UserResponse,
-    UserRow,
+    AuthResponse, AuthSession, AuthSessionRow, ChangePasswordRequest, LoginRequest,
+    OnboardingRequest, UserResponse, UserRow,
 };
+use crate::sql::{bind_query, Bind};
 use crate::state::AppState;
 
 /// Authentication and session routes.
@@ -35,6 +36,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/auth/login", post(login))
         .route("/auth/me", get(me))
+        .route("/auth/onboarding", put(update_onboarding))
         .route("/auth/logout", post(logout))
         .route("/auth/change-password", post(change_password))
         .route("/me/password", post(change_password))
@@ -57,7 +59,8 @@ async fn login(
 
     let row = sqlx::query_as::<_, UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
-                age_limit, created_at, updated_at, oidc_issuer, oidc_subject
+                age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
+                onboarding_completed_at, onboarding_step
          FROM users WHERE username = ?",
     )
     .bind(&username)
@@ -150,7 +153,64 @@ fn login_throttled(wait: u64, locked: bool) -> ApiError {
 async fn me(State(state): State<AppState>, user: AuthUser) -> Result<Json<UserResponse>, ApiError> {
     let row = sqlx::query_as::<_, UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
-                age_limit, created_at, updated_at, oidc_issuer, oidc_subject
+                age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
+                onboarding_completed_at, onboarding_step
+         FROM users WHERE id = ?",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::from)?
+    .ok_or_else(ApiError::unauthorized)?;
+    Ok(Json(UserResponse {
+        user: row.to_public(),
+    }))
+}
+
+/// Self-service onboarding preference (#119).
+///
+/// Only `onboardingCompletedAt` and `onboardingStep` are writable here; the
+/// administrator user PATCH ignores them. The response is the refreshed account.
+async fn update_onboarding(
+    State(state): State<AppState>,
+    user: AuthUser,
+    JsonBody(request): JsonBody<OnboardingRequest>,
+) -> Result<Json<UserResponse>, ApiError> {
+    user.require_scope(Scope::Write)?;
+    if let Some(step) = request.step {
+        if !(0..=20).contains(&step) {
+            return Err(ApiError::bad_request(
+                "invalid_onboarding_step",
+                "Onboarding step must be between 0 and 20",
+            ));
+        }
+    }
+
+    let mut sets = Vec::new();
+    let mut binds = Vec::new();
+    if let Some(completed) = request.completed {
+        sets.push("onboarding_completed_at = ?");
+        binds.push(Bind::OptText(completed.then(|| db::db_time(db::now()))));
+    }
+    if let Some(step) = request.step {
+        sets.push("onboarding_step = ?");
+        binds.push(Bind::Int(step));
+    }
+    if !sets.is_empty() {
+        sets.push("updated_at = ?");
+        binds.push(Bind::Text(db::db_time(db::now())));
+        binds.push(Bind::Int(user.id));
+        let sql = format!("UPDATE users SET {} WHERE id = ?", sets.join(", "));
+        bind_query(sqlx::query(&sql), &binds)
+            .execute(&state.pool)
+            .await
+            .map_err(ApiError::from)?;
+    }
+
+    let row = sqlx::query_as::<_, UserRow>(
+        "SELECT id, username, password_hash, email, role, activated, avatar_path,
+                age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
+                onboarding_completed_at, onboarding_step
          FROM users WHERE id = ?",
     )
     .bind(user.id)
@@ -229,7 +289,8 @@ async fn change_password(
     user.require_scope(Scope::Write)?;
     let row = sqlx::query_as::<_, UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
-                age_limit, created_at, updated_at, oidc_issuer, oidc_subject
+                age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
+                onboarding_completed_at, onboarding_step
          FROM users WHERE id = ?",
     )
     .bind(user.id)

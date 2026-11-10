@@ -137,6 +137,10 @@ pub struct User {
     pub source: UserSource,
     /// OIDC issuer when [`User::source`] is `oidc`.
     pub oidc_issuer: Option<String>,
+    /// When the account finished or dismissed the first-run wizard (#119).
+    pub onboarding_completed_at: Option<DateTime<Utc>>,
+    /// Canonical step the wizard resumes at (#119), 0..=20.
+    pub onboarding_step: i64,
 }
 
 impl User {
@@ -162,6 +166,8 @@ pub struct UserRow {
     pub oidc_issuer: Option<String>,
     pub oidc_subject: Option<String>,
     pub age_limit: Option<i64>,
+    pub onboarding_completed_at: Option<String>,
+    pub onboarding_step: i64,
 }
 
 impl UserRow {
@@ -183,6 +189,11 @@ impl UserRow {
             age_limit: self.age_limit.and_then(|value| u8::try_from(value).ok()),
             source: self.source(),
             oidc_issuer: self.oidc_issuer.clone(),
+            onboarding_completed_at: self
+                .onboarding_completed_at
+                .as_deref()
+                .and_then(crate::db::parse_time),
+            onboarding_step: self.onboarding_step,
         }
     }
 
@@ -500,6 +511,21 @@ pub struct ChangePasswordRequest {
     pub current_password: String,
     /// Replacement password.
     pub new_password: String,
+}
+
+/// `PUT /api/auth/onboarding` request (#119).
+///
+/// Only the two onboarding preference fields can be changed here; the
+/// administrator user PATCH ignores them.
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OnboardingRequest {
+    /// Set the completion flag, or clear it to restart the wizard.
+    #[serde(default)]
+    pub completed: Option<bool>,
+    /// Canonical step to resume at, 0..=20.
+    #[serde(default)]
+    pub step: Option<i64>,
 }
 
 /// Admin user creation request.

@@ -28,6 +28,12 @@ interface User {
   source: "local" | "oidc";
   /** Issuer of the linked provider; `null` for local accounts. */
   oidcIssuer: string | null;
+  /** Maximum age rating this account may access; `null` = unrestricted (#39). */
+  ageLimit: number | null;
+  /** When the first-run wizard was completed or dismissed (#119). */
+  onboardingCompletedAt: string | null;
+  /** Canonical wizard step to resume at (#119), 0..=20. */
+  onboardingStep: number;
 }
 
 interface GameSummary {
@@ -163,6 +169,27 @@ keys. It is safe for uptime monitors and dashboards.
 | GET | `/api/auth/me` | `{ user }` |
 | POST | `/api/auth/logout` | 204 (client discards token) |
 | POST | `/api/auth/change-password` | `{ currentPassword, newPassword }` |
+| PUT | `/api/auth/onboarding` | `{ completed?, step? }` → `{ user }`; self-service wizard preference, see *Onboarding (#119)* |
+
+### Onboarding preferences (#119)
+
+The optional first-run wizard stores two preference fields on the account:
+
+- `onboardingCompletedAt` — set when the account finishes or chooses
+  "Don't show again"; `null` while the tour is pending. Sending
+  `{ "completed": false }` clears it and reopens the wizard (Settings → Help,
+  "Restart onboarding").
+- `onboardingStep` — canonical step index, validated to **0..=20**
+  (`400 invalid_onboarding_step` otherwise). The canonical order is
+  `welcome`, `library`, `downloads`, `saves`, `appearance`, `admin`, `finish`;
+  non-administrators skip `admin`, and the server does not interpret the index.
+
+`PUT /api/auth/onboarding` requires an authenticated session (or an API key
+with the `write` scope) and always acts on the calling account. Both fields are
+omitted from `PATCH /api/users/{id}`: an administrator cannot amend another
+account's wizard state through user management, and unknown fields in that
+payload are ignored. New and existing accounts default to
+`null` / `0`.
 
 ## Games (authenticated)
 
@@ -437,6 +464,9 @@ states that automatic sync needs the desktop app.
   copied into audit metadata. A reset records `user.password_reset`.
 - `role`, `activated` — always editable, including for SSO-linked accounts:
   they are local authorisation controls, not identity data.
+- Onboarding fields (`onboardingCompletedAt`, `onboardingStep`) are deliberately
+  **not** writable here; only the account itself can change them through
+  `PUT /api/auth/onboarding`.
 
 Identity is owned by the OIDC provider once an account is linked: attempts to
 change `username`, `email` or `password` fail with `409 managed_by_idp` and a

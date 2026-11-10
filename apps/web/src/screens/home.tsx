@@ -23,6 +23,7 @@ import { useToast } from "@/state/toasts";
 import { ArtPlate } from "@/components/art/cover";
 import { GameCard } from "@/components/game/game-card";
 import { InstallDialog } from "@/components/game/install-dialog";
+import { GettingStartedCard } from "@/components/onboarding/getting-started";
 import { EmptyState, ErrorState, SectionHeader } from "@/components/page";
 import { Button, Skeleton } from "@/components/ui/controls";
 import { t, tn } from "@/lib/i18n";
@@ -179,6 +180,8 @@ export function HomeScreen() {
         <span>{tn(games.length, "1 game", "{count} games")}</span>
         {installsAvailable() && <span>{t("{count} installed", { count: installed.size })}</span>}
       </div>
+
+      <GettingStartedCard className="mb-6" />
 
       <section className="force-dark relative overflow-hidden rounded-[2px] border border-line-2">
         <ArtPlate

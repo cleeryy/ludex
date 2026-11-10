@@ -206,6 +206,12 @@ export const api = {
       ? mockApi.changePassword(tokenStore.get(), body)
       : request("/auth/change-password", { method: "POST", body });
   },
+  /** Self-service wizard preference (#119); returns the refreshed account. */
+  updateOnboarding(body: { completed?: boolean; step?: number }): Promise<User> {
+    return USING_MOCKS
+      ? mockApi.updateOnboarding(tokenStore.get(), body)
+      : request<{ user: User }>("/auth/onboarding", { method: "PUT", body }).then((r) => r.user);
+  },
 
   /* admin OIDC (#103) */
   adminOidc(): Promise<OidcAdminResponse> {

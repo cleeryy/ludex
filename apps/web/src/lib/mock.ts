@@ -355,6 +355,8 @@ function loadUsers(): User[] {
           ...user,
           source: user.source === "oidc" ? "oidc" : "local",
           oidcIssuer: user.oidcIssuer ?? null,
+          onboardingCompletedAt: user.onboardingCompletedAt ?? null,
+          onboardingStep: typeof user.onboardingStep === "number" ? user.onboardingStep : 0,
         }));
       }
     } catch {
@@ -700,6 +702,8 @@ export const mockApi = {
       ageLimit: null,
       source: "local",
       oidcIssuer: null,
+      onboardingCompletedAt: null,
+      onboardingStep: 0,
     };
     users = [user];
     persistUsers();
@@ -735,6 +739,21 @@ export const mockApi = {
     if (body.currentPassword !== passwordFor(user)) fail(400, "invalid_password", "Current password is incorrect");
     if (body.newPassword.length < 8) fail(400, "weak_password", "Use at least eight characters");
     passwords.set(user.id, body.newPassword);
+  },
+
+  async updateOnboarding(token: string | null, body: { completed?: boolean; step?: number }): Promise<User> {
+    await latency();
+    const user = currentUser(token);
+    if (body.step !== undefined) {
+      if (!Number.isInteger(body.step) || body.step < 0 || body.step > 20)
+        fail(400, "invalid_onboarding_step", "Onboarding step must be between 0 and 20");
+      user.onboardingStep = body.step;
+    }
+    if (body.completed !== undefined) {
+      user.onboardingCompletedAt = body.completed ? nowIso() : null;
+    }
+    persistUsers();
+    return clone(user);
   },
 
   async listGames(query: GameListQuery): Promise<GameList> {
@@ -890,6 +909,8 @@ export const mockApi = {
       ageLimit: null,
       source: "local",
       oidcIssuer: null,
+      onboardingCompletedAt: null,
+      onboardingStep: 0,
     };
     users = [...users, user];
     persistUsers();

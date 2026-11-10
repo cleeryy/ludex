@@ -17,6 +17,12 @@ interface AuthValue {
   completeSetup: (body: { username: string; password: string; serverName?: string }) => Promise<void>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  /**
+   * Persists the wizard preference (#119). The local account is updated first
+   * so the UI never blocks on the request; a failed write keeps the optimistic
+   * value for this session and retries on the next explicit action.
+   */
+  updateOnboarding: (body: { completed?: boolean; step?: number }) => Promise<void>;
   retryBoot: () => void;
 }
 
@@ -156,9 +162,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(me);
   }, []);
 
+  const updateOnboarding = useCallback(async (body: { completed?: boolean; step?: number }) => {
+    setUser((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        onboardingStep: body.step ?? current.onboardingStep,
+        onboardingCompletedAt:
+          body.completed === undefined
+            ? current.onboardingCompletedAt
+            : body.completed
+              ? new Date().toISOString()
+              : null,
+      };
+    });
+    try {
+      const next = await api.updateOnboarding(body);
+      setUser(next);
+    } catch {
+      // Offline or old server: the optimistic value stands for this session.
+    }
+  }, []);
+
   const value = useMemo(
-    () => ({ user, token, ready, bootError, setup, nativeFirstRun, adoptSession, signIn, signInWithOidc, completeSetup, signOut, refreshUser, retryBoot }),
-    [user, token, ready, bootError, setup, nativeFirstRun, adoptSession, signIn, signInWithOidc, completeSetup, signOut, refreshUser, retryBoot],
+    () => ({ user, token, ready, bootError, setup, nativeFirstRun, adoptSession, signIn, signInWithOidc, completeSetup, signOut, refreshUser, updateOnboarding, retryBoot }),
+    [user, token, ready, bootError, setup, nativeFirstRun, adoptSession, signIn, signInWithOidc, completeSetup, signOut, refreshUser, updateOnboarding, retryBoot],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

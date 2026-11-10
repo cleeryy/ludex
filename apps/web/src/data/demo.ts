@@ -495,6 +495,8 @@ export const DEMO_USERS: User[] = [
     source: "local",
     oidcIssuer: null,
     ageLimit: null,
+    onboardingCompletedAt: null,
+    onboardingStep: 0,
   },
   {
     id: 2,
@@ -507,6 +509,8 @@ export const DEMO_USERS: User[] = [
     source: "oidc",
     oidcIssuer: "https://sso.cleeryy.cloud",
     ageLimit: null,
+    onboardingCompletedAt: "2026-03-05T09:30:00Z",
+    onboardingStep: 6,
   },
   {
     id: 3,
@@ -519,6 +523,8 @@ export const DEMO_USERS: User[] = [
     source: "local",
     oidcIssuer: null,
     ageLimit: null,
+    onboardingCompletedAt: null,
+    onboardingStep: 2,
   },
   {
     id: 4,
@@ -531,6 +537,8 @@ export const DEMO_USERS: User[] = [
     source: "local",
     oidcIssuer: null,
     ageLimit: null,
+    onboardingCompletedAt: "2026-07-01T08:00:00Z",
+    onboardingStep: 6,
   },
 ];
 

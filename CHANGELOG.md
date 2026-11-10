@@ -10,6 +10,16 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- First-run onboarding (#119): per-account `onboardingCompletedAt` /
+  `onboardingStep` (migration `0017_onboarding.sql`) with a self-service
+  `PUT /api/auth/onboarding` route; the admin PATCH cannot write those fields.
+  A non-blocking, skippable wizard opens once after the first login and covers
+  Welcome, Library, Downloads, Saves & integrations, Appearance, an admin-only
+  Server step and Finish, with Back/Next/Skip, progress dots, keyboard and
+  screen-reader support, conditional steps (role/platform) and server-persisted
+  resume across web/desktop. A Getting-started card on Home and Settings → Help
+  offers Resume/Restart; dismissing never changes a setting silently. 60 new
+  i18n ids (FR translated).
 - Updater signing provisioned (#124): minisign key pair generated, private key
   and password stored as GitHub Actions secrets, public key committed in
   `plugins.updater.pubkey`, `bundle.createUpdaterArtifacts` enabled. Release

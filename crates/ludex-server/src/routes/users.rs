@@ -53,7 +53,8 @@ async fn list(State(state): State<AppState>, user: AuthUser) -> Result<Json<Vec<
     user.require_admin_access()?;
     let rows = sqlx::query_as::<_, UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
-                age_limit, created_at, updated_at, oidc_issuer, oidc_subject
+                age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
+                onboarding_completed_at, onboarding_step
          FROM users ORDER BY id",
     )
     .fetch_all(&state.pool)
@@ -98,7 +99,8 @@ async fn create(
 
     let created = sqlx::query_as::<_, UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
-                age_limit, created_at, updated_at, oidc_issuer, oidc_subject
+                age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
+                onboarding_completed_at, onboarding_step
          FROM users WHERE id = ?",
     )
     .bind(result.last_insert_rowid())
@@ -301,7 +303,8 @@ async fn delete_user(
 async fn fetch_user(state: &AppState, id: i64) -> Result<UserRow, ApiError> {
     sqlx::query_as::<_, UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
-                age_limit, created_at, updated_at, oidc_issuer, oidc_subject
+                age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
+                onboarding_completed_at, onboarding_step
          FROM users WHERE id = ?",
     )
     .bind(id)

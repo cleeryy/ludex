@@ -20,6 +20,8 @@ import { DesktopUpdatePanel } from "@/components/settings/desktop-update";
 import { CompatibilityPanel } from "@/components/settings/compatibility-panel";
 import { SteamImportPanel } from "@/components/settings/steam-import";
 import { PresenceStatus } from "@/components/settings/presence-status";
+import { GettingStartedCard } from "@/components/onboarding/getting-started";
+import { openOnboarding, restoreGettingStarted } from "@/lib/onboarding";
 import { t } from "@/lib/i18n";
 
 export function SettingsScreen() {
@@ -729,6 +731,30 @@ export function SettingsScreen() {
           {t("Install folders, stream installs and archive passwords are available in the Ludex desktop app.")}
         </p>
       )}
+
+      <section className="mt-12 max-w-[980px]" id="help" aria-labelledby="help-heading">
+        <SectionHeader
+          title={t("Help")}
+          description={t("Replay the first-run tour or finish the recommended setup steps.")}
+        />
+        <div className="border-t border-line pt-5">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="default"
+              onClick={() => {
+                restoreGettingStarted();
+                openOnboarding({ restart: true });
+              }}
+            >
+              {t("Restart onboarding")}
+            </Button>
+            <span className="text-[11.5px] text-ink-3">
+              {t("This clears the completed flag and reopens the wizard at the first step.")}
+            </span>
+          </div>
+          <GettingStartedCard className="mt-5" />
+        </div>
+      </section>
     </div>
   );
 }

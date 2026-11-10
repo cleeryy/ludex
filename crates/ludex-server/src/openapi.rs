@@ -258,6 +258,17 @@ pub const ROUTES: &[RouteDoc] = &[
         Auth::Session,
         Payload::Schema("UserResponse"),
     ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/auth/onboarding",
+            "Authentication",
+            "Update the onboarding preferences of the current account",
+            Auth::Session,
+            Payload::Schema("UserResponse"),
+        ),
+        "OnboardingRequest",
+    ),
     ok(
         route(
             HttpMethod::Post,
@@ -1545,7 +1556,8 @@ pub fn document() -> OpenApi {
         .schema_from::<SessionRevocationDoc>()
         .schema_from::<ludex_core::models::Role>()
         .schema_from::<ludex_core::models::ProgressState>()
-        .schema_from::<ludex_core::models::User>()
+        .schema_from::<crate::models::User>()
+        .schema_from::<crate::models::UserSource>()
         .schema_from::<ludex_core::models::GameSummary>()
         .schema_from::<ludex_core::models::GameDetail>()
         .schema_from::<ludex_core::models::GameVersion>()
@@ -1571,6 +1583,7 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::models::ServerConfig>()
         .schema_from::<crate::models::FeatureFlags>()
         .schema_from::<crate::models::ChangePasswordRequest>()
+        .schema_from::<crate::models::OnboardingRequest>()
         .schema_from::<crate::models::AuthSession>()
         .schema_from::<crate::models::UserResponse>()
         .schema_from::<crate::models::CreateUserRequest>()

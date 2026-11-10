@@ -41,6 +41,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { DropdownMenu, useDropdown, type MenuEntry } from "@/components/ui/select";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { ShortcutsDialog } from "@/components/shell/shortcuts-dialog";
+import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
 import { useGenres, useInstalledGames, useNativeEvents } from "@/lib/hooks";
 import { OPEN_SHORTCUTS_EVENT, openFiltersPanel, requestSearchFocus } from "@/lib/ui-events";
 import { useDownloads } from "@/state/downloads";
@@ -599,6 +600,7 @@ export function AppShell() {
       <DownloadsStrip />
       <MobileNav onMore={() => setMoreOpen(true)} />
       <MobileMenu open={moreOpen} onOpenChange={setMoreOpen} />
+      <OnboardingWizard />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>

@@ -172,6 +172,8 @@ async fn setup(
         age_limit: None,
         source: crate::models::UserSource::Local,
         oidc_issuer: None,
+        onboarding_completed_at: None,
+        onboarding_step: 0,
     };
     state.events.emit(
         Event::new(actions::USER_CREATED, Actor::System)

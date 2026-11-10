@@ -23,6 +23,10 @@ export interface User {
   oidcIssuer: string | null;
   /** Maximum age rating this account may access; `null` = unrestricted (#39). */
   ageLimit: number | null;
+  /** When the account finished or dismissed the first-run wizard (#119). */
+  onboardingCompletedAt: string | null;
+  /** Canonical wizard step this account resumes at (#119), 0..=20. */
+  onboardingStep: number;
 }
 
 export interface GameSummary {
