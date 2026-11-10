@@ -346,25 +346,50 @@ network traffic to Discord's API: the app talks to the local IPC socket.
 - `presence.rs` keeps the payload builder and the reconnect state machine free
   of IPC so they are unit tested with a mock sink.
 
-### Steam library import (#13)
+### Launcher import (#13, #116)
 
-`steam_scan` reads `steamapps/libraryfolders.vdf` and `appmanifest_*.acf` from
-the default Steam roots (Linux, macOS, Windows incl. the `SteamPath` registry
-value), then every library they reference. A game is listed when Steam reports it
-fully installed (`StateFlags & 4`) and its `steamapps/common/<installdir>`
-folder exists.
+`launcher_scan` reads the metadata each launcher already keeps on this machine
+and lists the games it installed; `launcher_import` writes the selected ones as
+external rows. Nothing is downloaded, copied or moved.
 
-- Titles are matched against the server library using a normalised form, then
-  once more with edition suffixes stripped; ambiguous titles are skipped.
-- `steam_import` writes `source: "steam"` rows with
-  `launchUri: steam://rungameid/<appid>` and `versionId: 0`. Matched games keep
-  their server id so playtime still syncs; unmatched ones use `-appId`.
-- Launching starts the URI handler (`cmd /C start` on Windows, `xdg-open`,
-  `open`). Nothing is downloaded.
-- Uninstall of an import removes only the index row: the Steam folder is never
-  deleted. `steamRoot` overrides discovery (`LUDEX_STEAM_ROOT` also works).
-- Playtime while a `steam://` handler is alive is recorded like any other
-  session; for games Steam launches out of process the session can be short.
+| Source | Files read | Launch URI |
+|---|---|---|
+| Steam | `steamapps/libraryfolders.vdf`, `appmanifest_*.acf` | `steam://rungameid/<appid>` |
+| Epic | `%ProgramData%\Epic\UnrealEngineLauncher\LauncherInstalled.dat`, `…\EpicGamesLauncher\Data\Manifests\*.item` | `com.epicgames.launcher://apps/<ns>%3A<item>%3A<app>?action=launch&silent=true` |
+| GOG | `galaxy-2.0.db` (read-only SQLite) and `GOG.com\Games` registry | `goggalaxy://openGameView/<productId>` |
+| EA app | `Electronic Arts\EA Games` registry (offer id when present) | `origin://launchgame/<offerId>` |
+| Ubisoft | `Ubisoft\Launcher\Installs` registry | `uplay://launch/<installId>/0` |
+| Xbox | `Get-AppxPackage` + `AppxManifest.xml`, `Get-StartApps` for names | `shell:AppsFolder\<PackageFamilyName>!<AppId>` |
+| itch | `butler.db` (`caves` + `games`) | `itch://caves/<caveId>/launch` |
+| Heroic | `store_cache/legendary_library.json`, `store_cache/gog_library.json`, `sideload_apps/library.json` | `heroic://launch/<runner>/<app>` |
+| Lutris | `~/.local/share/lutris/pga.db` (installed rows) | `lutris:rungameid/<id>` |
+
+- A game is listed only when the launcher reports it installed and, when a
+  folder is recorded, the folder still exists. A missing client, unreadable
+  database or malformed manifest is a warning, never a failed scan.
+- Parsers are pure and unit tested with fixtures for every format; the
+  collectors that need a real client (Windows registry, PowerShell, a live
+  SQLite file) only read what the client wrote.
+- Titles are matched against the server library by normalised title, then once
+  more with edition suffixes stripped; ambiguous titles are skipped and can be
+  mapped by hand in the preview (`gameId` in the import entry).
+- Imported rows have `versionId: 0`, `source` = the launcher id and
+  `launchUri` = the table above. Matched games keep their server id; unmatched
+  ones use `-appId` for Steam and a deterministic negative id for the rest.
+- Duplicates are refused by the partial unique index on `launchUri` and by a
+  scan-time check; the scan also drops a game reported twice for the same
+  folder (Epic and Heroic, for example).
+- Entries without a documented launch id (some EA installs) are flagged and
+  accept a manual URI. `file:`, `javascript:` and `data:` schemes are refused.
+- Launching opens the URI handler (`cmd /C start`, `xdg-open`, `open`). For
+  external entries the install folder is not required to exist locally: the
+  launcher owns the files (Xbox Start menu entries have no folder at all).
+- Uninstall of an import removes only the index row: the launcher's folder is
+  never touched. `steamRoot` overrides Steam discovery (`LUDEX_STEAM_ROOT` also
+  works).
+- Playtime while a launcher URI handler is alive is recorded like any other
+  session; for games the client launches out of process the session can be
+  short.
 
 ### Playnite (#14)
 

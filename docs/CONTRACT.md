@@ -890,8 +890,8 @@ interface InstalledGame {
   installedAt: string; lastLaunchedAt: string | null;
   /** Fingerprint of the archive this install came from, when known. */
   archiveHash: string | null;
-  /** `steam` entries were imported from a Steam library (#13). */
-  source: "ludex" | "steam";
+  /** `ludex` entries were installed here; everything else is a launcher import (#13, #116). */
+  source: "ludex" | "steam" | "epic" | "gog" | "ea" | "ubisoft" | "xbox" | "itch" | "heroic" | "lutris";
   /** External launch URI (`steam://rungameid/<appid>`) for imported entries. */
   launchUri: string | null;
 }
@@ -946,7 +946,52 @@ interface SteamPreview {
 
 interface SteamImportReport {
   imported: InstalledGame[];
-  skipped: { appId: number; title: string; reason: string }[];
+  skipped: { appId: number; title: string; reason: string }
+
+/** One game another launcher installed on this machine (#116). */
+interface LauncherGame {
+  source: "steam" | "epic" | "gog" | "ea" | "ubisoft" | "xbox" | "itch" | "heroic" | "lutris";
+  externalId: string;               // Steam app id, Epic AppName, GOG product id…
+  name: string;
+  installDir: string | null;        // null when the launcher exposes no folder
+  launchUri: string | null;         // null when the launcher has no launch id
+  sizeBytes: number;
+  lastPlayed: number | null;        // Unix seconds, when the launcher records it
+  detail: string | null;            // launcher-side detail shown next to the title
+  issue: string | null;             // why it needs a manual launch URI
+  matchedGameId: number | null;
+  matchedTitle: string | null;
+  imported: boolean;
+  localGameId: number;              // negative id used when nothing matched
+}
+
+interface LauncherSource {
+  id: LauncherGame["source"];
+  label: string;
+  found: number;
+  available: boolean;               // false: not installed / unsupported platform
+  detail: string;
+}
+
+interface LauncherPreview {
+  roots: string[];                  // files, folders and registry keys read
+  games: LauncherGame[];
+  sources: LauncherSource[];
+  warnings: string[];
+  matched: boolean;                 // false: the server could not be listed
+}
+
+interface LauncherImportEntry {
+  source: LauncherGame["source"];
+  externalId: string;
+  gameId?: number | null;           // manual mapping, overrides title matching
+  launchUri?: string | null;        // manual URI for launchers without a deep link
+}
+
+interface LauncherImportReport {
+  imported: InstalledGame[];
+  skipped: { source: string; externalId: string; title: string; reason: string }[];
+}[];
 }
 
 /** How a game is started on Linux (#89); stored per game in the desktop index. */
@@ -1155,6 +1200,8 @@ interface CloudSyncToggleResponse {
 | `presence_status` | — | `PresenceStatus` (never blocks on the IPC socket) |
 | `steam_scan` | — | `SteamPreview`; reads Steam metadata, matches titles, marks imports |
 | `steam_import` | `{ appIds }` | `SteamImportReport`; no download, launches through Steam |
+| `launcher_scan` | — | `LauncherPreview`; reads Steam, Epic, GOG, EA, Ubisoft, Xbox, itch, Heroic and Lutris metadata (#116), matches titles and marks existing imports |
+| `launcher_import` | `{ entries: LauncherImportEntry[] }` | `LauncherImportReport`; writes external rows with `launchUri`, `versionId: 0`, `source` = launcher id. Nothing is downloaded or copied; a second import of the same URI is refused |
 | `detect_save_paths` | `{ gameId }` | `SavePaths`; runs Ludusavi CLI/manifest detection, merges persisted manual paths and saves the mapping + preview. `saves` entries are `{ path, kind: "file" \| "directory", source: "manifest" \| "manual" \| "override", primary, sizeBytes, lastModified, notes }`; `detected: false` plus `message` is the explicit "no save folder detected" state. Paths stay local |
 | `redetect_save_paths` | `{ gameId }` | `SavePaths`; same as `detect_save_paths`, for a re-run after the game created its saves |
 | `get_save_paths` | `{ gameId }` | `SavePaths` from SQLite + last preview; never rescans the disk |
@@ -1198,7 +1245,7 @@ uses `GET /api/games/{id}/versions/{vid}/local-path` when the embedded server is
 in local mode; remote installs download with Range resume and delete the temp
 archive by default (`keepArchives` setting false).
 
-### Desktop integrations (#7, #12, #13, #14)
+### Desktop integrations (#7, #12, #13, #14, #116)
 
 - **Silent installers.** `run_installer` tries `installerSilentArgs` (default
   `/S`, `/silent`, `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`, `--silent`) in
@@ -1232,13 +1279,28 @@ archive by default (`keepArchives` setting false).
   (`https`, non-private host), session start; idle when nothing runs.
   Reconnects with a 4 s → 120 s backoff. `presence_status` exposes
   `connected`, `lastError` and `retryInSeconds`.
-- **Steam import.** Reads `steamapps/libraryfolders.vdf` and
-  `appmanifest_*.acf`, keeps fully installed games whose folder exists, matches
-  normalised titles (then edition-stripped titles) against the server library and
-  imports selected games with `launchUri: steam://rungameid/<appid>`,
-  `versionId: 0`, `source: "steam"`. Matched games keep their server `gameId`;
-  unmatched ones get `-appId`. Uninstalling an import only removes the index
-  entry. Playtime for negative ids is not synced to the server.
+- **Launcher import (#13, #116).** `launcher_scan` reads Steam
+  (`steamapps/libraryfolders.vdf` + `appmanifest_*.acf`), Epic
+  (`LauncherInstalled.dat` + `.item` manifests), GOG (`galaxy-2.0.db` and the
+  registry), EA app and Ubisoft Connect (registry), Xbox / Microsoft Store
+  (`Get-AppxPackage` + `AppxManifest.xml`), itch (`butler.db`), Heroic
+  (`store_cache` JSON and sideloaded apps) and Lutris (`pga.db`). Only entries
+  reported as installed, with an existing folder when one is recorded, are
+  listed; parsers are pure and covered by fixtures, and a missing or malformed
+  file is a warning. Titles are matched by normalised title, then
+  edition-stripped titles, against the server library; ambiguous titles are
+  never guessed and can be mapped by hand in the preview. `launcher_import`
+  writes `versionId: 0`, `source` = the launcher id and `launchUri` (steam://,
+  com.epicgames.launcher://, goggalaxy://, origin://, uplay://,
+  shell:AppsFolder\…, itch://caves/…/launch, heroic://launch/…,
+  lutris:rungameid/…). Matched games keep their server `gameId`; unmatched ones
+  get a deterministic negative id (Steam keeps `-appId`). The partial unique
+  index on `launchUri` plus a scan-time check refuse duplicates and the same
+  install folder reported by two clients. Entries without a documented launch
+  id are flagged and accept a manual URI; `file:`, `javascript:` and `data:`
+  schemes are refused. Uninstalling an import only removes the index entry,
+  never the launcher's files. Playtime for negative ids is not synced to the
+  server.
 - **Playnite.** The plugin lives in `integrations/playnite/` and is a pure API
   client; there is no dedicated endpoint.
 
