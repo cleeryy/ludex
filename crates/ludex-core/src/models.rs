@@ -214,7 +214,40 @@ pub struct GameVersion {
     pub release_date: Option<DateTime<Utc>>,
     /// Whether this version is an early-access build.
     pub early_access: bool,
+    /// Cheap archive fingerprint (`sha256-sample:…`), see
+    /// [`crate::fingerprint`]. `null` until the server has computed it.
+    #[serde(default)]
+    pub archive_hash: Option<String>,
+    /// Last time this version row changed (indexed, renamed or re-hashed).
+    #[serde(default)]
+    pub updated_at: Option<DateTime<Utc>>,
     /// Download URL (`/api/games/{id}/download?versionId={id}`).
+    pub download_url: String,
+}
+
+/// The newest available version of a game, used by clients to detect updates.
+///
+/// Returned by `GET /api/games/{id}/versions/latest`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LatestVersion {
+    /// Game this version belongs to.
+    pub game_id: i64,
+    /// Version row identifier.
+    pub version_id: i64,
+    /// Parsed version label (`1.2.3`), when the file name carried one.
+    pub version_label: Option<String>,
+    /// File name on the library volume.
+    pub file_name: String,
+    /// Cheap archive fingerprint, `null` until computed.
+    pub archive_hash: Option<String>,
+    /// Archive size in bytes.
+    pub archive_size: i64,
+    /// When the version row was last updated.
+    pub updated_at: Option<DateTime<Utc>>,
+    /// Whether this is an early-access build.
+    pub early_access: bool,
+    /// Download URL for this version.
     pub download_url: String,
 }
 
@@ -466,6 +499,8 @@ mod tests {
                 version: Some("3.10.1".into()),
                 release_date: None,
                 early_access: false,
+                archive_hash: Some("sha256-sample:abc".into()),
+                updated_at: None,
                 download_url: "/api/games/1/download?versionId=7".into(),
             }],
             launch: LaunchInfo {

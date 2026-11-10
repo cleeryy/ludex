@@ -8,6 +8,7 @@
 //! - [`slug`]: slug generation.
 //! - [`archive`]: ZIP/RAR/7z detection, verification and streaming extraction.
 //! - [`exe`]: game executable discovery after extraction.
+//! - [`fingerprint`]: cheap archive fingerprints used for update detection.
 //!
 //! ```
 //! use ludex_core::naming::parse_filename;
@@ -23,6 +24,7 @@
 
 pub mod archive;
 pub mod exe;
+pub mod fingerprint;
 pub mod models;
 pub mod naming;
 pub mod slug;
@@ -33,6 +35,7 @@ pub use archive::{
     ArchiveFormat, ArchiveReport, ExtractOptions, ExtractProgress, ExtractReport, TarStreamReport,
 };
 pub use exe::{is_installer, pick_executable};
+pub use fingerprint::{archive_fingerprint, is_fingerprint, FINGERPRINT_PREFIX};
 pub use models::{
     GameDetail, GameSummary, GameVersion, LaunchInfo, NewsPost, Paginated, ProgressState,
     ProgressUpdate, ProviderRef, Role, Stats, Trailer, User,
