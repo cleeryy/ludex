@@ -28,6 +28,8 @@ use tracing::Span;
 pub mod api_keys;
 pub mod audit;
 pub mod auth;
+pub mod collections;
+pub mod community;
 pub mod config;
 pub mod db;
 pub mod error;

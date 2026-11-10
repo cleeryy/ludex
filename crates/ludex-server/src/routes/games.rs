@@ -26,16 +26,17 @@ use crate::extract::{ApiPath, ApiQuery, JsonBody};
 use crate::media::content_disposition;
 use crate::models::{
     BookmarkRequest, BookmarkResponse, DownloadQuery, GameDetailRow, GameListRow, GameQuery,
-    LocalPathResponse, PlaytimeRequest, ProgressRequest, RefreshResponse, StreamQuery,
-    TicketRequest, TicketResponse, UpdateGameRequest, VersionRow,
+    InstalledReportResponse, LocalPathResponse, PlaytimeRequest, ProgressRequest, RefreshResponse,
+    StreamQuery, TicketRequest, TicketResponse, UpdateGameRequest, VersionRow,
 };
 use crate::roots;
 use crate::sql::{bind_query, bind_query_as, bind_query_scalar, Bind};
 use crate::state::AppState;
 use crate::stream::archive_tar_body;
 
-const LIST_COLUMNS: &str = "g.id, g.title, g.sort_title, g.release_date, g.cover_path, \
+pub(crate) const LIST_COLUMNS: &str = "g.id, g.title, g.sort_title, g.release_date, g.cover_path, \
 g.background_path, g.rating, g.genres_json, g.early_access, g.alt_titles_json, g.max_players, \
+g.provider_slug, \
 COALESCE(p.state, 'unplayed') AS state, COALESCE(p.minutes_played, 0) AS minutes_played, \
 CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END AS bookmarked, p.last_played_at, \
 (SELECT COUNT(*) FROM game_versions v WHERE v.game_id = g.id AND v.missing = 0) AS version_count, \
@@ -53,7 +54,7 @@ CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END AS bookmarked, p.last_played_at, \
 (SELECT COUNT(*) FROM game_versions v WHERE v.game_id = g.id AND v.missing = 0) AS version_count, \
 (SELECT COALESCE(SUM(v.size), 0) FROM game_versions v WHERE v.game_id = g.id AND v.missing = 0) AS total_size";
 
-const FROM_JOINS: &str = " FROM games g \
+pub(crate) const FROM_JOINS: &str = " FROM games g \
 LEFT JOIN progress p ON p.game_id = g.id AND p.user_id = ? \
 LEFT JOIN bookmarks b ON b.game_id = g.id AND b.user_id = ?";
 
@@ -77,6 +78,7 @@ pub fn router() -> Router<AppState> {
         .route("/games/{id}/progress", put(set_progress))
         .route("/games/{id}/playtime", post(report_playtime))
         .route("/games/{id}/bookmark", put(set_bookmark))
+        .route("/games/{id}/installed", post(report_installed))
         .route("/stats", get(stats))
 }
 
@@ -400,7 +402,8 @@ async fn fetch_detail(state: &AppState, user_id: i64, id: i64) -> Result<GameDet
         summary: summary_from_detail(&row),
         description: row.description.clone(),
         screenshots,
-        trailers,
+        trailers: trailers.clone(),
+        videos: trailers,
         developers: db::parse_json_list(&row.developers_json),
         publishers: db::parse_json_list(&row.publishers_json),
         tags: db::parse_json_list(&row.tags_json),
@@ -868,6 +871,7 @@ async fn set_progress(
 ) -> Result<Json<ProgressUpdate>, ApiError> {
     user.require_scope(Scope::Write)?;
     ensure_game(&state, game_id).await?;
+    let existed = progress_exists(&state, user.id, game_id).await?;
     let last_played = if request.state == ProgressState::Playing {
         Some(db::db_time(db::now()))
     } else {
@@ -887,6 +891,43 @@ async fn set_progress(
     .execute(&state.pool)
     .await
     .map_err(ApiError::from)?;
+
+    if !existed {
+        crate::community::record(
+            &state,
+            user.id,
+            crate::community::kinds::GAME_ADDED,
+            Some(game_id),
+            None,
+            serde_json::json!({}),
+        )
+        .await;
+    }
+    match request.state {
+        ProgressState::Playing => {
+            crate::community::record_deduped(
+                &state,
+                user.id,
+                crate::community::kinds::GAME_PLAYED,
+                Some(game_id),
+                serde_json::json!({}),
+                30,
+            )
+            .await;
+        }
+        ProgressState::Completed => {
+            crate::community::record_deduped(
+                &state,
+                user.id,
+                crate::community::kinds::GAME_COMPLETED,
+                Some(game_id),
+                serde_json::json!({}),
+                60,
+            )
+            .await;
+        }
+        _ => {}
+    }
     Ok(Json(fetch_progress(&state, user.id, game_id).await?))
 }
 
@@ -899,6 +940,7 @@ async fn report_playtime(
     user.require_scope(Scope::Write)?;
     ensure_game(&state, game_id).await?;
     let minutes = request.minutes.clamp(1, 1440);
+    let existed = progress_exists(&state, user.id, game_id).await?;
     let ended_at = db::now();
     let started_at = ended_at - Duration::minutes(minutes);
     let ended_text = db::db_time(ended_at);
@@ -932,6 +974,27 @@ async fn report_playtime(
     .await
     .map_err(ApiError::from)?;
     transaction.commit().await.map_err(ApiError::from)?;
+
+    if !existed {
+        crate::community::record(
+            &state,
+            user.id,
+            crate::community::kinds::GAME_ADDED,
+            Some(game_id),
+            None,
+            serde_json::json!({}),
+        )
+        .await;
+    }
+    crate::community::record_deduped(
+        &state,
+        user.id,
+        crate::community::kinds::GAME_PLAYED,
+        Some(game_id),
+        serde_json::json!({ "minutes": minutes }),
+        30,
+    )
+    .await;
 
     Ok(Json(fetch_progress(&state, user.id, game_id).await?))
 }
@@ -1083,6 +1146,37 @@ async fn fetch_version(
     .ok_or_else(|| ApiError::not_found("version_not_found", "Game version not found"))
 }
 
+async fn progress_exists(state: &AppState, user_id: i64, game_id: i64) -> Result<bool, ApiError> {
+    let count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM progress WHERE user_id = ? AND game_id = ?",
+    )
+    .bind(user_id)
+    .bind(game_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
+    Ok(count > 0)
+}
+
+async fn report_installed(
+    State(state): State<AppState>,
+    user: AuthUser,
+    ApiPath(game_id): ApiPath<i64>,
+) -> Result<Json<InstalledReportResponse>, ApiError> {
+    user.require_scope(Scope::Write)?;
+    ensure_game(&state, game_id).await?;
+    let recorded = crate::community::record_deduped(
+        &state,
+        user.id,
+        crate::community::kinds::GAME_INSTALLED,
+        Some(game_id),
+        serde_json::json!({ "source": "desktop" }),
+        60,
+    )
+    .await;
+    Ok(Json(InstalledReportResponse { recorded }))
+}
+
 async fn fetch_progress(
     state: &AppState,
     user_id: i64,
@@ -1111,7 +1205,7 @@ async fn fetch_progress(
     })
 }
 
-fn summary_from_list(row: GameListRow) -> GameSummary {
+pub(crate) fn summary_from_list(row: GameListRow) -> GameSummary {
     GameSummary {
         id: row.id,
         title: row.title,

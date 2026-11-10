@@ -31,6 +31,27 @@ All notable changes to Ludex are documented here. The format is based on
   (`LUDEX_MEDIA_GC_INTERVAL_HOURS`) and a `media_gc_runs` history.
 - `docs/LIBRARY.md` documenting roots, watcher, integrity and GC operations,
   including platform limits and safety rules.
+- Trailer and media playback (#31): IGDB `videos` are stored with their
+  YouTube id and provider, exposed as `videos[]` on `GameDetail`, and played in
+  the web UI through a privacy-enhanced `youtube-nocookie.com` embed that only
+  loads after a click. Game pages gain a trailer section and a combined
+  screenshots/videos gallery with arrow-key lightbox navigation and fullscreen.
+- Collections and smart lists (#25): per-user manual shelves and rule-based
+  smart collections (`genre`, `year`, `players`, `playtime`, `rating`,
+  `installed`, `provider`, `title`, AND/OR) with CRUD, add/remove, public
+  visibility, a collection page, a create/edit dialog with rule builder and a
+  picker, and an add-to-collection flow from game detail.
+- Community (#10): opt-in public profiles (`publicProfile`, `displayName`,
+  `bio`), a member directory, public profile pages with library/collections/
+  activity, and a paginated activity feed recorded for library additions,
+  installs, play sessions, completions and collection creation. Private
+  profiles return 404 to other accounts.
+- Migration `0008_collections_community.sql` with `collections`,
+  `collection_games` and `activities`, plus public-profile columns on `users`.
+- `POST /api/games/{id}/installed` for the desktop to report an install without
+  flooding the feed (deduped hourly).
+- Demo data and mock coverage for trailers, collections (manual and smart),
+  public profiles and the activity feed.
 
 - Advanced library filters: genre, release year range, player count, playtime
   range, installed state, metadata provider, minimum rating and sort by

@@ -4,7 +4,7 @@
 //! desktop app see exactly the contract's shapes.
 
 use chrono::{DateTime, Utc};
-use ludex_core::models::{LaunchInfo, ProgressState, Role, User};
+use ludex_core::models::{GameSummary, LaunchInfo, ProgressState, Role, User};
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Row returned by the game list/random queries.
@@ -21,6 +21,7 @@ pub struct GameListRow {
     pub early_access: i64,
     pub alt_titles_json: String,
     pub max_players: Option<i64>,
+    pub provider_slug: Option<String>,
     pub state: String,
     pub minutes_played: i64,
     pub bookmarked: i64,
@@ -974,6 +975,449 @@ pub struct UpdateWebhookResponse {
 pub struct WebhookTestResponse {
     /// Queued delivery id.
     pub delivery_id: i64,
+}
+
+/// Kind of collection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CollectionKind {
+    /// Explicit list of games.
+    Manual,
+    /// Rule tree evaluated at read time.
+    Smart,
+}
+
+impl CollectionKind {
+    /// Stable database and API value.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::Smart => "smart",
+        }
+    }
+
+    /// Parses a database or API value.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "manual" => Some(Self::Manual),
+            "smart" => Some(Self::Smart),
+            _ => None,
+        }
+    }
+}
+
+/// One rule inside a smart collection.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmartRule {
+    /// `genre`, `year`, `players`, `playtime`, `rating`, `installed`,
+    /// `provider` or `title`.
+    pub field: String,
+    /// Field-specific operator; defaults are documented in the contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<String>,
+    /// Primary comparison value.
+    pub value: serde_json::Value,
+    /// Upper bound for `between` operators.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value2: Option<serde_json::Value>,
+}
+
+/// Rule tree of a smart collection.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmartRules {
+    /// `all` (AND) or `any` (OR).
+    #[serde(default = "default_match_mode", rename = "match")]
+    pub match_mode: String,
+    /// Rules to combine.
+    #[serde(default)]
+    pub rules: Vec<SmartRule>,
+}
+
+impl Default for SmartRules {
+    fn default() -> Self {
+        Self {
+            match_mode: default_match_mode(),
+            rules: Vec::new(),
+        }
+    }
+}
+
+fn default_match_mode() -> String {
+    "all".to_string()
+}
+
+/// Owner of a collection, as exposed by the API.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionOwner {
+    /// Account id.
+    pub id: i64,
+    /// Login name.
+    pub username: String,
+    /// Public display name, when the account opted in.
+    pub display_name: Option<String>,
+}
+
+/// Collection metadata.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Collection {
+    /// Collection id.
+    pub id: i64,
+    /// Display name.
+    pub name: String,
+    /// Optional description.
+    pub description: Option<String>,
+    /// Whether other accounts can read it.
+    pub is_public: bool,
+    /// Manual or smart.
+    pub kind: CollectionKind,
+    /// Rule tree (empty for manual collections).
+    pub rules: SmartRules,
+    /// Manual member count, or the evaluated count for smart collections when
+    /// it was cheap to compute.
+    pub game_count: i64,
+    /// Owning account.
+    pub owner: CollectionOwner,
+    /// Whether the requesting user owns it.
+    pub owned: bool,
+    /// Creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Last update timestamp.
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Row of the `collections` table joined with its owner.
+#[derive(Debug, sqlx::FromRow)]
+pub struct CollectionRow {
+    pub id: i64,
+    pub user_id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    pub is_public: i64,
+    pub kind: String,
+    pub rules_json: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub game_count: i64,
+    pub owner_username: String,
+    pub owner_display_name: Option<String>,
+}
+
+impl CollectionRow {
+    /// Public representation for `viewer_id`.
+    #[must_use]
+    pub fn to_public(&self, viewer_id: i64) -> Collection {
+        Collection {
+            id: self.id,
+            name: self.name.clone(),
+            description: self.description.clone(),
+            is_public: self.is_public != 0,
+            kind: CollectionKind::parse(&self.kind).unwrap_or(CollectionKind::Manual),
+            rules: serde_json::from_str(&self.rules_json).unwrap_or_default(),
+            game_count: self.game_count,
+            owner: CollectionOwner {
+                id: self.user_id,
+                username: self.owner_username.clone(),
+                display_name: self.owner_display_name.clone(),
+            },
+            owned: self.user_id == viewer_id,
+            created_at: crate::db::parse_time(&self.created_at).unwrap_or_else(Utc::now),
+            updated_at: crate::db::parse_time(&self.updated_at).unwrap_or_else(Utc::now),
+        }
+    }
+}
+
+/// `POST /api/collections` request.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCollectionRequest {
+    /// Display name.
+    pub name: String,
+    /// Optional description.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Whether other accounts can read it.
+    #[serde(default)]
+    pub is_public: Option<bool>,
+    /// `manual` (default) or `smart`.
+    #[serde(default)]
+    pub kind: Option<CollectionKind>,
+    /// Rule tree, required for smart collections.
+    #[serde(default)]
+    pub rules: Option<SmartRules>,
+    /// Initial manual members.
+    #[serde(default)]
+    pub game_ids: Option<Vec<i64>>,
+}
+
+/// `PATCH /api/collections/{id}` request.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCollectionRequest {
+    /// New display name.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// New description (`null` clears).
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub description: Option<Option<String>>,
+    /// Public visibility.
+    #[serde(default)]
+    pub is_public: Option<bool>,
+    /// Manual or smart.
+    #[serde(default)]
+    pub kind: Option<CollectionKind>,
+    /// Replacement rule tree.
+    #[serde(default)]
+    pub rules: Option<SmartRules>,
+}
+
+/// `POST /api/collections/{id}/games` request.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionGamesRequest {
+    /// Games to add.
+    pub game_ids: Vec<i64>,
+}
+
+/// Response of `POST /api/games/{id}/installed`.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledReportResponse {
+    /// Whether a new feed entry was written (deduped within an hour).
+    pub recorded: bool,
+}
+
+/// `POST /api/collections/{id}/games` response.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionGamesResponse {
+    /// Rows actually inserted (duplicates are ignored).
+    pub added: i64,
+    /// Members after the insert.
+    pub total: i64,
+}
+
+/// Query string for `GET /api/collections/{id}/games`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionGamesQuery {
+    /// 1-based page number.
+    #[serde(default)]
+    pub page: Option<i64>,
+    /// Page size.
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+/// Account summary embedded in feed entries.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityUser {
+    /// Account id.
+    pub id: i64,
+    /// Login name.
+    pub username: String,
+    /// Public display name.
+    pub display_name: Option<String>,
+    /// Avatar URL, when set.
+    pub avatar_url: Option<String>,
+}
+
+/// Game summary embedded in feed entries.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityGame {
+    /// Game id.
+    pub id: i64,
+    /// Display title.
+    pub title: String,
+    /// Cover URL, when cached.
+    pub cover_url: Option<String>,
+    /// Release year, when known.
+    pub release_year: Option<i32>,
+}
+
+/// Collection summary embedded in feed entries.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityCollection {
+    /// Collection id.
+    pub id: i64,
+    /// Display name.
+    pub name: String,
+}
+
+/// One public activity entry.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Activity {
+    /// Row id, also the pagination cursor.
+    pub id: i64,
+    /// `game_added`, `game_installed`, `game_played`, `game_completed` or
+    /// `collection_created`.
+    pub kind: String,
+    /// Event timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Structured, secret-free detail.
+    pub metadata: serde_json::Value,
+    /// Account that generated the entry.
+    pub user: ActivityUser,
+    /// Related game, when the row survived.
+    pub game: Option<ActivityGame>,
+    /// Related collection, when the row survived.
+    pub collection: Option<ActivityCollection>,
+}
+
+/// One page of feed entries.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityPage {
+    /// Newest-first entries.
+    pub items: Vec<Activity>,
+    /// Pass as `before` to fetch the next page; `null` on the last page.
+    pub next_before: Option<i64>,
+}
+
+/// Query string for feed and activity routes.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityQuery {
+    /// Page size, 1..=100 (default 20).
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// Return rows with `id < before` (newest-first cursor).
+    #[serde(default)]
+    pub before: Option<i64>,
+}
+
+/// Row of the `activities` table joined with actor, game and collection.
+#[derive(Debug, sqlx::FromRow)]
+pub struct ActivityRow {
+    pub id: i64,
+    pub kind: String,
+    pub created_at: String,
+    pub metadata: String,
+    pub user_id: i64,
+    pub username: String,
+    pub display_name: Option<String>,
+    pub avatar_path: Option<String>,
+    pub game_id: Option<i64>,
+    pub game_title: Option<String>,
+    pub game_cover_path: Option<String>,
+    pub game_release_date: Option<String>,
+    pub collection_id: Option<i64>,
+    pub collection_name: Option<String>,
+}
+
+impl ActivityRow {
+    /// Public representation.
+    #[must_use]
+    pub fn to_public(&self) -> Activity {
+        Activity {
+            id: self.id,
+            kind: self.kind.clone(),
+            created_at: crate::db::parse_time(&self.created_at).unwrap_or_else(Utc::now),
+            metadata: serde_json::from_str(&self.metadata)
+                .unwrap_or_else(|_| serde_json::json!({})),
+            user: ActivityUser {
+                id: self.user_id,
+                username: self.username.clone(),
+                display_name: self.display_name.clone(),
+                avatar_url: self
+                    .avatar_path
+                    .as_deref()
+                    .filter(|path| !path.is_empty())
+                    .map(crate::media::media_url),
+            },
+            game: self
+                .game_id
+                .zip(self.game_title.clone())
+                .map(|(id, title)| ActivityGame {
+                    id,
+                    title,
+                    cover_url: self.game_cover_path.as_deref().map(crate::media::media_url),
+                    release_year: self
+                        .game_release_date
+                        .as_deref()
+                        .and_then(|date| date.get(0..4))
+                        .and_then(|year| year.parse::<i32>().ok()),
+                }),
+            collection: self
+                .collection_id
+                .zip(self.collection_name.clone())
+                .map(|(id, name)| ActivityCollection { id, name }),
+        }
+    }
+}
+
+/// Opt-in public profile.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicProfile {
+    /// Account id.
+    pub id: i64,
+    /// Login name.
+    pub username: String,
+    /// Public display name.
+    pub display_name: Option<String>,
+    /// Free-form bio.
+    pub bio: Option<String>,
+    /// Avatar URL, when set.
+    pub avatar_url: Option<String>,
+    /// Whether the profile is public.
+    pub public_profile: bool,
+    /// Member since.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Aggregate counters shown on a profile.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicStats {
+    /// Games with progress.
+    pub games: i64,
+    /// Games marked completed.
+    pub completed: i64,
+    /// Minutes played in total.
+    pub minutes_played: i64,
+    /// Bookmarked games.
+    pub bookmarked: i64,
+    /// Visible collections.
+    pub collections: i64,
+}
+
+/// `GET /api/community/users/{id}` response.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicProfileResponse {
+    /// Profile header.
+    pub user: PublicProfile,
+    /// Aggregate counters.
+    pub stats: PublicStats,
+    /// Games the account has progress on or bookmarked, most recent first.
+    pub library: Vec<GameSummary>,
+    /// Public collections (all of them for the owner).
+    pub collections: Vec<Collection>,
+}
+
+/// `PATCH /api/me/profile` request.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProfileRequest {
+    /// Opt in or out of the public directory and feed.
+    #[serde(default)]
+    pub public_profile: Option<bool>,
+    /// Display name (`null` clears).
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub display_name: Option<Option<String>>,
+    /// Bio (`null` clears).
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub bio: Option<Option<String>>,
 }
 
 /// Deserialises a present field, distinguishing `null` from an absent field.

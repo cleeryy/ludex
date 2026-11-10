@@ -381,6 +381,8 @@ async fn library_scan_groups_versions_and_serves_api() {
     assert_eq!(status, StatusCode::OK, "{detail}");
     assert_eq!(detail["title"], "Hades");
     assert_eq!(detail["versions"].as_array().expect("versions").len(), 2);
+    assert_eq!(detail["videos"].as_array().expect("videos").len(), 0);
+    assert!(detail["trailers"].is_array());
     assert!(detail["versions"][0]["downloadUrl"]
         .as_str()
         .expect("url")
@@ -1147,6 +1149,514 @@ async fn local_mode_provisions_admin_and_local_paths() {
 
     let _ = handle.shutdown.send(());
     tokio::time::sleep(Duration::from_millis(50)).await;
+}
+
+#[tokio::test]
+async fn collections_are_per_user_with_smart_rules() {
+    let server = TestServer::start().await;
+    let (admin_token, admin_user) = server.setup().await;
+    let admin_id = admin_user["id"].as_i64().expect("admin id");
+
+    server.write_game("Hades (2020).zip", 3 * 1024 * 1024);
+    server.write_game("Celeste (2018).zip", 2 * 1024 * 1024);
+    server.write_game("It Takes Two (2021).zip", 4 * 1024 * 1024);
+    run_scan(&server, &admin_token).await;
+
+    let (_, list) = server.get("/api/games?limit=10", Some(&admin_token)).await;
+    let mut ids = HashMap::new();
+    for item in list["items"].as_array().expect("items") {
+        ids.insert(
+            item["title"].as_str().expect("title").to_string(),
+            item["id"].as_i64().expect("id"),
+        );
+    }
+    let hades = ids["Hades"];
+    let celeste = ids["Celeste"];
+    let it_takes_two = ids["It Takes Two"];
+
+    for (id, genres, rating, release) in [
+        (hades, json!(["Action", "Roguelike"]), 92.0, "2020-09-17"),
+        (celeste, json!(["Platformer"]), 88.0, "2018-01-25"),
+        (it_takes_two, json!(["Adventure"]), 85.0, "2021-03-26"),
+    ] {
+        let (status, body) = server
+            .patch(
+                &format!("/api/games/{id}"),
+                &admin_token,
+                json!({"genres": genres, "rating": rating, "releaseDate": release}),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    let (status, created) = server
+        .post(
+            "/api/collections",
+            Some(&admin_token),
+            Some(json!({
+                "name": "Weekend",
+                "description": "Two-player nights",
+                "gameIds": [hades, celeste]
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let manual_id = created["id"].as_i64().expect("id");
+    assert_eq!(created["kind"], "manual");
+    assert_eq!(created["gameCount"], 2);
+    assert_eq!(created["owned"], true);
+    assert_eq!(created["owner"]["username"], "admin");
+    assert_eq!(created["isPublic"], false);
+
+    let (status, games) = server
+        .get(
+            &format!("/api/collections/{manual_id}/games"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{games}");
+    assert_eq!(games["total"], 2);
+
+    let (status, added) = server
+        .post(
+            &format!("/api/collections/{manual_id}/games"),
+            Some(&admin_token),
+            Some(json!({"gameIds": [it_takes_two, hades]})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{added}");
+    assert_eq!(added["added"], 1);
+    assert_eq!(added["total"], 3);
+
+    let (status, _) = server
+        .delete(
+            &format!("/api/collections/{manual_id}/games/{celeste}"),
+            &admin_token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, games) = server
+        .get(
+            &format!("/api/collections/{manual_id}/games"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(games["total"], 2);
+
+    // Smart collection: Roguelike with rating >= 90 matches Hades only.
+    let (status, smart) = server
+        .post(
+            "/api/collections",
+            Some(&admin_token),
+            Some(json!({
+                "name": "Roguelike gems",
+                "kind": "smart",
+                "isPublic": true,
+                "rules": {
+                    "match": "all",
+                    "rules": [
+                        {"field": "genre", "value": "Roguelike"},
+                        {"field": "rating", "op": "gte", "value": 90}
+                    ]
+                }
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{smart}");
+    let smart_id = smart["id"].as_i64().expect("smart id");
+    let (_, smart_games) = server
+        .get(
+            &format!("/api/collections/{smart_id}/games"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(smart_games["total"], 1, "{smart_games}");
+    assert_eq!(smart_games["items"][0]["title"], "Hades");
+
+    let (status, _) = server
+        .post(
+            &format!("/api/collections/{smart_id}/games"),
+            Some(&admin_token),
+            Some(json!({"gameIds": [hades]})),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "smart collections reject manual adds"
+    );
+
+    let (status, _) = server
+        .post(
+            "/api/collections",
+            Some(&admin_token),
+            Some(json!({
+                "name": "Broken",
+                "kind": "smart",
+                "rules": {"match": "all", "rules": [{"field": "bogus", "value": 1}]}
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, _) = server
+        .post(
+            "/api/collections",
+            Some(&admin_token),
+            Some(json!({"name": "Weekend"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "duplicate name per user");
+
+    // Second account: private collections are invisible.
+    let (status, bob) = server
+        .post(
+            "/api/users",
+            Some(&admin_token),
+            Some(json!({"username": "bob", "password": "password123", "role": "user"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{bob}");
+    let (status, login) = server
+        .post(
+            "/api/auth/login",
+            None,
+            Some(json!({"username": "bob", "password": "password123"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let bob_token = login["token"].as_str().expect("bob token").to_string();
+
+    let (_, bob_list) = server.get("/api/collections", Some(&bob_token)).await;
+    assert_eq!(
+        bob_list.as_array().expect("collections").len(),
+        1,
+        "only the public smart collection is visible: {bob_list}"
+    );
+    assert_eq!(bob_list[0]["id"], smart_id);
+
+    let (status, _) = server
+        .get(&format!("/api/collections/{manual_id}"), Some(&bob_token))
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = server
+        .get(
+            &format!("/api/collections/{manual_id}/games"),
+            Some(&bob_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = server
+        .patch(
+            &format!("/api/collections/{manual_id}"),
+            &bob_token,
+            json!({"name": "Stolen"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = server
+        .delete(&format!("/api/collections/{manual_id}"), &bob_token)
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, bob_created) = server
+        .post(
+            "/api/collections",
+            Some(&bob_token),
+            Some(json!({"name": "Weekend", "gameIds": [hades]})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{bob_created}");
+
+    // Publishing makes the manual shelf readable by others.
+    let (status, published) = server
+        .patch(
+            &format!("/api/collections/{manual_id}"),
+            &admin_token,
+            json!({"isPublic": true}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{published}");
+    assert_eq!(published["isPublic"], true);
+    let (status, games) = server
+        .get(
+            &format!("/api/collections/{manual_id}/games"),
+            Some(&bob_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{games}");
+    assert_eq!(games["total"], 2);
+
+    let (_, bob_list) = server.get("/api/collections", Some(&bob_token)).await;
+    assert_eq!(bob_list.as_array().expect("collections").len(), 3);
+
+    let (status, _) = server
+        .delete(&format!("/api/collections/{manual_id}"), &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _) = server
+        .get(&format!("/api/collections/{manual_id}"), Some(&admin_token))
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(admin_id > 0);
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn community_profiles_are_opt_in_and_the_feed_paginates() {
+    let server = TestServer::start().await;
+    let (admin_token, admin_user) = server.setup().await;
+    let admin_id = admin_user["id"].as_i64().expect("admin id");
+
+    server.write_game("Hades (2020).zip", 3 * 1024 * 1024);
+    server.write_game("Celeste (2018).zip", 2 * 1024 * 1024);
+    run_scan(&server, &admin_token).await;
+    let (_, list) = server.get("/api/games?limit=10", Some(&admin_token)).await;
+    let hades = list["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|item| item["title"] == "Hades")
+        .and_then(|item| item["id"].as_i64())
+        .expect("hades");
+
+    // Private by default: only the owner can read the profile.
+    let (status, own) = server.get("/api/me/profile", Some(&admin_token)).await;
+    assert_eq!(status, StatusCode::OK, "{own}");
+    assert_eq!(own["publicProfile"], false);
+    assert_eq!(own["username"], "admin");
+
+    let (status, profile) = server
+        .get(
+            &format!("/api/community/users/{admin_id}"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "owner reads own profile: {profile}");
+
+    let (status, updated) = server
+        .patch(
+            "/api/me/profile",
+            &admin_token,
+            json!({"publicProfile": true, "displayName": "Mara", "bio": "Roguelike and cats."}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["publicProfile"], true);
+    assert_eq!(updated["displayName"], "Mara");
+
+    let (status, _) = server
+        .patch(
+            "/api/me/profile",
+            &admin_token,
+            json!({"displayName": "x".repeat(80)}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // Activities: collection created, game added, game played, installed.
+    let (status, collection) = server
+        .post(
+            "/api/collections",
+            Some(&admin_token),
+            Some(json!({"name": "Night shelf", "gameIds": [hades]})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{collection}");
+    let collection_id = collection["id"].as_i64().expect("collection id");
+
+    let (status, progress) = server
+        .put(
+            &format!("/api/games/{hades}/progress"),
+            &admin_token,
+            json!({"state": "playing"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{progress}");
+    let (status, playtime) = server
+        .post(
+            &format!("/api/games/{hades}/playtime"),
+            Some(&admin_token),
+            Some(json!({"minutes": 45})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{playtime}");
+    let (status, first_install) = server
+        .post(
+            &format!("/api/games/{hades}/installed"),
+            Some(&admin_token),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{first_install}");
+    assert_eq!(first_install["recorded"], true);
+    let (_, second_install) = server
+        .post(
+            &format!("/api/games/{hades}/installed"),
+            Some(&admin_token),
+            None,
+        )
+        .await;
+    assert_eq!(
+        second_install["recorded"], false,
+        "installs dedupe within an hour"
+    );
+
+    let (status, feed) = server
+        .get("/api/community/feed?limit=20", Some(&admin_token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{feed}");
+    let items = feed["items"].as_array().expect("items");
+    assert_eq!(items.len(), 4, "{feed}");
+    let kinds: Vec<&str> = items
+        .iter()
+        .map(|item| item["kind"].as_str().expect("kind"))
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            "game_installed",
+            "game_played",
+            "game_added",
+            "collection_created"
+        ]
+    );
+    assert_eq!(items[1]["game"]["title"], "Hades");
+    assert_eq!(items[3]["collection"]["name"], "Night shelf");
+    assert_eq!(items[0]["user"]["displayName"], "Mara");
+
+    // Pagination is newest-first by id cursor.
+    let (_, page_one) = server
+        .get("/api/community/feed?limit=2", Some(&admin_token))
+        .await;
+    assert_eq!(page_one["items"].as_array().expect("items").len(), 2);
+    let cursor = page_one["nextBefore"].as_i64().expect("cursor");
+    let (_, page_two) = server
+        .get(
+            &format!("/api/community/feed?limit=2&before={cursor}"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(page_two["items"].as_array().expect("items").len(), 2);
+    assert_eq!(page_two["nextBefore"], Value::Null);
+
+    // Second account: private until it opts in.
+    let (status, bob) = server
+        .post(
+            "/api/users",
+            Some(&admin_token),
+            Some(json!({"username": "bob", "password": "password123", "role": "user"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{bob}");
+    let bob_id = bob["id"].as_i64().expect("bob id");
+    let (_, login) = server
+        .post(
+            "/api/auth/login",
+            None,
+            Some(json!({"username": "bob", "password": "password123"})),
+        )
+        .await;
+    let bob_token = login["token"].as_str().expect("bob token").to_string();
+
+    let (status, _) = server
+        .get(
+            &format!("/api/community/users/{bob_id}"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "private profile is hidden");
+
+    let (status, admin_profile) = server
+        .get(
+            &format!("/api/community/users/{admin_id}"),
+            Some(&bob_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{admin_profile}");
+    assert_eq!(admin_profile["user"]["displayName"], "Mara");
+    assert_eq!(admin_profile["stats"]["games"], 1, "{admin_profile}");
+    assert_eq!(
+        admin_profile["stats"]["minutesPlayed"], 45,
+        "{admin_profile}"
+    );
+    // The manual shelf is private, so another account sees no collection.
+    assert_eq!(admin_profile["stats"]["collections"], 0, "{admin_profile}");
+    assert_eq!(admin_profile["library"][0]["title"], "Hades");
+
+    let (_, own_profile) = server
+        .get(
+            &format!("/api/community/users/{admin_id}"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(own_profile["stats"]["collections"], 1, "{own_profile}");
+    assert_eq!(own_profile["collections"][0]["id"], collection_id);
+
+    let (status, activity) = server
+        .get(
+            &format!("/api/community/users/{admin_id}/activity"),
+            Some(&bob_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{activity}");
+    assert_eq!(activity["items"].as_array().expect("items").len(), 4);
+
+    let (status, _) = server
+        .get(
+            &format!("/api/community/users/{bob_id}/activity"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Opting in publishes the profile and its future activity.
+    server
+        .patch(
+            "/api/me/profile",
+            &bob_token,
+            json!({"publicProfile": true}),
+        )
+        .await;
+    server
+        .put(
+            &format!("/api/games/{hades}/progress"),
+            &bob_token,
+            json!({"state": "completed"}),
+        )
+        .await;
+
+    let (status, directory) = server.get("/api/community/users", Some(&admin_token)).await;
+    assert_eq!(status, StatusCode::OK, "{directory}");
+    assert_eq!(directory.as_array().expect("users").len(), 2);
+
+    let (_, feed) = server
+        .get("/api/community/feed?limit=20", Some(&admin_token))
+        .await;
+    assert_eq!(feed["items"].as_array().expect("items").len(), 6);
+
+    let (status, bob_profile) = server
+        .get(
+            &format!("/api/community/users/{bob_id}"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{bob_profile}");
+    assert_eq!(bob_profile["user"]["publicProfile"], true);
+    assert_eq!(bob_profile["stats"]["completed"], 1);
+
+    // Deleting the account removes its activities from the feed.
+    server
+        .delete(&format!("/api/users/{bob_id}"), &admin_token)
+        .await;
+    let (_, feed) = server
+        .get("/api/community/feed?limit=20", Some(&admin_token))
+        .await;
+    assert_eq!(feed["items"].as_array().expect("items").len(), 4);
+
+    server.stop().await;
 }
 
 fn zip_options() -> zip::write::SimpleFileOptions {

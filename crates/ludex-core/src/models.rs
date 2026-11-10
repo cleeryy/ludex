@@ -246,6 +246,12 @@ pub struct Trailer {
     pub url: String,
     /// Optional thumbnail URL.
     pub thumbnail_url: Option<String>,
+    /// Provider-specific video id (the YouTube id for IGDB videos).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_id: Option<String>,
+    /// Playback provider (`youtube` for IGDB, `file` for direct media URLs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
 }
 
 /// Provider metadata reference for a game.
@@ -271,8 +277,11 @@ pub struct GameDetail {
     pub description: Option<String>,
     /// Screenshot media URLs.
     pub screenshots: Vec<String>,
-    /// Trailers.
+    /// Trailers (kept for clients written against v0.2; prefer `videos`).
     pub trailers: Vec<Trailer>,
+    /// Trailers and other videos, with provider metadata for in-app playback.
+    #[serde(default)]
+    pub videos: Vec<Trailer>,
     /// Developer names.
     pub developers: Vec<String>,
     /// Publisher names.
@@ -430,6 +439,15 @@ mod tests {
                 title: "Launch".into(),
                 url: "https://example.com/v.mp4".into(),
                 thumbnail_url: None,
+                video_id: None,
+                provider: Some("file".into()),
+            }],
+            videos: vec![Trailer {
+                title: "Launch".into(),
+                url: "https://example.com/v.mp4".into(),
+                thumbnail_url: None,
+                video_id: None,
+                provider: Some("file".into()),
             }],
             developers: vec!["IO Interactive".into()],
             publishers: vec![],

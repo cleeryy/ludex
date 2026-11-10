@@ -43,10 +43,23 @@ interface GameVersion {
   downloadUrl: string; // /api/games/{id}/download?versionId={id}
 }
 
+interface GameVideo {
+  title: string;
+  url: string;
+  thumbnailUrl: string | null;
+  /** YouTube id for IGDB trailers; null for direct file URLs. */
+  videoId?: string | null;
+  /** "youtube" or "file". */
+  provider?: string | null;
+}
+
 interface GameDetail extends GameSummary {
   description: string | null;
   screenshots: string[]; // media URLs
-  trailers: { title: string; url: string; thumbnailUrl: string | null }[];
+  /** Deprecated alias of `videos`, kept for v0.2 clients. */
+  trailers: GameVideo[];
+  /** Trailers and other videos, with provider metadata. */
+  videos: GameVideo[];
   developers: string[]; publishers: string[]; tags: string[]; ageRating: number | null;
   provider: { slug: string; id: string; url: string | null } | null;
   altTitles: string[];
@@ -133,7 +146,106 @@ fallback). Results are ranked by relevance and carry `matchedField`,
 | PUT | `/api/games/{id}/progress` | `{ state }` | `{ state, minutesPlayed, lastPlayedAt }` |
 | POST | `/api/games/{id}/playtime` | `{ minutes }` | updated progress |
 | PUT | `/api/games/{id}/bookmark` | `{ bookmarked }` | `{ bookmarked }` |
+| POST | `/api/games/{id}/installed` | desktop install report → `{ recorded }` |
 | GET | `/api/stats` | — | `{ games, versions, totalBytes, users, byState: Record<ProgressState, number> }` |
+
+## Collections (#25)
+
+Collections are per-user shelves. `kind=manual` stores an explicit list;
+`kind=smart` stores a rule tree and evaluates it at read time. Every account can
+read public collections; private collections return 404 to anyone but the owner.
+
+```ts
+type CollectionKind = "manual" | "smart";
+type SmartField =
+  | "genre" | "year" | "players" | "playtime"
+  | "rating" | "installed" | "provider" | "title";
+
+interface SmartRule {
+  field: SmartField;
+  /** Defaults: "is" except title → "contains", players/playtime/rating → "gte". */
+  op?: "is" | "contains" | "gte" | "lte" | "between";
+  value: string | number | boolean;
+  value2?: string | number; // upper bound for "between"
+}
+interface SmartRules { match: "all" | "any"; rules: SmartRule[] }
+
+interface Collection {
+  id: number; name: string; description: string | null;
+  isPublic: boolean; kind: CollectionKind; rules: SmartRules;
+  gameCount: number; owner: { id: number; username: string; displayName: string | null };
+  owned: boolean; createdAt: string; updatedAt: string;
+}
+```
+
+Rules combine with `all` (AND) or `any` (OR). An empty rule tree matches
+nothing, so a fresh smart collection reads as empty. `installed` means "a
+downloadable version exists" because the server cannot see the desktop's local
+installs. Playtime and installed state are evaluated for the requesting user.
+Unknown fields, operators or value types return `400 invalid_rules` on write.
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/collections` | own collections plus public ones, own first |
+| POST | `/api/collections` | `{ name, description?, isPublic?, kind?, rules?, gameIds? }` → 201 `Collection` |
+| GET | `/api/collections/{id}` | owner or public, else 404 |
+| PATCH | `/api/collections/{id}` | owner; partial fields; switching manual→smart clears the explicit list |
+| DELETE | `/api/collections/{id}` | owner; 204 |
+| GET | `/api/collections/{id}/games` | `?page=&limit=` → `Paginated<GameSummary>`; smart rules evaluated live |
+| POST | `/api/collections/{id}/games` | owner, manual only; `{ gameIds: number[] }` → `{ added, total }`; smart → 409 |
+| DELETE | `/api/collections/{id}/games/{gameId}` | owner, manual only; 204 |
+
+Names are unique per owner (case-insensitive) → `409 collection_exists`.
+
+## Community (#10)
+
+Profiles are opt-in. `users.public_profile` defaults to false; only opted-in
+accounts appear in the directory, the feed and profile pages. Private profiles
+return 404 to everyone else, including their activity.
+
+```ts
+interface PublicProfile {
+  id: number; username: string; displayName: string | null; bio: string | null;
+  avatarUrl: string | null; publicProfile: boolean; createdAt: string;
+}
+interface PublicStats {
+  games: number; completed: number; minutesPlayed: number;
+  bookmarked: number; collections: number;
+}
+interface PublicProfileResponse {
+  user: PublicProfile; stats: PublicStats;
+  library: GameSummary[];   // progress or bookmark rows, most recent first
+  collections: Collection[]; // public collections (all of them for the owner)
+}
+type ActivityKind =
+  | "game_added" | "game_installed" | "game_played"
+  | "game_completed" | "collection_created";
+interface Activity {
+  id: number; kind: ActivityKind; createdAt: string;
+  metadata: Record<string, unknown>;
+  user: { id: number; username: string; displayName: string | null; avatarUrl: string | null };
+  game: { id: number; title: string; coverUrl: string | null; releaseYear: number | null } | null;
+  collection: { id: number; name: string } | null;
+}
+interface ActivityPage { items: Activity[]; nextBefore: number | null }
+```
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/me/profile` | own profile, including `publicProfile` |
+| PATCH | `/api/me/profile` | `{ publicProfile?, displayName?, bio? }`; `null` clears text |
+| GET | `/api/community/users` | public profiles, alphabetical |
+| GET | `/api/community/users/{id}` | `PublicProfileResponse`; private → 404 for others |
+| GET | `/api/community/users/{id}/activity` | `?limit=&before=` → `ActivityPage` |
+| GET | `/api/community/feed` | public activity, newest first; `?limit=&before=` |
+
+Activity is recorded server-side: `game_added` when a game first enters the
+account's library (first progress row or playtime report), `game_played` on a
+playing state or playtime report (deduped 30 min), `game_completed` on the
+completed state (deduped 60 min), `collection_created` on creation, and
+`game_installed` from `POST /api/games/{id}/installed` (deduped 60 min; the
+desktop calls it). Feed entries survive deletion of the referenced game or
+collection as `null` references.
 
 ## Cloud saves (per user)
 
