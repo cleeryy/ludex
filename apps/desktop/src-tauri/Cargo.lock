@@ -2582,12 +2582,14 @@ dependencies = [
  "chrono",
  "fs2",
  "futures-util",
+ "hex",
  "ludex-core",
  "ludex-server",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -2601,6 +2603,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "zip",
 ]
 
 [[package]]

@@ -35,7 +35,7 @@ pub struct PendingSession {
     pub minutes: i64,
 }
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -87,6 +87,23 @@ CREATE INDEX IF NOT EXISTS install_jobs_game_idx ON install_jobs (game_id, versi
 CREATE INDEX IF NOT EXISTS install_jobs_updated_idx ON install_jobs (updated_at);
 "#;
 
+/// File manifests for installed games (issue #37). `manifest` is the JSON
+/// encoding of `manifest::FileManifest`; keeping it in the index means it never
+/// shows up as an extra file inside the install folder and moving an install
+/// only rewrites one row.
+const SCHEMA_V3: &str = r#"
+CREATE TABLE IF NOT EXISTS install_manifests (
+    game_id      INTEGER PRIMARY KEY,
+    version_id   INTEGER NOT NULL,
+    install_path TEXT    NOT NULL,
+    manifest     TEXT    NOT NULL,
+    files        INTEGER NOT NULL DEFAULT 0,
+    bytes        INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT    NOT NULL,
+    updated_at   TEXT    NOT NULL
+);
+"#;
+
 pub fn open(path: &Path) -> Result<Connection, String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
@@ -129,6 +146,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         connection
             .execute_batch(SCHEMA_V2)
             .map_err(|e| format!("Could not create the install job table: {e}"))?;
+    }
+    if version < 3 {
+        connection
+            .execute_batch(SCHEMA_V3)
+            .map_err(|e| format!("Could not create the install manifest table: {e}"))?;
     }
 
     if version < SCHEMA_VERSION {
@@ -445,6 +467,25 @@ pub fn all_install_jobs(connection: &Connection) -> Result<Vec<InstallJobRecord>
     Ok(jobs)
 }
 
+/// Mark older non-terminal jobs for the same version as superseded when a new
+/// attempt starts (for example resuming a paused job after a restart). Finished
+/// and failed rows are kept as history.
+pub fn supersede_install_jobs(
+    connection: &Connection,
+    game_id: i64,
+    version_id: i64,
+    now: &str,
+) -> Result<usize, String> {
+    connection
+        .execute(
+            "UPDATE install_jobs SET phase = 'cancelled', error = 'Superseded by a new install', updated_at = ?3, speed_bps = 0
+             WHERE game_id = ?1 AND version_id = ?2
+               AND phase IN ('queued', 'downloading', 'extracting', 'finalizing', 'paused')",
+            params![game_id, version_id, now],
+        )
+        .map_err(|e| format!("Could not supersede the previous install jobs: {e}"))
+}
+
 /// Called once at startup: any job left in an active phase was interrupted by
 /// an app exit or crash. Keep the row (and its `.part` path) so it stays
 /// visible and the next `install_game` resumes the download.
@@ -461,6 +502,104 @@ pub fn mark_interrupted_jobs(
         .map_err(|e| format!("Could not mark interrupted install jobs: {e}"))
 }
 
+/// Row shape of `install_manifests`.
+#[derive(Debug, Clone)]
+pub struct InstallManifestRecord {
+    pub game_id: i64,
+    pub version_id: i64,
+    pub install_path: String,
+    pub manifest: String,
+    pub files: i64,
+    pub bytes: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+pub fn upsert_manifest(
+    connection: &Connection,
+    record: &InstallManifestRecord,
+) -> Result<(), String> {
+    connection
+        .execute(
+            r#"
+            INSERT INTO install_manifests
+                (game_id, version_id, install_path, manifest, files, bytes, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(game_id) DO UPDATE SET
+                version_id   = excluded.version_id,
+                install_path = excluded.install_path,
+                manifest     = excluded.manifest,
+                files        = excluded.files,
+                bytes        = excluded.bytes,
+                updated_at   = excluded.updated_at
+            "#,
+            params![
+                record.game_id,
+                record.version_id,
+                record.install_path,
+                record.manifest,
+                record.files,
+                record.bytes,
+                record.created_at,
+                record.updated_at,
+            ],
+        )
+        .map_err(|e| format!("Could not record the install manifest: {e}"))?;
+    Ok(())
+}
+
+pub fn get_manifest(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<Option<InstallManifestRecord>, String> {
+    connection
+        .query_row(
+            "SELECT game_id, version_id, install_path, manifest, files, bytes, created_at, updated_at
+             FROM install_manifests WHERE game_id = ?1",
+            params![game_id],
+            |row| {
+                Ok(InstallManifestRecord {
+                    game_id: row.get(0)?,
+                    version_id: row.get(1)?,
+                    install_path: row.get(2)?,
+                    manifest: row.get(3)?,
+                    files: row.get(4)?,
+                    bytes: row.get(5)?,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the install manifest: {e}"))
+}
+
+/// Keep the manifest attached to the folder after `move_install`.
+pub fn update_manifest_path(
+    connection: &Connection,
+    game_id: i64,
+    install_path: &str,
+    now: &str,
+) -> Result<(), String> {
+    connection
+        .execute(
+            "UPDATE install_manifests SET install_path = ?2, updated_at = ?3 WHERE game_id = ?1",
+            params![game_id, install_path, now],
+        )
+        .map_err(|e| format!("Could not update the install manifest: {e}"))?;
+    Ok(())
+}
+
+pub fn remove_manifest(connection: &Connection, game_id: i64) -> Result<bool, String> {
+    let affected = connection
+        .execute(
+            "DELETE FROM install_manifests WHERE game_id = ?1",
+            params![game_id],
+        )
+        .map_err(|e| format!("Could not remove the install manifest: {e}"))?;
+    Ok(affected > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -469,6 +608,7 @@ mod tests {
         let connection = Connection::open_in_memory().unwrap();
         connection.execute_batch(SCHEMA_V1).unwrap();
         connection.execute_batch(SCHEMA_V2).unwrap();
+        connection.execute_batch(SCHEMA_V3).unwrap();
         connection
     }
 
@@ -550,9 +690,80 @@ mod tests {
                 .query_row("SELECT COUNT(*) FROM install_jobs", [], |row| row.get(0))
                 .unwrap();
             assert_eq!(jobs, 0);
+            let manifests: i64 = connection
+                .query_row("SELECT COUNT(*) FROM install_manifests", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(manifests, 0);
         }
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn install_manifests_roundtrip_and_follow_moves() {
+        let connection = memory_database();
+        let record = InstallManifestRecord {
+            game_id: 4,
+            version_id: 9,
+            install_path: "/games/doom/1.0".into(),
+            manifest: r#"{"entries":[],"totalBytes":0,"createdAt":"2026-01-01T00:00:00Z"}"#.into(),
+            files: 0,
+            bytes: 0,
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+        };
+        upsert_manifest(&connection, &record).unwrap();
+        let loaded = get_manifest(&connection, 4).unwrap().unwrap();
+        assert_eq!(loaded.install_path, "/games/doom/1.0");
+
+        update_manifest_path(
+            &connection,
+            4,
+            "/mnt/games/doom/1.0",
+            "2026-01-02T00:00:00Z",
+        )
+        .unwrap();
+        let loaded = get_manifest(&connection, 4).unwrap().unwrap();
+        assert_eq!(loaded.install_path, "/mnt/games/doom/1.0");
+        assert_eq!(loaded.updated_at, "2026-01-02T00:00:00Z");
+
+        assert!(remove_manifest(&connection, 4).unwrap());
+        assert!(get_manifest(&connection, 4).unwrap().is_none());
+    }
+
+    #[test]
+    fn superseding_keeps_failed_history() {
+        let connection = memory_database();
+        let mut paused = InstallJobRecord {
+            job_id: "paused".into(),
+            game_id: 3,
+            version_id: 4,
+            phase: "paused".into(),
+            bytes_done: 10,
+            bytes_total: Some(20),
+            speed_bps: 0,
+            part_path: Some("/tmp/game.part".into()),
+            install_path: None,
+            error: None,
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+        };
+        upsert_install_job(&connection, &paused).unwrap();
+        paused.job_id = "failed".into();
+        paused.phase = "error".into();
+        paused.error = Some("boom".into());
+        upsert_install_job(&connection, &paused).unwrap();
+
+        assert_eq!(
+            supersede_install_jobs(&connection, 3, 4, "2026-01-02T00:00:00Z").unwrap(),
+            1
+        );
+        let paused = get_install_job(&connection, "paused").unwrap().unwrap();
+        assert_eq!(paused.phase, "cancelled");
+        let failed = get_install_job(&connection, "failed").unwrap().unwrap();
+        assert_eq!(failed.phase, "error");
     }
 
     #[test]

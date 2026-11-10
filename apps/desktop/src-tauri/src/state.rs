@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
@@ -30,6 +31,12 @@ pub struct ProcessEntry {
 pub struct JobEntry {
     pub params: InstallParams,
     pub cancel: CancellationToken,
+    /// Cancelled by `pause_install`, replaced by `resume_install`. A paused job
+    /// keeps its `.part` file and its place in the queue.
+    pub pause: Mutex<CancellationToken>,
+    /// True while a worker is running for this entry, so resuming twice cannot
+    /// start two downloads for the same job.
+    pub running: AtomicBool,
     pub job: Mutex<InstallJob>,
     pub created_at: String,
     pub part_path: Mutex<Option<String>>,
@@ -62,6 +69,26 @@ impl JobEntry {
         match self.install_path.lock() {
             Ok(mut slot) => *slot = path,
             Err(poisoned) => *poisoned.into_inner() = path,
+        }
+    }
+
+    /// The pause token captured by the current worker.
+    pub fn pause_token(&self) -> CancellationToken {
+        match self.pause.lock() {
+            Ok(token) => token.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+
+    pub fn request_pause(&self) {
+        self.pause_token().cancel();
+    }
+
+    /// Give the job a fresh pause token when it resumes.
+    pub fn clear_pause(&self) {
+        match self.pause.lock() {
+            Ok(mut token) => *token = CancellationToken::new(),
+            Err(poisoned) => *poisoned.into_inner() = CancellationToken::new(),
         }
     }
 
