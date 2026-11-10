@@ -229,7 +229,7 @@ jobs:
         run: pnpm --filter @ludex/web build
 
       - name: Build desktop bundles and upload
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
