@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-11-10
+
 ### Added
 
 - Custom title bar on desktop (#111): Windows and Linux now run undecorated
