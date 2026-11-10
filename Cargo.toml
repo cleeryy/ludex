@@ -22,7 +22,7 @@ tokio = { version = "1", features = ["full"] }
 axum = "0.8"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "fs", "compression-gzip", "timeout", "limit"] }
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "uuid", "macros", "migrate"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "chrono", "uuid", "macros", "migrate"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "gzip", "multipart"] }
 jsonwebtoken = "9"
 argon2 = "0.5"
