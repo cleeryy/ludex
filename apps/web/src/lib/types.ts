@@ -184,6 +184,8 @@ export interface LibraryStats {
 export interface AuthResult {
   token: string;
   user: User;
+  /** Token expiry, when the server tracks the session. */
+  expiresAt?: string;
 }
 
 export interface GameListQuery {
@@ -784,4 +786,54 @@ export interface ProtonDbRating {
   url: string | null;
   fetchedAt: string | null;
   message: string | null;
+}
+
+/* ------------------------------ API security ------------------------------ */
+
+export interface AuthSession {
+  id: number;
+  userAgent: string | null;
+  ip: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  /** True for the session used by the current request. */
+  current: boolean;
+}
+
+/* ------------------------------- uploads --------------------------------- */
+
+export interface UploadSession {
+  id: string;
+  fileName: string;
+  size: number;
+  sha256: string | null;
+  chunkSize: number;
+  totalParts: number;
+  receivedBytes: number;
+  receivedParts: number[];
+  status: "open" | "complete" | "failed" | string;
+  createdAt: string;
+  updatedAt: string;
+  gameId: number | null;
+  versionId: number | null;
+  error: string | null;
+}
+
+export interface UploadPartResponse {
+  id: string;
+  part: number;
+  receivedBytes: number;
+  receivedParts: number;
+  totalParts: number;
+}
+
+export interface CompleteUploadResponse {
+  id: string;
+  gameId: number;
+  versionId: number;
+  fileName: string;
+  size: number;
+  sha256: string | null;
 }

@@ -1,7 +1,8 @@
 //! Shared application state handed to every axum handler.
 
+use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use sqlx::SqlitePool;
@@ -57,6 +58,12 @@ pub struct AppState {
     pub metrics: Arc<Metrics>,
     /// Ingest manager, used by health details and metrics.
     pub ingest: Option<IngestHandle>,
+    /// Per-IP API rate limiter, configured by `LUDEX_RATE_LIMIT_*`.
+    pub rate_limiter: Arc<crate::security::RateLimiter>,
+    /// Per-IP+username login throttle and lockout.
+    pub login_guard: Arc<crate::security::LoginGuard>,
+    /// Last `auth_sessions.last_seen_at` refresh per token, in Unix seconds.
+    pub session_touch: Arc<Mutex<HashMap<String, i64>>>,
 }
 
 impl AppState {
@@ -86,6 +93,13 @@ impl AppState {
             .await
             .expect("bootstrap test roots");
         let storage = ArchiveStorage::from_config(&config);
+        let rate_limiter =
+            crate::security::RateLimiter::new(config.rate_limit_rps, config.rate_limit_burst);
+        let login_guard = crate::security::LoginGuard::new(
+            config.login_max_attempts,
+            config.login_lockout,
+            config.login_backoff,
+        );
         Self {
             config: Arc::new(config),
             pool,
@@ -105,6 +119,9 @@ impl AppState {
             storage,
             metrics: Arc::new(Metrics::default()),
             ingest: None,
+            rate_limiter: Arc::new(rate_limiter),
+            login_guard: Arc::new(login_guard),
+            session_touch: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }

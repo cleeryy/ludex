@@ -14,6 +14,8 @@ pub struct ApiError {
     pub code: String,
     /// Human-readable message.
     pub message: String,
+    /// Optional `Retry-After` hint, in seconds.
+    pub retry_after: Option<u64>,
 }
 
 impl ApiError {
@@ -24,7 +26,15 @@ impl ApiError {
             status,
             code: code.into(),
             message: message.into(),
+            retry_after: None,
         }
+    }
+
+    /// Adds a `Retry-After` hint to the response.
+    #[must_use]
+    pub fn with_retry_after(mut self, seconds: u64) -> Self {
+        self.retry_after = Some(seconds.max(1));
+        self
     }
 
     /// 400 validation failure.
@@ -102,7 +112,16 @@ impl IntoResponse for ApiError {
                 "message": self.message,
             }
         }));
-        (self.status, body).into_response()
+        let retry_after = self.retry_after;
+        let mut response = (self.status, body).into_response();
+        if let Some(seconds) = retry_after {
+            if let Ok(value) = axum::http::HeaderValue::from_str(&seconds.to_string()) {
+                response
+                    .headers_mut()
+                    .insert(axum::http::header::RETRY_AFTER, value);
+            }
+        }
+        response
     }
 }
 

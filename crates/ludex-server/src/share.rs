@@ -60,7 +60,7 @@ pub fn hash_token(token: &str) -> String {
 }
 
 /// Body of `POST /api/games/{id}/shares`.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateShareRequest {
     /// Version to share; `None` serves the latest available version at access
@@ -82,7 +82,7 @@ pub struct CreateShareRequest {
 }
 
 /// Body of `POST /api/share/{token}/access`.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareAccessRequest {
     /// Password when the link is protected.
@@ -92,7 +92,7 @@ pub struct ShareAccessRequest {
 
 /// Editor-facing view of a share link. The plaintext token is present only in
 /// the creation response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareLink {
     /// Row id.
@@ -123,7 +123,7 @@ pub struct ShareLink {
 }
 
 /// Public page: game/version metadata only, no account data.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareView {
     /// Public game metadata.
@@ -140,7 +140,7 @@ pub struct ShareView {
 
 /// Public game metadata. Deliberately limited to what a store page shows:
 /// progress, bookmarks, playtime, file paths and other games never leak here.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareGame {
     /// Game id.
@@ -170,7 +170,7 @@ pub struct ShareGame {
 }
 
 /// Public version metadata.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareVersion {
     /// Version id.
@@ -186,7 +186,7 @@ pub struct ShareVersion {
 }
 
 /// Response of `POST /api/share/{token}/access`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareAccessResponse {
     /// Short-lived download URL carrying a scoped ticket.

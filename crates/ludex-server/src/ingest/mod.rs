@@ -7,7 +7,7 @@
 //! called once at startup so interrupted downloads continue automatically.
 
 mod manager;
-mod types;
+pub mod types;
 
 #[cfg(test)]
 mod tests;

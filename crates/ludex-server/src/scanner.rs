@@ -390,6 +390,7 @@ async fn finish_with_error(state: &AppState, message: String) {
 
 struct ProcessOutcome {
     game_id: i64,
+    version_id: i64,
     version_created: bool,
     game_created: bool,
 }
@@ -397,9 +398,10 @@ struct ProcessOutcome {
 async fn process_candidate(state: &AppState, candidate: &Candidate) -> Result<ProcessOutcome> {
     let key = grouping_key(&candidate.parsed);
     let (game_id, game_created) = ensure_game(state, candidate, &key).await?;
-    let version_created = upsert_version(state, game_id, candidate).await?;
+    let (version_id, version_created) = upsert_version(state, game_id, candidate).await?;
     Ok(ProcessOutcome {
         game_id,
+        version_id,
         version_created,
         game_created,
     })
@@ -457,7 +459,11 @@ async fn ensure_game(state: &AppState, candidate: &Candidate, key: &str) -> Resu
     Ok((result.last_insert_rowid(), true))
 }
 
-async fn upsert_version(state: &AppState, game_id: i64, candidate: &Candidate) -> Result<bool> {
+async fn upsert_version(
+    state: &AppState,
+    game_id: i64,
+    candidate: &Candidate,
+) -> Result<(i64, bool)> {
     let release_date = candidate
         .parsed
         .year
@@ -530,7 +536,7 @@ async fn upsert_version(state: &AppState, game_id: i64, candidate: &Candidate) -
         if state.storage.is_remote() && (replaced || backend != "s3" || object_key.is_none()) {
             publish_archive(state, candidate, id).await;
         }
-        Ok(false)
+        Ok((id, false))
     } else {
         // Index the row first so the version is downloadable immediately; the
         // fingerprint is filled in right after (it reads up to 2 MiB).
@@ -574,7 +580,7 @@ async fn upsert_version(state: &AppState, game_id: i64, candidate: &Candidate) -
         if state.storage.is_remote() {
             publish_archive(state, candidate, version_id).await;
         }
-        Ok(true)
+        Ok((version_id, true))
     }
 }
 
@@ -910,8 +916,11 @@ fn keep_entry(entry: &DirEntry) -> bool {
 }
 
 fn candidate_from_entry(root: &Path, entry: &DirEntry) -> Option<Candidate> {
-    let path = entry.path();
-    let file_name = entry.file_name().to_str()?.to_string();
+    candidate_from_path(root, entry.path())
+}
+
+fn candidate_from_path(root: &Path, path: &Path) -> Option<Candidate> {
+    let file_name = path.file_name()?.to_str()?.to_string();
     let is_executable = path
         .extension()
         .and_then(|extension| extension.to_str())
@@ -926,7 +935,7 @@ fn candidate_from_entry(root: &Path, entry: &DirEntry) -> Option<Candidate> {
     if is_executable && (lowered.starts_with("unins") || lowered.starts_with("uninstall")) {
         return None;
     }
-    let metadata = entry.metadata().ok()?;
+    let metadata = path.metadata().ok()?;
     if !metadata.is_file() {
         return None;
     }
@@ -951,6 +960,46 @@ fn candidate_from_entry(root: &Path, entry: &DirEntry) -> Option<Candidate> {
         parsed: parse_filename(&file_name),
         content_hash: None,
     })
+}
+
+/// Indexes one archive that was just written into the ingest library root and
+/// returns `(game_id, version_id)`.
+///
+/// Used by resumable uploads so their result is downloadable immediately
+/// instead of waiting for the next scheduled scan. Enrichment still happens in
+/// the background, like a normal scan.
+pub async fn index_uploaded_archive(state: &AppState, path: &Path) -> Result<(i64, i64)> {
+    let roots = roots::enabled(&state.pool).await?;
+    let root = roots
+        .iter()
+        .find(|root| Path::new(&root.path) == state.config.games_dir)
+        .or_else(|| roots.first())
+        .context("no enabled library root for uploads")?;
+    let root_path = PathBuf::from(&root.path);
+    let mut candidate = candidate_from_path(&root_path, path)
+        .context("uploaded file is not an indexable archive")?;
+    candidate.root_id = root.id;
+    let outcome = process_candidate(state, &candidate).await?;
+    if outcome.game_created {
+        let title = sqlx::query_scalar::<_, String>("SELECT title FROM games WHERE id = ?")
+            .bind(outcome.game_id)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        state.events.emit(
+            Event::new(actions::GAME_INGESTED, Actor::System)
+                .target("game", outcome.game_id.to_string())
+                .metadata(serde_json::json!({ "title": title, "source": "upload" })),
+        );
+        let state = state.clone();
+        let game_id = outcome.game_id;
+        tokio::spawn(async move {
+            crate::metadata::enrich_game(&state, game_id).await;
+        });
+    }
+    Ok((outcome.game_id, outcome.version_id))
 }
 
 /// Returns the path relative to the library root, using `/` separators.

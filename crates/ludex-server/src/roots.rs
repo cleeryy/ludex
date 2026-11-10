@@ -48,7 +48,7 @@ pub struct LibraryRoot {
 }
 
 /// Public root shape returned by `/api/library/roots`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LibraryRootView {
     /// Row id.

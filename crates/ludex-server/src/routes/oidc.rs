@@ -7,7 +7,6 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 
-use crate::auth::issue_access_token;
 use crate::error::ApiError;
 use crate::extract::{ApiQuery, JsonBody};
 use crate::models::{AuthResponse, UserRow};
@@ -34,8 +33,9 @@ struct CallbackQuery {
     error_description: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct ExchangeRequest {
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OidcExchangeRequest {
     code: String,
 }
 
@@ -88,7 +88,7 @@ async fn callback(
 
 async fn exchange(
     State(state): State<AppState>,
-    JsonBody(request): JsonBody<ExchangeRequest>,
+    JsonBody(request): JsonBody<OidcExchangeRequest>,
 ) -> Result<Response, ApiError> {
     let client = state.oidc.as_ref().ok_or_else(oidc_disabled)?;
     let code = request.code.trim();
@@ -129,8 +129,18 @@ async fn exchange(
     }
 
     let user = row.to_public();
-    let token = issue_access_token(&state.jwt_secret, user.id, user.role)?;
-    let mut response = Json(AuthResponse { token, user }).into_response();
+    let info = crate::auth::SessionInfo {
+        user_agent: None,
+        ip: None,
+    };
+    let (issued, _session_id) =
+        crate::auth::start_session(&state, user.id, user.role, &info).await?;
+    let mut response = Json(AuthResponse {
+        token: issued.token,
+        user,
+        expires_at: Some(issued.expires_at),
+    })
+    .into_response();
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));

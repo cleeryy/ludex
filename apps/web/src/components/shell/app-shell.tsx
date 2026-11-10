@@ -23,6 +23,7 @@ import {
   Settings,
   ShieldCheck,
   Sun,
+  UploadCloud,
   Users,
   Library as LibraryIcon,
   Gamepad2,
@@ -155,6 +156,7 @@ function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
             <div className="mx-5 my-4 h-px bg-line" />
             <p className="px-5 pb-2 text-[11.5px] text-ink-3">Admin</p>
             <RailLink label="Ingest" icon={<Download className="size-4" />} active={path === "/admin/ingest"} onClick={() => go("/admin/ingest")} />
+            <RailLink label="Upload game" icon={<UploadCloud className="size-4" />} active={path === "/admin/upload"} onClick={() => go("/admin/upload")} />
             <RailLink label="Library scan" icon={<RefreshCw className="size-4" />} active={path === "/admin/scan"} onClick={() => go("/admin/scan")} />
             {isAdmin && (
               <>
