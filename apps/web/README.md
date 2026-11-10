@@ -4,6 +4,7 @@ The Ludex interface. One React bundle runs in the browser (served by `ludex-serv
 the Tauri desktop shell, where it gains install, launch and playtime through `src/lib/native.ts`.
 
 Design direction, tokens and component rules: [`DESIGN.md`](./DESIGN.md).
+Translations, themes and the PWA: [`docs/I18N.md`](../../docs/I18N.md).
 
 ## Run it
 
@@ -15,8 +16,10 @@ pnpm --filter @ludex/web dev        # http://localhost:5173
 The dev server proxies `/api` to `http://localhost:8080` unless `VITE_API_URL` is set.
 
 ```bash
-pnpm --filter @ludex/web check      # tsc --noEmit
-pnpm --filter @ludex/web build      # typecheck + static build in dist/
+pnpm --filter @ludex/web check      # i18n parity + tsc --noEmit
+pnpm --filter @ludex/web build      # i18n parity + typecheck + static build in dist/
+pnpm --filter @ludex/web i18n:write # regenerate en.json + coverage.json
+pnpm --filter @ludex/web i18n:check # catalog/parity gate only
 ```
 
 `dist/` uses relative asset paths (`base: "./"`) and hash routing, so the same output works at the
@@ -56,7 +59,10 @@ src/
     art.ts                palettes, motifs, deterministic art for missing covers
     types.ts              docs/CONTRACT.md, verbatim
     hooks.ts              library queries, bookmarks, launch, installed games, Tauri events
-    format.ts             bytes, minutes, dates, ratings
+    format.ts             bytes, minutes, dates, ratings (Intl, locale-aware)
+    i18n.tsx              locale registry, t/tn/tr, Intl helpers
+    pwa.ts                install prompt, update prompt, service worker
+  locales/                en.json (generated), fr/de/es/ar, manifest.json, coverage.json
   components/
     art/cover.tsx         generated covers, backdrops, stills
     ui/                   button, input, dialog, popover, select, toast, …

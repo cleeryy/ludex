@@ -105,12 +105,12 @@ Legend:
 | Gamepad navigation | Yes (2.x) | No | Roadmap (v0.3). |
 | Tray icon / minimize to tray | Yes | No | Roadmap (v0.3). |
 | Auto-updater | Yes | No | Roadmap (v0.3); installers are manual in v0.1. |
-| Themes | GV+ | No | Roadmap (v0.4). |
+| Themes | GV+ | Yes | Light / dark / system in v0.3; tokens only, same layout. |
 | Multiple profiles | Yes (2.x) | No | Roadmap (v0.4). |
 | Streamer mode (hide titles) | Yes | No | Roadmap (v0.4). |
-| Translations | Yes | No | English only in v0.1; i18n planned. |
+| Translations | Yes | Yes (partial) | English + French official, German/Spanish/Arabic community seeds, RTL in v0.3. |
 | Keyboard shortcuts | Yes | Partial | Browser defaults; command palette planned. |
-| Responsive mobile web | Partial | Partial | Usable, not a dedicated mobile client. |
+| Responsive mobile web | Partial | Partial | Usable, PWA-installable with offline shell in v0.3; not a dedicated mobile client. |
 
 ## Roadmap
 
@@ -128,7 +128,6 @@ Docker, Windows/Linux desktop, local mode, GameVault archive scan.
 - Collections / smart lists.
 - Parser improvements (multi-disc, scene tags, ambiguous years).
 - Upload and ingest polish: multipart web upload, pause/resume all, bandwidth limits.
-- i18n scaffolding and a second locale.
 
 ### v0.3 — Ecosystem
 
@@ -142,9 +141,8 @@ Docker, Windows/Linux desktop, local mode, GameVault archive scan.
 
 - Multiple libraries / install roots.
 - Community view and public profiles.
-- Themes and full translations.
+- Native review of community locales.
 - macOS signing/notarization.
-- Mobile web polish.
 
 ### Explicit non-goals
 

@@ -83,7 +83,11 @@ application backed by PostgreSQL. Ludex takes a different route:
 | Ludusavi automatic save discovery | roadmap |
 | Discord Rich Presence, Steam, Playnite integration | roadmap |
 | Gamepad navigation, tray icon, auto-updater | roadmap |
-| Themes, translations, multiple profiles | roadmap |
+| Light / dark / system themes, no flash on load | v0.3 |
+| i18n: English + French official, German/Spanish/Arabic community, RTL | v0.3 |
+| Installable PWA: offline shell, install prompt, update prompt | v0.3 |
+| Responsive mobile web with safe-area and PWA polish | v0.3 |
+| Multiple profiles | roadmap |
 | macOS desktop build | v0.2.2+ universal DMG; signed/notarized when the release secrets are configured, unsigned otherwise |
 
 The API is documented in [`docs/CONTRACT.md`](docs/CONTRACT.md), integrations
@@ -92,8 +96,9 @@ The API is documented in [`docs/CONTRACT.md`](docs/CONTRACT.md), integrations
 [`docs/STORAGE.md`](docs/STORAGE.md), backup/restore in
 [`docs/BACKUP.md`](docs/BACKUP.md), achievements and local providers in
 [`docs/ACHIEVEMENTS.md`](docs/ACHIEVEMENTS.md), the design in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and the honest GameVault
-comparison in [`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md).
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), translations, themes and the
+PWA in [`docs/I18N.md`](docs/I18N.md), and the honest GameVault comparison in
+[`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md).
 
 ## Quick start (Docker)
 
