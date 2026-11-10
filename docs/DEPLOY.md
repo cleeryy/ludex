@@ -271,6 +271,11 @@ never sent to clients.
 
 Back up `/data` (database + JWT secret) and `/games`. `/media` is a cache.
 
+The `ludex-backup` CLI does all of this in one deterministic archive, with
+SHA-256 verification, retention and an optional S3 upload; see
+[`OPERATIONS.md`](OPERATIONS.md#backup-and-restore-49). The manual recipes below
+remain valid when you prefer `tar`/`sqlite3`.
+
 Cold backup (consistent, simplest):
 
 ```bash

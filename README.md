@@ -211,11 +211,19 @@ binary defaults to the current directory for the three paths.
 | `LUDEX_ADMIN_USERNAME` / `LUDEX_ADMIN_PASSWORD` | unset | Optional first-run admin bootstrap, only while zero users exist. Prefer the UI. |
 | `LUDEX_WEB_DIR` | unset | Serve the web UI from a directory instead of the embedded build. |
 | `LUDEX_LOCAL_MODE` | `false` | Desktop-only embedded mode; do not set on a server. |
+| `LUDEX_METRICS_TOKEN` | unset | Bearer token for `GET /metrics`; without it only administrators can scrape. |
+| `LUDEX_STORAGE_BACKEND` | `local` | Media cache backend: `local` files or `s3` (see [`docs/STORAGE.md`](docs/STORAGE.md)). |
+| `LUDEX_S3_BUCKET` / `LUDEX_S3_REGION` / `LUDEX_S3_ENDPOINT` | unset | S3 bucket and endpoint when `LUDEX_STORAGE_BACKEND=s3`. |
+| `LUDEX_S3_ACCESS_KEY` / `LUDEX_S3_SECRET_KEY` | unset | S3 credentials; never logged. |
+| `LUDEX_S3_PATH_STYLE` / `LUDEX_S3_PREFIX` | `true` / `ludex` | MinIO-style addressing and object key prefix. |
+| `LUDEX_S3_PUBLIC_BASE_URL` | unset | Public bucket/CDN base URL; media reads become `302` redirects. |
 | `RUST_LOG` | `ludex_server=info,tower_http=warn` | Log filter (`tracing` `EnvFilter` syntax). |
 
 See [`.env.example`](.env.example) for a copy-paste template and
 [`docs/DEPLOY.md`](docs/DEPLOY.md) for reverse proxy, permissions, backups and
-binary/systemd deployment.
+binary/systemd deployment, [`docs/OPERATIONS.md`](docs/OPERATIONS.md) for
+Prometheus scraping and the `ludex-backup` runbook, and
+[`docs/STORAGE.md`](docs/STORAGE.md) for S3-compatible media storage.
 
 ## Development
 

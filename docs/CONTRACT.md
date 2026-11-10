@@ -114,7 +114,7 @@ interface ScanStatus {
 | GET | `/api/health` | `{ status: "ok", version, uptimeSeconds }` |
 | GET | `/api/setup/status` | `{ needsSetup: boolean, serverName: string, version: string }` |
 | POST | `/api/setup` | body `{ username, password, serverName? }` → `{ token, user }`; 409 if users exist |
-| GET | `/api/media/{name}` | cached image/file (public, immutable cache headers) |
+| GET | `/api/media/{name}` | cached image/file (public, immutable cache headers); `302` to the object URL when `LUDEX_S3_PUBLIC_BASE_URL` is set |
 | GET | `/api/config` | `{ serverName, version, features: { igdb, steam, ingest, localMode }, maxUploadBytes }` (public, used by setup/login) |
 
 ## Auth
@@ -492,6 +492,30 @@ interface MediaGcResult {
 Only unreferenced files older than `LUDEX_MEDIA_GC_GRACE_HOURS` (default 24)
 are removed; files referenced by a game or user row are never deleted. A
 scheduled run is enabled by `LUDEX_MEDIA_GC_INTERVAL_HOURS` (default `0`).
+
+## Metrics (#48)
+
+`GET /metrics` is **not** under `/api` and is never public.
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/metrics` | Prometheus text exposition (`text/plain; version=0.0.4`) |
+
+Auth: `Authorization: Bearer <LUDEX_METRICS_TOKEN>` when the token is
+configured; otherwise an administrator session JWT or an API key with the
+`admin` scope. Anything else is `401` (missing/invalid credential) or `403`
+(authenticated but not an administrator).
+
+Series (counters are monotonic for the process lifetime; gauges are sampled at
+scrape time): `ludex_build_info`, `ludex_uptime_seconds`,
+`ludex_http_requests_total{method,route,status}`,
+`ludex_http_request_duration_seconds{route}` (histogram),
+`ludex_active_downloads`, `ludex_games_total`, `ludex_game_versions_total`,
+`ludex_users_total`, `ludex_ingest_jobs{state}`, `ludex_media_cache_files`,
+`ludex_media_cache_bytes` (local backend only),
+`ludex_media_backend_info{backend}`, `ludex_scans_total`,
+`ludex_scan_duration_seconds`, `ludex_webhook_deliveries_total{outcome}`,
+`ludex_db_pool_connections{state}`. See [`OPERATIONS.md`](OPERATIONS.md).
 
 ## Ingest (admin/editor) — adapted from gv-downloader
 

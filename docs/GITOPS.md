@@ -159,6 +159,13 @@ Changing `LUDEX_UPDATE_TAG` is the upgrade action. The timer keeps checking that
 tag until you change it. To go back to edge, remove `LUDEX_UPDATE_TAG` and set
 `LUDEX_UPDATE_CHANNEL=edge`.
 
+## Backups
+
+The updater only swaps the binary; it never backs up `/data`. Schedule
+`ludex-backup backup` (database snapshot + manifest) independently and keep the
+archives outside `/srv/ludex`, otherwise a rollback or a reinstall can take them
+with it. Runbook: [`OPERATIONS.md`](OPERATIONS.md#backup-and-restore-49).
+
 ## Safety notes
 
 - The updater never touches `/games`, `/data` or `/media`. It only restarts the

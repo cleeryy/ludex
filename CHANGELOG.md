@@ -30,6 +30,24 @@ All notable changes to Ludex are documented here. The format is based on
 - `docs/INTEGRATIONS.md` gains a "Desktop integrations" section; the desktop
   README documents the new settings, commands and events.
 
+- Optional S3-compatible object storage for the media cache (#47): a
+  `StorageBackend` abstraction with the unchanged `local` default and an `s3`
+  backend (`LUDEX_STORAGE_BACKEND=s3`, `LUDEX_S3_*`) built on `object_store`.
+  Artwork is streamed through the server, or redirected to
+  `LUDEX_S3_PUBLIC_BASE_URL` when the bucket is public. `ludex-backup
+  migrate-media` copies an existing local cache into the bucket. See
+  `docs/STORAGE.md`.
+- Prometheus metrics (#48): `GET /metrics` exposes HTTP counters and latency
+  histograms, active downloads, ingest jobs by state, library/version/user
+  counts, the media cache, scan duration and webhook outcomes. Access uses
+  `LUDEX_METRICS_TOKEN` or an administrator session (default). See
+  `docs/OPERATIONS.md`.
+- `ludex-backup` CLI (#49): `backup` writes a deterministic `tar.gz` with a
+  `VACUUM INTO` SQLite snapshot and a SHA-256 manifest, optional `--s3` upload
+  and `--keep` retention; `restore` validates the manifest and every hash,
+  refuses to run against a locked (running) instance, supports `--dry-run`
+  and restores atomically, keeping the previous directories. The server now
+  holds an exclusive `data/ludex.lock` for its lifetime.
 - Multiple library roots (#45): ordered `library_roots` table with label,
   path, enabled flag and availability, `LUDEX_LIBRARY_ROOTS` configuration,
   admin CRUD at `/api/library/roots` and per-root scans at
