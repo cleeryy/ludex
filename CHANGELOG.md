@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-10
+
 ### Added
 
 - Web i18n, themes and PWA (#23, #29, #110): a gettext-style message catalog
