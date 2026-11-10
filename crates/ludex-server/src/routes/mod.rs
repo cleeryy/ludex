@@ -9,6 +9,7 @@ pub mod integrity;
 pub mod keys;
 pub mod library;
 pub mod media;
+pub mod metrics;
 pub mod news;
 pub mod oidc;
 pub mod saves;

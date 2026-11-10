@@ -467,9 +467,19 @@ async fn upsert_version(state: &AppState, game_id: i64, candidate: &Candidate) -
     let version = candidate.parsed.version.clone();
     let early_access = i64::from(looks_early_access(&candidate.file_name));
 
-    let existing = sqlx::query_as::<_, (i64, i64, Option<String>, Option<i64>)>(
-        "SELECT id, size, archive_hash, file_modified FROM game_versions
-         WHERE root_id = ? AND file_path = ? LIMIT 1",
+    let existing = sqlx::query_as::<
+        _,
+        (
+            i64,
+            i64,
+            Option<String>,
+            Option<i64>,
+            String,
+            Option<String>,
+        ),
+    >(
+        "SELECT id, size, archive_hash, file_modified, storage_backend, object_key
+         FROM game_versions WHERE root_id = ? AND file_path = ? LIMIT 1",
     )
     .bind(candidate.root_id)
     .bind(&candidate.relative)
@@ -477,7 +487,9 @@ async fn upsert_version(state: &AppState, game_id: i64, candidate: &Candidate) -
     .await
     .context("find indexed version")?;
 
-    if let Some((id, previous_size, previous_hash, previous_modified)) = existing {
+    if let Some((id, previous_size, previous_hash, previous_modified, backend, object_key)) =
+        existing
+    {
         // Re-fingerprint when the archive was replaced (size or mtime changed)
         // or when the row predates the fingerprint column.
         let replaced = previous_size != candidate.size
@@ -512,11 +524,17 @@ async fn upsert_version(state: &AppState, game_id: i64, candidate: &Candidate) -
         .execute(&state.pool)
         .await
         .context("update game version")?;
+        // New archives, replaced archives and rows indexed before S3 was
+        // enabled are published once. The local file stays in place as the
+        // fallback, so a failed upload never makes a game undownloadable.
+        if state.storage.is_remote() && (replaced || backend != "s3" || object_key.is_none()) {
+            publish_archive(state, candidate, id).await;
+        }
         Ok(false)
     } else {
         // Index the row first so the version is downloadable immediately; the
         // fingerprint is filled in right after (it reads up to 2 MiB).
-        sqlx::query(
+        let inserted = sqlx::query(
             "INSERT INTO game_versions
                 (game_id, root_id, file_path, file_name, size, version, release_date,
                  early_access, missing, root_unavailable, content_hash, indexed_at,
@@ -538,6 +556,7 @@ async fn upsert_version(state: &AppState, game_id: i64, candidate: &Candidate) -
         .execute(&state.pool)
         .await
         .context("insert game version")?;
+        let version_id = inserted.last_insert_rowid();
 
         if let Some(fingerprint) = fingerprint_for(candidate).await {
             sqlx::query(
@@ -552,7 +571,56 @@ async fn upsert_version(state: &AppState, game_id: i64, candidate: &Candidate) -
             .await
             .context("store the archive fingerprint")?;
         }
+        if state.storage.is_remote() {
+            publish_archive(state, candidate, version_id).await;
+        }
         Ok(true)
+    }
+}
+
+/// Uploads an archive to object storage and records the key on its row.
+///
+/// Failures are logged and leave the row on `local`: the scan itself is not
+/// failed and the next scan retries the upload.
+async fn publish_archive(state: &AppState, candidate: &Candidate, version_id: i64) {
+    let path = candidate.root_path.join(&candidate.relative);
+    let identity = format!(
+        "{}:{}:{}:{}",
+        candidate.root_id, candidate.relative, candidate.size, candidate.modified
+    );
+    match state
+        .storage
+        .publish_archive(&identity, &candidate.file_name, &path)
+        .await
+    {
+        Ok(Some(stored)) => {
+            if let Err(error) = sqlx::query(
+                "UPDATE game_versions SET storage_backend = ?, object_key = ?, etag = ?,
+                    updated_at = ? WHERE id = ?",
+            )
+            .bind(stored.backend.as_str())
+            .bind(&stored.key)
+            .bind(stored.etag.as_deref())
+            .bind(db::db_time(db::now()))
+            .bind(version_id)
+            .execute(&state.pool)
+            .await
+            {
+                tracing::warn!(
+                    version = version_id,
+                    %error,
+                    "uploaded archive but could not record its object key"
+                );
+            }
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(
+                file = %candidate.relative,
+                %error,
+                "could not upload archive to object storage; keeping the local file"
+            );
+        }
     }
 }
 
@@ -1053,6 +1121,55 @@ mod tests {
         );
         assert_eq!(ScanRequest::root(3).merge(ScanRequest::all()).root_id, None);
         assert_eq!(ScanRequest::all().merge(ScanRequest::root(3)).root_id, None);
+    }
+
+    #[tokio::test]
+    async fn scan_publishes_archives_and_records_the_object_key() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let games = temp.path().join("games");
+        let data = temp.path().join("data");
+        let media = temp.path().join("media");
+        for directory in [&games, &data, &media] {
+            fs::create_dir_all(directory).expect("mkdir");
+        }
+        touch(&games.join("Hades (2020).zip"), MIN_ARCHIVE_BYTES + 1);
+
+        let config = crate::config::Config::for_local(games, data, media);
+        let (scan_tx, _scan_rx) = mpsc::channel(1);
+        let mut state = crate::state::AppState::for_tests(config, scan_tx).await;
+        state.storage = crate::storage::ArchiveStorage::from_store(std::sync::Arc::new(
+            object_store::memory::InMemory::new(),
+        ));
+
+        run_scan(&state, ScanRequest::all()).await;
+        let (game_id, backend, key, etag): (i64, String, Option<String>, Option<String>) =
+            sqlx::query_as(
+                "SELECT game_id, storage_backend, object_key, etag FROM game_versions LIMIT 1",
+            )
+            .fetch_one(&state.pool)
+            .await
+            .expect("indexed version");
+        assert_eq!(backend, "s3");
+        let key = key.expect("object key");
+        assert!(key.starts_with("archives/"), "{key}");
+        assert!(etag.is_some());
+
+        // A second scan is a no-op: the row keeps pointing at the same object.
+        run_scan(&state, ScanRequest::all()).await;
+        let after: Option<String> =
+            sqlx::query_scalar("SELECT object_key FROM game_versions WHERE game_id = ? LIMIT 1")
+                .bind(game_id)
+                .fetch_one(&state.pool)
+                .await
+                .expect("row");
+        assert_eq!(after.as_deref(), Some(key.as_str()));
+
+        let object = state
+            .storage
+            .open(&key, None)
+            .await
+            .expect("uploaded object");
+        assert_eq!(object.size, MIN_ARCHIVE_BYTES + 1);
     }
 
     #[test]

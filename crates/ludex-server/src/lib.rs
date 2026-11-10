@@ -28,6 +28,7 @@ use tracing::Span;
 pub mod api_keys;
 pub mod audit;
 pub mod auth;
+pub mod backup;
 pub mod collections;
 pub mod community;
 pub mod config;
@@ -40,6 +41,7 @@ pub mod integrity;
 pub mod media;
 pub mod media_gc;
 pub mod metadata;
+pub mod metrics;
 pub mod models;
 pub mod oidc;
 pub mod roots;
@@ -48,6 +50,7 @@ pub mod saves;
 pub mod scanner;
 pub mod sql;
 pub mod state;
+pub mod storage;
 pub mod stream;
 pub mod watcher;
 pub mod web;
@@ -60,6 +63,7 @@ use crate::models::ScanStatus;
 use crate::oidc::OidcClient;
 use crate::scanner::ScanRequest;
 use crate::state::AppState;
+use crate::storage::ArchiveStorage;
 
 /// Handle to a server started with [`start`].
 pub struct ServerHandle {
@@ -184,6 +188,14 @@ async fn prepare(config: Config) -> Result<Prepared> {
     let (cancel_tx, cancel_rx) = watch::channel(false);
     let oidc = OidcClient::from_config(&config, http.clone())?;
     let (events, event_rx) = events::channel();
+    let ingest_ctx = ingest::IngestContext {
+        games_dir: config.games_dir.clone(),
+        data_dir: config.data_dir.clone(),
+        scan_tx: scan_tx.clone(),
+        allow_private: config.ingest_allow_private,
+        events: Some(events.clone()),
+    };
+    let ingest_handle = ingest::handle(&ingest_ctx);
 
     let state = AppState {
         config: Arc::new(config.clone()),
@@ -201,20 +213,15 @@ async fn prepare(config: Config) -> Result<Prepared> {
         watcher_handle: Arc::new(RwLock::new(None)),
         integrity_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         media_gc_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        storage: ArchiveStorage::from_config(&config),
+        metrics: Arc::new(metrics::Metrics::default()),
+        ingest: Some(ingest_handle),
     };
 
     let watcher_handle = watcher::start(&state).await;
     *state.watcher_handle.write().await = watcher_handle;
 
     let token = bootstrap_admin(&state).await?;
-
-    let ingest_ctx = ingest::IngestContext {
-        games_dir: config.games_dir.clone(),
-        data_dir: config.data_dir.clone(),
-        scan_tx: scan_tx.clone(),
-        allow_private: config.ingest_allow_private,
-        events: Some(state.events.clone()),
-    };
     let router = build_router(&state, &ingest_ctx);
 
     tokio::spawn(scanner::worker(state.clone(), scan_rx, cancel_rx.clone()));
@@ -263,7 +270,9 @@ fn spawn_server(
 
 fn build_router(state: &AppState, ingest_ctx: &ingest::IngestContext) -> Router {
     let api = routes::api_router(state.config.saves_max_bytes);
-    let app = Router::new().nest("/api", api);
+    let app = Router::new()
+        .nest("/api", api)
+        .route("/metrics", axum::routing::get(routes::metrics::metrics));
     let app = web::attach(app, state);
     let app = app.with_state(state.clone());
 
@@ -279,6 +288,10 @@ fn build_router(state: &AppState, ingest_ctx: &ingest::IngestContext) -> Router 
     app.layer(DefaultBodyLimit::max(config::MAX_JSON_BYTES))
         .layer(cors_layer())
         .layer(TraceLayer::new_for_http().make_span_with(RequestSpan))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            metrics::track,
+        ))
 }
 
 /// Trace span that records the path but never the query string: download

@@ -55,14 +55,15 @@ COPY --from=web-builder /build/apps/web/dist ./apps/web/dist
 
 # Docker COPY preserves source mtimes. The dependency-cache layer compiled
 # placeholder sources; if the real files are older, cargo considers its
-# fingerprints fresh and links the empty placeholders. Force a rebuild of the
-# workspace crates only (dependencies stay cached).
-RUN cargo clean -p ludex-core -p ludex-server
+# fingerprints fresh and links the empty placeholders. Touching the real
+# sources makes them newer than the cached artifacts and forces a rebuild of
+# the workspace crates only (dependencies stay cached).
+RUN find crates -name '*.rs' -exec touch {} +
 
 RUN if [ -f Cargo.lock ]; then \
-      cargo build --release --locked -p ludex-server --features embed-web; \
+      cargo build --release --locked -p ludex-server --bins --features embed-web; \
     else \
-      cargo build --release -p ludex-server --features embed-web; \
+      cargo build --release -p ludex-server --bins --features embed-web; \
     fi
 
 # ---- Runtime --------------------------------------------------------------
@@ -89,7 +90,8 @@ RUN groupadd --gid 1000 ludex \
  && chown -R 1000:1000 /data /games /media /app
 
 COPY --from=rust-builder /build/target/release/ludex-server /usr/local/bin/ludex-server
-RUN chmod 0755 /usr/local/bin/ludex-server
+COPY --from=rust-builder /build/target/release/ludex-backup /usr/local/bin/ludex-backup
+RUN chmod 0755 /usr/local/bin/ludex-server /usr/local/bin/ludex-backup
 
 ENV LUDEX_BIND=0.0.0.0:8080 \
     LUDEX_DATA_DIR=/data \

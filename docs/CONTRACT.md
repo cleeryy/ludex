@@ -112,10 +112,42 @@ interface ScanStatus {
 | Method | Route | Response |
 |---|---|---|
 | GET | `/api/health` | `{ status: "ok", version, uptimeSeconds }` |
+| GET | `/api/health/details` | database/disk/library/ingest/watcher/integrity details (`HealthDetails`); public, no paths or secrets |
 | GET | `/api/setup/status` | `{ needsSetup: boolean, serverName: string, version: string }` |
 | POST | `/api/setup` | body `{ username, password, serverName? }` → `{ token, user }`; 409 if users exist |
 | GET | `/api/media/{name}` | cached image/file (public, immutable cache headers) |
 | GET | `/api/config` | `{ serverName, version, features: { igdb, steam, ingest, localMode }, maxUploadBytes }` (public, used by setup/login) |
+
+```ts
+interface HealthDetails {
+  status: "ok" | "degraded";       // degraded when SELECT 1 fails
+  version: string;
+  commit: string;                  // LUDEX_GIT_COMMIT, or "unknown"
+  uptimeSeconds: number;
+  database: { ok: boolean; sizeBytes: number };
+  disk: { dataFreeBytes: number; gamesFreeBytes: number; mediaFreeBytes: number };
+  library: {
+    games: number; versions: number; rootsTotal: number; rootsAvailable: number;
+    mediaFiles: number; mediaBytes: number;
+  };
+  ingest: {
+    queued: number; running: number; failed: number;
+    done: number; cancelled: number; total: number;
+  };
+  watcher: {
+    enabled: boolean; pending: boolean; roots: number;
+    lastEventAt: string | null; lastError: string | null;
+  };
+  integrity: {
+    id: number; status: "completed" | "failed"; findings: number;
+    startedAt: string | null; finishedAt: string | null;
+  } | null;
+  storageBackend: "local" | "s3";
+}
+```
+
+`/api/health/details` never returns filesystem paths, credentials or bucket
+keys. It is safe for uptime monitors and dashboards.
 
 ## Auth
 
@@ -471,6 +503,64 @@ interface IntegrityFinding {
 Checks never delete anything: findings are informational. The first successful
 hash of an archive or media file becomes its baseline. Scheduled by
 `LUDEX_INTEGRITY_INTERVAL_HOURS` (default 168, `0` disables).
+
+## Object storage (#47)
+
+Game archives can live on local roots (`local`, default) or in an
+S3-compatible bucket (`s3`). Metadata, media and saves stay on local disk. The
+API shape is unchanged: downloads and stream installs are proxied through the
+server with the same auth rules.
+
+`game_versions` gains `storage_backend` (`local`/`s3`), `object_key` and `etag`
+(migration `0010_storage_ops.sql`). These columns are not exposed in
+`GameVersion`; the download URL is identical for both backends.
+
+| Behaviour | Result |
+|---|---|
+| `GET /api/games/{id}/download` on an `s3` row | proxied object, single `Range` supported (`206`/`416`), `Content-Disposition`, no redirect |
+| object missing from the bucket | local file if present, else `404 file_not_found` |
+| bucket unreachable / 5xx | local file if present, else `502 storage_unavailable` |
+| `s3` backend configured but no usable client | local file if present, else `503 storage_unavailable` |
+| `local` row (including all pre-#47 rows) | served from the library root as before |
+| `GET …/local-path` on an `s3` row | `404 local_path_unavailable` |
+| `GET …/stream` on an `s3` row | archive staged under `{DATA}/tmp`, then streamed as tar |
+
+Configuration and operations: [`STORAGE.md`](./STORAGE.md).
+
+## Metrics and health details (#48)
+
+`GET /metrics` (root path, not under `/api`) exposes Prometheus text format:
+
+- `ludex_http_requests_total{method,route,status}` and
+  `ludex_http_request_duration_seconds{method,route}` with fixed buckets;
+- `ludex_games`, `ludex_game_versions{missing}`, `ludex_library_roots{available}`;
+- `ludex_ingest_jobs{status}`, `ludex_scan_running`,
+  `ludex_scan_last_success_timestamp_seconds`, `ludex_scan_duration_seconds`,
+  `ludex_scan_files{result}`;
+- `ludex_webhook_deliveries{state}`, `ludex_webhook_retries`;
+- `ludex_media_cache_files`, `ludex_media_cache_bytes`,
+  `ludex_disk_free_bytes{volume}`, `ludex_database_size_bytes`;
+- `ludex_process_uptime_seconds`, `ludex_build_info{version,commit}`,
+  `ludex_storage_backend_info{backend}`, `ludex_integrity_findings{status}`.
+
+When `LUDEX_METRICS_TOKEN` is set, scrapes require
+`Authorization: Bearer <token>` (`401` otherwise). Without it, `/metrics` is
+public but limited to 30 scrapes per minute per client IP (`429` beyond that).
+Route labels use the axum route template (`/api/games/{id}`), never the concrete
+id, so cardinality stays bounded.
+
+Prometheus scrape configuration:
+
+```yaml
+scrape_configs:
+  - job_name: ludex
+    scrape_interval: 30s
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/ludex-metrics-token
+    static_configs:
+      - targets: ["ludex.lan:8080"]
+```
 
 ## Media cache garbage collection
 

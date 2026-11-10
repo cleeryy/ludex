@@ -88,6 +88,46 @@ fn json_rejection(rejection: JsonRejection) -> ApiErrorResponse {
     )
 }
 
+/// Counts of ingest jobs by lifecycle bucket.
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IngestCounts {
+    /// Jobs waiting for a download slot.
+    pub queued: i64,
+    /// Jobs downloading or verifying.
+    pub running: i64,
+    /// Jobs stopped by an error.
+    pub failed: i64,
+    /// Jobs completed successfully.
+    pub done: i64,
+    /// Jobs cancelled by an operator.
+    pub cancelled: i64,
+    /// All known jobs.
+    pub total: i64,
+}
+
+/// Cloneable handle to the ingest manager, used by health and metrics.
+#[derive(Clone)]
+pub struct IngestHandle {
+    inner: Arc<manager::Inner>,
+}
+
+impl IngestHandle {
+    /// Job counts by lifecycle bucket.
+    #[must_use]
+    pub fn counts(&self) -> IngestCounts {
+        self.inner.counts()
+    }
+}
+
+/// Returns a handle to the ingest manager registered for `ctx.data_dir`.
+#[must_use]
+pub fn handle(ctx: &IngestContext) -> IngestHandle {
+    IngestHandle {
+        inner: manager::shared_state(ctx),
+    }
+}
+
 /// Build the ingest routes (full paths under `/api/ingest`).
 pub fn router(ctx: IngestContext) -> Router {
     let state = manager::shared_state(&ctx);

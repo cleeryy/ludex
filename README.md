@@ -88,7 +88,9 @@ application backed by PostgreSQL. Ludex takes a different route:
 
 The API is documented in [`docs/CONTRACT.md`](docs/CONTRACT.md), integrations
 (API keys, audit log, webhooks) in
-[`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md), the design in
+[`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md), object storage in
+[`docs/STORAGE.md`](docs/STORAGE.md), backup/restore in
+[`docs/BACKUP.md`](docs/BACKUP.md), the design in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and the honest GameVault
 comparison in [`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md).
 
@@ -208,6 +210,9 @@ binary defaults to the current directory for the three paths.
 | `LUDEX_INGEST_ALLOW_PRIVATE` | `false` | Allow ingest URLs pointing at private/link-local addresses. |
 | `LUDEX_SCAN_INTERVAL_SECONDS` | `300` | Periodic scan interval; `0` disables it. |
 | `LUDEX_DATABASE_URL` | `sqlite://$LUDEX_DATA_DIR/ludex.db?mode=rwc` | Advanced: override the SQLite connection string. |
+| `LUDEX_STORAGE_BACKEND` | `local` | `local` or `s3` for game archive storage. See [`docs/STORAGE.md`](docs/STORAGE.md). |
+| `LUDEX_S3_*` | unset | S3 endpoint, region, bucket, credentials, path style and prefix when the backend is `s3`. |
+| `LUDEX_METRICS_TOKEN` | unset | Bearer token for `/metrics`; unset means public but rate-limited. |
 | `LUDEX_ADMIN_USERNAME` / `LUDEX_ADMIN_PASSWORD` | unset | Optional first-run admin bootstrap, only while zero users exist. Prefer the UI. |
 | `LUDEX_WEB_DIR` | unset | Serve the web UI from a directory instead of the embedded build. |
 | `LUDEX_LOCAL_MODE` | `false` | Desktop-only embedded mode; do not set on a server. |

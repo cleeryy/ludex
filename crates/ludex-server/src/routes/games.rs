@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
@@ -20,6 +21,7 @@ use tower_http::services::ServeFile;
 
 use crate::api_keys::Scope;
 use crate::auth::{authenticate_token, bearer_token, issue_download_ticket, AuthUser};
+use crate::config::StorageBackend;
 use crate::db;
 use crate::error::ApiError;
 use crate::extract::{ApiPath, ApiQuery, JsonBody};
@@ -32,6 +34,7 @@ use crate::models::{
 use crate::roots;
 use crate::sql::{bind_query, bind_query_as, bind_query_scalar, Bind};
 use crate::state::AppState;
+use crate::storage::{RequestRange, StorageError};
 use crate::stream::archive_tar_body;
 
 pub(crate) const LIST_COLUMNS: &str = "g.id, g.title, g.sort_title, g.release_date, g.cover_path, \
@@ -366,7 +369,8 @@ async fn fetch_detail(state: &AppState, user_id: i64, id: i64) -> Result<GameDet
 
     let versions = sqlx::query_as::<_, VersionRow>(
         "SELECT id, root_id, file_path, file_name, size, version, release_date,
-                early_access, missing, root_unavailable, archive_hash, updated_at
+                early_access, missing, root_unavailable, archive_hash, updated_at,
+                storage_backend, object_key, etag
          FROM game_versions WHERE game_id = ? AND missing = 0
          ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC",
     )
@@ -440,7 +444,8 @@ async fn latest_version(
 
     let row = sqlx::query_as::<_, VersionRow>(
         "SELECT id, root_id, file_path, file_name, size, version, release_date,
-                early_access, missing, root_unavailable, archive_hash, updated_at
+                early_access, missing, root_unavailable, archive_hash, updated_at,
+                storage_backend, object_key, etag
          FROM game_versions WHERE game_id = ? AND missing = 0
          ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC LIMIT 1",
     )
@@ -704,30 +709,40 @@ async fn download(
             "This version is no longer available",
         ));
     }
-    if version.root_unavailable != 0 {
-        return Err(ApiError::not_found(
-            "root_unavailable",
-            "The library root holding this file is not available",
-        ));
+    if is_s3_version(&version) {
+        if let Some(key) = version.object_key.as_deref() {
+            match download_from_storage(&state, &version, key, &headers).await {
+                Ok(response) => return Ok(response),
+                Err(error) if can_fall_back_to_local(&error) => {
+                    tracing::warn!(
+                        game = game_id,
+                        version = version_id,
+                        object = key,
+                        "object storage read failed; trying the local library file"
+                    );
+                }
+                Err(error) => return Err(error),
+            }
+        }
     }
-    let path = roots::resolve_version_path(
-        &state.pool,
-        &state.config,
-        version.root_id,
-        &version.file_path,
-    )
-    .await
-    .ok_or_else(ApiError::internal)?;
-    let metadata = tokio::fs::metadata(&path).await.map_err(|_| {
-        ApiError::not_found("file_not_found", "The library file is missing from disk")
-    })?;
-    if !metadata.is_file() {
-        return Err(ApiError::not_found(
-            "file_not_found",
-            "The library file is missing from disk",
-        ));
-    }
+    download_local(&state, &version, &headers).await
+}
 
+/// Whether a failed S3 read may fall back to the local library file.
+fn can_fall_back_to_local(error: &ApiError) -> bool {
+    matches!(
+        error.code.as_str(),
+        "file_not_found" | "storage_unavailable"
+    )
+}
+
+/// Serves a version from its library root with `ServeFile` (Range and If-Range).
+async fn download_local(
+    state: &AppState,
+    version: &VersionRow,
+    headers: &HeaderMap,
+) -> Result<Response, ApiError> {
+    let path = local_version_path(state, version).await?;
     let mut request = axum::http::Request::builder()
         .method(Method::GET)
         .uri("/")
@@ -758,22 +773,8 @@ async fn download(
     Ok(Response::from_parts(parts, Body::new(body)))
 }
 
-async fn stream_version(
-    State(state): State<AppState>,
-    ApiPath((game_id, version_id)): ApiPath<(i64, i64)>,
-    ApiQuery(query): ApiQuery<StreamQuery>,
-    headers: HeaderMap,
-) -> Result<Response, ApiError> {
-    let version_id = authorize_version(
-        &state,
-        &headers,
-        game_id,
-        Some(version_id),
-        query.token.as_deref(),
-    )
-    .await?;
-
-    let version = fetch_version(&state, game_id, version_id).await?;
+/// Resolves and validates the local file of a version.
+async fn local_version_path(state: &AppState, version: &VersionRow) -> Result<PathBuf, ApiError> {
     if version.missing != 0 {
         return Err(ApiError::not_found(
             "file_not_found",
@@ -803,16 +804,218 @@ async fn stream_version(
             "The library file is missing from disk",
         ));
     }
+    Ok(path)
+}
+
+/// Whether the row must be read from object storage. Rows indexed before S3
+/// was enabled keep `storage_backend = local` and are served from disk.
+fn is_s3_version(version: &VersionRow) -> bool {
+    version.storage_backend.as_deref() == Some(StorageBackend::S3.as_str())
+}
+
+/// Proxies an object-store read, honouring a single HTTP Range.
+async fn download_from_storage(
+    state: &AppState,
+    version: &VersionRow,
+    key: &str,
+    headers: &HeaderMap,
+) -> Result<Response, ApiError> {
+    let range = match headers
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok())
+    {
+        Some(value) => match parse_range(value) {
+            Some(range) => range,
+            None => {
+                return Err(ApiError::new(
+                    StatusCode::RANGE_NOT_SATISFIABLE,
+                    "invalid_range",
+                    "Only a single byte range is supported",
+                ))
+            }
+        },
+        None => None,
+    };
+
+    let object = state
+        .storage
+        .open(key, range)
+        .await
+        .map_err(|error| map_storage_error(error, "download"))?;
+
+    let content_type = mime_guess::from_path(&version.file_name)
+        .first_or_octet_stream()
+        .to_string();
+    let disposition = content_disposition(&version.file_name);
+    let mut builder = Response::builder()
+        .status(if object.range.is_some() {
+            StatusCode::PARTIAL_CONTENT
+        } else {
+            StatusCode::OK
+        })
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("private, no-store"),
+        );
+    if let Ok(value) = HeaderValue::from_str(&disposition) {
+        builder = builder.header(header::CONTENT_DISPOSITION, value);
+    }
+    let length = match object.range {
+        Some((start, end)) => {
+            builder = builder.header(
+                header::CONTENT_RANGE,
+                format!("bytes {start}-{end}/{}", object.size),
+            );
+            end.saturating_sub(start).saturating_add(1)
+        }
+        None => object.size,
+    };
+    builder
+        .header(header::CONTENT_LENGTH, length)
+        .body(object.body)
+        .map_err(|_| ApiError::internal())
+}
+
+/// Parses `bytes=start-end`, `bytes=start-` and `bytes=-length`.
+fn parse_range(value: &str) -> Option<Option<RequestRange>> {
+    let value = value.trim();
+    let value = value.strip_prefix("bytes=")?;
+    if value.contains(',') {
+        return None;
+    }
+    let (start, end) = value.split_once('-')?;
+    let start = start.trim();
+    let end = end.trim();
+    if start.is_empty() {
+        let length = end.parse::<u64>().ok()?;
+        return (length > 0).then_some(Some(RequestRange::Suffix(length)));
+    }
+    let start = start.parse::<u64>().ok()?;
+    if end.is_empty() {
+        return Some(Some(RequestRange::Offset(start)));
+    }
+    let end = end.parse::<u64>().ok()?;
+    (start <= end).then_some(Some(RequestRange::Bounded { start, end }))
+}
+
+/// Maps storage failures to stable API errors. Upstream details are logged,
+/// never returned: they can contain bucket names or signed URL fragments.
+fn map_storage_error(error: StorageError, action: &str) -> ApiError {
+    match error {
+        StorageError::NotFound => ApiError::not_found(
+            "file_not_found",
+            "The archive is missing from object storage",
+        ),
+        StorageError::RangeNotSatisfiable => ApiError::new(
+            StatusCode::RANGE_NOT_SATISFIABLE,
+            "invalid_range",
+            "The requested byte range cannot be satisfied",
+        ),
+        StorageError::Disabled => ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "storage_unavailable",
+            "Object storage is not configured",
+        ),
+        StorageError::Unavailable(detail) => {
+            tracing::warn!(%detail, action, "object storage request failed");
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "storage_unavailable",
+                "The object storage backend did not answer the request",
+            )
+        }
+    }
+}
+
+/// Stages an object in the data directory so the tar streamer can seek.
+async fn stage_object(state: &AppState, version: &VersionRow) -> Result<(PathBuf, u64), ApiError> {
+    let key = version
+        .object_key
+        .as_deref()
+        .ok_or_else(|| ApiError::not_found("file_not_found", "Object key is missing"))?;
+    let directory = state.config.data_dir.join("tmp");
+    let path = directory.join(format!(
+        "stream-{}-{}.archive",
+        version.id,
+        uuid::Uuid::new_v4()
+    ));
+    let size = match state.storage.download_to_path(key, &path).await {
+        Ok(size) => size,
+        Err(error) => {
+            let _ = tokio::fs::remove_file(&path).await;
+            return Err(map_storage_error(error, "stream stage"));
+        }
+    };
+    Ok((path, size))
+}
+
+async fn cleanup_staged(path: &std::path::Path, staged: bool) {
+    if staged {
+        let _ = tokio::fs::remove_file(path).await;
+    }
+}
+
+async fn stream_version(
+    State(state): State<AppState>,
+    ApiPath((game_id, version_id)): ApiPath<(i64, i64)>,
+    ApiQuery(query): ApiQuery<StreamQuery>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let version_id = authorize_version(
+        &state,
+        &headers,
+        game_id,
+        Some(version_id),
+        query.token.as_deref(),
+    )
+    .await?;
+
+    let version = fetch_version(&state, game_id, version_id).await?;
+    if version.missing != 0 {
+        return Err(ApiError::not_found(
+            "file_not_found",
+            "This version is no longer available",
+        ));
+    }
+    let mut staged = false;
+    let path = if is_s3_version(&version) && version.object_key.is_some() {
+        // Stream install needs random access (ZIP central directory): the
+        // object is staged under `{data_dir}/tmp` and removed once the tar
+        // stream ends. Disk use is bounded by one archive at a time per
+        // concurrent stream request.
+        match stage_object(&state, &version).await {
+            Ok((path, _size)) => {
+                staged = true;
+                path
+            }
+            Err(error) if can_fall_back_to_local(&error) => {
+                tracing::warn!(
+                    game = game_id,
+                    version = version_id,
+                    "object storage staging failed; trying the local library file"
+                );
+                local_version_path(&state, &version).await?
+            }
+            Err(error) => return Err(error),
+        }
+    } else {
+        local_version_path(&state, &version).await?
+    };
+    let cleanup = staged.then(|| path.clone());
 
     let format = match detect_format(&path) {
         Ok(format) => format,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            cleanup_staged(&path, staged).await;
             return Err(ApiError::not_found(
                 "file_not_found",
                 "The library file is missing from disk",
             ));
         }
         Err(error) => {
+            cleanup_staged(&path, staged).await;
             return Err(ApiError::unprocessable(
                 "stream_failed",
                 format!("Could not inspect the archive: {error}"),
@@ -820,19 +1023,25 @@ async fn stream_version(
         }
     };
     if !matches!(format, ArchiveFormat::Zip | ArchiveFormat::SevenZip) {
+        cleanup_staged(&path, staged).await;
         return Err(stream_unsupported());
     }
 
     let size_path = path.clone();
-    let tar_size = tokio::task::spawn_blocking(move || archive_tar_size(&size_path))
-        .await
-        .map_err(|error| {
-            ApiError::unprocessable(
+    let tar_size = match tokio::task::spawn_blocking(move || archive_tar_size(&size_path)).await {
+        Ok(Ok(size)) => size,
+        Ok(Err(error)) => {
+            cleanup_staged(&path, staged).await;
+            return Err(map_archive_error(error));
+        }
+        Err(error) => {
+            cleanup_staged(&path, staged).await;
+            return Err(ApiError::unprocessable(
                 "stream_failed",
                 format!("Archive size task failed: {error}"),
-            )
-        })?
-        .map_err(map_archive_error)?;
+            ));
+        }
+    };
 
     let title = fetch_game_title(&state, game_id).await?;
     let file_name = if title.trim().is_empty() {
@@ -855,7 +1064,7 @@ async fn stream_version(
             header::CACHE_CONTROL,
             HeaderValue::from_static("private, no-store"),
         )
-        .body(archive_tar_body(path, tar_size))
+        .body(archive_tar_body(path, tar_size, cleanup))
         .map_err(|_| ApiError::internal())
 }
 
@@ -876,6 +1085,12 @@ async fn local_path(
         return Err(ApiError::not_found(
             "file_not_found",
             "This version is no longer available",
+        ));
+    }
+    if is_s3_version(&version) {
+        return Err(ApiError::not_found(
+            "local_path_unavailable",
+            "This version is stored in object storage and has no local path",
         ));
     }
     if version.root_unavailable != 0 {
@@ -1172,7 +1387,8 @@ async fn fetch_version(
 ) -> Result<VersionRow, ApiError> {
     sqlx::query_as::<_, VersionRow>(
         "SELECT id, root_id, file_path, file_name, size, version, release_date,
-                early_access, missing, root_unavailable, archive_hash, updated_at
+                early_access, missing, root_unavailable, archive_hash, updated_at,
+                storage_backend, object_key, etag
          FROM game_versions WHERE id = ? AND game_id = ?",
     )
     .bind(version_id)
@@ -1298,4 +1514,145 @@ fn clean_labels(values: Vec<String>) -> Vec<String> {
         .filter(|value| !value.is_empty())
         .filter(|value| seen.insert(value.to_ascii_lowercase()))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http_body_util::BodyExt;
+    use object_store::memory::InMemory;
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+
+    async fn state_with_memory_store() -> (tempfile::TempDir, AppState) {
+        let temp = tempfile::tempdir().expect("tempdir");
+        for name in ["games", "data", "media"] {
+            std::fs::create_dir_all(temp.path().join(name)).expect("mkdir");
+        }
+        let config = crate::config::Config::for_local(
+            temp.path().join("games"),
+            temp.path().join("data"),
+            temp.path().join("media"),
+        );
+        let (scan_tx, _scan_rx) = mpsc::channel(1);
+        let mut state = AppState::for_tests(config, scan_tx).await;
+        state.storage = crate::storage::ArchiveStorage::from_store(Arc::new(InMemory::new()));
+        (temp, state)
+    }
+
+    fn version_row(key: Option<String>, backend: &str) -> VersionRow {
+        VersionRow {
+            id: 1,
+            root_id: None,
+            file_path: "Cat Quest II.zip".to_string(),
+            file_name: "Cat Quest II.zip".to_string(),
+            size: 16,
+            version: None,
+            release_date: None,
+            early_access: 0,
+            missing: 0,
+            root_unavailable: 0,
+            archive_hash: None,
+            updated_at: None,
+            storage_backend: Some(backend.to_string()),
+            object_key: key,
+            etag: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn s3_downloads_stream_ranges_and_missing_objects_are_404() {
+        let (temp, state) = state_with_memory_store().await;
+        let archive = temp.path().join("Cat Quest II.zip");
+        std::fs::write(&archive, b"0123456789abcdef").expect("write");
+        let stored = state
+            .storage
+            .publish_archive("identity", "Cat Quest II.zip", &archive)
+            .await
+            .expect("upload")
+            .expect("object");
+        let version = version_row(Some(stored.key.clone()), "s3");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(header::RANGE, "bytes=2-5".parse().expect("range"));
+        let response = download_from_storage(&state, &version, &stored.key, &headers)
+            .await
+            .expect("ranged download");
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok()),
+            Some("bytes 2-5/16")
+        );
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        assert_eq!(&body[..], b"2345");
+
+        let missing = download_from_storage(&state, &version, "archives/missing.zip", &headers)
+            .await
+            .expect_err("missing object");
+        assert_eq!(missing.status, StatusCode::NOT_FOUND);
+        assert_eq!(missing.code, "file_not_found");
+    }
+
+    #[tokio::test]
+    async fn local_rows_stay_on_disk_and_disabled_storage_is_503() {
+        assert!(!is_s3_version(&version_row(None, "local")));
+        assert!(is_s3_version(&version_row(Some("k".to_string()), "s3")));
+
+        let (temp, mut state) = state_with_memory_store().await;
+        state.storage = crate::storage::ArchiveStorage::local();
+        let version = version_row(Some("archives/whatever.zip".to_string()), "s3");
+        let error =
+            download_from_storage(&state, &version, "archives/whatever.zip", &HeaderMap::new())
+                .await
+                .expect_err("local storage");
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "storage_unavailable");
+
+        // The local fallback path resolves the file from the library root.
+        let games_dir = state.config.games_dir.clone();
+        std::fs::write(games_dir.join("Cat Quest II.zip"), b"local").expect("write");
+        let root_id = sqlx::query_scalar::<_, i64>(
+            "SELECT id FROM library_roots ORDER BY position, id LIMIT 1",
+        )
+        .fetch_one(&state.pool)
+        .await
+        .expect("root");
+        let mut fallback = version_row(Some("archives/whatever.zip".to_string()), "s3");
+        fallback.root_id = Some(root_id);
+        assert!(can_fall_back_to_local(&error));
+        assert_eq!(
+            local_version_path(&state, &fallback)
+                .await
+                .expect("local fallback"),
+            games_dir.join("Cat Quest II.zip")
+        );
+        let _ = temp;
+    }
+
+    #[test]
+    fn range_parser_handles_the_three_http_forms() {
+        assert_eq!(
+            parse_range("bytes=0-99").flatten(),
+            Some(RequestRange::Bounded { start: 0, end: 99 })
+        );
+        assert_eq!(
+            parse_range("bytes=10-").flatten(),
+            Some(RequestRange::Offset(10))
+        );
+        assert_eq!(
+            parse_range("bytes=-10").flatten(),
+            Some(RequestRange::Suffix(10))
+        );
+        assert!(parse_range("bytes=0-1,4-5").is_none());
+        assert!(parse_range("bytes=9-3").is_none());
+        assert!(parse_range("items=0-1").is_none());
+    }
 }

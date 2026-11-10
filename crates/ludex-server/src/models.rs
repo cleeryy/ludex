@@ -83,6 +83,12 @@ pub struct VersionRow {
     pub root_unavailable: i64,
     pub archive_hash: Option<String>,
     pub updated_at: Option<String>,
+    /// `local` or `s3` (#47).
+    pub storage_backend: Option<String>,
+    /// Object key inside the bucket when `storage_backend = "s3"`.
+    pub object_key: Option<String>,
+    /// ETag reported by the object store on upload.
+    pub etag: Option<String>,
 }
 
 /// Row of the `users` table, including the password hash.
@@ -259,6 +265,108 @@ pub struct HealthResponse {
     pub version: &'static str,
     /// Process uptime in seconds.
     pub uptime_seconds: u64,
+}
+
+/// `GET /api/health/details` response.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthDetails {
+    /// `ok` or `degraded` when the database is unreachable.
+    pub status: &'static str,
+    /// Server version.
+    pub version: &'static str,
+    /// Build commit, `unknown` when not provided at build time.
+    pub commit: String,
+    /// Process uptime in seconds.
+    pub uptime_seconds: u64,
+    /// SQLite status and size.
+    pub database: HealthDatabase,
+    /// Free space on the configured volumes.
+    pub disk: HealthDisk,
+    /// Library counters.
+    pub library: HealthLibrary,
+    /// Ingest queue counters.
+    pub ingest: HealthIngest,
+    /// Folder watcher state.
+    pub watcher: HealthWatcher,
+    /// Last integrity report, when one has run.
+    pub integrity: Option<crate::metrics::IntegritySummary>,
+    /// Active archive storage backend (`local` or `s3`).
+    pub storage_backend: String,
+}
+
+/// Database section of the health details.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthDatabase {
+    /// Whether `SELECT 1` succeeded.
+    pub ok: bool,
+    /// Database size including WAL, in bytes.
+    pub size_bytes: u64,
+}
+
+/// Disk section of the health details.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthDisk {
+    /// Free bytes under the data directory.
+    pub data_free_bytes: u64,
+    /// Free bytes under the primary games directory.
+    pub games_free_bytes: u64,
+    /// Free bytes under the media directory.
+    pub media_free_bytes: u64,
+}
+
+/// Library section of the health details.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthLibrary {
+    /// Games in the library.
+    pub games: i64,
+    /// Versions available (`missing = 0`).
+    pub versions: i64,
+    /// Registered roots.
+    pub roots_total: i64,
+    /// Roots readable at the last scan.
+    pub roots_available: i64,
+    /// Cached media files.
+    pub media_files: u64,
+    /// Cached media bytes.
+    pub media_bytes: u64,
+}
+
+/// Ingest queue section of the health details.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthIngest {
+    /// Jobs waiting for a download slot.
+    pub queued: i64,
+    /// Jobs downloading or verifying.
+    pub running: i64,
+    /// Jobs stopped by an error.
+    pub failed: i64,
+    /// Completed jobs.
+    pub done: i64,
+    /// Cancelled jobs.
+    pub cancelled: i64,
+    /// All known jobs.
+    pub total: i64,
+}
+
+/// Watcher section of the health details. Root paths stay private.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthWatcher {
+    /// Whether the watcher task is running.
+    pub enabled: bool,
+    /// Whether a debounced scan is pending.
+    pub pending: bool,
+    /// Number of watched roots.
+    pub roots: usize,
+    /// Last relevant filesystem event.
+    pub last_event_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Last watch error.
+    pub last_error: Option<String>,
 }
 
 /// Feature flags exposed by `GET /api/config`.
