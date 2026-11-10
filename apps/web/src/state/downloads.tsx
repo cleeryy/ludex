@@ -45,6 +45,12 @@ export interface StartInstallInput {
   title: string;
   version?: string | null;
   executable?: string | null;
+  /** Named install location (#99); omitted uses the default. */
+  locationId?: string | null;
+  /** Named download location (#99); omitted uses the default or the install volume. */
+  downloadLocationId?: string | null;
+  /** Archive/extracted size estimate for the free-space guard (#99). */
+  expectedBytes?: number | null;
   /** Overrides the stream-install setting for this job (e.g. retry as a normal download). */
   stream?: boolean;
 }
@@ -371,6 +377,9 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
         token: tokenStore.get() ?? "",
         installDir: settings?.installDir || undefined,
         downloadDir: settings?.downloadDir || undefined,
+        locationId: input.locationId ?? undefined,
+        downloadLocationId: input.downloadLocationId ?? undefined,
+        expectedBytes: input.expectedBytes ?? undefined,
         stream: input.stream ?? settings?.streamInstall ?? false,
       });
       setTitles((current) => ({ ...current, [job.jobId]: input.title }));

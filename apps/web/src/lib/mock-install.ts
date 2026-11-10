@@ -286,6 +286,11 @@ const DEFAULT_SETTINGS: LocalSettings = {
   gamesDir: "/home/mara/Games",
   installDir: "/home/mara/Games/Ludex",
   downloadDir: "/home/mara/Downloads/Ludex",
+  locations: [
+    { id: "games", label: "Games", path: "/home/mara/Games/Ludex", kind: "install", default: true },
+    { id: "ssd", label: "Fast SSD", path: "/mnt/ssd/Ludex", kind: "install", default: false },
+    { id: "downloads", label: "Downloads", path: "/home/mara/Downloads/Ludex", kind: "download", default: true },
+  ],
   serverPort: 0,
   streamInstall: true,
   keepArchives: false,

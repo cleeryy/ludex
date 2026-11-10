@@ -31,6 +31,7 @@ import { CloudSaves } from "@/components/game/cloud-saves";
 import { ArtworkDialog } from "@/components/game/artwork-dialog";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { InstallFiles } from "@/components/game/install-files";
+import { GameSettingsPanel } from "@/components/game/game-settings";
 import { InstallerPanel } from "@/components/game/installer-panel";
 import { LaunchOptionsPanel } from "@/components/game/launch-options";
 import { ProtonDbBadge } from "@/components/game/protondb-badge";
@@ -470,6 +471,10 @@ export function GameDetailScreen() {
 
             {isInstalled && isNative() && (
               <LaunchOptionsPanel gameId={game.id} title={game.title} />
+            )}
+
+            {isInstalled && isNative() && (
+              <GameSettingsPanel gameId={game.id} title={game.title} />
             )}
 
             <CloudSaves gameId={game.id} title={game.title} />
