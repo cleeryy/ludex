@@ -2616,6 +2616,7 @@ dependencies = [
  "fs2",
  "futures-util",
  "hex",
+ "hmac",
  "jsonwebtoken",
  "ludex-core",
  "mime_guess",
