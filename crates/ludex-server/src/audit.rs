@@ -49,6 +49,16 @@ pub mod actions {
     pub const OIDC_LOGIN: &str = "oidc.login";
     /// OIDC identity linked to an existing local account.
     pub const OIDC_LINKED: &str = "oidc.linked";
+    /// Library root added.
+    pub const LIBRARY_ROOT_CREATED: &str = "library_root.created";
+    /// Library root label, path, ordering or enabled flag changed.
+    pub const LIBRARY_ROOT_UPDATED: &str = "library_root.updated";
+    /// Library root removed.
+    pub const LIBRARY_ROOT_DELETED: &str = "library_root.deleted";
+    /// Integrity check started.
+    pub const INTEGRITY_CHECK_STARTED: &str = "integrity.check_started";
+    /// Media cache garbage collection removed files.
+    pub const MEDIA_GC_RUN: &str = "media.gc";
 }
 
 /// Writes one event to `audit_logs`. Failures are logged, never propagated:

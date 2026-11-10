@@ -13,6 +13,12 @@ use ludex_core::models::Role;
 pub const DEFAULT_BIND: &str = "0.0.0.0:8080";
 /// Default scan interval, in seconds.
 pub const DEFAULT_SCAN_INTERVAL_SECONDS: u64 = 300;
+/// Default idle window before the folder watcher triggers a scan.
+pub const DEFAULT_WATCHER_DEBOUNCE_MS: u64 = 5_000;
+/// Default interval between scheduled integrity checks (one week).
+pub const DEFAULT_INTEGRITY_INTERVAL_HOURS: u64 = 168;
+/// Default grace period before an unreferenced media file is deleted.
+pub const DEFAULT_MEDIA_GC_GRACE_HOURS: u64 = 24;
 /// Maximum JSON request body accepted by the API (10 MiB).
 pub const MAX_JSON_BYTES: usize = 10 * 1024 * 1024;
 /// Default maximum size of a single cloud save upload (2 GiB).
@@ -60,6 +66,19 @@ pub struct Config {
     pub webhooks_backoff_ms: u64,
     /// Interval between automatic library scans. Zero disables periodic scans.
     pub scan_interval: Duration,
+    /// Ordered library roots. The first entry is the ingest target
+    /// (`LUDEX_GAMES_DIR`); the rest come from `LUDEX_LIBRARY_ROOTS`.
+    pub library_roots: Vec<PathBuf>,
+    /// Watch enabled library roots for new files (`LUDEX_WATCHER_ENABLED`).
+    pub watcher_enabled: bool,
+    /// Idle window used to coalesce filesystem events before a scan.
+    pub watcher_debounce: Duration,
+    /// Interval between scheduled integrity checks. Zero disables them.
+    pub integrity_interval: Duration,
+    /// Minimum age of an unreferenced media file before garbage collection.
+    pub media_gc_grace: Duration,
+    /// Interval between scheduled media garbage collections. Zero disables them.
+    pub media_gc_interval: Duration,
     /// Maximum size of a single cloud save upload, in bytes.
     pub saves_max_bytes: u64,
     /// OIDC issuer URL. `None` disables SSO.
@@ -134,6 +153,29 @@ impl Config {
             .context("LUDEX_SCAN_INTERVAL_SECONDS must be an integer")?
             .unwrap_or(DEFAULT_SCAN_INTERVAL_SECONDS);
 
+        let library_roots =
+            parse_library_roots(env_opt("LUDEX_LIBRARY_ROOTS").as_deref(), &games_dir);
+        let watcher_debounce_ms = env_opt("LUDEX_WATCHER_DEBOUNCE_MS")
+            .map(|value| value.parse::<u64>())
+            .transpose()
+            .context("LUDEX_WATCHER_DEBOUNCE_MS must be an integer")?
+            .unwrap_or(DEFAULT_WATCHER_DEBOUNCE_MS);
+        let integrity_interval_hours = env_opt("LUDEX_INTEGRITY_INTERVAL_HOURS")
+            .map(|value| value.parse::<u64>())
+            .transpose()
+            .context("LUDEX_INTEGRITY_INTERVAL_HOURS must be an integer")?
+            .unwrap_or(DEFAULT_INTEGRITY_INTERVAL_HOURS);
+        let media_gc_grace_hours = env_opt("LUDEX_MEDIA_GC_GRACE_HOURS")
+            .map(|value| value.parse::<u64>())
+            .transpose()
+            .context("LUDEX_MEDIA_GC_GRACE_HOURS must be an integer")?
+            .unwrap_or(DEFAULT_MEDIA_GC_GRACE_HOURS);
+        let media_gc_interval_hours = env_opt("LUDEX_MEDIA_GC_INTERVAL_HOURS")
+            .map(|value| value.parse::<u64>())
+            .transpose()
+            .context("LUDEX_MEDIA_GC_INTERVAL_HOURS must be an integer")?
+            .unwrap_or(0);
+
         let saves_max_bytes = match env_opt("LUDEX_SAVES_MAX_BYTES") {
             Some(value) => {
                 let parsed = value
@@ -170,6 +212,12 @@ impl Config {
                 .context("LUDEX_WEBHOOKS_BACKOFF_MS must be an integer")?
                 .unwrap_or(1_000),
             scan_interval: Duration::from_secs(scan_interval_seconds),
+            library_roots,
+            watcher_enabled: bool_env("LUDEX_WATCHER_ENABLED"),
+            watcher_debounce: Duration::from_millis(watcher_debounce_ms),
+            integrity_interval: Duration::from_secs(integrity_interval_hours * 3_600),
+            media_gc_grace: Duration::from_secs(media_gc_grace_hours * 3_600),
+            media_gc_interval: Duration::from_secs(media_gc_interval_hours * 3_600),
             saves_max_bytes,
             oidc_issuer: env_opt("LUDEX_OIDC_ISSUER"),
             oidc_client_id: env_opt("LUDEX_OIDC_CLIENT_ID"),
@@ -195,10 +243,11 @@ impl Config {
     /// [`crate::start`]) and does not read any bootstrap credentials.
     pub fn for_local(games_dir: PathBuf, data_dir: PathBuf, media_dir: PathBuf) -> Self {
         let database_url = default_database_url(&data_dir);
+        let library_roots = vec![games_dir.clone()];
         Self {
             bind: SocketAddr::from(([127, 0, 0, 1], 0)),
             data_dir,
-            games_dir,
+            games_dir: games_dir.clone(),
             media_dir,
             database_url,
             jwt_secret: None,
@@ -213,6 +262,12 @@ impl Config {
             webhooks_allow_private: false,
             webhooks_backoff_ms: 1_000,
             scan_interval: Duration::from_secs(DEFAULT_SCAN_INTERVAL_SECONDS),
+            library_roots,
+            watcher_enabled: false,
+            watcher_debounce: Duration::from_millis(DEFAULT_WATCHER_DEBOUNCE_MS),
+            integrity_interval: Duration::from_secs(DEFAULT_INTEGRITY_INTERVAL_HOURS * 3_600),
+            media_gc_grace: Duration::from_secs(DEFAULT_MEDIA_GC_GRACE_HOURS * 3_600),
+            media_gc_interval: Duration::ZERO,
             saves_max_bytes: DEFAULT_SAVES_MAX_BYTES,
             oidc_issuer: None,
             oidc_client_id: None,
@@ -269,6 +324,31 @@ pub fn default_database_url(data_dir: &Path) -> String {
     format!("sqlite://{}?mode=rwc", path.display())
 }
 
+/// Parses `LUDEX_LIBRARY_ROOTS` into an ordered, de-duplicated list.
+///
+/// The ingest target (`games_dir`) is always present and always first so new
+/// downloads land in a known root. Empty entries are ignored.
+#[must_use]
+pub fn parse_library_roots(value: Option<&str>, games_dir: &Path) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for part in value.unwrap_or_default().split(',') {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let path = PathBuf::from(trimmed);
+        if !roots.contains(&path) {
+            roots.push(path);
+        }
+    }
+    if roots.is_empty() {
+        roots.push(games_dir.to_path_buf());
+    } else if !roots.iter().any(|root| root == games_dir) {
+        roots.insert(0, games_dir.to_path_buf());
+    }
+    roots
+}
+
 fn env_opt(name: &str) -> Option<String> {
     env::var(name)
         .ok()
@@ -316,5 +396,40 @@ mod tests {
     fn default_database_url_uses_rwc_mode() {
         let url = default_database_url(Path::new("/srv/ludex"));
         assert_eq!(url, "sqlite:///srv/ludex/ludex.db?mode=rwc");
+    }
+
+    #[test]
+    fn library_roots_keep_games_dir_first_and_drop_duplicates() {
+        let games = Path::new("/games");
+        assert_eq!(parse_library_roots(None, games), vec![games.to_path_buf()]);
+        assert_eq!(
+            parse_library_roots(Some("  , /mnt/one , /mnt/one,/mnt/two "), games),
+            vec![
+                games.to_path_buf(),
+                PathBuf::from("/mnt/one"),
+                PathBuf::from("/mnt/two"),
+            ]
+        );
+        assert_eq!(
+            parse_library_roots(Some("/mnt/one,/games,/mnt/two"), games),
+            vec![
+                PathBuf::from("/mnt/one"),
+                games.to_path_buf(),
+                PathBuf::from("/mnt/two"),
+            ]
+        );
+    }
+
+    #[test]
+    fn local_config_disables_watcher_and_scheduled_gc() {
+        let config = Config::for_local(
+            PathBuf::from("/tmp/games"),
+            PathBuf::from("/tmp/data"),
+            PathBuf::from("/tmp/media"),
+        );
+        assert!(!config.watcher_enabled);
+        assert_eq!(config.library_roots, vec![PathBuf::from("/tmp/games")]);
+        assert_eq!(config.media_gc_interval, Duration::ZERO);
+        assert_eq!(config.media_gc_grace, Duration::from_secs(24 * 3_600));
     }
 }

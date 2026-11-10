@@ -3,6 +3,7 @@
 pub mod audit;
 pub mod auth;
 pub mod games;
+pub mod integrity;
 pub mod keys;
 pub mod library;
 pub mod media;
@@ -26,6 +27,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(auth::router())
         .merge(oidc::router())
         .merge(games::router())
+        .merge(integrity::router())
         .merge(search::router())
         .merge(users::router())
         .merge(library::router())

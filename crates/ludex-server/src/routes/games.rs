@@ -29,7 +29,7 @@ use crate::models::{
     LocalPathResponse, PlaytimeRequest, ProgressRequest, RefreshResponse, StreamQuery,
     TicketRequest, TicketResponse, UpdateGameRequest, VersionRow,
 };
-use crate::scanner;
+use crate::roots;
 use crate::sql::{bind_query, bind_query_as, bind_query_scalar, Bind};
 use crate::state::AppState;
 use crate::stream::archive_tar_body;
@@ -362,7 +362,8 @@ async fn fetch_detail(state: &AppState, user_id: i64, id: i64) -> Result<GameDet
     .ok_or_else(|| ApiError::not_found("game_not_found", "Game not found"))?;
 
     let versions = sqlx::query_as::<_, VersionRow>(
-        "SELECT id, file_path, file_name, size, version, release_date, early_access, missing
+        "SELECT id, root_id, file_path, file_name, size, version, release_date,
+                early_access, missing, root_unavailable
          FROM game_versions WHERE game_id = ? AND missing = 0
          ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC",
     )
@@ -663,8 +664,20 @@ async fn download(
             "This version is no longer available",
         ));
     }
-    let path = scanner::resolve_relative(&state.config.games_dir, &version.file_path)
-        .ok_or_else(ApiError::internal)?;
+    if version.root_unavailable != 0 {
+        return Err(ApiError::not_found(
+            "root_unavailable",
+            "The library root holding this file is not available",
+        ));
+    }
+    let path = roots::resolve_version_path(
+        &state.pool,
+        &state.config,
+        version.root_id,
+        &version.file_path,
+    )
+    .await
+    .ok_or_else(ApiError::internal)?;
     let metadata = tokio::fs::metadata(&path).await.map_err(|_| {
         ApiError::not_found("file_not_found", "The library file is missing from disk")
     })?;
@@ -727,8 +740,20 @@ async fn stream_version(
             "This version is no longer available",
         ));
     }
-    let path = scanner::resolve_relative(&state.config.games_dir, &version.file_path)
-        .ok_or_else(ApiError::internal)?;
+    if version.root_unavailable != 0 {
+        return Err(ApiError::not_found(
+            "root_unavailable",
+            "The library root holding this file is not available",
+        ));
+    }
+    let path = roots::resolve_version_path(
+        &state.pool,
+        &state.config,
+        version.root_id,
+        &version.file_path,
+    )
+    .await
+    .ok_or_else(ApiError::internal)?;
     let metadata = tokio::fs::metadata(&path).await.map_err(|_| {
         ApiError::not_found("file_not_found", "The library file is missing from disk")
     })?;
@@ -813,8 +838,20 @@ async fn local_path(
             "This version is no longer available",
         ));
     }
-    let path = scanner::resolve_relative(&state.config.games_dir, &version.file_path)
-        .ok_or_else(ApiError::internal)?;
+    if version.root_unavailable != 0 {
+        return Err(ApiError::not_found(
+            "root_unavailable",
+            "The library root holding this file is not available",
+        ));
+    }
+    let path = roots::resolve_version_path(
+        &state.pool,
+        &state.config,
+        version.root_id,
+        &version.file_path,
+    )
+    .await
+    .ok_or_else(ApiError::internal)?;
     let canonical = tokio::fs::canonicalize(&path).await.map_err(|_| {
         ApiError::not_found("file_not_found", "The library file is missing from disk")
     })?;
@@ -1034,7 +1071,8 @@ async fn fetch_version(
     version_id: i64,
 ) -> Result<VersionRow, ApiError> {
     sqlx::query_as::<_, VersionRow>(
-        "SELECT id, file_path, file_name, size, version, release_date, early_access, missing
+        "SELECT id, root_id, file_path, file_name, size, version, release_date,
+                early_access, missing, root_unavailable
          FROM game_versions WHERE id = ? AND game_id = ?",
     )
     .bind(version_id)

@@ -132,6 +132,10 @@ impl TestServer {
             .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         let token = body["token"].as_str().expect("token").to_string();
+        // The server kicks off an initial scan at startup. Let it finish before
+        // the caller writes archives, otherwise that scan can pick up the new
+        // files and the following manual scan reports updates instead of adds.
+        wait_for_first_scan(self, &token).await;
         (token, body["user"].clone())
     }
 

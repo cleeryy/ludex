@@ -71,6 +71,7 @@ pub struct GameDetailRow {
 #[derive(Debug, sqlx::FromRow)]
 pub struct VersionRow {
     pub id: i64,
+    pub root_id: Option<i64>,
     pub file_path: String,
     pub file_name: String,
     pub size: i64,
@@ -78,6 +79,7 @@ pub struct VersionRow {
     pub release_date: Option<String>,
     pub early_access: i64,
     pub missing: i64,
+    pub root_unavailable: i64,
 }
 
 /// Row of the `users` table, including the password hash.
@@ -564,6 +566,86 @@ pub struct ScanResponse {
 pub struct RefreshResponse {
     /// Always true: enrichment runs in the background.
     pub queued: bool,
+}
+
+/// `POST /api/library/roots` request.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateLibraryRootRequest {
+    /// Optional label; defaults to the last path component.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// Absolute path on the server.
+    pub path: String,
+    /// Whether the scanner walks the root (default true).
+    #[serde(default)]
+    pub enabled: Option<bool>,
+}
+
+/// `PATCH /api/library/roots/{id}` request.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateLibraryRootRequest {
+    /// New label.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// New absolute path.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Enable or disable the root.
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    /// New ordering position.
+    #[serde(default)]
+    pub position: Option<i64>,
+}
+
+/// `POST /api/library/roots/{id}/scan` response.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RootScanResponse {
+    /// Whether a scan was queued.
+    pub started: bool,
+    /// Root the request targeted.
+    pub root_id: i64,
+}
+
+/// `POST /api/integrity/check` request.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntegrityCheckRequest {
+    /// `all` (default), `archives` or `media`.
+    #[serde(default)]
+    pub scope: Option<String>,
+}
+
+/// `POST /api/integrity/check` response.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntegrityCheckResponse {
+    /// Report id to poll with `GET /api/integrity/reports/{id}`.
+    pub report_id: i64,
+    /// Always `running` at creation time.
+    pub status: String,
+}
+
+/// `GET /api/integrity/reports/{id}` response.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntegrityReportDetail {
+    /// Report summary.
+    pub report: crate::integrity::IntegrityReport,
+    /// Findings recorded by the report.
+    pub findings: Vec<crate::integrity::IntegrityFinding>,
+}
+
+/// `POST /api/media/gc` query.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaGcQuery {
+    /// Compute the plan without deleting anything (default true).
+    #[serde(default)]
+    pub dry_run: Option<bool>,
 }
 
 /// Library folder response.

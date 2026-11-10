@@ -55,6 +55,9 @@ async fn main() -> Result<()> {
         }
         _ => None,
     };
+    ludex_server::roots::bootstrap(&pool, &config)
+        .await
+        .context("bootstrap library roots")?;
     let (scan_tx, _scan_rx) = mpsc::channel(1);
     let state = AppState {
         config: Arc::new(config),
@@ -68,6 +71,10 @@ async fn main() -> Result<()> {
         oidc: None,
         events: ludex_server::events::channel().0,
         webhooks_notify: Arc::new(tokio::sync::Notify::new()),
+        watcher: Arc::new(RwLock::new(ludex_server::watcher::WatcherStatus::default())),
+        watcher_handle: Arc::new(RwLock::new(None)),
+        integrity_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        media_gc_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
 
     let ids = sqlx::query_scalar::<_, i64>("SELECT id FROM games ORDER BY id")
