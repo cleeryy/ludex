@@ -53,6 +53,26 @@ All notable changes to Ludex are documented here. The format is based on
   behaviour is unchanged; macOS asks for a manual run.
 - Settings: `defaultLaunchMode` and the three compatibility path overrides;
   schema v6 adds `game_launch_options` and `protondb_reports`.
+- OpenAPI 3.1 discovery (#17): public `GET /api/openapi.json` generated from the
+  server route table and `utoipa` DTO schemas, optional `/api/docs` explorer
+  (`LUDEX_OPENAPI_DOCS`), and a contract test that fails when a registered
+  route is missing from the document, a `$ref` is unresolved, or a documented
+  path is not mounted. See `docs/OPENAPI.md`.
+- Auth hardening (#19): per-IP + username login throttle with exponential
+  backoff and lockout, global per-IP API rate limit (`LUDEX_RATE_LIMIT_*`),
+  `jti`-backed sessions with server-side revocation (`token_revocations`,
+  `auth_sessions`, `users.tokens_valid_after`), session listing/revocation,
+  logout revocation, password change that signs out every other session,
+  admin revoke-all, constant-time unknown-user verification and `Retry-After`
+  on 429s. See `docs/SECURITY.md`.
+- Resumable archive uploads (#21): `POST /api/uploads`,
+  `PUT /api/uploads/{id}/parts/{n}`, `GET /api/uploads/{id}`,
+  `POST /api/uploads/{id}/complete`, `DELETE /api/uploads/{id}`; idempotent
+  chunks, SHA-256/size verification, stale cleanup and indexing through the
+  normal scanner. New "Upload game" admin screen with drag-and-drop and
+  resume-after-reload.
+- Docs: `docs/OPENAPI.md`, `docs/SECURITY.md`, contract and changelog updates.
+>>>>>>> fe157c3 (docs: contract, OpenAPI and security model for the new API surface)
 - Desktop silent installers (#7): `installer_plan`, `run_installer`,
   `cancel_installer`, `set_executable` and `choose_executable`. Silent switch
   presets (`/S`, `/silent`, `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`,

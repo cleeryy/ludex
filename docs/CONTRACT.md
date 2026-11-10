@@ -1135,3 +1135,93 @@ pub fn slugify(s: &str) -> String;
 
 Archive support: zip, rar (RAR4/RAR5), 7z. Extraction must be streaming, must
 reject absolute paths and `..` entries, and must support a password list.
+
+## OpenAPI document
+
+`GET /api/openapi.json` is public and always enabled. It is generated from the
+server's route table and `utoipa` DTO schemas; the contract test
+(`crates/ludex-server/tests/openapi.rs`) fails when a route registration and the
+document disagree. `GET /api/docs` renders a minimal explorer when
+`LUDEX_OPENAPI_DOCS=true` (404 otherwise). See `docs/OPENAPI.md`.
+
+## Sessions and revocation (#19)
+
+Every password/OIDC login issues a JWT with a `jti` backed by an
+`auth_sessions` row.
+
+```ts
+interface AuthSession {
+  id: number;
+  userAgent: string | null;
+  ip: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  current: boolean;
+}
+```
+
+- `POST /api/auth/login` → `{ token, user, expiresAt }`. Failures return 401
+  `invalid_credentials`; repeated failures return 429 `login_throttled` with a
+  `Retry-After` header (per IP + username, exponential backoff, then lockout).
+- `POST /api/auth/logout` revokes the current token (204). Using it afterwards
+  returns 401 `session_revoked`.
+- `GET /api/auth/sessions` lists the caller's sessions, newest first.
+- `DELETE /api/auth/sessions/{id}` revokes one session (own, or any as admin).
+- `POST /api/me/password` (alias of `/api/auth/change-password`) verifies the
+  current password, updates the hash and revokes every other session of the
+  account. The calling session stays valid.
+- `DELETE /api/users/{id}/sessions` (admin) revokes every session of an
+  account and invalidates all older tokens. Returns `{ "revoked": n }`.
+
+All 429 responses carry `Retry-After` (seconds). The error envelope is
+unchanged.
+
+## Resumable archive uploads (#21)
+
+Admin/editor only. Chunks live under `{data}/uploads/{id}`; the response shape
+is:
+
+```ts
+interface UploadSession {
+  id: string; fileName: string; size: number; sha256: string | null;
+  chunkSize: number; totalParts: number; receivedBytes: number;
+  receivedParts: number[]; status: "open" | "complete" | "failed";
+  createdAt: string; updatedAt: string;
+  gameId: number | null; versionId: number | null; error: string | null;
+}
+```
+
+- `POST /api/uploads` with `{ fileName, size, sha256? }` → 201. `fileName` must
+  end in `.zip`, `.rar` or `.7z`; `size` is bounded by `LUDEX_UPLOAD_MAX_BYTES`.
+  `sha256` is optional, lowercase hex, verified at completion.
+- `PUT /api/uploads/{id}/parts/{n}` carries the raw chunk as the request body
+  (`application/octet-stream`). The exact expected length is
+  `min(chunkSize, size - n*chunkSize)`. Re-sending an identical chunk is
+  idempotent and returns 200.
+- `GET /api/uploads/{id}` reports progress for resume-after-reload.
+- `POST /api/uploads/{id}/complete` assembles the parts, verifies size/SHA-256,
+  writes the archive into the ingest library root (suffixing the name on
+  collision), indexes it and returns
+  `{ id, gameId, versionId, fileName, size, sha256 }`. Calling it again on a
+  completed upload is idempotent. Errors: 400 `upload_incomplete` /
+  `invalid_part_size`, 422 `size_mismatch` / `hash_mismatch`.
+- `DELETE /api/uploads/{id}` abandons the upload and removes its chunks.
+- Unfinished uploads older than `LUDEX_UPLOAD_TTL_HOURS` (default 24 h) are
+  removed lazily on the next initiate and by an hourly worker.
+
+## Configuration for the new features
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LUDEX_JWT_TTL_MINUTES` | `10080` (7 days) | Session token lifetime; sessions also expire server-side |
+| `LUDEX_RATE_LIMIT_RPS` | `100` (`0` disables) | Global requests/second per client IP |
+| `LUDEX_RATE_LIMIT_BURST` | `300` | Global burst per client IP |
+| `LUDEX_LOGIN_MAX_ATTEMPTS` | `5` (`0` disables) | Failed logins before lockout |
+| `LUDEX_LOGIN_LOCKOUT_SECONDS` | `900` | Lockout duration |
+| `LUDEX_LOGIN_BACKOFF_MS` | `500` | Base exponential backoff from the third failure |
+| `LUDEX_UPLOAD_CHUNK_BYTES` | `16777216` | Chunk size returned by `POST /api/uploads` (capped at 64 MiB) |
+| `LUDEX_UPLOAD_MAX_BYTES` | `107374182400` | Largest accepted archive upload |
+| `LUDEX_UPLOAD_TTL_HOURS` | `24` | Stale upload cleanup age |
+| `LUDEX_OPENAPI_DOCS` | `false` | Serve `/api/docs` |
