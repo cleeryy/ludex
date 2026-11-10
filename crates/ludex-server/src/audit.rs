@@ -33,6 +33,8 @@ pub mod actions {
     pub const GAME_INGESTED: &str = "game.ingested";
     /// A library file was deleted.
     pub const GAME_DELETED: &str = "game.deleted";
+    /// Custom cover/background uploaded or reset.
+    pub const GAME_ARTWORK_UPDATED: &str = "game.artwork_updated";
     /// A download job completed.
     pub const DOWNLOAD_COMPLETED: &str = "download.completed";
     /// Server settings written (initial setup).

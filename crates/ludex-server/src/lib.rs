@@ -27,6 +27,7 @@ use tracing::Span;
 
 pub mod achievements;
 pub mod api_keys;
+pub mod artwork;
 pub mod audit;
 pub mod auth;
 pub mod backup;

@@ -1007,6 +1007,32 @@ pub const ROUTES: &[RouteDoc] = &[
         ),
         &[("limit", "Page size"), ("before", "Cursor")],
     ),
+    // Custom artwork (#38)
+    ok(
+        route(
+            HttpMethod::Post,
+            "/games/{id}/artwork",
+            "Games",
+            "Upload custom cover or background art",
+            Auth::Editor,
+            Payload::Schema("ArtworkResponse"),
+        ),
+        201,
+    ),
+    ok(
+        query(
+            route(
+                HttpMethod::Delete,
+                "/games/{id}/artwork",
+                "Games",
+                "Reset a custom cover or background",
+                Auth::Editor,
+                Payload::None,
+            ),
+            &[("kind", "cover or background")],
+        ),
+        204,
+    ),
     // Share links (implemented in `share.rs`, migration 0011)
     body(
         route(
@@ -1638,6 +1664,7 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::routes::achievements::DefinitionResponse>()
         .schema_from::<crate::routes::achievements::UnlockResponse>()
         .schema_from::<crate::routes::admin_oidc::OidcSettingsRequest>()
+        .schema_from::<crate::routes::artwork::ArtworkResponse>()
         .security_scheme(
             "bearerAuth",
             SecurityScheme::Http(
