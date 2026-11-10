@@ -627,7 +627,7 @@ pub fn enabled_providers(config: &crate::config::Config) -> Vec<String> {
 /* --------------------------------- scan ---------------------------------- */
 
 /// Request body of `POST /api/games/{id}/achievements/scan`.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanRequest {
     /// Install directory to read. Must live under an allowed scan root.
@@ -642,7 +642,7 @@ pub struct ScanRequest {
 }
 
 /// Per-provider outcome inside a scan report.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderReport {
     /// Provider id.
@@ -658,7 +658,7 @@ pub struct ProviderReport {
 }
 
 /// Result of one scan.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanReport {
     /// Game scanned.
@@ -1078,7 +1078,7 @@ struct AchievementRow {
 }
 
 /// One achievement as returned by the API.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Achievement {
     /// Row id.
@@ -1172,7 +1172,7 @@ ua.unlocked_at, ua.progress, ua.source AS unlock_source, \
 (SELECT COUNT(*) FROM users WHERE activated = 1) AS total_users";
 
 /// Summary of one game's achievement set for one account.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GameAchievements {
     /// Game id.
@@ -1194,7 +1194,7 @@ pub struct GameAchievements {
 }
 
 /// Last scan recorded for a game/account pair.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanSummary {
     /// Timestamp of the latest run.
@@ -1208,7 +1208,7 @@ pub struct ScanSummary {
 }
 
 /// Cross-game achievement profile.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UserAchievements {
     /// Account the list belongs to.
@@ -1224,7 +1224,7 @@ pub struct UserAchievements {
 }
 
 /// Minimal public account shape used by achievement responses.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AchievementUser {
     /// Account id.
@@ -1605,7 +1605,7 @@ pub async fn unlock(
 /* --------------------------------- input --------------------------------- */
 
 /// Body of `POST /api/games/{id}/achievements`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DefinitionInput {
     /// Stable key.
@@ -1627,7 +1627,7 @@ pub struct DefinitionInput {
 }
 
 /// Body of `PATCH /api/games/{id}/achievements/{key}`.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DefinitionPatch {
     /// New display name.
@@ -1648,7 +1648,7 @@ pub struct DefinitionPatch {
 }
 
 /// Body of `POST /api/games/{id}/achievements/{key}/unlock`.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UnlockRequest {
     /// Account to unlock for. Only administrators may target another account.

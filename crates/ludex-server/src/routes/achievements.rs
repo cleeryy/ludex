@@ -37,9 +37,9 @@ pub fn router() -> Router<AppState> {
 }
 
 /// Result of an unlock call.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
-struct UnlockResponse {
+pub(crate) struct UnlockResponse {
     /// True when this call created the unlock, false when it already existed.
     unlocked: bool,
     /// Current achievement state for the account.
@@ -47,9 +47,9 @@ struct UnlockResponse {
 }
 
 /// Result of a manual definition write.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
-struct DefinitionResponse {
+pub(crate) struct DefinitionResponse {
     /// Game the definition belongs to.
     game_id: i64,
     /// Normalised key.

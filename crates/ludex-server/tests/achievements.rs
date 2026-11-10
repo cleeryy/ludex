@@ -484,3 +484,56 @@ async fn achievements_framework_and_local_scan() {
 
     server.stop().await;
 }
+
+#[test]
+fn openapi_documents_every_achievement_route_and_schema() {
+    let operations = ludex_server::openapi::documented_operations();
+    for (method, path) in [
+        ("GET", "/games/{id}/achievements"),
+        ("POST", "/games/{id}/achievements"),
+        ("POST", "/games/{id}/achievements/scan"),
+        ("PATCH", "/games/{id}/achievements/{key}"),
+        ("DELETE", "/games/{id}/achievements/{key}"),
+        ("POST", "/games/{id}/achievements/{key}/unlock"),
+        ("GET", "/me/achievements"),
+        ("GET", "/users/{id}/achievements"),
+    ] {
+        assert!(
+            operations.contains(&(method.to_string(), path.to_string())),
+            "{method} {path} is missing from openapi::ROUTES"
+        );
+    }
+
+    let document = serde_json::to_value(ludex_server::openapi::document()).expect("document");
+    let schemas = document["components"]["schemas"]
+        .as_object()
+        .expect("components.schemas");
+    for name in [
+        "Achievement",
+        "GameAchievements",
+        "ScanSummary",
+        "UserAchievements",
+        "AchievementUser",
+        "ScanReport",
+        "ProviderReport",
+        "ScanRequest",
+        "DefinitionInput",
+        "DefinitionPatch",
+        "UnlockRequest",
+        "DefinitionResponse",
+        "UnlockResponse",
+    ] {
+        assert!(
+            schemas.contains_key(name),
+            "schema {name} is not registered"
+        );
+    }
+    assert!(
+        schemas["GameAchievements"]["properties"]["unlockedPoints"].is_object(),
+        "GameAchievements schema lost its fields"
+    );
+    assert!(
+        schemas["Achievement"]["properties"]["unlockPercentage"].is_object(),
+        "Achievement schema lost its fields"
+    );
+}

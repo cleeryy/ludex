@@ -20,7 +20,9 @@ All notable changes to Ludex are documented here. The format is based on
   achievements section (progress, points, locked/unlocked states, hidden
   masking, per-achievement unlock percentage, icon fallback) and public
   profiles show an achievement showcase. Desktop and web demo data included.
-  Migration `0013_achievements.sql`; contract and `docs/ACHIEVEMENTS.md`.
+  Migration `0013_achievements.sql`; documented in the generated OpenAPI
+  document (routes in `openapi::ROUTES`, `ToSchema` DTOs); contract and
+  `docs/ACHIEVEMENTS.md`.
 - Local achievement providers (#118): `game_files` (Steam emulation
   `UserStats/Stats.ini`, `steam_settings/achievements.ini` and Goldberg
   `steam_settings/achievements.json`), `gog_galaxy_api` (loopback JSON with
@@ -145,7 +147,6 @@ All notable changes to Ludex are documented here. The format is based on
   normal scanner. New "Upload game" admin screen with drag-and-drop and
   resume-after-reload.
 - Docs: `docs/OPENAPI.md`, `docs/SECURITY.md`, contract and changelog updates.
->>>>>>> fe157c3 (docs: contract, OpenAPI and security model for the new API surface)
 - Desktop silent installers (#7): `installer_plan`, `run_installer`,
   `cancel_installer`, `set_executable` and `choose_executable`. Silent switch
   presets (`/S`, `/silent`, `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`,

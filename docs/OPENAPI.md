@@ -20,8 +20,9 @@ The document is built at request time by `crates/ludex-server/src/openapi.rs`:
   (method, path, tag, summary, auth level, request/response schema names, status
   and query parameters).
 - Response and request schemas come from `#[derive(utoipa::ToSchema)]` on the
-  DTOs (`ludex-core::models` and `ludex-server::models`), so field names and
-  types follow the Rust structs, not a hand-maintained copy.
+  DTOs (`ludex-core::models`, `ludex-server::models` and the feature modules
+  such as `share` and `achievements`), so field names and types follow the Rust
+  structs, not a hand-maintained copy.
 - The `bearerAuth` security scheme documents both session JWTs and `ldx_` API
   keys. Operations that require a role also document 403; everything
   authenticated documents 401; login documents 429.
