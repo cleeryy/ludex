@@ -27,9 +27,8 @@ pnpm --filter @ludex/desktop exec tauri signer generate -w ~/.tauri/ludex.key
   manager or encrypted backup); they are the only way to sign future updates.
   Never commit them or paste them into an issue, log or chat.
 - The desktop job fails fast when artifacts are enabled but the secrets are
-  missing. The `updater-manifest` job downloads the platform `.sig` assets,
-  writes a single `latest.json` (stable) and uploads it after every platform
-  build, so parallel Windows/Linux jobs cannot clobber each other.
+  missing. `tauri-action` signs every bundle, uploads the `.sig` files and
+  merges the Windows/Linux entries into a single stable `latest.json`.
 - Rotation: publish one release signed with the **old** key that contains the
   **new** public key, then swap the secret. Existing installs verify the old
   signature and accept the new key from that update. Revocation without a
