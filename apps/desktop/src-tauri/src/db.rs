@@ -147,6 +147,8 @@ CREATE TABLE IF NOT EXISTS install_manifests (
 const SCHEMA_V4: &str = r#"
 ALTER TABLE installed_games ADD COLUMN archive_hash TEXT;
 ALTER TABLE sessions ADD COLUMN seconds INTEGER NOT NULL DEFAULT 0;
+-- Existing sessions only had rounded minutes: keep their totals meaningful.
+UPDATE sessions SET seconds = minutes * 60 WHERE seconds = 0 AND minutes > 0;
 CREATE INDEX IF NOT EXISTS sessions_started_idx ON sessions (game_id, started_at DESC);
 "#;
 
