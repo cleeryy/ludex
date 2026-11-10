@@ -388,27 +388,36 @@ collection as `null` references.
 
 ## Cloud saves (per user)
 
-Manual per-user save snapshots (v1). The desktop can later automate this with
-Ludusavi; the server stores opaque archives and never inspects them.
+Per-user save snapshots, manual or automatic (#108). The desktop archives the
+save paths detected by #107 and uploads them after each session; the server
+stores opaque archives and never inspects them.
 
 ```ts
 interface SaveSnapshot {
-  id: number; gameId: number; label: string; fileName: string;
-  size: number; sha256: string; createdAt: string;
+  id: number; gameId: number; versionId: number | null;
+  label: string; fileName: string; size: number; sha256: string;
+  createdAt: string;
+  /** `manual` for a user upload, `auto` for the post-session sync (#108). */
+  source: "manual" | "auto";
+  /** Opaque device identifier; display only, never authorisation. */
+  deviceId: string | null;
 }
 ```
 
 | Method | Route | Notes |
 |---|---|---|
 | GET | `/api/games/{id}/saves` | current user's snapshots, newest first |
-| POST | `/api/games/{id}/saves` | multipart `file` + optional `label`; max 2 GiB; returns 201 `SaveSnapshot` |
+| POST | `/api/games/{id}/saves` | multipart `file`, optional `label`, `source` (`manual` \| `auto`), optional `deviceId`; max 2 GiB. An `auto` upload whose SHA-256 already exists for the user and game returns `200` with the existing snapshot; a new one returns `201` |
 | GET | `/api/saves/{id}/download` | owner (or admin) download, `Content-Disposition` |
 | DELETE | `/api/saves/{id}` | owner (or admin), 204 |
 
 Storage: `{data_dir}/saves/{user_id}/{game_id}/{snapshot_id}-{sanitized_name}`.
-A user can never see another user's snapshots. The desktop UI offers "Upload
-save archive (.zip)" and "Download/restore"; automatic save-file discovery is a
-follow-up (Ludusavi).
+A user can never see another user's snapshots. Automatic uploads are pruned to
+the newest **10 per user and game**; manual snapshots are never pruned. The
+desktop game page shows the latest snapshot, last upload/restore, effective
+automatic-backup toggle and a conflict dialog; `lib/cloud-saves.ts` wraps the
+Tauri commands. The browser build can still upload/download manual archives and
+states that automatic sync needs the desktop app.
 
 ## Users (admin)
 
@@ -837,6 +846,9 @@ interface LocalSettings {
   compatProtonPath: string;          // Proton folder/script override (#90), empty = detect
   compatWinePath: string;            // wine override (#90), empty = detect
   defaultLaunchMode: "auto" | "native" | "proton" | "umu"; // new games on Linux (#89)
+  cloudAutoSync: boolean;            // global automatic save backup (#108), default true
+  cloudDeviceId: string;             // random UUID generated on first use, not a hardware id
+  cloudDeviceLabel: string | null;   // null = host name, then "Desktop"
 }
 
 interface InstalledGame {
@@ -1024,6 +1036,39 @@ interface RepairReport {
 }
 ```
 
+Cloud save types (#108):
+
+```ts
+type CloudSaveReason = "on" | "global_off" | "game_off";
+type CloudSaveStrategy = "remote" | "keep_local";
+
+interface CloudSaveStatus {
+  gameId: number; serverConfigured: boolean;
+  paths: { path, kind, primary, exists, files, sizeBytes, lastModified }[];
+  localFiles: number; localBytes: number; localNewestMtime: string | null;
+  latest: SaveSnapshot | null;
+  lastHash: string | null; lastUploadAt: string | null; lastRestoreAt: string | null;
+  toggle: { enabled: boolean; reason: CloudSaveReason };
+  conflict: {
+    localNewestMtime: string | null; lastUploadAt: string | null;
+    lastHash: string | null; remoteSha256: string;
+    remoteCreatedAt: string; remoteDeviceId: string | null;
+  } | null;
+  pending: { pending: boolean; attempts: number; nextAttemptAt: string | null; error: string | null };
+  deviceId: string | null; message: string | null;
+}
+
+interface CloudSaveRestoreOutcome {
+  restored: boolean; strategy: CloudSaveStrategy;
+  snapshotId: number | null; backupPath: string | null; message: string;
+}
+
+interface CloudSyncToggleResponse {
+  gameId: number | null; globalEnabled: boolean;
+  effective: { enabled: boolean; reason: CloudSaveReason };
+}
+```
+
 | Command | Args | Returns |
 |---|---|---|
 | `get_settings` | — | `LocalSettings` |
@@ -1075,6 +1120,11 @@ interface RepairReport {
 | `redetect_save_paths` | `{ gameId }` | `SavePaths`; same as `detect_save_paths`, for a re-run after the game created its saves |
 | `get_save_paths` | `{ gameId }` | `SavePaths` from SQLite + last preview; never rescans the disk |
 | `set_save_paths` | `{ gameId, paths: { path, kind?, primary?, source? }[] }` | `SavePaths`; replaces the per-game manual override list, checks each path is readable and inside an allowlisted root, allows at most one primary. `source` is `manual` (default) or `override` |
+| `cloud_save_status` | `{ gameId }` | `CloudSaveStatus`; detected paths, latest snapshot (remote failures go in `message`), last upload/restore, effective toggle + reason, pending retry and conflict (#108) |
+| `set_cloud_save_sync` | `{ gameId?, enabled }` | `CloudSyncToggleResponse`; `gameId` null changes the global default, a number stores a per-game override. Local only |
+| `sync_cloud_save_now` | `{ gameId }` | `CloudSaveStatus`; archives and uploads immediately. Works with automatic sync off; an unchanged hash is a no-op. Failures stay in `pending` |
+| `restore_cloud_save` | `{ gameId, strategy: "remote" \| "keep_local" }` | `CloudSaveRestoreOutcome`; verifies the SHA-256, backs up newer local files before a `remote` restore and returns `backupPath`, runs at most once per snapshot. `keep_local` records and uploads the local state (#108) |
+| `resolve_cloud_save_conflict` | `{ gameId, strategy }` | `CloudSaveRestoreOutcome`; same operation as `restore_cloud_save`, using the explicit strategy |
 
 Events:
 
@@ -1086,6 +1136,8 @@ Events:
 - `install://verify-progress` → `{ gameId, filesDone, filesTotal, bytesDone, bytesTotal, message }`
 - `install://repair-progress` → same shape plus `phase: "downloading" | "extracting" | "restoring" | "verifying"`
 - `game://exited` → `{ sessionId, gameId, minutesPlayed, secondsPlayed }`
+- `cloud-save://synced` → `gameId` (automatic upload completed or was unchanged)
+- `cloud-save://pending` → `gameId` (automatic upload failed and was queued for retry)
 - `local-server://status` → `{ running, url }`
 - `ui://navigate` → `string` (tray menu asked for a route, e.g. `/downloads`)
 - `ui://launch` → `number` (tray "Recent games" item; the UI calls `launch_game`)

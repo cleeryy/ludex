@@ -22,6 +22,7 @@ use crate::prefix::{self, PrefixInfo, WinetricksReport};
 use crate::presence::{self, PresenceStatus};
 use crate::protondb::{self, ProtonDbRating};
 use crate::saves_detect::{self, SavePathInput, SavePaths};
+use crate::saves_sync::{self, CloudSaveStatus, RestoreOutcome, SyncToggleResponse};
 use crate::server::{self, ServerInfo, ServerStatus};
 use crate::settings::{self, LocalSettings};
 use crate::state::AppState;
@@ -1768,4 +1769,53 @@ pub fn set_save_paths(
     db::upsert_save_detection(&connection, &record)?;
 
     Ok(saves_detect::persisted(game_id, rows, Some(record)))
+}
+
+/* ------------------------------------------------------------ cloud saves */
+
+/// Full cloud save state for a game (#108): detected paths, latest snapshot,
+/// last upload/restore, effective toggle and conflict. Remote failures are
+/// reported in `message` so the local state still renders offline.
+#[tauri::command]
+pub async fn cloud_save_status(app: AppHandle, game_id: i64) -> Result<CloudSaveStatus, String> {
+    saves_sync::status(&app, game_id).await
+}
+
+/// Change the global automatic-sync default (`gameId` null) or one game's
+/// override. Never touches the server.
+#[tauri::command]
+pub fn set_cloud_save_sync(
+    app: AppHandle,
+    game_id: Option<i64>,
+    enabled: bool,
+) -> Result<SyncToggleResponse, String> {
+    saves_sync::set_sync(&app, game_id, enabled)
+}
+
+/// Archive the detected save paths and upload them now. Works even when
+/// automatic sync is off; an unchanged archive is a no-op.
+#[tauri::command]
+pub async fn sync_cloud_save_now(app: AppHandle, game_id: i64) -> Result<CloudSaveStatus, String> {
+    saves_sync::sync_now(&app, game_id).await
+}
+
+/// Restore the newest snapshot (`remote`, with a local backup when saves
+/// exist) or keep the local files (`keep_local`).
+#[tauri::command]
+pub async fn restore_cloud_save(
+    app: AppHandle,
+    game_id: i64,
+    strategy: String,
+) -> Result<RestoreOutcome, String> {
+    saves_sync::restore(&app, game_id, &strategy).await
+}
+
+/// Explicit conflict resolution; same strategies as `restore_cloud_save`.
+#[tauri::command]
+pub async fn resolve_cloud_save_conflict(
+    app: AppHandle,
+    game_id: i64,
+    strategy: String,
+) -> Result<RestoreOutcome, String> {
+    saves_sync::resolve_conflict(&app, game_id, &strategy).await
 }

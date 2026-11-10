@@ -16,6 +16,7 @@ mod presence;
 mod process_tree;
 mod protondb;
 mod saves_detect;
+mod saves_sync;
 mod server;
 mod settings;
 mod state;
@@ -83,6 +84,9 @@ pub fn run() {
 
                 server::autostart(handle.clone()).await;
                 launch::sync_pending(handle.clone()).await;
+                // Cloud saves (#108): retry failed automatic uploads with
+                // bounded backoff; pending state is persisted in SQLite.
+                saves_sync::start_retry_worker(handle.clone());
                 tray::refresh_menu(&handle);
 
                 // Throttled to once per 24 h; a no-op without release keys.
@@ -140,6 +144,11 @@ pub fn run() {
             commands::get_save_paths,
             commands::set_save_paths,
             commands::redetect_save_paths,
+            commands::cloud_save_status,
+            commands::set_cloud_save_sync,
+            commands::sync_cloud_save_now,
+            commands::restore_cloud_save,
+            commands::resolve_cloud_save_conflict,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Ludex application");

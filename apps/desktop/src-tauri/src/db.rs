@@ -105,7 +105,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -252,6 +252,32 @@ CREATE TABLE IF NOT EXISTS save_detection (
 );
 "#;
 
+/// Automatic cloud save sync (#108). `auto_sync` is `NULL` when the game
+/// inherits the global `cloudAutoSync` setting, so a global change applies to
+/// every game that never opted out. `last_hash` is the SHA-256 of the last
+/// archive uploaded from this machine; it makes an unchanged save a no-op.
+/// Pending retry state is persisted here so a failed upload survives a restart.
+const SCHEMA_V9: &str = r#"
+CREATE TABLE IF NOT EXISTS cloud_save_prefs (
+    game_id          INTEGER PRIMARY KEY,
+    auto_sync        INTEGER,
+    last_hash        TEXT,
+    last_upload_at   TEXT,
+    last_restore_at  TEXT,
+    pending_attempts INTEGER NOT NULL DEFAULT 0,
+    pending_next_at  TEXT,
+    pending_error    TEXT,
+    ignored_remote_hash TEXT
+);
+
+CREATE TABLE IF NOT EXISTS cloud_save_restore (
+    game_id           INTEGER PRIMARY KEY,
+    snapshot_id       INTEGER NOT NULL,
+    restored_at       TEXT    NOT NULL,
+    local_backup_path TEXT
+);
+"#;
+
 pub fn open(path: &Path) -> Result<Connection, String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
@@ -324,6 +350,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         connection
             .execute_batch(SCHEMA_V8)
             .map_err(|e| format!("Could not add save detection to the desktop database: {e}"))?;
+    }
+    if version < 9 {
+        connection
+            .execute_batch(SCHEMA_V9)
+            .map_err(|e| format!("Could not add cloud save sync to the desktop database: {e}"))?;
     }
 
     if version < SCHEMA_VERSION {
@@ -1334,6 +1365,280 @@ pub fn delete_save_detection(connection: &Connection, game_id: i64) -> Result<bo
     Ok(affected > 0)
 }
 
+/// Per-game cloud save state (#108).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudSavePrefs {
+    pub game_id: i64,
+    /// `None` inherits the global `cloudAutoSync` setting.
+    pub auto_sync: Option<bool>,
+    pub last_hash: Option<String>,
+    pub last_upload_at: Option<String>,
+    pub last_restore_at: Option<String>,
+    pub pending_attempts: i64,
+    pub pending_next_at: Option<String>,
+    pub pending_error: Option<String>,
+    /// Remote snapshot hash the user chose to ignore with `keep_local` (#108).
+    /// Without it the same conflict would reappear forever when the ignored
+    /// snapshot cannot be replaced by a byte-identical upload.
+    pub ignored_remote_hash: Option<String>,
+}
+
+const CLOUD_SAVE_PREF_COLUMNS: &str =
+    "game_id, auto_sync, last_hash, last_upload_at, last_restore_at,
+     pending_attempts, pending_next_at, pending_error, ignored_remote_hash";
+
+fn map_cloud_save_prefs(row: &rusqlite::Row<'_>) -> rusqlite::Result<CloudSavePrefs> {
+    Ok(CloudSavePrefs {
+        game_id: row.get(0)?,
+        auto_sync: row.get::<_, Option<i64>>(1)?.map(|value| value != 0),
+        last_hash: row.get(2)?,
+        last_upload_at: row.get(3)?,
+        last_restore_at: row.get(4)?,
+        pending_attempts: row.get(5)?,
+        pending_next_at: row.get(6)?,
+        pending_error: row.get(7)?,
+        ignored_remote_hash: row.get(8)?,
+    })
+}
+
+/// Read the cloud save row for a game, creating an empty one on first use.
+pub fn ensure_cloud_save_prefs(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<CloudSavePrefs, String> {
+    connection
+        .execute(
+            "INSERT INTO cloud_save_prefs (game_id) VALUES (?1)
+             ON CONFLICT(game_id) DO NOTHING",
+            params![game_id],
+        )
+        .map_err(|e| format!("Could not prepare the cloud save state: {e}"))?;
+    get_cloud_save_prefs(connection, game_id)?
+        .ok_or_else(|| "Could not read the cloud save state.".to_string())
+}
+
+pub fn get_cloud_save_prefs(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<Option<CloudSavePrefs>, String> {
+    connection
+        .query_row(
+            &format!("SELECT {CLOUD_SAVE_PREF_COLUMNS} FROM cloud_save_prefs WHERE game_id = ?1"),
+            params![game_id],
+            map_cloud_save_prefs,
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the cloud save state: {e}"))
+}
+
+/// Store a per-game override, or `None` to inherit the global setting again.
+pub fn set_cloud_save_auto_sync(
+    connection: &Connection,
+    game_id: i64,
+    auto_sync: Option<bool>,
+) -> Result<(), String> {
+    ensure_cloud_save_prefs(connection, game_id)?;
+    connection
+        .execute(
+            "UPDATE cloud_save_prefs SET auto_sync = ?2 WHERE game_id = ?1",
+            params![game_id, auto_sync.map(i64::from)],
+        )
+        .map_err(|e| format!("Could not update the cloud save state: {e}"))?;
+    Ok(())
+}
+
+/// Record a successful automatic upload and clear any pending retry.
+pub fn record_cloud_save_upload(
+    connection: &Connection,
+    game_id: i64,
+    hash: &str,
+    uploaded_at: &str,
+) -> Result<(), String> {
+    ensure_cloud_save_prefs(connection, game_id)?;
+    connection
+        .execute(
+            r#"UPDATE cloud_save_prefs SET
+                   last_hash = ?2,
+                   last_upload_at = ?3,
+                   pending_attempts = 0,
+                   pending_next_at = NULL,
+                   pending_error = NULL,
+                   ignored_remote_hash = NULL
+               WHERE game_id = ?1"#,
+            params![game_id, hash, uploaded_at],
+        )
+        .map_err(|e| format!("Could not record the cloud save upload: {e}"))?;
+    Ok(())
+}
+
+/// Remember which remote snapshot the user chose to ignore (`keep_local`), so
+/// the same conflict is not reported again. Cleared by the next upload or
+/// remote restore.
+pub fn record_cloud_save_ignored_remote(
+    connection: &Connection,
+    game_id: i64,
+    hash: Option<&str>,
+) -> Result<(), String> {
+    ensure_cloud_save_prefs(connection, game_id)?;
+    connection
+        .execute(
+            "UPDATE cloud_save_prefs SET ignored_remote_hash = ?2 WHERE game_id = ?1",
+            params![game_id, hash],
+        )
+        .map_err(|e| format!("Could not record the cloud save conflict choice: {e}"))?;
+    Ok(())
+}
+
+/// Remember a failed upload for the bounded retry worker.
+pub fn record_cloud_save_failure(
+    connection: &Connection,
+    game_id: i64,
+    attempts: i64,
+    next_attempt_at: Option<&str>,
+    error: &str,
+) -> Result<(), String> {
+    let current = ensure_cloud_save_prefs(connection, game_id)?;
+    let attempts = attempts.max(current.pending_attempts);
+    connection
+        .execute(
+            r#"UPDATE cloud_save_prefs SET
+                   pending_attempts = ?2,
+                   pending_next_at = ?3,
+                   pending_error = ?4
+               WHERE game_id = ?1"#,
+            params![game_id, attempts, next_attempt_at, error],
+        )
+        .map_err(|e| format!("Could not record the cloud save retry: {e}"))?;
+    Ok(())
+}
+
+pub fn clear_cloud_save_pending(connection: &Connection, game_id: i64) -> Result<(), String> {
+    connection
+        .execute(
+            r#"UPDATE cloud_save_prefs SET
+                   pending_attempts = 0,
+                   pending_next_at = NULL,
+                   pending_error = NULL
+               WHERE game_id = ?1"#,
+            params![game_id],
+        )
+        .map_err(|e| format!("Could not clear the cloud save retry: {e}"))?;
+    Ok(())
+}
+
+/// Turning automatic sync off drops every queued retry: the worker must not
+/// keep retrying uploads the user asked it to stop.
+pub fn clear_all_cloud_save_pending(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute(
+            r#"UPDATE cloud_save_prefs SET
+                   pending_attempts = 0,
+                   pending_next_at = NULL,
+                   pending_error = NULL
+               WHERE pending_error IS NOT NULL OR pending_next_at IS NOT NULL"#,
+            [],
+        )
+        .map_err(|e| format!("Could not clear the cloud save retries: {e}"))?;
+    Ok(())
+}
+
+/// Games whose next retry is due at or before `now` (RFC 3339, UTC).
+pub fn due_cloud_save_retries(connection: &Connection, now: &str) -> Result<Vec<i64>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT game_id FROM cloud_save_prefs
+             WHERE pending_next_at IS NOT NULL AND pending_next_at <= ?1
+             ORDER BY pending_next_at ASC",
+        )
+        .map_err(|e| format!("Could not read the cloud save retries: {e}"))?;
+    let rows = statement
+        .query_map(params![now], |row| row.get::<_, i64>(0))
+        .map_err(|e| format!("Could not read the cloud save retries: {e}"))?;
+    let mut games = Vec::new();
+    for row in rows {
+        games.push(row.map_err(|e| format!("Could not read the cloud save retries: {e}"))?);
+    }
+    Ok(games)
+}
+
+/// One completed restore, used to run a snapshot at most once (#108).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudSaveRestoreRecord {
+    pub game_id: i64,
+    pub snapshot_id: i64,
+    pub restored_at: String,
+    pub local_backup_path: Option<String>,
+}
+
+pub fn get_cloud_save_restore(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<Option<CloudSaveRestoreRecord>, String> {
+    connection
+        .query_row(
+            "SELECT game_id, snapshot_id, restored_at, local_backup_path
+             FROM cloud_save_restore WHERE game_id = ?1",
+            params![game_id],
+            |row| {
+                Ok(CloudSaveRestoreRecord {
+                    game_id: row.get(0)?,
+                    snapshot_id: row.get(1)?,
+                    restored_at: row.get(2)?,
+                    local_backup_path: row.get(3)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the cloud save restore: {e}"))
+}
+
+pub fn record_cloud_save_restore(
+    connection: &Connection,
+    game_id: i64,
+    snapshot_id: i64,
+    restored_at: &str,
+    local_backup_path: Option<&str>,
+) -> Result<(), String> {
+    connection
+        .execute(
+            r#"INSERT INTO cloud_save_restore
+                   (game_id, snapshot_id, restored_at, local_backup_path)
+               VALUES (?1, ?2, ?3, ?4)
+               ON CONFLICT(game_id) DO UPDATE SET
+                   snapshot_id       = excluded.snapshot_id,
+                   restored_at       = excluded.restored_at,
+                   local_backup_path = excluded.local_backup_path"#,
+            params![game_id, snapshot_id, restored_at, local_backup_path],
+        )
+        .map_err(|e| format!("Could not record the cloud save restore: {e}"))?;
+    ensure_cloud_save_prefs(connection, game_id)?;
+    connection
+        .execute(
+            "UPDATE cloud_save_prefs SET last_restore_at = ?2, ignored_remote_hash = NULL
+             WHERE game_id = ?1",
+            params![game_id, restored_at],
+        )
+        .map_err(|e| format!("Could not record the cloud save restore: {e}"))?;
+    Ok(())
+}
+
+/// Adopt the restored snapshot as the new upload baseline, so the content we
+/// just wrote is not immediately uploaded again as a new snapshot.
+pub fn record_cloud_save_restored_hash(
+    connection: &Connection,
+    game_id: i64,
+    hash: &str,
+) -> Result<(), String> {
+    ensure_cloud_save_prefs(connection, game_id)?;
+    connection
+        .execute(
+            "UPDATE cloud_save_prefs SET last_hash = ?2 WHERE game_id = ?1",
+            params![game_id, hash],
+        )
+        .map_err(|e| format!("Could not record the cloud save baseline: {e}"))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1348,6 +1653,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V6).unwrap();
         connection.execute_batch(SCHEMA_V7).unwrap();
         connection.execute_batch(SCHEMA_V8).unwrap();
+        connection.execute_batch(SCHEMA_V9).unwrap();
         connection
     }
 
@@ -1936,5 +2242,195 @@ mod tests {
         assert!(delete_save_detection(&connection, 1).unwrap());
         assert!(get_save_detection(&connection, 1).unwrap().is_none());
         assert!(get_save_detection(&connection, 2).unwrap().is_some());
+    }
+
+    #[test]
+    fn cloud_save_prefs_default_to_inherit() {
+        let connection = memory_database();
+        let prefs = ensure_cloud_save_prefs(&connection, 9).unwrap();
+        assert_eq!(prefs.game_id, 9);
+        assert_eq!(prefs.auto_sync, None);
+        assert_eq!(prefs.last_hash, None);
+        assert_eq!(prefs.pending_attempts, 0);
+        assert!(prefs.pending_error.is_none());
+
+        // Calling ensure twice keeps the same row and does not reset state.
+        record_cloud_save_upload(&connection, 9, "sha-a", "2026-11-10T10:00:00Z").unwrap();
+        let again = ensure_cloud_save_prefs(&connection, 9).unwrap();
+        assert_eq!(again.last_hash.as_deref(), Some("sha-a"));
+        assert_eq!(
+            again.last_upload_at.as_deref(),
+            Some("2026-11-10T10:00:00Z")
+        );
+    }
+
+    #[test]
+    fn cloud_save_auto_sync_override_roundtrip() {
+        let connection = memory_database();
+        set_cloud_save_auto_sync(&connection, 4, Some(false)).unwrap();
+        assert_eq!(
+            get_cloud_save_prefs(&connection, 4)
+                .unwrap()
+                .unwrap()
+                .auto_sync,
+            Some(false)
+        );
+        set_cloud_save_auto_sync(&connection, 4, Some(true)).unwrap();
+        assert_eq!(
+            get_cloud_save_prefs(&connection, 4)
+                .unwrap()
+                .unwrap()
+                .auto_sync,
+            Some(true)
+        );
+        // `None` clears the override and goes back to the global setting.
+        set_cloud_save_auto_sync(&connection, 4, None).unwrap();
+        assert_eq!(
+            get_cloud_save_prefs(&connection, 4)
+                .unwrap()
+                .unwrap()
+                .auto_sync,
+            None
+        );
+    }
+
+    #[test]
+    fn cloud_save_retry_bookkeeping_is_persisted() {
+        let connection = memory_database();
+        record_cloud_save_failure(
+            &connection,
+            7,
+            1,
+            Some("2026-11-10T10:00:30Z"),
+            "server offline",
+        )
+        .unwrap();
+        let prefs = get_cloud_save_prefs(&connection, 7).unwrap().unwrap();
+        assert_eq!(prefs.pending_attempts, 1);
+        assert_eq!(
+            prefs.pending_next_at.as_deref(),
+            Some("2026-11-10T10:00:30Z")
+        );
+        assert_eq!(prefs.pending_error.as_deref(), Some("server offline"));
+
+        // Only games whose retry is due are returned.
+        assert!(due_cloud_save_retries(&connection, "2026-11-10T10:00:00Z")
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            due_cloud_save_retries(&connection, "2026-11-10T10:00:30Z").unwrap(),
+            vec![7]
+        );
+
+        // A second failure keeps the higher attempt count and a later slot.
+        record_cloud_save_failure(
+            &connection,
+            7,
+            2,
+            Some("2026-11-10T10:01:30Z"),
+            "still offline",
+        )
+        .unwrap();
+        let prefs = get_cloud_save_prefs(&connection, 7).unwrap().unwrap();
+        assert_eq!(prefs.pending_attempts, 2);
+        assert_eq!(prefs.pending_error.as_deref(), Some("still offline"));
+
+        // A successful upload clears the queue entry.
+        record_cloud_save_upload(&connection, 7, "sha-b", "2026-11-10T10:02:00Z").unwrap();
+        let prefs = get_cloud_save_prefs(&connection, 7).unwrap().unwrap();
+        assert_eq!(prefs.pending_attempts, 0);
+        assert!(prefs.pending_next_at.is_none());
+        assert!(prefs.pending_error.is_none());
+        assert!(due_cloud_save_retries(&connection, "2030-01-01T00:00:00Z")
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn clearing_all_retries_stops_the_worker() {
+        let connection = memory_database();
+        for game_id in [1, 2] {
+            record_cloud_save_failure(
+                &connection,
+                game_id,
+                1,
+                Some("2026-11-10T10:00:30Z"),
+                "offline",
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            due_cloud_save_retries(&connection, "2026-11-10T11:00:00Z")
+                .unwrap()
+                .len(),
+            2
+        );
+        clear_all_cloud_save_pending(&connection).unwrap();
+        assert!(due_cloud_save_retries(&connection, "2026-11-10T11:00:00Z")
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn ignored_remote_hash_is_cleared_by_upload_or_restore() {
+        let connection = memory_database();
+        record_cloud_save_ignored_remote(&connection, 11, Some("remote-sha")).unwrap();
+        assert_eq!(
+            get_cloud_save_prefs(&connection, 11)
+                .unwrap()
+                .unwrap()
+                .ignored_remote_hash
+                .as_deref(),
+            Some("remote-sha")
+        );
+
+        // A fresh upload establishes a new baseline.
+        record_cloud_save_upload(&connection, 11, "local-sha", "2026-11-10T10:00:00Z").unwrap();
+        assert!(get_cloud_save_prefs(&connection, 11)
+            .unwrap()
+            .unwrap()
+            .ignored_remote_hash
+            .is_none());
+
+        record_cloud_save_ignored_remote(&connection, 11, Some("remote-sha")).unwrap();
+        record_cloud_save_restore(&connection, 11, 8, "2026-11-10T11:00:00Z", None).unwrap();
+        assert!(get_cloud_save_prefs(&connection, 11)
+            .unwrap()
+            .unwrap()
+            .ignored_remote_hash
+            .is_none());
+    }
+
+    #[test]
+    fn cloud_save_restore_is_recorded_once_per_snapshot() {
+        let connection = memory_database();
+        assert!(get_cloud_save_restore(&connection, 3).unwrap().is_none());
+        record_cloud_save_restore(
+            &connection,
+            3,
+            41,
+            "2026-11-10T09:00:00Z",
+            Some("/data/backups/game-3.zip"),
+        )
+        .unwrap();
+        let restore = get_cloud_save_restore(&connection, 3).unwrap().unwrap();
+        assert_eq!(restore.snapshot_id, 41);
+        assert_eq!(
+            restore.local_backup_path.as_deref(),
+            Some("/data/backups/game-3.zip")
+        );
+        assert_eq!(
+            get_cloud_save_prefs(&connection, 3)
+                .unwrap()
+                .unwrap()
+                .last_restore_at
+                .as_deref(),
+            Some("2026-11-10T09:00:00Z")
+        );
+
+        record_cloud_save_restore(&connection, 3, 42, "2026-11-11T09:00:00Z", None).unwrap();
+        let restore = get_cloud_save_restore(&connection, 3).unwrap().unwrap();
+        assert_eq!(restore.snapshot_id, 42);
+        assert!(restore.local_backup_path.is_none());
     }
 }

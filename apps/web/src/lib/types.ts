@@ -103,11 +103,84 @@ export interface GameDetail extends GameSummary {
 export interface SaveSnapshot {
   id: number;
   gameId: number;
+  versionId: number | null;
   label: string;
   fileName: string;
   size: number;
   sha256: string;
   createdAt: string;
+  /** `manual` for a user upload, `auto` for a post-session sync (#108). */
+  source: "manual" | "auto";
+  /** Opaque device identifier that uploaded the snapshot (#108). */
+  deviceId: string | null;
+}
+
+/** Effective automatic cloud-save state for one game (#108). */
+export type CloudSaveReason = "on" | "global_off" | "game_off";
+
+export interface CloudSaveToggle {
+  enabled: boolean;
+  reason: CloudSaveReason;
+}
+
+export interface CloudSavePath {
+  path: string;
+  kind: "file" | "directory" | string;
+  primary: boolean;
+  exists: boolean;
+  files: number;
+  sizeBytes: number;
+  lastModified: string | null;
+}
+
+export interface CloudSavePending {
+  pending: boolean;
+  attempts: number;
+  nextAttemptAt: string | null;
+  error: string | null;
+}
+
+export interface CloudSaveConflict {
+  localNewestMtime: string | null;
+  lastUploadAt: string | null;
+  lastHash: string | null;
+  remoteSha256: string;
+  remoteCreatedAt: string;
+  remoteDeviceId: string | null;
+}
+
+export interface CloudSaveStatus {
+  gameId: number;
+  serverConfigured: boolean;
+  paths: CloudSavePath[];
+  localFiles: number;
+  localBytes: number;
+  localNewestMtime: string | null;
+  latest: SaveSnapshot | null;
+  lastHash: string | null;
+  lastUploadAt: string | null;
+  lastRestoreAt: string | null;
+  toggle: CloudSaveToggle;
+  conflict: CloudSaveConflict | null;
+  pending: CloudSavePending;
+  deviceId: string | null;
+  message: string | null;
+}
+
+export interface CloudSyncToggleResponse {
+  gameId: number | null;
+  globalEnabled: boolean;
+  effective: CloudSaveToggle;
+}
+
+export type CloudSaveStrategy = "remote" | "keep_local";
+
+export interface CloudSaveRestoreOutcome {
+  restored: boolean;
+  strategy: CloudSaveStrategy;
+  snapshotId: number | null;
+  backupPath: string | null;
+  message: string;
 }
 
 export interface NewsPost {
@@ -503,6 +576,12 @@ export interface LocalSettings {
   compatWinePath: string;
   /** Launch mode new games start with on Linux (#89). */
   defaultLaunchMode: LaunchMode;
+  /** Global default for automatic save backups after a session (#108). */
+  cloudAutoSync: boolean;
+  /** Stable opaque device id generated on first use (#108). */
+  cloudDeviceId: string;
+  /** Device name shown on snapshots (#108); null uses the host name. */
+  cloudDeviceLabel: string | null;
 }
 
 export interface InstalledGame {

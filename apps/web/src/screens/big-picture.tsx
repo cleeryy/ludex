@@ -70,6 +70,52 @@ export function BigPictureScreen() {
     return () => clearInterval(timer);
   }, []);
 
+  // Big Picture owns the OS window in the desktop app: enter real fullscreen on
+  // mount and hand the window back on the way out. The browser build only gets
+  // the full-viewport layout, and a refused fullscreen never traps the user.
+  useEffect(() => {
+    if (!isNative()) return;
+    let unmounted = false;
+    let entered = false;
+
+    const enter = async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const win = getCurrentWindow();
+        if ((await win.isFullscreen()) || unmounted) return;
+        await win.setFullscreen(true);
+        entered = true;
+      } catch (cause) {
+        console.warn("Big Picture could not enter fullscreen", cause);
+        if (!unmounted) {
+          push({
+            title: "Fullscreen unavailable",
+            description: "Staying in the in-app Big Picture view.",
+            tone: "default",
+          });
+        }
+      }
+    };
+
+    const start = enter();
+
+    // Every exit (Esc, Backspace, gamepad B, the Exit button, a route change or
+    // launching a game) unmounts this screen. Cleanup waits for a still-running
+    // enter so it can restore only what Ludex itself took over.
+    return () => {
+      unmounted = true;
+      void start.then(async () => {
+        if (!entered) return;
+        try {
+          const { getCurrentWindow } = await import("@tauri-apps/api/window");
+          await getCurrentWindow().setFullscreen(false);
+        } catch (cause) {
+          console.warn("Big Picture could not leave fullscreen", cause);
+        }
+      });
+    };
+  }, [push]);
+
   useEffect(() => {
     setIndex((current) => clamp(current, 0, Math.max(0, shelfGames.length - 1)));
   }, [shelfGames.length]);

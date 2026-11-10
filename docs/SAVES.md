@@ -1,10 +1,9 @@
-# Save folder detection (#107)
+# Save folder detection and cloud save sync (#107, #108)
 
-Ludex v0.2 stores cloud saves as opaque per-user archives on the server. Before
-an archive can be uploaded, the desktop app has to know **which local files are
-the game's saves**. This document covers that local discovery step. Upload,
-restore and automatic sync are a separate issue (#108); the server never sees a
-host path.
+Ludex stores cloud saves as opaque per-user archives on the server. Before an
+archive can be uploaded, the desktop app has to know **which local files are the
+game's saves**. This document covers local discovery (#107) and the automatic
+sync/restore flow built on top of it (#108). The server never sees a host path.
 
 ## Scope
 
@@ -189,6 +188,131 @@ Server-side snapshots carry sync metadata (#108):
 - The existing size limit and per-user isolation are unchanged; uploads are
   multipart `file`, `label`, `source` and `deviceId` fields.
 
+## Desktop automatic sync (#108)
+
+The desktop archives the persisted save paths and uploads one snapshot per
+session. Everything below runs locally except the upload/download request.
+
+### Trigger and debounce
+
+`launch::spawn_watcher` emits `game://exited` after the **whole process tree**
+exits, then schedules `saves_sync::schedule_after_exit`. The sync sleeps **3
+seconds** before archiving so the game's final writes settle, and never blocks
+the exit path. A second exit for the same game within the debounce window is
+coalesced into one upload. The same code path is reachable manually through
+`sync_cloud_save_now`, which works even when automatic sync is off.
+
+The user can also change the global default in Settings → Desktop and the
+per-game switch on the game page. Effective state is:
+
+| Per-game `auto_sync` | Global `cloudAutoSync` | Result |
+|---|---|---|
+| `NULL` (inherit) | `true` | on (`reason: "on"`) |
+| `NULL` (inherit) | `false` | off (`reason: "global_off"`) |
+| `true` | either | on (`reason: "on"`) |
+| `false` | either | off (`reason: "game_off"`) |
+
+### Archive and hash
+
+- Paths are read from `save_paths` in the order `db::list_save_paths` returns
+  them (primary first, then path). Missing paths and symlinks are skipped.
+- Layout: `saves/00/<relative path>`, `saves/01/…`, one top-level folder per
+  configured save path. A save path that is a single file contributes exactly
+  one entry named after the file.
+- Stored (not recompressed) zip, bounded to 50 000 entries, 64 directory levels
+  and 4 GiB; special files (sockets, FIFOs, devices) are skipped.
+- The archive is SHA-256-hashed. If the hash equals the last uploaded hash for
+  that game, the upload is skipped; if detection found no files, no archive is
+  uploaded and no empty snapshot is created.
+- Multipart upload fields: `source=auto`, `deviceId`, `label=auto · <device
+  label>`. The server returns `200` for an existing hash and `201` for a new
+  snapshot, and prunes to the newest 10 automatic snapshots per user and game.
+  Manual snapshots are never pruned.
+
+### Device identity
+
+`LocalSettings.cloudDeviceId` is a random UUID generated on first use and stored
+in `settings.json`. It is **not** a hardware fingerprint and is used only for
+display. `cloudDeviceLabel` is optional; when empty, the host name (or
+"Desktop") is used. The label is sent only inside the snapshot label.
+
+### Retry queue
+
+A failed automatic upload is persisted in SQLite (`cloud_save_prefs.pending_*`)
+and retried by a background worker every 60 seconds with exponential backoff
+(30 s, 60 s, 120 s, 240 s, 480 s; 5 attempts). Network errors, `408`, `429` and
+`5xx` are retryable; `4xx`/auth failures are permanent and not retried. The game
+page shows `pending`, the attempt count, the next attempt and the last error.
+Automatic failures never open a toast: the game page and the `cloud-save://pending`
+event are the only signals.
+
+### Conflict detection
+
+A conflict exists when **both** sides changed:
+
+1. local save files exist and their newest mtime is newer than the last upload
+   from this machine (2 s tolerance); and
+2. the newest server snapshot hash differs from `last_hash`, the hash this
+   machine last uploaded.
+
+One-sided changes stay silent: local-only changes are uploaded on the next sync;
+a remote-only change is simply a newer snapshot to restore if the user wants.
+The status includes both timestamps and both hashes so the choice is explicit.
+
+### Restore
+
+- `restore_cloud_save(gameId, strategy)` requires `strategy`:
+  - `remote` — download the newest snapshot, verify its SHA-256, then extract.
+    If local save files exist, a timestamped backup archive is written to
+    `{appDataDir}/cloud-saves/backups/game-<id>-<stamp>.zip` **before** any file
+    is touched, and its path is returned. When the save folder is empty or
+    absent, nothing needs a backup and the snapshot is written directly.
+  - `keep_local` — keep the local files, record them as the new baseline and
+    upload them as an automatic snapshot. The ignored server hash is remembered
+    so the same conflict is not reported again; this is **not** a restore, so
+    the restore-once slot stays free and the snapshot can still be restored
+    later if the user changes their mind.
+- Extraction maps `saves/NN` back to the save path at index `NN`, rejects
+  absolute paths, `..`, backslashes, control characters, symlink entries,
+  entries outside the mapped root and archives expanding beyond the size cap.
+- Restore runs at most once per snapshot: `cloud_save_restore.snapshot_id`
+  records the last restored snapshot, and a repeat returns "already restored"
+  without touching files.
+- `resolve_cloud_save_conflict` is the same operation; after a successful
+  `keep_local` upload or `remote` restore, `last_hash` matches the new content,
+  so the conflict disappears.
+
+### Local state
+
+`SCHEMA_V9` adds:
+
+```sql
+cloud_save_prefs (
+  game_id PRIMARY KEY, auto_sync, last_hash, last_upload_at, last_restore_at,
+  pending_attempts, pending_next_at, pending_error, ignored_remote_hash
+)
+cloud_save_restore (
+  game_id PRIMARY KEY, snapshot_id, restored_at, local_backup_path
+)
+```
+
+`auto_sync = NULL` means "inherit the global setting". `last_hash` and
+`last_upload_at` are the upload baseline used by the hash skip and conflict
+rule. Pending retry state survives a restart. Download and backup archives live
+under `{appDataDir}/cloud-saves/` and temporary archives are deleted after each
+attempt.
+
+### Privacy
+
+- Only the opaque zip leaves the machine. Host paths, the real save layout and
+  the device label (inside an optional snapshot label) are not sent as separate
+  fields.
+- Tokens, save contents and archive bytes are never logged.
+- Snapshots are private to the account; the server stores them as-is and never
+  opens them.
+- The browser build cannot read save files: it lists, downloads and uploads
+  manual snapshots and explains that automatic sync needs the desktop app.
+
 ## Tauri commands
 
 See the command table in `docs/CONTRACT.md`:
@@ -197,9 +321,16 @@ See the command table in `docs/CONTRACT.md`:
 - `redetect_save_paths { gameId }` — same action after a first launch.
 - `get_save_paths { gameId }` — persisted mapping + last preview, no disk scan.
 - `set_save_paths { gameId, paths }` — manual override list.
+- `cloud_save_status { gameId }` — paths, latest snapshot, last upload/restore,
+  effective toggle + reason, pending retry, conflict.
+- `set_cloud_save_sync { gameId?, enabled }` — global default (`gameId` null)
+  or one game's override.
+- `sync_cloud_save_now { gameId }` — archive + upload immediately.
+- `restore_cloud_save { gameId, strategy: "remote" | "keep_local" }`.
+- `resolve_cloud_save_conflict { gameId, strategy }`.
 
-All four are local. No host path is ever included in an API request, log line
-sent to the server, telemetry or error report.
+The first four are local. No host path is ever included in an API request, log
+line sent to the server, telemetry or error report.
 
 ## Security
 
@@ -233,3 +364,17 @@ no real Ludusavi installation:
 - explicit "no save folder detected" state;
 - the CLI preview parser, plus a fake `ludusavi` shell script on Unix;
 - SQLite roundtrip, delete, per-game uniqueness and idempotent migration.
+
+For automatic sync (#108), still with temporary trees and no network:
+
+- archive layout, file save paths, symlink skipping and the empty-detection
+  no-op;
+- the unchanged-hash skip, and bounded retry backoff;
+- toggle precedence (`on`, `global_off`, `game_off`);
+- conflict detection for local-only, remote-only and two-sided changes;
+- restore into an empty folder and backup-before-overwrite;
+- path traversal and symlink-mode rejection during extraction;
+- SQLite pending-retry bookkeeping, restore-once state and migration to v9.
+
+A real server is not exercised by unit tests; the upload/download paths are
+covered by type-checking and the server's own route tests.

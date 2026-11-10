@@ -1,5 +1,9 @@
 import { t } from "@/lib/i18n";
 import type {
+  CloudSaveRestoreOutcome,
+  CloudSaveStatus,
+  CloudSaveStrategy,
+  CloudSyncToggleResponse,
   CompatScan,
   DiskUsage,
   GamePlaytime,
@@ -375,6 +379,40 @@ export const native = {
       handler,
     );
   },
+
+  /* ------------------------------ cloud saves ------------------------------ */
+
+  async cloudSaveStatus(gameId: number): Promise<CloudSaveStatus> {
+    return invoke<CloudSaveStatus>("cloud_save_status", { gameId });
+  },
+
+  /** `gameId: null` changes the global default; a number changes one game. */
+  async setCloudSaveSync(gameId: number | null, enabled: boolean): Promise<CloudSyncToggleResponse> {
+    return invoke<CloudSyncToggleResponse>("set_cloud_save_sync", { gameId, enabled });
+  },
+
+  async syncCloudSaveNow(gameId: number): Promise<CloudSaveStatus> {
+    return invoke<CloudSaveStatus>("sync_cloud_save_now", { gameId });
+  },
+
+  async restoreCloudSave(gameId: number, strategy: CloudSaveStrategy): Promise<CloudSaveRestoreOutcome> {
+    return invoke<CloudSaveRestoreOutcome>("restore_cloud_save", { gameId, strategy });
+  },
+
+  async resolveCloudSaveConflict(
+    gameId: number,
+    strategy: CloudSaveStrategy,
+  ): Promise<CloudSaveRestoreOutcome> {
+    return invoke<CloudSaveRestoreOutcome>("resolve_cloud_save_conflict", { gameId, strategy });
+  },
+
+  async onCloudSaveSynced(handler: (gameId: number) => void): Promise<() => void> {
+    return listen<number>("cloud-save://synced", handler);
+  },
+
+  async onCloudSavePending(handler: (gameId: number) => void): Promise<() => void> {
+    return listen<number>("cloud-save://pending", handler);
+  },
 };
 
 async function listen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
@@ -409,4 +447,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   compatProtonPath: "",
   compatWinePath: "",
   defaultLaunchMode: "auto",
+  cloudAutoSync: true,
+  cloudDeviceId: "",
+  cloudDeviceLabel: null,
 };

@@ -48,6 +48,7 @@ reqwest = { version = "0.12", default-features = false, features = [
   "stream",
   "json",
   "gzip",
+  "multipart",
 ] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 discord-rich-presence = "1.1"
@@ -59,9 +60,9 @@ sha2 = "0.10"
 hex = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-[dev-dependencies]
-zip = { version = "2", default-features = false }
+# Save snapshots (#108): Ludex writes stored entries, while deflate keeps
+# manually uploaded snapshots readable on restore. Bounded in saves_sync.rs.
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [profile.release]
 codegen-units = 1

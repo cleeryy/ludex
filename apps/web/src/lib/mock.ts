@@ -148,29 +148,38 @@ let saves: SaveSnapshot[] = [
   {
     id: 1,
     gameId: 14,
-    label: "Before the quantum moon",
+    versionId: null,
+    label: "auto · Living room PC",
     fileName: "outer-wilds-quantum-moon.zip",
     size: Math.round(4.2 * MB),
     sha256: demoHash("outer-wilds-quantum-moon"),
     createdAt: "2026-11-08T22:14:00Z",
+    source: "auto",
+    deviceId: "demo-device-01",
   },
   {
     id: 2,
     gameId: 14,
+    versionId: null,
     label: "Endgame, Ash Twin",
     fileName: "outer-wilds-ash-twin.zip",
     size: Math.round(8.9 * MB),
     sha256: demoHash("outer-wilds-ash-twin"),
     createdAt: "2026-10-27T19:02:00Z",
+    source: "manual",
+    deviceId: null,
   },
   {
     id: 3,
     gameId: 7,
+    versionId: null,
     label: "Chapter 4, before the clock",
     fileName: "it-takes-two-chapter-4.zip",
     size: Math.round(12.1 * MB),
     sha256: demoHash("it-takes-two-chapter-4"),
     createdAt: "2026-11-06T20:41:00Z",
+    source: "manual",
+    deviceId: null,
   },
 ];
 let nextSaveId = 4;
@@ -1133,11 +1142,14 @@ export const mockApi = {
     const snapshot: SaveSnapshot = {
       id: nextSaveId++,
       gameId,
+      versionId: null,
       label: label?.trim() || file.name.replace(/\.zip$/i, ""),
       fileName: file.name,
       size: file.size,
       sha256: demoHash(`${file.name}:${file.size}`),
       createdAt: nowIso(),
+      source: "manual",
+      deviceId: null,
     };
     saves = [snapshot, ...saves];
     return clone(snapshot);

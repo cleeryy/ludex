@@ -98,6 +98,7 @@ export function SettingsScreen() {
       await installBridge.saveSettings(draft);
       await queryClient.invalidateQueries({ queryKey: ["desktop-settings"] });
       await queryClient.invalidateQueries({ queryKey: ["compat-scan"] });
+      await queryClient.invalidateQueries({ queryKey: ["cloud-save-status"] });
       push({ title: t("Desktop settings saved"), tone: "success" });
     } catch (cause) {
       push({ title: t("Could not save the settings"), description: errorMessage(cause), tone: "danger" });
@@ -632,6 +633,59 @@ export function SettingsScreen() {
                 </div>
 
                 {isNative() && <CompatibilityPanel draft={draft} update={update} />}
+
+                <div className="mt-6 border-t border-line pt-5">
+                  <div className="flex flex-wrap items-start justify-between gap-6">
+                    <div>
+                      <p className="text-[13px] font-medium text-ink">Automatic cloud saves</p>
+                      <p className="mt-1 max-w-[62ch] text-[11.5px] leading-relaxed text-ink-3">
+                        {isNative()
+                          ? "Back up the detected save folders after each session. Individual games can turn this off on their page; the server keeps the newest 10 automatic snapshots per game and never prunes manual ones."
+                          : "Automatic cloud saves need the Ludex desktop app: they read and write save files on this machine. The browser can still download and upload manual snapshots."}
+                      </p>
+                    </div>
+                    {isNative() && (
+                      <Switch
+                        checked={draft.cloudAutoSync}
+                        onCheckedChange={(cloudAutoSync) => update({ cloudAutoSync })}
+                        label="Automatic cloud saves"
+                      />
+                    )}
+                  </div>
+
+                  {isNative() && (
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-[12px] text-ink-2">Device name</span>
+                        <Input
+                          value={draft.cloudDeviceLabel ?? ""}
+                          maxLength={60}
+                          placeholder="Living room PC"
+                          onChange={(event) => update({ cloudDeviceLabel: event.target.value || null })}
+                          className="h-10 text-[13px]"
+                        />
+                        <span className="text-[10.5px] leading-relaxed text-ink-3">
+                          Shown on automatic snapshots. Leave empty to use the computer name.
+                        </span>
+                      </label>
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-[12px] text-ink-2">Device identifier</span>
+                        <p className="truncate border border-line bg-surface px-3 py-2.5 font-mono text-[11.5px] text-ink-3">
+                          {draft.cloudDeviceId || "Generated on first upload"}
+                        </p>
+                        <span className="text-[10.5px] leading-relaxed text-ink-3">
+                          A random id stored in this app's settings, not a hardware fingerprint.
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  <p className="mt-4 max-w-[86ch] border-l-2 border-line-2 pl-3 text-[11px] leading-relaxed text-ink-3">
+                    Privacy: snapshots are uploaded to the Ludex server you are signed in to, under your account, and
+                    only you can list or download them. The server stores the archive as-is and never opens it. Host
+                    paths, device names and file contents stay between this machine and your server.
+                  </p>
+                </div>
 
                 <DesktopUpdatePanel />
 

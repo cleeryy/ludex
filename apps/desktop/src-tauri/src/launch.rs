@@ -596,6 +596,10 @@ fn spawn_watcher(app: AppHandle, entry: Arc<ProcessEntry>, session_id: String, g
             },
         );
 
+        // Cloud saves (#108): debounce the automatic upload so the game's
+        // final writes settle; failures are queued and retried off-thread.
+        crate::saves_sync::schedule_after_exit(app.clone(), game_id);
+
         // Discord presence goes back to idle (#12).
         crate::presence::set_payload(Some(crate::presence::PresencePayload::idle()));
 

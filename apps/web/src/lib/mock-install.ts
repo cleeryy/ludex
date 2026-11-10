@@ -278,6 +278,9 @@ const DEFAULT_SETTINGS: LocalSettings = {
   compatProtonPath: "",
   compatWinePath: "",
   defaultLaunchMode: "auto",
+  cloudAutoSync: true,
+  cloudDeviceId: "demo-device-01",
+  cloudDeviceLabel: "Living room PC",
 };
 
 function loadSettings(): LocalSettings {

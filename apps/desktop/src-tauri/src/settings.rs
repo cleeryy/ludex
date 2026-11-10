@@ -104,6 +104,15 @@ pub struct LocalSettings {
     /// Wine/Proton prefix holding the game's `drive_c` (#107). Empty means
     /// auto-detect from the Steam compatdata folder, `$WINEPREFIX` or `~/.wine`.
     pub wine_prefix: String,
+    /// Back up detected save files after each game session (#108). Per-game
+    /// overrides live in SQLite; this is the global default.
+    pub cloud_auto_sync: bool,
+    /// Stable opaque identifier generated once per install and sent with every
+    /// automatic snapshot (#108). Not a hardware fingerprint.
+    pub cloud_device_id: String,
+    /// Human-readable device name shown on snapshots (#108). `None` uses the
+    /// host name, then "Desktop".
+    pub cloud_device_label: Option<String>,
 }
 
 impl Default for LocalSettings {
@@ -136,6 +145,9 @@ impl Default for LocalSettings {
             ludusavi_manifest_path: String::new(),
             ludusavi_binary: String::new(),
             wine_prefix: String::new(),
+            cloud_auto_sync: true,
+            cloud_device_id: String::new(),
+            cloud_device_label: None,
         }
     }
 }
@@ -180,6 +192,12 @@ impl LocalSettings {
         self.ludusavi_manifest_path = self.ludusavi_manifest_path.trim().to_string();
         self.ludusavi_binary = self.ludusavi_binary.trim().to_string();
         self.wine_prefix = self.wine_prefix.trim().to_string();
+        self.cloud_device_id = self.cloud_device_id.trim().to_string();
+        self.cloud_device_label = self
+            .cloud_device_label
+            .take()
+            .map(|value| value.trim().chars().take(60).collect::<String>())
+            .filter(|value| !value.is_empty());
         self.installer_silent_args = self
             .installer_silent_args
             .drain(..)
@@ -387,6 +405,31 @@ mod tests {
         assert_eq!(json["ludusaviManifestPath"], "");
         assert_eq!(json["ludusaviBinary"], "");
         assert_eq!(json["winePrefix"], "");
+        assert_eq!(json["cloudAutoSync"], true);
+        assert_eq!(json["cloudDeviceId"], "");
+        assert_eq!(json["cloudDeviceLabel"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn cloud_settings_are_trimmed_and_roundtrip() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.cloud_device_id = " device-123 ".into();
+        settings.cloud_device_label = Some("  Living room PC  ".into());
+        settings.normalize(Path::new("/data"));
+
+        assert_eq!(settings.cloud_device_id, "device-123");
+        assert_eq!(
+            settings.cloud_device_label.as_deref(),
+            Some("Living room PC")
+        );
+
+        settings.cloud_device_label = Some("   ".into());
+        settings.normalize(Path::new("/data"));
+        assert!(settings.cloud_device_label.is_none());
+
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["cloudDeviceId"], "device-123");
+        assert_eq!(json["cloudAutoSync"], true);
     }
 
     #[test]
