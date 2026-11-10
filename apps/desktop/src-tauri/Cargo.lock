@@ -2620,7 +2620,7 @@ dependencies = [
  "ludex-core",
  "mime_guess",
  "password-hash",
- "rand 0.8.8",
+ "rand 0.10.3",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
