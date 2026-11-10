@@ -41,7 +41,7 @@ pub struct IngestContext {
     /// Persistent state (`ingest-jobs.json`, `ingest-parts.json`).
     pub data_dir: PathBuf,
     /// Triggered (non-blocking) after every successful download.
-    pub scan_tx: tokio::sync::mpsc::Sender<()>,
+    pub scan_tx: tokio::sync::mpsc::Sender<crate::scanner::ScanRequest>,
     /// Allow loopback/private targets (tests, LAN mirrors). Mirrors
     /// `LUDEX_INGEST_ALLOW_PRIVATE`.
     pub allow_private: bool,

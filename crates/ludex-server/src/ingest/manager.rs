@@ -963,7 +963,10 @@ async fn finish_download(state: &Arc<Inner>, id: &str, content_type: Option<&str
     });
     state.persist().await;
     // Non-blocking: a full scan channel simply drops the request when full.
-    let _ = state.ctx.scan_tx.try_send(());
+    let _ = state
+        .ctx
+        .scan_tx
+        .try_send(crate::scanner::ScanRequest::all());
     if let Some(events) = &state.ctx.events {
         let title = state.get_job(id).map(|job| job.title).unwrap_or_default();
         events.emit(

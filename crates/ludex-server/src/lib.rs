@@ -34,16 +34,20 @@ pub mod error;
 pub mod events;
 pub mod extract;
 pub mod ingest;
+pub mod integrity;
 pub mod media;
+pub mod media_gc;
 pub mod metadata;
 pub mod models;
 pub mod oidc;
+pub mod roots;
 pub mod routes;
 pub mod saves;
 pub mod scanner;
 pub mod sql;
 pub mod state;
 pub mod stream;
+pub mod watcher;
 pub mod web;
 pub mod webhooks;
 
@@ -52,6 +56,7 @@ pub use config::Config;
 use crate::metadata::IgdbClient;
 use crate::models::ScanStatus;
 use crate::oidc::OidcClient;
+use crate::scanner::ScanRequest;
 use crate::state::AppState;
 
 /// Handle to a server started with [`start`].
@@ -146,6 +151,10 @@ async fn prepare(config: Config) -> Result<Prepared> {
 
     let secret = load_or_create_secret(&config).await?;
     let pool = db::connect(&config.database_url).await?;
+    // Registers `LUDEX_LIBRARY_ROOTS` and backfills the seeded root. Extra
+    // roots are never created on disk: a missing path means "not mounted" and
+    // must stay detectable by the scanner.
+    roots::bootstrap(&pool, &config).await?;
     let http = reqwest::Client::builder()
         .user_agent(concat!("Ludex/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(30))
@@ -169,7 +178,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
         _ => None,
     };
 
-    let (scan_tx, scan_rx) = mpsc::channel::<()>(4);
+    let (scan_tx, scan_rx) = mpsc::channel::<ScanRequest>(4);
     let (cancel_tx, cancel_rx) = watch::channel(false);
     let oidc = OidcClient::from_config(&config, http.clone())?;
     let (events, event_rx) = events::channel();
@@ -186,7 +195,14 @@ async fn prepare(config: Config) -> Result<Prepared> {
         oidc,
         events,
         webhooks_notify: Arc::new(tokio::sync::Notify::new()),
+        watcher: Arc::new(RwLock::new(watcher::WatcherStatus::default())),
+        watcher_handle: Arc::new(RwLock::new(None)),
+        integrity_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        media_gc_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
+
+    let watcher_handle = watcher::start(&state).await;
+    *state.watcher_handle.write().await = watcher_handle;
 
     let token = bootstrap_admin(&state).await?;
 
@@ -199,11 +215,16 @@ async fn prepare(config: Config) -> Result<Prepared> {
     };
     let router = build_router(&state, &ingest_ctx);
 
-    tokio::spawn(scanner::worker(state.clone(), scan_rx, cancel_rx));
+    tokio::spawn(scanner::worker(state.clone(), scan_rx, cancel_rx.clone()));
     tokio::spawn(events::worker(state.clone(), event_rx));
     tokio::spawn(webhooks::worker(state.clone()));
+    tokio::spawn(integrity::scheduled_worker(
+        state.clone(),
+        cancel_rx.clone(),
+    ));
+    tokio::spawn(media_gc::scheduled_worker(state.clone(), cancel_rx));
     // Initial scan in the background; never blocks startup.
-    let _ = state.scan_tx.try_send(());
+    let _ = state.scan_tx.try_send(ScanRequest::all());
 
     Ok(Prepared {
         state,

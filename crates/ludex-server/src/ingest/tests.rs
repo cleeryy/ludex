@@ -35,7 +35,7 @@ struct TestEnv {
     games: PathBuf,
     data: PathBuf,
     ctx: IngestContext,
-    scan_rx: mpsc::Receiver<()>,
+    scan_rx: mpsc::Receiver<crate::scanner::ScanRequest>,
 }
 
 impl TestEnv {
