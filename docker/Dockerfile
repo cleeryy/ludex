@@ -55,9 +55,10 @@ COPY --from=web-builder /build/apps/web/dist ./apps/web/dist
 
 # Docker COPY preserves source mtimes. The dependency-cache layer compiled
 # placeholder sources; if the real files are older, cargo considers its
-# fingerprints fresh and links the empty placeholders. Force a rebuild of the
-# workspace crates only (dependencies stay cached).
-RUN cargo clean -p ludex-core -p ludex-server
+# fingerprints fresh and links the empty placeholders. Touching the real
+# sources makes them newer than the cached artifacts and forces a rebuild of
+# the workspace crates only (dependencies stay cached).
+RUN find crates -name '*.rs' -exec touch {} +
 
 RUN if [ -f Cargo.lock ]; then \
       cargo build --release --locked -p ludex-server --bins --features embed-web; \
