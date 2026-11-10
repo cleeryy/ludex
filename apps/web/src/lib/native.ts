@@ -1,4 +1,15 @@
-import type { DiskUsage, InstallGameArgs, InstallJob, InstalledGame, LocalSettings } from "@/lib/types";
+import type {
+  DiskUsage,
+  InstallGameArgs,
+  InstallJob,
+  InstalledGame,
+  LocalSettings,
+  MoveProgress,
+  RepairProgress,
+  RepairReport,
+  VerifyProgress,
+  VerifyReport,
+} from "@/lib/types";
 
 /**
  * Native bridge. Everything is a no-op or a friendly rejection in a browser;
@@ -68,6 +79,14 @@ export const native = {
     await invoke<null>("cancel_install", { jobId });
   },
 
+  async pauseInstall(jobId: string): Promise<InstallJob> {
+    return invoke<InstallJob>("pause_install", { jobId });
+  },
+
+  async resumeInstall(jobId: string): Promise<InstallJob> {
+    return invoke<InstallJob>("resume_install", { jobId });
+  },
+
   async getInstallJob(jobId: string): Promise<InstallJob> {
     return invoke<InstallJob>("get_install_job", { jobId });
   },
@@ -95,6 +114,18 @@ export const native = {
     await invoke<null>("uninstall_game", { gameId });
   },
 
+  async moveInstall(gameId: number, targetDir: string): Promise<InstalledGame> {
+    return invoke<InstalledGame>("move_install", { gameId, targetDir });
+  },
+
+  async verifyInstall(gameId: number): Promise<VerifyReport> {
+    return invoke<VerifyReport>("verify_install", { gameId });
+  },
+
+  async repairInstall(gameId: number): Promise<RepairReport> {
+    return invoke<RepairReport>("repair_install", { gameId });
+  },
+
   async openPath(path: string): Promise<void> {
     if (!isNative()) throw nativeUnavailable();
     await invoke<null>("open_path", { path });
@@ -119,6 +150,18 @@ export const native = {
   /** The desktop may broadcast the whole job list; harmless if the event is absent. */
   async onInstallJobs(handler: (jobs: InstallJob[]) => void): Promise<() => void> {
     return listen<InstallJob[]>("install://jobs", handler);
+  },
+
+  async onMoveProgress(handler: (progress: MoveProgress) => void): Promise<() => void> {
+    return listen<MoveProgress>("install://move-progress", handler);
+  },
+
+  async onVerifyProgress(handler: (progress: VerifyProgress) => void): Promise<() => void> {
+    return listen<VerifyProgress>("install://verify-progress", handler);
+  },
+
+  async onRepairProgress(handler: (progress: RepairProgress) => void): Promise<() => void> {
+    return listen<RepairProgress>("install://repair-progress", handler);
   },
 
   async onGameExited(handler: (payload: { sessionId: string; gameId: number; minutesPlayed: number }) => void): Promise<() => void> {
@@ -148,4 +191,5 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   streamInstall: true,
   keepArchives: false,
   archivePasswords: [],
+  bandwidthLimitKib: 0,
 };

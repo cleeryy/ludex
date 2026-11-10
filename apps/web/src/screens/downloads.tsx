@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Check, FolderOpen, RefreshCw, X } from "lucide-react";
+import { Check, FolderOpen, Pause, Play, RefreshCw, X } from "lucide-react";
 import { installsAvailable } from "@/lib/install";
 import { isActiveJob, useDownloads } from "@/state/downloads";
 import { useAllGames } from "@/lib/hooks";
@@ -39,7 +39,7 @@ export function DownloadsScreen() {
     );
   }
 
-  const { active, history, activeCount, aggregate, titleFor, cancel, resume, clearHistory, openFolder } = downloads;
+  const { active, history, activeCount, aggregate, titleFor, cancel, pause, resume, clearHistory, openFolder } = downloads;
 
   const clear = async () => {
     await clearHistory();
@@ -90,6 +90,7 @@ export function DownloadsScreen() {
               coverUrl={coverFor(job)}
               year={yearFor(job)}
               onCancel={() => void cancel(job.jobId)}
+              onPause={() => void pause(job.jobId)}
               onOpenFolder={job.installPath ? () => void openFolder(job.installPath!) : undefined}
               onResume={() => void resume(job, { title: titleFor(job) })}
             />
@@ -125,6 +126,7 @@ export function DownloadsScreen() {
               coverUrl={coverFor(job)}
               year={yearFor(job)}
               onCancel={() => void cancel(job.jobId)}
+              onPause={() => void pause(job.jobId)}
               onOpenFolder={job.installPath ? () => void openFolder(job.installPath!) : undefined}
               onResume={() => void resume(job, { title: titleFor(job) })}
             />
@@ -146,6 +148,7 @@ function JobRow({
   coverUrl,
   year,
   onCancel,
+  onPause,
   onOpenFolder,
   onResume,
 }: {
@@ -154,16 +157,20 @@ function JobRow({
   coverUrl: string | null;
   year: string | null;
   onCancel: () => void;
+  onPause: () => void;
   onOpenFolder?: () => void;
   onResume: () => void;
 }) {
   const active = isActiveJob(job);
+  const paused = job.phase === "paused";
   const pct = job.bytesTotal ? Math.min(100, (job.bytesDone / job.bytesTotal) * 100) : null;
-  const eta = active && job.bytesTotal && job.speedBps ? formatEta(job.bytesDone, job.bytesTotal, job.speedBps) : null;
-  const resumable = job.phase === "error" || job.phase === "cancelled" || job.phase === "interrupted";
+  const eta = active && !paused && job.bytesTotal && job.speedBps ? formatEta(job.bytesDone, job.bytesTotal, job.speedBps) : null;
+  const resumable = paused || job.phase === "error" || job.phase === "cancelled" || job.phase === "interrupted";
+  const pausable = job.phase === "queued" || job.phase === "downloading";
   const done = job.phase === "done";
-  const showMessage = Boolean(job.message) && !["Downloading archive", "Queued", "Resuming"].includes(job.message ?? "");
-  const starting = active && job.bytesDone === 0;
+  const showMessage =
+    Boolean(job.message) && !["Downloading archive", "Queued", "Resuming", "Paused"].includes(job.message ?? "");
+  const starting = active && !paused && job.bytesDone === 0;
   const showBar = active || (!done && pct !== null && pct > 0);
 
   return (
@@ -178,7 +185,7 @@ function JobRow({
             <h3 className="truncate text-[14px] font-medium text-ink">{title}</h3>
             {year && <span className="num text-[10.5px] text-ink-3">{year.slice(0, 4)}</span>}
           </div>
-          <Badge tone={done ? "ok" : job.phase === "error" ? "danger" : active ? "signal" : "outline"}>
+          <Badge tone={done ? "ok" : job.phase === "error" ? "danger" : paused ? "outline" : active ? "signal" : "outline"}>
             {installPhaseLabel(job.phase)}
           </Badge>
         </div>
@@ -228,8 +235,19 @@ function JobRow({
               Cancel
             </button>
           )}
+          {pausable && (
+            <Button variant="ghost" size="sm" className="text-ink-2" icon={<Pause className="size-3.5" />} onClick={onPause}>
+              Pause
+            </Button>
+          )}
           {resumable && (
-            <Button variant="ghost" size="sm" className="text-signal-text" icon={<RefreshCw className="size-3.5" />} onClick={onResume}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-signal-text"
+              icon={paused ? <Play className="size-3.5" /> : <RefreshCw className="size-3.5" />}
+              onClick={onResume}
+            >
               Resume
             </Button>
           )}

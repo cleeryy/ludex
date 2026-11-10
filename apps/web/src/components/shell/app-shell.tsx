@@ -459,7 +459,9 @@ function DownloadsStrip() {
   const { active, activeCount, aggregate, titleFor } = useDownloads();
   if (active.length === 0) return null;
   const job = active[0];
-  const pct = aggregate?.percent ?? null;
+  const paused = job.phase === "paused";
+  const jobPct = job.bytesTotal ? Math.min(100, (job.bytesDone / job.bytesTotal) * 100) : null;
+  const pct = paused ? jobPct : (aggregate?.percent ?? null);
 
   return (
     <Link
@@ -476,7 +478,7 @@ function DownloadsStrip() {
       <Download className="size-3.5 shrink-0 text-signal-text" aria-hidden="true" />
       <span className="min-w-0 truncate text-ink">{titleFor(job)}</span>
       {activeCount > 1 && <span className="num shrink-0 text-ink-3">+{activeCount - 1}</span>}
-      <span className="num ml-auto shrink-0">{pct !== null ? `${pct.toFixed(0)}%` : "Preparing"}</span>
+      <span className="num ml-auto shrink-0">{paused ? "Paused" : pct !== null ? `${pct.toFixed(0)}%` : "Preparing"}</span>
       {aggregate?.speedBps ? (
         <span className="num hidden shrink-0 text-ink-3 sm:inline">{formatSpeed(aggregate.speedBps)}</span>
       ) : null}

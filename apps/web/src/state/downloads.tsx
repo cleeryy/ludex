@@ -12,7 +12,9 @@ import { formatEta } from "@/lib/format";
 
 const ACTIVE_PHASES: ReadonlySet<InstallJob["phase"]> = new Set(["queued", "downloading", "extracting", "finalizing"]);
 
-export const isActiveJob = (job: InstallJob): boolean => ACTIVE_PHASES.has(job.phase);
+/** Paused jobs stay in the queue and are listed with the active installs. */
+export const isPausedJob = (job: InstallJob): boolean => job.phase === "paused";
+export const isActiveJob = (job: InstallJob): boolean => ACTIVE_PHASES.has(job.phase) || isPausedJob(job);
 
 export interface StartInstallInput {
   gameId: number;
@@ -45,6 +47,7 @@ interface DownloadsValue {
   aggregate: Aggregate | null;
   startInstall: (input: StartInstallInput) => Promise<InstallJob>;
   cancel: (jobId: string) => Promise<void>;
+  pause: (jobId: string) => Promise<void>;
   resume: (job: InstallJob, info: ResumeInfo) => Promise<InstallJob | null>;
   clearHistory: () => Promise<void>;
   openFolder: (path: string) => Promise<void>;
@@ -185,7 +188,13 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     let speedBps = 0;
     let unknown = false;
     for (const job of active) {
+      // Paused jobs still show their partial progress but do not contribute
+      // speed or ETA to the aggregate.
       bytesDone += job.bytesDone;
+      if (isPausedJob(job)) {
+        unknown = true;
+        continue;
+      }
       speedBps += job.speedBps;
       if (job.bytesTotal && job.bytesTotal > 0) bytesTotal += job.bytesTotal;
       else unknown = true;
@@ -243,15 +252,37 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     [refresh, push],
   );
 
+  const pause = useCallback(
+    async (jobId: string) => {
+      try {
+        await installBridge.pause(jobId);
+        await refresh();
+      } catch (cause) {
+        push({ title: "Could not pause the install", description: errorMessage(cause), tone: "danger" });
+      }
+    },
+    [refresh, push],
+  );
+
   const resume = useCallback(
     async (job: InstallJob, info: ResumeInfo) => {
-      const existing = active.find((entry) => entry.gameId === job.gameId);
+      const existing = active.find((entry) => entry.gameId === job.gameId && entry.jobId !== job.jobId);
       if (existing) return existing;
       try {
         if (USING_MOCKS) {
-          const next = await installBridge.resumeMock(job.jobId);
+          const next = await installBridge.resume(job.jobId);
           await refresh();
           return next;
+        }
+        if (job.phase === "paused") {
+          try {
+            // The worker still holds the `.part` offset and the original params.
+            const next = await installBridge.resume(job.jobId);
+            await refresh();
+            return next;
+          } catch {
+            // A job persisted by a previous app run has no worker: restart it.
+          }
         }
         return await startInstall({
           gameId: job.gameId,
@@ -296,6 +327,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       aggregate,
       startInstall,
       cancel,
+      pause,
       resume,
       clearHistory,
       openFolder,
@@ -303,7 +335,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       resumableForGame,
       titleFor,
     }),
-    [available, jobs, active, history, aggregate, startInstall, cancel, resume, clearHistory, openFolder, jobForGame, resumableForGame, titleFor],
+    [available, jobs, active, history, aggregate, startInstall, cancel, pause, resume, clearHistory, openFolder, jobForGame, resumableForGame, titleFor],
   );
 
   return <DownloadsContext.Provider value={value}>{children}</DownloadsContext.Provider>;

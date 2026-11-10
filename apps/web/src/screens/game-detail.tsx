@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Clock,
   Download,
+  FolderInput,
   FolderOpen,
   MoreHorizontal,
   Pencil,
@@ -26,6 +27,8 @@ import { useBookmark, useInstalledMap, useLaunchGame } from "@/lib/hooks";
 import { useDownloads } from "@/state/downloads";
 import { CloudSaves } from "@/components/game/cloud-saves";
 import { InstallDialog } from "@/components/game/install-dialog";
+import { InstallFiles } from "@/components/game/install-files";
+import { MoveInstallDialog } from "@/components/game/move-install";
 import { useAuth, useIsEditor } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { GameBackdrop, GameCover, StillPlate } from "@/components/art/cover";
@@ -52,6 +55,7 @@ export function GameDetailScreen() {
   const launch = useLaunchGame();
   const downloads = useDownloads();
   const [installOpen, setInstallOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [launchOpen, setLaunchOpen] = useState(false);
 
@@ -139,6 +143,21 @@ export function GameDetailScreen() {
     >
       Play
     </Button>
+  ) : activeJob?.phase === "paused" ? (
+    <Button
+      variant="default"
+      size="lg"
+      icon={<Download className="size-4" />}
+      onClick={() =>
+        void downloads.resume(activeJob, {
+          title: game.title,
+          version: version?.version,
+          executable: game.launch.executable,
+        })
+      }
+    >
+      Resume install
+    </Button>
   ) : activeJob ? (
     <Button variant="default" size="lg" icon={<Download className="size-4" />} onClick={() => navigate("/downloads")}>
       Installing {installPct !== null ? `${installPct.toFixed(0)}%` : ""}
@@ -197,6 +216,11 @@ export function GameDetailScreen() {
             label: "Open install folder",
             icon: <FolderOpen className="size-3.5" />,
             onSelect: () => void native.openPath(isInstalled.installPath).catch((cause: Error) => push({ title: "Could not open the folder", description: cause.message, tone: "danger" })),
+          },
+          {
+            label: "Move install…",
+            icon: <FolderInput className="size-3.5" />,
+            onSelect: () => setMoveOpen(true),
           },
           {
             label: "Uninstall",
@@ -315,7 +339,9 @@ export function GameDetailScreen() {
               <div className="mt-4 max-w-[360px]">
                 <Progress value={installPct} label="Install progress" />
                 <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2.5 font-mono text-[10.5px] text-ink-3">
-                  <span className="text-ink-2">{activeJob.phase === "downloading" ? "Downloading" : activeJob.phase}</span>
+                  <span className="text-ink-2">
+                    {activeJob.phase === "downloading" ? "Downloading" : activeJob.phase === "paused" ? "Paused" : activeJob.phase}
+                  </span>
                   {installPct !== null && <span>{installPct.toFixed(0)}%</span>}
                   {activeJob.speedBps > 0 && <span>{formatSpeed(activeJob.speedBps)}</span>}
                   {activeJob.bytesTotal && activeJob.speedBps > 0 && (
@@ -392,6 +418,8 @@ export function GameDetailScreen() {
                 ))}
               </div>
             </section>
+
+            {isInstalled && isNative() && <InstallFiles gameId={game.id} title={game.title} />}
 
             <CloudSaves gameId={game.id} title={game.title} />
 
@@ -484,6 +512,20 @@ export function GameDetailScreen() {
 
       {version && (
         <InstallDialog open={installOpen} onOpenChange={setInstallOpen} game={game} version={version} />
+      )}
+
+      {isInstalled && (
+        <MoveInstallDialog
+          open={moveOpen}
+          onOpenChange={setMoveOpen}
+          gameId={game.id}
+          title={game.title}
+          installed={isInstalled}
+          onMoved={() => {
+            void queryClient.invalidateQueries({ queryKey: ["installed"] });
+            void queryClient.invalidateQueries({ queryKey: ["game", game.id] });
+          }}
+        />
       )}
 
       <Dialog

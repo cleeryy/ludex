@@ -79,8 +79,10 @@ export function InstallDialog({
   };
 
   const pct = job?.bytesTotal ? Math.min(100, (job.bytesDone / job.bytesTotal) * 100) : null;
+  const paused = job?.phase === "paused";
   const active = job && ["queued", "downloading", "extracting", "finalizing"].includes(job.phase);
   const failed = job && ["error", "cancelled", "interrupted"].includes(job.phase);
+  const resumable = paused || failed;
   const eta = job && active && job.bytesTotal ? formatEta(job.bytesDone, job.bytesTotal, job.speedBps) : null;
 
   return (
@@ -100,11 +102,16 @@ export function InstallDialog({
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               Continue in background
             </Button>
+            {job.phase === "queued" || job.phase === "downloading" ? (
+              <Button variant="default" onClick={() => void downloads.pause(job.jobId)}>
+                Pause
+              </Button>
+            ) : null}
             <Button variant="danger" onClick={() => void downloads.cancel(job.jobId)}>
               Cancel
             </Button>
           </>
-        ) : failed ? (
+        ) : resumable ? (
           <>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               Close
