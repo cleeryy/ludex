@@ -5,6 +5,7 @@ pub mod games;
 pub mod library;
 pub mod media;
 pub mod news;
+pub mod oidc;
 pub mod system;
 pub mod users;
 
@@ -18,6 +19,7 @@ pub fn api_router() -> Router<AppState> {
     Router::new()
         .merge(system::router())
         .merge(auth::router())
+        .merge(oidc::router())
         .merge(games::router())
         .merge(users::router())
         .merge(library::router())

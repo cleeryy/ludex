@@ -308,6 +308,15 @@ export const mockApi = {
     return currentUser(token);
   },
 
+  async oidcExchange(code: string): Promise<AuthResult> {
+    await latency();
+    if (!code) fail(400, "invalid_code", "Missing sign-in code");
+    const user = users[0];
+    if (!user) fail(409, "setup_required", "This server has no accounts yet");
+    if (!user.activated) fail(403, "account_disabled", "This account is not activated");
+    return { token: `mock.${user.id}.${Date.now()}`, user };
+  },
+
   async changePassword(token: string | null, body: { currentPassword: string; newPassword: string }): Promise<void> {
     await latency();
     currentUser(token);
@@ -694,7 +703,8 @@ export const mockApi = {
     return {
       serverName: DEMO_SERVER_NAME,
       version: "0.1.0",
-      features: { igdb: false, steam: true, ingest: true, localMode: false },
+      features: { igdb: false, steam: true, ingest: true, localMode: false, oidc: true },
+      oidcDisplayName: "Authentik",
       maxUploadBytes: 32 * 1024 * GB,
     };
   },

@@ -9,6 +9,7 @@ use tokio::sync::{mpsc, RwLock};
 use crate::config::Config;
 use crate::metadata::IgdbClient;
 use crate::models::ScanStatus;
+use crate::oidc::OidcClient;
 
 /// State shared by all routes and background tasks.
 #[derive(Clone)]
@@ -29,6 +30,8 @@ pub struct AppState {
     pub http: reqwest::Client,
     /// IGDB client, present when credentials are configured.
     pub igdb: Option<IgdbClient>,
+    /// OIDC client, present when SSO is configured.
+    pub oidc: Option<OidcClient>,
 }
 
 impl AppState {

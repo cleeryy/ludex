@@ -34,6 +34,7 @@ pub mod ingest;
 pub mod media;
 pub mod metadata;
 pub mod models;
+pub mod oidc;
 pub mod routes;
 pub mod scanner;
 pub mod sql;
@@ -45,6 +46,7 @@ pub use config::Config;
 
 use crate::metadata::IgdbClient;
 use crate::models::ScanStatus;
+use crate::oidc::OidcClient;
 use crate::state::AppState;
 
 /// Handle to a server started with [`start`].
@@ -164,6 +166,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
 
     let (scan_tx, scan_rx) = mpsc::channel::<()>(4);
     let (cancel_tx, cancel_rx) = watch::channel(false);
+    let oidc = OidcClient::from_config(&config, http.clone())?;
 
     let state = AppState {
         config: Arc::new(config.clone()),
@@ -174,6 +177,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
         scan_tx: scan_tx.clone(),
         http,
         igdb,
+        oidc,
     };
 
     let token = bootstrap_admin(&state).await?;
@@ -375,7 +379,7 @@ async fn bootstrap_admin(state: &AppState) -> Result<String> {
     auth::issue_access_token(&state.jwt_secret, id, Role::Admin)
 }
 
-async fn unique_username(state: &AppState, base: &str) -> Result<String> {
+pub(crate) async fn unique_username(state: &AppState, base: &str) -> Result<String> {
     for attempt in 0..100 {
         let candidate = if attempt == 0 {
             base.to_string()

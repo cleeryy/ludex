@@ -12,6 +12,7 @@ interface AuthValue {
   nativeFirstRun: boolean;
   adoptSession: (args: { serverUrl: string; token: string; user?: User }) => Promise<void>;
   signIn: (username: string, password: string) => Promise<void>;
+  signInWithOidc: (code: string) => Promise<void>;
   completeSetup: (body: { username: string; password: string; serverName?: string }) => Promise<void>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -51,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!settings?.serverUrl) {
             if (!cancelled) {
               setNativeFirstRun(true);
-              setSetup({ needsSetup: true, serverName: "Ludex", version: "0.1.0" });
+              setSetup({ needsSetup: true, serverName: "Ludex", version: "0.2.0" });
               setReady(true);
             }
             return;
@@ -107,6 +108,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSetup((current) => (current ? { ...current, needsSetup: false } : current));
   }, []);
 
+  const signInWithOidc = useCallback(async (code: string) => {
+    const result = await api.oidcExchange(code);
+    tokenStore.set(result.token);
+    setToken(result.token);
+    setUser(result.user);
+    setSetup((current) => (current ? { ...current, needsSetup: false } : current));
+  }, []);
+
   const completeSetup = useCallback(async (body: { username: string; password: string; serverName?: string }) => {
     const result = await api.setup(body);
     tokenStore.set(result.token);
@@ -137,7 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(me);
     }
     setNativeFirstRun(false);
-    setSetup((current) => ({ needsSetup: false, serverName: current?.serverName ?? "Ludex", version: current?.version ?? "0.1.0" }));
+    setSetup((current) => ({ needsSetup: false, serverName: current?.serverName ?? "Ludex", version: current?.version ?? "0.2.0" }));
     setReady(true);
   }, []);
 
@@ -147,8 +156,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, token, ready, bootError, setup, nativeFirstRun, adoptSession, signIn, completeSetup, signOut, refreshUser, retryBoot }),
-    [user, token, ready, bootError, setup, nativeFirstRun, adoptSession, signIn, completeSetup, signOut, refreshUser, retryBoot],
+    () => ({ user, token, ready, bootError, setup, nativeFirstRun, adoptSession, signIn, signInWithOidc, completeSetup, signOut, refreshUser, retryBoot }),
+    [user, token, ready, bootError, setup, nativeFirstRun, adoptSession, signIn, signInWithOidc, completeSetup, signOut, refreshUser, retryBoot],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

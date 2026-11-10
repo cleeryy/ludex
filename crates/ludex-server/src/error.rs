@@ -77,6 +77,12 @@ impl ApiError {
         Self::new(StatusCode::UNPROCESSABLE_ENTITY, code, message)
     }
 
+    /// 429 too many requests.
+    #[must_use]
+    pub fn too_many_requests(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::TOO_MANY_REQUESTS, code, message)
+    }
+
     /// 500 internal error. The message is intentionally generic.
     #[must_use]
     pub fn internal() -> Self {

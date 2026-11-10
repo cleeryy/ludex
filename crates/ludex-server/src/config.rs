@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use ludex_core::models::Role;
 
 /// Default bind address when `LUDEX_BIND` is unset.
 pub const DEFAULT_BIND: &str = "0.0.0.0:8080";
@@ -14,7 +15,6 @@ pub const DEFAULT_BIND: &str = "0.0.0.0:8080";
 pub const DEFAULT_SCAN_INTERVAL_SECONDS: u64 = 300;
 /// Maximum JSON request body accepted by the API (10 MiB).
 pub const MAX_JSON_BYTES: usize = 10 * 1024 * 1024;
-
 /// Runtime configuration for the Ludex server.
 ///
 /// Every field can be set through `LUDEX_*` environment variables with
@@ -53,6 +53,30 @@ pub struct Config {
     pub ingest_allow_private: bool,
     /// Interval between automatic library scans. Zero disables periodic scans.
     pub scan_interval: Duration,
+    /// OIDC issuer URL. `None` disables SSO.
+    pub oidc_issuer: Option<String>,
+    /// OIDC client id.
+    pub oidc_client_id: Option<String>,
+    /// OIDC client secret (optional for public PKCE clients).
+    pub oidc_client_secret: Option<String>,
+    /// Redirect URI registered with the provider. Relative paths are resolved
+    /// against `oidc_public_base_url` or the incoming request host.
+    pub oidc_redirect_url: Option<String>,
+    /// Space-separated scopes requested at the provider.
+    pub oidc_scopes: String,
+    /// Display name used by the web UI's SSO button.
+    pub oidc_display_name: String,
+    /// Create local accounts for unknown OIDC identities.
+    pub oidc_auto_create: bool,
+    /// Role assigned to newly provisioned OIDC users without admin groups.
+    pub oidc_default_role: Role,
+    /// Group/role claim values that grant the admin role.
+    pub oidc_admin_groups: Vec<String>,
+    /// Claim (dot-separated path) holding group/role values.
+    pub oidc_groups_claim: String,
+    /// Public origin used to build the OIDC redirect URI and the SPA callback
+    /// URL. Must be an absolute http(s) origin/path without query or fragment.
+    pub oidc_public_base_url: Option<String>,
 }
 
 impl Config {
@@ -71,6 +95,28 @@ impl Config {
             .ok()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| default_database_url(&data_dir));
+        let oidc_public_base_url = env_opt("LUDEX_OIDC_PUBLIC_BASE_URL")
+            .map(|value| value.trim_end_matches('/').to_string());
+        let oidc_redirect_url = env_opt("LUDEX_OIDC_REDIRECT_URL").or_else(|| {
+            oidc_public_base_url
+                .as_ref()
+                .map(|base| format!("{base}/api/auth/oidc/callback"))
+        });
+        let oidc_default_role = env_opt("LUDEX_OIDC_DEFAULT_ROLE")
+            .unwrap_or_else(|| "user".to_string())
+            .parse::<Role>()
+            .context("LUDEX_OIDC_DEFAULT_ROLE must be admin, editor or user")?;
+        let oidc_admin_groups = env_opt("LUDEX_OIDC_ADMIN_GROUPS")
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|group| !group.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+
         let scan_interval_seconds = env::var("LUDEX_SCAN_INTERVAL_SECONDS")
             .ok()
             .filter(|value| !value.trim().is_empty())
@@ -95,6 +141,20 @@ impl Config {
             local_mode: bool_env("LUDEX_LOCAL_MODE"),
             ingest_allow_private: bool_env("LUDEX_INGEST_ALLOW_PRIVATE"),
             scan_interval: Duration::from_secs(scan_interval_seconds),
+            oidc_issuer: env_opt("LUDEX_OIDC_ISSUER"),
+            oidc_client_id: env_opt("LUDEX_OIDC_CLIENT_ID"),
+            oidc_client_secret: env_opt("LUDEX_OIDC_CLIENT_SECRET"),
+            oidc_redirect_url,
+            oidc_scopes: env_opt("LUDEX_OIDC_SCOPES")
+                .unwrap_or_else(|| "openid profile email".to_string()),
+            oidc_display_name: env_opt("LUDEX_OIDC_DISPLAY_NAME")
+                .unwrap_or_else(|| "SSO".to_string()),
+            oidc_auto_create: bool_env_default("LUDEX_OIDC_AUTO_CREATE", true),
+            oidc_default_role,
+            oidc_admin_groups,
+            oidc_groups_claim: env_opt("LUDEX_OIDC_GROUPS_CLAIM")
+                .unwrap_or_else(|| "groups".to_string()),
+            oidc_public_base_url,
         })
     }
 
@@ -121,6 +181,17 @@ impl Config {
             local_mode: true,
             ingest_allow_private: false,
             scan_interval: Duration::from_secs(DEFAULT_SCAN_INTERVAL_SECONDS),
+            oidc_issuer: None,
+            oidc_client_id: None,
+            oidc_client_secret: None,
+            oidc_redirect_url: None,
+            oidc_scopes: "openid profile email".to_string(),
+            oidc_display_name: "SSO".to_string(),
+            oidc_auto_create: true,
+            oidc_default_role: Role::User,
+            oidc_admin_groups: Vec::new(),
+            oidc_groups_claim: "groups".to_string(),
+            oidc_public_base_url: None,
         }
     }
 
@@ -150,6 +221,12 @@ impl Config {
     pub fn igdb_enabled(&self) -> bool {
         self.igdb_client_id.is_some() && self.igdb_client_secret.is_some()
     }
+
+    /// Whether OIDC SSO is configured.
+    #[must_use]
+    pub fn oidc_enabled(&self) -> bool {
+        self.oidc_issuer.is_some()
+    }
 }
 
 /// Builds the default SQLite URL for a data directory.
@@ -171,7 +248,11 @@ fn env_path(name: &str, default: &str) -> PathBuf {
 }
 
 fn bool_env(name: &str) -> bool {
-    env_opt(name).is_some_and(|value| {
+    bool_env_default(name, false)
+}
+
+fn bool_env_default(name: &str, default: bool) -> bool {
+    env_opt(name).map_or(default, |value| {
         matches!(
             value.to_ascii_lowercase().as_str(),
             "1" | "true" | "yes" | "on"

@@ -214,6 +214,8 @@ pub struct FeatureFlags {
     pub ingest: bool,
     /// Embedded/local mode.
     pub local_mode: bool,
+    /// OIDC SSO available.
+    pub oidc: bool,
 }
 
 /// `GET /api/config` response.
@@ -228,6 +230,8 @@ pub struct ServerConfig {
     pub features: FeatureFlags,
     /// Maximum accepted upload size.
     pub max_upload_bytes: u64,
+    /// Display name for the SSO button.
+    pub oidc_display_name: String,
 }
 
 /// Password change request.

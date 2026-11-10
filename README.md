@@ -69,6 +69,7 @@ application backed by PostgreSQL. Ludex takes a different route:
 | Stream install for ZIP and 7z (no archive retained) | v0.2 |
 | Big Picture mode (keyboard/gamepad) | v0.2 |
 | Higher-resolution IGDB covers/backgrounds | v0.2 |
+| SSO OIDC (Authentik/Keycloak) | v0.2 |
 | Web UI served by the server | v0.1 |
 | Users and roles (`admin`, `editor`, `user`) | v0.1 |
 | News posts | v0.1 |

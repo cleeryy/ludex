@@ -1,20 +1,73 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { ArrowRight } from "lucide-react";
-import { USING_MOCKS } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowRight, KeyRound, Loader2 } from "lucide-react";
+import { api, assetUrl, USING_MOCKS } from "@/lib/api";
 import { MOCK_PASSWORD } from "@/lib/mock";
 import { errorMessage } from "@/lib/http";
+import { isNative } from "@/lib/native";
 import { useAuth } from "@/state/auth";
 import { AuthLayout } from "@/components/auth-layout";
 import { Button, Field, Input } from "@/components/ui/controls";
 
 export function LoginScreen() {
-  const { signIn, setup } = useAuth();
+  const { signIn, signInWithOidc, setup } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [oidcBusy, setOidcBusy] = useState(false);
+  const [oidcError, setOidcError] = useState<string | null>(null);
+  const exchanged = useRef<string | null>(null);
+
+  const config = useQuery({
+    queryKey: ["config"],
+    queryFn: () => api.config(),
+    staleTime: 60_000,
+    retry: 0,
+  });
+
+  const oidcEnabled = Boolean(config.data?.features.oidc);
+  const displayName = config.data?.oidcDisplayName?.trim() || "SSO";
+  const code = params.get("oidc_code");
+
+  // The server redirects back to /#/login?oidc_code=... after the provider.
+  useEffect(() => {
+    if (!code || exchanged.current === code) return;
+    exchanged.current = code;
+    let cancelled = false;
+    setOidcBusy(true);
+    setOidcError(null);
+
+    void signInWithOidc(code)
+      .then(() => {
+        if (!cancelled) navigate("/", { replace: true });
+      })
+      .catch((cause) => {
+        if (cancelled) return;
+        setOidcError(errorMessage(cause));
+        navigate("/login", { replace: true });
+      })
+      .finally(() => {
+        if (!cancelled) setOidcBusy(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [code, signInWithOidc, navigate]);
+
+  const startOidc = () => {
+    setOidcError(null);
+    if (USING_MOCKS) {
+      navigate("/login?oidc_code=demo-sso", { replace: true });
+      return;
+    }
+    const url = assetUrl("/api/auth/oidc/start");
+    if (url) window.location.assign(url);
+  };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -45,6 +98,46 @@ export function LoginScreen() {
             <span className="num">v{setup?.version ?? "0.1.0"}</span>
           </p>
         </div>
+
+        {oidcBusy && (
+          <p className="flex items-center gap-2 text-[12.5px] text-ink-2" role="status">
+            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+            Completing sign-in…
+          </p>
+        )}
+
+        {oidcError && (
+          <p role="alert" className="border-l-2 border-danger pl-3 text-[13px] text-danger">
+            {oidcError}
+          </p>
+        )}
+
+        {oidcEnabled && !isNative() && (
+          <div className="flex flex-col gap-4">
+            <Button
+              variant="default"
+              size="lg"
+              className="w-full"
+              icon={<KeyRound className="size-4" />}
+              loading={oidcBusy}
+              onClick={startOidc}
+            >
+              Sign in with {displayName}
+            </Button>
+            <div className="flex items-center gap-3 text-[11.5px] text-ink-3" aria-hidden="true">
+              <span className="h-px flex-1 bg-line" />
+              <span>or use a password</span>
+              <span className="h-px flex-1 bg-line" />
+            </div>
+          </div>
+        )}
+
+        {oidcEnabled && isNative() && (
+          <p className="border-l-2 border-line pl-3 text-[11.5px] leading-relaxed text-ink-3">
+            Single sign-on is configured for this server. It runs in the web interface; in the desktop app, use your server
+            password.
+          </p>
+        )}
 
         <div className="flex flex-col gap-4">
           <Field label="Username" htmlFor="login-username">
@@ -87,7 +180,7 @@ export function LoginScreen() {
           <div className="border-t border-line pt-4">
             <p className="text-[12.5px] leading-relaxed text-ink-3">
               Demo data is on. Sign in as <span className="font-mono text-ink-2">mara</span> with the password{" "}
-              <span className="font-mono text-ink-2">{MOCK_PASSWORD}</span>.
+              <span className="font-mono text-ink-2">{MOCK_PASSWORD}</span>, or use the single sign-on button.
             </p>
             <Button
               variant="quiet"
