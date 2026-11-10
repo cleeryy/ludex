@@ -27,6 +27,7 @@ import { useDownloads } from "@/state/downloads";
 import { CloudSaves } from "@/components/game/cloud-saves";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { InstallFiles } from "@/components/game/install-files";
+import { InstallerPanel } from "@/components/game/installer-panel";
 import { MoveInstallDialog } from "@/components/game/move-install";
 import { MediaGallery } from "@/components/game/media-gallery";
 import { AddToCollectionDialog } from "@/components/collections/add-to-collection";
@@ -429,6 +430,10 @@ export function GameDetailScreen() {
             </section>
 
             {isInstalled && isNative() && <InstallFiles gameId={game.id} title={game.title} />}
+
+            {isInstalled && isNative() && (
+              <InstallerPanel gameId={game.id} title={game.title} executable={isInstalled.executable} />
+            )}
 
             <CloudSaves gameId={game.id} title={game.title} />
 

@@ -16,6 +16,8 @@ import { PageHeader, SectionHeader } from "@/components/page";
 import { Button, Field, Input, Switch, Textarea } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { DesktopUpdatePanel } from "@/components/settings/desktop-update";
+import { SteamImportPanel } from "@/components/settings/steam-import";
+import { PresenceStatus } from "@/components/settings/presence-status";
 
 export function SettingsScreen() {
   const { user, refreshUser } = useAuth();
@@ -74,7 +76,7 @@ export function SettingsScreen() {
 
   const update = (patch: Partial<LocalSettings>) => setDraft((current) => (current ? { ...current, ...patch } : current));
 
-  const pick = async (key: "installDir" | "downloadDir", title: string) => {
+  const pick = async (key: "installDir" | "downloadDir" | "steamRoot", title: string) => {
     const path = await native.pickFolder(title);
     if (path) update({ [key]: path } as Partial<LocalSettings>);
     else if (!isNative()) {
@@ -342,6 +344,14 @@ export function SettingsScreen() {
                       onPick={() => void pick("downloadDir", "Choose the download folder")}
                       disk={downloadDisk.data}
                     />
+                    <PathField
+                      label="Steam folder"
+                      hint="Optional. Only used by the Steam import when auto-detection fails."
+                      value={draft.steamRoot}
+                      onChange={(value) => update({ steamRoot: value })}
+                      onPick={() => void pick("steamRoot", "Choose the Steam folder")}
+                      disk={undefined}
+                    />
                   </div>
 
                   <div>
@@ -462,6 +472,85 @@ export function SettingsScreen() {
                       />
                     </div>
 
+                    <div className="border-b border-line py-4">
+                      <div className="flex items-start justify-between gap-6">
+                        <div>
+                          <p className="text-[13px] font-medium text-ink">Discord Rich Presence</p>
+                          <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
+                            Show the running game, its cover and the elapsed time on your Discord profile. Uses the
+                            local Discord app, never a bot token. Off by default.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={draft.discordPresence}
+                          onCheckedChange={(discordPresence) => update({ discordPresence })}
+                          label="Discord Rich Presence"
+                        />
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-3">
+                        <Input
+                          id="discord-client-id"
+                          value={draft.discordClientId}
+                          onChange={(event) => update({ discordClientId: event.target.value })}
+                          placeholder="Discord application id"
+                          spellCheck={false}
+                          className="h-9 w-[240px] font-mono text-[11.5px]"
+                        />
+                        <span className="text-[11px] text-ink-3">
+                          An application id labels the activity; it is not a secret.
+                        </span>
+                      </div>
+                      <PresenceStatus enabled={draft.discordPresence} />
+                    </div>
+
+                    <div className="border-b border-line py-4">
+                      <p className="text-[13px] font-medium text-ink">Silent installer arguments</p>
+                      <p className="mt-1 mb-2 max-w-[52ch] text-[11.5px] leading-relaxed text-ink-3">
+                        Tried in order when a game ships a setup program, one argument set per line. Leave empty for
+                        the built-in presets (<span className="font-mono">/S</span>,{" "}
+                        <span className="font-mono">/silent</span>,{" "}
+                        <span className="font-mono">/VERYSILENT /SUPPRESSMSGBOXES /NORESTART</span>,{" "}
+                        <span className="font-mono">--silent</span>).
+                      </p>
+                      <Textarea
+                        id="installer-args"
+                        value={draft.installerSilentArgs.map((set) => set.join(" ")).join("\n")}
+                        onChange={(event) =>
+                          update({
+                            installerSilentArgs: event.target.value
+                              .split("\n")
+                              .map((line) => line.trim())
+                              .filter(Boolean)
+                              .map((line) => line.split(/\s+/)),
+                          })
+                        }
+                        placeholder={"/S\n/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"}
+                        rows={3}
+                        className="min-h-[78px] font-mono text-[12px]"
+                      />
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <label htmlFor="installer-timeout" className="text-[12.5px] text-ink-2">
+                          Timeout per attempt
+                        </label>
+                        <Input
+                          id="installer-timeout"
+                          type="number"
+                          min={30}
+                          max={7200}
+                          step={30}
+                          inputMode="numeric"
+                          value={draft.installerTimeoutSecs}
+                          onChange={(event) =>
+                            update({
+                              installerTimeoutSecs: Math.max(30, Math.round(Number(event.target.value) || 600)),
+                            })
+                          }
+                          className="h-9 w-[110px] font-mono text-[12px]"
+                        />
+                        <span className="text-[11.5px] text-ink-3">seconds</span>
+                      </div>
+                    </div>
+
                     <div className="py-4">
                       <p className="text-[13px] font-medium text-ink">Update channel</p>
                       <p className="mt-1 mb-2 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
@@ -504,6 +593,18 @@ export function SettingsScreen() {
                 </div>
               </>
             )}
+          </div>
+        </section>
+      )}
+
+      {isNative() && (
+        <section className="mt-12 max-w-[980px]" aria-labelledby="integrations-heading">
+          <SectionHeader
+            title="Integrations"
+            description="Import a Steam library or drive Ludex from another launcher."
+          />
+          <div id="integrations-heading" className="border-t border-line pt-5">
+            <SteamImportPanel />
           </div>
         </section>
       )}

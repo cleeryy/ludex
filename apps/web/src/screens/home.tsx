@@ -250,9 +250,13 @@ export function HomeScreen() {
               return (
                 <li key={entry.gameId} className="flex items-center gap-4 border-b border-line py-3">
                   <div className="min-w-0 flex-1">
-                    <Link to={`/game/${entry.gameId}`} className="truncate text-[13.5px] font-medium text-ink hover:underline">
-                      {entry.title}
-                    </Link>
+                    {game ? (
+                      <Link to={`/game/${entry.gameId}`} className="truncate text-[13.5px] font-medium text-ink hover:underline">
+                        {entry.title}
+                      </Link>
+                    ) : (
+                      <span className="truncate text-[13.5px] font-medium text-ink">{entry.title}</span>
+                    )}
                     <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5 font-mono text-[10.5px] text-ink-3">
                       {entry.version && <span>v{entry.version}</span>}
                       <span>{formatBytes(entry.sizeBytes)}</span>
@@ -278,7 +282,11 @@ export function HomeScreen() {
                   >
                     Play
                   </Button>
-                  {!game && <span className="font-mono text-[10px] text-ink-3">Not in this library</span>}
+                  {!game && (
+                    <span className="font-mono text-[10px] text-ink-3">
+                      {entry.source === "steam" ? "Steam" : "Not in this library"}
+                    </span>
+                  )}
                 </li>
               );
             })}

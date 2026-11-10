@@ -226,6 +226,11 @@ const DEFAULT_SETTINGS: LocalSettings = {
   updateChannel: "stable",
   checkUpdatesOnStartup: true,
   lastUpdateCheckAt: null,
+  discordPresence: false,
+  discordClientId: "",
+  installerSilentArgs: [],
+  installerTimeoutSecs: 600,
+  steamRoot: "",
 };
 
 function loadSettings(): LocalSettings {
