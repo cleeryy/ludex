@@ -26,7 +26,8 @@ const STEAM_DETAILS_URL: &str = "https://store.steampowered.com/api/appdetails";
 const IGDB_FIELDS: &str = "name,summary,first_release_date,cover.url,artworks.url,\
 screenshots.url,videos.video_id,genres.name,involved_companies.company.name,\
 involved_companies.developer,involved_companies.publisher,rating,age_ratings.*,url,\
-platforms.id,category";
+platforms.id,category,alternative_names.name,multiplayer_modes.offlinemax,\
+multiplayer_modes.onlinemax,game_modes.name";
 
 /// Cached Twitch application token.
 struct CachedToken {
@@ -171,6 +172,20 @@ struct IgdbGame {
     #[serde(default)]
     platforms: Vec<IgdbNamed>,
     category: Option<i64>,
+    #[serde(default)]
+    alternative_names: Vec<IgdbNamed>,
+    #[serde(default)]
+    multiplayer_modes: Vec<IgdbMultiplayerMode>,
+    #[serde(default)]
+    game_modes: Vec<IgdbNamed>,
+}
+
+#[derive(Debug, Deserialize)]
+struct IgdbMultiplayerMode {
+    #[serde(default)]
+    offlinemax: Option<i64>,
+    #[serde(default)]
+    onlinemax: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -275,6 +290,27 @@ fn map_igdb(game: &IgdbGame) -> ProviderMetadata {
 
     let age_rating = igdb_age_rating(&game.age_ratings);
     let rating = game.rating.map(|value| value.clamp(0.0, 100.0));
+    let alt_titles = names(&game.alternative_names)
+        .into_iter()
+        .filter(|alias| !alias.eq_ignore_ascii_case(game.name.as_deref().unwrap_or_default()))
+        .take(12)
+        .collect();
+    let mut max_players = game
+        .multiplayer_modes
+        .iter()
+        .flat_map(|mode| [mode.offlinemax, mode.onlinemax])
+        .flatten()
+        .max()
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| *value > 0);
+    if max_players.is_none()
+        && game
+            .game_modes
+            .iter()
+            .any(|mode| mode.name.as_deref() == Some("Single player"))
+    {
+        max_players = Some(1);
+    }
 
     ProviderMetadata {
         description: game
@@ -292,6 +328,8 @@ fn map_igdb(game: &IgdbGame) -> ProviderMetadata {
         rating,
         age_rating,
         early_access: None,
+        alt_titles,
+        max_players,
         provider: ProviderRef {
             slug: "igdb".to_string(),
             id: game.id.to_string(),
@@ -443,6 +481,10 @@ pub struct ProviderMetadata {
     pub age_rating: Option<u8>,
     /// Early-access flag when the provider knows it.
     pub early_access: Option<bool>,
+    /// Alternative titles used by fuzzy search.
+    pub alt_titles: Vec<String>,
+    /// Highest supported player count, when known.
+    pub max_players: Option<u32>,
     /// Provider reference.
     pub provider: ProviderRef,
 }
@@ -515,6 +557,7 @@ pub async fn enrich_game(state: &AppState, game_id: i64) {
     let genres_json = list_or_none(&metadata.genres);
     let developers_json = list_or_none(&metadata.developers);
     let publishers_json = list_or_none(&metadata.publishers);
+    let alt_titles_json = list_or_none(&metadata.alt_titles).unwrap_or_else(|| "[]".to_string());
     let release_date = metadata.release_date.map(db::db_time);
     let now = db::db_time(db::now());
 
@@ -532,6 +575,8 @@ pub async fn enrich_game(state: &AppState, game_id: i64) {
             rating = COALESCE(?, rating),
             age_rating = COALESCE(?, age_rating),
             early_access = COALESCE(?, early_access),
+            alt_titles_json = CASE WHEN ? = '[]' THEN alt_titles_json ELSE ? END,
+            max_players = COALESCE(?, max_players),
             provider_slug = ?,
             provider_id = ?,
             provider_url = COALESCE(?, provider_url),
@@ -550,6 +595,9 @@ pub async fn enrich_game(state: &AppState, game_id: i64) {
     .bind(metadata.rating)
     .bind(metadata.age_rating.map(i64::from))
     .bind(metadata.early_access.map(i64::from))
+    .bind(&alt_titles_json)
+    .bind(&alt_titles_json)
+    .bind(metadata.max_players.map(i64::from))
     .bind(&metadata.provider.slug)
     .bind(&metadata.provider.id)
     .bind(&metadata.provider.url)
@@ -759,6 +807,8 @@ async fn steam_details(http: &Client, app_id: i64) -> Result<Option<ProviderMeta
         rating: None,
         age_rating: required_age,
         early_access: Some(early_access),
+        alt_titles: Vec::new(),
+        max_players: None,
         provider: ProviderRef {
             slug: "steam".to_string(),
             id: app_id.to_string(),

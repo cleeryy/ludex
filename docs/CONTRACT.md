@@ -30,7 +30,10 @@ interface GameSummary {
   coverUrl: string | null; backgroundUrl: string | null; rating: number | null;
   genres: string[]; earlyAccess: boolean; versionCount: number; totalSize: number;
   state: ProgressState; minutesPlayed: number; bookmarked: boolean;
-  lastPlayedAt: string | null;
+  lastPlayedAt: string | null; maxPlayers: number | null;
+  /** Present only when the row came from a search (`q`). */
+  matchedField?: "title" | "sortTitle" | "altTitle";
+  matchedTitle?: string; matchScore?: number;
 }
 
 interface GameVersion {
@@ -45,6 +48,7 @@ interface GameDetail extends GameSummary {
   trailers: { title: string; url: string; thumbnailUrl: string | null }[];
   developers: string[]; publishers: string[]; tags: string[]; ageRating: number | null;
   provider: { slug: string; id: string; url: string | null } | null;
+  altTitles: string[];
   versions: GameVersion[];
   launch: {
     executable: string | null; parameters: string | null;
@@ -96,15 +100,30 @@ interface ScanStatus {
 
 | Method | Route | Notes |
 |---|---|---|
-| GET | `/api/games` | query: `q`, `genre`, `state`, `bookmarked`, `earlyAccess`, `sort` (`title\|releaseDate\|rating\|addedAt\|lastPlayed`), `order` (`asc\|desc`), `page` (1), `limit` (48, max 200) → `{ items, total, page, limit }` |
+| GET | `/api/games` | query: `q`, `genre`, `state`, `bookmarked`, `earlyAccess`, `yearFrom`, `yearTo`, `players`, `playtimeMin`, `playtimeMax`, `minRating`, `provider`, `sort` (`title\|releaseDate\|rating\|addedAt\|lastPlayed\|playtime`), `order` (`asc\|desc`), `page` (1), `limit` (48, max 200) → `{ items, total, page, limit }` |
+| GET | `/api/games/suggest` | query: `q`, `limit` (8, max 20) → `{ query, suggestions: [{ id, title, year, coverUrl, matchedField, matchedTitle, score }] }`; top matches, best first |
 | GET | `/api/games/{id}` | `GameDetail` |
 | GET | `/api/games/random` | same filters as list → `GameSummary`; 404 when empty |
-| PATCH | `/api/games/{id}` | editor; editable metadata fields + `launch` object; returns `GameDetail` |
+| PATCH | `/api/games/{id}` | editor; editable metadata fields (`altTitles`, `players`) + `launch` object; returns `GameDetail` |
 | POST | `/api/games/{id}/refresh-metadata` | editor; 202 `{ queued: true }` |
 | POST | `/api/games/{id}/download-ticket` | `{ versionId? }` → `{ url, expiresAt }` (15 min, no auth needed on the URL) |
 | GET | `/api/games/{id}/download?versionId=&token=` | file stream, Range supported, `Content-Disposition` |
 | GET | `/api/games/{id}/versions/{versionId}/stream?token=` | Stream install: an uncompressed `application/x-tar` of the archive entries, no archive stored on the client. ZIP and 7z are supported; RAR/unknown return 415 and the client falls back. Exact `Content-Length`. Same auth rules as download. |
 | GET | `/api/games/{id}/versions/{versionId}/local-path` | embedded/local mode + loopback only → `{ path }`, else 404 |
+
+### Library filters and search
+
+`yearFrom`/`yearTo` are inclusive release years. `players` is the minimum
+supported player count (`maxPlayers`). `playtimeMin`/`playtimeMax` are inclusive
+minutes played by the requesting user. `minRating` is 0-100. `provider` is a
+metadata slug (`igdb`, `steam`). All filters combine with `AND` and are safe to
+share in a URL.
+
+When `q` is present, titles, sort titles and provider aliases are matched
+server-side with diacritic-insensitive fuzzy scoring (trigram + Levenshtein
+fallback). Results are ranked by relevance and carry `matchedField`,
+`matchedTitle` and `matchScore`; `sort` is ignored in that mode. `GET
+/api/games/suggest` exposes the same scorer for type-ahead suggestions.
 
 ### Progress / bookmarks
 

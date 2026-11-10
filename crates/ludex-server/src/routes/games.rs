@@ -34,7 +34,7 @@ use crate::state::AppState;
 use crate::stream::archive_tar_body;
 
 const LIST_COLUMNS: &str = "g.id, g.title, g.sort_title, g.release_date, g.cover_path, \
-g.background_path, g.rating, g.genres_json, g.early_access, \
+g.background_path, g.rating, g.genres_json, g.early_access, g.alt_titles_json, g.max_players, \
 COALESCE(p.state, 'unplayed') AS state, COALESCE(p.minutes_played, 0) AS minutes_played, \
 CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END AS bookmarked, p.last_played_at, \
 (SELECT COUNT(*) FROM game_versions v WHERE v.game_id = g.id AND v.missing = 0) AS version_count, \
@@ -43,6 +43,7 @@ CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END AS bookmarked, p.last_played_at, \
 const DETAIL_COLUMNS: &str = "g.id, g.title, g.sort_title, g.description, g.release_date, \
 g.cover_path, g.background_path, g.screenshots_json, g.trailers_json, g.genres_json, \
 g.developers_json, g.publishers_json, g.tags_json, g.rating, g.age_rating, g.early_access, \
+g.alt_titles_json, g.max_players, \
 g.provider_slug, g.provider_id, g.provider_url, g.launch_executable, g.launch_parameters, \
 g.installer_executable, g.installer_parameters, g.uninstaller_executable, \
 g.uninstaller_parameters, COALESCE(p.state, 'unplayed') AS state, \
@@ -90,10 +91,6 @@ impl Filters {
         let mut clauses = Vec::new();
         let mut binds = Vec::new();
 
-        if let Some(value) = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
-            clauses.push("g.title LIKE ? ESCAPE '\\'".to_string());
-            binds.push(Bind::Text(like_pattern(value)));
-        }
         if let Some(genre) = query
             .genre
             .as_deref()
@@ -120,6 +117,39 @@ impl Filters {
             clauses.push("g.early_access = ?".to_string());
             binds.push(Bind::Int(i64::from(early_access)));
         }
+        if let Some(year) = query.year_from {
+            clauses.push("g.release_date >= ?".to_string());
+            binds.push(Bind::Text(format!("{year:04}-01-01T00:00:00Z")));
+        }
+        if let Some(year) = query.year_to {
+            clauses.push("g.release_date <= ?".to_string());
+            binds.push(Bind::Text(format!("{year:04}-12-31T23:59:59Z")));
+        }
+        if let Some(players) = query.players.filter(|value| *value > 0) {
+            clauses.push("g.max_players >= ?".to_string());
+            binds.push(Bind::Int(players));
+        }
+        if let Some(minutes) = query.playtime_min.filter(|value| *value > 0) {
+            clauses.push("COALESCE(p.minutes_played, 0) >= ?".to_string());
+            binds.push(Bind::Int(minutes));
+        }
+        if let Some(minutes) = query.playtime_max.filter(|value| *value >= 0) {
+            clauses.push("COALESCE(p.minutes_played, 0) <= ?".to_string());
+            binds.push(Bind::Int(minutes));
+        }
+        if let Some(rating) = query.min_rating {
+            clauses.push("g.rating >= ?".to_string());
+            binds.push(Bind::Float(rating));
+        }
+        if let Some(provider) = query
+            .provider
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            clauses.push("g.provider_slug = ?".to_string());
+            binds.push(Bind::Text(provider.to_string()));
+        }
 
         let sort = match query.sort.as_deref().unwrap_or("title") {
             "title" => "g.sort_title",
@@ -127,6 +157,7 @@ impl Filters {
             "rating" => "g.rating",
             "addedAt" => "g.created_at",
             "lastPlayed" => "p.last_played_at",
+            "playtime" => "COALESCE(p.minutes_played, 0)",
             other => {
                 return Err(ApiError::bad_request(
                     "invalid_sort",
@@ -179,6 +210,58 @@ async fn list(
     let limit = query.limit.unwrap_or(48).clamp(1, 200);
     let offset = (page - 1).saturating_mul(limit);
 
+    if let Some(search) = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
+        let sql = format!(
+            "SELECT {LIST_COLUMNS}{FROM_JOINS}{} LIMIT 5000",
+            filters.where_clause()
+        );
+        let mut binds = vec![Bind::Int(user.id), Bind::Int(user.id)];
+        binds.extend(filters.binds.iter().cloned());
+        let rows = bind_query_as(sqlx::query_as::<_, GameListRow>(&sql), &binds)
+            .fetch_all(&state.pool)
+            .await
+            .map_err(ApiError::from)?;
+
+        let mut ranked: Vec<(GameListRow, crate::routes::search::TitleMatch)> = rows
+            .into_iter()
+            .filter_map(|row| {
+                let alt_titles = db::parse_json_list(&row.alt_titles_json);
+                let found = crate::routes::search::match_game(
+                    search,
+                    &row.title,
+                    &row.sort_title,
+                    &alt_titles,
+                )?;
+                Some((row, found))
+            })
+            .collect();
+        ranked.sort_by(|a, b| {
+            b.1.score
+                .partial_cmp(&a.1.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.sort_title.cmp(&b.0.sort_title))
+        });
+        let total = i64::try_from(ranked.len()).unwrap_or(i64::MAX);
+        let items = ranked
+            .into_iter()
+            .skip(usize::try_from(offset).unwrap_or(usize::MAX))
+            .take(usize::try_from(limit).unwrap_or(usize::MAX))
+            .map(|(row, found)| {
+                let mut summary = summary_from_list(row);
+                summary.matched_field = Some(found.field.to_string());
+                summary.matched_title = Some(found.text);
+                summary.match_score = Some((found.score * 10.0).round() / 10.0);
+                summary
+            })
+            .collect();
+        return Ok(Json(Paginated {
+            items,
+            total,
+            page,
+            limit,
+        }));
+    }
+
     let count_sql = format!("SELECT COUNT(*){FROM_JOINS}{}", filters.where_clause());
     let mut count_binds = vec![Bind::Int(user.id), Bind::Int(user.id)];
     count_binds.extend(filters.binds.iter().cloned());
@@ -216,12 +299,40 @@ async fn random(
     ApiQuery(query): ApiQuery<GameQuery>,
 ) -> Result<Json<GameSummary>, ApiError> {
     let filters = Filters::from_query(&query)?;
+    let mut binds = vec![Bind::Int(user.id), Bind::Int(user.id)];
+    binds.extend(filters.binds.iter().cloned());
+
+    if let Some(search) = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
+        let sql = format!(
+            "SELECT {LIST_COLUMNS}{FROM_JOINS}{} LIMIT 5000",
+            filters.where_clause()
+        );
+        let rows = bind_query_as(sqlx::query_as::<_, GameListRow>(&sql), &binds)
+            .fetch_all(&state.pool)
+            .await
+            .map_err(ApiError::from)?;
+        let mut matches: Vec<GameListRow> = rows
+            .into_iter()
+            .filter(|row| {
+                let alt_titles = db::parse_json_list(&row.alt_titles_json);
+                crate::routes::search::match_game(search, &row.title, &row.sort_title, &alt_titles)
+                    .is_some()
+            })
+            .collect();
+        if matches.is_empty() {
+            return Err(ApiError::not_found(
+                "no_game",
+                "No game matches these filters",
+            ));
+        }
+        let index = rand::Rng::gen_range(&mut rand::thread_rng(), 0..matches.len());
+        return Ok(Json(summary_from_list(matches.swap_remove(index))));
+    }
+
     let sql = format!(
         "SELECT {LIST_COLUMNS}{FROM_JOINS}{} ORDER BY RANDOM() LIMIT 1",
         filters.where_clause()
     );
-    let mut binds = vec![Bind::Int(user.id), Bind::Int(user.id)];
-    binds.extend(filters.binds.iter().cloned());
     let row = bind_query_as(sqlx::query_as::<_, GameListRow>(&sql), &binds)
         .fetch_optional(&state.pool)
         .await
@@ -293,6 +404,7 @@ async fn fetch_detail(state: &AppState, user_id: i64, id: i64) -> Result<GameDet
         tags: db::parse_json_list(&row.tags_json),
         age_rating: row.age_rating.and_then(|value| u8::try_from(value).ok()),
         provider,
+        alt_titles: db::parse_json_list(&row.alt_titles_json),
         versions: versions
             .into_iter()
             .map(|version| GameVersion {
@@ -398,6 +510,14 @@ async fn update_game(
     if let Some(early_access) = request.early_access {
         sets.push("early_access = ?");
         binds.push(Bind::Int(i64::from(early_access)));
+    }
+    if let Some(alt_titles) = request.alt_titles {
+        sets.push("alt_titles_json = ?");
+        binds.push(Bind::Text(db::dump_json_list(&clean_labels(alt_titles))));
+    }
+    if let Some(players) = request.players {
+        sets.push("max_players = ?");
+        binds.push(Bind::OptInt(players.map(i64::from)));
     }
     if let Some(launch) = request.launch {
         sets.push("launch_executable = ?");
@@ -966,6 +1086,10 @@ fn summary_from_list(row: GameListRow) -> GameSummary {
         minutes_played: row.minutes_played,
         bookmarked: row.bookmarked != 0,
         last_played_at: row.last_played_at.as_deref().and_then(db::parse_time),
+        max_players: row.max_players.and_then(|value| u32::try_from(value).ok()),
+        matched_field: None,
+        matched_title: None,
+        match_score: None,
     }
 }
 
@@ -986,6 +1110,10 @@ fn summary_from_detail(row: &GameDetailRow) -> GameSummary {
         minutes_played: row.minutes_played,
         bookmarked: row.bookmarked != 0,
         last_played_at: row.last_played_at.as_deref().and_then(db::parse_time),
+        max_players: row.max_players.and_then(|value| u32::try_from(value).ok()),
+        matched_field: None,
+        matched_title: None,
+        match_score: None,
     }
 }
 
@@ -997,17 +1125,4 @@ fn clean_labels(values: Vec<String>) -> Vec<String> {
         .filter(|value| !value.is_empty())
         .filter(|value| seen.insert(value.to_ascii_lowercase()))
         .collect()
-}
-
-fn like_pattern(query: &str) -> String {
-    let mut pattern = String::with_capacity(query.len() + 2);
-    pattern.push('%');
-    for character in query.chars() {
-        if matches!(character, '%' | '_' | '\\') {
-            pattern.push('\\');
-        }
-        pattern.push(character);
-    }
-    pattern.push('%');
-    pattern
 }

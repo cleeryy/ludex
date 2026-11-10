@@ -451,6 +451,173 @@ async fn library_scan_groups_versions_and_serves_api() {
 }
 
 #[tokio::test]
+async fn advanced_filters_combine_and_fuzzy_search_ranks() {
+    let server = TestServer::start().await;
+    let (token, _) = server.setup().await;
+
+    server.write_game("Hades (2020).zip", 3 * 1024 * 1024);
+    server.write_game("Celeste (2018).zip", 2 * 1024 * 1024);
+    server.write_game("It Takes Two (2021).zip", 4 * 1024 * 1024);
+    server.write_game("Overcooked 2 (2018).zip", 1024 * 1024);
+    server.write_game("Marvel's Spider-Man 2 (2023).zip", 5 * 1024 * 1024);
+    run_scan(&server, &token).await;
+
+    let (_, list) = server.get("/api/games?limit=20", Some(&token)).await;
+    let id_for = |title: &str| {
+        list["items"]
+            .as_array()
+            .expect("items")
+            .iter()
+            .find(|item| item["title"] == title)
+            .and_then(|item| item["id"].as_i64())
+            .unwrap_or_else(|| panic!("missing {title}: {list}"))
+    };
+    let hades = id_for("Hades");
+    let celeste = id_for("Celeste");
+    let takes_two = id_for("It Takes Two");
+    let overcooked = id_for("Overcooked 2");
+    let spider = id_for("Marvel's Spider-Man 2");
+
+    let patch = |id: i64, body: Value| {
+        let server = &server;
+        let token = token.clone();
+        async move {
+            let (status, body) = server
+                .patch(&format!("/api/games/{id}"), &token, body)
+                .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+        }
+    };
+
+    patch(
+        hades,
+        json!({
+            "releaseDate": "2020-09-17",
+            "rating": 91.0,
+            "genres": ["Roguelike", "Action"],
+            "players": 1,
+            "altTitles": ["Underworld Run"]
+        }),
+    )
+    .await;
+    patch(
+        celeste,
+        json!({
+            "title": "Pokémon Édition",
+            "releaseDate": "2018-01-25",
+            "rating": 92.0,
+            "genres": ["Platformer"],
+            "players": 1
+        }),
+    )
+    .await;
+    patch(
+        takes_two,
+        json!({
+            "releaseDate": "2021-03-26",
+            "rating": 88.0,
+            "genres": ["Adventure", "Co-op"],
+            "players": 2
+        }),
+    )
+    .await;
+    patch(
+        overcooked,
+        json!({
+            "releaseDate": "2018-08-07",
+            "rating": 80.0,
+            "genres": ["Party", "Co-op"],
+            "players": 4
+        }),
+    )
+    .await;
+
+    for (id, minutes) in [(hades, 120), (takes_two, 60), (overcooked, 90)] {
+        let (status, body) = server
+            .post(
+                &format!("/api/games/{id}/playtime"),
+                Some(&token),
+                Some(json!({ "minutes": minutes })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    // Combined filters: co-op-capable, 2015-2024, rating >= 80, played 30-600 min.
+    let (status, filtered) = server
+        .get(
+            "/api/games?players=2&yearFrom=2015&yearTo=2024&minRating=80&playtimeMin=30&playtimeMax=600&sort=playtime&order=desc",
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{filtered}");
+    assert_eq!(filtered["total"], 2, "{filtered}");
+    assert_eq!(filtered["items"][0]["title"], "Overcooked 2", "{filtered}");
+    assert_eq!(filtered["items"][1]["title"], "It Takes Two", "{filtered}");
+
+    // Narrowing the year range excludes Overcooked (2018).
+    let (_, filtered) = server
+        .get(
+            "/api/games?players=2&yearFrom=2020&yearTo=2024",
+            Some(&token),
+        )
+        .await;
+    assert_eq!(filtered["total"], 1, "{filtered}");
+    assert_eq!(filtered["items"][0]["title"], "It Takes Two", "{filtered}");
+
+    // Playtime range and rating together.
+    let (_, filtered) = server
+        .get("/api/games?playtimeMin=90&minRating=85", Some(&token))
+        .await;
+    assert_eq!(filtered["total"], 1, "{filtered}");
+    assert_eq!(filtered["items"][0]["title"], "Hades", "{filtered}");
+
+    // Fuzzy search: typo, accent, alias and ranking.
+    let (status, search) = server.get("/api/games?q=hadse", Some(&token)).await;
+    assert_eq!(status, StatusCode::OK, "{search}");
+    assert_eq!(search["total"], 1, "{search}");
+    assert_eq!(search["items"][0]["title"], "Hades", "{search}");
+    assert_eq!(search["items"][0]["matchedField"], "title", "{search}");
+
+    let (_, search) = server.get("/api/games?q=pokemon", Some(&token)).await;
+    assert_eq!(search["total"], 1, "{search}");
+    assert_eq!(search["items"][0]["title"], "Pokémon Édition", "{search}");
+
+    let (_, search) = server
+        .get("/api/games?q=underworld%20run", Some(&token))
+        .await;
+    assert_eq!(search["total"], 1, "{search}");
+    assert_eq!(search["items"][0]["title"], "Hades", "{search}");
+    assert_eq!(search["items"][0]["matchedField"], "altTitle", "{search}");
+
+    let (_, search) = server.get("/api/games?q=zzzzzz", Some(&token)).await;
+    assert_eq!(search["total"], 0, "{search}");
+
+    // Suggestions rank the typo match first and carry cover/match metadata.
+    let (status, suggest) = server
+        .get("/api/games/suggest?q=spidrman", Some(&token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{suggest}");
+    assert_eq!(suggest["suggestions"][0]["title"], "Marvel's Spider-Man 2");
+    assert_eq!(suggest["suggestions"][0]["matchedField"], "title");
+    assert_eq!(suggest["suggestions"][0]["id"], spider);
+    assert!(suggest["suggestions"][0]["score"].as_f64().unwrap_or(0.0) > 300.0);
+
+    let (status, suggest) = server.get("/api/games/suggest?q=", Some(&token)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(suggest["suggestions"].as_array().map(Vec::len), Some(0));
+
+    // Fuzzy search still honours the other filters.
+    let (_, search) = server
+        .get("/api/games?q=overcook&players=4", Some(&token))
+        .await;
+    assert_eq!(search["total"], 1, "{search}");
+    assert_eq!(search["items"][0]["title"], "Overcooked 2", "{search}");
+
+    server.stop().await;
+}
+
+#[tokio::test]
 async fn progress_bookmarks_playtime_and_stats() {
     let server = TestServer::start().await;
     let (token, _) = server.setup().await;

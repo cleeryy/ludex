@@ -19,6 +19,8 @@ pub struct GameListRow {
     pub rating: Option<f64>,
     pub genres_json: String,
     pub early_access: i64,
+    pub alt_titles_json: String,
+    pub max_players: Option<i64>,
     pub state: String,
     pub minutes_played: i64,
     pub bookmarked: i64,
@@ -46,6 +48,8 @@ pub struct GameDetailRow {
     pub rating: Option<f64>,
     pub age_rating: Option<i64>,
     pub early_access: i64,
+    pub alt_titles_json: String,
+    pub max_players: Option<i64>,
     pub provider_slug: Option<String>,
     pub provider_id: Option<String>,
     pub provider_url: Option<String>,
@@ -344,6 +348,27 @@ pub struct GameQuery {
     /// Only early-access games.
     #[serde(default)]
     pub early_access: Option<bool>,
+    /// Earliest release year (inclusive).
+    #[serde(default)]
+    pub year_from: Option<i64>,
+    /// Latest release year (inclusive).
+    #[serde(default)]
+    pub year_to: Option<i64>,
+    /// Minimum supported player count.
+    #[serde(default)]
+    pub players: Option<i64>,
+    /// Minimum played minutes (inclusive).
+    #[serde(default)]
+    pub playtime_min: Option<i64>,
+    /// Maximum played minutes (inclusive).
+    #[serde(default)]
+    pub playtime_max: Option<i64>,
+    /// Minimum rating (0-100).
+    #[serde(default)]
+    pub min_rating: Option<f64>,
+    /// Metadata provider slug (`igdb`, `steam`, ...).
+    #[serde(default)]
+    pub provider: Option<String>,
     /// Sort column.
     #[serde(default)]
     pub sort: Option<String>,
@@ -356,6 +381,48 @@ pub struct GameQuery {
     /// Page size.
     #[serde(default)]
     pub limit: Option<i64>,
+}
+
+/// Query string for `GET /api/games/suggest`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuggestQuery {
+    /// Free-text query, usually a partial title with typos.
+    #[serde(default)]
+    pub q: Option<String>,
+    /// Maximum number of suggestions (default 8, capped at 20).
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+/// One fuzzy-search suggestion with cover art and match metadata.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameSuggestion {
+    /// Game id.
+    pub id: i64,
+    /// Display title.
+    pub title: String,
+    /// Release year, when known.
+    pub year: Option<i32>,
+    /// Cover media URL, when cached.
+    pub cover_url: Option<String>,
+    /// Field that matched (`title`, `sortTitle`, `altTitle`).
+    pub matched_field: String,
+    /// Title or alias text that matched.
+    pub matched_title: String,
+    /// Relevance score (0-1000).
+    pub score: f64,
+}
+
+/// Response of `GET /api/games/suggest`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuggestResponse {
+    /// Normalised query echoed back.
+    pub query: String,
+    /// Ranked suggestions, best first.
+    pub suggestions: Vec<GameSuggestion>,
 }
 
 /// Editor game metadata update.
@@ -395,6 +462,12 @@ pub struct UpdateGameRequest {
     /// Early-access flag.
     #[serde(default)]
     pub early_access: Option<bool>,
+    /// Alternative titles used by fuzzy search.
+    #[serde(default)]
+    pub alt_titles: Option<Vec<String>>,
+    /// Highest supported player count (`null` clears).
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub players: Option<Option<u32>>,
     /// Launch configuration, replaces all launch fields.
     #[serde(default)]
     pub launch: Option<LaunchInfo>,
