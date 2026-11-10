@@ -54,6 +54,10 @@ pub struct Config {
     pub local_mode: bool,
     /// Allow ingest downloads from private/loopback addresses.
     pub ingest_allow_private: bool,
+    /// Allow webhook targets on private/loopback addresses (tests only).
+    pub webhooks_allow_private: bool,
+    /// Base delay for webhook retry backoff, in milliseconds.
+    pub webhooks_backoff_ms: u64,
     /// Interval between automatic library scans. Zero disables periodic scans.
     pub scan_interval: Duration,
     /// Maximum size of a single cloud save upload, in bytes.
@@ -159,6 +163,12 @@ impl Config {
             web_dir: env_opt("LUDEX_WEB_DIR").map(PathBuf::from),
             local_mode: bool_env("LUDEX_LOCAL_MODE"),
             ingest_allow_private: bool_env("LUDEX_INGEST_ALLOW_PRIVATE"),
+            webhooks_allow_private: bool_env("LUDEX_WEBHOOKS_ALLOW_PRIVATE"),
+            webhooks_backoff_ms: env_opt("LUDEX_WEBHOOKS_BACKOFF_MS")
+                .map(|value| value.parse::<u64>())
+                .transpose()
+                .context("LUDEX_WEBHOOKS_BACKOFF_MS must be an integer")?
+                .unwrap_or(1_000),
             scan_interval: Duration::from_secs(scan_interval_seconds),
             saves_max_bytes,
             oidc_issuer: env_opt("LUDEX_OIDC_ISSUER"),
@@ -200,6 +210,8 @@ impl Config {
             web_dir: None,
             local_mode: true,
             ingest_allow_private: false,
+            webhooks_allow_private: false,
+            webhooks_backoff_ms: 1_000,
             scan_interval: Duration::from_secs(DEFAULT_SCAN_INTERVAL_SECONDS),
             saves_max_bytes: DEFAULT_SAVES_MAX_BYTES,
             oidc_issuer: None,

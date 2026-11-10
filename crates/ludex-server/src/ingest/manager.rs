@@ -31,6 +31,8 @@ use super::types::{
     PARTS_FILE, PART_SUFFIX, USER_AGENT,
 };
 use super::IngestContext;
+use crate::audit::actions;
+use crate::events::{Actor, Event};
 
 type JobMap = HashMap<String, IngestJob>;
 type PartMap = HashMap<String, String>;
@@ -962,6 +964,18 @@ async fn finish_download(state: &Arc<Inner>, id: &str, content_type: Option<&str
     state.persist().await;
     // Non-blocking: a full scan channel simply drops the request when full.
     let _ = state.ctx.scan_tx.try_send(());
+    if let Some(events) = &state.ctx.events {
+        let title = state.get_job(id).map(|job| job.title).unwrap_or_default();
+        events.emit(
+            Event::new(actions::DOWNLOAD_COMPLETED, Actor::System)
+                .target("download", id.to_string())
+                .metadata(serde_json::json!({
+                    "title": title,
+                    "fileName": file_name,
+                    "bytes": final_size,
+                })),
+        );
+    }
     info!(job = id, file = %file_name, bytes = final_size, "ingest download finished");
 }
 
