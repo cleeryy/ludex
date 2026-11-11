@@ -42,6 +42,7 @@ import { Badge, IconButton, Kbd } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { DropdownMenu, useDropdown, type MenuEntry } from "@/components/ui/select";
 import { CommandPalette } from "@/components/shell/command-palette";
+import { ServerSwitcher } from "@/components/shell/server-switcher";
 import { ShortcutsDialog } from "@/components/shell/shortcuts-dialog";
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
 import { useGenres, useInstalledGames, useNativeEvents } from "@/lib/hooks";
@@ -346,6 +347,9 @@ function Topbar({ onOpenPalette, chrome }: { onOpenPalette: () => void; chrome: 
           </span>
           {showSort && <SortMenu />}
           <div className="mx-1.5 hidden h-5 w-px bg-line sm:block" aria-hidden="true" />
+          <span className="hidden sm:block">
+            <ServerSwitcher />
+          </span>
           <UserMenu />
         </div>
       </div>
@@ -437,6 +441,7 @@ function MobileMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open
         <Row label={t("Collections")} icon={<ListPlus className="size-3.5" />} onClick={() => go("/collections")} />
         <Row label={t("Community")} icon={<Users className="size-3.5" />} onClick={() => go("/community")} />
         <Row label={t("Big Picture mode")} icon={<Gamepad2 className="size-3.5" />} onClick={() => go("/bigpicture")} />
+        <Row label={t("Servers")} icon={<Server className="size-3.5" />} onClick={() => go("/settings")} />
         <Row label={t("Settings")} icon={<Settings className="size-3.5" />} onClick={() => go("/settings")} />
         <div className="pb-1 pt-4 text-[11.5px] text-ink-3">{t("Genres")}</div>
         <div className="flex flex-wrap gap-1.5 pb-4">

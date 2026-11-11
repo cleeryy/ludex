@@ -690,6 +690,150 @@ export interface LocalSettings {
   cloudDeviceId: string;
   /** Device name shown on snapshots (#108); null uses the host name. */
   cloudDeviceLabel: string | null;
+  /** Saved Ludex servers (#24). Tokens live in the secret store, never here. */
+  servers: ServerProfile[];
+  /** Id of the profile backing `serverUrl`/`token`. */
+  activeServerId: string;
+  /** Sunshine `apps.json` override (#97). Empty = detect. */
+  sunshineAppsPath: string;
+  /** Sunshine `sunshine.conf` override (#97). Empty = next to apps.json. */
+  sunshineConfPath: string;
+  /** Moonlight binary override (#98). Empty = detect. */
+  moonlightBinary: string;
+  /** Moonlight config override (#98). Empty = detect. */
+  moonlightConfigPath: string;
+}
+
+/* --------------------------- servers and profiles (#24) ------------------ */
+
+export interface ServerProfile {
+  id: string;
+  label: string;
+  url: string;
+  username: string | null;
+  lastUsedAt: string | null;
+  createdAt: string | null;
+  active: boolean;
+  local: boolean;
+  hasToken: boolean;
+}
+
+export interface ServerList {
+  servers: ServerProfile[];
+  activeId: string | null;
+  tokenStorage: "keychain" | "database";
+  keychain: string | null;
+  warning: string | null;
+  message: string | null;
+}
+
+export interface ServerTest {
+  ok: boolean;
+  status: number | null;
+  version: string | null;
+  latencyMs: number;
+  message: string;
+}
+
+/* --------------------- Sunshine host and Moonlight (#97, #98) ------------ */
+
+export interface SunshineStatus {
+  detected: boolean;
+  platform: string;
+  appsPath: string | null;
+  confPath: string | null;
+  binary: string | null;
+  source: string | null;
+  overridden: boolean;
+  appsFound: boolean;
+  entries: number;
+  managedEntries: number;
+  warnings: string[];
+  message: string;
+}
+
+export interface SunshinePreviewEntry {
+  gameId: number;
+  title: string;
+  name: string;
+  cmd: string;
+  workingDir: string;
+  imagePath: string | null;
+  action: "add" | "update" | "unchanged";
+  needsLudexScheme: boolean;
+}
+
+export interface SunshineRemoval {
+  name: string;
+  gameId: number | null;
+}
+
+export interface SunshineSkipped {
+  gameId: number;
+  title: string;
+  reason: string;
+}
+
+export interface SunshinePreview {
+  status: SunshineStatus;
+  entries: SunshinePreviewEntry[];
+  removals: SunshineRemoval[];
+  skipped: SunshineSkipped[];
+  canSync: boolean;
+  message: string;
+}
+
+export interface SunshineReport {
+  written: boolean;
+  dryRun: boolean;
+  appsPath: string | null;
+  backupPath: string | null;
+  added: number;
+  updated: number;
+  unchanged: number;
+  removed: number;
+  managedEntries: number;
+  skipped: SunshineSkipped[];
+  message: string;
+}
+
+export interface MoonlightHost {
+  name: string;
+  address: string;
+  localAddress: string | null;
+  remoteAddress: string | null;
+  manualAddress: string | null;
+  paired: boolean;
+}
+
+export interface MoonlightStatus {
+  detected: boolean;
+  platform: string;
+  binary: string | null;
+  configPath: string | null;
+  configFound: boolean;
+  hosts: MoonlightHost[];
+  supported: boolean;
+  warnings: string[];
+  message: string;
+}
+
+export interface StreamLaunch {
+  launched: boolean;
+  host: string;
+  app: string;
+  command: string[];
+  message: string;
+}
+
+export interface StreamTarget {
+  published: boolean;
+  appName: string | null;
+  gameId: number;
+  hosts: MoonlightHost[];
+  moonlight: MoonlightStatus;
+  sunshine: SunshineStatus;
+  message: string;
 }
 
 export interface InstalledGame {

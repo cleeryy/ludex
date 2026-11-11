@@ -94,6 +94,26 @@ All notable changes to Ludex are documented here. The format is based on
   stay unavailable while the custom bar is on: documented with the 500 px
   constraint in `docs/WINDOW-CHROME.md`, along with the manual Windows 10/11 and
   Linux test matrix that still has to be run.
+
+- Sunshine host integration (#97): Settings → Streaming detects Sunshine
+  (`Program Files`, Flatpak, XDG and `/etc/sunshine` paths, plus manual
+  overrides), previews every add/update/removal, and publishes the installed
+  Ludex/Steam library as app entries with a cover image, a working directory,
+  `detached: true` and a `ludex` marker. Only marked entries for the current
+  server are touched, user apps always survive, a re-sync is a no-op, and every
+  real write backs `apps.json` up first. Malformed files are reported, never
+  overwritten.
+- Moonlight client integration (#98): detection of the binary and of
+  `Moonlight.conf`, host parsing with pairing state, and a **Stream** action on
+  published game pages that runs `moonlight stream <host> <app>`. Missing
+  Moonlight, missing hosts, unpaired hosts and unpublished games each report a
+  specific error.
+- Multiple servers and accounts (#24): saved server profiles with per-profile
+  tokens (OS keychain when available, SQLite fallback with an explicit warning),
+  a shell switcher and an add/edit/remove/test dialog, per-profile desktop
+  indexes (`{appDataDir}/servers/<id>/index.db`) and per-server browser token,
+  view and filter namespaces. The existing single-server setup is migrated on
+  launch; switching is refused while a game or download is active.
 ## [0.2.5] - 2026-11-10
 
 ### Added

@@ -20,14 +20,17 @@ mod paths;
 mod prefix;
 mod presence;
 mod process_tree;
+mod profiles;
 mod protondb;
 mod saves_detect;
 mod saves_sync;
+mod secrets;
 mod server;
 mod settings;
 mod state;
 mod steam;
 mod stream_install;
+mod streaming;
 #[cfg(test)]
 mod test_support;
 mod tray;
@@ -179,6 +182,19 @@ pub fn run() {
             commands::restore_game_config,
             commands::list_game_config_backups,
             commands::game_config_adapters,
+            commands::sunshine_status,
+            commands::sunshine_preview,
+            commands::sunshine_sync,
+            commands::sunshine_remove_managed,
+            commands::moonlight_status,
+            commands::stream_target,
+            commands::stream_game,
+            commands::moonlight_stream,
+            commands::list_servers,
+            commands::save_server,
+            commands::remove_server,
+            commands::switch_server,
+            commands::test_server,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Ludex application");

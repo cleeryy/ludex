@@ -6,6 +6,7 @@
 
 import { stateLabel, sortLabel } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { scopedStorageKey } from "@/lib/server-storage";
 import type { GameListQuery, ProgressState } from "@/lib/types";
 
 export const FILTER_STORAGE_KEY = "ludex.library.filters";
@@ -221,8 +222,9 @@ export function saveFilters(params: URLSearchParams): void {
       const value = params.get(key);
       if (value) stored.set(key, value);
     }
-    if ([...stored.keys()].length === 0) localStorage.removeItem(FILTER_STORAGE_KEY);
-    else localStorage.setItem(FILTER_STORAGE_KEY, stored.toString());
+    const key = scopedStorageKey(FILTER_STORAGE_KEY);
+    if ([...stored.keys()].length === 0) localStorage.removeItem(key);
+    else localStorage.setItem(key, stored.toString());
   } catch {
     // Private mode or quota errors: persistence is best-effort.
   }
@@ -230,7 +232,7 @@ export function saveFilters(params: URLSearchParams): void {
 
 export function loadFilters(): URLSearchParams | null {
   try {
-    const raw = localStorage.getItem(FILTER_STORAGE_KEY);
+    const raw = localStorage.getItem(scopedStorageKey(FILTER_STORAGE_KEY));
     if (!raw) return null;
     const params = new URLSearchParams(raw);
     return [...params.keys()].length ? params : null;

@@ -101,6 +101,12 @@ mode 0600 on Unix because it holds the JWT). Defaults:
 | `compatProtonPath` | empty → Proton auto-detection (#90) |
 | `compatWinePath` | empty → Wine auto-detection (#90) |
 | `defaultLaunchMode` | `auto` (new Linux games, #89) |
+| `servers` | `[]`; saved server metadata (#24), tokens live in the keychain |
+| `activeServerId` | empty until a server is configured |
+| `sunshineAppsPath` | empty → Sunshine auto-detection (#97) |
+| `sunshineConfPath` | empty → next to `apps.json` (#97) |
+| `moonlightBinary` | empty → Moonlight auto-detection (#98) |
+| `moonlightConfigPath` | empty → the Qt config location (#98) |
 
 `save_settings` deep-merges partial payloads, so a wizard can save one field at
 a time. An empty `downloadDir` is meaningful: the effective directory is
@@ -117,7 +123,11 @@ job starts, and only that job fails with an actionable message.
 
 ## Local index
 
-`{appDataDir}/ludex-desktop.db` (SQLite, WAL, `user_version` migrations):
+`{appDataDir}/servers/<profileId>/index.db` (SQLite, WAL, `user_version`
+migrations). An installation with no saved server uses
+`{appDataDir}/ludex-desktop.db`; the first profile adopts that file by copy, so
+an upgrade keeps every install. Each server profile has its own index, so
+switching servers never mixes installed games, sessions or download jobs.
 
 - `installed_games` — one row per installed game (`game_id` PK, version, title,
   install path, executable, size, timestamps, archive fingerprint, internal
@@ -149,6 +159,23 @@ job starts, and only that job fails with an actionable message.
   diff, size, origin (`manual`, `adapter`, `restore`) and timestamp. Restoring
   a row copies the current file to a new `restore` row first. Schema v11,
   after the stream-checkpoint v10 from #115.
+
+## Streaming and server profiles
+
+- **Sunshine (#97).** `sunshine_status` detects Sunshine and counts the managed
+  entries; `sunshine_preview` shows the merge result without writing;
+  `sunshine_sync` writes `apps.json` after copying it to
+  `apps.json.ludex-backup-<UTC>-<id>.bak`. Ludex entries carry a `ludex` marker,
+  so a re-sync is idempotent and user-created apps are never touched. Covers are
+  cached in `{appDataDir}/streaming/art`.
+- **Moonlight (#98).** `moonlight_status` parses the Qt `Moonlight.conf` host
+  list and pairing state; `stream_game` runs
+  `moonlight stream <host> <app>` for a game published to Sunshine.
+- **Servers (#24).** `settings.json` holds profile metadata; profile tokens go
+  to the OS keychain (`secret-tool`/`security`) or `{appDataDir}/secrets.db`
+  (0600) with a UI warning. `switch_server` opens the profile's own index and is
+  refused while a game or an install is running. Legacy single-server installs
+  are migrated automatically.
 
 ## Install pipeline
 

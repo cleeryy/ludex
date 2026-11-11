@@ -10,6 +10,7 @@ import {
   FileSignature,
   FolderInput,
   FolderOpen,
+  Cast,
   Link2,
   ListPlus,
   MoreHorizontal,
@@ -43,6 +44,7 @@ import { MoveInstallDialog } from "@/components/game/move-install";
 import { MediaGallery } from "@/components/game/media-gallery";
 import { AddToCollectionDialog } from "@/components/collections/add-to-collection";
 import { ShareDialog } from "@/components/share/share-dialog";
+import { StreamDialog } from "@/components/game/stream-dialog";
 import { useAuth, useIsEditor } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { GameBackdrop, GameCover } from "@/components/art/cover";
@@ -78,6 +80,7 @@ export function GameDetailScreen() {
   const [shareOpen, setShareOpen] = useState(false);
   const [artworkOpen, setArtworkOpen] = useState(false);
   const [launchOpen, setLaunchOpen] = useState(false);
+  const [streamOpen, setStreamOpen] = useState(false);
 
   const { data: game, isPending, isError, error, refetch } = useQuery({
     queryKey: ["game", gameId],
@@ -87,6 +90,15 @@ export function GameDetailScreen() {
 
   // Desktop playtime for this game (#26): totals and recent sessions.
   const playtime = useGamePlaytime(gameId);
+
+  // #98: the Stream action only appears once Sunshine has the game.
+  const streamTarget = useQuery({
+    queryKey: ["stream-target", gameId],
+    queryFn: () => native.streamTarget(gameId),
+    enabled: isNative() && Number.isFinite(gameId),
+    retry: false,
+    staleTime: 30_000,
+  });
 
   const [versionId, setVersionId] = useState<number | null>(null);
   const version = useMemo(() => {
@@ -417,6 +429,11 @@ export function GameDetailScreen() {
                   {t("Link existing installation")}
                 </Button>
               )}
+              {streamTarget.data?.published && (
+                <Button variant="default" size="lg" icon={<Cast className="size-4" />} onClick={() => setStreamOpen(true)}>
+                  {t("Stream")}
+                </Button>
+              )}
               {update && isInstalled && !activeJob && (
                 <Button
                   variant="default"
@@ -719,6 +736,7 @@ export function GameDetailScreen() {
         gameTitle={game.title}
       />
       <ShareDialog open={shareOpen} onOpenChange={setShareOpen} game={game} />
+      <StreamDialog gameId={game.id} title={game.title} open={streamOpen} onOpenChange={setStreamOpen} />
       <ArtworkDialog open={artworkOpen} onOpenChange={setArtworkOpen} game={game} />
     </div>
   );

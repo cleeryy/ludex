@@ -26,6 +26,7 @@ use crate::manifest::VerifyReport;
 use crate::paths;
 use crate::prefix::{self, PrefixInfo, WinetricksReport};
 use crate::presence::{self, PresenceStatus};
+use crate::profiles;
 use crate::protondb::{self, ProtonDbRating};
 use crate::saves_detect::{self, SavePathInput, SavePaths};
 use crate::saves_sync::{self, CloudSaveStatus, RestoreOutcome, SyncToggleResponse};
@@ -33,6 +34,7 @@ use crate::server::{self, ServerInfo, ServerStatus};
 use crate::settings::{self, LocalSettings};
 use crate::state::AppState;
 use crate::steam::{self, SteamGame, SteamScan};
+use crate::streaming;
 use crate::updater::{self, UpdateStatus};
 use crate::updates::{self, GameUpdate};
 use crate::util::{merge_json, now_rfc3339};
@@ -66,6 +68,13 @@ pub fn save_settings(
     // An older web bundle still sends the two single folders (#99). Map them
     // onto the default location instead of letting `normalize` discard them.
     let mut patch = settings;
+    // Profiles and the active server are managed by `save_server` /
+    // `switch_server`; a stale full-settings payload from another tab must not
+    // drop a profile that was added meanwhile (#24).
+    if let Some(object) = patch.as_object_mut() {
+        object.remove("servers");
+        object.remove("activeServerId");
+    }
     let has_locations = patch.get("locations").is_some();
     let install_legacy = patch
         .as_object_mut()
@@ -87,19 +96,17 @@ pub fn save_settings(
         );
     }
 
-    let mut next: LocalSettings =
+    let next: LocalSettings =
         serde_json::from_value(merged).map_err(|e| format!("Invalid settings: {e}"))?;
-    next.normalize(&state.app_data);
-    settings::validate(&next)?;
-    settings::ensure_dirs(&next)?;
-    settings::save(&state.settings_path, &next)?;
-    state.set_settings(next.clone())?;
-    presence::configure(next.discord_presence, &next.discord_client_id);
+    // Persist through the state so server profiles stay in sync and the active
+    // token reaches the secret store (#24).
+    let saved = state.persist_settings(next)?;
+    presence::configure(saved.discord_presence, &saved.discord_client_id);
     // The title bar preference is saved with the rest of the form; apply it so
     // the window never needs a restart (#111).
-    chrome::apply(&app, next.native_title_bar);
+    chrome::apply(&app, saved.native_title_bar);
 
-    Ok(next)
+    Ok(saved)
 }
 
 /// Switch between the custom title bar and the native one (#111).
@@ -2712,4 +2719,537 @@ pub fn game_config_adapters(
         ));
     }
     Ok(config_adapters::report(game_id, &root))
+}
+
+/* --------------------- Sunshine host (#97), Moonlight (#98) --------------- */
+
+fn server_scope(settings: &LocalSettings) -> String {
+    let active = settings.active_server_id.trim();
+    if active.is_empty() {
+        profiles::server_id_for(settings.server_url.trim_end_matches('/'))
+    } else {
+        active.to_string()
+    }
+}
+
+fn cover_directory(state: &AppState) -> PathBuf {
+    state.app_data.join("streaming").join("art")
+}
+
+fn installed_games(state: &AppState) -> Result<Vec<InstalledGame>, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    db::list_installed(&connection)
+}
+
+fn local_covers(games: &[InstalledGame], state: &AppState) -> std::collections::HashMap<i64, String> {
+    let dir = cover_directory(state);
+    games
+        .iter()
+        .filter_map(|game| {
+            streaming::cached_cover(&dir, game.game_id).map(|path| (game.game_id, path))
+        })
+        .collect()
+}
+
+fn build_published_apps(
+    games: &[InstalledGame],
+    covers: &std::collections::HashMap<i64, String>,
+) -> (
+    Vec<streaming::PublishedApp>,
+    Vec<streaming::SkippedGame>,
+) {
+    let mut published = Vec::new();
+    let mut skipped = Vec::new();
+    for game in games {
+        match streaming::publish_app(game, covers.get(&game.game_id).cloned()) {
+            Ok(app) => published.push(app),
+            Err(reason) => skipped.push(reason),
+        }
+    }
+    (published, skipped)
+}
+
+/// Download missing covers into the local art cache. Failures are ignored: a
+/// missing image never blocks publishing.
+async fn fetch_missing_covers(
+    state: &AppState,
+    games: &[InstalledGame],
+    mut covers: std::collections::HashMap<i64, String>,
+) -> std::collections::HashMap<i64, String> {
+    let settings = state.settings_snapshot();
+    let base = settings.server_url.trim_end_matches('/').to_string();
+    if base.is_empty() {
+        return covers;
+    }
+    let missing: Vec<i64> = games
+        .iter()
+        .map(|game| game.game_id)
+        .filter(|game_id| *game_id > 0 && !covers.contains_key(game_id))
+        .take(120)
+        .collect();
+    if missing.is_empty() {
+        return covers;
+    }
+
+    let index = streaming::fetch_cover_index(&state.http, &base, settings.token.as_deref()).await;
+    let dir = cover_directory(state);
+    for game_id in missing {
+        let Some(url) = index.get(&game_id) else {
+            continue;
+        };
+        if let Some(path) = streaming::fetch_cover(&state.http, &base, url, &dir, game_id).await {
+            covers.insert(game_id, path);
+        }
+    }
+    covers
+}
+
+#[tauri::command]
+pub fn sunshine_status(state: State<'_, AppState>) -> Result<streaming::SunshineStatus, String> {
+    Ok(streaming::sunshine_status(&state.settings_snapshot()))
+}
+
+/// Dry-run preview: what a sync would add, update and remove.
+#[tauri::command]
+pub fn sunshine_preview(app: AppHandle) -> Result<streaming::SunshinePreview, String> {
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+    let status = streaming::sunshine_status(&settings);
+    let existing = streaming::read_apps_text(&status)?;
+    let games = installed_games(&state)?;
+    let covers = local_covers(&games, &state);
+    let (desired, skipped) = build_published_apps(&games, &covers);
+    let scope = server_scope(&settings);
+
+    let (entries, removals) = streaming::preview_apps(existing.as_deref(), &desired, &scope)?;
+    let can_sync = status.apps_path.is_some();
+    let message = if !can_sync {
+        "Sunshine's config folder was not found. Set it in Settings → Streaming or install Sunshine first."
+            .to_string()
+    } else if entries.is_empty() && removals.is_empty() {
+        "Nothing to publish yet: install a game in Ludex first.".to_string()
+    } else {
+        format!(
+            "{} to add, {} to update, {} to remove. Nothing is written until you confirm.",
+            entries.iter().filter(|entry| entry.action == "add").count(),
+            entries.iter().filter(|entry| entry.action == "update").count(),
+            removals.len()
+        )
+    };
+
+    Ok(streaming::SunshinePreview {
+        status,
+        entries,
+        removals,
+        skipped,
+        can_sync,
+        message,
+    })
+}
+
+/// Write the Sunshine app list. `dryRun` skips the write; every real write is
+/// backed up first.
+#[tauri::command]
+pub async fn sunshine_sync(
+    app: AppHandle,
+    dry_run: Option<bool>,
+    remove_missing: Option<bool>,
+    download_covers: Option<bool>,
+) -> Result<streaming::SunshineReport, String> {
+    let dry_run = dry_run.unwrap_or(false);
+    let remove_missing = remove_missing.unwrap_or(true);
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+    let status = streaming::sunshine_status(&settings);
+    let apps_path = status
+        .apps_path
+        .clone()
+        .ok_or_else(|| {
+            "Sunshine's config folder was not found. Set it in Settings → Streaming or install Sunshine first."
+                .to_string()
+        })?;
+    let existing = streaming::read_apps_text(&status)?;
+
+    let games = installed_games(&state)?;
+    let mut covers = local_covers(&games, &state);
+    if !dry_run && download_covers.unwrap_or(true) {
+        covers = fetch_missing_covers(&state, &games, covers).await;
+    }
+    let (desired, skipped) = build_published_apps(&games, &covers);
+    let scope = server_scope(&settings);
+    let (root, report) = streaming::merge_apps(existing.as_deref(), &desired, &scope, remove_missing)?;
+
+    let mut backup_path = None;
+    let mut written = false;
+    if report.changed && !dry_run {
+        let payload = streaming::render_apps(&root)?;
+        backup_path = streaming::write_apps_with_backup(Path::new(&apps_path), &payload)?
+            .map(|path| path.to_string_lossy().to_string());
+        written = true;
+    }
+
+    let message = if dry_run {
+        format!(
+            "Preview only: {} to add, {} to update, {} to keep, {} to remove. Nothing was written.",
+            report.added, report.updated, report.unchanged, report.removed
+        )
+    } else if written {
+        format!(
+            "Published {} app(s): {} added, {} updated, {} removed. A backup of apps.json was written first.",
+            report.managed_entries, report.added, report.updated, report.removed
+        )
+    } else {
+        "Sunshine already matches the Ludex library; nothing was written.".to_string()
+    };
+
+    Ok(streaming::SunshineReport {
+        written,
+        dry_run,
+        apps_path: Some(apps_path),
+        backup_path,
+        added: report.added,
+        updated: report.updated,
+        unchanged: report.unchanged,
+        removed: report.removed,
+        managed_entries: report.managed_entries,
+        skipped,
+        message,
+    })
+}
+
+/// Remove every Ludex-managed entry from Sunshine. User apps are untouched.
+#[tauri::command]
+pub fn sunshine_remove_managed(app: AppHandle) -> Result<streaming::SunshineReport, String> {
+    let state = app.state::<AppState>();
+    let status = streaming::sunshine_status(&state.settings_snapshot());
+    let Some(apps_path) = status.apps_path.clone() else {
+        return Err("Sunshine's config folder was not found.".to_string());
+    };
+    let Some(existing) = streaming::read_apps_text(&status)? else {
+        return Ok(streaming::SunshineReport {
+            written: false,
+            dry_run: false,
+            apps_path: Some(apps_path),
+            backup_path: None,
+            added: 0,
+            updated: 0,
+            unchanged: 0,
+            removed: 0,
+            managed_entries: 0,
+            skipped: Vec::new(),
+            message: "Sunshine has no apps.json yet; nothing to remove.".to_string(),
+        });
+    };
+
+    let (root, removed) = streaming::remove_managed_apps(&existing)?;
+    if removed == 0 {
+        return Ok(streaming::SunshineReport {
+            written: false,
+            dry_run: false,
+            apps_path: Some(apps_path),
+            backup_path: None,
+            added: 0,
+            updated: 0,
+            unchanged: 0,
+            removed: 0,
+            managed_entries: 0,
+            skipped: Vec::new(),
+            message: "No Ludex-managed app was present in Sunshine.".to_string(),
+        });
+    }
+
+    let payload = streaming::render_apps(&root)?;
+    let backup = streaming::write_apps_with_backup(Path::new(&apps_path), &payload)?
+        .map(|path| path.to_string_lossy().to_string());
+    Ok(streaming::SunshineReport {
+        written: true,
+        dry_run: false,
+        apps_path: Some(apps_path),
+        backup_path: backup,
+        added: 0,
+        updated: 0,
+        unchanged: 0,
+        removed,
+        managed_entries: 0,
+        skipped: Vec::new(),
+        message: format!(
+            "Removed {removed} Ludex-managed app(s) from Sunshine. A backup was written first."
+        ),
+    })
+}
+
+#[tauri::command]
+pub fn moonlight_status(state: State<'_, AppState>) -> Result<streaming::MoonlightStatus, String> {
+    Ok(streaming::moonlight_status(&state.settings_snapshot()))
+}
+
+/// Is this game published to Sunshine, and can Moonlight stream it?
+#[tauri::command]
+pub fn stream_target(app: AppHandle, game_id: i64) -> Result<streaming::StreamTarget, String> {
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+    let sunshine = streaming::sunshine_status(&settings);
+    let existing = streaming::read_apps_text(&sunshine)?;
+    let app_name = streaming::published_name(existing.as_deref(), game_id)?;
+    let moonlight = streaming::moonlight_status(&settings);
+
+    let published = app_name.is_some();
+    let message = if !published {
+        "This game is not published to Sunshine yet. Publish the library in Settings → Streaming."
+            .to_string()
+    } else if !moonlight.detected || moonlight.hosts.is_empty() {
+        moonlight.message.clone()
+    } else {
+        "Ready to stream.".to_string()
+    };
+
+    Ok(streaming::StreamTarget {
+        published,
+        app_name,
+        game_id,
+        hosts: moonlight.hosts.clone(),
+        moonlight,
+        sunshine,
+        message,
+    })
+}
+
+/// Launch Moonlight for a Ludex game that is published to Sunshine.
+#[tauri::command]
+pub fn stream_game(
+    app: AppHandle,
+    game_id: i64,
+    host: Option<String>,
+) -> Result<streaming::StreamLaunch, String> {
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+    let sunshine = streaming::sunshine_status(&settings);
+    let existing = streaming::read_apps_text(&sunshine)?;
+    let app_name = streaming::published_name(existing.as_deref(), game_id)?.ok_or_else(|| {
+        "This game is not published to Sunshine yet. Publish the library in Settings → Streaming."
+            .to_string()
+    })?;
+
+    let moonlight = streaming::moonlight_status(&settings);
+    let binary = moonlight
+        .binary
+        .clone()
+        .filter(|_| moonlight.detected)
+        .ok_or_else(|| moonlight.message.clone())?;
+    let selected = streaming::select_host(&moonlight.hosts, host.as_deref())?;
+    streaming::spawn_stream(&binary, &selected.address, &app_name)
+}
+
+/// Launch Moonlight for an arbitrary Sunshine app name (advanced / manual use).
+#[tauri::command]
+pub fn moonlight_stream(
+    app: AppHandle,
+    host: String,
+    app_name: String,
+) -> Result<streaming::StreamLaunch, String> {
+    let state = app.state::<AppState>();
+    let moonlight = streaming::moonlight_status(&state.settings_snapshot());
+    let binary = moonlight.binary.clone().ok_or_else(|| moonlight.message.clone())?;
+    streaming::spawn_stream(&binary, &host, &app_name)
+}
+
+/* -------------------- Multiple servers and accounts (#24) ----------------- */
+
+fn switching_block_reason(state: &AppState) -> Result<(), String> {
+    {
+        let processes = state
+            .processes
+            .lock()
+            .map_err(|_| "The process list is unavailable; restart Ludex.".to_string())?;
+        if !processes.is_empty() {
+            return Err("Stop the running game before switching servers.".to_string());
+        }
+    }
+    let jobs = state
+        .jobs
+        .lock()
+        .map_err(|_| "The install queue is unavailable; restart Ludex.".to_string())?;
+    let busy = jobs.values().any(|job| {
+        !matches!(
+            job.snapshot().phase,
+            crate::install::InstallPhase::Done
+                | crate::install::InstallPhase::Cancelled
+                | crate::install::InstallPhase::Error
+        )
+    });
+    if busy {
+        return Err("Finish or cancel the active downloads before switching servers.".to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_servers(state: State<'_, AppState>) -> Result<profiles::ServerList, String> {
+    Ok(profiles::list(
+        &state.settings_snapshot(),
+        &state.secrets,
+        None,
+    ))
+}
+
+/// Add a server or update one. `token` is stored in the secret store, never in
+/// the profile list.
+#[tauri::command]
+pub fn save_server(
+    state: State<'_, AppState>,
+    id: Option<String>,
+    label: String,
+    url: String,
+    username: Option<String>,
+    token: Option<String>,
+) -> Result<profiles::ServerList, String> {
+    let mut next = state.settings_snapshot();
+    let profile = profiles::upsert(
+        &mut next,
+        id.as_deref(),
+        &label,
+        &url,
+        username.as_deref(),
+    )?;
+    let first_profile = next.active_server_id.is_empty();
+    if let Some(token) = crate::util::non_empty(token.as_deref()) {
+        state
+            .secrets
+            .set(&profiles::secret_key(&profile.id), token)?;
+    }
+    if first_profile {
+        profiles::apply_active(
+            &mut next,
+            &profile.id,
+            crate::util::non_empty(token.as_deref()).map(str::to_string),
+            &crate::util::now_rfc3339(),
+        )?;
+    } else if next.active_server_id == profile.id {
+        if let Some(token) = crate::util::non_empty(token.as_deref()) {
+            next.token = Some(token.to_string());
+        }
+    }
+    let saved = state.persist_settings(next)?;
+    Ok(profiles::list(&saved, &state.secrets, None))
+}
+
+#[tauri::command]
+pub async fn remove_server(
+    app: AppHandle,
+    id: String,
+) -> Result<profiles::ServerList, String> {
+    let state = app.state::<AppState>();
+    let mut next = state.settings_snapshot();
+    let outcome = profiles::remove(&mut next, &id)?;
+    if let Err(error) = state.secrets.delete(&profiles::secret_key(&id)) {
+        tracing::warn!(error = %error, "could not delete the saved token for the removed server");
+    }
+
+    if outcome.was_active {
+        let token = if next.active_server_id.is_empty() {
+            None
+        } else {
+            state
+                .secrets
+                .get(&profiles::secret_key(&next.active_server_id))
+                .unwrap_or_default()
+        };
+        next.token = token;
+        let saved = state.persist_settings(next)?;
+        state.open_server_database(&saved.active_server_id)?;
+        let message = if outcome.has_fallback {
+            format!("Switched to {}.", saved.server_url)
+        } else {
+            "No server is saved any more.".to_string()
+        };
+        return Ok(profiles::list(&saved, &state.secrets, Some(message)));
+    }
+
+    let saved = state.persist_settings(next)?;
+    Ok(profiles::list(&saved, &state.secrets, None))
+}
+
+/// Switch the active server. Refused while a game runs or an install is active
+/// because each profile has its own desktop index.
+#[tauri::command]
+pub async fn switch_server(
+    app: AppHandle,
+    id: String,
+) -> Result<profiles::ServerList, String> {
+    let state = app.state::<AppState>();
+    switching_block_reason(&state)?;
+
+    let current = state.settings_snapshot();
+    if current.active_server_id == id {
+        return Ok(profiles::list(&current, &state.secrets, None));
+    }
+    let profile = current
+        .servers
+        .iter()
+        .find(|profile| profile.id == id)
+        .cloned()
+        .ok_or_else(|| "That server is not saved.".to_string())?;
+
+    let token = state
+        .secrets
+        .get(&profiles::secret_key(&profile.id))
+        .unwrap_or_default();
+
+    // Open the new index before committing the switch: a failure leaves the
+    // current server untouched. If the settings save then fails, the previous
+    // index is restored.
+    state.open_server_database(&profile.id)?;
+
+    let previous_active = current.active_server_id.clone();
+    let mut next = current;
+    profiles::apply_active(&mut next, &profile.id, token, &crate::util::now_rfc3339())?;
+    let mut saved = match state.persist_settings(next) {
+        Ok(saved) => saved,
+        Err(error) => {
+            let _ = state.open_server_database(&previous_active);
+            return Err(error);
+        }
+    };
+
+    let mut message = None;
+    if profile.id == profiles::LOCAL_SERVER_ID {
+        match crate::server::start_embedded(&app).await {
+            Ok(_) => saved = state.settings_snapshot(),
+            Err(error) => {
+                message = Some(format!(
+                    "This device server did not start: {error}. Open Settings → Desktop and choose a games folder."
+                ));
+            }
+        }
+    }
+
+    Ok(profiles::list(&saved, &state.secrets, message))
+}
+
+/// Test a saved or new server without changing the active profile.
+#[tauri::command]
+pub async fn test_server(
+    state: State<'_, AppState>,
+    url: String,
+    token: Option<String>,
+) -> Result<profiles::ServerTest, String> {
+    let settings = state.settings_snapshot();
+    let stored = crate::util::non_empty(token.as_deref()).map(str::to_string).or_else(|| {
+        let normalized = profiles::normalize_url(&url).ok()?;
+        settings
+            .servers
+            .iter()
+            .find(|profile| profile.url == normalized)
+            .and_then(|profile| {
+                state
+                    .secrets
+                    .get(&profiles::secret_key(&profile.id))
+                    .ok()
+                    .flatten()
+            })
+    });
+    Ok(profiles::test_connection(&state.http, &url, stored.as_deref()).await)
 }

@@ -556,3 +556,94 @@ Configuration lives in `ludex.config.json` next to the plugin DLL:
 Set `LaunchUrlTemplate` to `ludex://play/{gameId}` once a desktop build registers
 the `ludex` scheme; until then the game page is opened in the browser. The plugin
 never writes to the server.
+
+### Streaming hosts (Sunshine)
+
+Sunshine turns the machine that owns a game into a streaming host. Ludex
+publishes its installed library to Sunshine so the game shows up in Moonlight
+without adding each app by hand. Sunshine is external: Ludex detects it, edits
+its `apps.json` after an explicit click and never bundles or installs it.
+
+- **Detection.** Settings → Streaming reports the Sunshine binary, `apps.json`,
+  `sunshine.conf` and how many entries Ludex already manages. The default
+  folders are `%ProgramFiles%\Sunshine\config`, `%ProgramFiles(x86)%\Sunshine\config`,
+  `%LOCALAPPDATA%\Sunshine`, `~/.config/sunshine`, the Sunshine Flatpak config
+  (`~/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine`) and
+  `/etc/sunshine`. `apps.json`/`sunshine.conf` can be pointed at manually
+  (`sunshineAppsPath`, `sunshineConfPath`); an override whose folder does not
+  exist is a warning, not a crash.
+- **What is published.** One entry per game installed through Ludex or imported
+  from Steam: `name`, `cmd`, `working-dir`, `image-path` (the local cover cache)
+  and `detached: "true"`. The command is the Steam launch URI when the entry is
+  a Steam import, else the recorded executable, else `ludex://play/<id>`; the
+  preview marks the last case because it needs a registered `ludex://` handler.
+- **Marker and idempotency.** Every entry carries
+  `"ludex": { "managed": true, "version": 1, "gameId": …, "serverId": … }`.
+  Re-syncing updates the fields Ludex owns and never touches another app;
+  entries belonging to a different saved server are left alone; removing the
+  Ludex apps deletes only marked entries. A second sync with the same library
+  reports `written: false` and changes nothing.
+- **Preview and backup.** **Preview changes** lists what would be added, updated
+  or removed without writing. Every real write first copies the current file to
+  `apps.json.ludex-backup-<UTC>-<id>.bak`; when the backup cannot be created the
+  write is aborted. A malformed `apps.json` is reported and left untouched.
+- **Covers.** Covers are downloaded into
+  `{appDataDir}/streaming/art/<gameId>.<ext>` (5 s timeout, 8 MiB cap). A cover
+  failure only means the entry has no image.
+
+### Moonlight client
+
+Moonlight plays the stream. Ludex reads Moonlight's own host list and starts the
+client; it never proxies video or stores credentials.
+
+- **Detection and hosts.** The Moonlight binary is looked up on `PATH`, in
+  `/usr/bin`, `/usr/local/bin`, the Flatpak exports and
+  `%ProgramFiles%\Moonlight Game Streaming`; `moonlightBinary` overrides it.
+  Hosts come from
+  `~/.config/Moonlight Game Streaming Project/Moonlight.conf` or
+  `%LOCALAPPDATA%\Moonlight Game Streaming Project\Moonlight.conf`
+  (`moonlightConfigPath` overrides). Keys written as `host\address`,
+  `host/localaddress`, a per-host section or a manual address are all accepted.
+  A host counts as paired when Moonlight stored its certificate (`srvcert` /
+  `servercert`) or a positive `pairstatus`.
+- **Streaming.** A game published to Sunshine gains a **Stream** action on its
+  page. Ludex resolves the app name from its own marker, refuses an unpaired
+  host, and runs `moonlight stream <host> <app>`. The desktop stays out of the
+  stream path: closing it does not stop the session.
+- **Honest failures.** Missing Moonlight, a missing host list, an unpaired host
+  and a game that was never published each produce a specific message instead
+  of a silent no-op. macOS host parsing is reported as unsupported because
+  Moonlight stores a plist there; the Stream action still needs a real host.
+
+### Multiple servers and accounts
+
+The desktop app and the web client can keep more than one Ludex server or
+account and switch between them from the shell.
+
+- **Profiles.** A profile has a label, a normalised URL, an optional username (a
+  local note, not a credential) and last-use time. The embedded local server is
+  the stable `local` profile even though its port changes across restarts.
+- **Tokens.** Saved profile tokens go to the OS keychain: libsecret
+  (`secret-tool`) on Linux, Keychain (`security`) on macOS. Without a keychain
+  they go to `{appDataDir}/secrets.db` (mode 0600) and Settings → Servers shows
+  a warning. The active connection token also stays in `settings.json` (0600),
+  as in previous releases. In a browser, the session token is scoped per server
+  in `localStorage` and never shared between servers.
+- **Isolation.** Each profile has its own desktop index at
+  `{appDataDir}/servers/<id>/index.db`: installed games, play sessions, install
+  jobs and stream checkpoints never mix. The existing single-server index is
+  copied into the first profile (the old file is kept). Switching is refused
+  while a game runs or an install is active. Removing a profile deletes its
+  saved token and metadata; its index and installed game folders stay on disk.
+- **Migration.** On the first launch after upgrading, the current `serverUrl`
+  and `token` become the first profile; nothing changes for the user. In the
+  browser the existing `ludex.token` is copied into the first profile's token
+  slot on load.
+- **Connection test.** The add/edit dialog tests `GET {url}/api/health` with an
+  8 s timeout and reports the version and latency; testing never saves.
+
+**What still needs a real Sunshine/Moonlight machine.** Detection, merging,
+backup, idempotency, config parsing and command building are unit tested on
+Linux CI. Not executed in CI: a real Sunshine host serving a stream, a real
+Moonlight pairing and playback, Windows and Flatpak path layouts, covers coming
+from a live server, and macOS Moonlight host parsing.
