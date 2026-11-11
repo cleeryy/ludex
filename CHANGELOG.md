@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-11-11
+
 ### Added
 
 - Controller profiles (#51): per-account and per-game deadzone, sensitivity,
