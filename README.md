@@ -95,7 +95,8 @@ The API is documented in [`docs/CONTRACT.md`](docs/CONTRACT.md), integrations
 [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md), object storage in
 [`docs/STORAGE.md`](docs/STORAGE.md), backup/restore in
 [`docs/BACKUP.md`](docs/BACKUP.md), achievements and local providers in
-[`docs/ACHIEVEMENTS.md`](docs/ACHIEVEMENTS.md), the design in
+[`docs/ACHIEVEMENTS.md`](docs/ACHIEVEMENTS.md), ROM libraries and emulators in
+[`docs/EMULATORS.md`](docs/EMULATORS.md), the design in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), translations, themes and the
 PWA in [`docs/I18N.md`](docs/I18N.md), and the honest GameVault comparison in
 [`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md).
