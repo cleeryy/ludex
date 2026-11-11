@@ -22,5 +22,11 @@ export function isApiError(error: unknown): error is ApiError {
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
+  // Tauri commands reject with a string, not an Error.
+  if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object") {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
   return t("Something went wrong");
 }

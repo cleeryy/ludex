@@ -164,7 +164,10 @@ pub fn sunshine_candidates(
     match platform {
         "windows" => {
             if let Some(root) = env.get("ProgramFiles") {
-                push(Path::new(root).join("Sunshine").join("config"), "Program Files");
+                push(
+                    Path::new(root).join("Sunshine").join("config"),
+                    "Program Files",
+                );
                 push(Path::new(root).join("Sunshine"), "Program Files (portable)");
             }
             if let Some(root) = env.get("ProgramFiles(x86)") {
@@ -181,7 +184,9 @@ pub fn sunshine_candidates(
             if let Some(home) = home {
                 push(home.join(".config").join("sunshine"), "XDG");
                 push(
-                    home.join("Library").join("Application Support").join("Sunshine"),
+                    home.join("Library")
+                        .join("Application Support")
+                        .join("Sunshine"),
                     "Application Support",
                 );
             }
@@ -190,7 +195,11 @@ pub fn sunshine_candidates(
             if let Some(home) = home {
                 push(home.join(".config").join("sunshine"), "XDG");
                 push(
-                    home.join(".var").join("app").join("dev.lizardbyte.app.Sunshine").join("config").join("sunshine"),
+                    home.join(".var")
+                        .join("app")
+                        .join("dev.lizardbyte.app.Sunshine")
+                        .join("config")
+                        .join("sunshine"),
                     "Flatpak",
                 );
             }
@@ -339,9 +348,63 @@ fn sunshine_binary(
     crate::paths::find_on_path("sunshine").map(|path| path.to_string_lossy().to_string())
 }
 
+/// Sunhine starts with an empty `apps.json`; Windows editors may also save a
+/// BOM or UTF-16. Decode the file before handing it to serde_json.
+fn read_text_file(path: &Path) -> Result<String, String> {
+    let bytes =
+        std::fs::read(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
+    if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        return String::from_utf8(rest.to_vec())
+            .map_err(|_| format!("{} has a UTF-8 BOM but is not UTF-8.", path.display()));
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
+        let (text, had_errors) = encoding_rs::UTF_16LE.decode_without_bom_handling(rest);
+        if had_errors {
+            return Err(format!(
+                "{} contains invalid UTF-16LE text.",
+                path.display()
+            ));
+        }
+        return Ok(text.into_owned());
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
+        let (text, had_errors) = encoding_rs::UTF_16BE.decode_without_bom_handling(rest);
+        if had_errors {
+            return Err(format!(
+                "{} contains invalid UTF-16BE text.",
+                path.display()
+            ));
+        }
+        return Ok(text.into_owned());
+    }
+    if bytes.iter().any(|byte| *byte == 0) {
+        return Err(format!("{} looks like a binary file.", path.display()));
+    }
+    match String::from_utf8(bytes) {
+        Ok(text) => Ok(text),
+        Err(error) => {
+            let bytes = error.into_bytes();
+            let (text, had_errors) =
+                encoding_rs::WINDOWS_1252.decode_without_bom_handling(&bytes);
+            if had_errors {
+                return Err(format!(
+                    "{} is not UTF-8, UTF-16 or Windows-1252 text.",
+                    path.display()
+                ));
+            }
+            Ok(text.into_owned())
+        }
+    }
+}
+
 /// Read Sunshine's app database. Unknown keys survive; a malformed file is an
 /// error so nothing is ever overwritten blindly.
 pub fn parse_apps_json(text: &str) -> Result<Value, String> {
+    let text = text.trim_start_matches('\u{feff}').trim();
+    if text.is_empty() {
+        // Sunshine starts with an empty file until the first app is added.
+        return Ok(serde_json::json!({ "apps": [] }));
+    }
     let value: Value = serde_json::from_str(text).map_err(|error| {
         format!(
             "Sunshine's apps.json is not valid JSON ({error}). Nothing was changed; fix or restore the file first."
@@ -408,7 +471,10 @@ fn as_string(value: Option<&Value>) -> Option<String> {
 /// Marker written by Ludex, if present.
 fn managed_marker(app: &Value) -> Option<(Option<i64>, Option<String>)> {
     let marker = app.get(MANAGED_KEY)?.as_object()?;
-    let managed = marker.get("managed").and_then(Value::as_bool).unwrap_or(true);
+    let managed = marker
+        .get("managed")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
     if !managed {
         return None;
     }
@@ -792,7 +858,10 @@ pub fn write_apps_with_backup(apps_path: &Path, content: &str) -> Result<Option<
 /// `sunshine_status` payload for the settings panel.
 pub fn sunshine_status(settings: &LocalSettings) -> SunshineStatus {
     let detection = detect_sunshine(settings, platform_name(), home_dir().as_deref(), &env_map());
-    let apps_path = detection.paths.as_ref().map(|paths| paths.apps_json.clone());
+    let apps_path = detection
+        .paths
+        .as_ref()
+        .map(|paths| paths.apps_json.clone());
     let apps_found = apps_path
         .as_deref()
         .map(|path| Path::new(path).is_file())
@@ -802,7 +871,7 @@ pub fn sunshine_status(settings: &LocalSettings) -> SunshineStatus {
     let mut entries = 0;
     let mut managed_entries = 0;
     if let Some(path) = apps_path.as_deref().filter(|_| apps_found) {
-        match std::fs::read_to_string(path) {
+        match read_text_file(Path::new(path)) {
             Ok(text) => match parse_apps_json(&text) {
                 Ok(value) => match apps_ref(&value) {
                     Ok(apps) => {
@@ -838,7 +907,10 @@ pub fn sunshine_status(settings: &LocalSettings) -> SunshineStatus {
         detected,
         platform: detection.platform,
         apps_path,
-        conf_path: detection.paths.as_ref().map(|paths| paths.sunshine_conf.clone()),
+        conf_path: detection
+            .paths
+            .as_ref()
+            .map(|paths| paths.sunshine_conf.clone()),
         binary: detection.binary,
         source: detection.paths.as_ref().map(|paths| paths.source.clone()),
         overridden: detection
@@ -859,11 +931,10 @@ pub fn read_apps_text(status: &SunshineStatus) -> Result<Option<String>, String>
     let Some(path) = status.apps_path.as_deref() else {
         return Ok(None);
     };
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(format!("Could not read {path}: {error}")),
+    if !Path::new(path).is_file() {
+        return Ok(None);
     }
+    read_text_file(Path::new(path)).map(Some)
 }
 
 /* ------------------------------- Moonlight -------------------------------- */
@@ -1090,7 +1161,11 @@ pub fn moonlight_conf_candidates(
     out
 }
 
-fn moonlight_binary(platform: &str, home: Option<&Path>, env: &BTreeMap<String, String>) -> Option<String> {
+fn moonlight_binary(
+    platform: &str,
+    home: Option<&Path>,
+    env: &BTreeMap<String, String>,
+) -> Option<String> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     match platform {
         "windows" => {
@@ -1215,9 +1290,8 @@ pub fn moonlight_status(settings: &LocalSettings) -> MoonlightStatus {
             }
         }
     } else {
-        message =
-            "Moonlight's config file was not found. Pair a Sunshine host in Moonlight first."
-                .to_string();
+        message = "Moonlight's config file was not found. Pair a Sunshine host in Moonlight first."
+            .to_string();
     }
 
     let detected = binary.is_some();
@@ -1292,7 +1366,10 @@ pub fn spawn_stream(binary: &str, host: &str, app: &str) -> Result<StreamLaunch,
 
 /// Pick the host for a stream: an explicit request first, then the only paired
 /// host. An unpaired host is refused with an actionable message.
-pub fn select_host(hosts: &[MoonlightHost], requested: Option<&str>) -> Result<MoonlightHost, String> {
+pub fn select_host(
+    hosts: &[MoonlightHost],
+    requested: Option<&str>,
+) -> Result<MoonlightHost, String> {
     if hosts.is_empty() {
         return Err(
             "Moonlight has no saved host. Pair a Sunshine host in Moonlight first.".to_string(),
@@ -1311,9 +1388,7 @@ pub fn select_host(hosts: &[MoonlightHost], requested: Option<&str>) -> Result<M
                 .map(|host| host.name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
-            return Err(format!(
-                "Choose a Moonlight host first ({names})."
-            ));
+            return Err(format!("Choose a Moonlight host first ({names})."));
         }
     };
     if !host.paired {
@@ -1512,14 +1587,19 @@ mod tests {
         assert_eq!(list.len(), 4);
         assert_eq!(as_string(list[0].get("name")).as_deref(), Some("Desktop"));
         assert!(!is_managed_app(&list[0]));
-        let ludex = list.iter().find(|app| managed_game_id(app) == Some(1)).unwrap();
+        let ludex = list
+            .iter()
+            .find(|app| managed_game_id(app) == Some(1))
+            .unwrap();
         assert_eq!(
             as_string(ludex.get("cmd")).as_deref(),
             Some("/games/celeste/Celeste.exe")
         );
         assert_eq!(as_string(ludex.get("detached")).as_deref(), Some("true"));
         assert!(is_managed_app(
-            list.iter().find(|app| managed_game_id(app) == Some(2)).unwrap()
+            list.iter()
+                .find(|app| managed_game_id(app) == Some(2))
+                .unwrap()
         ));
         // The user's top-level keys survive.
         assert_eq!(
@@ -1557,7 +1637,10 @@ mod tests {
         assert_eq!(report.updated, 1);
         assert_eq!(report.added, 0);
         let list = apps_ref(&root).unwrap();
-        let entry = list.iter().find(|app| managed_game_id(app) == Some(1)).unwrap();
+        let entry = list
+            .iter()
+            .find(|app| managed_game_id(app) == Some(1))
+            .unwrap();
         assert_eq!(
             as_string(entry.get("name")).as_deref(),
             Some("Celeste (Deluxe)")
@@ -1585,7 +1668,9 @@ mod tests {
         assert_eq!(report.removed, 1);
         let list = apps_ref(&root).unwrap();
         assert_eq!(list.len(), 3);
-        assert!(list.iter().any(|app| as_string(app.get("name")).as_deref() == Some("Desktop")));
+        assert!(list
+            .iter()
+            .any(|app| as_string(app.get("name")).as_deref() == Some("Desktop")));
         assert!(!list.iter().any(|app| managed_game_id(app) == Some(2)));
     }
 
@@ -1609,7 +1694,8 @@ mod tests {
         let mut apps = vec![publish_app(&game(1, "One", Some("one.exe")), None).unwrap()];
         let (root, _) = merge_apps(Some(USER_APPS), &apps, "server-a", true).unwrap();
         apps = vec![publish_app(&game(2, "Two", Some("two.exe")), None).unwrap()];
-        let (root, _) = merge_apps(Some(&render_apps(&root).unwrap()), &apps, "server-b", true).unwrap();
+        let (root, _) =
+            merge_apps(Some(&render_apps(&root).unwrap()), &apps, "server-b", true).unwrap();
 
         let (root, removed) = remove_managed_apps(&render_apps(&root).unwrap()).unwrap();
         assert_eq!(removed, 2);
@@ -1674,18 +1760,20 @@ mod tests {
     fn sunshine_candidates_follow_the_platform() {
         let mut env = BTreeMap::new();
         env.insert("ProgramFiles".to_string(), "C:\\Program Files".to_string());
-        env.insert("LOCALAPPDATA".to_string(), "C:\\Users\\me\\AppData\\Local".to_string());
+        env.insert(
+            "LOCALAPPDATA".to_string(),
+            "C:\\Users\\me\\AppData\\Local".to_string(),
+        );
         let windows = sunshine_candidates("windows", None, &env);
         assert!(windows[0].apps_json.contains("Sunshine"));
         assert!(windows[0].apps_json.ends_with("apps.json"));
-        assert!(windows.iter().any(|candidate| candidate.source == "Local AppData"));
+        assert!(windows
+            .iter()
+            .any(|candidate| candidate.source == "Local AppData"));
 
         let home = Path::new("/home/me");
         let linux = sunshine_candidates("linux", Some(home), &BTreeMap::new());
-        assert_eq!(
-            linux[0].apps_json,
-            "/home/me/.config/sunshine/apps.json"
-        );
+        assert_eq!(linux[0].apps_json, "/home/me/.config/sunshine/apps.json");
         assert!(linux.iter().any(|candidate| candidate.source == "Flatpak"));
 
         let mac = sunshine_candidates("macos", Some(home), &BTreeMap::new());
@@ -1708,10 +1796,17 @@ mod tests {
         assert_eq!(paths.source, "override");
         assert!(paths.apps_json.ends_with("apps.json"));
 
-        settings.sunshine_apps_path = dir.join("missing").join("apps.json").to_string_lossy().to_string();
+        settings.sunshine_apps_path = dir
+            .join("missing")
+            .join("apps.json")
+            .to_string_lossy()
+            .to_string();
         let detection = detect_sunshine(&settings, "linux", None, &BTreeMap::new());
         assert!(detection.paths.is_none());
-        assert!(detection.warnings.iter().any(|warning| warning.contains("does not exist")));
+        assert!(detection
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("does not exist")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1761,7 +1856,8 @@ mod tests {
         assert!(removals.is_empty());
 
         let (root, _) = merge_apps(Some(USER_APPS), &apps, "srv_1", true).unwrap();
-        let (entries, removals) = preview_apps(Some(&render_apps(&root).unwrap()), &apps, "srv_1").unwrap();
+        let (entries, removals) =
+            preview_apps(Some(&render_apps(&root).unwrap()), &apps, "srv_1").unwrap();
         assert_eq!(entries[0].action, "unchanged");
         assert!(removals.is_empty());
     }
@@ -1774,6 +1870,28 @@ mod tests {
             value.get("env").and_then(|env| env.get("PATH")),
             Some(&Value::String("/usr/bin".to_string()))
         );
+    }
+
+    #[test]
+    fn parse_accepts_empty_and_bom_prefixed_files() {
+        for text in ["", "   \n\t", "\u{feff}{\"apps\":[]}"] {
+            let value = parse_apps_json(text).unwrap();
+            assert_eq!(apps_ref(&value).unwrap().len(), 0);
+        }
+    }
+
+    #[test]
+    fn read_text_file_decodes_utf16_apps_json() {
+        let root = temp_dir("sunshine-utf16");
+        let path = root.join("apps.json");
+        let text = "{\"apps\":[]}";
+        let mut bytes = vec![0xFF, 0xFE];
+        for unit in text.encode_utf16() {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+        std::fs::write(&path, bytes).unwrap();
+        assert_eq!(read_text_file(&path).unwrap(), text);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -1809,7 +1927,10 @@ Bedroom\pairstatus=0
 "#;
         let hosts = parse_moonlight_conf(text);
         assert_eq!(hosts.len(), 2);
-        let living = hosts.iter().find(|host| host.name == "Living Room").unwrap();
+        let living = hosts
+            .iter()
+            .find(|host| host.name == "Living Room")
+            .unwrap();
         assert_eq!(living.address, "192.168.1.20");
         assert!(living.paired);
         let bedroom = hosts.iter().find(|host| host.name == "Bedroom").unwrap();
@@ -1864,7 +1985,10 @@ customname=Deck
                 paired: false,
             },
         ];
-        assert_eq!(select_host(&hosts, Some("Two")).unwrap_err(), "Two is not paired in Moonlight. Pair it in Moonlight first.");
+        assert_eq!(
+            select_host(&hosts, Some("Two")).unwrap_err(),
+            "Two is not paired in Moonlight. Pair it in Moonlight first."
+        );
         assert_eq!(select_host(&hosts, Some("One")).unwrap().name, "One");
         assert!(select_host(&hosts, None).unwrap_err().starts_with("Choose"));
         assert!(select_host(&[], None).is_err());
@@ -1875,7 +1999,10 @@ customname=Deck
         let apps = vec![publish_app(&game(1, "One", Some("one.exe")), None).unwrap()];
         let (root, _) = merge_apps(Some(USER_APPS), &apps, "srv_1", true).unwrap();
         let text = render_apps(&root).unwrap();
-        assert_eq!(published_name(Some(&text), 1).unwrap().as_deref(), Some("One"));
+        assert_eq!(
+            published_name(Some(&text), 1).unwrap().as_deref(),
+            Some("One")
+        );
         assert_eq!(published_name(Some(&text), 2).unwrap(), None);
         assert_eq!(published_name(None, 1).unwrap(), None);
     }
@@ -1886,10 +2013,7 @@ customname=Deck
         let png = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
         let path = store_cover(&dir, 42, &png).expect("stored");
         assert!(path.ends_with("42.png"));
-        assert_eq!(
-            cached_cover(&dir, 42).as_deref(),
-            Some(path.as_str())
-        );
+        assert_eq!(cached_cover(&dir, 42).as_deref(), Some(path.as_str()));
         assert!(store_cover(&dir, 43, b"not an image").is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
