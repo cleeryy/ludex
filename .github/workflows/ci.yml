@@ -361,6 +361,7 @@ jobs:
           workspaces: apps/desktop/src-tauri -> target
 
       - name: Install dependencies
+        shell: bash
         run: |
           if [ -f pnpm-lock.yaml ]; then
             pnpm install --frozen-lockfile
@@ -370,6 +371,7 @@ jobs:
 
       - name: Stamp the edge version
         id: version
+        shell: bash
         run: |
           node - <<'JS'
           const fs = require('node:fs');
@@ -411,10 +413,12 @@ jobs:
           args: "--bundles ${{ matrix.bundles }}"
 
       - name: Checksums and edge upload
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ steps.version.outputs.version }}
+          LABEL: ${{ matrix.label }}
         run: |
           node - <<'JS'
           const { execFileSync } = require('node:child_process');
@@ -423,18 +427,19 @@ jobs:
           const path = require('node:path');
 
           const root = 'apps/desktop/src-tauri/target';
-          const wanted = /(\\.AppImage|\\.deb|-setup\\.exe)$/;
+          const wanted = (name) =>
+            name.endsWith('.AppImage') || name.endsWith('.deb') || name.endsWith('-setup.exe');
           const files = [];
           const walk = (dir) => {
             for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
               const full = path.join(dir, entry.name);
               if (entry.isDirectory()) walk(full);
-              else if (wanted.test(entry.name)) files.push(full);
+              else if (wanted(entry.name)) files.push(full);
             }
           };
           if (fs.existsSync(root)) walk(root);
           if (files.length === 0) {
-            console.error('::error::no desktop bundle found after the build');
+            console.error(`::error::no desktop bundle found under ${root} after the build`);
             process.exit(1);
           }
           const sums = [];
@@ -444,12 +449,13 @@ jobs:
             fs.writeFileSync(`${file}.sha256`, line);
             sums.push(line.trimEnd());
           }
-          fs.writeFileSync('edge-checksums.txt', sums.join('\n') + '\n');
+          const checksums = `edge-checksums-${process.env.LABEL.replace(/\s+/g, '-')}.txt`;
+          fs.writeFileSync(checksums, sums.join('\n') + '\n');
           const upload = (args) =>
             execFileSync('gh', ['release', 'upload', 'edge', ...args, '--clobber'], {
               stdio: 'inherit',
             });
-          upload(['edge-checksums.txt']);
+          upload([checksums]);
           for (const file of files) upload([file, `${file}.sha256`]);
           console.log(`uploaded ${files.length} bundle(s) for ${process.env.VERSION}`);
           JS
