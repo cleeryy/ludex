@@ -6,6 +6,18 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- PostgreSQL backend option (#46): `LUDEX_DATABASE_URL=postgres://…` (or
+  `LUDEX_DATABASE_BACKEND`) runs the server on PostgreSQL while SQLite stays the
+  default. A mirrored migration set (`migrations_postgres/`, 0001–0019), a
+  backend-neutral query layer with `?` → `$n` rewriting and documented dialect
+  branches (JSON arrays, case-insensitive indexes, `SUM` casts), a configurable
+  pool (`LUDEX_DATABASE_MAX_CONNECTIONS`), redacted connection URLs, backend and
+  pool details in `/api/health/details`, a real-PostgreSQL integration test
+  (`LUDEX_TEST_POSTGRES_URL`, skipped by default), and `docs/POSTGRES.md`.
+  `ludex-backup` now refuses PostgreSQL explicitly (use `pg_dump`/`pg_restore`).
+
 ## [0.2.9] - 2026-11-11
 
 ### Added
@@ -24,6 +36,17 @@ All notable changes to Ludex are documented here. The format is based on
   shell, per-platform defaults, per-game emulator overrides, platform
   shelves/filters, a ROM badge and desktop launch with recorded playtime.
   Migration `0019_core_gaming.sql`; docs in `docs/EMULATORS.md`.
+### Added
+
+- PostgreSQL backend option (#46): `LUDEX_DATABASE_URL=postgres://…` (or
+  `LUDEX_DATABASE_BACKEND`) runs the server on PostgreSQL while SQLite stays the
+  default. A mirrored migration set (`migrations_postgres/`, 0001–0018), a
+  backend-neutral query layer with `?` → `$n` rewriting and documented dialect
+  branches (JSON arrays, case-insensitive indexes, `SUM` casts), a configurable
+  pool (`LUDEX_DATABASE_MAX_CONNECTIONS`), redacted connection URLs, backend and
+  pool details in `/api/health/details`, a real-PostgreSQL integration test
+  (`LUDEX_TEST_POSTGRES_URL`, skipped by default), and `docs/POSTGRES.md`.
+  `ludex-backup` now refuses PostgreSQL explicitly (use `pg_dump`/`pg_restore`).
 
 ## [0.2.8] - 2026-11-11
 

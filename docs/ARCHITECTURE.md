@@ -19,9 +19,9 @@ idea. The GameVault files volume and database can be imported so users can migra
 ```
 crates/ludex-core      domain types, filename parser, archive reader/extractor,
                        executable discovery, slug/sort helpers. No network, no DB.
-crates/ludex-server    axum + SQLite server. Also exposes an embeddable `start()` API
-                       used by the desktop app for local mode. Optional `embed-web`
-                       feature serves the compiled React app.
+crates/ludex-server    axum + SQLite/PostgreSQL server. Also exposes an embeddable
+                       `start()` API used by the desktop app for local mode.
+                       Optional `embed-web` feature serves the compiled React app.
 apps/web               React 19 + Vite + Tailwind UI, API client, native bridge.
 apps/desktop           Tauri 2 shell (`src-tauri`) around apps/web/dist.
 docker/                server Dockerfile and compose example.
@@ -35,7 +35,11 @@ docs/                  architecture, API contract, deployment, migration, roadma
 - `LUDEX_GAMES_DIR` is the library volume: drop `.zip`, `.rar`, `.7z` or portable
   `.exe` files there. The scanner indexes them periodically and on demand.
 - `LUDEX_MEDIA_DIR` caches covers, backgrounds and screenshots.
-- `LUDEX_DATA_DIR` holds `ludex.db` (SQLite) and the generated JWT secret.
+- `LUDEX_DATA_DIR` holds the generated JWT secret, saves and uploads. The
+  library database is `ludex.db` (SQLite) by default, or a PostgreSQL database
+  when `LUDEX_DATABASE_URL=postgres://…` is set (see
+  [POSTGRES.md](POSTGRES.md)). All SQL goes through `src/db.rs`, which owns the
+  active pool and rewrites `?` placeholders to `$n` on PostgreSQL.
 - Multi-user: roles `admin`, `editor`, `user`; JWT auth; per-user progress,
   bookmarks and playtime.
 
