@@ -39,6 +39,37 @@ jobs:
       - name: Test
         run: cargo test --workspace --all-targets
 
+  postgres:
+    name: Rust (PostgreSQL backend)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: ludex
+          POSTGRES_DB: ludex
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      LUDEX_TEST_POSTGRES_URL: postgres://postgres:ludex@127.0.0.1:55432/ludex
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: PostgreSQL integration tests (#46)
+        run: cargo test -p ludex-server --test postgres
+
   web:
     name: Web (install, build, typecheck)
     runs-on: ubuntu-24.04
