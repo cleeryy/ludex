@@ -204,6 +204,10 @@ pub struct LocalSettings {
     /// Moonlight config override (#98). Empty = detect.
     #[serde(default)]
     pub moonlight_config_path: String,
+    /// Manual Moonlight host (name or IP) for builds Ludex cannot read (#151).
+    /// Empty = use the hosts Moonlight saved.
+    #[serde(default)]
+    pub moonlight_host: String,
     /// Ordered GameVault install roots (#134). One entry per install location,
     /// e.g. `C:\Games\GameVault` and `D:\Games\GameVault`.
     #[serde(default)]
@@ -263,6 +267,7 @@ impl Default for LocalSettings {
             sunshine_conf_path: String::new(),
             moonlight_binary: String::new(),
             moonlight_config_path: String::new(),
+            moonlight_host: String::new(),
             gamevault_roots: Vec::new(),
             gamevault_root: None,
             gamevault_scan_depth: default_gamevault_scan_depth(),
@@ -335,6 +340,7 @@ impl LocalSettings {
         self.sunshine_conf_path = self.sunshine_conf_path.trim().to_string();
         self.moonlight_binary = self.moonlight_binary.trim().to_string();
         self.moonlight_config_path = self.moonlight_config_path.trim().to_string();
+        self.moonlight_host = self.moonlight_host.trim().to_string();
         self.normalize_gamevault_roots();
         self.active_server_id = self.active_server_id.trim().to_string();
         self.servers = self
@@ -359,7 +365,8 @@ impl LocalSettings {
             })
             .collect();
         let mut seen = std::collections::HashSet::new();
-        self.servers.retain(|profile| seen.insert(profile.id.clone()));
+        self.servers
+            .retain(|profile| seen.insert(profile.id.clone()));
         if !self
             .servers
             .iter()
@@ -868,6 +875,7 @@ mod tests {
         assert_eq!(json["sunshineConfPath"], "");
         assert_eq!(json["moonlightBinary"], "");
         assert_eq!(json["moonlightConfigPath"], "");
+        assert_eq!(json["moonlightHost"], "");
     }
 
     #[test]

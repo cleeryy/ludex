@@ -319,6 +319,7 @@ const DEFAULT_SETTINGS: LocalSettings = {
   sunshineConfPath: "",
   moonlightBinary: "",
   moonlightConfigPath: "",
+  moonlightHost: "",
   gamevaultRoots: [],
   gamevaultScanDepth: 6,
 };

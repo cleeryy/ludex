@@ -198,8 +198,7 @@ impl AppState {
 
         // Each server profile has its own index; the first profile adopts the
         // legacy database so nothing is lost on upgrade.
-        let database_path =
-            profiles::adopt_legacy_database(&app_data, &loaded.active_server_id)?;
+        let database_path = profiles::adopt_legacy_database(&app_data, &loaded.active_server_id)?;
         let database = db::open(&database_path)?;
 
         match db::mark_interrupted_jobs(
@@ -271,9 +270,9 @@ impl AppState {
         settings::save(&self.settings_path, &next)?;
         if let Some(token) = crate::util::non_empty(next.token.as_deref()) {
             if !next.active_server_id.is_empty() {
-                if let Err(error) =
-                    self.secrets
-                        .set(&profiles::secret_key(&next.active_server_id), token)
+                if let Err(error) = self
+                    .secrets
+                    .set(&profiles::secret_key(&next.active_server_id), token)
                 {
                     tracing::warn!(error = %error, "the token was saved in settings.json but not in the secret store");
                 }

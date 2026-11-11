@@ -10,6 +10,22 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Generic text config editor (#147): every INI/CFG/CONF/TOML/JSON/INFO file
+  under the install folder is listed and editable — the crack/Steam-emulator
+  name blacklist is gone (only hidden dirs, Wine `drive_c`, symlinks and files
+  over 1 MiB are skipped, the latter listed read-only with a reason).
+  UTF-8 ±BOM, UTF-16LE/BE and Windows-1252 round-trip with their exact
+  encoding/BOM and CRLF/LF; unrepresentable values are refused, restore writes
+  the backup bytes verbatim, and the UI never queries a read-only file.
+- Sunshine/Moonlight Windows fixes (#150, #151): empty/whitespace/BOM/UTF-16
+  `apps.json` is treated as "no apps yet", re-encoded in its original format on
+  write with byte-exact backups, and `Program Files` permission failures are
+  reported explicitly (no silent copy); Tauri string rejections now surface in
+  toasts instead of "Something went wrong". Moonlight on Windows is detected
+  through the portable `Moonlight.ini` and the read-only
+  `HKCU\SOFTWARE\Moonlight Game Streaming Project` registry (injectable
+  reader), with distinct not-found/unreadable/no-host messages and a manual
+  host fallback.
 - Theme system beyond light/dark (#140): five complete data-driven themes
   (midnight, light/Paper, nord, gruvbox, amber) with 26 semantic tokens each,
   a system-following option, custom accent and background tint with measured

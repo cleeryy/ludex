@@ -712,6 +712,8 @@ export interface LocalSettings {
   moonlightBinary: string;
   /** Moonlight config override (#98). Empty = detect. */
   moonlightConfigPath: string;
+  /** Manual Moonlight host name or IP (#151) for builds Ludex cannot read. */
+  moonlightHost: string;
   /** Ordered GameVault install roots (#134). */
   gamevaultRoots: string[];
   /** Folder depth used by GameVault scans (#134), 4-8, default 6. */
@@ -825,7 +827,11 @@ export interface MoonlightStatus {
   platform: string;
   binary: string | null;
   configPath: string | null;
+  /** `Moonlight.ini`, `Windows registry`, `Moonlight.conf` or `override` (#151). */
+  configSource: string | null;
   configFound: boolean;
+  /** Manual host fallback from Settings → Streaming (#151). */
+  manualHost: string | null;
   hosts: MoonlightHost[];
   supported: boolean;
   warnings: string[];

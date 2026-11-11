@@ -94,11 +94,12 @@ pub fn validate_key(key: &str) -> Result<(), String> {
     if key.is_empty() || key.len() > MAX_KEY_CHARS {
         return Err("The secret key is empty or too long.".to_string());
     }
-    if !key
-        .chars()
-        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-' | ':'))
-    {
-        return Err(format!("The secret key contains unsupported characters: {key}"));
+    if !key.chars().all(|character| {
+        character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-' | ':')
+    }) {
+        return Err(format!(
+            "The secret key contains unsupported characters: {key}"
+        ));
     }
     Ok(())
 }
@@ -153,7 +154,9 @@ impl SecretStore {
     fn demote(&self) {
         if let Ok(mut guard) = self.keychain.lock() {
             if guard.is_some() {
-                tracing::warn!("the OS keychain is unavailable; saved token storage falls back to SQLite");
+                tracing::warn!(
+                    "the OS keychain is unavailable; saved token storage falls back to SQLite"
+                );
                 *guard = None;
             }
         }
@@ -166,9 +169,8 @@ impl SecretStore {
     fn database(&self) -> Result<Connection, String> {
         let path = self.database_path();
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| {
-                format!("Could not create the secret store folder: {error}")
-            })?;
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("Could not create the secret store folder: {error}"))?;
         }
         let connection = Connection::open(&path)
             .map_err(|error| format!("Could not open the secret store: {error}"))?;
@@ -263,7 +265,15 @@ fn keychain_set(kind: KeychainKind, key: &str, value: &str) -> Result<(), String
     match kind {
         KeychainKind::SecretService => {
             let mut child = Command::new("secret-tool")
-                .args(["store", "--label", KEYCHAIN_LABEL, "service", KEYCHAIN_SERVICE, "key", key])
+                .args([
+                    "store",
+                    "--label",
+                    KEYCHAIN_LABEL,
+                    "service",
+                    KEYCHAIN_SERVICE,
+                    "key",
+                    key,
+                ])
                 .stdin(Stdio::piped())
                 .stdout(Stdio::null())
                 .stderr(Stdio::piped())
@@ -348,13 +358,7 @@ fn keychain_delete(kind: KeychainKind, key: &str) -> Result<(), String> {
             .stdin(Stdio::null())
             .output(),
         KeychainKind::MacSecurity => Command::new("security")
-            .args([
-                "delete-generic-password",
-                "-s",
-                KEYCHAIN_SERVICE,
-                "-a",
-                key,
-            ])
+            .args(["delete-generic-password", "-s", KEYCHAIN_SERVICE, "-a", key])
             .stdin(Stdio::null())
             .output(),
     }
@@ -431,7 +435,11 @@ mod tests {
                 .permissions()
                 .mode()
                 & 0o777;
-            assert_eq!(mode & 0o077, 0, "secrets.db must not be group/world readable");
+            assert_eq!(
+                mode & 0o077,
+                0,
+                "secrets.db must not be group/world readable"
+            );
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

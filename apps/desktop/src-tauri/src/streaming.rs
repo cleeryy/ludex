@@ -348,14 +348,100 @@ fn sunshine_binary(
     crate::paths::find_on_path("sunshine").map(|path| path.to_string_lossy().to_string())
 }
 
-/// Sunhine starts with an empty `apps.json`; Windows editors may also save a
-/// BOM or UTF-16. Decode the file before handing it to serde_json.
-fn read_text_file(path: &Path) -> Result<String, String> {
-    let bytes =
-        std::fs::read(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
+/// How Sunshine's `apps.json` was encoded on disk. Writes reuse the original
+/// encoding and BOM, so a file saved by a Windows editor round-trips (#150).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextEncoding {
+    #[default]
+    Utf8,
+    Utf16Le,
+    Utf16Be,
+    Windows1252,
+}
+
+/// Encoding and BOM to use when writing a text file back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TextFormat {
+    pub encoding: TextEncoding,
+    /// Whether a UTF-8 file started with a BOM. UTF-16 always gets its BOM.
+    pub bom: bool,
+}
+
+/// A decoded text file plus the format needed to write it back unchanged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppsFile {
+    pub text: String,
+    pub format: TextFormat,
+}
+
+impl std::ops::Deref for AppsFile {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.text
+    }
+}
+
+/// Encode text with a file's original encoding and BOM.
+pub fn encode_text(text: &str, format: TextFormat) -> Result<Vec<u8>, String> {
+    match format.encoding {
+        TextEncoding::Utf8 => {
+            let mut bytes = Vec::with_capacity(text.len() + 3);
+            if format.bom {
+                bytes.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+            }
+            bytes.extend_from_slice(text.as_bytes());
+            Ok(bytes)
+        }
+        TextEncoding::Utf16Le | TextEncoding::Utf16Be => {
+            let little_endian = format.encoding == TextEncoding::Utf16Le;
+            let mut bytes = Vec::with_capacity(text.len() * 2 + 2);
+            // A BOM is required: our decoder only recognises UTF-16 by its BOM.
+            bytes.extend_from_slice(if little_endian {
+                &[0xFF, 0xFE]
+            } else {
+                &[0xFE, 0xFF]
+            });
+            for unit in text.encode_utf16() {
+                if little_endian {
+                    bytes.extend_from_slice(&unit.to_le_bytes());
+                } else {
+                    bytes.extend_from_slice(&unit.to_be_bytes());
+                }
+            }
+            Ok(bytes)
+        }
+        TextEncoding::Windows1252 => {
+            let (encoded, _, had_errors) = encoding_rs::WINDOWS_1252.encode(text);
+            if had_errors {
+                return Err(
+                    "The new app list cannot be represented in the file's Windows-1252 encoding."
+                        .to_string(),
+                );
+            }
+            Ok(encoded.into_owned())
+        }
+    }
+}
+
+/// Decode a text file, detecting UTF-8/UTF-16 BOMs and falling back to
+/// Windows-1252 for legacy files, like the config editor does (#150).
+fn decode_text(bytes: &[u8], path: &Path) -> Result<AppsFile, String> {
+    // BOMs first: UTF-16 text legitimately contains NUL bytes.
     if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
-        return String::from_utf8(rest.to_vec())
-            .map_err(|_| format!("{} has a UTF-8 BOM but is not UTF-8.", path.display()));
+        let (text, had_errors) = encoding_rs::UTF_8.decode_without_bom_handling(rest);
+        if had_errors {
+            return Err(format!(
+                "{} has a UTF-8 BOM but is not UTF-8.",
+                path.display()
+            ));
+        }
+        return Ok(AppsFile {
+            text: text.into_owned(),
+            format: TextFormat {
+                encoding: TextEncoding::Utf8,
+                bom: true,
+            },
+        });
     }
     if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
         let (text, had_errors) = encoding_rs::UTF_16LE.decode_without_bom_handling(rest);
@@ -365,7 +451,13 @@ fn read_text_file(path: &Path) -> Result<String, String> {
                 path.display()
             ));
         }
-        return Ok(text.into_owned());
+        return Ok(AppsFile {
+            text: text.into_owned(),
+            format: TextFormat {
+                encoding: TextEncoding::Utf16Le,
+                bom: true,
+            },
+        });
     }
     if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
         let (text, had_errors) = encoding_rs::UTF_16BE.decode_without_bom_handling(rest);
@@ -375,26 +467,45 @@ fn read_text_file(path: &Path) -> Result<String, String> {
                 path.display()
             ));
         }
-        return Ok(text.into_owned());
+        return Ok(AppsFile {
+            text: text.into_owned(),
+            format: TextFormat {
+                encoding: TextEncoding::Utf16Be,
+                bom: true,
+            },
+        });
     }
-    if bytes.iter().any(|byte| *byte == 0) {
+    if bytes.contains(&0) {
         return Err(format!("{} looks like a binary file.", path.display()));
     }
-    match String::from_utf8(bytes) {
-        Ok(text) => Ok(text),
-        Err(error) => {
-            let bytes = error.into_bytes();
-            let (text, had_errors) =
-                encoding_rs::WINDOWS_1252.decode_without_bom_handling(&bytes);
-            if had_errors {
-                return Err(format!(
-                    "{} is not UTF-8, UTF-16 or Windows-1252 text.",
-                    path.display()
-                ));
-            }
-            Ok(text.into_owned())
-        }
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return Ok(AppsFile {
+            text: text.to_string(),
+            format: TextFormat::default(),
+        });
     }
+    let (text, had_errors) = encoding_rs::WINDOWS_1252.decode_without_bom_handling(bytes);
+    if had_errors {
+        return Err(format!(
+            "{} is not UTF-8, UTF-16 or Windows-1252 text.",
+            path.display()
+        ));
+    }
+    Ok(AppsFile {
+        text: text.into_owned(),
+        format: TextFormat {
+            encoding: TextEncoding::Windows1252,
+            bom: false,
+        },
+    })
+}
+
+/// Sunshine starts with an empty `apps.json`; Windows editors may also save a
+/// BOM or UTF-16. Decode the file before handing it to serde_json.
+pub fn read_text_file(path: &Path) -> Result<AppsFile, String> {
+    let bytes =
+        std::fs::read(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
+    decode_text(&bytes, path)
 }
 
 /// Read Sunshine's app database. Unknown keys survive; a malformed file is an
@@ -774,6 +885,46 @@ pub fn render_apps(value: &Value) -> Result<String, String> {
     Ok(text)
 }
 
+/// True when a path lives under a Windows `Program Files` folder, where
+/// writing requires elevation (#150).
+fn is_program_files_path(path: &Path) -> bool {
+    path.to_string_lossy()
+        .to_ascii_lowercase()
+        .contains("program files")
+}
+
+/// Actionable hint for a write failure caused by permissions. `Program Files`
+/// is named explicitly because that is where Sunshine installs by default;
+/// Ludex never copies `apps.json` elsewhere on its own.
+fn permission_hint(path: &Path, error: &std::io::Error) -> Option<String> {
+    let denied = error.kind() == std::io::ErrorKind::PermissionDenied;
+    if !denied && !is_program_files_path(path) {
+        return None;
+    }
+    let mut hint = String::from(
+        " Windows does not allow Ludex to write there: point Sunshine at a user-writable config folder (Settings → Streaming, or Sunshine's own config) or run Ludex with elevated permissions, then sync again.",
+    );
+    if is_program_files_path(path) {
+        hint.push_str(" The folder is inside Program Files.");
+    }
+    Some(hint)
+}
+
+fn write_failure(action: &str, path: &Path, error: &std::io::Error) -> String {
+    let mut message = format!("{action} {}: {error}.", path.display());
+    if let Some(hint) = permission_hint(path, error) {
+        message.push_str(&hint);
+    }
+    message.push_str(" Nothing was changed.");
+    message
+}
+
+/// Explain a failed `apps.json` write; public so the message stays testable.
+#[allow(dead_code)]
+pub fn write_failure_message(path: &Path, error: &std::io::Error) -> String {
+    write_failure("Could not write", path, error)
+}
+
 /// Backup file path next to `apps.json` (`apps.json.ludex-backup-….bak`).
 pub fn backup_path(apps_path: &Path) -> PathBuf {
     let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
@@ -781,27 +932,28 @@ pub fn backup_path(apps_path: &Path) -> PathBuf {
     apps_path.with_file_name(format!("apps.json.ludex-backup-{stamp}-{suffix}.bak"))
 }
 
-/// Copy the current `apps.json` before touching it. A failure aborts the write.
+/// Copy the current `apps.json` before touching it. A failure aborts the write;
+/// the backup is a byte-exact copy of the original encoding (#150).
 pub fn backup_apps(apps_path: &Path) -> Result<PathBuf, String> {
     let backup = backup_path(apps_path);
-    std::fs::copy(apps_path, &backup).map_err(|error| {
-        format!(
-            "Could not back up {} before writing: {error}. Nothing was changed.",
-            apps_path.display()
-        )
-    })?;
+    std::fs::copy(apps_path, &backup)
+        .map_err(|error| write_failure("Could not back up", apps_path, &error))?;
     Ok(backup)
 }
 
 /// Backup then atomically replace `apps.json` (temp file in the same folder,
-/// fsync, rename). Returns the backup path, if the file already existed.
-pub fn write_apps_with_backup(apps_path: &Path, content: &str) -> Result<Option<PathBuf>, String> {
+/// fsync, rename). `format` is the encoding read from the existing file, so a
+/// UTF-16 or BOM-prefixed file keeps its encoding. Returns the backup path, if
+/// the file already existed.
+pub fn write_apps_with_backup(
+    apps_path: &Path,
+    content: &str,
+    format: TextFormat,
+) -> Result<Option<PathBuf>, String> {
+    let bytes = encode_text(content, format)?;
     if let Some(parent) = apps_path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| {
-            format!(
-                "Could not create the Sunshine folder {}: {error}",
-                parent.display()
-            )
+            write_failure("Could not create the Sunshine folder", parent, &error)
         })?;
     }
 
@@ -814,20 +966,12 @@ pub fn write_apps_with_backup(apps_path: &Path, content: &str) -> Result<Option<
     let temporary = apps_path.with_file_name("apps.json.ludex.tmp");
     {
         use std::io::Write;
-        let mut file = std::fs::File::create(&temporary).map_err(|error| {
-            format!(
-                "Could not write {}: {error}. The previous file is untouched.",
-                temporary.display()
-            )
-        })?;
-        file.write_all(content.as_bytes()).map_err(|error| {
-            format!(
-                "Could not write {}: {error}. The previous file is untouched.",
-                temporary.display()
-            )
-        })?;
+        let mut file = std::fs::File::create(&temporary)
+            .map_err(|error| write_failure("Could not write", &temporary, &error))?;
+        file.write_all(&bytes)
+            .map_err(|error| write_failure("Could not write", &temporary, &error))?;
         file.sync_all()
-            .map_err(|error| format!("Could not flush the new apps.json: {error}"))?;
+            .map_err(|error| write_failure("Could not flush", &temporary, &error))?;
     }
 
     if let Err(first_error) = std::fs::rename(&temporary, apps_path) {
@@ -838,17 +982,10 @@ pub fn write_apps_with_backup(apps_path: &Path, content: &str) -> Result<Option<
                     apps_path.display()
                 )
             })?;
-            std::fs::rename(&temporary, apps_path).map_err(|error| {
-                format!(
-                    "Could not replace {}: {error}. The backup is kept.",
-                    apps_path.display()
-                )
-            })?;
+            std::fs::rename(&temporary, apps_path)
+                .map_err(|error| write_failure("Could not replace", apps_path, &error))?;
         } else {
-            return Err(format!(
-                "Could not write {}: {first_error}",
-                apps_path.display()
-            ));
+            return Err(write_failure("Could not write", apps_path, &first_error));
         }
     }
 
@@ -870,9 +1007,10 @@ pub fn sunshine_status(settings: &LocalSettings) -> SunshineStatus {
     let mut warnings = detection.warnings.clone();
     let mut entries = 0;
     let mut managed_entries = 0;
+    let mut apps_error: Option<String> = None;
     if let Some(path) = apps_path.as_deref().filter(|_| apps_found) {
         match read_text_file(Path::new(path)) {
-            Ok(text) => match parse_apps_json(&text) {
+            Ok(file) => match parse_apps_json(&file.text) {
                 Ok(value) => match apps_ref(&value) {
                     Ok(apps) => {
                         entries = apps.len();
@@ -883,9 +1021,15 @@ pub fn sunshine_status(settings: &LocalSettings) -> SunshineStatus {
                             .to_string(),
                     ),
                 },
-                Err(error) => warnings.push(error),
+                Err(error) => {
+                    warnings.push(error.clone());
+                    apps_error = Some(error);
+                }
             },
-            Err(error) => warnings.push(format!("Could not read {path}: {error}")),
+            Err(error) => {
+                warnings.push(error.clone());
+                apps_error = Some(error);
+            }
         }
     }
 
@@ -896,6 +1040,8 @@ pub fn sunshine_status(settings: &LocalSettings) -> SunshineStatus {
     } else if apps_path.is_none() {
         "Sunshine is installed but its config folder was not found. Set the folder manually in Settings → Streaming."
             .to_string()
+    } else if let Some(error) = apps_error {
+        error
     } else if managed_entries == 0 {
         "No Ludex game is published yet. Publish the library to create the first entries."
             .to_string()
@@ -926,8 +1072,9 @@ pub fn sunshine_status(settings: &LocalSettings) -> SunshineStatus {
     }
 }
 
-/// Read `apps.json` for the given status, if any.
-pub fn read_apps_text(status: &SunshineStatus) -> Result<Option<String>, String> {
+/// Read `apps.json` for the given status, if any. The returned file keeps the
+/// on-disk encoding so a sync writes it back in the same format (#150).
+pub fn read_apps_text(status: &SunshineStatus) -> Result<Option<AppsFile>, String> {
     let Some(path) = status.apps_path.as_deref() else {
         return Ok(None);
     };
@@ -957,7 +1104,12 @@ pub struct MoonlightStatus {
     pub platform: String,
     pub binary: Option<String>,
     pub config_path: Option<String>,
+    /// Where the host list came from (`Moonlight.ini`, `Windows registry`,
+    /// `Moonlight.conf`, `override`). `None` when no config was found (#151).
+    pub config_source: Option<String>,
     pub config_found: bool,
+    /// Manual host override used when Moonlight stores its settings elsewhere.
+    pub manual_host: Option<String>,
     pub hosts: Vec<MoonlightHost>,
     pub supported: bool,
     pub warnings: Vec<String>,
@@ -1092,8 +1244,17 @@ pub fn parse_moonlight_conf(text: &str) -> Vec<MoonlightHost> {
                 .or_else(|| entry.address.clone())
                 .or_else(|| entry.local_address.clone())
                 .or_else(|| entry.remote_address.clone())?;
+            // Qt stores arrays under numeric keys (`hosts\1`): an address is
+            // more useful than a bare index when no custom name was saved.
+            let name = entry.custom_name.unwrap_or_else(|| {
+                if key.chars().all(|character| character.is_ascii_digit()) {
+                    address.clone()
+                } else {
+                    key
+                }
+            });
             Some(MoonlightHost {
-                name: entry.custom_name.unwrap_or(key),
+                name,
                 address,
                 local_address: entry.local_address,
                 remote_address: entry.remote_address,
@@ -1104,6 +1265,165 @@ pub fn parse_moonlight_conf(text: &str) -> Vec<MoonlightHost> {
         .collect();
     hosts.sort_by_key(|host| host.name.to_lowercase());
     hosts
+}
+
+/* ------------------- Moonlight settings sources (#151) -------------------- */
+
+/// Registry root where installed Moonlight-qt stores Qt `QSettings` (#151).
+pub const MOONLIGHT_REGISTRY_KEY: &str = r"HKCU\SOFTWARE\Moonlight Game Streaming Project";
+
+/// One value from Moonlight's Qt settings. `path` is the group path relative
+/// to the application root (`hosts\1`), `name` the value name (`address`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QtSettingEntry {
+    pub path: String,
+    pub name: String,
+    pub value: String,
+}
+
+/// Injectable Moonlight settings source. Windows reads the registry; tests
+/// pass a fixture, so no `reg.exe` process is involved (#151).
+pub trait MoonlightSettingsSource {
+    fn read(&self) -> Result<Vec<QtSettingEntry>, String>;
+}
+
+/// No settings source: used on non-Windows platforms.
+#[cfg_attr(windows, allow(dead_code))]
+pub struct NoMoonlightSettings;
+
+impl MoonlightSettingsSource for NoMoonlightSettings {
+    fn read(&self) -> Result<Vec<QtSettingEntry>, String> {
+        Ok(Vec::new())
+    }
+}
+
+/// Read-only `reg.exe query` of Moonlight's `QSettings` key. Ludex never
+/// writes to the registry.
+#[cfg(windows)]
+pub struct WindowsMoonlightSettings;
+
+#[cfg(windows)]
+impl MoonlightSettingsSource for WindowsMoonlightSettings {
+    fn read(&self) -> Result<Vec<QtSettingEntry>, String> {
+        let output = Command::new("reg")
+            .args(["query", MOONLIGHT_REGISTRY_KEY, "/s"])
+            .output()
+            .map_err(|error| format!("Could not run reg.exe: {error}"))?;
+        if !output.status.success() {
+            // The key does not exist until Moonlight saves a setting.
+            return Ok(Vec::new());
+        }
+        // reg.exe writes the console codepage; fall back to Windows-1252 when
+        // a host name is not valid UTF-8.
+        let text = match std::str::from_utf8(&output.stdout) {
+            Ok(text) => text.to_string(),
+            Err(_) => encoding_rs::WINDOWS_1252
+                .decode_without_bom_handling(&output.stdout)
+                .0
+                .into_owned(),
+        };
+        Ok(parse_reg_query_output(&text))
+    }
+}
+
+/// Path below Moonlight's `QSettings` root, from a `reg query` key line.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn registry_relative_path(line: &str) -> Option<String> {
+    const SUFFIX: &str = "SOFTWARE\\MOONLIGHT GAME STREAMING PROJECT";
+    let upper = line.to_ascii_uppercase();
+    let index = upper.find(SUFFIX)?;
+    Some(
+        line[index + SUFFIX.len()..]
+            .trim_start_matches('\\')
+            .to_string(),
+    )
+}
+
+/// Parse `reg query <key> /s` output into Qt settings entries. Kept separate
+/// from the Windows-only reader so the registry layout is unit tested on Linux.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn parse_reg_query_output(text: &str) -> Vec<QtSettingEntry> {
+    let mut entries = Vec::new();
+    let mut current: Option<String> = None;
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        // Key lines start at column 0; values are indented.
+        if !(line.starts_with(' ') || line.starts_with('\t')) {
+            current = registry_relative_path(line.trim());
+            continue;
+        }
+        let Some(path) = current.as_deref() else {
+            continue;
+        };
+        let line = line.trim_start();
+        let Some((name, rest)) = line.split_once(char::is_whitespace) else {
+            continue;
+        };
+        let rest = rest.trim_start();
+        let Some((kind, data)) = rest.split_once(char::is_whitespace) else {
+            continue;
+        };
+        if !kind.starts_with("REG_") || name == "(Default)" {
+            continue;
+        }
+        entries.push(QtSettingEntry {
+            path: path.to_string(),
+            name: name.to_string(),
+            value: data.trim().to_string(),
+        });
+    }
+    entries
+}
+
+/// Map Qt settings entries (registry layout) to hosts. The first group segment
+/// becomes an INI section and the rest a `host\field` key, so the existing Qt
+/// host parser handles the registry and `.conf` layouts identically.
+pub fn hosts_from_qt_settings(entries: &[QtSettingEntry]) -> Vec<MoonlightHost> {
+    let mut text = String::new();
+    for entry in entries {
+        let segments: Vec<&str> = entry
+            .path
+            .split(['\\', '/'])
+            .map(str::trim)
+            .filter(|segment| !segment.is_empty())
+            .collect();
+        let Some((section, groups)) = segments.split_first() else {
+            // Top-level settings (language, window geometry) are not hosts.
+            continue;
+        };
+        let mut key = groups.join("\\");
+        if !key.is_empty() {
+            key.push('\\');
+        }
+        key.push_str(&entry.name);
+        let value = entry.value.replace(['\r', '\n'], " ");
+        text.push_str(&format!("[{section}]\n{key}={value}\n"));
+    }
+    parse_moonlight_conf(&text)
+}
+
+/// Portable Moonlight keeps `Moonlight.ini` next to `Moonlight.exe` (#151).
+pub fn portable_moonlight_ini(binary: Option<&str>, current_dir: Option<&Path>) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(binary) = binary {
+        if let Some(parent) = Path::new(binary).parent() {
+            candidates.push(parent.join("Moonlight.ini"));
+        }
+    }
+    if let Some(dir) = current_dir {
+        candidates.push(dir.join("Moonlight.ini"));
+    }
+    candidates.into_iter().find(|path| path.is_file())
+}
+
+/// Read a Moonlight config with the shared text decoder (BOM/UTF-16 aware).
+fn read_moonlight_config(path: &Path) -> Result<Vec<MoonlightHost>, String> {
+    let bytes = std::fs::read(path)
+        .map_err(|error| format!("Could not read {}: {error}", path.display()))?;
+    let file = decode_text(&bytes, path)?;
+    Ok(parse_moonlight_conf(&file.text))
 }
 
 /// Moonlight config candidates. macOS preferences are a plist, which Ludex does
@@ -1222,11 +1542,35 @@ fn moonlight_binary(
         .map(|path| path.to_string_lossy().to_string())
 }
 
+/// Detection result before it is serialized for the settings panel.
+#[derive(Debug, Clone, Default)]
+pub struct MoonlightDetection {
+    pub binary: Option<String>,
+    pub config_path: Option<PathBuf>,
+    pub config_source: Option<String>,
+    pub config_found: bool,
+    pub manual_host: Option<String>,
+    pub hosts: Vec<MoonlightHost>,
+    pub supported: bool,
+    pub warnings: Vec<String>,
+    pub message: String,
+}
+
 /// Detect Moonlight and parse its host list.
-pub fn moonlight_status(settings: &LocalSettings) -> MoonlightStatus {
-    let platform = platform_name();
-    let home = home_dir();
-    let env = env_map();
+///
+/// Order: explicit `moonlightConfigPath`, then the format of the platform:
+/// Windows reads portable `Moonlight.ini` next to `Moonlight.exe`, then the
+/// installed build's Qt registry settings, then legacy `.conf` files. Linux and
+/// Flatpak keep the XDG/Flatpak `Moonlight.conf`. The registry reader is
+/// injectable so the layout is tested without Windows (#151).
+pub fn detect_moonlight(
+    settings: &LocalSettings,
+    platform: &str,
+    home: Option<&Path>,
+    env: &BTreeMap<String, String>,
+    current_dir: Option<&Path>,
+    registry: &dyn MoonlightSettingsSource,
+) -> MoonlightDetection {
     let mut warnings = Vec::new();
 
     let binary = if !settings.moonlight_binary.trim().is_empty() {
@@ -1241,57 +1585,85 @@ pub fn moonlight_status(settings: &LocalSettings) -> MoonlightStatus {
             None
         }
     } else {
-        moonlight_binary(platform, home.as_deref(), &env)
-    };
-
-    let candidates = moonlight_conf_candidates(platform, home.as_deref(), &env);
-    let (config_path, config_found) = if !settings.moonlight_config_path.trim().is_empty() {
-        let configured = PathBuf::from(settings.moonlight_config_path.trim());
-        let found = configured.is_file();
-        warnings.push(if found {
-            "The configured Moonlight config file is used.".to_string()
-        } else {
-            format!(
-                "The configured Moonlight config file does not exist: {}",
-                configured.display()
-            )
-        });
-        (Some(configured), found)
-    } else {
-        match candidates.iter().find(|path| path.is_file()) {
-            Some(path) => (Some(path.clone()), true),
-            None => (candidates.first().cloned(), false),
-        }
+        moonlight_binary(platform, home, env)
     };
 
     let supported = platform != "macos";
+    let manual_host =
+        crate::util::non_empty(Some(settings.moonlight_host.as_str())).map(str::to_string);
+
+    let mut config_path: Option<PathBuf> = None;
+    let mut config_source: Option<String> = None;
+    let mut config_found = false;
     let mut hosts = Vec::new();
-    let mut message;
-    if !supported {
-        warnings.push(
-            "Moonlight stores its hosts in a macOS preferences plist, which Ludex does not read. Use Moonlight directly."
-                .to_string(),
-        );
-        message = "Moonlight host auto-detection is not available on macOS.".to_string();
-    } else if let Some(path) = config_path.as_deref().filter(|_| config_found) {
-        match std::fs::read_to_string(path) {
-            Ok(text) => {
-                hosts = parse_moonlight_conf(&text);
-                message = if hosts.is_empty() {
-                    "Moonlight is configured but no host is saved yet. Pair a Sunshine host in Moonlight first."
-                        .to_string()
-                } else {
-                    format!("{} host(s) found in Moonlight.", hosts.len())
-                };
-            }
-            Err(error) => {
-                warnings.push(format!("Could not read {}: {error}", path.display()));
-                message = "Moonlight's host list could not be read.".to_string();
+    let mut config_error: Option<String> = None;
+
+    // 1. An explicit override always wins.
+    let override_path = settings.moonlight_config_path.trim();
+    if !override_path.is_empty() {
+        let configured = PathBuf::from(override_path);
+        if configured.is_file() {
+            config_path = Some(configured);
+            config_source = Some("override".to_string());
+            config_found = true;
+        } else {
+            warnings.push(format!(
+                "The configured Moonlight config file does not exist: {}",
+                configured.display()
+            ));
+        }
+    }
+
+    // 2. Platform-specific detection.
+    if supported && config_path.is_none() && config_error.is_none() {
+        if platform == "windows" {
+            if let Some(path) = portable_moonlight_ini(binary.as_deref(), current_dir) {
+                config_path = Some(path);
+                config_source = Some("Moonlight.ini (portable)".to_string());
+                config_found = true;
             }
         }
-    } else {
-        message = "Moonlight's config file was not found. Pair a Sunshine host in Moonlight first."
-            .to_string();
+
+        if platform == "windows" && config_path.is_none() && config_error.is_none() {
+            // Installed Moonlight-qt: read-only QSettings in the registry.
+            match registry.read() {
+                Ok(entries) if !entries.is_empty() => {
+                    hosts = hosts_from_qt_settings(&entries);
+                    config_source = Some(format!("Windows registry ({MOONLIGHT_REGISTRY_KEY})"));
+                    config_found = true;
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    warnings.push(format!(
+                        "Could not read Moonlight's registry settings: {error}"
+                    ));
+                    config_error = Some(error);
+                }
+            }
+        }
+
+        if config_path.is_none() && config_error.is_none() && !config_found {
+            // Older builds and hand-made portable copies may still use a file.
+            if let Some(path) = moonlight_conf_candidates(platform, home, env)
+                .into_iter()
+                .find(|path| path.is_file())
+            {
+                config_path = Some(path);
+                config_source = Some("Moonlight.conf".to_string());
+                config_found = true;
+            }
+        }
+    }
+
+    // 3. Read the selected file, preserving its text decoding.
+    if let Some(path) = config_path.clone() {
+        match read_moonlight_config(&path) {
+            Ok(parsed) => hosts = parsed,
+            Err(error) => {
+                warnings.push(error.clone());
+                config_error = Some(error);
+            }
+        }
     }
 
     let detected = binary.is_some();
@@ -1300,22 +1672,105 @@ pub fn moonlight_status(settings: &LocalSettings) -> MoonlightStatus {
             "Moonlight was not found. Install Moonlight (moonlight-qt) to stream from a Sunshine host."
                 .to_string(),
         );
-        message =
-            "Moonlight was not found on this machine. Install it to stream from a Sunshine host."
-                .to_string();
+    }
+    if !supported {
+        warnings.push(
+            "Moonlight stores its hosts in a macOS preferences plist, which Ludex does not read. Use Moonlight directly."
+                .to_string(),
+        );
     }
 
-    MoonlightStatus {
-        detected,
-        platform: platform.to_string(),
+    let message = if !supported {
+        "Moonlight host auto-detection is not available on macOS.".to_string()
+    } else if !detected {
+        "Moonlight was not found on this machine. Install it to stream from a Sunshine host."
+            .to_string()
+    } else if let Some(error) = config_error.as_deref() {
+        format!("Moonlight's configuration exists but could not be read: {error}")
+    } else if !hosts.is_empty() {
+        format!("{} host(s) found in Moonlight.", hosts.len())
+    } else if let Some(manual) = manual_host.as_deref() {
+        format!(
+            "No saved Moonlight host was found; the manual host {manual} will be used for streaming."
+        )
+    } else if config_found {
+        "Moonlight is configured but no host is saved yet. Pair a Sunshine host in Moonlight first."
+            .to_string()
+    } else {
+        "Moonlight's configuration was not found. Pair a Sunshine host in Moonlight once (Ludex reads Moonlight.ini, Moonlight.conf or the Windows registry), or set a manual host in Settings → Streaming."
+            .to_string()
+    };
+
+    MoonlightDetection {
         binary,
-        config_path: config_path.map(|path| path.to_string_lossy().to_string()),
+        config_path,
+        config_source,
         config_found,
+        manual_host,
         hosts,
         supported,
         warnings,
         message,
     }
+}
+
+/// `moonlight_status` payload for the settings panel and the Stream dialog.
+pub fn moonlight_status(settings: &LocalSettings) -> MoonlightStatus {
+    let platform = platform_name();
+    let home = home_dir();
+    let env = env_map();
+    let current_dir = std::env::current_dir().ok();
+    #[cfg(windows)]
+    let registry = WindowsMoonlightSettings;
+    #[cfg(not(windows))]
+    let registry = NoMoonlightSettings;
+
+    let detection = detect_moonlight(
+        settings,
+        platform,
+        home.as_deref(),
+        &env,
+        current_dir.as_deref(),
+        &registry,
+    );
+    let detected = detection.binary.is_some();
+    MoonlightStatus {
+        detected,
+        platform: platform.to_string(),
+        binary: detection.binary,
+        config_path: detection
+            .config_path
+            .map(|path| path.to_string_lossy().to_string()),
+        config_source: detection.config_source,
+        config_found: detection.config_found,
+        manual_host: detection.manual_host,
+        hosts: detection.hosts,
+        supported: detection.supported,
+        warnings: detection.warnings,
+        message: detection.message,
+    }
+}
+
+/// Hosts offered by the Stream dialog. The manual host is appended as a paired
+/// fallback when Moonlight's own list is empty or does not contain it (#151).
+pub fn stream_hosts(status: &MoonlightStatus) -> Vec<MoonlightHost> {
+    let mut hosts = status.hosts.clone();
+    if let Some(host) = status.manual_host.as_deref() {
+        if !hosts
+            .iter()
+            .any(|saved| saved.address == host || saved.name == host)
+        {
+            hosts.push(MoonlightHost {
+                name: host.to_string(),
+                address: host.to_string(),
+                local_address: None,
+                remote_address: None,
+                manual_address: Some(host.to_string()),
+                paired: true,
+            });
+        }
+    }
+    hosts
 }
 
 /// `moonlight stream <host> <app>`.
@@ -1733,7 +2188,7 @@ mod tests {
         let path = dir.join("apps.json");
         std::fs::write(&path, USER_APPS).unwrap();
 
-        let backup = write_apps_with_backup(&path, "{\"apps\":[]}\n")
+        let backup = write_apps_with_backup(&path, "{\"apps\":[]}\n", TextFormat::default())
             .unwrap()
             .expect("backup path");
         assert!(backup.is_file());
@@ -1751,7 +2206,7 @@ mod tests {
         let error = backup_apps(&path).unwrap_err();
         assert!(error.contains("back up"));
         // Writing over a directory also fails; nothing is replaced.
-        assert!(write_apps_with_backup(&path, "{}").is_err());
+        assert!(write_apps_with_backup(&path, "{}", TextFormat::default()).is_err());
         assert!(path.is_dir());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1890,7 +2345,10 @@ mod tests {
             bytes.extend_from_slice(&unit.to_le_bytes());
         }
         std::fs::write(&path, bytes).unwrap();
-        assert_eq!(read_text_file(&path).unwrap(), text);
+        let file = read_text_file(&path).unwrap();
+        assert_eq!(file.text, text);
+        assert_eq!(file.format.encoding, TextEncoding::Utf16Le);
+        assert!(file.format.bom);
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -2038,6 +2496,29 @@ customname=Deck
     }
 
     #[test]
+    fn sunshine_status_reports_empty_and_malformed_files_differently() {
+        let dir = temp_dir("status-empty");
+        std::fs::write(dir.join("sunshine.conf"), "").unwrap();
+        std::fs::write(dir.join("apps.json"), "   \n\t").unwrap();
+        let settings = LocalSettings {
+            sunshine_apps_path: dir.join("apps.json").to_string_lossy().to_string(),
+            sunshine_conf_path: dir.join("sunshine.conf").to_string_lossy().to_string(),
+            ..LocalSettings::default()
+        };
+
+        let status = sunshine_status(&settings);
+        assert!(status.apps_found);
+        assert_eq!(status.entries, 0);
+        assert!(!status.message.contains("not valid JSON"));
+
+        std::fs::write(dir.join("apps.json"), "{not json").unwrap();
+        let status = sunshine_status(&settings);
+        assert!(status.message.contains("not valid JSON"));
+        assert!(status.message.contains("Nothing was changed"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn moonlight_candidates_follow_the_platform() {
         let mut env = BTreeMap::new();
         env.insert(
@@ -2056,5 +2537,411 @@ customname=Deck
 
         let mac = moonlight_conf_candidates("macos", Some(home), &BTreeMap::new());
         assert!(mac[0].ends_with("com.moonlight-stream.Moonlight.plist"));
+    }
+
+    #[test]
+    fn apps_json_round_trips_utf8_bom_and_utf16_encodings() {
+        let root = temp_dir("apps-encodings");
+        let text = "{\"apps\":[{\"name\":\"Café\"}]}\n";
+        let mut utf8_bom = vec![0xEF, 0xBB, 0xBF];
+        utf8_bom.extend_from_slice(text.as_bytes());
+        let mut utf16le = vec![0xFF, 0xFE];
+        let mut utf16be = vec![0xFE, 0xFF];
+        for unit in text.encode_utf16() {
+            utf16le.extend_from_slice(&unit.to_le_bytes());
+            utf16be.extend_from_slice(&unit.to_be_bytes());
+        }
+
+        for (name, bytes, encoding) in [
+            ("bom.json", utf8_bom, TextEncoding::Utf8),
+            ("le.json", utf16le, TextEncoding::Utf16Le),
+            ("be.json", utf16be, TextEncoding::Utf16Be),
+        ] {
+            let path = root.join(name);
+            std::fs::write(&path, &bytes).unwrap();
+            let file = read_text_file(&path).unwrap();
+            assert_eq!(file.text, text, "{name} decodes");
+            assert_eq!(
+                file.format.encoding, encoding,
+                "{name} detects its encoding"
+            );
+
+            let backup = write_apps_with_backup(&path, &file.text, file.format)
+                .unwrap()
+                .expect("backup path");
+            assert_eq!(
+                std::fs::read(&path).unwrap(),
+                bytes,
+                "{name} keeps its encoding"
+            );
+            assert_eq!(
+                std::fs::read(&backup).unwrap(),
+                bytes,
+                "{name} backup is byte-exact"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn bom_prefixed_malformed_json_is_still_refused() {
+        let error = parse_apps_json("\u{feff}{not json").unwrap_err();
+        assert!(error.contains("not valid JSON"));
+        assert!(error.contains("Nothing was changed"));
+    }
+
+    #[test]
+    fn program_files_write_failures_are_explained() {
+        let denied = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
+        let message = write_failure_message(
+            Path::new("C:\\Program Files\\Sunshine\\config\\apps.json"),
+            &denied,
+        );
+        assert!(message.contains("Program Files"));
+        assert!(message.contains("user-writable"));
+        assert!(message.contains("elevated"));
+        assert!(message.contains("Nothing was changed"));
+
+        let message = write_failure_message(Path::new("/opt/sunshine/apps.json"), &denied);
+        assert!(message.contains("elevated"));
+
+        let missing = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
+        let message = write_failure_message(Path::new("/opt/sunshine/apps.json"), &missing);
+        assert!(!message.contains("elevated"));
+        assert!(message.contains("Nothing was changed"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_sunshine_folder_reports_the_permission_error() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        // Permission bits do not apply to root; skip instead of asserting nothing.
+        if std::fs::metadata("/")
+            .map(|meta| meta.uid() == 0)
+            .unwrap_or(false)
+        {
+            eprintln!("skipping read-only folder test: running as root");
+            return;
+        }
+        let root = temp_dir("readonly");
+        let path = root.join("apps.json");
+        std::fs::write(&path, "{\"apps\":[]}").unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o500)).unwrap();
+
+        let error =
+            write_apps_with_backup(&path, "{\"apps\":[]}\n", TextFormat::default()).unwrap_err();
+        assert!(
+            error.to_lowercase().contains("permission") || error.to_lowercase().contains("denied"),
+            "unexpected error: {error}"
+        );
+        assert!(error.contains("Nothing was changed"));
+
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn fixture_exe(root: &Path) -> String {
+        let exe = root.join("Moonlight.exe");
+        std::fs::write(&exe, b"").unwrap();
+        exe.to_string_lossy().to_string()
+    }
+
+    struct FixtureRegistry(Vec<QtSettingEntry>);
+
+    impl MoonlightSettingsSource for FixtureRegistry {
+        fn read(&self) -> Result<Vec<QtSettingEntry>, String> {
+            Ok(self.0.clone())
+        }
+    }
+
+    struct FailingRegistry;
+
+    impl MoonlightSettingsSource for FailingRegistry {
+        fn read(&self) -> Result<Vec<QtSettingEntry>, String> {
+            Err("access denied".to_string())
+        }
+    }
+
+    fn registry_entry(path: &str, name: &str, value: &str) -> QtSettingEntry {
+        QtSettingEntry {
+            path: path.to_string(),
+            name: name.to_string(),
+            value: value.to_string(),
+        }
+    }
+
+    #[test]
+    fn portable_moonlight_ini_next_to_the_binary_is_read() {
+        let root = temp_dir("moonlight-portable");
+        let exe = fixture_exe(&root);
+        std::fs::write(
+            root.join("Moonlight.ini"),
+            "[hosts]\nLiving-room\\address=192.168.1.20\nLiving-room\\customname=Living Room\n",
+        )
+        .unwrap();
+
+        let settings = LocalSettings {
+            moonlight_binary: exe,
+            ..LocalSettings::default()
+        };
+        let detection = detect_moonlight(
+            &settings,
+            "windows",
+            None,
+            &BTreeMap::new(),
+            None,
+            &NoMoonlightSettings,
+        );
+        assert!(detection.config_found);
+        assert_eq!(
+            detection.config_source.as_deref(),
+            Some("Moonlight.ini (portable)")
+        );
+        assert_eq!(detection.hosts.len(), 1);
+        assert_eq!(detection.hosts[0].name, "Living Room");
+        assert_eq!(detection.hosts[0].address, "192.168.1.20");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn registry_layout_maps_hosts_through_an_injectable_reader() {
+        let root = temp_dir("moonlight-registry");
+        let settings = LocalSettings {
+            moonlight_binary: fixture_exe(&root),
+            ..LocalSettings::default()
+        };
+        let registry = FixtureRegistry(vec![
+            registry_entry("hosts\\1", "address", "192.168.1.20"),
+            registry_entry("hosts\\1", "customname", "Living Room"),
+            registry_entry("hosts\\1", "srvcert", "abc123"),
+            registry_entry("hosts\\2", "address", "10.0.0.30"),
+            registry_entry("hosts\\2", "pairstatus", "0"),
+            registry_entry("", "language", "en"),
+        ]);
+
+        let detection = detect_moonlight(
+            &settings,
+            "windows",
+            None,
+            &BTreeMap::new(),
+            None,
+            &registry,
+        );
+        assert!(detection.config_found);
+        assert!(detection
+            .config_source
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("Windows registry"));
+        assert_eq!(detection.hosts.len(), 2);
+        let living = detection
+            .hosts
+            .iter()
+            .find(|host| host.name == "Living Room")
+            .unwrap();
+        assert_eq!(living.address, "192.168.1.20");
+        assert!(living.paired);
+        let second = detection
+            .hosts
+            .iter()
+            .find(|host| host.address == "10.0.0.30")
+            .unwrap();
+        // A numeric Qt array key falls back to the address, not "2".
+        assert_eq!(second.name, "10.0.0.30");
+        assert!(!second.paired);
+        assert!(detection.message.contains("host(s) found"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn reg_query_output_is_parsed_without_running_reg_exe() {
+        let output = "\r\nHKEY_CURRENT_USER\\SOFTWARE\\Moonlight Game Streaming Project\\hosts\r\n    size    REG_DWORD    0x1\r\n\r\nHKEY_CURRENT_USER\\SOFTWARE\\Moonlight Game Streaming Project\\hosts\\1\r\n    address    REG_SZ    192.168.1.20\r\n    customname    REG_SZ    Living Room\r\n    srvcert    REG_BINARY    0A0B0C\r\n";
+        let entries = parse_reg_query_output(output);
+        assert_eq!(entries.len(), 4);
+        let host = entries
+            .iter()
+            .find(|entry| entry.name == "address")
+            .unwrap();
+        assert_eq!(host.path, "hosts\\1");
+        assert_eq!(host.value, "192.168.1.20");
+
+        let hosts = hosts_from_qt_settings(&entries);
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0].name, "Living Room");
+        assert!(hosts[0].paired);
+    }
+
+    #[test]
+    fn configured_moonlight_without_a_host_asks_for_a_pairing() {
+        let root = temp_dir("moonlight-nohost");
+        let settings = LocalSettings {
+            moonlight_binary: fixture_exe(&root),
+            ..LocalSettings::default()
+        };
+        let registry = FixtureRegistry(vec![registry_entry("", "language", "en")]);
+
+        let detection = detect_moonlight(
+            &settings,
+            "windows",
+            None,
+            &BTreeMap::new(),
+            None,
+            &registry,
+        );
+        assert!(detection.config_found);
+        assert!(detection.hosts.is_empty());
+        assert!(detection.message.contains("Pair a Sunshine host"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_absent_registry_key_is_not_an_error() {
+        let root = temp_dir("moonlight-absent");
+        let settings = LocalSettings {
+            moonlight_binary: fixture_exe(&root),
+            ..LocalSettings::default()
+        };
+
+        let detection = detect_moonlight(
+            &settings,
+            "windows",
+            None,
+            &BTreeMap::new(),
+            None,
+            &FixtureRegistry(Vec::new()),
+        );
+        assert!(!detection.config_found);
+        assert!(detection.hosts.is_empty());
+        assert!(detection.message.contains("configuration was not found"));
+        assert!(!detection
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("registry")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_unreadable_moonlight_config_is_reported_separately() {
+        let root = temp_dir("moonlight-invalid");
+        let conf = root.join("Moonlight.conf");
+        std::fs::write(&conf, [0x00, 0x01, 0x02]).unwrap();
+        let settings = LocalSettings {
+            moonlight_binary: fixture_exe(&root),
+            moonlight_config_path: conf.to_string_lossy().to_string(),
+            ..LocalSettings::default()
+        };
+
+        let detection = detect_moonlight(
+            &settings,
+            "windows",
+            None,
+            &BTreeMap::new(),
+            None,
+            &NoMoonlightSettings,
+        );
+        assert!(detection.config_found);
+        assert!(detection.hosts.is_empty());
+        assert!(detection.message.contains("could not be read"));
+        assert!(detection
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("binary")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_registry_read_error_is_a_warning_not_a_crash() {
+        let root = temp_dir("moonlight-registry-error");
+        let settings = LocalSettings {
+            moonlight_binary: fixture_exe(&root),
+            ..LocalSettings::default()
+        };
+
+        let detection = detect_moonlight(
+            &settings,
+            "windows",
+            None,
+            &BTreeMap::new(),
+            None,
+            &FailingRegistry,
+        );
+        assert!(detection.hosts.is_empty());
+        assert!(detection
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("registry")));
+        assert!(detection.message.contains("could not be read"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn linux_moonlight_conf_is_detected_at_the_existing_path() {
+        let root = temp_dir("moonlight-linux");
+        let home = root.join("home");
+        let conf = home
+            .join(".config")
+            .join("Moonlight Game Streaming Project")
+            .join("Moonlight.conf");
+        std::fs::create_dir_all(conf.parent().unwrap()).unwrap();
+        std::fs::write(&conf, "[hosts]\nSteam Deck\\address=192.168.1.40\n").unwrap();
+
+        let detection = detect_moonlight(
+            &LocalSettings::default(),
+            "linux",
+            Some(&home),
+            &BTreeMap::new(),
+            None,
+            &NoMoonlightSettings,
+        );
+        assert_eq!(detection.config_path.as_deref(), Some(conf.as_path()));
+        assert_eq!(detection.config_source.as_deref(), Some("Moonlight.conf"));
+        assert_eq!(detection.hosts.len(), 1);
+        assert_eq!(detection.hosts[0].address, "192.168.1.40");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn manual_host_is_the_stream_fallback() {
+        let mut status = MoonlightStatus {
+            detected: true,
+            platform: "windows".to_string(),
+            binary: Some("C:\\Moonlight\\Moonlight.exe".to_string()),
+            config_path: None,
+            config_source: None,
+            config_found: false,
+            manual_host: Some("192.168.1.50".to_string()),
+            hosts: Vec::new(),
+            supported: true,
+            warnings: Vec::new(),
+            message: "No saved Moonlight host was found; the manual host 192.168.1.50 will be used for streaming."
+                .to_string(),
+        };
+
+        let hosts = stream_hosts(&status);
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0].address, "192.168.1.50");
+        assert!(hosts[0].paired);
+        assert_eq!(select_host(&hosts, None).unwrap().address, "192.168.1.50");
+
+        // A host Moonlight saved always comes first, and the manual fallback is
+        // still offered when the saved host is unpaired.
+        status.hosts = vec![MoonlightHost {
+            name: "Saved".to_string(),
+            address: "10.0.0.2".to_string(),
+            local_address: None,
+            remote_address: None,
+            manual_address: None,
+            paired: true,
+        }];
+        let hosts = stream_hosts(&status);
+        assert_eq!(hosts[0].name, "Saved");
+        assert_eq!(hosts.len(), 2);
+        assert_eq!(hosts[1].address, "192.168.1.50");
+        assert!(hosts[1].paired);
+        assert_eq!(
+            select_host(&hosts, Some("192.168.1.50")).unwrap().address,
+            "192.168.1.50"
+        );
     }
 }

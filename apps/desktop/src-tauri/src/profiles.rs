@@ -109,8 +109,7 @@ pub fn normalize_url(input: &str) -> Result<String, String> {
     }
     if rest.contains('@') {
         return Err(
-            "Server addresses must not contain credentials; save the token separately."
-                .to_string(),
+            "Server addresses must not contain credentials; save the token separately.".to_string(),
         );
     }
     if rest.contains(char::is_whitespace) {
@@ -420,11 +419,7 @@ pub fn list(settings: &LocalSettings, store: &SecretStore, message: Option<Strin
             created_at: profile.created_at.clone(),
             active: active.as_deref() == Some(profile.id.as_str()),
             local: profile.id == LOCAL_SERVER_ID,
-            has_token: store
-                .get(&secret_key(&profile.id))
-                .ok()
-                .flatten()
-                .is_some(),
+            has_token: store.get(&secret_key(&profile.id)).ok().flatten().is_some(),
         })
         .collect();
 
@@ -467,9 +462,7 @@ pub fn adopt_legacy_database(app_data: &Path, active_id: &str) -> Result<PathBuf
     let legacy = app_data.join("ludex-desktop.db");
     if legacy.is_file() {
         std::fs::copy(&legacy, &target).map_err(|error| {
-            format!(
-                "Could not move the desktop index into the new server profile: {error}"
-            )
+            format!("Could not move the desktop index into the new server profile: {error}")
         })?;
         // WAL sidecars belong to the copy as well.
         for suffix in ["-wal", "-shm"] {
@@ -490,11 +483,7 @@ pub fn adopt_legacy_database(app_data: &Path, active_id: &str) -> Result<PathBuf
 
 /// `GET {url}/api/health` with a short timeout. Never panics; failures are a
 /// structured result so the dialog can show the real reason.
-pub async fn test_connection(
-    http: &reqwest::Client,
-    url: &str,
-    token: Option<&str>,
-) -> ServerTest {
+pub async fn test_connection(http: &reqwest::Client, url: &str, token: Option<&str>) -> ServerTest {
     let normalized = match normalize_url(url) {
         Ok(url) => url,
         Err(message) => {
@@ -533,7 +522,9 @@ pub async fn test_connection(
                     version: version.clone(),
                     latency_ms,
                     message: match version {
-                        Some(version) => format!("Connected. Ludex {version} answered in {latency_ms} ms."),
+                        Some(version) => {
+                            format!("Connected. Ludex {version} answered in {latency_ms} ms.")
+                        }
                         None => format!("Connected in {latency_ms} ms."),
                     },
                 }
@@ -667,8 +658,14 @@ mod tests {
         assert_eq!(profile.username.as_deref(), Some("analyste"));
         assert_eq!(settings.servers.len(), 1);
 
-        let error = upsert(&mut settings, None, "Dupe", "https://one.example.com/", None)
-            .unwrap_err();
+        let error = upsert(
+            &mut settings,
+            None,
+            "Dupe",
+            "https://one.example.com/",
+            None,
+        )
+        .unwrap_err();
         assert!(error.contains("already saved"));
     }
 
@@ -723,7 +720,14 @@ mod tests {
             token: Some("jwt".to_string()),
             ..LocalSettings::default()
         };
-        upsert(&mut settings, Some(&id), "Living room", "https://one.example.com", None).unwrap();
+        upsert(
+            &mut settings,
+            Some(&id),
+            "Living room",
+            "https://one.example.com",
+            None,
+        )
+        .unwrap();
         assert_eq!(settings.servers[0].label, "Living room");
         assert_eq!(settings.token.as_deref(), Some("jwt"));
     }
@@ -817,10 +821,7 @@ mod tests {
             database_path(data, ""),
             PathBuf::from("/data/ludex-desktop.db")
         );
-        assert_ne!(
-            database_path(data, "srv_a"),
-            database_path(data, "srv_b")
-        );
+        assert_ne!(database_path(data, "srv_a"), database_path(data, "srv_b"));
     }
 
     #[test]

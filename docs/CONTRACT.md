@@ -968,7 +968,8 @@ interface LocalSettings {
   sunshineAppsPath: string;          // Sunshine apps.json override (#97), empty = detect
   sunshineConfPath: string;          // Sunshine sunshine.conf override (#97)
   moonlightBinary: string;           // Moonlight binary override (#98), empty = detect
-  moonlightConfigPath: string;       // Moonlight.conf override (#98), empty = detect
+  moonlightConfigPath: string;       // Moonlight config override (#98), empty = detect
+  moonlightHost: string;             // manual host name/IP fallback (#151), empty = use saved hosts
   gamevaultRoots: string[];          // ordered GameVault install roots (#134)
   gamevaultScanDepth: number;        // executable search depth for scans, 4-8, default 6
 }
@@ -1338,7 +1339,10 @@ interface CloudSyncToggleResponse {
   effective: { enabled: boolean; reason: CloudSaveReason };
 }
 
-/** Game settings editor (#105). `filePath` is relative to the install folder. */
+/** Game settings editor (#105/#147). `filePath` is relative to the install folder.
+ *  `editable: false` means the UI never calls `read_game_config`; `note` gives
+ *  the reason (binary/NUL bytes, over 1 MiB, unparseable, unsupported encoding,
+ *  path escaping the install folder). No filename blacklist. */
 interface ConfigFileInfo {
   path: string; name: string;
   format: "ini" | "cfg" | "toml" | "json";
@@ -1447,7 +1451,10 @@ interface MoonlightHost {
 
 interface MoonlightStatus {
   detected: boolean; platform: string;
-  binary: string | null; configPath: string | null; configFound: boolean;
+  binary: string | null; configPath: string | null;
+  configSource: string | null;       // Moonlight.ini, Windows registry, Moonlight.conf, override (#151)
+  configFound: boolean;
+  manualHost: string | null;         // moonlightHost fallback (#151)
   hosts: MoonlightHost[]; supported: boolean;
   warnings: string[]; message: string;
 }
@@ -1538,17 +1545,17 @@ interface StreamTarget {
 | `resolve_cloud_save_conflict` | `{ gameId, strategy }` | `CloudSaveRestoreOutcome`; same operation as `restore_cloud_save`, using the explicit strategy |
 | `list_locations` | — | `LocationStatus[]`; probes every named location, default first then roomiest writable. Never fails on a missing drive |
 | `check_location` | `{ id?, path?, requiredBytes? }` | `LocationStatus`; one location by id or path, with `freeSpaceOk` when `requiredBytes` is set |
-| `list_game_configs` | `{ gameId }` | `{ gameId, installPath, files: ConfigFileInfo[] }`; ini/cfg/godot/prefs/toml/json under the install folder |
-| `read_game_config` | `{ gameId, path }` | `ConfigDocument`; parsed entries with byte-preserving spans, never writes |
-| `write_game_config` | `{ gameId, path, edits: { key, value }[], origin? }` | `{ document, diff, backup }`; validates types, copies the original to `{appDataDir}/config-backups/game-<id>/`, records the diff, then replaces the file atomically. Refuses binary files, files over 1 MiB and paths outside the install folder |
-| `restore_game_config` | `{ gameId, backupId }` | `{ document, diff, backup }`; backs up the current file first, then restores the history entry |
+| `list_game_configs` | `{ gameId }` | `{ gameId, installPath, files: ConfigFileInfo[] }`; every ini/cfg/conf/godot/prefs/toml/json/info file under the install folder (depth ≤5, 200 files). No filename blacklist; read-only entries carry `editable: false` and a `note` (#147) |
+| `read_game_config` | `{ gameId, path }` | `ConfigDocument`; parsed entries with byte-preserving spans, never writes. Decodes UTF-8 (±BOM), UTF-16LE/BE (BOM) and Windows-1252 |
+| `write_game_config` | `{ gameId, path, edits: { key, value }[], origin? }` | `{ document, diff, backup }`; validates types, copies the original to `{appDataDir}/config-backups/game-<id>/`, records the diff, then replaces the file atomically in its original encoding/BOM. Refuses binary/NUL files, files over 1 MiB, values unrepresentable in the source encoding and paths outside the install folder |
+| `restore_game_config` | `{ gameId, backupId }` | `{ document, diff, backup }`; backs up the current file first, then restores the history entry byte-for-byte |
 | `list_game_config_backups` | `{ gameId }` | `ConfigBackupRecord[]`, newest first (max 100) |
 | `game_config_adapters` | `{ gameId }` | `AdapterReport`; Unreal/GOG/Godot/Unity detection plus typed fields (#106) |
 | `sunshine_status` | — | `SunshineStatus`; Sunshine install, `apps.json`/`sunshine.conf` paths, binary and managed-entry counts (#97) |
 | `sunshine_preview` | — | `SunshinePreview`; what a sync would add, update and remove. Never writes |
 | `sunshine_sync` | `{ dryRun?, removeMissing?, downloadCovers? }` | `SunshineReport`. Every real write copies `apps.json` to `apps.json.ludex-backup-<stamp>-<id>.bak` first. `removeMissing` defaults to true |
 | `sunshine_remove_managed` | — | `SunshineReport`; removes every entry carrying the Ludex marker (all servers), user apps stay, backup first |
-| `moonlight_status` | — | `MoonlightStatus`; binary, `Moonlight.conf` and parsed hosts with pairing state (#98) |
+| `moonlight_status` | — | `MoonlightStatus`; binary, config source (portable `Moonlight.ini`, Windows registry, `Moonlight.conf`), parsed hosts and the manual host fallback (#98, #151) |
 | `stream_target` | `{ gameId }` | `StreamTarget`; whether the game is published and which hosts can stream it |
 | `stream_game` | `{ gameId, host? }` | `StreamLaunch`; runs `moonlight stream <host> <app>` for a published game. Refuses unpaired hosts and missing Moonlight |
 | `moonlight_stream` | `{ host, appName }` | `StreamLaunch`; advanced/manual start of any Sunshine app |
@@ -1733,21 +1740,33 @@ install volume; the archive is deleted afterwards unless `keepArchives`.
 ### Game settings editor (#105) and adapters (#106)
 
 Config files are discovered up to five folders deep inside the install folder,
-skipping hidden folders and Wine `drive_c` prefixes. Supported formats are INI,
-CFG (also Godot `project.godot` and Unity's extension-less `prefs`), TOML and
-JSON (`*.info` included). Each parser records the byte span of a value token;
-an edit replaces only that span, so comments, ordering, quoting style and
-unrelated whitespace survive. Values are validated against the existing type
-(string, number, boolean) and newlines/control characters are refused. A file
-is refused when it is over 1 MiB, not UTF-8 or contains NUL bytes, and a path
-must resolve (symlinks included) inside the install folder.
+up to 200 files per scan. The scanner has no filename or directory blacklist
+(#147): every `ini`, `cfg`, `conf`, `godot`, `prefs` (including Unity's
+extension-less `prefs`), `toml`, `json` and `info` file is listed, such as
+`steam_emu.ini` or `Cracks/…/settings.ini`. Only scan-safety skips remain:
+hidden folders, Wine `drive_c` prefixes and symlinks. Each parser records the
+byte span of a value token; an edit replaces only that span, so comments,
+ordering, quoting style and unrelated whitespace survive. Values are validated
+against the existing type (string, number, boolean) and newlines/control
+characters are refused.
+
+Text is decoded as UTF-8 (with or without BOM), UTF-16LE/BE (with BOM) or, when
+the bytes are neither valid UTF-8 nor contain NULs, Windows-1252. A save
+re-encodes with the same encoding and BOM and keeps CRLF/LF exactly; a value
+the source encoding cannot represent (for example CJK text in a Windows-1252
+file) is refused before anything is written. A file is listed read-only
+(`editable: false` with a `note`) when it contains NUL bytes or cannot be
+decoded, is over 1 MiB, does not parse in its format, or its path (symlinks
+resolved) leaves the install folder; the UI shows the note and never calls
+`read_game_config` for those entries.
 
 Every write copies the original to
 `{appDataDir}/config-backups/game-<gameId>/<timestamp>-<uuid>-<name>` first,
 then replaces the file atomically (temp file in the same folder + rename,
 preserving the Unix mode). `config_edits` stores the relative path, absolute
 backup path, line diff, size, origin and timestamp. Restoring a backup first
-copies the current file to a new `restore` backup, so a restore is undoable too.
+copies the current file to a new `restore` backup, so a restore is undoable too,
+and writes the backup bytes verbatim (UTF-16 and Windows-1252 files included).
 
 Adapters are detection-only: `game_config_adapters` scans the install folder for
 markers (`*.uproject`, `*.pak`, `Engine/`, `goggame-*.info`, `project.godot`,
@@ -1833,22 +1852,35 @@ preview flags that last case because it needs a registered handler). The
 `ludex` marker is what makes re-sync idempotent: only marked entries for the
 current profile are updated or removed, entries written by another server stay,
 user-created apps are never touched, and a second sync with unchanged input
-performs no write. A malformed `apps.json` is reported and left untouched.
+performs no write. An empty/whitespace `apps.json` means an empty app list, a
+UTF-8 BOM or UTF-16LE/BE file is decoded and written back in its original
+encoding (backups stay byte-exact), and a malformed `apps.json` is reported and
+left untouched. A write inside `Program Files` that Windows denies is reported
+as a permission problem with the user-writable-folder/elevation hint (#150).
 Covers are cached under `{appDataDir}/streaming/art/<gameId>.<ext>` (8 MiB cap,
 5 s timeout); a cover failure never blocks publishing. The first write to an
 existing file copies it to `apps.json.ludex-backup-<UTC>-<id>.bak`; a failed
 backup aborts the write. Sunshine and Moonlight are never bundled or installed
 by Ludex.
 
-**Moonlight (#98).** Hosts are parsed from the Qt `Moonlight.conf`
-(`%LOCALAPPDATA%\Moonlight Game Streaming Project` or
-`~/.config/Moonlight Game Streaming Project`), accepting `host\address`,
-`host/address` and per-host sections; `srvcert`/`servercert` or `pairstatus`
-mark a host as paired. `manualaddress` wins over `address`, then local/remote.
+**Moonlight (#98, #151).** Installed Moonlight-qt on Windows keeps its Qt
+`QSettings` in `HKCU\SOFTWARE\Moonlight Game Streaming Project`, so Ludex
+reads that key read-only with `reg query` and maps `hosts\<n>\address`,
+`customname`, `srvcert` and `pairstatus` to `MoonlightHost`; the registry is
+never written and an absent key is not an error. Portable builds are read from
+`Moonlight.ini` next to `Moonlight.exe` (then the current directory), and Linux
+/ Flatpak keep `~/.config/Moonlight Game Streaming Project/Moonlight.conf` and
+its Flatpak path. `.conf` parsing accepts `host\address`, `host/address` and
+per-host sections; `srvcert`/`servercert` or `pairstatus` mark a host as
+paired, and `manualaddress` wins over `address`, then local/remote. The source is
+reported as `configSource`, and “not found”, “exists but unreadable” and
+“configured but no host saved” are distinct messages. `moonlightHost` is a
+manual name/IP fallback when no saved host is readable (saved hosts win).
 `stream_game` resolves the app name from the Sunshine marker and runs
-`moonlight stream <host> <app>` detached. A missing binary, a missing host or an
-unpaired host is an explicit error; macOS host parsing is reported as
-unsupported (Moonlight uses a plist there) instead of guessing.
+`moonlight stream <host> <app>` detached. A missing binary, an unreadable
+config, a missing host or an unpaired host is an explicit error; macOS host
+parsing is reported as unsupported (Moonlight uses a plist there) instead of
+guessing.
 
 **Servers (#24).** `servers` holds metadata only; tokens live in the OS
 keychain (`secret-tool` on Linux, `security` on macOS) or, when no keychain is
@@ -2270,13 +2302,16 @@ shape changes.
 
 | Storage | Key | Values |
 |---|---|---|
-| `localStorage` | `ludex.theme` | `dark`, `light`, `system` (default `system`) |
+| `localStorage` | `ludex.theme` | `v2` JSON: `config` (`selection`, `accent`, `tint`), resolved `mode`, `bases`, `vars` and `themeColor` per mode. Legacy `dark`/`light`/`system` strings are migrated to `midnight`/`light`/`system` |
+| `localStorage` | `ludex.theme.custom.v1` | imported theme files, validated with the same token/contrast rules as the picker |
 | `localStorage` | `ludex.locale` | a code from `apps/web/src/locales/manifest.json` (default `en`) |
 | `localStorage` | `ludex.pwa.installDismissedAt` | epoch ms; the install prompt is hidden for 30 days |
 
 The web client applies `theme` and `locale` before the first paint
-(`apps/web/index.html`), sets `<html lang>` and `<html dir>` from the locale
-manifest, and uses `Intl` for dates, numbers, relative times and plural
-categories. The service worker only caches the app shell and the public
+(`apps/web/index.html`). The boot script replays the ready-made CSS variable
+map stored in `ludex.theme`, so accents, tints and imported themes paint
+without a flash and without duplicating the theme registry in HTML. It also
+sets `<html lang>` and `<html dir>` from the locale manifest. The app uses
+`Intl` for dates, numbers, relative times and plural categories. The service worker only caches the app shell and the public
 `/api/media/` image route; every other `/api/` request, including auth and JSON,
 bypasses the cache. See `docs/I18N.md`.

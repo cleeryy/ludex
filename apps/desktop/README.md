@@ -106,7 +106,8 @@ mode 0600 on Unix because it holds the JWT). Defaults:
 | `sunshineAppsPath` | empty → Sunshine auto-detection (#97) |
 | `sunshineConfPath` | empty → next to `apps.json` (#97) |
 | `moonlightBinary` | empty → Moonlight auto-detection (#98) |
-| `moonlightConfigPath` | empty → the Qt config location (#98) |
+| `moonlightConfigPath` | empty → portable `Moonlight.ini`, Windows registry or the Qt config location (#98, #151) |
+| `moonlightHost` | empty → use Moonlight's saved hosts; otherwise a manual host name/IP fallback (#151) |
 
 `save_settings` deep-merges partial payloads, so a wizard can save one field at
 a time. An empty `downloadDir` is meaningful: the effective directory is
@@ -541,18 +542,27 @@ on load, and an old UI patch still updates the default location.
 Installed games gain a Settings tab with three tabs:
 
 - **Game settings** — engine adapters with typed controls.
-- **Config files** — a searchable list of ini/cfg (Godot `project.godot`,
-  Unity `prefs`), TOML and JSON files found up to five folders deep, skipping
-  hidden folders and Wine `drive_c`, with a key/value editor and line numbers.
+- **Config files** — a searchable list of every ini, cfg, conf, Godot
+  `project.godot`, Unity `prefs`, TOML and JSON (`*.info` included) file found
+  up to five folders deep, with a key/value editor and line numbers. There is no
+  filename or folder blacklist: emulator and crack-folder configs such as
+  `steam_emu.ini` or `Cracks/…/settings.ini` are listed and editable. Hidden
+  folders, Wine `drive_c` prefixes and symlinks are skipped as scan-safety
+  rules only.
 - **Backups** — timestamped history with the line diff and a restore action.
 
 Every write is type-checked against the existing value, copies the original to
 `{appDataDir}/config-backups/game-<id>/<timestamp>-<uuid>-<name>`, records the
 diff, then replaces the file atomically (temp file + rename, Unix mode kept).
-Binary files, non-UTF-8, files over 1 MiB, paths outside the install folder
-(symlinks resolved) and line breaks in values are refused, and JSON must stay
-valid. Parsers keep the exact byte span of each value, so comments, ordering
-and quoting survive a round trip. Restoring a backup takes a safety copy first.
+The original encoding is preserved: UTF-8 with or without BOM, UTF-16LE/BE with
+BOM and Windows-1252 are decoded for display and written back in the same
+encoding and BOM, with CRLF/LF untouched. A value the source encoding cannot
+represent is refused instead of being replaced. Binary files (NUL bytes),
+files over 1 MiB, unparseable formats, paths outside the install folder
+(symlinks resolved) and line breaks in values are refused; JSON must stay valid.
+Parsers keep the exact byte span of each value, so comments, ordering and
+quoting survive a round trip. Restoring a backup takes a safety copy first and
+writes the backup bytes verbatim.
 
 Adapters are detection-only and point each typed field at a file + key:
 

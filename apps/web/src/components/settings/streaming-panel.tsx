@@ -390,7 +390,7 @@ function MoonlightPanel({
           <dl className="mt-4 border-t border-line">
             {[
               [t("Moonlight"), status.data.binary ?? t("not detected")],
-              [t("Moonlight.conf"), status.data.configPath ?? t("not found")],
+              [t("Host list"), status.data.configPath ?? status.data.configSource ?? t("not found")],
             ].map(([label, value]) => (
               <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2">
                 <dt className="shrink-0 text-[12px] text-ink-3">{label}</dt>
@@ -400,6 +400,12 @@ function MoonlightPanel({
               </div>
             ))}
           </dl>
+
+          {status.data.configSource && status.data.configPath && (
+            <p className="mt-2 text-[11px] text-ink-3">
+              {t("Read from {source}.", { source: status.data.configSource })}
+            </p>
+          )}
 
           {status.data.hosts.length > 0 ? (
             <ul className="mt-3 border-t border-line">
@@ -450,7 +456,7 @@ function MoonlightPanel({
               </span>
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-[12.5px] font-medium text-ink">{t("Moonlight.conf override")}</span>
+              <span className="text-[12.5px] font-medium text-ink">{t("Moonlight config override")}</span>
               <Input
                 value={draft.moonlightConfigPath}
                 onChange={(event) => update({ moonlightConfigPath: event.target.value })}
@@ -458,6 +464,22 @@ function MoonlightPanel({
                 spellCheck={false}
                 className="h-9 font-mono text-[11px]"
               />
+              <span className="text-[11px] text-ink-3">
+                {t("Optional. Portable builds keep Moonlight.ini next to Moonlight.exe; installed Windows builds keep their settings in the registry, which Ludex reads without writing.")}
+              </span>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[12.5px] font-medium text-ink">{t("Manual Moonlight host")}</span>
+              <Input
+                value={draft.moonlightHost}
+                onChange={(event) => update({ moonlightHost: event.target.value })}
+                placeholder={status.data.manualHost ?? status.data.hosts[0]?.address ?? "192.168.1.20"}
+                spellCheck={false}
+                className="h-9 font-mono text-[11px]"
+              />
+              <span className="text-[11px] text-ink-3">
+                {t("Host name or IP used when Ludex cannot read Moonlight's saved hosts. The Stream action still runs moonlight stream <host> <app>.")}
+              </span>
             </label>
           </div>
         </>

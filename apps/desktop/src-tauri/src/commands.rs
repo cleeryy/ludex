@@ -2985,7 +2985,10 @@ fn installed_games(state: &AppState) -> Result<Vec<InstalledGame>, String> {
     db::list_installed(&connection)
 }
 
-fn local_covers(games: &[InstalledGame], state: &AppState) -> std::collections::HashMap<i64, String> {
+fn local_covers(
+    games: &[InstalledGame],
+    state: &AppState,
+) -> std::collections::HashMap<i64, String> {
     let dir = cover_directory(state);
     games
         .iter()
@@ -2998,10 +3001,7 @@ fn local_covers(games: &[InstalledGame], state: &AppState) -> std::collections::
 fn build_published_apps(
     games: &[InstalledGame],
     covers: &std::collections::HashMap<i64, String>,
-) -> (
-    Vec<streaming::PublishedApp>,
-    Vec<streaming::SkippedGame>,
-) {
+) -> (Vec<streaming::PublishedApp>, Vec<streaming::SkippedGame>) {
     let mut published = Vec::new();
     let mut skipped = Vec::new();
     for game in games {
@@ -3076,7 +3076,10 @@ pub fn sunshine_preview(app: AppHandle) -> Result<streaming::SunshinePreview, St
         format!(
             "{} to add, {} to update, {} to remove. Nothing is written until you confirm.",
             entries.iter().filter(|entry| entry.action == "add").count(),
-            entries.iter().filter(|entry| entry.action == "update").count(),
+            entries
+                .iter()
+                .filter(|entry| entry.action == "update")
+                .count(),
             removals.len()
         )
     };
@@ -3121,13 +3124,18 @@ pub async fn sunshine_sync(
     }
     let (desired, skipped) = build_published_apps(&games, &covers);
     let scope = server_scope(&settings);
-    let (root, report) = streaming::merge_apps(existing.as_deref(), &desired, &scope, remove_missing)?;
+    let (root, report) =
+        streaming::merge_apps(existing.as_deref(), &desired, &scope, remove_missing)?;
 
     let mut backup_path = None;
     let mut written = false;
     if report.changed && !dry_run {
         let payload = streaming::render_apps(&root)?;
-        backup_path = streaming::write_apps_with_backup(Path::new(&apps_path), &payload)?
+        let format = existing
+            .as_ref()
+            .map(|file| file.format)
+            .unwrap_or_default();
+        backup_path = streaming::write_apps_with_backup(Path::new(&apps_path), &payload, format)?
             .map(|path| path.to_string_lossy().to_string());
         written = true;
     }
@@ -3203,8 +3211,9 @@ pub fn sunshine_remove_managed(app: AppHandle) -> Result<streaming::SunshineRepo
     }
 
     let payload = streaming::render_apps(&root)?;
-    let backup = streaming::write_apps_with_backup(Path::new(&apps_path), &payload)?
-        .map(|path| path.to_string_lossy().to_string());
+    let backup =
+        streaming::write_apps_with_backup(Path::new(&apps_path), &payload, existing.format)?
+            .map(|path| path.to_string_lossy().to_string());
     Ok(streaming::SunshineReport {
         written: true,
         dry_run: false,
@@ -3236,12 +3245,13 @@ pub fn stream_target(app: AppHandle, game_id: i64) -> Result<streaming::StreamTa
     let existing = streaming::read_apps_text(&sunshine)?;
     let app_name = streaming::published_name(existing.as_deref(), game_id)?;
     let moonlight = streaming::moonlight_status(&settings);
+    let hosts = streaming::stream_hosts(&moonlight);
 
     let published = app_name.is_some();
     let message = if !published {
         "This game is not published to Sunshine yet. Publish the library in Settings → Streaming."
             .to_string()
-    } else if !moonlight.detected || moonlight.hosts.is_empty() {
+    } else if !moonlight.detected || hosts.is_empty() {
         moonlight.message.clone()
     } else {
         "Ready to stream.".to_string()
@@ -3251,7 +3261,7 @@ pub fn stream_target(app: AppHandle, game_id: i64) -> Result<streaming::StreamTa
         published,
         app_name,
         game_id,
-        hosts: moonlight.hosts.clone(),
+        hosts,
         moonlight,
         sunshine,
         message,
@@ -3280,7 +3290,8 @@ pub fn stream_game(
         .clone()
         .filter(|_| moonlight.detected)
         .ok_or_else(|| moonlight.message.clone())?;
-    let selected = streaming::select_host(&moonlight.hosts, host.as_deref())?;
+    let hosts = streaming::stream_hosts(&moonlight);
+    let selected = streaming::select_host(&hosts, host.as_deref())?;
     streaming::spawn_stream(&binary, &selected.address, &app_name)
 }
 
@@ -3293,7 +3304,10 @@ pub fn moonlight_stream(
 ) -> Result<streaming::StreamLaunch, String> {
     let state = app.state::<AppState>();
     let moonlight = streaming::moonlight_status(&state.settings_snapshot());
-    let binary = moonlight.binary.clone().ok_or_else(|| moonlight.message.clone())?;
+    let binary = moonlight
+        .binary
+        .clone()
+        .ok_or_else(|| moonlight.message.clone())?;
     streaming::spawn_stream(&binary, &host, &app_name)
 }
 
@@ -3348,13 +3362,7 @@ pub fn save_server(
     token: Option<String>,
 ) -> Result<profiles::ServerList, String> {
     let mut next = state.settings_snapshot();
-    let profile = profiles::upsert(
-        &mut next,
-        id.as_deref(),
-        &label,
-        &url,
-        username.as_deref(),
-    )?;
+    let profile = profiles::upsert(&mut next, id.as_deref(), &label, &url, username.as_deref())?;
     let first_profile = next.active_server_id.is_empty();
     if let Some(token) = crate::util::non_empty(token.as_deref()) {
         state
@@ -3378,10 +3386,7 @@ pub fn save_server(
 }
 
 #[tauri::command]
-pub async fn remove_server(
-    app: AppHandle,
-    id: String,
-) -> Result<profiles::ServerList, String> {
+pub async fn remove_server(app: AppHandle, id: String) -> Result<profiles::ServerList, String> {
     let state = app.state::<AppState>();
     let mut next = state.settings_snapshot();
     let outcome = profiles::remove(&mut next, &id)?;
@@ -3416,10 +3421,7 @@ pub async fn remove_server(
 /// Switch the active server. Refused while a game runs or an install is active
 /// because each profile has its own desktop index.
 #[tauri::command]
-pub async fn switch_server(
-    app: AppHandle,
-    id: String,
-) -> Result<profiles::ServerList, String> {
+pub async fn switch_server(app: AppHandle, id: String) -> Result<profiles::ServerList, String> {
     let state = app.state::<AppState>();
     switching_block_reason(&state)?;
 
@@ -3478,19 +3480,21 @@ pub async fn test_server(
     token: Option<String>,
 ) -> Result<profiles::ServerTest, String> {
     let settings = state.settings_snapshot();
-    let stored = crate::util::non_empty(token.as_deref()).map(str::to_string).or_else(|| {
-        let normalized = profiles::normalize_url(&url).ok()?;
-        settings
-            .servers
-            .iter()
-            .find(|profile| profile.url == normalized)
-            .and_then(|profile| {
-                state
-                    .secrets
-                    .get(&profiles::secret_key(&profile.id))
-                    .ok()
-                    .flatten()
-            })
-    });
+    let stored = crate::util::non_empty(token.as_deref())
+        .map(str::to_string)
+        .or_else(|| {
+            let normalized = profiles::normalize_url(&url).ok()?;
+            settings
+                .servers
+                .iter()
+                .find(|profile| profile.url == normalized)
+                .and_then(|profile| {
+                    state
+                        .secrets
+                        .get(&profiles::secret_key(&profile.id))
+                        .ok()
+                        .flatten()
+                })
+        });
     Ok(profiles::test_connection(&state.http, &url, stored.as_deref()).await)
 }

@@ -583,10 +583,19 @@ its `apps.json` after an explicit click and never bundles or installs it.
   entries belonging to a different saved server are left alone; removing the
   Ludex apps deletes only marked entries. A second sync with the same library
   reports `written: false` and changes nothing.
+- **Empty, BOM and UTF-16 files.** Sunshine starts with an empty `apps.json`
+  until the first app is added, so an empty or whitespace-only file is treated
+  as `{ "apps": [] }`, not as corrupt JSON. A UTF-8 BOM and UTF-16LE/BE files
+  (common when a Windows editor saves the file) are decoded before parsing, and
+  the sync writes the file back in the same encoding and BOM, so nothing is
+  corrupted. Backups are byte-exact copies.
 - **Preview and backup.** **Preview changes** lists what would be added, updated
   or removed without writing. Every real write first copies the current file to
   `apps.json.ludex-backup-<UTC>-<id>.bak`; when the backup cannot be created the
-  write is aborted. A malformed `apps.json` is reported and left untouched.
+  write is aborted. A malformed `apps.json` is reported and left untouched
+  ("nothing was changed"). A failed write inside `Program Files` is reported as
+  a permission problem: point Sunshine at a user-writable config folder or run
+  Ludex elevated; Ludex never copies the file elsewhere on its own.
 - **Covers.** Covers are downloaded into
   `{appDataDir}/streaming/art/<gameId>.<ext>` (5 s timeout, 8 MiB cap). A cover
   failure only means the entry has no image.
@@ -597,23 +606,40 @@ Moonlight plays the stream. Ludex reads Moonlight's own host list and starts the
 client; it never proxies video or stores credentials.
 
 - **Detection and hosts.** The Moonlight binary is looked up on `PATH`, in
-  `/usr/bin`, `/usr/local/bin`, the Flatpak exports and
-  `%ProgramFiles%\Moonlight Game Streaming`; `moonlightBinary` overrides it.
-  Hosts come from
-  `~/.config/Moonlight Game Streaming Project/Moonlight.conf` or
-  `%LOCALAPPDATA%\Moonlight Game Streaming Project\Moonlight.conf`
-  (`moonlightConfigPath` overrides). Keys written as `host\address`,
-  `host/localaddress`, a per-host section or a manual address are all accepted.
+  `/usr/bin`, `/usr/local/bin`, the Flatpak exports, `%ProgramFiles%\Moonlight
+  Game Streaming` and `%LOCALAPPDATA%\Moonlight Game Streaming`;
+  `moonlightBinary` overrides it. The host list is read from whatever format the
+  running build uses (#151):
+  - **Portable (Windows).** `Moonlight.ini` next to the detected
+    `Moonlight.exe`, then `Moonlight.ini` in the current directory.
+  - **Installed (Windows).** Moonlight-qt stores Qt `QSettings` in
+    `HKCU\SOFTWARE\Moonlight Game Streaming Project`. Ludex runs a read-only
+    `reg query` and maps `hosts\<n>\address`, `customname`, `srvcert` and
+    `pairstatus` to the same host model. It never writes to the registry and an
+    absent key is not an error.
+  - **Linux / Flatpak.** `~/.config/Moonlight Game Streaming Project/Moonlight.conf`
+    and the Flatpak config path, as before. Keys written as `host\address`,
+    `host/localaddress`, a per-host section or a manual address are all accepted.
+  - `moonlightConfigPath` overrides all of the above.
   A host counts as paired when Moonlight stored its certificate (`srvcert` /
   `servercert`) or a positive `pairstatus`.
+- **Messages.** A missing configuration, a configuration that exists but cannot
+  be read, and “configured but no host saved” are three distinct messages. The
+  last one asks for a one-time pairing in Moonlight instead of claiming the file
+  is missing. macOS host parsing is still reported as unsupported.
+- **Manual host.** `moonlightHost` (Settings → Streaming) accepts a host name or
+  IP for builds whose settings Ludex cannot read. It is only a fallback: saved
+  Moonlight hosts win, and the Stream action still launches
+  `moonlight stream <host> <app>`.
 - **Streaming.** A game published to Sunshine gains a **Stream** action on its
   page. Ludex resolves the app name from its own marker, refuses an unpaired
   host, and runs `moonlight stream <host> <app>`. The desktop stays out of the
   stream path: closing it does not stop the session.
-- **Honest failures.** Missing Moonlight, a missing host list, an unpaired host
-  and a game that was never published each produce a specific message instead
-  of a silent no-op. macOS host parsing is reported as unsupported because
-  Moonlight stores a plist there; the Stream action still needs a real host.
+- **Honest failures.** Missing Moonlight, an unreadable config, an empty host
+  list, an unpaired host and a game that was never published each produce a
+  specific message instead of a silent no-op. macOS host parsing is reported as
+  unsupported because Moonlight stores a plist there; the Stream action still
+  needs a real host.
 
 ### Multiple servers and accounts
 
@@ -644,6 +670,8 @@ account and switch between them from the shell.
 
 **What still needs a real Sunshine/Moonlight machine.** Detection, merging,
 backup, idempotency, config parsing and command building are unit tested on
-Linux CI. Not executed in CI: a real Sunshine host serving a stream, a real
-Moonlight pairing and playback, Windows and Flatpak path layouts, covers coming
-from a live server, and macOS Moonlight host parsing.
+Linux CI. The Windows registry and `Moonlight.ini` readers are tested against
+fixtures, not a real Windows install. Not executed in CI: a real Sunshine host
+serving a stream, a real Moonlight pairing and playback, Windows and Flatpak
+path layouts, covers coming from a live server, and macOS Moonlight host
+parsing.

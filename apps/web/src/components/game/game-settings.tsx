@@ -5,6 +5,12 @@ import { errorMessage } from "@/lib/http";
 import { native } from "@/lib/native";
 import { formatBytes, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import {
+  canLoadConfigFile,
+  defaultConfigPath,
+  filterConfigFiles,
+  readOnlyReason,
+} from "@/lib/config-files";
 import type {
   AdapterField,
   ConfigAdapter,
@@ -349,7 +355,7 @@ function FilesTab({
 
   useEffect(() => {
     if (!selected && files.length > 0) {
-      setSelected(files.find((file) => file.editable)?.path ?? files[0].path);
+      setSelected(defaultConfigPath(files));
     }
   }, [files, selected]);
 
@@ -357,14 +363,10 @@ function FilesTab({
   const document = useQuery({
     queryKey: ["game-config", gameId, selected],
     queryFn: () => native.readGameConfig(gameId, selected),
-    enabled: Boolean(selectedFile?.editable),
+    enabled: canLoadConfigFile(selectedFile),
   });
 
-  const visible = useMemo(() => {
-    const needle = filter.trim().toLowerCase();
-    if (!needle) return files;
-    return files.filter((file) => file.path.toLowerCase().includes(needle));
-  }, [files, filter]);
+  const visible = useMemo(() => filterConfigFiles(files, filter), [files, filter]);
 
   if (loading) return <p className="text-[12.5px] text-ink-3">{t("Looking for config files…")}</p>;
   if (error) return <p className="text-[12.5px] text-danger">{error}</p>;
@@ -382,38 +384,52 @@ function FilesTab({
             className="h-9 pl-8 text-[12px]"
           />
         </div>
+        <p className="mt-2 text-[10.5px] leading-relaxed text-ink-3">
+          {t("Every text config file in the install folder is listed. Nothing is hidden by name.")}
+        </p>
         <div className="mt-2 flex flex-col border-y border-line">
           {visible.length === 0 && (
             <p className="py-3 text-[11.5px] text-ink-3">{t("No config file found in this install folder.")}</p>
           )}
-          {visible.map((file) => (
-            <button
-              key={file.path}
-              type="button"
-              onClick={() => setSelected(file.path)}
-              className={cn(
-                "flex flex-col gap-0.5 border-b border-line px-2 py-2 text-left transition-colors duration-100 last:border-0 hover:bg-surface motion-reduce:transition-none",
-                selected === file.path && "bg-surface",
-              )}
-            >
-              <span className="flex items-baseline justify-between gap-2">
-                <span className="truncate text-[12px] text-ink">{file.name}</span>
-                <span className="shrink-0 font-mono text-[9.5px] uppercase text-ink-3">{file.format}</span>
-              </span>
-              <span className="truncate font-mono text-[10px] text-ink-3">
-                {file.path} · {formatBytes(file.sizeBytes)} · {t("{count} keys", { count: file.entries })}
-              </span>
-              {!file.editable && <span className="text-[10px] text-danger">{file.note ?? t("Read-only")}</span>}
-            </button>
-          ))}
+          {visible.map((file) => {
+            const reason = readOnlyReason(file);
+            return (
+              <button
+                key={file.path}
+                type="button"
+                onClick={() => setSelected(file.path)}
+                className={cn(
+                  "flex flex-col gap-0.5 border-b border-line px-2 py-2 text-left transition-colors duration-100 last:border-0 hover:bg-surface motion-reduce:transition-none",
+                  selected === file.path && "bg-surface",
+                )}
+              >
+                <span className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-[12px] text-ink">{file.name}</span>
+                  <span className="shrink-0 font-mono text-[9.5px] uppercase text-ink-3">{file.format}</span>
+                </span>
+                <span className="truncate font-mono text-[10px] text-ink-3">
+                  {file.path} · {formatBytes(file.sizeBytes)} · {t("{count} keys", { count: file.entries })}
+                </span>
+                {!file.editable && (
+                  <span className="text-[10px] text-danger">{reason ?? t("Read-only")}</span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       <div className="min-w-0">
         {selectedFile && !selectedFile.editable && (
-          <p className="text-[12.5px] leading-relaxed text-ink-3">
-            {selectedFile.note ?? t("Read-only")}
-          </p>
+          <div className="flex flex-col gap-1.5">
+            <Badge tone="outline">{t("Read-only")}</Badge>
+            <p className="text-[12.5px] leading-relaxed text-ink-3">
+              {readOnlyReason(selectedFile) ?? t("Read-only")}
+            </p>
+            <p className="font-mono text-[10.5px] text-ink-3">
+              {selectedFile.path} · {formatBytes(selectedFile.sizeBytes)}
+            </p>
+          </div>
         )}
         {document.isError && selectedFile?.editable && (
           <p className="text-[12.5px] text-danger">{errorMessage(document.error)}</p>
@@ -431,7 +447,9 @@ function FilesTab({
             }}
           />
         )}
-        {!selected && <p className="text-[12.5px] text-ink-3">{t("Choose a file on the left.")}</p>}
+        {!selected && files.length > 0 && (
+          <p className="text-[12.5px] text-ink-3">{t("Choose a file on the left.")}</p>
+        )}
       </div>
     </div>
   );
@@ -503,6 +521,11 @@ function KeyEditor({
       </div>
 
       <div className="mt-3 max-h-[420px] overflow-y-auto border-y border-line">
+        {document.note && (
+          <p className="border-b border-line px-2 py-2 text-[11px] leading-relaxed text-ink-3">
+            {document.note}
+          </p>
+        )}
         {document.entries.length === 0 && (
           <p className="py-3 text-[12px] text-ink-3">{t("This file has no editable scalar key.")}</p>
         )}
@@ -527,6 +550,9 @@ function KeyEditor({
       </div>
       <p className="mt-2 text-[10.5px] leading-relaxed text-ink-3">
         {t("Comments and ordering are preserved. Ludex refuses binary files, files over 1 MiB and values that do not match the existing type.")}
+      </p>
+      <p className="mt-1 text-[10.5px] leading-relaxed text-ink-3">
+        {t("The file keeps its encoding (UTF-8, UTF-16 or Windows-1252) and line endings when saved.")}
       </p>
     </div>
   );

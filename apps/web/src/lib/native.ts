@@ -756,6 +756,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   sunshineConfPath: "",
   moonlightBinary: "",
   moonlightConfigPath: "",
+  moonlightHost: "",
   gamevaultRoots: [],
   gamevaultScanDepth: 6,
 };

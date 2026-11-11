@@ -3,6 +3,11 @@
 //!
 //! Rules:
 //! - only files inside the install folder, never binary, never above 1 MiB;
+//! - no filename or folder blacklist (#147): every supported text config is
+//!   listed, including emulator/crack folders, and only hidden folders, Wine
+//!   `drive_c`, symlinks and oversized files are skipped by the scanner;
+//! - text is decoded as UTF-8 (± BOM), UTF-16LE/BE (BOM) or Windows-1252 and
+//!   written back in the same encoding and BOM;
 //! - edits are line/span level on the original text, so comments, ordering and
 //!   whitespace survive a round trip;
 //! - every write copies the original to `{appDataDir}/config-backups/game-<id>/`
@@ -176,6 +181,16 @@ fn is_skipped_dir(name: &str) -> bool {
     name.starts_with('.') || name.eq_ignore_ascii_case("drive_c")
 }
 
+/// Reason shown for a config file Ludex refuses to read (#147). The contents
+/// are never loaded; only the metadata is used so a multi-gigabyte file in the
+/// install folder cannot freeze the scan.
+fn oversized_note(size: u64) -> String {
+    format!(
+        "This file is {size} bytes; config files above {} KiB are not edited.",
+        MAX_CONFIG_BYTES / 1024
+    )
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TextEncoding {
     Utf8,
@@ -288,10 +303,9 @@ fn read_text_file(path: &Path) -> Result<TextFile, String> {
     }
     if metadata.len() > MAX_CONFIG_BYTES {
         return Err(format!(
-            "{} is {} bytes; config files above {} KiB are not edited.",
+            "{}: {}",
             path.display(),
-            metadata.len(),
-            MAX_CONFIG_BYTES / 1024
+            oversized_note(metadata.len())
         ));
     }
     let bytes = fs::read(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
@@ -886,20 +900,32 @@ fn walk(root: &Path, directory: &Path, depth: usize, files: &mut Vec<ConfigFileI
             Ok(metadata) => metadata,
             Err(_) => continue,
         };
+        let relative = relative_string(root, &path);
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default();
         if metadata.len() > MAX_CONFIG_BYTES {
+            // Still listed so the UI can explain the limit instead of the file
+            // silently disappearing from the list (#147). Never read.
+            files.push(ConfigFileInfo {
+                path: relative,
+                name,
+                format: format.as_str().to_string(),
+                size_bytes: metadata.len(),
+                entries: 0,
+                editable: false,
+                note: Some(oversized_note(metadata.len())),
+            });
             continue;
         }
-        let relative = relative_string(root, &path);
         let (entries, editable, note) = match read(root, &relative) {
             Ok(document) => (document.entries.len(), true, document.note),
             Err(error) => (0, false, Some(error)),
         };
         files.push(ConfigFileInfo {
             path: relative,
-            name: path
-                .file_name()
-                .map(|name| name.to_string_lossy().to_string())
-                .unwrap_or_default(),
+            name,
             format: format.as_str().to_string(),
             size_bytes: metadata.len(),
             entries,
@@ -1686,5 +1712,267 @@ mod tests {
         write_file(&root, "game.ini", "[a]\nx=1\n");
         let other = backup_file(&data, 42, &root.join("game.ini"), 12).unwrap();
         assert!(restore_backup(&root, &data, 7, "game.ini", &other).is_err());
+    }
+
+    #[test]
+    fn previously_excluded_paths_are_editable() {
+        let root = temp_dir("no-blacklist");
+        let app_data = temp_dir("no-blacklist-backups");
+        write_file(&root, "steam_emu.ini", "[Settings]\nLanguage=english\n");
+        write_file(
+            &root,
+            "Cracks/RUNE/settings.ini",
+            "[Settings]\nLanguage=english\n",
+        );
+
+        let files = list(&root);
+        for path in ["steam_emu.ini", "Cracks/RUNE/settings.ini"] {
+            let info = files
+                .iter()
+                .find(|file| file.path == path)
+                .unwrap_or_else(|| panic!("{path} is missing from the listing"));
+            assert!(info.editable, "{path} must be editable, not {info:?}");
+            assert_eq!(info.note, None);
+            let document = read(&root, path).unwrap();
+            assert_eq!(document.entries[0].value, "english");
+        }
+
+        write(
+            &root,
+            &app_data,
+            3,
+            "Cracks/RUNE/settings.ini",
+            &[ConfigEditInput {
+                key: "Settings/Language".into(),
+                value: "french".into(),
+            }],
+            "manual",
+        )
+        .unwrap();
+        assert!(fs::read_to_string(root.join("Cracks/RUNE/settings.ini"))
+            .unwrap()
+            .contains("Language=french"));
+
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&app_data);
+    }
+
+    #[test]
+    fn utf16_be_round_trips_with_bom_and_crlf() {
+        let root = temp_dir("utf16be");
+        let app_data = temp_dir("utf16be-backups");
+        let text = "[Settings]\r\nLanguage=english\r\n";
+        let mut original = vec![0xFE, 0xFF];
+        for unit in text.encode_utf16() {
+            original.extend_from_slice(&unit.to_be_bytes());
+        }
+        fs::write(root.join("game.ini"), &original).unwrap();
+
+        let document = read(&root, "game.ini").unwrap();
+        assert_eq!(document.entries[0].value, "english");
+
+        write(
+            &root,
+            &app_data,
+            4,
+            "game.ini",
+            &[ConfigEditInput {
+                key: "Settings/Language".into(),
+                value: "french".into(),
+            }],
+            "manual",
+        )
+        .unwrap();
+
+        let saved = fs::read(root.join("game.ini")).unwrap();
+        assert_eq!(&saved[..2], &[0xFE, 0xFF]);
+        assert_eq!(saved.len() % 2, 0);
+        let (decoded, had_errors) = encoding_rs::UTF_16BE.decode_without_bom_handling(&saved[2..]);
+        assert!(!had_errors);
+        assert!(decoded.contains("Language=french"));
+        assert!(decoded.contains("\r\n"));
+
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&app_data);
+    }
+
+    #[test]
+    fn utf8_bom_is_preserved_on_save() {
+        let root = temp_dir("utf8bom");
+        let app_data = temp_dir("utf8bom-backups");
+        let mut original = vec![0xEF, 0xBB, 0xBF];
+        original.extend_from_slice(b"[a]\nx=1\n");
+        fs::write(root.join("bom.ini"), &original).unwrap();
+
+        write(
+            &root,
+            &app_data,
+            5,
+            "bom.ini",
+            &[ConfigEditInput {
+                key: "a/x".into(),
+                value: "2".into(),
+            }],
+            "manual",
+        )
+        .unwrap();
+
+        let saved = fs::read(root.join("bom.ini")).unwrap();
+        assert_eq!(&saved[..3], &[0xEF, 0xBB, 0xBF]);
+        assert_eq!(&saved[3..], b"[a]\nx=2\n");
+
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&app_data);
+    }
+
+    #[test]
+    fn crlf_line_endings_survive_an_edit() {
+        let root = temp_dir("crlf");
+        let app_data = temp_dir("crlf-backups");
+        write_file(&root, "crlf.ini", "[a]\r\nx=1\r\ny=2\r\n");
+
+        write(
+            &root,
+            &app_data,
+            6,
+            "crlf.ini",
+            &[ConfigEditInput {
+                key: "a/x".into(),
+                value: "9".into(),
+            }],
+            "manual",
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read(root.join("crlf.ini")).unwrap(),
+            b"[a]\r\nx=9\r\ny=2\r\n"
+        );
+
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&app_data);
+    }
+
+    #[test]
+    fn windows_1252_rejects_unrepresentable_values() {
+        let root = temp_dir("win1252-reject");
+        let app_data = temp_dir("win1252-reject-backups");
+        let mut original = b"[Settings]\nName=caf".to_vec();
+        original.push(0xE9);
+        original.push(b'\n');
+        fs::write(root.join("legacy.ini"), &original).unwrap();
+
+        let error = match write(
+            &root,
+            &app_data,
+            7,
+            "legacy.ini",
+            &[ConfigEditInput {
+                key: "Settings/Name".into(),
+                value: "café 日本".into(),
+            }],
+            "manual",
+        ) {
+            Ok(_) => panic!("a Windows-1252 file cannot store CJK text"),
+            Err(error) => error,
+        };
+        assert!(error.contains("Windows-1252"), "{error}");
+        assert_eq!(fs::read(root.join("legacy.ini")).unwrap(), original);
+        // Encoding is checked before the backup/write, so no history row is
+        // created and no file is touched.
+        let backup_dir = backup_directory(&app_data, 7);
+        let no_backup = fs::read_dir(&backup_dir)
+            .map(|mut dir| dir.next().is_none())
+            .unwrap_or(true);
+        assert!(no_backup);
+
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&app_data);
+    }
+
+    #[test]
+    fn restore_writes_the_backup_bytes_verbatim() {
+        let root = temp_dir("restore-verbatim");
+        let app_data = temp_dir("restore-verbatim-backups");
+        let text = "[Settings]\r\nLanguage=english\r\n";
+        let mut original = vec![0xFF, 0xFE];
+        for unit in text.encode_utf16() {
+            original.extend_from_slice(&unit.to_le_bytes());
+        }
+        fs::write(root.join("game.ini"), &original).unwrap();
+
+        let outcome = write(
+            &root,
+            &app_data,
+            8,
+            "game.ini",
+            &[ConfigEditInput {
+                key: "Settings/Language".into(),
+                value: "french".into(),
+            }],
+            "manual",
+        )
+        .unwrap();
+        assert_ne!(fs::read(root.join("game.ini")).unwrap(), original);
+
+        let backup = PathBuf::from(&outcome.record.backup_path);
+        restore_backup(&root, &app_data, 8, "game.ini", &backup).unwrap();
+        assert_eq!(fs::read(root.join("game.ini")).unwrap(), original);
+
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&app_data);
+    }
+
+    #[test]
+    fn oversized_configs_are_listed_read_only() {
+        let root = temp_dir("oversized-list");
+        let big = "x".repeat(MAX_CONFIG_BYTES as usize + 1);
+        write_file(&root, "huge.ini", &big);
+
+        let files = list(&root);
+        assert_eq!(files.len(), 1);
+        assert!(!files[0].editable);
+        assert_eq!(files[0].size_bytes, MAX_CONFIG_BYTES + 1);
+        assert_eq!(files[0].entries, 0);
+        assert!(files[0]
+            .note
+            .as_deref()
+            .is_some_and(|note| note.contains("not edited")));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn binary_configs_are_listed_read_only() {
+        let root = temp_dir("binary-list");
+        write_file(&root, "binary.ini", "ab\0cd");
+
+        let files = list(&root);
+        assert_eq!(files.len(), 1);
+        assert!(!files[0].editable);
+        assert!(files[0]
+            .note
+            .as_deref()
+            .is_some_and(|note| note.contains("binary")));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_escape_is_refused() {
+        use std::os::unix::fs::symlink;
+
+        let root = temp_dir("symlink-root");
+        let outside = temp_dir("symlink-outside");
+        fs::write(outside.join("secret.ini"), "[a]\nx=1\n").unwrap();
+        symlink(outside.join("secret.ini"), root.join("link.ini")).unwrap();
+
+        assert!(resolve_relative(&root, "link.ini").is_err());
+        assert!(read(&root, "link.ini").is_err());
+        assert!(list(&root).is_empty());
+
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&outside);
     }
 }
