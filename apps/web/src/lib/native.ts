@@ -35,6 +35,8 @@ import type {
   LocationStatus,
   ManifestProgress,
   ManifestReport,
+  ManifestStatus,
+  ManifestUpdate,
   MoveProgress,
   PresenceStatus,
   MoonlightStatus,
@@ -108,6 +110,24 @@ export const native = {
   async pickFolder(title?: string): Promise<string | null> {
     if (!isNative()) return null;
     return invoke<string | null>("pick_folder", { title });
+  },
+
+  /**
+   * Cached Ludusavi save-path manifest (#153): version, dates, source and
+   * whether automatic downloads are on. Local only.
+   */
+  async ludusaviManifestStatus(): Promise<ManifestStatus> {
+    return invoke<ManifestStatus>("ludusavi_manifest_status");
+  },
+
+  /** Download or refresh the save database now, ignoring the 24 h throttle (#153). */
+  async updateLudusaviManifest(): Promise<ManifestUpdate> {
+    return invoke<ManifestUpdate>("update_ludusavi_manifest");
+  },
+
+  /** Delete the cached save database; detection falls back to manual paths (#153). */
+  async removeLudusaviManifest(): Promise<ManifestStatus> {
+    return invoke<ManifestStatus>("remove_ludusavi_manifest");
   },
 
   async startLocalServer(): Promise<{ url: string; token: string }> {
@@ -479,6 +499,11 @@ export const native = {
     return invoke<ProtonDbRating>("protondb_rating", { gameId, appId: appId ?? null, refresh });
   },
 
+  /** An automatic or manual save-database update finished (#153). */
+  async onSaveManifestUpdated(handler: (update: ManifestUpdate) => void): Promise<() => void> {
+    return listen<ManifestUpdate>("save-manifest://updated", handler);
+  },
+
   async onInstallProgress(handler: (job: InstallJob) => void): Promise<() => void> {
     return listen<InstallJob>("install://progress", handler);
   },
@@ -762,6 +787,10 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   compatProtonPath: "",
   compatWinePath: "",
   defaultLaunchMode: "auto",
+  ludusaviManifestPath: "",
+  ludusaviBinary: "",
+  ludusaviManifestAutoUpdate: true,
+  ludusaviManifestUrl: "",
   cloudAutoSync: true,
   cloudDeviceId: "",
   cloudDeviceLabel: null,

@@ -180,6 +180,15 @@ pub struct LocalSettings {
     /// `ludusavi` executable used for save detection (#107). Empty means look
     /// for `ludusavi` on PATH.
     pub ludusavi_binary: String,
+    /// Download the canonical Ludusavi save-path manifest automatically (#153).
+    /// On by default so a fresh install detects saves without installing
+    /// Ludusavi; the startup check is throttled to once per 24 h.
+    #[serde(default = "default_ludusavi_manifest_auto_update")]
+    pub ludusavi_manifest_auto_update: bool,
+    /// Mirror or pinned URL for the manifest download (#153). Empty uses the
+    /// canonical upstream file.
+    #[serde(default)]
+    pub ludusavi_manifest_url: String,
     /// Wine/Proton prefix holding the game's `drive_c` (#107). Empty means
     /// auto-detect from the Steam compatdata folder, `$WINEPREFIX` or `~/.wine`.
     pub wine_prefix: String,
@@ -233,6 +242,12 @@ pub const fn default_gamevault_scan_depth() -> u8 {
     6
 }
 
+/// The manifest download is on by default: a fresh install has no cached copy,
+/// and save detection without it reports "no manifest" (#153).
+pub const fn default_ludusavi_manifest_auto_update() -> bool {
+    true
+}
+
 impl Default for LocalSettings {
     fn default() -> Self {
         Self {
@@ -265,6 +280,8 @@ impl Default for LocalSettings {
             default_launch_mode: LaunchMode::Auto,
             ludusavi_manifest_path: String::new(),
             ludusavi_binary: String::new(),
+            ludusavi_manifest_auto_update: default_ludusavi_manifest_auto_update(),
+            ludusavi_manifest_url: String::new(),
             wine_prefix: String::new(),
             cloud_auto_sync: true,
             cloud_device_id: String::new(),
@@ -323,6 +340,11 @@ impl LocalSettings {
         self.compat_wine_path = self.compat_wine_path.trim().to_string();
         self.ludusavi_manifest_path = self.ludusavi_manifest_path.trim().to_string();
         self.ludusavi_binary = self.ludusavi_binary.trim().to_string();
+        self.ludusavi_manifest_url = self
+            .ludusavi_manifest_url
+            .trim()
+            .trim_end_matches('/')
+            .to_string();
         self.wine_prefix = self.wine_prefix.trim().to_string();
         self.cloud_device_id = self.cloud_device_id.trim().to_string();
         self.cloud_device_label = self
@@ -621,6 +643,22 @@ pub fn validate(settings: &LocalSettings) -> Result<(), String> {
     for location in &settings.locations {
         crate::locations::validate(&location.label, &location.path)?;
     }
+    if !settings.ludusavi_manifest_url.is_empty() {
+        let lower = settings.ludusavi_manifest_url.to_ascii_lowercase();
+        if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+            return Err(format!(
+                "The manifest URL must start with http:// or https:// (got {}).",
+                settings.ludusavi_manifest_url
+            ));
+        }
+        if settings
+            .ludusavi_manifest_url
+            .chars()
+            .any(char::is_whitespace)
+        {
+            return Err("The manifest URL must not contain whitespace.".to_string());
+        }
+    }
     // A remote URL may be filled in a later wizard step; commands that need it
     // report a clear error themselves.
     Ok(())
@@ -873,6 +911,8 @@ mod tests {
         assert_eq!(json["defaultLaunchMode"], "auto");
         assert_eq!(json["ludusaviManifestPath"], "");
         assert_eq!(json["ludusaviBinary"], "");
+        assert_eq!(json["ludusaviManifestAutoUpdate"], true);
+        assert_eq!(json["ludusaviManifestUrl"], "");
         assert_eq!(json["winePrefix"], "");
         assert_eq!(json["cloudAutoSync"], true);
         assert_eq!(json["cloudDeviceId"], "");
@@ -1105,6 +1145,47 @@ mod tests {
             serde_json::from_value(serde_json::json!({ "closeToTray": false })).unwrap();
         assert!(!legacy.native_title_bar);
         assert!(!legacy.close_to_tray);
+    }
+
+    #[test]
+    fn manifest_settings_roundtrip() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        assert!(settings.ludusavi_manifest_auto_update);
+        settings.ludusavi_manifest_auto_update = false;
+        settings.ludusavi_manifest_url = " https://mirror.example/ludusavi.yaml/ ".into();
+        settings.normalize(Path::new("/data"));
+
+        assert!(!settings.ludusavi_manifest_auto_update);
+        assert_eq!(
+            settings.ludusavi_manifest_url,
+            "https://mirror.example/ludusavi.yaml"
+        );
+
+        let json = serde_json::to_value(&settings).unwrap();
+        let back: LocalSettings = serde_json::from_value(json).unwrap();
+        assert!(!back.ludusavi_manifest_auto_update);
+        assert_eq!(
+            back.ludusavi_manifest_url,
+            "https://mirror.example/ludusavi.yaml"
+        );
+
+        // A settings file written before #153 has neither key.
+        let legacy: LocalSettings =
+            serde_json::from_value(serde_json::json!({ "mode": "local" })).unwrap();
+        assert!(legacy.ludusavi_manifest_auto_update);
+        assert!(legacy.ludusavi_manifest_url.is_empty());
+
+        // The mirror must be an http(s) URL.
+        let invalid = LocalSettings {
+            ludusavi_manifest_url: "file:///tmp/manifest.yaml".into(),
+            ..LocalSettings::default()
+        };
+        assert!(validate(&invalid).is_err());
+        let valid = LocalSettings {
+            ludusavi_manifest_url: "https://mirror.example/manifest.yaml".into(),
+            ..LocalSettings::default()
+        };
+        assert!(validate(&valid).is_ok());
     }
 
     #[test]

@@ -1,10 +1,11 @@
 //! Save folder detection for cloud saves (#107).
 //!
-//! Detection is local only. Ludex reads a Ludusavi manifest the user installed
-//! (it never bundles one) or asks a user-installed `ludusavi` binary for a
-//! `preview` through its JSON API, then resolves the manifest path templates
-//! against this machine. Nothing is uploaded: host paths stay in the desktop
-//! SQLite index and never reach the server.
+//! Detection is local only. Ludex reads the Ludusavi manifest Ludex downloaded
+//! into its app data folder (#153), an explicit path the user set, or a
+//! user-installed copy, and optionally asks a `ludusavi` binary for a `preview`
+//! through its JSON API. The manifest is never bundled with Ludex. Resolved
+//! templates are matched against this machine only: host paths stay in the
+//! desktop SQLite index and never reach the server.
 //!
 //! Security rules:
 //! - results are canonicalised and must stay under an allowlisted root (home,
@@ -126,8 +127,11 @@ pub struct DetectEnv {
     pub prefix: Option<PathBuf>,
     /// Steam account ids found in `userdata`, for `<storeUserId>`.
     pub steam_user_ids: Vec<String>,
-    /// Explicit or auto-discovered Ludusavi manifest file.
+    /// Explicit, auto-managed or auto-discovered Ludusavi manifest file.
     pub manifest_path: Option<PathBuf>,
+    /// Where `manifest_path` came from: `configured`, `managed`, `user` or
+    /// `none` (#153). Only used for the human-readable message.
+    pub manifest_source: String,
     /// Explicit or `PATH`-discovered `ludusavi` executable.
     pub ludusavi: Option<PathBuf>,
 }
@@ -139,6 +143,7 @@ impl DetectEnv {
     pub fn for_game(
         settings: &LocalSettings,
         game: &InstalledGame,
+        app_data: &Path,
         prefix_override: Option<&str>,
         app_id_override: Option<u32>,
     ) -> Self {
@@ -159,7 +164,8 @@ impl DetectEnv {
             context.steam_app_id,
             prefix_override,
         );
-        let manifest_path = resolve_manifest_path(settings, &home, &xdg_data, &windows);
+        let (manifest_path, manifest_source) =
+            resolve_manifest_path(settings, app_data, &home, &xdg_data, &windows);
 
         Self {
             os_user_name,
@@ -170,6 +176,7 @@ impl DetectEnv {
             prefix,
             steam_user_ids: discover_steam_user_ids(),
             manifest_path,
+            manifest_source: manifest_source.to_string(),
             ludusavi: resolve_ludusavi(settings),
             home,
         }
@@ -281,11 +288,12 @@ pub struct SavePath {
 pub fn detect_for_game(
     settings: &LocalSettings,
     game: &InstalledGame,
+    app_data: &Path,
     manual: &[SavePathRecord],
     prefix_override: Option<&str>,
     app_id_override: Option<u32>,
 ) -> Detection {
-    let env = DetectEnv::for_game(settings, game, prefix_override, app_id_override);
+    let env = DetectEnv::for_game(settings, game, app_data, prefix_override, app_id_override);
     let mut context = GameContext::from_installed(game);
     if context.steam_app_id.is_none() {
         context.steam_app_id = app_id_override;
@@ -310,113 +318,120 @@ pub fn detect(env: &DetectEnv, game: &GameContext, manual: &[SavePathRecord]) ->
     let mut manifest_version = None;
     let mut status = None;
 
-    // 1. A user-installed Ludusavi CLI is preferred: it knows its own manifest
-    //    and its reconciliation rules.
-    if let Some(binary) = env.ludusavi.as_deref() {
-        match ludusavi_preview(binary, &game.title) {
-            Ok(preview) => {
-                manifest_version = preview.version.clone();
-                let saves = api_saves(&preview.paths, &roots, &mut detection.warnings);
-                if !saves.is_empty() {
-                    provider_saves = saves;
-                    provider_source = "ludusavi";
-                } else if env.manifest_path.is_some() {
-                    detection.warnings.push(
-                        "The Ludusavi CLI listed no save files; Ludex is trying the manifest file."
-                            .to_string(),
-                    );
-                } else {
-                    provider_source = "ludusavi";
-                    status = Some("The Ludusavi CLI did not list any existing save files for this game. Launch it once so it creates them, then re-detect.".to_string());
-                }
+    // 1. The manifest first: an explicit path, then the copy Ludex manages in
+    //    its app data folder (#153), then a user-installed Ludusavi data
+    //    folder. The CLI (below) stays an advanced optional override.
+    if let Some(path) = env.manifest_path.as_deref() {
+        provider_source = "manifest";
+        match fs::read_to_string(path) {
+            Ok(text) if text.len() as u64 > MAX_MANIFEST_BYTES => {
+                detection.warnings.push(format!(
+                    "{} is larger than {}; it was not parsed.",
+                    path.display(),
+                    crate::util::human_bytes(MAX_MANIFEST_BYTES)
+                ));
+                status = Some(
+                    "The Ludusavi manifest is too large to parse safely. Add a save path manually."
+                        .to_string(),
+                );
             }
-            Err(error) => detection.warnings.push(format!(
-                "The Ludusavi CLI preview failed ({error}); using the manifest file."
-            )),
+            Ok(text) => match parse_manifest(&text) {
+                Ok(manifest) => {
+                    manifest_version = Some(manifest_version_for_text(&text));
+                    match manifest.find(game) {
+                        ManifestMatch::Found(found) => {
+                            let walk =
+                                walk_manifest(found, env, game, &roots, &mut detection.warnings);
+                            provider_saves = walk.saves;
+                            if !walk.missing_stores.is_empty() {
+                                let names: Vec<String> = walk.missing_stores.into_iter().collect();
+                                detection.warnings.push(format!(
+                                    "Some manifest entries need a store Ludex could not identify ({}); they were skipped.",
+                                    names.join(", ")
+                                ));
+                            }
+                            if provider_saves.is_empty() {
+                                status = Some(
+                                    if found.registry_keys > 0 {
+                                        "The Ludusavi manifest only lists registry locations for this game. Registry saves are not archived yet; add a save path manually if the game also writes files."
+                                    } else if walk.skipped_filters > 0 {
+                                        "Every manifest entry for this game is filtered out on this machine (OS or store). Add a save path manually."
+                                    } else {
+                                        "No save files exist yet for this game. Launch it once so it creates them, then re-detect."
+                                    }
+                                    .to_string(),
+                                );
+                            }
+                        }
+                        ManifestMatch::NotFound => {
+                            status = Some("This game is not in the Ludusavi manifest. Add a save path manually, or re-detect after the manifest updates.".to_string());
+                        }
+                        ManifestMatch::Ambiguous => {
+                            detection.warnings.push(format!(
+                                "Several Ludusavi manifest entries match \"{}\"; Ludex did not guess.",
+                                game.title
+                            ));
+                            status = Some("Several manifest entries match this game, so no save folder was picked. Add a save path manually.".to_string());
+                        }
+                    }
+                }
+                Err(error) => {
+                    detection.warnings.push(error.clone());
+                    status = Some(format!("The Ludusavi manifest could not be read: {error}"));
+                }
+            },
+            Err(error) => {
+                detection
+                    .warnings
+                    .push(format!("Could not read {}: {error}", path.display()));
+                status = Some(format!(
+                    "The Ludusavi manifest at {} could not be read.",
+                    path.display()
+                ));
+            }
         }
     }
 
-    // 2. Otherwise parse a user-provided or auto-discovered manifest.
-    if provider_source == "none" {
-        if let Some(path) = env.manifest_path.as_deref() {
-            provider_source = "manifest";
-            match fs::read_to_string(path) {
-                Ok(text) if text.len() as u64 > MAX_MANIFEST_BYTES => {
-                    detection.warnings.push(format!(
-                        "{} is larger than {}; it was not parsed.",
-                        path.display(),
-                        crate::util::human_bytes(MAX_MANIFEST_BYTES)
-                    ));
-                    status = Some(
-                        "The Ludusavi manifest is too large to parse safely. Add a save path manually."
-                            .to_string(),
-                    );
+    // 2. A `ludusavi` binary knows its own manifest and reconciliation rules:
+    //    it is used when the manifest file listed nothing (or is absent).
+    if provider_saves.is_empty() {
+        if let Some(binary) = env.ludusavi.as_deref() {
+            match ludusavi_preview(binary, &game.title) {
+                Ok(preview) => {
+                    let cli_version = preview.version.clone();
+                    let saves = api_saves(&preview.paths, &roots, &mut detection.warnings);
+                    if !saves.is_empty() {
+                        provider_saves = saves;
+                        provider_source = "ludusavi";
+                        manifest_version = cli_version;
+                        status = None;
+                    } else if env.manifest_path.is_some() {
+                        detection.warnings.push(
+                            "The Ludusavi CLI listed no save files; Ludex is using the manifest result."
+                                .to_string(),
+                        );
+                    } else {
+                        provider_source = "ludusavi";
+                        manifest_version = cli_version;
+                        status = Some("The Ludusavi CLI did not list any existing save files for this game. Launch it once so it creates them, then re-detect.".to_string());
+                    }
                 }
-                Ok(text) => match parse_manifest(&text) {
-                    Ok(manifest) => {
-                        manifest_version = Some(manifest_version_for_text(&text));
-                        match manifest.find(game) {
-                            ManifestMatch::Found(found) => {
-                                let walk = walk_manifest(
-                                    found,
-                                    env,
-                                    game,
-                                    &roots,
-                                    &mut detection.warnings,
-                                );
-                                provider_saves = walk.saves;
-                                if !walk.missing_stores.is_empty() {
-                                    let names: Vec<String> =
-                                        walk.missing_stores.into_iter().collect();
-                                    detection.warnings.push(format!(
-                                        "Some manifest entries need a store Ludex could not identify ({}); they were skipped.",
-                                        names.join(", ")
-                                    ));
-                                }
-                                if provider_saves.is_empty() {
-                                    status = Some(
-                                        if found.registry_keys > 0 {
-                                            "The Ludusavi manifest only lists registry locations for this game. Registry saves are not archived yet; add a save path manually if the game also writes files."
-                                        } else if walk.skipped_filters > 0 {
-                                            "Every manifest entry for this game is filtered out on this machine (OS or store). Add a save path manually."
-                                        } else {
-                                            "No save files exist yet for this game. Launch it once so it creates them, then re-detect."
-                                        }
-                                        .to_string(),
-                                    );
-                                }
-                            }
-                            ManifestMatch::NotFound => {
-                                status = Some("This game is not in the Ludusavi manifest. Add a save path manually, or re-detect after the manifest updates.".to_string());
-                            }
-                            ManifestMatch::Ambiguous => {
-                                detection.warnings.push(format!(
-                                    "Several Ludusavi manifest entries match \"{}\"; Ludex did not guess.",
-                                    game.title
-                                ));
-                                status = Some("Several manifest entries match this game, so no save folder was picked. Add a save path manually.".to_string());
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        detection.warnings.push(error.clone());
-                        status = Some(format!("The Ludusavi manifest could not be read: {error}"));
-                    }
-                },
                 Err(error) => {
-                    detection
-                        .warnings
-                        .push(format!("Could not read {}: {error}", path.display()));
-                    status = Some(format!(
-                        "The Ludusavi manifest at {} could not be read.",
-                        path.display()
+                    if env.manifest_path.is_none() {
+                        status = Some("The Ludusavi CLI could not preview this game and no manifest file is configured. Check the ludusaviBinary setting, or add a save path manually.".to_string());
+                    }
+                    detection.warnings.push(format!(
+                        "The Ludusavi CLI preview failed ({error}); {}",
+                        if env.manifest_path.is_some() {
+                            "using the manifest file"
+                        } else {
+                            "no manifest file is configured"
+                        }
                     ));
                 }
             }
-        } else if env.ludusavi.is_none() {
-            status = Some("No Ludusavi manifest or CLI was found. Set a manifest path or the ludusavi binary in Settings, or add a save path manually.".to_string());
-        } else {
-            status = Some("The Ludusavi CLI could not preview this game and no manifest file is configured. Check the ludusaviBinary setting, or add a save path manually.".to_string());
+        } else if env.manifest_path.is_none() {
+            status = Some("No Ludusavi manifest or CLI was found. Ludex can download the official manifest in Settings → Saves, or add a save path manually.".to_string());
         }
     }
 
@@ -445,6 +460,8 @@ pub fn detect(env: &DetectEnv, game: &GameContext, manual: &[SavePathRecord]) ->
 
     let provider_label = if provider_source == "ludusavi" {
         "the Ludusavi CLI"
+    } else if env.manifest_source == "managed" {
+        "the auto-managed Ludusavi manifest"
     } else {
         "the Ludusavi manifest"
     };
@@ -836,19 +853,46 @@ fn resolve_ludusavi(settings: &LocalSettings) -> Option<PathBuf> {
     crate::paths::find_on_path("ludusavi")
 }
 
+/// Resolve the manifest to read, in precedence order (#153):
+///
+/// 1. `ludusaviManifestPath`, when the user set one;
+/// 2. the copy Ludex downloaded into `{appDataDir}/manifest/`;
+/// 3. a manifest from a user-installed Ludusavi data folder.
+///
+/// A configured path that no longer exists still wins over nothing so the
+/// command can report *why* it could not be read, but an existing managed or
+/// user copy is preferred over a broken override.
 fn resolve_manifest_path(
     settings: &LocalSettings,
+    app_data: &Path,
     home: &Path,
     xdg_data: &Path,
     windows: &WindowsDirs,
-) -> Option<PathBuf> {
+) -> (Option<PathBuf>, &'static str) {
     let configured = settings.ludusavi_manifest_path.trim();
-    if !configured.is_empty() {
-        return Some(PathBuf::from(configured));
+    let configured_path = (!configured.is_empty()).then(|| PathBuf::from(configured));
+
+    if let Some(path) = configured_path.as_ref().filter(|path| path.is_file()) {
+        return (Some(path.clone()), "configured");
     }
-    default_manifest_paths(home, xdg_data, windows)
+
+    let managed = crate::saves_manifest::ManifestPaths::for_app_data(app_data).manifest;
+    if managed.is_file() {
+        return (Some(managed), "managed");
+    }
+
+    if let Some(path) = default_manifest_paths(home, xdg_data, windows)
         .into_iter()
         .find(|path| path.is_file())
+    {
+        return (Some(path), "user");
+    }
+
+    if configured_path.is_some() {
+        (configured_path, "configured")
+    } else {
+        (None, "none")
+    }
 }
 
 fn default_manifest_paths(home: &Path, xdg_data: &Path, windows: &WindowsDirs) -> Vec<PathBuf> {
@@ -2123,6 +2167,7 @@ mod tests {
             prefix: Some(prefix.clone()),
             steam_user_ids: vec!["76561198000000001".to_string()],
             manifest_path: None,
+            manifest_source: "none".to_string(),
             ludusavi: None,
         };
         let game = GameContext {
@@ -2622,6 +2667,87 @@ mod tests {
         assert_eq!(
             detection.manifest_version.as_deref(),
             Some("ludusavi 0.24.0")
+        );
+    }
+
+    #[test]
+    fn manifest_precedence_is_explicit_then_managed_then_user_copy() {
+        let fixture = fixture("saves-manifest-order");
+        let app_data = fixture.root.join("app-data");
+        let managed = app_data.join("manifest/ludusavi-manifest.yaml");
+        fs::create_dir_all(managed.parent().unwrap()).unwrap();
+        fs::write(&managed, HADES_MANIFEST).unwrap();
+        let user = fixture.home.join(".local/share/ludusavi/manifest.yaml");
+        fs::create_dir_all(user.parent().unwrap()).unwrap();
+        fs::write(&user, HADES_MANIFEST).unwrap();
+
+        let mut settings = LocalSettings::for_app_data(&app_data);
+        let resolve = |settings: &LocalSettings| {
+            resolve_manifest_path(
+                settings,
+                &app_data,
+                &fixture.home,
+                &fixture.env.xdg_data,
+                &fixture.env.windows,
+            )
+        };
+
+        // The auto-managed copy wins over a user-installed one.
+        assert_eq!(resolve(&settings), (Some(managed.clone()), "managed"));
+
+        // An explicit path wins over the managed copy.
+        let explicit = fixture.root.join("explicit.yaml");
+        fs::write(&explicit, HADES_MANIFEST).unwrap();
+        settings.ludusavi_manifest_path = explicit.to_string_lossy().to_string();
+        assert_eq!(resolve(&settings), (Some(explicit.clone()), "configured"));
+
+        // A configured path that disappeared falls back to the managed copy.
+        settings.ludusavi_manifest_path =
+            fixture.root.join("gone.yaml").to_string_lossy().to_string();
+        assert_eq!(resolve(&settings), (Some(managed.clone()), "managed"));
+
+        // Without a managed copy the user-installed one is used.
+        fs::remove_file(&managed).unwrap();
+        assert_eq!(resolve(&settings), (Some(user.clone()), "user"));
+
+        // Nothing left: the broken override is reported so the read error is
+        // actionable, but no file is opened silently.
+        fs::remove_file(&user).unwrap();
+        let (path, source) = resolve(&settings);
+        assert_eq!(source, "configured");
+        assert!(path.unwrap().ends_with("gone.yaml"));
+
+        settings.ludusavi_manifest_path.clear();
+        assert_eq!(resolve(&settings), (None, "none"));
+    }
+
+    #[test]
+    fn a_managed_manifest_is_used_by_detection() {
+        let fixture = fixture("saves-managed");
+        let save_dir = fixture.home.join(".config/Hades");
+        fs::create_dir_all(&save_dir).unwrap();
+        fs::write(save_dir.join("save.dat"), b"x").unwrap();
+
+        let managed = fixture
+            .root
+            .join("app-data/manifest/ludusavi-manifest.yaml");
+        fs::create_dir_all(managed.parent().unwrap()).unwrap();
+        fs::write(
+            &managed,
+            "\"Hades\":\n  files:\n    - <home>/.config/Hades\n",
+        )
+        .unwrap();
+
+        let mut env = fixture.env.clone();
+        env.manifest_path = Some(managed);
+        env.manifest_source = "managed".to_string();
+        let detection = detect(&env, &fixture.game, &[]);
+        assert!(detection.detected, "{detection:?}");
+        assert_eq!(detection.source, "manifest");
+        assert!(
+            detection.message.contains("auto-managed"),
+            "{}",
+            detection.message
         );
     }
 

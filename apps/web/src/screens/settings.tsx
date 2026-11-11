@@ -28,6 +28,7 @@ import { LocationsPanel } from "@/components/settings/locations-panel";
 import { openOnboarding, restoreGettingStarted } from "@/lib/onboarding";
 import { ControllerPanel } from "@/components/settings/controller-panel";
 import { RomEmulatorsPanel } from "@/components/settings/rom-emulators";
+import { SaveManifestPanel } from "@/components/settings/save-manifest-panel";
 import { t } from "@/lib/i18n";
 
 export function SettingsScreen() {
@@ -721,6 +722,12 @@ export function SettingsScreen() {
             )}
           </div>
         </section>
+      )}
+
+      {desktopAvailable && draft && (
+        <div className="mt-12 max-w-[980px]">
+          <SaveManifestPanel draft={draft} update={update} />
+        </div>
       )}
 
       {isNative() && draft && (

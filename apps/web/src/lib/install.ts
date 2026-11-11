@@ -7,6 +7,8 @@ import type {
   InstallJob,
   InstalledGame,
   LocalSettings,
+  ManifestStatus,
+  ManifestUpdate,
   RepairReport,
   VerifyReport,
 } from "@/lib/types";
@@ -59,6 +61,21 @@ export const installBridge = {
 
   diskUsage(path: string): Promise<DiskUsage> {
     return USING_MOCKS ? mockInstalls.diskUsage(path) : native.getDiskUsage(path);
+  },
+
+  /** Cached Ludusavi save-path manifest (#153). Local to the desktop app. */
+  manifestStatus(): Promise<ManifestStatus> {
+    return USING_MOCKS ? mockInstalls.manifestStatus() : native.ludusaviManifestStatus();
+  },
+
+  /** Download or refresh the save database now (#153). */
+  updateManifest(): Promise<ManifestUpdate> {
+    return USING_MOCKS ? mockInstalls.updateManifest() : native.updateLudusaviManifest();
+  },
+
+  /** Delete the cached save database (#153). */
+  removeManifest(): Promise<ManifestStatus> {
+    return USING_MOCKS ? mockInstalls.removeManifest() : native.removeLudusaviManifest();
   },
 
   openPath(path: string): Promise<void> {

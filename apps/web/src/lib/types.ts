@@ -732,6 +732,14 @@ export interface LocalSettings {
   compatWinePath: string;
   /** Launch mode new games start with on Linux (#89). */
   defaultLaunchMode: LaunchMode;
+  /** Explicit Ludusavi manifest file (#107). Empty = auto-managed copy, then a detected install. */
+  ludusaviManifestPath: string;
+  /** `ludusavi` binary override (#107). Empty = look for it on PATH. */
+  ludusaviBinary: string;
+  /** Download/refresh the save database automatically (#153), at most once per 24 h. */
+  ludusaviManifestAutoUpdate: boolean;
+  /** Mirror or pinned URL for the manifest download (#153). Empty = the canonical upstream file. */
+  ludusaviManifestUrl: string;
   /** Global default for automatic save backups after a session (#108). */
   cloudAutoSync: boolean;
   /** Stable opaque device id generated on first use (#108). */
@@ -756,6 +764,43 @@ export interface LocalSettings {
   gamevaultRoots: string[];
   /** Folder depth used by GameVault scans (#134), 4-8, default 6. */
   gamevaultScanDepth: number;
+}
+
+/* ------------------- Ludusavi save-path manifest (#153) ------------------ */
+
+/**
+ * Cached save-path manifest. Ludex downloads the official Ludusavi asset so a
+ * fresh install detects saves without installing anything. Local only: the
+ * manifest, its path and this status are never sent to the server.
+ */
+export interface ManifestStatus {
+  present: boolean;
+  /** Cached file path (`{appDataDir}/manifest/…`); null when absent. */
+  path: string | null;
+  /** `sha256:<12 hex>` of the cached file, when known. */
+  version: string | null;
+  /** RFC 3339 timestamp of the last successful download. */
+  updatedAt: string | null;
+  /** RFC 3339 timestamp of the last check, successful or not. */
+  checkedAt: string | null;
+  /** Effective download URL (canonical file or the user's mirror). */
+  source: string;
+  sizeBytes: number;
+  /** False when the user turned automatic downloads off. */
+  autoUpdate: boolean;
+  /** Older than the 24 h refresh interval, or never checked. */
+  stale: boolean;
+  /** Last download error, kept so the panel can explain a no-op check. */
+  error: string | null;
+  message: string;
+}
+
+/** Result of a manual "Update manifest" click. */
+export interface ManifestUpdate extends ManifestStatus {
+  /** True when the cached file was replaced. */
+  updated: boolean;
+  /** True when the server answered `304 Not Modified`. */
+  notModified: boolean;
 }
 
 /* --------------------------- servers and profiles (#24) ------------------ */

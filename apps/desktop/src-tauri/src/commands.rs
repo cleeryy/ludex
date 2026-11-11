@@ -31,6 +31,7 @@ use crate::presence::{self, PresenceStatus};
 use crate::profiles;
 use crate::protondb::{self, ProtonDbRating};
 use crate::saves_detect::{self, SavePathInput, SavePaths};
+use crate::saves_manifest::{self, ManifestStatus, ManifestUpdate};
 use crate::saves_sync::{self, CloudSaveStatus, RestoreOutcome, SyncToggleResponse};
 use crate::server::{self, ServerInfo, ServerStatus};
 use crate::settings::{self, LocalSettings};
@@ -2548,6 +2549,7 @@ fn detect_and_persist(app: &AppHandle, game_id: i64) -> Result<SavePaths, String
     let detection = saves_detect::detect_for_game(
         &settings,
         &game,
+        &state.app_data,
         &manual,
         prefix_override,
         launch_options.steam_app_id,
@@ -2593,6 +2595,27 @@ pub async fn redetect_save_paths(app: AppHandle, game_id: i64) -> Result<SavePat
         .map_err(|error| format!("The save detection task failed: {error}"))?
 }
 
+/// Cached Ludusavi save-path manifest: version, dates, source and whether
+/// automatic downloads are enabled (#153). Local only.
+#[tauri::command]
+pub fn ludusavi_manifest_status(app: AppHandle) -> Result<ManifestStatus, String> {
+    saves_manifest::current_status(&app)
+}
+
+/// Download or refresh the Ludusavi manifest now, ignoring the 24 h throttle
+/// (#153). A failed download keeps the cached copy.
+#[tauri::command]
+pub async fn update_ludusavi_manifest(app: AppHandle) -> Result<ManifestUpdate, String> {
+    saves_manifest::update_now(&app).await
+}
+
+/// Delete the cached manifest so the next detection falls back to a
+/// user-installed copy or manual paths (#153).
+#[tauri::command]
+pub fn remove_ludusavi_manifest(app: AppHandle) -> Result<ManifestStatus, String> {
+    saves_manifest::remove_now(&app)
+}
+
 /// Persisted save mapping and last preview. Never rescans the disk (#107).
 #[tauri::command]
 pub fn get_save_paths(state: State<'_, AppState>, game_id: i64) -> Result<SavePaths, String> {
@@ -2629,6 +2652,7 @@ pub fn set_save_paths(
     let env = saves_detect::DetectEnv::for_game(
         &settings,
         &game,
+        &state.app_data,
         crate::util::non_empty(Some(launch_options.prefix_path.as_str())),
         launch_options.steam_app_id,
     );

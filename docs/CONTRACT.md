@@ -961,6 +961,11 @@ interface LocalSettings {
   compatProtonPath: string;          // Proton folder/script override (#90), empty = detect
   compatWinePath: string;            // wine override (#90), empty = detect
   defaultLaunchMode: "auto" | "native" | "proton" | "umu"; // new games on Linux (#89)
+  ludusaviManifestPath: string;      // explicit manifest file (#107), empty = managed copy then a detected install
+  ludusaviBinary: string;            // ludusavi executable (#107), empty = PATH; fallback only
+  ludusaviManifestAutoUpdate: boolean; // startup refresh (#153), default true, max once per 24 h
+  ludusaviManifestUrl: string;       // mirror/pinned manifest URL (#153), empty = the canonical upstream manifest
+  winePrefix: string;                // Wine/Proton prefix override (#107), empty = detect
   cloudAutoSync: boolean;            // global automatic save backup (#108), default true
   cloudDeviceId: string;             // random UUID generated on first use, not a hardware id
   cloudDeviceLabel: string | null;   // null = host name, then "Desktop"
@@ -1368,6 +1373,27 @@ interface CloudSyncToggleResponse {
   effective: { enabled: boolean; reason: CloudSaveReason };
 }
 
+/** Auto-managed Ludusavi manifest (#153). `path`, `source` and the file itself
+ *  stay on the desktop machine and are never sent to the server. */
+interface ManifestStatus {
+  present: boolean;
+  path: string | null;          // {appDataDir}/manifest/ludusavi-manifest.yaml
+  version: string | null;       // "sha256:<12 hex>"
+  updatedAt: string | null;     // last successful download, RFC 3339
+  checkedAt: string | null;     // last check, successful or not
+  source: string;               // effective download URL (official or mirror)
+  sizeBytes: number;
+  autoUpdate: boolean;          // ludusaviManifestAutoUpdate
+  stale: boolean;               // older than 24 h, or never checked
+  error: string | null;         // last download error; the cached copy is kept
+  message: string;
+}
+
+interface ManifestUpdate extends ManifestStatus {
+  updated: boolean;             // the cached file was replaced
+  notModified: boolean;         // the server answered 304
+}
+
 /** Game settings editor (#105/#147). `filePath` is relative to the install folder.
  *  `editable: false` means the UI never calls `read_game_config`; `note` gives
  *  the reason (binary/NUL bytes, over 1 MiB, unparseable, unsupported encoding,
@@ -1563,10 +1589,13 @@ interface StreamTarget {
 | `remove_gamevault_root` | `{ path }` | `LocalSettings`; removes the matching canonical root (#134) |
 | `reorder_gamevault_roots` | `{ roots: string[] }` | `LocalSettings`; persists the new order, ignoring unknown entries and keeping unlisted roots at the end (#134) |
 | `detect_gamevault_roots` | — | `GameVaultRootProposal[]`; read-only probe of the usual GameVault locations and GameVault's client config files. Never writes to GameVault (#134) |
-| `detect_save_paths` | `{ gameId }` | `SavePaths`; runs Ludusavi CLI/manifest detection, merges persisted manual paths and saves the mapping + preview. `saves` entries are `{ path, kind: "file" \| "directory", source: "manifest" \| "manual" \| "override", primary, sizeBytes, lastModified, notes }`; `detected: false` plus `message` is the explicit "no save folder detected" state. Paths stay local |
+| `detect_save_paths` | `{ gameId }` | `SavePaths`; reads the manifest (explicit path → managed copy → user install), then the optional Ludusavi CLI, merges persisted manual paths and saves the mapping + preview. `saves` entries are `{ path, kind: "file" \| "directory", source: "manifest" \| "manual" \| "override", primary, sizeBytes, lastModified, notes }`; `detected: false` plus `message` is the explicit "no save folder detected" state. Paths stay local |
 | `redetect_save_paths` | `{ gameId }` | `SavePaths`; same as `detect_save_paths`, for a re-run after the game created its saves |
 | `get_save_paths` | `{ gameId }` | `SavePaths` from SQLite + last preview; never rescans the disk |
 | `set_save_paths` | `{ gameId, paths: { path, kind?, primary?, source? }[] }` | `SavePaths`; replaces the per-game manual override list, checks each path is readable and inside an allowlisted root, allows at most one primary. `source` is `manual` (default) or `override` |
+| `ludusavi_manifest_status` | — | `ManifestStatus`; cached save-path manifest (`{appDataDir}/manifest/ludusavi-manifest.yaml`), version, last updated/checked, size and effective source URL. Local only (#153) |
+| `update_ludusavi_manifest` | — | `ManifestUpdate`; downloads or refreshes the manifest now, ignoring the 24 h throttle. Conditional `If-None-Match`, 64 MiB cap, 60 s timeout, optional SHA-256 check; a failure keeps the cached copy. No tests hit the network (#153) |
+| `remove_ludusavi_manifest` | — | `ManifestStatus`; deletes the cached manifest and its metadata so detection falls back to a user-installed copy or manual paths (#153) |
 | `cloud_save_status` | `{ gameId }` | `CloudSaveStatus`; detected paths, latest snapshot (remote failures go in `message`), last upload/restore, effective toggle + reason, pending retry and conflict (#108) |
 | `set_cloud_save_sync` | `{ gameId?, enabled }` | `CloudSyncToggleResponse`; `gameId` null changes the global default, a number stores a per-game override. Local only |
 | `sync_cloud_save_now` | `{ gameId }` | `CloudSaveStatus`; archives and uploads immediately. Works with automatic sync off; an unchanged hash is a no-op. Failures stay in `pending` |
@@ -1608,6 +1637,7 @@ Events:
 - `install://manifest-progress` → `{ gameId, filesDone, filesTotal, bytesDone, bytesTotal, message }` (#129)
 - `cloud-save://synced` → `gameId` (automatic upload completed or was unchanged)
 - `cloud-save://pending` → `gameId` (automatic upload failed and was queued for retry)
+- `save-manifest://updated` → `ManifestUpdate` (the save database was refreshed, manually or at startup) (#153)
 - `local-server://status` → `{ running, url }`
 - `ui://navigate` → `string` (tray menu asked for a route, e.g. `/downloads`)
 - `ui://launch` → `number` (tray "Recent games" item; the UI calls `launch_game`)

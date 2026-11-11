@@ -2,12 +2,14 @@
 
 Ludex stores cloud saves as opaque per-user archives on the server. Before an
 archive can be uploaded, the desktop app has to know **which local files are the
-game's saves**. This document covers local discovery (#107) and the automatic
-sync/restore flow built on top of it (#108). The server never sees a host path.
+game's saves**. This document covers local discovery (#107, #153) and the
+automatic sync/restore flow built on top of it (#108). The server never sees a
+host path.
 
 ## Scope
 
-- Desktop only. No server route, no bundled data, no new network calls.
+- Desktop only. No server route and no bundled data. The only network call is
+  the save-path manifest download in [Auto-managed manifest](#auto-managed-ludusavi-manifest-153).
 - Detection is advisory: it lists existing save files/folders and their size so
   the UI can show a `backup --preview`-style summary before anything is
   archived.
@@ -23,38 +25,105 @@ manual entries:
 1. **Manual / override paths** (SQLite, per game). Always included. A manual path
    that matches a manifest result wins for that location, and is labelled
    `override`; a standalone manual path is labelled `manual`.
-2. **Ludusavi CLI** (`ludusavi` binary). Used when `ludusaviBinary` is set, or
-   when `ludusavi` is found on `PATH`. Ludex runs `ludusavi --version` and then
-   `ludusavi --api` with a `preview` request, reads the reported files, and
-   falls back to the manifest file if the preview fails or lists nothing.
-3. **Ludusavi manifest file** (`manifest.yaml`). Read from `ludusaviManifestPath`
-   when set, otherwise auto-discovered in the usual Ludusavi data folders
-   (`$XDG_DATA_HOME/ludusavi`, `~/.local/share/ludusavi`,
-   `~/.var/app/com.github.mtkennerly.ludusavi/data/ludusavi`,
-   `~/.config/ludusavi`, `~/Library/Application Support/ludusavi`,
-   `%APPDATA%/ludusavi`, `%LOCALAPPDATA%/ludusavi`).
+2. **Ludusavi manifest**, in this order (#153):
+   1. `ludusaviManifestPath` when the user set it and the file exists;
+   2. the copy Ludex downloaded into
+      `{appDataDir}/manifest/ludusavi-manifest.yaml`;
+   3. a manifest from a user-installed Ludusavi data folder
+      (`$XDG_DATA_HOME/ludusavi`, `~/.local/share/ludusavi`,
+      `~/.var/app/com.github.mtkennerly.ludusavi/data/ludusavi`,
+      `~/.config/ludusavi`, `~/Library/Application Support/ludusavi`,
+      `%APPDATA%/ludusavi`, `%LOCALAPPDATA%/ludusavi`).
+
+   A configured path that disappeared is reported as a read error when no other
+   copy exists; an existing managed or user copy is preferred over a broken
+   override.
+3. **Ludusavi CLI** (`ludusavi` binary), as an advanced optional fallback. Used
+   when `ludusaviBinary` is set, or when `ludusavi` is found on `PATH`, but only
+   when the manifest listed nothing (or no manifest exists). Ludex runs
+   `ludusavi --version` and then `ludusavi --api` with a `preview` request and
+   reads the reported files.
 4. **No source**: an actionable "no save folder detected" message with the next
-   steps (launch the game once, set a manifest path, or add a path manually).
+   steps (launch the game once, download the save database in Settings → Saves,
+   set a manifest path, or add a path manually).
 
 The Ludusavi manifest is **not bundled** with Ludex. It is MIT-licensed but
-derived from CC BY-NC-SA PCGamingWiki data, so shipping it requires its own
-licensing review. Users install Ludusavi (or point Ludex at their own manifest
-copy); Ludex only reads it.
+built from CC BY-NC-SA PCGamingWiki data, so redistributing it needs its own
+licensing review. Ludex downloads it at runtime instead (see below).
+
+## Auto-managed Ludusavi manifest (#153)
+
+A fresh desktop install has neither a `ludusavi` binary nor a manifest. Ludex
+now downloads the canonical file itself, so save detection works out of the box.
+The upstream project publishes it on the `data` branch of
+`mtkennerly/ludusavi-manifest` (the repo has no GitHub release assets).
+
+| Item | Value |
+|---|---|
+| Download URL | `https://raw.githubusercontent.com/mtkennerly/ludusavi-manifest/data/data/manifest.yaml` |
+| Override / mirror | `ludusaviManifestUrl` (must be `http`/`https`; can point at a release asset or a pinned copy) |
+| Cached file | `{appDataDir}/manifest/ludusavi-manifest.yaml` |
+| Metadata | `{appDataDir}/manifest/ludusavi-manifest.json` |
+| Version | `sha256:<12 hex>` of the cached file |
+| Metadata fields | `version`, `etag`, `lastCheckedAt`, `lastUpdatedAt`, `sourceUrl`, `sizeBytes`, `sha256`, `error` |
+| Size cap | 64 MiB (`MAX_MANIFEST_BYTES`), checked on `Content-Length` and while streaming |
+| Timeout | 60 s for the whole request (`DOWNLOAD_TIMEOUT_SECS`) |
+| Conditional request | `If-None-Match: <etag>`; `304` only refreshes `lastCheckedAt` |
+| Checksum | `x-checksum-sha256` response header, when the source publishes one |
+
+### Update policy
+
+- **Startup**: `saves_manifest::auto_update` runs in the background. It is
+  throttled to once per 24 h using `lastCheckedAt`; a missing metadata file
+  counts as due.
+- **Manual**: Settings → Saves → **Update manifest** calls
+  `update_ludusavi_manifest`, which ignores the throttle.
+- **Consent**: `ludusaviManifestAutoUpdate` (default `true`) gates the startup
+  hook. Turn it off and only the manual button downloads. The default is on so
+  a first run with no manifest works without a setup step.
+- **Offline / 404 / timeout / oversize / bad checksum / not a YAML manifest**:
+  the previous cached file is kept, `lastCheckedAt` and `error` are recorded,
+  and the UI says the cached copy is still in use.
+- **Remove**: `remove_ludusavi_manifest` deletes both files; detection falls
+  back to a user-installed copy, the CLI, or manual paths.
+
+### Safety
+
+- The body is streamed into a capped buffer; nothing above 64 MiB is written.
+- Atomic replace: the new bytes go to `.{name}.part-<id>` in the same folder,
+  are flushed, then renamed over the target. On Windows, where a rename cannot
+  replace an existing file, the old file is removed only after the temp file is
+  complete.
+- The download is **data only**. `saves_detect` parses it with `serde_yaml`;
+  nothing in it is executed, and the optional CLI is never launched from it.
+- Manifest contents, the cached path and the metadata stay local. They are
+  never included in an API request, telemetry or a save snapshot.
+
+### Licence and provenance
+
+- The manifest is published by the Ludusavi project under the MIT licence.
+- Its save-path data is derived from PCGamingWiki, whose content is
+  **CC BY-NC-SA** (attribution, non-commercial, share-alike). Ludex therefore
+  downloads it at runtime instead of vendoring it in the repo, the installer or
+  a Docker image, and Settings shows the attribution.
 
 ## Settings
 
-All three are desktop-only extras in `LocalSettings`:
+The save-detection extras in `LocalSettings`:
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `ludusaviManifestPath` | `""` | Manifest file. Empty = auto-discover the standard Ludusavi locations. |
-| `ludusaviBinary` | `""` | `ludusavi` executable. Empty = look for `ludusavi` on `PATH`. |
+| `ludusaviManifestPath` | `""` | Explicit manifest file. Empty = the managed copy, then a detected Ludusavi install. |
+| `ludusaviManifestAutoUpdate` | `true` | Download/refresh the manifest at startup (max once per 24 h). Off = manual only. |
+| `ludusaviManifestUrl` | `""` | Mirror or pinned URL. Empty = the canonical upstream manifest. |
+| `ludusaviBinary` | `""` | `ludusavi` executable. Empty = look for `ludusavi` on `PATH`. Only used when the manifest lists nothing. |
 | `winePrefix` | `""` | Wine/Proton prefix containing `drive_c`. Empty = use the game's per-game launch prefix, then `$WINEPREFIX`, the Steam `compatdata/<appid>/pfx` folder, `{installDir}/.prefix`, then `~/.wine`. |
 
 A per-game prefix saved by the Linux launch options (Proton/UMU/Wine, #121) is
-the most specific source and wins over the global setting. A configured manifest
-path or binary is tried even if it no longer exists; the command reports a
-warning and falls back to the next source.
+the most specific source and wins over the global setting. A configured binary
+is tried even if it no longer exists. A configured manifest path falls back to
+the managed copy when the file disappeared, and is only reported as a read error
+when no other copy exists.
 
 ## Matching a game
 
@@ -317,6 +386,10 @@ attempt.
 
 See the command table in `docs/CONTRACT.md`:
 
+- `ludusavi_manifest_status` — cached manifest version, dates, size and source.
+- `update_ludusavi_manifest` — download now; returns the status plus `updated`
+  and `notModified`.
+- `remove_ludusavi_manifest` — delete the cached copy and its metadata.
 - `detect_save_paths { gameId }` — detect + persist, returns `SavePaths`.
 - `redetect_save_paths { gameId }` — same action after a first launch.
 - `get_save_paths { gameId }` — persisted mapping + last preview, no disk scan.
@@ -346,6 +419,8 @@ line sent to the server, telemetry or error report.
   larger than 64 MiB is refused.
 - The Ludusavi CLI is run with `--api`, a 20 s timeout, stdin/stdout pipes only
   and a 1 MiB output cap. Its reported paths go through the same allowlist.
+- The manifest download is capped at 64 MiB, times out after 60 s, verifies an
+  advertised SHA-256 before replacing the cache and writes atomically.
 - Registry-only saves are reported, not read.
 
 ## Tests
@@ -363,7 +438,17 @@ no real Ludusavi installation:
 - manual override validation, one primary, allowlisted roots and precedence;
 - explicit "no save folder detected" state;
 - the CLI preview parser, plus a fake `ludusavi` shell script on Unix;
-- SQLite roundtrip, delete, per-game uniqueness and idempotent migration.
+- SQLite roundtrip, delete, per-game uniqueness and idempotent migration;
+- the manifest precedence: explicit path → managed copy → user install;
+- the auto-managed manifest with a mocked fetcher: success, `404`, timeout,
+  oversize, bad checksum, empty or malformed body, `304`, atomic replace,
+  cached fallback;
+- the 24 h throttle and the automatic-update toggle;
+- settings round-trip for the four manifest settings.
+
+`pnpm --filter @ludex/web test` covers the Settings panel state helpers
+(`missing`, `ready`, `stale`, `error`, Update/Remove availability and version
+shortening) without a Tauri shell.
 
 For automatic sync (#108), still with temporary trees and no network:
 

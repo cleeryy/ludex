@@ -10,6 +10,15 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Auto-managed Ludusavi manifest (#153): the desktop app downloads the
+  canonical manifest into `{appDataDir}/manifest/` with ETag/304, atomic
+  replace, optional checksum verification, size/timeout limits and a 24 h
+  throttle; the previous copy is kept on any failure and an explicit consent
+  toggle controls automatic updates (URL override supported). Detection
+  precedence is explicit path → managed copy → user manifest → optional CLI,
+  and Settings → Save database shows version, timestamps, size, source and
+  Update/Remove actions with the MIT/CC BY-NC-SA attribution. No manifest is
+  bundled in the repo or image.
 - Drive-based install root suggestions (#145): `suggest_storage_locations`
   detects writable fixed drives (Windows) or common mounts/home (Linux/macOS),
   proposes `<drive>:\Games` / `~/Games` with free space, writability and a

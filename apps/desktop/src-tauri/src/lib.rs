@@ -25,6 +25,7 @@ mod profiles;
 mod protondb;
 mod roms;
 mod saves_detect;
+mod saves_manifest;
 mod saves_sync;
 mod secrets;
 mod server;
@@ -107,6 +108,10 @@ pub fn run() {
                 saves_sync::start_retry_worker(handle.clone());
                 tray::refresh_menu(&handle);
 
+                // Save-path manifest (#153): at most one check per 24 h,
+                // skipped when the user turned automatic downloads off.
+                saves_manifest::auto_update(handle.clone()).await;
+
                 // Throttled to once per 24 h; a no-op without release keys.
                 updater::check_on_startup(handle.clone()).await;
             });
@@ -185,6 +190,9 @@ pub fn run() {
             commands::get_save_paths,
             commands::set_save_paths,
             commands::redetect_save_paths,
+            commands::ludusavi_manifest_status,
+            commands::update_ludusavi_manifest,
+            commands::remove_ludusavi_manifest,
             commands::cloud_save_status,
             commands::set_cloud_save_sync,
             commands::sync_cloud_save_now,

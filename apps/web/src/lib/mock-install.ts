@@ -7,6 +7,8 @@ import type {
   InstallJob,
   InstalledGame,
   LocalSettings,
+  ManifestStatus,
+  ManifestUpdate,
   RepairReport,
   VerifyReport,
 } from "@/lib/types";
@@ -328,6 +330,10 @@ const DEFAULT_SETTINGS: LocalSettings = {
   compatProtonPath: "",
   compatWinePath: "",
   defaultLaunchMode: "auto",
+  ludusaviManifestPath: "",
+  ludusaviBinary: "",
+  ludusaviManifestAutoUpdate: true,
+  ludusaviManifestUrl: "",
   cloudAutoSync: true,
   cloudDeviceId: "demo-device-01",
   cloudDeviceLabel: "Living room PC",
@@ -353,6 +359,49 @@ function loadSettings(): LocalSettings {
 }
 
 const libraryEmpty = () => localStorage.getItem("ludex.demo.empty") === "1";
+
+/** Cached manifest for the browser demo (#153); nothing is downloaded. */
+let localManifest: ManifestStatus | null = null;
+
+function demoManifestStatus(): ManifestStatus {
+  const settings = loadSettings();
+  const present = localManifest !== null || localStorage.getItem("ludex.demo.manifest") === "1";
+  if (!present) {
+    localManifest = null;
+    return {
+      present: false,
+      path: null,
+      version: null,
+      updatedAt: null,
+      checkedAt: null,
+      source:
+        settings.ludusaviManifestUrl ||
+        "https://raw.githubusercontent.com/mtkennerly/ludusavi-manifest/data/data/manifest.yaml",
+      sizeBytes: 0,
+      autoUpdate: settings.ludusaviManifestAutoUpdate,
+      stale: true,
+      error: null,
+      message:
+        "No save database yet. Ludex can download the official Ludusavi manifest so save detection works without installing Ludusavi.",
+    };
+  }
+  localManifest ??= {
+    present: true,
+    path: "/home/mara/.local/share/ludex/manifest/ludusavi-manifest.yaml",
+    version: "sha256:7c1f5d2a9b04",
+    updatedAt: "2026-11-10T08:15:00Z",
+    checkedAt: "2026-11-10T08:15:00Z",
+    source:
+      settings.ludusaviManifestUrl ||
+      "https://raw.githubusercontent.com/mtkennerly/ludusavi-manifest/data/data/manifest.yaml",
+    sizeBytes: 14_512_640,
+    autoUpdate: settings.ludusaviManifestAutoUpdate,
+    stale: false,
+    error: null,
+    message: "The save database is ready.",
+  };
+  return { ...localManifest, autoUpdate: settings.ludusaviManifestAutoUpdate, source: settings.ludusaviManifestUrl || localManifest.source };
+}
 
 export const mockInstalls = {
   available: true,
@@ -475,6 +524,35 @@ export const mockInstalls = {
 
   getSettings(): Promise<LocalSettings | null> {
     return Promise.resolve(loadSettings());
+  },
+
+  /** Demo save database (#153), persisted in localStorage. */
+  manifestStatus(): Promise<ManifestStatus> {
+    return Promise.resolve(demoManifestStatus());
+  },
+
+  updateManifest(): Promise<ManifestUpdate> {
+    localStorage.setItem("ludex.demo.manifest", "1");
+    localManifest = {
+      present: true,
+      path: "/home/mara/.local/share/ludex/manifest/ludusavi-manifest.yaml",
+      version: "sha256:7c1f5d2a9b04",
+      updatedAt: new Date().toISOString(),
+      checkedAt: null,
+      source: "https://raw.githubusercontent.com/mtkennerly/ludusavi-manifest/data/data/manifest.yaml",
+      sizeBytes: 14_512_640,
+      autoUpdate: true,
+      stale: false,
+      error: null,
+      message: "Save database updated: sha256:7c1f5d2a9b04 (13.8 MiB).",
+    };
+    return Promise.resolve({ ...demoManifestStatus(), updated: true, notModified: false });
+  },
+
+  removeManifest(): Promise<ManifestStatus> {
+    localStorage.removeItem("ludex.demo.manifest");
+    localManifest = null;
+    return Promise.resolve(demoManifestStatus());
   },
 
   saveSettings(settings: LocalSettings): Promise<LocalSettings | null> {
