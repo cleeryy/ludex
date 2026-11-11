@@ -416,6 +416,9 @@ function summary(game: GameDetail): GameSummary {
     bookmarked,
     lastPlayedAt,
     maxPlayers,
+    kind,
+    platform,
+    emulatorId,
   } = game;
   return {
     id,
@@ -434,6 +437,9 @@ function summary(game: GameDetail): GameSummary {
     bookmarked,
     lastPlayedAt,
     maxPlayers,
+    kind,
+    platform,
+    emulatorId,
   };
 }
 
@@ -455,6 +461,8 @@ function filterGames(query: GameListQuery): GameSummary[] {
     if (query.playtimeMax !== undefined && g.minutesPlayed > query.playtimeMax) return false;
     if (query.minRating !== undefined && (g.rating ?? 0) < query.minRating) return false;
     if (query.provider && g.provider?.slug !== query.provider) return false;
+    if (query.platform && g.platform !== query.platform) return false;
+    if (query.kind && (g.kind ?? "game") !== query.kind) return false;
     return true;
   });
 
