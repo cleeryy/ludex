@@ -347,15 +347,20 @@ pub fn parse_apps_json(text: &str) -> Result<Value, String> {
             "Sunshine's apps.json is not valid JSON ({error}). Nothing was changed; fix or restore the file first."
         )
     })?;
-    match &value {
+    match value {
         Value::Array(_) => Ok(value),
-        Value::Object(map) => match map.get("apps") {
-            Some(Value::Array(_)) => Ok(value),
+        Value::Object(mut map) => match map.get("apps") {
+            Some(Value::Array(_)) => Ok(Value::Object(map)),
             Some(_) => Err(
                 "Sunshine's apps.json has an \"apps\" key that is not an array. Nothing was changed."
                     .to_string(),
             ),
-            None => Ok(value),
+            None => {
+                // A config object without an app list yet: start from empty
+                // without discarding the other keys.
+                map.insert("apps".to_string(), Value::Array(Vec::new()));
+                Ok(Value::Object(map))
+            }
         },
         _ => Err(
             "Sunshine's apps.json must contain an object or an array of apps. Nothing was changed."
@@ -1759,6 +1764,16 @@ mod tests {
         let (entries, removals) = preview_apps(Some(&render_apps(&root).unwrap()), &apps, "srv_1").unwrap();
         assert_eq!(entries[0].action, "unchanged");
         assert!(removals.is_empty());
+    }
+
+    #[test]
+    fn parse_creates_an_empty_app_list_for_an_object_without_apps() {
+        let value = parse_apps_json(r#"{"env":{"PATH":"/usr/bin"}}"#).unwrap();
+        assert_eq!(apps_ref(&value).unwrap().len(), 0);
+        assert_eq!(
+            value.get("env").and_then(|env| env.get("PATH")),
+            Some(&Value::String("/usr/bin".to_string()))
+        );
     }
 
     #[test]
