@@ -22,6 +22,7 @@ mod presence;
 mod process_tree;
 mod profiles;
 mod protondb;
+mod roms;
 mod saves_detect;
 mod saves_sync;
 mod secrets;
@@ -130,6 +131,13 @@ pub fn run() {
             commands::get_game_playtime,
             commands::launch_game,
             commands::stop_game,
+            roms::get_rom_settings,
+            roms::save_rom_emulator,
+            roms::delete_rom_emulator,
+            roms::set_rom_default,
+            roms::validate_rom_command,
+            roms::launch_rom_game,
+            roms::stop_rom_game,
             commands::uninstall_game,
             commands::move_install,
             commands::verify_install,
