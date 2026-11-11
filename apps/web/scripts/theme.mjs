@@ -111,7 +111,9 @@ if (write) {
   process.exit(0);
 }
 
-const current = fs.existsSync(outputPath) ? fs.readFileSync(outputPath, "utf8") : "";
+const current = fs.existsSync(outputPath)
+  ? fs.readFileSync(outputPath, "utf8").replace(/\r\n/g, "\n")
+  : "";
 if (current !== css) {
   fail("src/styles/themes.generated.css is stale — run `pnpm --filter @ludex/web theme:write`");
 }
