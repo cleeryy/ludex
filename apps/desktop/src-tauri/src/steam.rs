@@ -497,41 +497,61 @@ pub fn strip_edition(title: &str) -> String {
     normalized
 }
 
+/// Index of server titles used for matching. Two server games sharing a title
+/// make that key ambiguous, so it is never matched.
+#[derive(Debug, Default)]
+pub struct TitleIndex {
+    exact: BTreeMap<String, Option<i64>>,
+    stripped: BTreeMap<String, Option<i64>>,
+}
+
+impl TitleIndex {
+    pub fn new(server: &[(i64, String)]) -> Self {
+        let mut index = Self::default();
+        for (game_id, title) in server {
+            for (map, key) in [
+                (&mut index.exact, normalize_title(title)),
+                (&mut index.stripped, strip_edition(title)),
+            ] {
+                if key.is_empty() {
+                    continue;
+                }
+                match map.get(&key) {
+                    Some(Some(existing)) if existing != game_id => {
+                        // Two server games share this title: matching is unsafe.
+                        map.insert(key, None);
+                    }
+                    Some(_) => {}
+                    None => {
+                        map.insert(key, Some(*game_id));
+                    }
+                }
+            }
+        }
+        index
+    }
+
+    /// Exact normalised title first, then once more with edition suffixes
+    /// stripped. Ambiguous titles return `None`.
+    pub fn lookup(&self, title: &str) -> Option<i64> {
+        if let Some(Some(game_id)) = self.exact.get(&normalize_title(title)) {
+            return Some(*game_id);
+        }
+        match self.stripped.get(&strip_edition(title)) {
+            Some(Some(game_id)) => Some(*game_id),
+            _ => None,
+        }
+    }
+}
+
 /// Match Steam games to server games by normalised title. Returns
 /// `app_id -> game_id`; ambiguous titles are skipped rather than guessed.
 pub fn match_titles(steam: &[SteamGame], server: &[(i64, String)]) -> BTreeMap<u32, i64> {
-    let mut exact: BTreeMap<String, Option<i64>> = BTreeMap::new();
-    let mut stripped: BTreeMap<String, Option<i64>> = BTreeMap::new();
-
-    for (game_id, title) in server {
-        for (map, key) in [
-            (&mut exact, normalize_title(title)),
-            (&mut stripped, strip_edition(title)),
-        ] {
-            if key.is_empty() {
-                continue;
-            }
-            match map.get(&key) {
-                Some(Some(existing)) if existing != game_id => {
-                    // Two server games share this title: matching is unsafe.
-                    map.insert(key, None);
-                }
-                Some(_) => {}
-                None => {
-                    map.insert(key, Some(*game_id));
-                }
-            }
-        }
-    }
-
+    let index = TitleIndex::new(server);
     let mut matches = BTreeMap::new();
     for game in steam {
-        if let Some(Some(game_id)) = exact.get(&normalize_title(&game.name)) {
-            matches.insert(game.app_id, *game_id);
-            continue;
-        }
-        if let Some(Some(game_id)) = stripped.get(&strip_edition(&game.name)) {
-            matches.insert(game.app_id, *game_id);
+        if let Some(game_id) = index.lookup(&game.name) {
+            matches.insert(game.app_id, game_id);
         }
     }
     matches

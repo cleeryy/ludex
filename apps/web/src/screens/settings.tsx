@@ -19,7 +19,7 @@ import { Badge, Button, Field, Input, Switch, Textarea } from "@/components/ui/c
 import { Select } from "@/components/ui/select";
 import { DesktopUpdatePanel } from "@/components/settings/desktop-update";
 import { CompatibilityPanel } from "@/components/settings/compatibility-panel";
-import { SteamImportPanel } from "@/components/settings/steam-import";
+import { LauncherImportPanel } from "@/components/settings/launcher-import";
 import { PresenceStatus } from "@/components/settings/presence-status";
 import { GettingStartedCard } from "@/components/onboarding/getting-started";
 import { openOnboarding, restoreGettingStarted } from "@/lib/onboarding";
@@ -756,10 +756,10 @@ export function SettingsScreen() {
         <section className="mt-12 max-w-[980px]" aria-labelledby="integrations-heading">
           <SectionHeader
             title={t("Integrations")}
-            description={t("Import a Steam library or drive Ludex from another launcher.")}
+            description={t("Import games another launcher installed, Steam included, without copying a byte.")}
           />
           <div id="integrations-heading" className="border-t border-line pt-5">
-            <SteamImportPanel />
+            <LauncherImportPanel />
           </div>
         </section>
       )}

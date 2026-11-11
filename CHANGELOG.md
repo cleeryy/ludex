@@ -6,6 +6,24 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Launcher discovery and import (#116): the desktop app reads the metadata
+  Steam, Epic Games, GOG Galaxy, the EA app, Ubisoft Connect, Xbox/Microsoft
+  Store, itch.io, Heroic and Lutris already keep on disk and imports the games
+  the user selects as external entries with a launch URI (`steam://`,
+  `com.epicgames.launcher://`, `goggalaxy://`, `origin://`, `uplay://`,
+  `shell:AppsFolder\…`, `itch://caves/…/launch`, `heroic://launch/…`,
+  `lutris:rungameid/…`). The preview groups findings by launcher, matches titles
+  against the server library (edition suffixes stripped, ambiguity never
+  guessed), supports manual mapping and a manual URI for clients without a
+  documented deep link, and refuses duplicates by launch URI and by install
+  folder. Nothing is downloaded, copied or deleted: uninstalling an import only
+  removes the index row. Parsers are pure and covered by fixtures for every
+  format, including missing and malformed files (`launcher_scan`,
+  `launcher_import`). The Settings → Integrations panel now lists every
+  launcher, Steam included, in one place.
+
 ## [0.2.6] - 2026-11-10
 
 ### Added
@@ -28,7 +46,6 @@ All notable changes to Ludex are documented here. The format is based on
   stay unavailable while the custom bar is on: documented with the 500 px
   constraint in `docs/WINDOW-CHROME.md`, along with the manual Windows 10/11 and
   Linux test matrix that still has to be run.
-
 ## [0.2.5] - 2026-11-10
 
 ### Added

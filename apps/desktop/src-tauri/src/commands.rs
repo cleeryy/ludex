@@ -14,6 +14,7 @@ use crate::compat::{self, CompatScan};
 use crate::db::{self, GamePlaytime, InstalledGame};
 use crate::install::{self, InstallJob, InstallParams};
 use crate::installer::{self, AttemptReport};
+use crate::launchers::{self, DiscoveredGame, ImportEntry, Launcher, LauncherScan};
 use crate::launch::{self, LaunchResult};
 use crate::linux_gaming::{self, LaunchMode, LaunchOptions};
 use crate::maintenance::{self, RepairReport};
@@ -1274,6 +1275,264 @@ pub async fn steam_import(app: AppHandle, app_ids: Vec<u32>) -> Result<SteamImpo
 
     crate::tray::refresh_menu(&app);
     Ok(SteamImportReport { imported, skipped })
+}
+
+/* --------------- Launcher discovery and import (#116) -------------------- */
+
+/// One discovered game enriched with its Ludex match.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LauncherGamePreview {
+    #[serde(flatten)]
+    pub game: DiscoveredGame,
+    pub matched_game_id: Option<i64>,
+    pub matched_title: Option<String>,
+    pub imported: bool,
+    /// Id used when no server game matches.
+    pub local_game_id: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LauncherPreview {
+    pub roots: Vec<String>,
+    pub games: Vec<LauncherGamePreview>,
+    pub sources: Vec<launchers::LauncherSource>,
+    pub warnings: Vec<String>,
+    /// False when the server could not be listed, so nothing is pre-matched.
+    pub matched: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LauncherSkip {
+    pub source: String,
+    pub external_id: String,
+    pub title: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LauncherImportReport {
+    pub imported: Vec<InstalledGame>,
+    pub skipped: Vec<LauncherSkip>,
+}
+
+/// Everything a launcher preview and an import need from one scan.
+struct LauncherData {
+    scan: LauncherScan,
+    /// `externalId -> server gameId`, only for unambiguous titles.
+    matches: std::collections::BTreeMap<String, i64>,
+    /// Server titles by id, used for the preview.
+    titles: std::collections::HashMap<i64, String>,
+    /// Existing imports by launch URI: `uri -> (gameId, source)`.
+    imported: std::collections::HashMap<String, (i64, String)>,
+    matched: bool,
+}
+
+async fn launcher_data(app: &AppHandle) -> Result<LauncherData, String> {
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+    let steam_root = settings.steam_root.clone();
+
+    let scan: LauncherScan = tokio::task::spawn_blocking(move || {
+        let roots = launchers::ScanRoots::detect(Some(steam_root.as_str()));
+        launchers::scan(&roots)
+    })
+    .await
+    .map_err(|error| format!("The launcher scan failed: {error}"))?;
+
+    let (server_games, matched) = match server_game_titles(&state).await {
+        Ok(games) => (games, true),
+        Err(error) => {
+            tracing::debug!(error = %error, "launcher matching without the server");
+            (Vec::new(), false)
+        }
+    };
+
+    let imported = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::launch_uris(&connection)?
+            .into_iter()
+            .map(|(uri, game_id, source)| (uri, (game_id, source)))
+            .collect()
+    };
+
+    let matches = if matched {
+        launchers::match_titles(&scan.games, &server_games)
+    } else {
+        Default::default()
+    };
+    let server_games_empty = server_games.is_empty();
+    let titles: std::collections::HashMap<i64, String> = server_games.into_iter().collect();
+
+    Ok(LauncherData {
+        scan,
+        matches,
+        titles,
+        imported,
+        matched: matched && !server_games_empty,
+    })
+}
+
+fn launcher_preview_from(data: LauncherData) -> LauncherPreview {
+    let games = data
+        .scan
+        .games
+        .into_iter()
+        .map(|game| {
+            let matched_game_id = data.matches.get(&game.external_id).copied();
+            let imported = game
+                .launch_uri
+                .as_deref()
+                .is_some_and(|uri| data.imported.contains_key(uri));
+            let local_game_id = matched_game_id.unwrap_or_else(|| game.local_id());
+            LauncherGamePreview {
+                matched_title: matched_game_id.and_then(|id| data.titles.get(&id).cloned()),
+                matched_game_id,
+                imported,
+                local_game_id,
+                game,
+            }
+        })
+        .collect();
+    LauncherPreview {
+        roots: data.scan.roots,
+        games,
+        sources: data.scan.sources,
+        warnings: data.scan.warnings,
+        matched: data.matched,
+    }
+}
+
+/// List games installed by Steam, Epic, GOG, EA, Ubisoft, Xbox, itch, Heroic
+/// and Lutris, with their Ludex match (#116).
+#[tauri::command]
+pub async fn launcher_scan(app: AppHandle) -> Result<LauncherPreview, String> {
+    let data = launcher_data(&app).await?;
+    Ok(launcher_preview_from(data))
+}
+
+/// Import the selected launcher entries as external installed games.
+///
+/// Nothing is downloaded or copied: each row carries the launcher's `launchUri`
+/// and the uninstall command only removes the index row.
+#[tauri::command]
+pub async fn launcher_import(
+    app: AppHandle,
+    entries: Vec<ImportEntry>,
+) -> Result<LauncherImportReport, String> {
+    if entries.is_empty() {
+        return Err("Select at least one game to import.".to_string());
+    }
+    let data = launcher_data(&app).await?;
+    let state = app.state::<AppState>();
+
+    let mut imported = Vec::new();
+    let mut skipped = Vec::new();
+    let mut used_ids: Vec<i64> = Vec::new();
+
+    for entry in &entries {
+        let target = match launchers::resolve_import(entry, &data.scan.games, &data.matches) {
+            Ok(target) => target,
+            Err(reason) => {
+                skipped.push(LauncherSkip {
+                    source: entry.source.clone(),
+                    external_id: entry.external_id.clone(),
+                    title: entry.external_id.clone(),
+                    reason,
+                });
+                continue;
+            }
+        };
+
+        if let Some((game_id, source)) = data.imported.get(&target.launch_uri) {
+            skipped.push(LauncherSkip {
+                source: target.source.id().to_string(),
+                external_id: target.external_id.clone(),
+                title: target.name.clone(),
+                reason: format!(
+                    "Already imported from {} as game {game_id}.",
+                    Launcher::parse(source).map(Launcher::label).unwrap_or(source.as_str())
+                ),
+            });
+            continue;
+        }
+
+        let game_id = target
+            .game_id
+            .unwrap_or_else(|| launchers::hash_local_id(target.source, &target.external_id));
+        if used_ids.contains(&game_id) {
+            skipped.push(LauncherSkip {
+                source: target.source.id().to_string(),
+                external_id: target.external_id.clone(),
+                title: target.name.clone(),
+                reason: "Another selected game matches the same Ludex entry.".to_string(),
+            });
+            continue;
+        }
+
+        let existing = {
+            let connection = state
+                .db
+                .lock()
+                .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+            db::get_installed(&connection, game_id)?
+        };
+        if let Some(existing) = existing {
+            skipped.push(LauncherSkip {
+                source: target.source.id().to_string(),
+                external_id: target.external_id.clone(),
+                title: target.name.clone(),
+                reason: if existing.source == db::SOURCE_LUDEX {
+                    format!("{} is already installed through Ludex.", existing.title)
+                } else {
+                    format!(
+                        "{} is already imported from {}.",
+                        existing.title, existing.source
+                    )
+                },
+            });
+            continue;
+        }
+
+        let record = InstalledGame {
+            game_id,
+            version_id: 0,
+            title: target.name.clone(),
+            version: None,
+            install_path: target.install_dir.clone().unwrap_or_default(),
+            executable: None,
+            size_bytes: i64::try_from(target.size_bytes).unwrap_or(i64::MAX),
+            installed_at: now_rfc3339(),
+            last_launched_at: None,
+            archive_hash: None,
+            install_root: None,
+            source: target.source.id().to_string(),
+            launch_uri: Some(target.launch_uri.clone()),
+        };
+
+        {
+            let connection = state
+                .db
+                .lock()
+                .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+            db::upsert_installed(&connection, &record)?;
+        }
+        used_ids.push(game_id);
+        imported.push(record);
+    }
+
+    if imported.is_empty() && skipped.is_empty() {
+        return Err("None of the selected games are installed by their launcher any more.".to_string());
+    }
+
+    crate::tray::refresh_menu(&app);
+    Ok(LauncherImportReport { imported, skipped })
 }
 
 /* ------------- Linux compatibility (#89, #90, #91, #92, #93) ------------- */

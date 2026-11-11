@@ -504,6 +504,36 @@ pub fn get_installed(
         .map_err(|e| format!("Could not read the installed game: {e}"))
 }
 
+/// Every external entry that already has a launch URI, keyed by URI (#116).
+///
+/// The unique index on `launch_uri` is the source of truth for "already
+/// imported"; this map adds the row id and its source for the preview.
+pub fn launch_uris(connection: &Connection) -> Result<Vec<(String, i64, String)>, String> {
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT launch_uri, game_id, source
+            FROM installed_games
+            WHERE launch_uri IS NOT NULL AND TRIM(launch_uri) != ''
+            "#,
+        )
+        .map_err(|e| format!("Could not read imported games: {e}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| format!("Could not read imported games: {e}"))?;
+    let mut entries = Vec::new();
+    for row in rows {
+        entries.push(row.map_err(|e| format!("Could not read imported games: {e}"))?);
+    }
+    Ok(entries)
+}
+
 pub fn remove_installed(connection: &Connection, game_id: i64) -> Result<bool, String> {
     connection
         .execute(
@@ -1849,6 +1879,51 @@ mod tests {
                 params![uri],
             )
             .is_err());
+    }
+
+    #[test]
+    fn imported_launcher_entries_persist_and_are_listed_by_launch_uri() {
+        let connection = memory_database();
+        for (game_id, source, uri) in [
+            (
+                -1_234_567_890i64,
+                "epic",
+                "com.epicgames.launcher://apps/a?action=launch",
+            ),
+            (-1_234_567_891i64, "gog", "goggalaxy://openGameView/1207666623"),
+            (12, "steam", "steam://rungameid/440"),
+            (7, SOURCE_LUDEX, ""),
+        ] {
+            let game = InstalledGame {
+                game_id,
+                version_id: 0,
+                title: format!("{source} game"),
+                version: None,
+                install_path: "/games/x".into(),
+                executable: None,
+                size_bytes: 0,
+                installed_at: "2026-11-10T00:00:00Z".into(),
+                last_launched_at: None,
+                archive_hash: None,
+                install_root: None,
+                source: source.to_string(),
+                launch_uri: (!uri.is_empty()).then(|| uri.to_string()),
+            };
+            upsert_installed(&connection, &game).unwrap();
+        }
+
+        let mut uris = launch_uris(&connection).unwrap();
+        uris.sort_by(|left, right| left.0.cmp(&right.0));
+        assert_eq!(uris.len(), 3, "{uris:?}");
+        assert!(uris.iter().any(|(uri, game_id, source)| uri
+            .starts_with("com.epicgames.launcher://")
+            && *game_id == -1_234_567_890
+            && source == "epic"));
+        assert!(uris
+            .iter()
+            .any(|(uri, _, source)| uri == "goggalaxy://openGameView/1207666623" && source == "gog"));
+        // The Ludex install has no launch URI and stays out of the import map.
+        assert!(uris.iter().all(|(uri, _, _)| !uri.is_empty()));
     }
 
     #[test]

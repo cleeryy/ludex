@@ -7,6 +7,7 @@ mod compat;
 mod db;
 mod install;
 mod installer;
+mod launchers;
 mod launch;
 mod linux_gaming;
 mod maintenance;
@@ -141,6 +142,8 @@ pub fn run() {
             commands::presence_status,
             commands::steam_scan,
             commands::steam_import,
+            commands::launcher_scan,
+            commands::launcher_import,
             commands::compat_scan,
             commands::get_launch_options,
             commands::set_launch_options,

@@ -317,33 +317,56 @@ activity; it is not a secret and no bot is involved.
   application. Create one at <https://discord.com/developers/applications>
   (any name works, no bot user needed).
 
-### Steam library import
+### Launcher import (#13, #116)
 
-Settings → **Integrations → Steam library** reads Steam's own metadata, lists the
-installed Steam games and imports the selected ones into Ludex. No files are
-downloaded and Steam keeps ownership, updates and DRM.
+Settings → **Integrations → Launchers on this machine** reads the metadata each
+launcher already keeps on disk, lists the games it installed and imports the
+selected ones into Ludex. No files are downloaded, copied or moved, and the
+owning client keeps ownership, updates and DRM.
 
-- Discovery reads `steamapps/libraryfolders.vdf` in the default roots
-  (`~/.steam/steam`, `~/.local/share/Steam`, Flatpak, `~/Library/Application
-  Support/Steam` on macOS, `%ProgramFiles(x86)%\Steam` and the `SteamPath`
-  registry value on Windows) and every extra library it points at, then
-  `appmanifest_*.acf`.
-- Only manifests with `StateFlags` bit 4 (fully installed) and an existing
-  `steamapps/common/<installdir>` folder are listed.
-- Matching to the Ludex library is by normalised title, then once more after
-  stripping edition suffixes (`GOTY`, `Definitive Edition`, …). An ambiguous
-  title is never guessed.
-- Imported games launch through `steam://rungameid/<appid>`. Matched games keep
-  their server id (so playtime sync and the game page keep working); unmatched
-  ones get a negative local id and an **Import from Steam** entry appears in
-  "On this device".
-- Re-importing is refused, and a game already installed through Ludex is left
-  alone. **Uninstall** on a Steam import only removes the Ludex entry: the Steam
-  folder is never touched.
-- `steamRoot` (Settings → Desktop → Steam folder) overrides auto-detection.
+| Launcher | Source read | Launch URI |
+|---|---|---|
+| Steam | `steamapps/libraryfolders.vdf`, `appmanifest_*.acf` (roots: `~/.steam/steam`, `~/.local/share/Steam`, Flatpak, `~/Library/Application Support/Steam`, `%ProgramFiles(x86)%\Steam` and the `SteamPath` registry value) | `steam://rungameid/<appid>` |
+| Epic Games | `%ProgramData%\Epic\UnrealEngineLauncher\LauncherInstalled.dat` and `…\EpicGamesLauncher\Data\Manifests\*.item` (namespace + catalog item id) | `com.epicgames.launcher://apps/<ns>%3A<item>%3A<app>?action=launch&silent=true` |
+| GOG Galaxy | `%ProgramData%\GOG.com\Galaxy\storage\galaxy-2.0.db` (read-only SQLite) and the `GOG.com\Games` registry keys | `goggalaxy://openGameView/<productId>` |
+| EA app / Origin | `Electronic Arts\EA Games` registry keys; the offer id is used when the key carries one | `origin://launchgame/<offerId>` |
+| Ubisoft Connect | `Ubisoft\Launcher\Installs` registry keys (`InstallDir` per numeric install id) | `uplay://launch/<installId>/0` |
+| Xbox / Microsoft Store | `Get-AppxPackage` + `AppxManifest.xml` (application id), with `Get-StartApps` for names and as a fallback when `WindowsApps` is not readable; OS package families are filtered out | `shell:AppsFolder\<PackageFamilyName>!<AppId>` |
+| itch.io | `butler.db` (`caves` joined to `games`) in `%APPDATA%\itch`, `~/.config/itch` or `~/Library/Application Support/itch` | `itch://caves/<caveId>/launch` |
+| Heroic | `store_cache/legendary_library.json`, `store_cache/gog_library.json`, `sideload_apps/library.json` | `heroic://launch/<runner>/<app>` (sideload: `heroic://launch/<app>`) |
+| Lutris | `~/.local/share/lutris/pga.db` (read-only SQLite, installed rows) | `lutris:rungameid/<id>` |
+
+- Discovery is best effort and never fails a scan: a missing launcher, an
+  unreadable database or a malformed manifest becomes a warning next to the
+  list. Windows-only collectors are skipped on Linux and marked "Windows only";
+  the Xbox list is the Start menu and Store packages, so it can contain
+  non-games — untick them.
+- A game is listed only when the launcher records it as installed and, when an
+  install folder is recorded, that folder still exists.
+- Titles are matched against the server library by normalised title, then once
+  more with edition suffixes stripped (`GOTY`, `Definitive Edition`, …). An
+  ambiguous title is never guessed: the row stays **Not in the library** and can
+  be mapped by hand with the row's picker.
+- Imported entries keep their server id when matched (playtime sync and the game
+  page keep working) and a stable negative id otherwise. Steam keeps its
+  historical `-appId`; other launchers derive the id from `source` + launcher
+  entry id, so rescanning is idempotent.
+- Duplicates are refused twice: the partial unique index on `launchUri` rejects a
+  second import of the same launch target, and the import skips any entry whose
+  launch URI is already in the local index. The scan also drops a game reported
+  twice for the same install folder (for example Epic and Heroic).
+- Entries whose launcher exposes no documented launch id (some EA app installs)
+  are listed with an explicit reason and a **launch URI** field: paste one
+  (`origin://launchgame/Origin.OFR.50.0000557`) to import them. `file:`,
+  `javascript:`, `data:` and similar schemes are refused.
+- **Uninstall** on an imported entry only removes the Ludex row: the launcher's
+  folder is never touched, and there are no uninstall files in the install
+  folder to clean up.
+- `steamRoot` (Settings → Desktop → Steam folder) overrides Steam detection.
   `LUDEX_STEAM_ROOT` does the same for automation.
-- Playtime for a Steam game is tracked by Ludex only while the `steam://` handler
-  process tree is alive; Steam's own counter stays authoritative.
+- Playtime for an imported game is tracked by Ludex only while the launcher's
+  URI handler process tree is alive; the launcher's own counter stays
+  authoritative.
 
 ### Playnite
 
