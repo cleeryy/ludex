@@ -50,7 +50,15 @@ export function Popover({
   maxHeight = 360,
 }: PopoverProps) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const [style, setStyle] = useState<CSSProperties>({ opacity: 0 });
+  // Start as a hidden fixed panel: measuring a normal-flow block gives the
+  // body width (or 0) and pushes align="end" menus to the screen edge.
+  const [style, setStyle] = useState<CSSProperties>({
+    position: "fixed",
+    top: 0,
+    left: 0,
+    visibility: "hidden",
+    opacity: 0,
+  });
   const [placed, setPlaced] = useState(false);
 
   const place = useCallback(() => {
@@ -59,8 +67,9 @@ export function Popover({
     const rect = anchor.getBoundingClientRect();
     const margin = 8;
     const panel = panelRef.current;
-    const width = matchWidth ? rect.width : (panel?.offsetWidth ?? 240);
-    const height = Math.min(panel?.offsetHeight ?? 240, maxHeight);
+    const measured = panel?.getBoundingClientRect();
+    const width = matchWidth ? rect.width : measured?.width && measured.width > 0 ? measured.width : 240;
+    const height = Math.min(measured?.height && measured.height > 0 ? measured.height : 240, maxHeight);
 
     let left = rect.left;
     if (align === "end") left = rect.right - width;
@@ -83,6 +92,8 @@ export function Popover({
       minWidth: matchWidth ? undefined : 180,
       maxHeight,
       zIndex: 90,
+      visibility: "visible",
+      opacity: 1,
     });
     setPlaced(true);
   }, [align, anchorRef, matchWidth, maxHeight, offset, side]);
@@ -101,9 +112,13 @@ export function Popover({
     const onResize = () => place();
     window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", onResize);
+    const panel = panelRef.current;
+    const observer = panel ? new ResizeObserver(() => place()) : null;
+    if (panel && observer) observer.observe(panel);
     return () => {
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onResize);
+      observer?.disconnect();
     };
   }, [open, place]);
 
