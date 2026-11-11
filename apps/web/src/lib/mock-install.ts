@@ -83,6 +83,8 @@ let installed: InstalledGame[] = [
     sizeBytes: Math.round(8.7 * GB),
     installedAt: "2026-11-02T19:40:00Z",
     lastLaunchedAt: "2026-05-02T23:00:00Z",
+    source: "steam",
+    launchUri: "steam://rungameid/753640",
   },
   {
     gameId: 7,
@@ -94,6 +96,21 @@ let installed: InstalledGame[] = [
     sizeBytes: Math.round(43.7 * GB),
     installedAt: "2026-11-05T18:12:00Z",
     lastLaunchedAt: "2026-11-06T20:00:00Z",
+  },
+  {
+    // Unmatched launcher import (#154): negative local id, launched through
+    // Epic, never linked to a server game page.
+    gameId: -2231380,
+    versionId: 0,
+    title: "Control Ultimate Edition",
+    version: null,
+    installPath: "C:/Program Files/Epic Games/ControlUltimateEdition",
+    executable: null,
+    sizeBytes: Math.round(34.2 * GB),
+    installedAt: "2026-10-30T09:00:00Z",
+    lastLaunchedAt: null,
+    source: "epic",
+    launchUri: "com.epicgames.launcher://apps/control",
   },
 ];
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Play } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink, Maximize2, Minimize2, Play } from "lucide-react";
 import { useReducedMotion } from "motion/react";
 import { assetUrl } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -33,6 +33,38 @@ function videoPoster(video: GameVideo): string | null {
   return null;
 }
 
+/** Public watch page, used when the owner disabled embedding or blocks the region. */
+function youtubeWatchUrl(video: GameVideo): string | null {
+  const id = youtubeId(video);
+  if (id) return `https://www.youtube.com/watch?v=${id}`;
+  if (/^https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\//.test(video.url)) return video.url;
+  return null;
+}
+
+/**
+ * The iframe cannot tell "embedding disabled", "region blocked" and "CSP
+ * failure" apart, so the external link stays visible next to the player (#152).
+ * It never replaces the player and never starts playback by itself.
+ */
+function TrailerFallback({ video }: { video: GameVideo }) {
+  const watch = youtubeWatchUrl(video);
+  if (!watch) return null;
+  return (
+    <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-ink-3">
+      <span>{t("If the trailer does not play, its owner may have disabled embedding or blocked it in your region.")}</span>
+      <a
+        href={watch}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-1 text-signal-text underline-offset-2 hover:underline"
+      >
+        {t("Open on YouTube")}
+        <ExternalLink className="size-3" aria-hidden="true" />
+      </a>
+    </p>
+  );
+}
+
 /** Click-to-play trailer. Nothing loads from YouTube until the viewer presses
  * play, and playback starts only from that gesture. */
 export function TrailerPlayer({
@@ -56,73 +88,79 @@ export function TrailerPlayer({
 
   if (playing) {
     return (
-      <div className={cn("media-plate aspect-video w-full overflow-hidden bg-stage", className)}>
-        {isYoutube ? (
-          <iframe
-            src={youtubeEmbed(id!)}
-            title={video.title || title}
-            className="h-full w-full"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            referrerPolicy="strict-origin-when-cross-origin"
-            allowFullScreen
-            loading="lazy"
-          />
-        ) : (
-          <video
-            src={assetUrl(video.url) ?? undefined}
-            controls
-            autoPlay
-            playsInline
-            className="h-full w-full bg-stage"
-          />
-        )}
+      <div className={className}>
+        <div className="media-plate aspect-video w-full overflow-hidden bg-stage">
+          {isYoutube ? (
+            <iframe
+              src={youtubeEmbed(id!)}
+              title={video.title || title}
+              className="h-full w-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              referrerPolicy="strict-origin-when-cross-origin"
+              allowFullScreen
+              loading="lazy"
+            />
+          ) : (
+            <video
+              src={assetUrl(video.url) ?? undefined}
+              controls
+              autoPlay
+              playsInline
+              className="h-full w-full bg-stage"
+            />
+          )}
+        </div>
+        <TrailerFallback video={video} />
       </div>
     );
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => setPlaying(true)}
-      className={cn("media-plate group relative block aspect-video w-full overflow-hidden bg-bg-deep text-left", className)}
-      aria-label={t("Play trailer: {title}", { title: video.title || title })}
-    >
-      {poster ? (
-        <img
-          src={poster}
-          alt=""
-          loading="lazy"
-          className={cn(
-            "h-full w-full object-cover opacity-90 transition-[opacity,transform] duration-[620ms]",
-            !reduce && "group-hover:scale-[1.015] group-hover:opacity-100",
-          )}
-        />
-      ) : (
-        <StillPlate spec={{ palette: "graphite", motif: "horizon" }} seed={0} index={0} className="absolute inset-0 h-full w-full" />
-      )}
-      <span className="absolute inset-0 still-shade" aria-hidden="true" />
-      <span className="absolute inset-0 grid place-items-center">
-        <span
-          className={cn(
-            "media-control grid size-16 place-items-center rounded-full backdrop-blur-sm transition-transform duration-[180ms]",
-            !reduce && "group-hover:scale-105",
-          )}
-        >
-          <Play className="ml-0.5 size-6" aria-hidden="true" />
-        </span>
-      </span>
-      <span className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-4">
-        <span className="min-w-0">
-          <span className="block truncate text-[14px] font-medium text-sheen">{video.title || title}</span>
-          <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-[0.14em] text-sheen/65">
-            {isYoutube ? t("YouTube · no cookies until play") : t("Video")}
+    <div className={className}>
+      <button
+        type="button"
+        onClick={() => setPlaying(true)}
+        className="media-plate group relative block aspect-video w-full overflow-hidden bg-bg-deep text-left"
+        aria-label={t("Play trailer: {title}", { title: video.title || title })}
+      >
+        {poster ? (
+          <img
+            src={poster}
+            alt=""
+            loading="lazy"
+            className={cn(
+              "h-full w-full object-cover opacity-90 transition-[opacity,transform] duration-[620ms]",
+              !reduce && "group-hover:scale-[1.015] group-hover:opacity-100",
+            )}
+          />
+        ) : (
+          <StillPlate spec={{ palette: "graphite", motif: "horizon" }} seed={0} index={0} className="absolute inset-0 h-full w-full" />
+        )}
+        <span className="absolute inset-0 still-shade" aria-hidden="true" />
+        <span className="absolute inset-0 grid place-items-center">
+          <span
+            className={cn(
+              "media-control grid size-16 place-items-center rounded-full backdrop-blur-sm transition-transform duration-[180ms]",
+              !reduce && "group-hover:scale-105",
+            )}
+          >
+            <Play className="ml-0.5 size-6" aria-hidden="true" />
           </span>
         </span>
-        <span className="hidden shrink-0 border border-sheen/25 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-sheen/70 sm:block">
-          {t("Play")}
+        <span className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-4">
+          <span className="min-w-0">
+            <span className="block truncate text-[14px] font-medium text-sheen">{video.title || title}</span>
+            <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-[0.14em] text-sheen/65">
+              {isYoutube ? t("YouTube · no cookies until play") : t("Video")}
+            </span>
+          </span>
+          <span className="hidden shrink-0 border border-sheen/25 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-sheen/70 sm:block">
+            {t("Play")}
+          </span>
         </span>
-      </span>
-    </button>
+      </button>
+      <TrailerFallback video={video} />
+    </div>
   );
 }
 

@@ -72,9 +72,13 @@ function InstalledList() {
               <li key={entry.gameId} className="flex items-center gap-3 border-b border-line py-2.5">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                    <Link to={`/game/${entry.gameId}`} className="truncate text-[13px] text-ink hover:underline">
-                      {entry.title}
-                    </Link>
+                    {entry.gameId > 0 ? (
+                      <Link to={`/game/${entry.gameId}`} className="truncate text-[13px] text-ink hover:underline">
+                        {entry.title}
+                      </Link>
+                    ) : (
+                      <span className="truncate text-[13px] text-ink">{entry.title}</span>
+                    )}
                     <SourceBadge source={entry.source} />
                     {entry.version && <span className="font-mono text-[10.5px] text-ink-3">v{entry.version}</span>}
                   </div>

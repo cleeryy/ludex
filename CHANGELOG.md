@@ -639,6 +639,17 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- Launcher imports appear in the Library and Installed views (#154): server games
+  and local launcher entries are merged by a pure model, matched imports show a
+  source badge on the existing card (no duplicate), and unmatched negative-id
+  entries get local cards plus a sheet (Play via the launcher, Open folder,
+  Open in <launcher>, index-only Remove). Source chips/filters, search/sort and
+  the installed count include imports; negative ids never open `/game/<id>`
+  (route guard). Settings → Installed remains the full index.
+- Trailers in the packaged desktop app (#152): the CSP already allows
+  `youtube-nocookie`/YouTube/Vimeo frames and a regression test pins it; the
+  player always offers an "Open on YouTube" fallback with an explanation for
+  embedding-disabled or region-blocked videos.
 - Gamepad navigation is reliable in Library and Big Picture (#137): detection
   now handles hot-plug/unplug, pads that only appear after a button press,
   window focus return and multiple controllers (latest input wins); sticks are

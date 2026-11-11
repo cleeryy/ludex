@@ -84,8 +84,9 @@ src/
 In the desktop app, installs run outside the page. The rail shows an active count, a strip at the
 bottom of every screen shows the leading job with aggregate percent, speed and ETA, and
 `/downloads` lists active jobs and resumable history. Closing the install dialog does not cancel
-anything. With `VITE_USE_MOCKS` on, `mock-install.ts` provides advancing jobs and two installed
-games so the same UI can be reviewed in a browser.
+anything. With `VITE_USE_MOCKS` on, `mock-install.ts` provides advancing jobs, two Ludex installs
+and a matched Steam plus an unmatched Epic launcher import (#154) so the same UI — Source chips,
+Launcher imports group and the local import sheet included — can be reviewed in a browser.
 
 ## Native bridge
 

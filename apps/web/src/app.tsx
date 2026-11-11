@@ -21,7 +21,7 @@ import { HomeScreen } from "@/screens/home";
 import { LibraryScreen } from "@/screens/library";
 import { DownloadsScreen } from "@/screens/downloads";
 import { BigPictureScreen } from "@/screens/big-picture";
-import { GameDetailScreen } from "@/screens/game-detail";
+import { GameDetailRoute } from "@/screens/game-detail";
 import { NewsScreen } from "@/screens/news";
 import { CollectionsScreen } from "@/screens/collections";
 import { CollectionScreen } from "@/screens/collection";
@@ -190,7 +190,7 @@ export function App() {
                   <Route path="recent" element={<LibraryScreen mode="recent" />} />
                   <Route path="bookmarks" element={<LibraryScreen mode="bookmarks" />} />
                   <Route path="all" element={<LibraryScreen mode="index" />} />
-                  <Route path="game/:id" element={<GameDetailScreen />} />
+                  <Route path="game/:id" element={<GameDetailRoute />} />
                   <Route path="collections" element={<CollectionsScreen />} />
                   <Route path="collections/:id" element={<CollectionScreen />} />
                   <Route path="community" element={<CommunityScreen />} />

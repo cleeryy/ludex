@@ -1,16 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useReducedMotion } from "motion/react";
 import { Gamepad2, LayoutGrid, List, Plus, SlidersHorizontal, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { errorMessage } from "@/lib/http";
 import { formatBytes, formatRating, formatYear, sortLabel, stateLabel, formatPercent } from "@/lib/format";
-import { isNative } from "@/lib/native";
-import type { GameListQuery, GameSummary } from "@/lib/types";
-import { useBookmark, useGenres, useInstalledMap, useLaunchGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
+import { isNative, native } from "@/lib/native";
+import type { GameListQuery, GameSummary, InstalledGame } from "@/lib/types";
+import { useBookmark, useGenres, useInstalledGames, useLaunchGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
 import { useDownloads } from "@/state/downloads";
-import { installsAvailable } from "@/lib/install";
+import { useToast } from "@/state/toasts";
+import { installBridge, installsAvailable } from "@/lib/install";
+import {
+  buildLibraryModel,
+  launcherCounts,
+  launcherLabel,
+  launcherSourceOptions,
+  type ImportLibraryEntry,
+  type LauncherSourceId,
+} from "@/lib/library-entries";
 import { useAuth, useIsEditor } from "@/state/auth";
 import { useSettings } from "@/state/settings";
 import {
@@ -32,11 +42,16 @@ import { moveTargetIndex, type TargetRect } from "@/lib/gamepad-core";
 import { GamepadDebugPanel } from "@/components/gamepad/gamepad-debug";
 import { useControllerProfile } from "@/lib/use-controller-profile";
 import { OPEN_FILTERS_EVENT } from "@/lib/ui-events";
-import { EmptyState, ErrorState, PageHeader } from "@/components/page";
+import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { GameCard } from "@/components/game/game-card";
 import { GameCover } from "@/components/art/cover";
 import { STATE_TONE } from "@/components/game/state";
 import { FilterPanel } from "@/components/library/filter-panel";
+import {
+  ExternalGameCard,
+  ExternalGameRow,
+  ExternalImportDialog,
+} from "@/components/library/external-games";
 import { LibrarySearch } from "@/components/library/search-field";
 import { Badge, Button, Segmented, Skeleton } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
@@ -81,6 +96,8 @@ const MODE_ROUTES: Record<LibraryMode, string> = {
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
+const NO_INSTALLS: InstalledGame[] = [];
+
 export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
@@ -92,13 +109,17 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   const genres = useGenres();
   const platforms = useQuery({ queryKey: ["platforms"], queryFn: () => api.listPlatforms(), staleTime: 60_000 });
   const shelves = (platforms.data ?? []).filter((platform) => platform.gameCount > 0).slice(0, 8);
-  const installed = useInstalledMap();
+  const installedGames = useInstalledGames();
+  const installs = installedGames.data ?? NO_INSTALLS;
+  const installed = useMemo(() => new Map(installs.map((game) => [game.gameId, game])), [installs]);
   const updates = useUpdateMap();
   const updateGame = useUpdateGame();
   const bookmark = useBookmark();
   const launch = useLaunchGame();
   const downloads = useDownloads();
   const reduceMotion = useReducedMotion();
+  const queryClient = useQueryClient();
+  const { push } = useToast();
 
   const filters = readFilters(params, mode);
   const chips = activeFilterChips(filters).filter((chip) => chip.key !== "installed" || installsAvailable());
@@ -108,6 +129,8 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
 
   const [filterOpen, setFilterOpen] = useState(false);
   const [padIndex, setPadIndex] = useState(0);
+  const [importEntry, setImportEntry] = useState<ImportLibraryEntry | null>(null);
+  const [removingImport, setRemovingImport] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
   const restored = useRef(false);
   const search = params.toString();
@@ -156,13 +179,29 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   });
 
   const all = data?.items ?? [];
-  const items = useMemo(() => {
-    let list = mode === "recent" ? all.filter((game) => game.lastPlayedAt) : all;
-    if (installedOnly) list = list.filter((game) => installed.has(game.id));
-    return list;
-  }, [all, mode, installedOnly, installed]);
+  const model = useMemo(() => {
+    const games = mode === "recent" ? all.filter((game) => game.lastPlayedAt) : all;
+    return buildLibraryModel(games, installs, {
+      installedOnly,
+      source: (filters.launcher as LauncherSourceId | "") || "",
+      query: mode === "library" ? filters.q : "",
+      sort: filters.sort,
+      order: filters.order,
+      // The Library keeps its launcher imports group visible; the Installed
+      // filter and the source chips narrow it like any other entry (#154).
+      includeUnmatched: mode === "library" && installsAvailable(),
+    });
+  }, [all, installs, mode, installedOnly, filters.launcher, filters.q, filters.sort, filters.order]);
+  const items = model.server;
+  const imports = model.imports;
+  const totalBytes =
+    items.reduce((sum, entry) => sum + entry.sizeBytes, 0) +
+    imports.reduce((sum, entry) => sum + entry.sizeBytes, 0);
 
-  const totalBytes = items.reduce((sum, game) => sum + game.totalSize, 0);
+  const importCounts = useMemo(() => launcherCounts(installs), [installs]);
+  const importChips = launcherSourceOptions().filter(
+    (option) => (importCounts.get(option.value) ?? 0) > 0 || filters.launcher === option.value,
+  );
 
   const update = (key: FilterKey, value: string | boolean | null) => {
     setParams((current) => setFilterParam(current, key, value), { replace: true });
@@ -188,6 +227,41 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
 
   const toggleBookmark = (game: GameSummary) => bookmark.mutate({ id: game.id, bookmarked: !game.bookmarked });
 
+  const launchImport = (entry: ImportLibraryEntry) => {
+    launch.mutate({ id: entry.gameId, title: entry.title, executable: entry.install.executable });
+  };
+
+  const openImportFolder = (entry: ImportLibraryEntry) => {
+    const path = entry.install.installPath;
+    if (!path) return;
+    void installBridge.openPath(path).catch((cause: Error) => {
+      push({ title: t("Could not open the folder"), description: cause.message, tone: "danger" });
+    });
+  };
+
+  const removeImport = async (entry: ImportLibraryEntry) => {
+    setRemovingImport(true);
+    try {
+      await native.unlinkInstallation(entry.gameId);
+      push({
+        title: t("Removed from Ludex"),
+        description: t("{title} stays installed in {source}.", {
+          title: entry.title,
+          source: entry.launcher ? launcherLabel(entry.launcher) : t("the launcher"),
+        }),
+        tone: "success",
+      });
+      setImportEntry(null);
+      await queryClient.invalidateQueries({ queryKey: ["installed"] });
+      await queryClient.invalidateQueries({ queryKey: ["recent-games"] });
+      await queryClient.invalidateQueries({ queryKey: ["games"] });
+    } catch (cause) {
+      push({ title: t("Could not remove the import"), description: errorMessage(cause), tone: "danger" });
+    } finally {
+      setRemovingImport(false);
+    }
+  };
+
   const installingPercent = (gameId: number): number | null => {
     const job = downloads.jobForGame(gameId);
     if (!job) return null;
@@ -197,7 +271,8 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   const groups = useMemo(() => {
     if (mode !== "index") return [];
     const map = new Map<string, GameSummary[]>();
-    for (const game of items) {
+    for (const entry of items) {
+      const game = entry.game;
       const first = game.sortTitle.trim().charAt(0).toUpperCase();
       const letter = /[A-Z]/.test(first) ? first : "#";
       const list = map.get(letter) ?? [];
@@ -299,7 +374,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
     focusGamepadTarget(elements, next, false, { scroll: marked >= 0 });
     // The DOM is the source of truth here; mode/search/view changes rebuild it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, search, effectiveView, items.length, gamepad.connected]);
+  }, [mode, search, effectiveView, model.total, gamepad.connected]);
 
   const headerActions = (
     <>
@@ -328,11 +403,14 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
         title={modeTitle(mode)}
         meta={
           <>
-            <span className="num">{tn(items.length, "1 game", "{count} games")}</span>
+            <span className="num">{tn(model.total, "1 game", "{count} games")}</span>
+            {installedOnly && (
+              <span className="num">{tn(model.installedCount, "1 installed", "{count} installed")}</span>
+            )}
             {totalBytes > 0 && <span className="num">{formatBytes(totalBytes)}</span>}
             {mode === "recent" ? (
               <span>{t("Most recent first")}</span>
-            ) : items.length > 0 && mode !== "index" ? (
+            ) : model.total > 0 && mode !== "index" ? (
               <span>
                 {mode === "library" && filters.q.trim()
                   ? t("Ranked by relevance")
@@ -351,7 +429,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
         actions={headerActions}
       />
 
-      {mode === "library" && !(items.length === 0 && !hasFilters) && (
+      {mode === "library" && !(model.total === 0 && !hasFilters) && (
         <div className="sticky top-0 z-20 -mx-[var(--page-x)] mt-4 border-b border-line bg-bg px-[var(--page-x)] py-2.5">
           <div className="flex flex-wrap items-center gap-2">
             <LibrarySearch value={filters.q} onCommit={(value) => update("q", value)} className="min-w-0 flex-1 sm:max-w-[340px]" />
@@ -419,6 +497,29 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 >
                   {platform.id}
                   <span className="num text-[9.5px] opacity-70">{platform.gameCount}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {importChips.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5" aria-label={t("Launcher imports")}>
+              <span className="mr-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{t("Launchers")}</span>
+              {importChips.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => update("launcher", filters.launcher === option.value ? null : option.value)}
+                  aria-pressed={filters.launcher === option.value}
+                  className={cn(
+                    "inline-flex h-6 items-center gap-1.5 rounded-[2px] border px-1.5 font-mono text-[10.5px] uppercase tracking-[0.06em] transition-colors",
+                    filters.launcher === option.value
+                      ? "border-signal/60 bg-signal/12 text-signal-text"
+                      : "border-line-2 text-ink-3 hover:border-ink-3 hover:text-ink-2",
+                  )}
+                >
+                  {option.label}
+                  <span className="num text-[9.5px] opacity-70">{importCounts.get(option.value) ?? 0}</span>
                 </button>
               ))}
             </div>
@@ -499,7 +600,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
           />
         )}
 
-        {!isPending && !isError && items.length === 0 && (
+        {!isPending && !isError && model.total === 0 && (
           <LibraryEmpty
             mode={mode}
             hasFilters={hasFilters}
@@ -512,28 +613,52 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
 
         {!isPending && !isError && items.length > 0 && effectiveView === "grid" && (
           <div className="stagger-in grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-            {items.map((game) => (
+            {items.map((entry) => (
               <GameCard
-                key={game.id}
-                game={game}
-                index={game.id}
-                installed={installed.get(game.id)}
-                installing={installingPercent(game.id)}
-                update={updates.get(game.id)}
-                onBookmark={() => toggleBookmark(game)}
+                key={entry.gameId}
+                game={entry.game}
+                index={entry.gameId}
+                installed={entry.install ?? undefined}
+                source={entry.launcher ? launcherLabel(entry.launcher) : null}
+                installing={installingPercent(entry.gameId)}
+                update={updates.get(entry.gameId)}
+                onBookmark={() => toggleBookmark(entry.game)}
                 onPlay={
-                  isNative() && installed.has(game.id)
-                    ? () => launch.mutate({ id: game.id, title: game.title, executable: installed.get(game.id)?.executable })
+                  isNative() && entry.install
+                    ? () => launch.mutate({ id: entry.gameId, title: entry.title, executable: entry.install?.executable })
                     : undefined
                 }
                 onUpdate={
-                  isNative() && updates.has(game.id)
-                    ? () => updateGame.mutate({ id: game.id, title: game.title })
+                  isNative() && updates.has(entry.gameId)
+                    ? () => updateGame.mutate({ id: entry.gameId, title: entry.title })
                     : undefined
                 }
               />
             ))}
           </div>
+        )}
+
+        {!isPending && !isError && imports.length > 0 && effectiveView === "grid" && (
+          <section className="mt-10" aria-labelledby="imports-heading">
+            <div id="imports-heading">
+              <SectionHeader
+                title={t("Launcher imports")}
+                count={imports.length}
+                description={t("Indexed here, launched through their client.")}
+              />
+            </div>
+            <div className="stagger-in grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+              {imports.map((entry) => (
+                <ExternalGameCard
+                  key={entry.gameId}
+                  entry={entry}
+                  onOpen={() => setImportEntry(entry)}
+                  onLaunch={() => launchImport(entry)}
+                  onOpenFolder={() => openImportFolder(entry)}
+                />
+              ))}
+            </div>
+          </section>
         )}
 
         {!isPending && !isError && items.length > 0 && effectiveView === "list" && mode !== "index" && (
@@ -546,42 +671,74 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
               <span className="hidden text-right md:block">{t("Score")}</span>
               <span className="hidden text-right sm:block">{t("State")}</span>
             </div>
-            {items.map((game) => (
-              <Link
-                key={game.id}
-                to={`/game/${game.id}`}
-                data-gamepad-target="true"
-                className="row-hover group grid grid-cols-[2rem_1fr_auto] items-center gap-4 border-t border-line py-2.5 sm:grid-cols-[2rem_1fr_4rem_5rem_3rem] md:grid-cols-[2rem_1fr_4rem_5rem_3rem_6rem]"
-              >
-                <span className="num text-[10.5px] text-ink-3">{String(game.id).padStart(3, "0")}</span>
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="w-9 shrink-0 overflow-hidden rounded-[1px]">
-                    <GameCardCoverThumb game={game} />
+            {items.map((entry) => {
+              const game = entry.game;
+              const percent = installingPercent(game.id);
+              return (
+                <Link
+                  key={game.id}
+                  to={`/game/${game.id}`}
+                  data-gamepad-target="true"
+                  className="row-hover group grid grid-cols-[2rem_1fr_auto] items-center gap-4 border-t border-line py-2.5 sm:grid-cols-[2rem_1fr_4rem_5rem_3rem] md:grid-cols-[2rem_1fr_4rem_5rem_3rem_6rem]"
+                >
+                  <span className="num text-[10.5px] text-ink-3">{String(game.id).padStart(3, "0")}</span>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="w-9 shrink-0 overflow-hidden rounded-[1px]">
+                      <GameCardCoverThumb game={game} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-[14px] text-ink">{game.title}</p>
+                      <p className="truncate text-[11.5px] text-ink-3">{game.genres.join(", ")}</p>
+                    </div>
+                    {percent !== null ? (
+                      <Badge tone="signal" className="hidden shrink-0 sm:inline-flex">
+                        {t("Installing {percent}", { percent: formatPercent(percent) })}
+                      </Badge>
+                    ) : (
+                      entry.install && (
+                        <span className="hidden shrink-0 items-center gap-1 sm:inline-flex">
+                          <Badge tone="outline">{t("Installed")}</Badge>
+                          {entry.launcher && <Badge tone="signal">{launcherLabel(entry.launcher)}</Badge>}
+                        </span>
+                      )
+                    )}
                   </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-[14px] text-ink">{game.title}</p>
-                    <p className="truncate text-[11.5px] text-ink-3">{game.genres.join(", ")}</p>
-                  </div>
-                  {installingPercent(game.id) !== null ? (
-                    <Badge tone="signal" className="hidden shrink-0 sm:inline-flex">
-                      {t("Installing {percent}", { percent: formatPercent(installingPercent(game.id)) })}
-                    </Badge>
-                  ) : (
-                    installed.has(game.id) && <Badge tone="outline" className="hidden shrink-0 sm:inline-flex">{t("Installed")}</Badge>
-                  )}
-                </div>
-                <span className="num hidden text-right text-[11.5px] text-ink-3 sm:block">{formatYear(game.releaseDate)}</span>
-                <span className="num text-right text-[11.5px] text-ink-3">{formatBytes(game.totalSize)}</span>
-                <span className="num hidden text-right text-[11.5px] text-ink-2 md:block">{formatRating(game.rating) ?? "—"}</span>
-                <span className="hidden justify-end text-[11.5px] sm:flex">
-                  <span className={cn("inline-flex items-center gap-1.5", STATE_TONE[game.state].text)}>
-                    <span className={cn("size-1.5 rounded-full", STATE_TONE[game.state].dot)} aria-hidden="true" />
-                    {stateLabel(game.state)}
+                  <span className="num hidden text-right text-[11.5px] text-ink-3 sm:block">{formatYear(game.releaseDate)}</span>
+                  <span className="num text-right text-[11.5px] text-ink-3">{formatBytes(game.totalSize)}</span>
+                  <span className="num hidden text-right text-[11.5px] text-ink-2 md:block">{formatRating(game.rating) ?? "—"}</span>
+                  <span className="hidden justify-end text-[11.5px] sm:flex">
+                    <span className={cn("inline-flex items-center gap-1.5", STATE_TONE[game.state].text)}>
+                      <span className={cn("size-1.5 rounded-full", STATE_TONE[game.state].dot)} aria-hidden="true" />
+                      {stateLabel(game.state)}
+                    </span>
                   </span>
-                </span>
-              </Link>
-            ))}
+                </Link>
+              );
+            })}
           </div>
+        )}
+
+        {!isPending && !isError && imports.length > 0 && effectiveView === "list" && (
+          <section className="mt-8" aria-labelledby="imports-list-heading">
+            <div id="imports-list-heading">
+              <SectionHeader
+                title={t("Launcher imports")}
+                count={imports.length}
+                description={t("Indexed here, launched through their client.")}
+              />
+            </div>
+            <div className="border-t border-line">
+              {imports.map((entry) => (
+                <ExternalGameRow
+                  key={entry.gameId}
+                  entry={entry}
+                  onOpen={() => setImportEntry(entry)}
+                  onLaunch={() => launchImport(entry)}
+                  onOpenFolder={() => openImportFolder(entry)}
+                />
+              ))}
+            </div>
+          </section>
         )}
 
         {!isPending && !isError && items.length > 0 && mode === "index" && (
@@ -632,6 +789,18 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
         activeCount={chips.length}
         onChange={update}
         onClearAll={clearFilters}
+      />
+
+      <ExternalImportDialog
+        entry={importEntry}
+        open={importEntry !== null}
+        onOpenChange={(open) => {
+          if (!open) setImportEntry(null);
+        }}
+        onLaunch={launchImport}
+        onOpenFolder={openImportFolder}
+        onRemove={(entry) => void removeImport(entry)}
+        removing={removingImport}
       />
 
       {debug && <GamepadDebugPanel info={gamepad.debug} />}

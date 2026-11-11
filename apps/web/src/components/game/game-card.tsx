@@ -14,6 +14,7 @@ export function GameCard({
   installed,
   installing,
   update,
+  source,
   onBookmark,
   onPlay,
   onUpdate,
@@ -25,6 +26,8 @@ export function GameCard({
   installing?: number | null;
   /** Newer version available on the server (#30). */
   update?: GameUpdate;
+  /** Launcher that owns the install, shown on matched imports (#154). */
+  source?: string | null;
   onBookmark: (next: boolean) => void;
   onPlay?: () => void;
   onUpdate?: () => void;
@@ -59,8 +62,15 @@ export function GameCard({
             {t("Update")}
           </span>
         ) : installed ? (
-          <span className="absolute left-2 top-2 z-[5] inline-flex h-5 items-center rounded-[2px] bg-ink px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-bg">
-            {t("Installed")}
+          <span className="absolute left-2 top-2 z-[5] inline-flex items-center gap-1">
+            <span className="inline-flex h-5 items-center rounded-[2px] bg-ink px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-bg">
+              {t("Installed")}
+            </span>
+            {source && (
+              <span className="inline-flex h-5 items-center rounded-[2px] border border-signal/50 bg-signal/12 px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-signal-text">
+                {source}
+              </span>
+            )}
           </span>
         ) : null}
         {installing !== null && installing !== undefined && (

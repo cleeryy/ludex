@@ -5,6 +5,7 @@
  */
 
 import { stateLabel, sortLabel } from "@/lib/format";
+import { launcherLabel, type LauncherSourceId } from "@/lib/library-entries";
 import { t } from "@/lib/i18n";
 import { scopedStorageKey } from "@/lib/server-storage";
 import type { GameListQuery, ProgressState } from "@/lib/types";
@@ -26,6 +27,7 @@ export const FILTER_KEYS = [
   "provider",
   "platform",
   "kind",
+  "launcher",
   "sort",
   "order",
 ] as const;
@@ -47,6 +49,8 @@ export interface LibraryFilters {
   provider: string;
   platform: string;
   kind: "" | "game" | "rom";
+  /** Launcher imports only (#154): a launcher id, `other`, or empty for all. */
+  launcher: string;
   sort: NonNullable<GameListQuery["sort"]>;
   order: NonNullable<GameListQuery["order"]>;
 }
@@ -137,6 +141,7 @@ export function readFilters(
     provider: params.get("provider") ?? "",
     platform: params.get("platform") ?? "",
     kind: (params.get("kind") as LibraryFilters["kind"]) ?? "",
+    launcher: params.get("launcher") ?? "",
     sort,
     order: (params.get("order") ?? (sort === "title" ? "asc" : "desc")) as LibraryFilters["order"],
   };
@@ -222,6 +227,14 @@ export function activeFilterChips(filters: LibraryFilters): FilterChip[] {
   if (filters.provider) chips.push({ key: "provider", label: t("Source: {provider}", { provider: providerLabel(filters.provider) }) });
   if (filters.platform) chips.push({ key: "platform", label: filters.platform.toUpperCase() });
   if (filters.kind) chips.push({ key: "kind", label: filters.kind === "rom" ? t("ROMs") : t("Games") });
+  if (filters.launcher) {
+    chips.push({
+      key: "launcher",
+      label: t("Launcher: {source}", {
+        source: launcherLabel(filters.launcher as LauncherSourceId),
+      }),
+    });
+  }
   return chips;
 }
 
@@ -277,6 +290,8 @@ export function removeFilterChip(key: FilterKey): Partial<LibraryFilters> {
       return { kind: "" };
     case "provider":
       return { provider: "" };
+    case "launcher":
+      return { launcher: "" };
     default:
       return {};
   }

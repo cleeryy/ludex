@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { api, assetUrl, USING_MOCKS } from "@/lib/api";
 import { ApiError, errorMessage } from "@/lib/http";
+import { parseServerGameId } from "@/lib/game-route";
 import { cn } from "@/lib/cn";
 import { formatBytes, formatDate, formatEta, formatMinutes, formatRating, formatRelative, formatSeconds, formatSpeed, formatYear, stateLabel, formatPercent } from "@/lib/format";
 import { isNative, native } from "@/lib/native";
@@ -55,11 +56,19 @@ import { GameBackdrop, GameCover } from "@/components/art/cover";
 import { artFromUrl, hashString } from "@/lib/art";
 import { STATE_TONE } from "@/components/game/state";
 import { ErrorState, SectionHeader } from "@/components/page";
+import { NotFoundScreen } from "@/screens/not-found";
 import { Badge, Button, IconButton, Input, Progress, Skeleton } from "@/components/ui/controls";
 import { DropdownMenu, Select, useDropdown } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
 
 const STATES: ProgressState[] = ["unplayed", "playing", "completed", "onHold", "abandoned", "planToPlay"];
+
+export function GameDetailRoute() {
+  const { id } = useParams();
+  // Unmatched launcher imports use negative ids and never name a server game (#154).
+  if (parseServerGameId(id) === null) return <NotFoundScreen />;
+  return <GameDetailScreen />;
+}
 
 export function GameDetailScreen() {
   const { id } = useParams();

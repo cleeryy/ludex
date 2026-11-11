@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { FilterX } from "lucide-react";
 import { installsAvailable } from "@/lib/install";
+import { launcherSourceOptions } from "@/lib/library-entries";
 import {
   playerOptions,
   providerOptions,
@@ -200,6 +201,22 @@ export function FilterPanel({
                 { value: "any", label: t("Games and ROMs") },
                 { value: "game", label: t("Games") },
                 { value: "rom", label: t("ROMs") },
+              ]}
+              className="h-9 text-[12.5px]"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[12.5px] text-ink-2">{t("Launcher")}</span>
+            <Select
+              label={t("Filter by launcher")}
+              value={filters.launcher || "any"}
+              onChange={(value) => onChange("launcher", value)}
+              options={[
+                { value: "any", label: t("Any launcher") },
+                ...launcherSourceOptions().map((option) => ({
+                  value: option.value,
+                  label: option.label,
+                })),
               ]}
               className="h-9 text-[12.5px]"
             />

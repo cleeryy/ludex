@@ -1670,7 +1670,12 @@ archive by default (`keepArchives` setting false).
   id are flagged and accept a manual URI; `file:`, `javascript:` and `data:`
   schemes are refused. Uninstalling an import only removes the index entry,
   never the launcher's files. Playtime for negative ids is not synced to the
-  server.
+  server. The web Library merges this index with the server shelf: a matched
+  import is shown once on its server card with a source badge, and unmatched
+  imports appear under `Launcher imports` (Installed filter and launcher source
+  chips included) with a local dialog offering Play, Open folder, Open in
+  <launcher> and Remove from Ludex. `/game/<id>` only routes positive ids, so a
+  negative local id never becomes a server game page (#154).
 - **Adopted installs (#129).** `adopt_installation` validates a folder the user
   points at (absolute, canonical, no `..`, no link in the chosen path, not a
   drive/home root or the install root, no symlink escaping the tree), runs
