@@ -50,6 +50,7 @@ import { ShareDialog } from "@/components/share/share-dialog";
 import { StreamDialog } from "@/components/game/stream-dialog";
 import { useAuth, useIsEditor } from "@/state/auth";
 import { useToast } from "@/state/toasts";
+import { ThemeScope } from "@/components/theme/theme-scope";
 import { GameBackdrop, GameCover } from "@/components/art/cover";
 import { artFromUrl, hashString } from "@/lib/art";
 import { STATE_TONE } from "@/components/game/state";
@@ -354,7 +355,7 @@ export function GameDetailScreen() {
 
   return (
     <div className="relative">
-      <section className="force-dark relative isolate overflow-hidden bg-[#0a0a09]">
+      <ThemeScope as="section" className="relative isolate overflow-hidden bg-stage">
         <GameBackdrop title={game.title} backgroundUrl={game.backgroundUrl} className="absolute inset-0 h-full" />
 
         <div className="page relative pb-16 pt-5">
@@ -369,7 +370,7 @@ export function GameDetailScreen() {
 
         <div className="mt-[16vh] grid gap-8 lg:mt-[13vh] lg:grid-cols-[250px_1fr] lg:gap-12 xl:grid-cols-[280px_1fr]">
           <div className="w-[150px] sm:w-[190px] lg:w-full">
-            <div className="shadow-[0_40px_80px_-30px_rgba(0,0,0,0.8)]">
+            <div className="shadow-plate">
               <GameCover title={game.title} coverUrl={game.coverUrl} index={game.id} year={formatYear(game.releaseDate)} genre={game.genres[0]} />
             </div>
             {isInstalled && (
@@ -535,7 +536,7 @@ export function GameDetailScreen() {
           </div>
         </div>
         </div>
-      </section>
+      </ThemeScope>
       <div className="relative z-10 -mt-16 h-16 bg-gradient-to-b from-transparent to-bg" aria-hidden="true" />
 
       <div className="page pt-8">

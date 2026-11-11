@@ -154,7 +154,7 @@ export function Popover({
       data-placed={placed}
       className={cn(
         "overflow-y-auto rounded-[2px] border border-line-2 bg-surface text-ink outline-none",
-        "shadow-[0_18px_50px_-12px_rgba(0,0,0,0.55)]",
+        "shadow-pop",
         "data-[placed=true]:animate-[pop-in_140ms_cubic-bezier(0.2,0.6,0.2,1)_both]",
         className,
       )}

@@ -36,7 +36,7 @@ import { formatYear, stateLabel } from "@/lib/format";
 import { scoreSearch } from "@/lib/search";
 import { openFiltersPanel, openShortcutsHelp } from "@/lib/ui-events";
 import { useAuth, useIsAdmin, useIsEditor } from "@/state/auth";
-import { useSettings } from "@/state/settings";
+import { otherModeTheme, useSettings } from "@/state/settings";
 import { useToast } from "@/state/toasts";
 import { GameCover } from "@/components/art/cover";
 import { Kbd } from "@/components/ui/controls";
@@ -203,11 +203,11 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       {
         id: "act-theme",
         group: t("Actions"),
-        label: resolved === "dark" ? "Switch to the light theme" : "Switch to the dark theme",
+        label: resolved === "dark" ? t("Switch to the light theme") : t("Switch to the dark theme"),
         icon: resolved === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />,
         run: () => {
           close();
-          setTheme(resolved === "dark" ? "light" : "dark");
+          setTheme(otherModeTheme(resolved));
         },
       },
       {
@@ -246,7 +246,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         label: game.title,
         hint: `${formatYear(game.releaseDate)} / ${stateLabel(game.state)}`,
         icon: (
-          <span className="block w-[30px] overflow-hidden rounded-[1px] ring-1 ring-white/15">
+          <span className="block w-[30px] overflow-hidden rounded-[1px] ring-1 ring-sheen/15">
             <GameCover title={game.title} coverUrl={game.coverUrl} showType={false} />
           </span>
         ),
@@ -302,7 +302,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
           exit={{ opacity: 0 }}
           transition={{ duration: reduce ? 0 : 0.14 }}
         >
-          <div className="fixed inset-0 bg-[var(--scrim)]" onClick={close} aria-hidden="true" />
+          <div className="fixed inset-0 scrim" onClick={close} aria-hidden="true" />
           <motion.div
             role="dialog"
             aria-modal="true"
@@ -311,7 +311,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={reduce ? { opacity: 0 } : { opacity: 0, y: -4 }}
             transition={{ duration: reduce ? 0 : 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="relative z-10 w-full max-w-[640px] overflow-hidden rounded-[3px] border border-line-2 bg-surface shadow-[0_40px_120px_-30px_rgba(0,0,0,0.8)]"
+            className="relative z-10 w-full max-w-[640px] overflow-hidden rounded-[3px] border border-line-2 bg-surface shadow-palette"
             onKeyDown={onKeyDown}
           >
             <div className="flex items-center gap-3 border-b border-line px-4">

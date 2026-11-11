@@ -6,13 +6,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/i18n.mjs && tsc --noEmit && vite build",
+    "build": "node scripts/i18n.mjs && node scripts/theme.mjs && tsc --noEmit && vite build",
     "preview": "vite preview",
-    "check": "node scripts/i18n.mjs && tsc --noEmit",
+    "check": "node scripts/i18n.mjs && node scripts/theme.mjs && tsc --noEmit",
     "test": "vitest run",
     "i18n:check": "node scripts/i18n.mjs",
     "i18n:write": "node scripts/i18n.mjs --write",
-    "i18n:strict": "node scripts/i18n.mjs --strict"
+    "i18n:strict": "node scripts/i18n.mjs --strict",
+    "theme:check": "node scripts/theme.mjs",
+    "theme:write": "node scripts/theme.mjs --write"
   },
   "dependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.3.0",

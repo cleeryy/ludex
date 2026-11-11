@@ -1,0 +1,74 @@
+{
+  "oxblood": {
+    "base": "#210b0d",
+    "field": "#8e2027",
+    "accent": "#e8c9a4",
+    "paper": "#f2deca"
+  },
+  "petrol": {
+    "base": "#071e1d",
+    "field": "#0f6a60",
+    "accent": "#e9b949",
+    "paper": "#e8efe1"
+  },
+  "ochre": {
+    "base": "#231607",
+    "field": "#b8812a",
+    "accent": "#f0e2c2",
+    "paper": "#f6ecd6"
+  },
+  "indigo": {
+    "base": "#0c1526",
+    "field": "#2c4d8a",
+    "accent": "#d9b26a",
+    "paper": "#eceee4"
+  },
+  "moss": {
+    "base": "#111809",
+    "field": "#4d6030",
+    "accent": "#d8c48a",
+    "paper": "#edecd7"
+  },
+  "clay": {
+    "base": "#25110c",
+    "field": "#b64a2c",
+    "accent": "#6fb7ad",
+    "paper": "#f6e3cc"
+  },
+  "ice": {
+    "base": "#0e171b",
+    "field": "#6b8c98",
+    "accent": "#e9e2d3",
+    "paper": "#eef3f3"
+  },
+  "bone": {
+    "base": "#16150f",
+    "field": "#c9bd99",
+    "accent": "#8e2027",
+    "paper": "#f4eeda"
+  },
+  "graphite": {
+    "base": "#0b0c0c",
+    "field": "#4b4e4b",
+    "accent": "#ddd6c2",
+    "paper": "#ecebe3"
+  },
+  "dusk": {
+    "base": "#0b1210",
+    "field": "#3c5f4b",
+    "accent": "#d8b06a",
+    "paper": "#eae7d8"
+  },
+  "rust": {
+    "base": "#1a0d07",
+    "field": "#b0491e",
+    "accent": "#f0c98a",
+    "paper": "#f5e7d0"
+  },
+  "jade": {
+    "base": "#08191a",
+    "field": "#1d5d61",
+    "accent": "#e0b04a",
+    "paper": "#e7eeea"
+  }
+}

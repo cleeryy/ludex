@@ -6,6 +6,7 @@ import { assetUrl, getApiBase } from "@/lib/api";
 import { ApiError, errorMessage } from "@/lib/http";
 import { accessShare, getPublicShare, type ShareView } from "@/lib/shares";
 import { formatBytes, formatDate, formatRating, formatYear } from "@/lib/format";
+import { ThemeScope } from "@/components/theme/theme-scope";
 import { GameBackdrop, GameCover } from "@/components/art/cover";
 import { Wordmark } from "@/components/brand";
 import { SectionHeader } from "@/components/page";
@@ -42,7 +43,7 @@ export function ShareScreen() {
       <ShareHeader marker />
 
       <main>
-        <section className="force-dark relative isolate overflow-hidden bg-[#0a0a09]">
+        <ThemeScope as="section" className="relative isolate overflow-hidden bg-stage">
           <GameBackdrop title={game.title} backgroundUrl={game.backgroundUrl} className="absolute inset-0 h-full" />
 
           <div className="page relative pb-14 pt-4">
@@ -50,7 +51,7 @@ export function ShareScreen() {
 
             <div className="mt-[8vh] grid gap-8 lg:grid-cols-[250px_1fr] lg:gap-12 xl:grid-cols-[280px_1fr]">
               <div className="w-[150px] sm:w-[190px] lg:w-full">
-                <div className="shadow-[0_40px_80px_-30px_rgba(0,0,0,0.8)]">
+                <div className="shadow-plate">
                   <GameCover
                     title={game.title}
                     coverUrl={game.coverUrl}
@@ -99,7 +100,7 @@ export function ShareScreen() {
               </div>
             </div>
           </div>
-        </section>
+        </ThemeScope>
         <div className="relative z-10 -mt-16 h-16 bg-gradient-to-b from-transparent to-bg" aria-hidden="true" />
 
         <div className="page pt-8">

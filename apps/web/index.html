@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="midnight">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -19,20 +19,62 @@
     />
     <script>
       // Applies the stored theme and locale before the first paint so there is
-      // no flash of the wrong surface or direction. Kept tiny and inline on
-      // purpose: a module would run after the first paint.
+      // no flash of the wrong surface or direction. The payload is resolved by
+      // the app at save time (`src/theme/storage.ts`): this script only replays
+      // ready-made CSS variables, so it stays tiny and runs synchronously
+      // during parsing, before the body is painted.
       (function () {
         try {
-          var theme = localStorage.getItem("ludex.theme") || "system";
-          var dark =
-            theme === "dark" ||
-            (theme === "system" && !window.matchMedia("(prefers-color-scheme: light)").matches);
-          document.documentElement.dataset.theme = dark ? "dark" : "light";
+          var root = document.documentElement;
+          var stored = localStorage.getItem("ludex.theme");
+          var payload = null;
+          try {
+            payload = stored ? JSON.parse(stored) : null;
+          } catch (error) {
+            payload = null;
+          }
+
+          var light = window.matchMedia("(prefers-color-scheme: light)").matches;
+          var selection = "system";
+          var mode = light ? "light" : "dark";
+
+          if (payload && payload.v === 2 && payload.config) {
+            selection = payload.config.selection || "system";
+            mode = selection === "system" ? (light ? "light" : "dark") : payload.mode || mode;
+            var vars = payload.vars && (payload.vars[mode] || payload.vars.dark);
+            if (vars) {
+              for (var key in vars) {
+                if (Object.prototype.hasOwnProperty.call(vars, key)) root.style.setProperty(key, vars[key]);
+              }
+            }
+            if (payload.bases && payload.bases[mode]) root.dataset.theme = payload.bases[mode];
+            if (payload.themeColor && payload.themeColor[mode]) {
+              var themed = document.querySelector('meta[name="theme-color"]');
+              if (themed) themed.setAttribute("content", payload.themeColor[mode]);
+            }
+            root.dataset.themeSelection = selection;
+            root.dataset.tv = "false";
+          } else {
+            // Legacy "dark" | "light" | "system" string from before #140.
+            var legacy = stored === "dark" ? "midnight" : stored === "light" ? "light" : null;
+            if (legacy) {
+              selection = legacy;
+              mode = legacy === "light" ? "light" : "dark";
+              root.dataset.theme = legacy;
+              var meta = document.querySelector('meta[name="theme-color"]');
+              if (meta) meta.setAttribute("content", mode === "light" ? "#e7e2d4" : "#0a0a09");
+            } else {
+              root.dataset.theme = mode === "light" ? "light" : "midnight";
+            }
+            root.dataset.themeSelection = selection;
+          }
+
+          root.style.colorScheme = mode;
+          root.dataset.themeMode = mode;
+
           var locale = localStorage.getItem("ludex.locale") || "en";
-          document.documentElement.lang = locale;
-          document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
-          var meta = document.querySelector('meta[name="theme-color"]');
-          if (meta) meta.setAttribute("content", dark ? "#0a0a09" : "#e7e2d4");
+          root.lang = locale;
+          root.dir = locale === "ar" ? "rtl" : "ltr";
         } catch (e) {}
       })();
     </script>

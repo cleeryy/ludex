@@ -170,7 +170,7 @@ export function LibrarySearch({
       </div>
 
       {showDropdown && (
-        <div className="absolute inset-x-0 top-[calc(100%+4px)] z-40 overflow-hidden rounded-[2px] border border-line-2 bg-surface shadow-[0_24px_60px_-24px_rgba(0,0,0,0.75)]">
+        <div className="absolute inset-x-0 top-[calc(100%+4px)] z-40 overflow-hidden rounded-[2px] border border-line-2 bg-surface shadow-pop">
           <div id={listId} role="listbox" aria-label={t("Search suggestions")} className="max-h-[320px] overflow-y-auto py-1">
             {suggestions.map((suggestion, index) => (
               <button

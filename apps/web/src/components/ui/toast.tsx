@@ -25,7 +25,7 @@ export function ToastViewport() {
             transition={{ duration: reduce ? 0 : 0.18, ease: [0.16, 1, 0.3, 1] }}
             className={cn(
               "pointer-events-auto relative overflow-hidden rounded-[2px] border border-line-2 bg-surface-2 pl-4 pr-2 py-3",
-              "shadow-[0_16px_40px_-16px_rgba(0,0,0,0.6)]",
+              "shadow-toast",
             )}
             role="status"
           >

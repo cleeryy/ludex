@@ -13,6 +13,7 @@ import { useGamepad, gamepadDebugEnabled, type GamepadAction } from "@/lib/gamep
 import { GamepadDebugPanel } from "@/components/gamepad/gamepad-debug";
 import { useControllerProfile } from "@/lib/use-controller-profile";
 import { useDownloads } from "@/state/downloads";
+import { useSettings } from "@/state/settings";
 import { useToast } from "@/state/toasts";
 import { Wordmark } from "@/components/brand";
 import { ArtPlate, GameCover } from "@/components/art/cover";
@@ -45,6 +46,7 @@ let lastRefreshAt = 0;
  */
 export function BigPictureScreen() {
   const navigate = useNavigate();
+  const { setTv } = useSettings();
   const location = useLocation();
   const debug = gamepadDebugEnabled(location.search);
   const { push } = useToast();
@@ -59,6 +61,13 @@ export function BigPictureScreen() {
   const [clock, setClock] = useState(() => new Date());
   const [entranceDone, setEntranceDone] = useState(false);
   const reduceMotion = useReducedMotion();
+
+  // Big Picture is watched from a couch: the provider lifts text to 7:1 and
+  // widens the focus ring while this screen is mounted (#140).
+  useLayoutEffect(() => {
+    setTv(true);
+    return () => setTv(false);
+  }, [setTv]);
 
   const games = data?.items ?? [];
 
@@ -383,7 +392,7 @@ export function BigPictureScreen() {
   );
 
   return (
-    <div className="force-dark flex h-dvh flex-col overflow-hidden bg-bg-deep text-ink">
+    <div className="flex h-dvh flex-col overflow-hidden bg-bg-deep text-ink">
       <div className="grain" aria-hidden="true" />
 
       <header className="relative z-10 flex h-16 shrink-0 items-center gap-4 border-b border-line px-6 lg:px-8">
@@ -428,20 +437,14 @@ export function BigPictureScreen() {
               className="h-full w-full"
             />
           </motion.div>
-          <div
-            className="absolute inset-0"
-            style={{
-              background:
-                "linear-gradient(180deg, rgba(5,5,5,0.3) 0%, rgba(5,5,5,0.12) 45%, #050505 100%)",
-            }}
-          />
+          <div className="absolute inset-0 bp-shade" />
 
           <div className="relative flex w-full items-center gap-6 px-6 py-6 lg:gap-10 lg:px-12">
             <motion.div
               className="w-[148px] shrink-0 sm:w-[200px] lg:w-[264px] xl:w-[296px]"
               {...reveal(reduceMotion, HERO_CUE)}
             >
-              <div className="shadow-[0_44px_90px_-32px_rgba(0,0,0,0.85)]">
+              <div className="shadow-hero">
                 <GameCover
                   title={selected.title}
                   coverUrl={selected.coverUrl}
@@ -456,27 +459,27 @@ export function BigPictureScreen() {
               className="flex min-w-0 flex-1 flex-col gap-3"
               {...reveal(reduceMotion, COPY_CUE)}
             >
-              <span className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-[#ffc61a]">
-                <span className="h-px w-8 bg-[#ffc61a]" aria-hidden="true" />
+              <span className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-signal">
+                <span className="h-px w-8 bg-signal" aria-hidden="true" />
                 {selected.lastPlayedAt ? t("Continue playing") : t("From the library")}
               </span>
-              <h1 className="max-w-[20ch] text-[clamp(2rem,4.4vw,4.35rem)] font-semibold leading-[0.92] tracking-[-0.04em] text-[#ece8de]">
+              <h1 className="max-w-[20ch] text-[clamp(2rem,4.4vw,4.35rem)] font-semibold leading-[0.92] tracking-[-0.04em] text-stage-ink">
                 {selected.title}
               </h1>
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-[11px] text-[#a8a396]">
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-[11px] text-stage-ink-2">
                 <span>{formatYear(selected.releaseDate)}</span>
                 <span>{stateLabel(selected.state)}</span>
                 {formatRating(selected.rating) && <span>{formatRating(selected.rating)} / 100</span>}
                 {formatMinutes(selected.minutesPlayed) && <span>{t("{duration} played", { duration: formatMinutes(selected.minutesPlayed) ?? "" })}</span>}
                 {selected.lastPlayedAt && <span>{t("Last played")} {formatRelative(selected.lastPlayedAt)}</span>}
-                {installedGame && <span className="text-[#79c99f]">{t("Installed")}</span>}
+                {installedGame && <span className="text-stage-ok">{t("Installed")}</span>}
               </div>
               {detail.data?.description && (
-                <p className="line-clamp-2 max-w-[64ch] text-[14px] leading-relaxed text-[#c9c4b8]">{detail.data.description}</p>
+                <p className="line-clamp-2 max-w-[64ch] text-[14px] leading-relaxed text-stage-ink-2">{detail.data.description}</p>
               )}
               {job && (
-                <p className="flex flex-wrap items-baseline gap-x-3 font-mono text-[10.5px] text-[#a8a396]">
-                  <span className="text-[#ffc61a]">{pct !== null ? formatPercent(pct) : t("Preparing")}</span>
+                <p className="flex flex-wrap items-baseline gap-x-3 font-mono text-[10.5px] text-stage-ink-2">
+                  <span className="text-signal">{pct !== null ? formatPercent(pct) : t("Preparing")}</span>
                   {job.bytesTotal && <span>{t("{done} of {total}", { done: formatBytes(job.bytesDone), total: formatBytes(job.bytesTotal) })}</span>}
                   {job.speedBps > 0 && <span>{formatBytes(job.speedBps, 0)}/s</span>}
                 </p>
@@ -530,7 +533,7 @@ export function BigPictureScreen() {
                     <GameCover title={game.title} coverUrl={game.coverUrl} index={game.id} showType={false} />
                     {isSelected && (
                       <span
-                        className="pointer-events-none absolute -inset-[4px] z-10 rounded-[2px] ring-2 ring-signal ring-offset-2 ring-offset-[#0a0a09]"
+                        className="pointer-events-none absolute -inset-[4px] z-10 rounded-[2px] ring-2 ring-signal ring-offset-2 ring-offset-stage"
                         aria-hidden="true"
                       />
                     )}

@@ -15,6 +15,7 @@
         --ink-2: #a8a396;
         --ink-3: #8a8477;
         --signal: #ffc61a;
+        --on-signal: #14130c;
         color-scheme: dark;
       }
       :root[data-theme="light"] {
@@ -25,6 +26,7 @@
         --ink-2: #55513f;
         --ink-3: #635d4c;
         --signal: #f0c000;
+        --on-signal: #16150f;
         color-scheme: light;
       }
       * { box-sizing: border-box; }
@@ -62,18 +64,39 @@
         text-decoration: none;
         cursor: pointer;
       }
-      button { background: var(--signal); border-color: var(--signal); color: #14130c; font-weight: 600; }
+      button { background: var(--signal); border-color: var(--signal); color: var(--on-signal); font-weight: 600; }
       button:focus-visible, a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
       footer { margin-top: 36px; color: var(--ink-3); font-size: 11.5px; line-height: 1.6; }
     </style>
     <script>
       try {
-        var pref = localStorage.getItem("ludex.theme") || "system";
-        var dark = pref === "dark" || (pref === "system" && !window.matchMedia("(prefers-color-scheme: light)").matches);
-        document.documentElement.dataset.theme = dark ? "dark" : "light";
+        var root = document.documentElement;
+        var stored = localStorage.getItem("ludex.theme");
+        var payload = null;
+        try {
+          payload = stored ? JSON.parse(stored) : null;
+        } catch (error) {
+          payload = null;
+        }
+        var light = window.matchMedia("(prefers-color-scheme: light)").matches;
+        if (payload && payload.v === 2 && payload.config) {
+          // Replay the resolved map saved by the app, so an offline reload
+          // keeps accents, tints and imported themes (#140).
+          var mode = payload.config.selection === "system" ? (light ? "light" : "dark") : payload.mode || "dark";
+          var vars = payload.vars && (payload.vars[mode] || payload.vars.dark);
+          if (vars) {
+            for (var key in vars) {
+              if (Object.prototype.hasOwnProperty.call(vars, key)) root.style.setProperty(key, vars[key]);
+            }
+          }
+          root.dataset.theme = (payload.bases && payload.bases[mode]) || mode;
+        } else {
+          var legacy = stored === "light";
+          root.dataset.theme = legacy ? "light" : "midnight";
+        }
         var lang = localStorage.getItem("ludex.locale") || "en";
-        document.documentElement.lang = lang;
-        document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+        root.lang = lang;
+        root.dir = lang === "ar" ? "rtl" : "ltr";
       } catch (e) {}
     </script>
   </head>

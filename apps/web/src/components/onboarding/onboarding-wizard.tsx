@@ -23,7 +23,8 @@ import {
 } from "@/lib/onboarding";
 import type { LocalSettings } from "@/lib/types";
 import { useAuth, useIsAdmin } from "@/state/auth";
-import { useSettings, type ThemePref } from "@/state/settings";
+import { useSettings } from "@/state/settings";
+import type { ThemeSelection } from "@/theme/types";
 import { Badge, Button, Kbd } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 
@@ -202,7 +203,7 @@ export function OnboardingWizard() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: reduce ? 0 : 0.18, ease: [0.16, 1, 0.3, 1] }}
       className={cn(
-        "fixed inset-x-3 bottom-[calc(56px+env(safe-area-inset-bottom)+10px)] z-[70] flex max-h-[min(78vh,640px)] flex-col overflow-hidden border border-line-2 bg-surface text-ink shadow-[0_30px_80px_-30px_rgba(0,0,0,0.8)]",
+        "fixed inset-x-3 bottom-[calc(56px+env(safe-area-inset-bottom)+10px)] z-[70] flex max-h-[min(78vh,640px)] flex-col overflow-hidden border border-line-2 bg-surface text-ink shadow-panel",
         "lg:inset-x-auto lg:bottom-5 lg:end-5 lg:w-[430px]",
       )}
     >
@@ -474,8 +475,8 @@ function SavesStep({ settings, desktopAvailable }: { settings: LocalSettings | n
 function AppearanceStep() {
   const { theme, setTheme } = useSettings();
   const { locale, setLocale } = useI18n();
-  const options: { value: ThemePref; label: string }[] = [
-    { value: "dark", label: t("Dark") },
+  const options: { value: ThemeSelection; label: string }[] = [
+    { value: "midnight", label: t("Dark") },
     { value: "light", label: t("Light") },
     { value: "system", label: t("System") },
   ];

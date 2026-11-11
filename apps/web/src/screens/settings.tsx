@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, Monitor, Moon, Sun } from "lucide-react";
+import { FolderOpen } from "lucide-react";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { installBridge, installsAvailable } from "@/lib/install";
@@ -11,14 +11,13 @@ import { formatBytes, formatDate } from "@/lib/format";
 import type { LocalSettings } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { useAuth } from "@/state/auth";
-import { useSettings, type ThemePref } from "@/state/settings";
 import { coverageFor, LOCALES, statusLabel, useI18n, tr } from "@/lib/i18n";
 import { useToast } from "@/state/toasts";
 import { PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Field, Input, Switch, Textarea } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { DesktopUpdatePanel } from "@/components/settings/desktop-update";
-import { CompatibilityPanel } from "@/components/settings/compatibility-panel";
+import { AppearancePanel } from "@/components/settings/appearance-panel";import { CompatibilityPanel } from "@/components/settings/compatibility-panel";
 import { LauncherImportPanel } from "@/components/settings/launcher-import";
 import { InstalledPanel } from "@/components/settings/installed-games";
 import { PresenceStatus } from "@/components/settings/presence-status";
@@ -33,7 +32,6 @@ import { t } from "@/lib/i18n";
 
 export function SettingsScreen() {
   const { user, refreshUser } = useAuth();
-  const { theme, setTheme, resolved } = useSettings();
   const { locale: activeLocale, setLocale } = useI18n();
   const { push } = useToast();
   const queryClient = useQueryClient();
@@ -187,39 +185,13 @@ export function SettingsScreen() {
             ))}
           </dl>
 
-          <div className="mt-8">
-            <SectionHeader title={t("Appearance")} description={t("Applies to this browser or app window.")} />
-            <div className="grid grid-cols-3 gap-2">
-              {(
-                [
-                  { value: "dark", label: t("Dark"), icon: <Moon className="size-4" /> },
-                  { value: "light", label: t("Light"), icon: <Sun className="size-4" /> },
-                  { value: "system", label: t("System"), icon: <Monitor className="size-4" /> },
-                ] as { value: ThemePref; label: string; icon: React.ReactNode }[]
-              ).map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setTheme(option.value)}
-                  aria-pressed={theme === option.value}
-                  className={cn(
-                    "flex flex-col gap-2 border p-3 text-left transition-colors",
-                    theme === option.value ? "border-signal bg-surface-2" : "border-line hover:border-line-2",
-                  )}
-                >
-                  <span className={theme === option.value ? "text-signal-text" : "text-ink-3"}>{option.icon}</span>
-                  <span className="text-[13px] text-ink">{option.label}</span>
-                </button>
-              ))}
-            </div>
-            <p className="mt-2 text-[11.5px] text-ink-3">
-              {t("Currently rendering the {theme} theme. Reduced motion follows your system setting.", {
-                theme: resolved === "dark" ? t("Dark") : t("Light"),
-              })}
-            </p>
-
-            {isNative() && supportsCustomTitleBar() && draft && (
-              <div className="mt-6 flex items-start justify-between gap-6 border-t border-line pt-4">
+          {isNative() && supportsCustomTitleBar() && draft && (
+            <div className="mt-8">
+              <SectionHeader
+                title={t("Window")}
+                description={t("Desktop window chrome. Applies immediately, no restart.")}
+              />
+              <div className="flex items-start justify-between gap-6 border-t border-line pt-4">
                 <div>
                   <p className="text-[13px] font-medium text-ink">{t("Use the native title bar")}</p>
                   <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
@@ -232,8 +204,8 @@ export function SettingsScreen() {
                   label={t("Use the native title bar")}
                 />
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           <div className="mt-8">
             <SectionHeader
@@ -334,6 +306,16 @@ export function SettingsScreen() {
           </form>
         </section>
       </div>
+
+      <section className="mt-12 max-w-[1080px]" aria-label={t("Appearance")}>
+        <SectionHeader
+          title={t("Appearance")}
+          description={t("Applies to this browser or app window. Every screen and Big Picture follow the same tokens.")}
+        />
+        <div className="border-t border-line pt-5">
+          <AppearancePanel />
+        </div>
+      </section>
 
       <section className="mt-12 max-w-[980px]" aria-labelledby="community-profile-heading">
         <SectionHeader

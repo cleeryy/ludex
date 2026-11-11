@@ -56,7 +56,7 @@ export function TrailerPlayer({
 
   if (playing) {
     return (
-      <div className={cn("media-plate aspect-video w-full overflow-hidden bg-black", className)}>
+      <div className={cn("media-plate aspect-video w-full overflow-hidden bg-stage", className)}>
         {isYoutube ? (
           <iframe
             src={youtubeEmbed(id!)}
@@ -73,7 +73,7 @@ export function TrailerPlayer({
             controls
             autoPlay
             playsInline
-            className="h-full w-full bg-black"
+            className="h-full w-full bg-stage"
           />
         )}
       </div>
@@ -100,11 +100,11 @@ export function TrailerPlayer({
       ) : (
         <StillPlate spec={{ palette: "graphite", motif: "horizon" }} seed={0} index={0} className="absolute inset-0 h-full w-full" />
       )}
-      <span className="absolute inset-0 bg-[linear-gradient(180deg,rgba(5,5,5,0.05),rgba(5,5,5,0.62))]" aria-hidden="true" />
+      <span className="absolute inset-0 still-shade" aria-hidden="true" />
       <span className="absolute inset-0 grid place-items-center">
         <span
           className={cn(
-            "grid size-16 place-items-center rounded-full border border-white/35 bg-black/55 text-white backdrop-blur-sm transition-transform duration-[180ms]",
+            "media-control grid size-16 place-items-center rounded-full backdrop-blur-sm transition-transform duration-[180ms]",
             !reduce && "group-hover:scale-105",
           )}
         >
@@ -113,12 +113,12 @@ export function TrailerPlayer({
       </span>
       <span className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-4">
         <span className="min-w-0">
-          <span className="block truncate text-[14px] font-medium text-white">{video.title || title}</span>
-          <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-[0.14em] text-white/65">
+          <span className="block truncate text-[14px] font-medium text-sheen">{video.title || title}</span>
+          <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-[0.14em] text-sheen/65">
             {isYoutube ? t("YouTube · no cookies until play") : t("Video")}
           </span>
         </span>
-        <span className="hidden shrink-0 border border-white/25 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-white/70 sm:block">
+        <span className="hidden shrink-0 border border-sheen/25 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-sheen/70 sm:block">
           {t("Play")}
         </span>
       </span>
@@ -146,6 +146,22 @@ function MediaFrame({
         <StillPlate spec={spec} seed={seed} index={item.index} className="absolute inset-0 h-full w-full" />
       ) : (
         <img src={assetUrl(item.url) ?? ""} alt="" className="h-full w-full object-cover" loading="lazy" />
+      )}
+    </div>
+  );
+}
+
+/** Static poster used by the strip: the play control belongs to the image,
+ * not a nested button, so the card itself can open the lightbox. */
+function MediaThumb({ item, game, spec, seed }: { item: MediaItem; game: GameDetail; spec: ArtSpec; seed: number }) {
+  if (item.kind === "still") return <MediaFrame item={item} game={game} spec={spec} seed={seed} />;
+  const poster = videoPoster(item.video);
+  return (
+    <div className="media-plate aspect-video w-full">
+      {poster ? (
+        <img src={poster} alt="" className="h-full w-full object-cover" loading="lazy" />
+      ) : (
+        <StillPlate spec={spec} seed={seed} index={0} className="absolute inset-0 h-full w-full" />
       )}
     </div>
   );
@@ -334,10 +350,10 @@ export function MediaGallery({ game, spec, seed }: { game: GameDetail; spec: Art
                 item.kind === "video" ? `Open video ${index + 1}` : `Open still ${item.index + 1}`
               }
             >
-              <MediaFrame item={item} game={game} spec={spec} seed={seed} />
+              <MediaThumb item={item} game={game} spec={spec} seed={seed} />
               {item.kind === "video" && (
-                <span className="absolute inset-0 grid place-items-center bg-black/25">
-                  <span className="grid size-11 place-items-center rounded-full border border-white/30 bg-black/50 text-white">
+                <span className="absolute inset-0 grid place-items-center bg-stage/25">
+                  <span className="media-control grid size-11 place-items-center rounded-full">
                     <Play className="ml-0.5 size-4" aria-hidden="true" />
                   </span>
                 </span>

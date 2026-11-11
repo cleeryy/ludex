@@ -43,10 +43,10 @@ export function ProtonDbBadge({ gameId }: { gameId: number }) {
 }
 
 const TIER_STYLES: Record<string, string> = {
-  platinum: "border-[#cfe3e8]/45 text-[#d8e9ed]",
+  platinum: "border-ink-2/45 text-ink",
   gold: "border-signal/50 text-signal-text",
   silver: "border-line-2 text-ink-2",
-  bronze: "border-[#c99a6b]/45 text-[#d3a87c]",
+  bronze: "border-warn/45 text-warn",
   borked: "border-danger/45 text-danger",
   pending: "border-line-2 text-ink-3",
 };

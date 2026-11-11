@@ -105,7 +105,7 @@ export function Dialog({
           transition={{ duration: reduce ? 0 : 0.16 }}
         >
           <div
-            className="fixed inset-0 bg-[var(--scrim)]"
+            className="fixed inset-0 scrim"
             onClick={() => dismissible && onOpenChange(false)}
             aria-hidden="true"
           />
@@ -122,7 +122,7 @@ export function Dialog({
             transition={{ duration: reduce ? 0 : 0.18, ease: [0.16, 1, 0.3, 1] }}
             className={cn(
               "relative z-10 w-full rounded-[3px] border border-line-2 bg-surface outline-none",
-              "shadow-[0_30px_90px_-20px_rgba(0,0,0,0.7)]",
+              "shadow-dialog",
               SIZES[size],
             )}
           >

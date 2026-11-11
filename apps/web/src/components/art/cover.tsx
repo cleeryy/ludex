@@ -383,13 +383,7 @@ export function GameCover({
       <div className="cover-sheen" aria-hidden="true" />
       {demo && showType && (
         <>
-          <div
-            className="pointer-events-none absolute inset-0 z-[1]"
-            style={{
-              background:
-                "linear-gradient(180deg, rgba(0,0,0,.42) 0%, rgba(0,0,0,0) 24%, rgba(0,0,0,0) 52%, rgba(0,0,0,.55) 100%)",
-            }}
-          />
+          <div className="pointer-events-none absolute inset-0 z-[1] cover-shade" />
           <div className="cover-type">
             <div className="cover-series">
               <span>Ludex</span>
@@ -470,17 +464,7 @@ export function GameBackdrop({
         <img src={src ?? ""} alt="" className="absolute inset-0 h-full w-full object-cover" />
       )}
       <div className="absolute inset-0 bg-[var(--bg)]/30" aria-hidden="true" />
-      <div
-        className="absolute inset-0"
-        style={{
-          background:
-            "linear-gradient(180deg, rgba(5,5,5,0.35) 0%, rgba(5,5,5,0.12) 40%, var(--bg) 98%)",
-        }}
-      />
-      <div
-        className="absolute inset-0"
-        style={{ background: "linear-gradient(90deg, rgba(5,5,5,0.9) 0%, rgba(5,5,5,0.68) 45%, rgba(5,5,5,0.3) 75%, rgba(5,5,5,0.08) 100%)" }}
-      />
+      <div className="absolute inset-0 backdrop-shade" aria-hidden="true" />
     </div>
   );
 }
@@ -507,8 +491,8 @@ export function StillPlate({
       <svg className="absolute inset-0 h-full w-full" viewBox="0 0 300 400" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
         <Motif spec={variant} seed={seed + index * 977} />
       </svg>
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.1),rgba(0,0,0,0.55))]" />
-      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between p-3 font-mono text-[10px] uppercase tracking-[0.14em] text-white/75">
+      <div className="absolute inset-0 still-shade" />
+      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between p-3 font-mono text-[10px] uppercase tracking-[0.14em] text-sheen/75">
         <span>{variant.motif}</span>
         <span>{t("Still")} {String(index + 1).padStart(2, "0")}</span>
       </div>

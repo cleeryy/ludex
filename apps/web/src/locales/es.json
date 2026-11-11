@@ -1,4 +1,10 @@
 {
+  "{count} downloads": "{count} descargas",
+  "{count} files": "{count} archivos",
+  "{count} games": "{count} juegos",
+  "{count} installed": "{count} instalados",
+  "{count} minutes": "{count} minutos",
+  "{count}+ players": "{count}+ jugadores",
   "1 download": "1 descarga",
   "1 file": "1 archivo",
   "1 game": "1 juego",
@@ -103,8 +109,8 @@
   "Index": "Índice",
   "Ingest": "Importar",
   "Install": "Instalar",
-  "Install Ludex": "Instalar Ludex",
   "Install folder": "Carpeta de instalación",
+  "Install Ludex": "Instalar Ludex",
   "Install progress": "Progreso de instalación",
   "Installed": "Instalados",
   "Integrations": "Integraciones",
@@ -218,11 +224,5 @@
   "Year": "Año",
   "Your password": "Tu contraseña",
   "Your progress": "Tu progreso",
-  "Your username": "Tu usuario",
-  "{count} downloads": "{count} descargas",
-  "{count} files": "{count} archivos",
-  "{count} games": "{count} juegos",
-  "{count} installed": "{count} instalados",
-  "{count} minutes": "{count} minutos",
-  "{count}+ players": "{count}+ jugadores"
+  "Your username": "Tu usuario"
 }

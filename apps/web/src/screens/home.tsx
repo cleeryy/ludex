@@ -21,6 +21,7 @@ import { useIsEditor } from "@/state/auth";
 import { useDownloads } from "@/state/downloads";
 import { useToast } from "@/state/toasts";
 import { ArtPlate } from "@/components/art/cover";
+import { ThemeScope } from "@/components/theme/theme-scope";
 import { GameCard } from "@/components/game/game-card";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { GettingStartedCard } from "@/components/onboarding/getting-started";
@@ -211,42 +212,32 @@ export function HomeScreen() {
 
       <GettingStartedCard className="mb-6" />
 
-      <section className="force-dark relative overflow-hidden rounded-[2px] border border-line-2">
+      <ThemeScope as="section" className="relative overflow-hidden rounded-[2px] border border-line-2">
         <ArtPlate
           title={hero.title}
           artUrl={heroDetail.data?.backgroundUrl ?? hero.backgroundUrl}
           className="absolute inset-0 h-full w-full"
         />
-        <div
-          className="absolute inset-0"
-          style={{
-            background:
-              "linear-gradient(90deg, rgba(5,5,5,0.95) 0%, rgba(5,5,5,0.74) 48%, rgba(5,5,5,0.34) 100%)",
-          }}
-        />
-        <div
-          className="absolute inset-0"
-          style={{ background: "linear-gradient(0deg, rgba(5,5,5,0.92) 0%, rgba(5,5,5,0) 58%)" }}
-        />
+        <div className="absolute inset-0 hero-shade" />
 
         <div className="relative flex min-h-[360px] flex-col justify-end gap-3.5 p-6 sm:min-h-[400px] sm:p-8">
-          <span className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-[#ffc61a]">
-            <span className="h-px w-7 bg-[#ffc61a]" aria-hidden="true" />
+          <span className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-signal">
+            <span className="h-px w-7 bg-signal" aria-hidden="true" />
             {hero.lastPlayedAt ? t("Continue playing") : t("Start here")}
           </span>
-          <h1 className="max-w-[20ch] text-[clamp(2.1rem,4vw,3.6rem)] font-semibold leading-[0.95] tracking-[-0.035em] text-[#ece8de]">
+          <h1 className="max-w-[20ch] text-[clamp(2.1rem,4vw,3.6rem)] font-semibold leading-[0.95] tracking-[-0.035em] text-stage-ink">
             {hero.title}
           </h1>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10.5px] text-[#a8a396]">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10.5px] text-stage-ink-2">
             <span>{formatYear(hero.releaseDate)}</span>
             <span>{stateLabel(hero.state)}</span>
             {rating && <span>{rating} / 100</span>}
             {playtime && <span>{t("{duration} played", { duration: playtime })}</span>}
             {hero.lastPlayedAt && <span>{t("Last played {when}", { when: formatRelative(hero.lastPlayedAt) })}</span>}
-            {heroInstalled && <span className="text-[#79c99f]">{t("Installed")}</span>}
+            {heroInstalled && <span className="text-stage-ok">{t("Installed")}</span>}
           </div>
           {heroDetail.data?.description && (
-            <p className="line-clamp-2 max-w-[58ch] text-[13.5px] leading-relaxed text-[#c9c4b8]">
+            <p className="line-clamp-2 max-w-[58ch] text-[13.5px] leading-relaxed text-stage-ink-2">
               {heroDetail.data.description}
             </p>
           )}
@@ -256,13 +247,13 @@ export function HomeScreen() {
               {t("Game page")}
             </Button>
             {heroJob && (
-              <span className="text-[11.5px] text-[#a8a396]">
+              <span className="text-[11.5px] text-stage-ink-2">
                 {heroJob.bytesTotal ? `${formatBytes(heroJob.bytesDone)} of ${formatBytes(heroJob.bytesTotal)}` : t("Preparing")}
               </span>
             )}
           </div>
         </div>
-      </section>
+      </ThemeScope>
 
       {deviceGames.length > 0 && (
         <section className="mt-12" aria-labelledby="home-device">

@@ -13,20 +13,22 @@ The organising idea is the **plate**: every game cover is a numbered plate in on
 The same system draws artwork for real games that have no cached cover yet, so the shelf never
 shows a broken image.
 
-Two surfaces exist, both designed rather than inverted:
+The default is **Midnight** — warm black, bone ink, hairline rules. **Paper** is the designed
+light counterpart: warm paper, dark ink, and covers that keep their colour so the library reads
+like a printed catalogue. **Nord**, **Gruvbox** and **Amber** are complete alternative palettes,
+not filters over Midnight; each one is contrast-checked as a full set. Users can also add a
+custom accent, tint the surfaces, or import a validated theme file (#140).
 
-- **Ink (default)** — `#0a0a09` warm black, bone `#ece8de`, hairline `#272620`.
-- **Paper** — `#e7e2d4` warm paper, ink `#16150f`, hairline `#cbc3ad`. The covers keep their
-  colour, so the light theme reads like a printed catalogue.
-
-The game detail hero is a deliberate exception: a **dark stage** in both themes, because artwork
-needs darkness around it. It fades back into the page with a 64px gradient.
+The game detail hero is a deliberate exception: a **dark stage** in every theme, because artwork
+needs darkness around it. `ThemeScope` re-declares the base palette for that section, with the
+user's accent, instead of a hand-written colour block.
 
 ## Tokens
 
-Defined once in `src/styles/index.css` as CSS custom properties; Tailwind v4 maps them through
-`@theme inline` (`bg-bg`, `text-ink-2`, `border-line`, …). The dark stage re-declares the same
-tokens under `.force-dark` so controls inside it stay legible.
+Defined once in `src/theme/themes.json`; `scripts/theme.mjs` writes the static fallback CSS and
+the runtime applies the resolved map as custom properties. Tailwind v4 maps them through
+`@theme inline` (`bg-bg`, `text-ink-2`, `border-line`, …), so no component paints a literal
+colour. `src/styles/no-hardcoded-colors.test.ts` enforces that rule.
 
 ### Colour
 
@@ -40,7 +42,7 @@ tokens under `.force-dark` so controls inside it stay legible.
 | `--line-2` | `#3b3930` | `#ada48b` | control borders |
 | `--ink` | `#ece8de` | `#16150f` | primary text |
 | `--ink-2` | `#a8a396` | `#55513f` | secondary |
-| `--ink-3` | `#767164` | `#837d67` | meta |
+| `--ink-3` | `#918b7e` | `#635d4c` | meta |
 | `--signal` | `#ffc61a` | `#f0c000` | primary action, active marks |
 | `--on-signal` | `#14130c` | `#16150f` | text on signal |
 | `--signal-text` | `#ffc61a` | `#705200` | signal as text (AA on paper) |
@@ -48,6 +50,9 @@ tokens under `.force-dark` so controls inside it stay legible.
 | `--ok` | `#79c99f` | `#2c7050` | healthy, installed |
 
 Signal is a **fill**, never large type. On paper it is darkened for text use so contrast stays AA.
+The table shows the two designed defaults; Nord, Gruvbox and Amber use the same token names, and a
+theme file can replace every value as long as the contrast checks pass.
+
 Grain is a single fixed SVG noise overlay at 4.5% (3.5% on paper), `mix-blend-mode: overlay`.
 
 ### Type

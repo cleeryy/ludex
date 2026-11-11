@@ -34,7 +34,7 @@ import { api, USING_MOCKS } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useAuth, useIsAdmin, useIsEditor } from "@/state/auth";
 import type { ProgressState } from "@/lib/types";
-import { useSettings } from "@/state/settings";
+import { otherModeTheme, useSettings } from "@/state/settings";
 import { useToast } from "@/state/toasts";
 import { Wordmark } from "@/components/brand";
 import { WindowControls, useWindowChrome, type WindowChrome } from "@/components/shell/window-controls";
@@ -250,9 +250,9 @@ function UserMenu() {
     { heading: `${user.username} — ${user.role === "admin" ? t("Administrator") : user.role === "editor" ? t("Editor") : t("Member")}` },
     { label: t("Settings"), icon: <Settings className="size-3.5" />, onSelect: () => navigate("/settings") },
     {
-      label: resolved === "dark" ? "Light theme" : "Dark theme",
+      label: resolved === "dark" ? t("Light theme") : t("Dark theme"),
       icon: resolved === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />,
-      onSelect: () => setTheme(resolved === "dark" ? "light" : "dark"),
+      onSelect: () => setTheme(otherModeTheme(resolved)),
     },
     "separator",
     { label: t("Sign out"), icon: <LogOut className="size-3.5" />, danger: true, onSelect: () => void signOut() },
@@ -470,7 +470,7 @@ function MobileMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open
         <Row
           label={resolved === "dark" ? t("Switch to the light theme") : t("Switch to the dark theme")}
           icon={resolved === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
-          onClick={() => setTheme(resolved === "dark" ? "light" : "dark")}
+          onClick={() => setTheme(otherModeTheme(resolved))}
         />
         <Row label={t("Sign out")} icon={<LogOut className="size-3.5" />} onClick={() => void signOut()} />
       </div>

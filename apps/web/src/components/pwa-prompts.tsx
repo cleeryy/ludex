@@ -19,7 +19,7 @@ export function PwaPrompts() {
       aria-live="polite"
     >
       {updateReady ? (
-        <div className="flex items-start gap-3 border border-line-2 bg-surface p-3.5 text-ink shadow-[0_18px_40px_-24px_rgba(0,0,0,0.8)]">
+        <div className="flex items-start gap-3 border border-line-2 bg-surface p-3.5 text-ink shadow-panel">
           <RefreshCw className="mt-0.5 size-4 shrink-0 text-signal-text" aria-hidden="true" />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium">{t("A new build is ready")}</p>
@@ -45,7 +45,7 @@ export function PwaPrompts() {
           </button>
         </div>
       ) : (
-        <div className="flex items-start gap-3 border border-line-2 bg-surface p-3.5 text-ink shadow-[0_18px_40px_-24px_rgba(0,0,0,0.8)]">
+        <div className="flex items-start gap-3 border border-line-2 bg-surface p-3.5 text-ink shadow-panel">
           <Download className="mt-0.5 size-4 shrink-0 text-signal-text" aria-hidden="true" />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium">{t("Install Ludex")}</p>

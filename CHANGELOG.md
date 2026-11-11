@@ -10,6 +10,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Theme system beyond light/dark (#140): five complete data-driven themes
+  (midnight, light/Paper, nord, gruvbox, amber) with 26 semantic tokens each,
+  a system-following option, custom accent and background tint with measured
+  WCAG AA contrast (focus rings 3:1, TV 7:1/4.5:1), JSON theme import/export
+  with validation, no-flash startup from `localStorage`, and a live Settings →
+  Appearance preview. Big Picture uses the same tokens with a TV variant;
+  hardcoded colours are gone from components and a test enforces it. Legacy
+  dark/light/system preferences migrate automatically.
 - Installable desktop prereleases on every `main` push (#149): a new
   `edge-desktop` CI matrix (Linux AppImage/deb, Windows NSIS) stamps a
   monotonic `<next patch>-edge.<run_number>` version for the build only, signs

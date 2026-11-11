@@ -122,7 +122,7 @@ export function DeleteAdoptedDialog({
           </Button>
           <Button
             variant="primary"
-            className="bg-danger text-white hover:bg-danger/90"
+            className="bg-danger text-bg hover:bg-danger/90"
             icon={<Trash2 className="size-4" />}
             loading={deleting}
             disabled={!preview || !matches || loading}

@@ -69,8 +69,7 @@ export function GameCard({
           </span>
         )}
         <div
-          className="pointer-events-none absolute inset-0 z-[3] rounded-[2px] opacity-0 transition-opacity duration-[200ms] group-hover:opacity-100"
-          style={{ boxShadow: "0 22px 40px -24px rgba(0,0,0,0.75), 0 0 0 1px rgba(255,255,255,0.08)" }}
+          className="shadow-cover pointer-events-none absolute inset-0 z-[3] rounded-[2px] opacity-0 transition-opacity duration-[200ms] group-hover:opacity-100"
           aria-hidden="true"
         />
       </div>

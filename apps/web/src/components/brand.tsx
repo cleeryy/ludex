@@ -43,11 +43,11 @@ export function Wordmark({
 export function Mark({ size = 28, className }: { size?: number; className?: string }) {
   return (
     <svg viewBox="0 0 64 64" width={size} height={size} role="img" aria-label="Ludex" className={className}>
-      <rect width="64" height="64" fill="#0a0a09" />
-      <g transform="translate(14 12) scale(0.4)" fill="#ece8de">
+      <rect width="64" height="64" fill="var(--bg-deep)" />
+      <g transform="translate(14 12) scale(0.4)" fill="var(--ink)">
         <path d="M0 0H22V78H66V100H0Z" />
       </g>
-      <rect x="44" y="40" width="12" height="12" fill="#ffc61a" />
+      <rect x="44" y="40" width="12" height="12" fill="var(--signal)" />
     </svg>
   );
 }

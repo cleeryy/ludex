@@ -1,9 +1,15 @@
 @import "tailwindcss";
+@import "./themes.generated.css";
 
 /* ---------------------------------------------------------------------------
    LUDEX design tokens
    Direction: late-night archive. Warm-black ink, bone paper, safety-yellow
    signal. Hairlines and index marks instead of cards and shadows.
+
+   Colour values live in `src/theme/themes.json` and arrive as custom
+   properties: statically from the generated stylesheet, then from the boot
+   script / SettingsProvider for accents, tints, imported themes and the
+   TV-safe variant (#140).
    --------------------------------------------------------------------------- */
 
 @theme inline {
@@ -11,6 +17,7 @@
   --color-bg-deep: var(--bg-deep);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-elevated: var(--elevated);
   --color-line: var(--line);
   --color-line-2: var(--line-2);
   --color-ink: var(--ink);
@@ -21,6 +28,14 @@
   --color-signal-text: var(--signal-text);
   --color-danger: var(--danger);
   --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-focus: var(--focus);
+  --color-stage: var(--stage);
+  --color-stage-ink: var(--stage-ink);
+  --color-stage-ink-2: var(--stage-ink-2);
+  --color-stage-ok: var(--stage-ok);
+  --color-sheen: var(--sheen);
+  --color-scrim: var(--scrim);
 
   --font-display: var(--font-display);
   --font-sans: var(--font-ui);
@@ -32,100 +47,18 @@
   --font-ui: "Instrument Sans Variable", "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
   --font-code: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
-  /* dark is the primary theme */
-  --bg: #0a0a09;
-  --bg-deep: #050505;
-  --surface: #121210;
-  --surface-2: #191916;
-  --line: #272620;
-  --line-2: #3b3930;
-  --ink: #ece8de;
-  --ink-2: #a8a396;
-  --ink-3: #8a8477;
-  --signal: #ffc61a;
-  --on-signal: #14130c;
-  --signal-text: #ffc61a;
-  --signal-line: #6b5310;
-  --danger: #f0564a;
-  --ok: #79c99f;
-
-  --grain-opacity: 0.045;
-  --sheen: rgba(255, 255, 255, 0.14);
-  --scrim: rgba(5, 5, 5, 0.72);
-
   --dur-1: 120ms;
   --dur-2: 180ms;
   --dur-3: 240ms;
   --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
+  --focus-width: 2px;
+  --focus-offset: 2px;
+
   --rail-w: 236px;
   --bar-h: 60px;
   --page-x: 40px;
-
-  color-scheme: dark;
-}
-
-:root[data-theme="light"] {
-  --bg: #e7e2d4;
-  --bg-deep: #ddd7c5;
-  --surface: #f1ede0;
-  --surface-2: #f6f2e6;
-  --line: #cbc3ad;
-  --line-2: #ada48b;
-  --ink: #16150f;
-  --ink-2: #55513f;
-  --ink-3: #635d4c;
-  --signal: #f0c000;
-  --on-signal: #16150f;
-  --signal-text: #705200;
-  --signal-line: #c9a227;
-  --danger: #a82c1c;
-  --ok: #2c7050;
-
-  --grain-opacity: 0.035;
-  --sheen: rgba(255, 255, 255, 0.4);
-  --scrim: rgba(231, 226, 212, 0.78);
-
-  color-scheme: light;
-}
-
-/* The game detail hero is a dark stage in both themes. It re-declares the
-   dark tokens so controls inside it stay legible over artwork. */
-.force-dark {
-  --bg: #0a0a09;
-  --bg-deep: #050505;
-  --surface: #121210;
-  --surface-2: #191916;
-  --line: #272620;
-  --line-2: #3b3930;
-  --ink: #ece8de;
-  --ink-2: #a8a396;
-  --ink-3: #8a8477;
-  --signal: #ffc61a;
-  --on-signal: #14130c;
-  --signal-text: #ffc61a;
-  --signal-line: #6b5310;
-  --danger: #f0564a;
-  --ok: #79c99f;
-  --grain-opacity: 0.045;
-  /* utilities resolve the @theme variables, so remap them inside this scope */
-  --color-bg: var(--bg);
-  --color-bg-deep: var(--bg-deep);
-  --color-surface: var(--surface);
-  --color-surface-2: var(--surface-2);
-  --color-line: var(--line);
-  --color-line-2: var(--line-2);
-  --color-ink: var(--ink);
-  --color-ink-2: var(--ink-2);
-  --color-ink-3: var(--ink-3);
-  --color-signal: var(--signal);
-  --color-on-signal: var(--on-signal);
-  --color-signal-text: var(--signal-text);
-  --color-danger: var(--danger);
-  --color-ok: var(--ok);
-  color: var(--ink);
-  color-scheme: dark;
 }
 
 @media (max-width: 1023px) {
@@ -177,15 +110,15 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--signal-text);
-    outline-offset: 2px;
+    outline: var(--focus-width) solid var(--focus);
+    outline-offset: var(--focus-offset);
   }
 
   /* Gamepad focus is not a keyboard event, so the browser's focus-visible
      heuristic can hide the ring. The hook marks the active element. */
   [data-gamepad-focus="true"] {
-    outline: 2px solid var(--signal-text);
-    outline-offset: 3px;
+    outline: var(--focus-width) solid var(--focus);
+    outline-offset: calc(var(--focus-offset) + 1px);
   }
 
   h1,
@@ -269,6 +202,130 @@
     mix-blend-mode: overlay;
   }
 
+  /* -------------------------------------------------------------------------
+     Depth and scrims. Every colour comes from the active theme; components
+     reference these classes instead of writing shadow or gradient values.
+     ------------------------------------------------------------------------- */
+  .shadow-cover {
+    box-shadow:
+      0 22px 40px -24px color-mix(in oklab, var(--shadow) 75%, transparent),
+      0 0 0 1px color-mix(in oklab, var(--sheen) 8%, transparent);
+  }
+
+  .shadow-hero {
+    box-shadow:
+      0 44px 90px -32px color-mix(in oklab, var(--shadow) 85%, transparent),
+      0 0 0 1px color-mix(in oklab, var(--sheen) 6%, transparent);
+  }
+
+  .shadow-plate {
+    box-shadow: 0 40px 80px -30px color-mix(in oklab, var(--shadow) 80%, transparent);
+  }
+
+  .shadow-pop {
+    box-shadow: 0 18px 50px -12px color-mix(in oklab, var(--shadow) 55%, transparent);
+  }
+
+  .shadow-dialog {
+    box-shadow: 0 30px 90px -20px color-mix(in oklab, var(--shadow) 70%, transparent);
+  }
+
+  .shadow-panel {
+    box-shadow: 0 30px 80px -30px color-mix(in oklab, var(--shadow) 80%, transparent);
+  }
+
+  .shadow-toast {
+    box-shadow: 0 16px 40px -16px color-mix(in oklab, var(--shadow) 60%, transparent);
+  }
+
+  .shadow-palette {
+    box-shadow: 0 40px 120px -30px color-mix(in oklab, var(--shadow) 80%, transparent);
+  }
+
+  .shadow-debug {
+    box-shadow: 0 18px 40px -18px color-mix(in oklab, var(--shadow) 90%, transparent);
+  }
+
+  .scrim {
+    background: color-mix(in oklab, var(--scrim) 72%, transparent);
+  }
+
+  /* The stage scrims keep artwork legible and always resolve to `--stage`, a
+     near-black in every theme, with the theme's sheen for highlights. */
+  .cover-shade {
+    background: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--stage) 42%, transparent) 0%,
+      transparent 24%,
+      transparent 52%,
+      color-mix(in oklab, var(--stage) 55%, transparent) 100%
+    );
+  }
+
+  .backdrop-shade {
+    background:
+      linear-gradient(
+        90deg,
+        color-mix(in oklab, var(--stage) 90%, transparent) 0%,
+        color-mix(in oklab, var(--stage) 68%, transparent) 45%,
+        color-mix(in oklab, var(--stage) 30%, transparent) 75%,
+        color-mix(in oklab, var(--stage) 8%, transparent) 100%
+      ),
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, var(--stage) 35%, transparent) 0%,
+        color-mix(in oklab, var(--stage) 12%, transparent) 40%,
+        var(--stage) 98%
+      );
+  }
+
+  .hero-shade {
+    background:
+      linear-gradient(
+        90deg,
+        color-mix(in oklab, var(--stage) 95%, transparent) 0%,
+        color-mix(in oklab, var(--stage) 74%, transparent) 48%,
+        color-mix(in oklab, var(--stage) 34%, transparent) 100%
+      ),
+      linear-gradient(
+        0deg,
+        color-mix(in oklab, var(--stage) 92%, transparent) 0%,
+        color-mix(in oklab, var(--stage) 0%, transparent) 58%
+      );
+  }
+
+  .bp-shade {
+    background:
+      linear-gradient(
+        90deg,
+        color-mix(in oklab, var(--stage) 94%, transparent) 0%,
+        color-mix(in oklab, var(--stage) 72%, transparent) 38%,
+        color-mix(in oklab, var(--stage) 30%, transparent) 66%,
+        color-mix(in oklab, var(--stage) 6%, transparent) 100%
+      ),
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, var(--stage) 22%, transparent) 0%,
+        color-mix(in oklab, var(--stage) 6%, transparent) 46%,
+        color-mix(in oklab, var(--stage) 58%, transparent) 78%,
+        var(--stage) 100%
+      );
+  }
+
+  .still-shade {
+    background: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--stage) 10%, transparent),
+      color-mix(in oklab, var(--stage) 55%, transparent)
+    );
+  }
+
+  .media-control {
+    border: 1px solid color-mix(in oklab, var(--sheen) 35%, transparent);
+    background: color-mix(in oklab, var(--stage) 55%, transparent);
+    color: var(--sheen);
+  }
+
   .page {
     width: 100%;
     max-width: 1560px;
@@ -325,14 +382,10 @@
     content: "";
     position: absolute;
     inset: 0;
-    border: 1px solid rgba(255, 255, 255, 0.09);
+    border: 1px solid color-mix(in oklab, var(--ink) 12%, transparent);
     border-radius: 2px;
     pointer-events: none;
     z-index: 3;
-  }
-
-  :root[data-theme="light"] .cover::after {
-    border-color: rgba(0, 0, 0, 0.16);
   }
 
   .cover-motif {
@@ -351,8 +404,8 @@
     background: linear-gradient(
       104deg,
       transparent 32%,
-      rgba(255, 255, 255, 0.16) 46%,
-      rgba(255, 255, 255, 0.02) 56%,
+      color-mix(in oklab, var(--sheen) 16%, transparent) 46%,
+      color-mix(in oklab, var(--sheen) 2%, transparent) 56%,
       transparent 64%
     );
     transform: translate3d(-120%, 0, 0);
@@ -447,7 +500,7 @@
     content: "";
     position: absolute;
     inset: 0;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid color-mix(in oklab, var(--ink) 10%, transparent);
     pointer-events: none;
   }
 
@@ -559,7 +612,7 @@
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.045), transparent);
+    background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--sheen) 5%, transparent), transparent);
     transform: translateX(-100%);
     animation: shimmer 1.6s infinite;
   }

@@ -1,4 +1,10 @@
 {
+  "{count} downloads": "{count} تنزيلات",
+  "{count} files": "{count} ملفات",
+  "{count} games": "{count} ألعاب",
+  "{count} installed": "{count} مثبتة",
+  "{count} minutes": "{count} دقائق",
+  "{count}+ players": "{count}+ لاعبين",
   "1 download": "تنزيل واحد",
   "1 file": "ملف واحد",
   "1 game": "لعبة واحدة",
@@ -103,8 +109,8 @@
   "Index": "الفهرس",
   "Ingest": "استيراد",
   "Install": "تثبيت",
-  "Install Ludex": "تثبيت Ludex",
   "Install folder": "مجلد التثبيت",
+  "Install Ludex": "تثبيت Ludex",
   "Install progress": "تقدم التثبيت",
   "Installed": "المثبتة",
   "Integrations": "التكاملات",
@@ -218,11 +224,5 @@
   "Year": "السنة",
   "Your password": "كلمة المرور الخاصة بك",
   "Your progress": "تقدّمك",
-  "Your username": "اسم المستخدم الخاص بك",
-  "{count} downloads": "{count} تنزيلات",
-  "{count} files": "{count} ملفات",
-  "{count} games": "{count} ألعاب",
-  "{count} installed": "{count} مثبتة",
-  "{count} minutes": "{count} دقائق",
-  "{count}+ players": "{count}+ لاعبين"
+  "Your username": "اسم المستخدم الخاص بك"
 }
