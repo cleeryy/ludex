@@ -87,6 +87,8 @@ pub mod actions {
     pub const ACHIEVEMENT_DEFINITION_UPDATED: &str = "achievement.definition_updated";
     /// A manual achievement definition was deleted.
     pub const ACHIEVEMENT_DEFINITION_DELETED: &str = "achievement.definition_deleted";
+    /// A community metadata provider was created, updated, reordered or deleted.
+    pub const METADATA_PROVIDER_UPDATED: &str = "settings.metadata_provider_updated";
 }
 
 /// Writes one event to `audit_logs`. Failures are logged, never propagated:

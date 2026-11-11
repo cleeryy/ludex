@@ -12,6 +12,7 @@ pub mod integrity;
 pub mod keys;
 pub mod library;
 pub mod media;
+pub mod metadata_providers;
 pub mod metrics;
 pub mod news;
 pub mod oidc;
@@ -36,6 +37,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(auth::router())
         .merge(oidc::router())
         .merge(admin_oidc::router())
+        .merge(metadata_providers::router())
         .merge(games::router())
         .merge(artwork::router())
         .merge(integrity::router())

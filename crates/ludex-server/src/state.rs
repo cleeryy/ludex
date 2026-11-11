@@ -38,6 +38,9 @@ pub struct AppState {
     pub http: reqwest::Client,
     /// IGDB client, present when credentials are configured.
     pub igdb: Option<IgdbClient>,
+    /// Enabled metadata providers, ordered by priority. Reloaded by the admin
+    /// API after a create/update/delete/reorder; read by enrichment.
+    pub providers: Arc<RwLock<Vec<crate::providers::MetadataProviderConfig>>>,
     /// OIDC client, atomically replaced when an administrator saves new SSO
     /// settings. `None` means SSO is disabled.
     pub oidc: Arc<RwLock<Option<OidcClient>>>,
@@ -120,6 +123,7 @@ impl AppState {
             scan_tx,
             http: reqwest::Client::new(),
             igdb: None,
+            providers: Arc::new(RwLock::new(Vec::new())),
             oidc: Arc::new(RwLock::new(None)),
             oidc_status: Arc::new(RwLock::new(OidcStatus::default())),
             events: crate::events::channel().0,

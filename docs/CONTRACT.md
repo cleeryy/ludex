@@ -604,7 +604,8 @@ metadata, IP when known, and timestamp. Recorded actions: `login.succeeded`,
 `login.failed`, `user.created|updated|deleted|password_changed|password_reset`,
 `api_key.created|revoked`,
 `game.ingested|deleted`, `download.completed`, `settings.updated`,
-`settings.oidc_updated`, `webhook.created|updated|deleted`,
+`settings.oidc_updated`, `settings.metadata_provider_updated`,
+`webhook.created|updated|deleted`,
 `save.uploaded|deleted`, `oidc.login`, `oidc.linked`.
 
 ```ts
@@ -669,6 +670,70 @@ interface Webhook {
 | PATCH | `/api/webhooks/{id}` | `{ url?, events?, enabled?, rotateSecret? }` → `Webhook` (+ new `secret` if rotated) |
 | DELETE | `/api/webhooks/{id}` | 204 |
 | POST | `/api/webhooks/{id}/test` | 202 `{ deliveryId }`; webhook must be enabled |
+
+## Metadata providers (#28)
+
+Administrators install community metadata sources as HTTP sidecars. No
+third-party code runs inside the server. IGDB (when configured) is always tried
+first; enabled providers run next in ascending `priority`, then the Steam Store
+fallback, then the file-name parser. A provider only fills metadata that is
+still empty and a failing provider never fails an enrichment or a scan.
+
+Provider contract: `GET {baseUrl}/search?title=<urlencoded>&year=<optional>`
+with `Accept: application/json` and, when configured, `Authorization: Bearer
+<token>`. The response is `{ "results": [ProviderCandidate, ...] }`; at most 50
+entries are read. Optional `GET {baseUrl}/games/{id}` returns one candidate or a
+`results` envelope.
+
+```ts
+interface ProviderCandidate {
+  id: string; title: string;
+  description?: string; releaseDate?: string; coverUrl?: string;
+  backgroundUrl?: string; screenshots?: string[]; genres?: string[];
+  developers?: string[]; publishers?: string[]; tags?: string[];
+  rating?: number; ageRating?: number; providerUrl?: string;
+}
+
+/** Canonical fields a mapping may target. */
+type MetadataProviderField =
+  | "id" | "title" | "description" | "releaseDate" | "coverUrl" | "backgroundUrl"
+  | "screenshots" | "genres" | "developers" | "publishers" | "tags" | "rating"
+  | "ageRating" | "providerUrl";
+
+interface MetadataProvider {
+  id: number; name: string; baseUrl: string;
+  /** Whether a bearer token is stored. The token is never returned. */
+  secretConfigured: boolean;
+  priority: number; enabled: boolean;
+  /** Canonical field -> dot path in a non-canonical response. */
+  mapping: Partial<Record<MetadataProviderField, string>>;
+  createdAt: string; updatedAt: string;
+}
+
+interface ProviderTestResult {
+  ok: boolean; candidates: ProviderCandidate[];
+  error?: string; statusCode?: number; elapsedMs: number;
+}
+```
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/admin/metadata-providers` | admin + `admin` scope; ordered by priority |
+| POST | `/api/admin/metadata-providers` | `{ name, baseUrl, token?, priority?, enabled?, mapping? }` → 201 `MetadataProvider`; new providers default to disabled |
+| PUT | `/api/admin/metadata-providers/{id}` | `{ name?, baseUrl?, token?, clearToken?, priority?, enabled?, mapping? }` → `MetadataProvider`; blank/absent `token` keeps the stored one |
+| DELETE | `/api/admin/metadata-providers/{id}` | 204; fetch history is cascaded |
+| POST | `/api/admin/metadata-providers/{id}/test` | `{ title, year? }` → 200 `ProviderTestResult`; provider failures are reported in the body, not as 5xx |
+| POST | `/api/admin/metadata-providers/reorder` | `{ ids: number[] }` → `MetadataProvider[]`; priorities become 10, 20, ... |
+
+Requests are server-side only, time out after 10 s, cap the body at 2 MiB and
+disable redirects. Private/loopback targets are refused unless
+`LUDEX_PROVIDER_ALLOW_PRIVATE=true` (tests only). Tokens are encrypted at rest
+(AES-256-GCM, HKDF-derived key, purpose-bound AAD) and are never serialised.
+Every attempt is recorded in `provider_fetches` (provider, game, ok, status,
+short error) with a 30-day retention. Writes emit
+`settings.metadata_provider_updated` with the id, name, enabled, priority and
+changed field names, never the token. Field mapping validation accepts only the
+canonical fields above and dot-separated object keys.
 
 ## Library
 

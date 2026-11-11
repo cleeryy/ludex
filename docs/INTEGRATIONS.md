@@ -189,6 +189,160 @@ Payload shape:
 - A disabled hook receives no deliveries; its queued deliveries resume when it
   is re-enabled.
 
+## Metadata providers
+
+Administrator → **Metadata providers** installs a community metadata source
+without rebuilding or restarting the server. A provider is an HTTP sidecar:
+Ludex calls it over the network and never executes third-party code in process.
+
+IGDB stays the built-in default and is always tried first when credentials are
+configured. Enabled providers then run in ascending `priority`, followed by the
+Steam Store fallback and finally the file-name parser. A provider only fills
+metadata that is still empty (manual edits and IGDB always win), and a failing
+provider never fails an enrichment or a scan.
+
+### Contract
+
+`GET {baseUrl}/search?title=<urlencoded>&year=<optional>`
+
+Headers: `Accept: application/json`, and `Authorization: Bearer <token>` when a
+token is configured. The response is a JSON object with a `results` array
+(at most 50 entries are read):
+
+```json
+{
+  "results": [
+    {
+      "id": "celeste-1",
+      "title": "Celeste",
+      "description": "Help Madeline survive her inner demons.",
+      "releaseDate": "2018-01-25",
+      "coverUrl": "https://cdn.example/celeste-cover.jpg",
+      "backgroundUrl": "https://cdn.example/celeste-hero.jpg",
+      "screenshots": ["https://cdn.example/celeste-1.jpg"],
+      "genres": ["Platformer", {"name": "Indie"}],
+      "developers": ["Maddy Makes Games"],
+      "publishers": ["Extremely OK Games"],
+      "tags": ["speedrun"],
+      "rating": 92,
+      "ageRating": 7,
+      "providerUrl": "https://metadata.example.com/games/celeste-1"
+    }
+  ]
+}
+```
+
+- `id` and `title` are required; every other field is optional and ignored when
+  absent or of the wrong type.
+- `releaseDate` accepts `YYYY-MM-DD`, RFC 3339 or a bare year. `rating` is 0-100.
+  `ageRating` is a minimum age (0-21). `description` may contain HTML; tags are
+  stripped before storage.
+- Covers, backgrounds and screenshots are downloaded by the server and cached
+  in the media directory, exactly like IGDB artwork. Only local `/api/media/...`
+  paths are stored in the database.
+- `GET {baseUrl}/games/{id}` is optional and used by future refreshes. It returns
+  either one candidate object or a `{"results": [ ... ]}` envelope.
+
+### Field mapping
+
+Some providers wrap their payload differently. The admin form's **Field
+mapping** is a JSON object from canonical fields to dot paths:
+
+```json
+{
+  "title": "data.name",
+  "coverUrl": "data.images.cover",
+  "releaseDate": "data.released_at"
+}
+```
+
+Allowed canonical fields: `id`, `title`, `description`, `releaseDate`,
+`coverUrl`, `backgroundUrl`, `screenshots`, `genres`, `developers`,
+`publishers`, `tags`, `rating`, `ageRating`, `providerUrl`. Paths are
+dot-separated object keys (`data.images.cover`), never array indexes. A path
+that does not resolve is ignored and the canonical key is tried instead, so a
+mapping never hides fields a provider already returns in the standard shape.
+
+### Security
+
+- Server-side fetch only: the webview and the browser never call a provider.
+- One request per provider and per game, 10 s timeout, at most 2 MiB of body.
+  Response parsing is defensive; malformed JSON marks the attempt as failed.
+- Redirects are disabled (a redirect could downgrade HTTPS to HTTP).
+- Only `http` and `https` are accepted; URLs with credentials, queries or
+  fragments are rejected. The host is resolved once and the connection is
+  pinned to the validated address, so a DNS answer cannot move the request into
+  a private network.
+- Loopback, private, link-local and unique-local addresses are refused. Tests
+  may set `LUDEX_PROVIDER_ALLOW_PRIVATE=true`; never enable it in production.
+- The optional bearer token is encrypted at rest with AES-256-GCM under a key
+  derived from the server secret (HKDF-SHA256, purpose-bound AAD). It is
+  write-only: `secretConfigured` tells the UI whether one is stored, and no
+  endpoint ever returns the plaintext or the ciphertext. Rotating
+  `LUDEX_JWT_SECRET` invalidates stored tokens; re-enter them in the admin UI.
+- Every attempt is logged in `provider_fetches` (provider, game, ok, HTTP
+  status, short error). Rows older than 30 days are pruned on write.
+
+### Admin API
+
+All routes require an administrator account (API keys need the `admin` scope).
+
+```bash
+# List (ordered by priority)
+curl -sS https://ludex.example.com/api/admin/metadata-providers \
+  -H "Authorization: Bearer $LUDEX_TOKEN"
+
+# Create; the token is write-only and the provider starts disabled
+curl -sS -X POST https://ludex.example.com/api/admin/metadata-providers \
+  -H "Authorization: Bearer $LUDEX_TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "name": "Celeste DB",
+    "baseUrl": "https://metadata.example.com/v1",
+    "token": "provider-token",
+    "priority": 100,
+    "enabled": true,
+    "mapping": {}
+  }'
+
+# Update (a blank/absent token keeps the stored one; "clearToken": true removes it)
+curl -sS -X PUT https://ludex.example.com/api/admin/metadata-providers/1 \
+  -H "Authorization: Bearer $LUDEX_TOKEN" -H "Content-Type: application/json" \
+  -d '{"priority": 10, "enabled": true}'
+
+# Test a title without saving anything
+curl -sS -X POST https://ludex.example.com/api/admin/metadata-providers/1/test \
+  -H "Authorization: Bearer $LUDEX_TOKEN" -H "Content-Type: application/json" \
+  -d '{"title": "Celeste", "year": 2018}'
+
+# Reorder (priorities are rewritten 10, 20, ...)
+curl -sS -X POST https://ludex.example.com/api/admin/metadata-providers/reorder \
+  -H "Authorization: Bearer $LUDEX_TOKEN" -H "Content-Type: application/json" \
+  -d '{"ids": [2, 1]}'
+
+# Delete
+curl -sS -X DELETE https://ludex.example.com/api/admin/metadata-providers/1 \
+  -H "Authorization: Bearer $LUDEX_TOKEN"
+```
+
+Every create, update, reorder and delete emits
+`settings.metadata_provider_updated` with the provider id, name, enabled flag,
+priority and the changed field names. The token is never part of the audit
+metadata.
+
+### Example provider
+
+`examples/metadata-provider/` is a dependency-free Node server serving
+`/search` from a static fixture. Run it, then point a provider at its URL:
+
+```bash
+node examples/metadata-provider/server.mjs --port 8787
+# Base URL: http://localhost:8787 (with LUDEX_PROVIDER_ALLOW_PRIVATE=true for a
+# local test only)
+```
+
+See `examples/metadata-provider/README.md` for the fixture format and a mapping
+example.
+
 ## Desktop integrations
 
 Everything in this section runs on the machine that installed the games, inside

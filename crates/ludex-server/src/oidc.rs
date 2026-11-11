@@ -7,13 +7,10 @@
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use aes_gcm::aead::{Aead, KeyInit, Payload};
-use aes_gcm::{Aes256Gcm, Nonce};
 use anyhow::{Context, Result as AnyResult};
 use axum::http::{HeaderMap, StatusCode};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use hkdf::Hkdf;
 use jsonwebtoken::jwk::{Jwk, JwkSet, PublicKeyUse};
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use ludex_core::models::Role;
@@ -51,8 +48,6 @@ const SECRET_HKDF_SALT: &[u8] = b"ludex-oidc-settings-v1";
 const SECRET_HKDF_INFO: &[u8] = b"oidc-client-secret";
 /// Additional authenticated data bound to every encrypted secret.
 const SECRET_AAD: &[u8] = b"ludex.oidc.client-secret.v1";
-/// Prefix of the stored ciphertext format.
-const SECRET_PREFIX: &str = "v1.";
 
 /// OIDC provider settings, as saved from the admin UI **without** the secret.
 ///
@@ -185,64 +180,32 @@ impl OidcStatus {
     }
 }
 
-/// Derives the AES-256-GCM key from the server secret.
-fn derive_secret_key(server_secret: &[u8]) -> [u8; 32] {
-    let hkdf = Hkdf::<Sha256>::new(Some(SECRET_HKDF_SALT), server_secret);
-    let mut key = [0_u8; 32];
-    hkdf.expand(SECRET_HKDF_INFO, &mut key)
-        .expect("32 bytes is a valid HKDF output length");
-    key
-}
-
 /// Encrypts a client secret with a key derived from the server secret.
 ///
 /// The returned value is `v1.<base64url(nonce || ciphertext)>`; the nonce is
 /// random for every write, so saving the same secret twice produces different
 /// ciphertext.
 pub fn encrypt_secret(server_secret: &[u8], plaintext: &str) -> AnyResult<String> {
-    let cipher = Aes256Gcm::new_from_slice(&derive_secret_key(server_secret))
-        .context("build AES-256-GCM cipher")?;
-    let mut nonce_bytes = [0_u8; 12];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
-    let ciphertext = cipher
-        .encrypt(
-            Nonce::from_slice(&nonce_bytes),
-            Payload {
-                msg: plaintext.as_bytes(),
-                aad: SECRET_AAD,
-            },
-        )
-        .map_err(|_| anyhow::anyhow!("encrypt OIDC client secret"))?;
-    let mut blob = Vec::with_capacity(12 + ciphertext.len());
-    blob.extend_from_slice(&nonce_bytes);
-    blob.extend_from_slice(&ciphertext);
-    Ok(format!("{SECRET_PREFIX}{}", URL_SAFE_NO_PAD.encode(blob)))
+    crate::secrets::encrypt(
+        server_secret,
+        SECRET_HKDF_SALT,
+        SECRET_HKDF_INFO,
+        SECRET_AAD,
+        plaintext,
+    )
+    .context("encrypt OIDC client secret")
 }
 
 /// Decrypts a secret produced by [`encrypt_secret`].
 pub fn decrypt_secret(server_secret: &[u8], stored: &str) -> AnyResult<String> {
-    let encoded = stored
-        .strip_prefix(SECRET_PREFIX)
-        .context("unsupported OIDC secret format")?;
-    let blob = URL_SAFE_NO_PAD
-        .decode(encoded)
-        .context("decode OIDC secret")?;
-    if blob.len() <= 12 {
-        anyhow::bail!("OIDC secret ciphertext is truncated");
-    }
-    let (nonce_bytes, ciphertext) = blob.split_at(12);
-    let cipher = Aes256Gcm::new_from_slice(&derive_secret_key(server_secret))
-        .context("build AES-256-GCM cipher")?;
-    let plaintext = cipher
-        .decrypt(
-            Nonce::from_slice(nonce_bytes),
-            Payload {
-                msg: ciphertext,
-                aad: SECRET_AAD,
-            },
-        )
-        .map_err(|_| anyhow::anyhow!("decrypt OIDC client secret (server secret changed?)"))?;
-    String::from_utf8(plaintext).context("OIDC secret is not valid UTF-8")
+    crate::secrets::decrypt(
+        server_secret,
+        SECRET_HKDF_SALT,
+        SECRET_HKDF_INFO,
+        SECRET_AAD,
+        stored,
+    )
+    .context("decrypt OIDC client secret")
 }
 
 /// Names of the settings that differ between two snapshots. The secret is
@@ -1806,7 +1769,7 @@ mod tests {
 
         let first = encrypt_secret(server_secret, secret).expect("encrypt");
         let second = encrypt_secret(server_secret, secret).expect("encrypt again");
-        assert!(first.starts_with(SECRET_PREFIX));
+        assert!(first.starts_with("v1."));
         assert!(!first.contains(secret));
         assert_ne!(first, second, "every write uses a fresh nonce");
         assert_eq!(

@@ -21,12 +21,15 @@ import type {
   IngestStats,
   LibraryFile,
   LibraryStats,
+  MetadataProvider,
+  MetadataProviderInput,
   NewsPost,
   OidcAdminResponse,
   OidcSettingsInput,
   OidcTestResult,
   ProfilePatch,
   ProgressState,
+  ProviderTestResult,
   PublicProfile,
   PublicProfileResponse,
   Role,
@@ -231,6 +234,38 @@ export const api = {
     return USING_MOCKS
       ? mockApi.resetOidcSettings(tokenStore.get())
       : request<OidcAdminResponse>("/admin/oidc/reset", { method: "POST" });
+  },
+
+  /* admin metadata providers (#28) */
+  adminMetadataProviders(): Promise<MetadataProvider[]> {
+    return USING_MOCKS
+      ? mockApi.adminMetadataProviders(tokenStore.get())
+      : request<MetadataProvider[]>("/admin/metadata-providers");
+  },
+  createMetadataProvider(body: MetadataProviderInput): Promise<MetadataProvider> {
+    return USING_MOCKS
+      ? mockApi.createMetadataProvider(tokenStore.get(), body)
+      : request<MetadataProvider>("/admin/metadata-providers", { method: "POST", body });
+  },
+  updateMetadataProvider(id: number, body: MetadataProviderInput): Promise<MetadataProvider> {
+    return USING_MOCKS
+      ? mockApi.updateMetadataProvider(tokenStore.get(), id, body)
+      : request<MetadataProvider>(`/admin/metadata-providers/${id}`, { method: "PUT", body });
+  },
+  deleteMetadataProvider(id: number): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.deleteMetadataProvider(tokenStore.get(), id)
+      : request(`/admin/metadata-providers/${id}`, { method: "DELETE" });
+  },
+  reorderMetadataProviders(ids: number[]): Promise<MetadataProvider[]> {
+    return USING_MOCKS
+      ? mockApi.reorderMetadataProviders(tokenStore.get(), ids)
+      : request<MetadataProvider[]>("/admin/metadata-providers/reorder", { method: "POST", body: { ids } });
+  },
+  testMetadataProvider(id: number, body: { title: string; year?: number }): Promise<ProviderTestResult> {
+    return USING_MOCKS
+      ? mockApi.testMetadataProvider(tokenStore.get(), id, body)
+      : request<ProviderTestResult>(`/admin/metadata-providers/${id}/test`, { method: "POST", body });
   },
 
   /* games */

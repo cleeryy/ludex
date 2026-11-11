@@ -212,6 +212,9 @@ pub struct Config {
     pub ingest_allow_private: bool,
     /// Allow webhook targets on private/loopback addresses (tests only).
     pub webhooks_allow_private: bool,
+    /// Allow metadata provider targets on private/loopback addresses (tests
+    /// only; `LUDEX_PROVIDER_ALLOW_PRIVATE=true`).
+    pub providers_allow_private: bool,
     /// Base delay for webhook retry backoff, in milliseconds.
     pub webhooks_backoff_ms: u64,
     /// Interval between automatic library scans. Zero disables periodic scans.
@@ -513,6 +516,7 @@ impl Config {
             local_mode: bool_env("LUDEX_LOCAL_MODE"),
             ingest_allow_private: bool_env("LUDEX_INGEST_ALLOW_PRIVATE"),
             webhooks_allow_private: bool_env("LUDEX_WEBHOOKS_ALLOW_PRIVATE"),
+            providers_allow_private: bool_env("LUDEX_PROVIDER_ALLOW_PRIVATE"),
             webhooks_backoff_ms: env_opt("LUDEX_WEBHOOKS_BACKOFF_MS")
                 .map(|value| value.parse::<u64>())
                 .transpose()
@@ -599,6 +603,7 @@ impl Config {
             local_mode: true,
             ingest_allow_private: false,
             webhooks_allow_private: false,
+            providers_allow_private: false,
             webhooks_backoff_ms: 1_000,
             scan_interval: Duration::from_secs(DEFAULT_SCAN_INTERVAL_SECONDS),
             library_roots,

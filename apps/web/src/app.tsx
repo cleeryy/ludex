@@ -35,6 +35,7 @@ import { UsersScreen } from "@/screens/admin/users";
 import { AdminNewsScreen } from "@/screens/admin/news";
 import { ServerScreen } from "@/screens/admin/server";
 import { AuthenticationScreen } from "@/screens/admin/authentication";
+import { MetadataProvidersScreen } from "@/screens/admin/metadata";
 import { UploadScreen } from "@/screens/admin/upload";
 import { ShareScreen } from "@/screens/share";
 import { t } from "@/lib/i18n";
@@ -249,6 +250,14 @@ export function App() {
                     element={
                       <RequireAdmin>
                         <AuthenticationScreen />
+                      </RequireAdmin>
+                    }
+                  />
+                  <Route
+                    path="admin/metadata"
+                    element={
+                      <RequireAdmin>
+                        <MetadataProvidersScreen />
                       </RequireAdmin>
                     }
                   />

@@ -28,6 +28,15 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Metadata provider plugins (#28): an HTTP sidecar contract plus an admin
+  registry (`metadata_providers`, migration `0018_metadata_providers.sql`,
+  encrypted write-only tokens, priority, enabled flag, optional field mapping,
+  fetch history). Enrichment runs IGDB → enabled providers by priority → Steam,
+  a failing provider never aborts a scan, and provider data only fills empty
+  fields (manual edits and IGDB win). New admin API under
+  `/api/admin/metadata-providers` (CRUD, reorder, test) with secret-free audit,
+  an Admin → Metadata providers screen, `docs/INTEGRATIONS.md` and a runnable
+  dependency-free example provider under `examples/metadata-provider/`.
 - Custom title bar on desktop (#111): Windows and Linux now run undecorated
   (`decorations: false` in the base Tauri config) and Ludex draws its own
   chrome inside the existing top bar — compact wordmark, the usual search and

@@ -69,6 +69,7 @@ async fn main() -> Result<()> {
         scan_tx,
         http,
         igdb,
+        providers: Arc::new(RwLock::new(Vec::new())),
         oidc: Arc::new(RwLock::new(None)),
         oidc_status: Arc::new(RwLock::new(ludex_server::oidc::OidcStatus::default())),
         events: ludex_server::events::channel().0,

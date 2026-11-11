@@ -323,6 +323,80 @@ export interface OidcTestResult {
   discovery: OidcDiscoveryInfo;
 }
 
+/* ---------------------------- metadata providers -------------------------- */
+
+/** Canonical fields a provider mapping may target. */
+export type MetadataProviderField =
+  | "id"
+  | "title"
+  | "description"
+  | "releaseDate"
+  | "coverUrl"
+  | "backgroundUrl"
+  | "screenshots"
+  | "genres"
+  | "developers"
+  | "publishers"
+  | "tags"
+  | "rating"
+  | "ageRating"
+  | "providerUrl";
+
+/** A community metadata provider as returned by the admin API. */
+export interface MetadataProvider {
+  id: number;
+  name: string;
+  baseUrl: string;
+  /** Whether a bearer token is stored at rest. The token itself never leaves
+   * the server. */
+  secretConfigured: boolean;
+  /** Lower runs first; IGDB always runs before every provider. */
+  priority: number;
+  enabled: boolean;
+  /** Canonical field -> dot path in a non-canonical response. */
+  mapping: Partial<Record<MetadataProviderField, string>>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Create/update payload. `token` is write-only. */
+export interface MetadataProviderInput {
+  name?: string;
+  baseUrl?: string;
+  /** Blank or absent keeps the stored token. */
+  token?: string | null;
+  clearToken?: boolean;
+  priority?: number;
+  enabled?: boolean;
+  mapping?: Partial<Record<MetadataProviderField, string>>;
+}
+
+/** One metadata candidate returned by a provider. */
+export interface ProviderCandidate {
+  id: string;
+  title: string;
+  description?: string;
+  releaseDate?: string;
+  coverUrl?: string;
+  backgroundUrl?: string;
+  screenshots?: string[];
+  genres?: string[];
+  developers?: string[];
+  publishers?: string[];
+  tags?: string[];
+  rating?: number;
+  ageRating?: number;
+  providerUrl?: string;
+}
+
+export interface ProviderTestResult {
+  ok: boolean;
+  candidates: ProviderCandidate[];
+  error?: string;
+  statusCode?: number;
+  elapsedMs: number;
+}
+
 export interface LibraryStats {
   games: number;
   versions: number;

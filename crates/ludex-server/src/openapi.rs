@@ -222,6 +222,76 @@ pub const ROUTES: &[RouteDoc] = &[
         ),
         200,
     ),
+    // Community metadata providers (#28)
+    route(
+        HttpMethod::Get,
+        "/admin/metadata-providers",
+        "Metadata",
+        "List metadata providers, ordered by priority",
+        Auth::Admin,
+        Payload::Array("MetadataProviderView"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/admin/metadata-providers",
+            "Metadata",
+            "Create a metadata provider (token is write-only)",
+            Auth::Admin,
+            Payload::Schema("MetadataProviderView"),
+        ),
+        "CreateMetadataProviderRequest",
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/admin/metadata-providers/reorder",
+                "Metadata",
+                "Rewrite provider priorities from an explicit id order",
+                Auth::Admin,
+                Payload::Array("MetadataProviderView"),
+            ),
+            200,
+        ),
+        "ReorderMetadataProvidersRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/admin/metadata-providers/{id}",
+            "Metadata",
+            "Update a metadata provider (blank token keeps the stored one)",
+            Auth::Admin,
+            Payload::Schema("MetadataProviderView"),
+        ),
+        "UpdateMetadataProviderRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/admin/metadata-providers/{id}",
+            "Metadata",
+            "Delete a metadata provider",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/admin/metadata-providers/{id}/test",
+                "Metadata",
+                "Query a provider and return its candidates or error",
+                Auth::Admin,
+                Payload::Schema("ProviderTestResponse"),
+            ),
+            200,
+        ),
+        "TestMetadataProviderRequest",
+    ),
     route(
         HttpMethod::Get,
         "/openapi.json",
@@ -1618,6 +1688,13 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::models::InstalledReportResponse>()
         .schema_from::<crate::models::ScanStatus>()
         .schema_from::<crate::models::ScanResponse>()
+        .schema_from::<crate::providers::MetadataProviderView>()
+        .schema_from::<crate::providers::ProviderCandidate>()
+        .schema_from::<crate::providers::ProviderTestResponse>()
+        .schema_from::<crate::routes::metadata_providers::CreateMetadataProviderRequest>()
+        .schema_from::<crate::routes::metadata_providers::UpdateMetadataProviderRequest>()
+        .schema_from::<crate::routes::metadata_providers::ReorderMetadataProvidersRequest>()
+        .schema_from::<crate::routes::metadata_providers::TestMetadataProviderRequest>()
         .schema_from::<crate::models::LibraryFolders>()
         .schema_from::<crate::roots::LibraryRootView>()
         .schema_from::<crate::models::CreateLibraryRootRequest>()

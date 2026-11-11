@@ -36,6 +36,8 @@ import type {
   InstalledGame,
   LibraryFile,
   LibraryStats,
+  MetadataProvider,
+  MetadataProviderInput,
   NewsPost,
   OidcAdminResponse,
   OidcSettings,
@@ -43,6 +45,8 @@ import type {
   OidcTestResult,
   ProfilePatch,
   ProgressState,
+  ProviderCandidate,
+  ProviderTestResult,
   PublicProfile,
   PublicProfileResponse,
   Role,
@@ -605,6 +609,46 @@ function demoOidcDiscovery(issuer: string): OidcTestResult {
       tokenEndpointAuthMethodsSupported: ["client_secret_basic", "client_secret_post"],
     },
   };
+}
+
+/** Demo metadata providers (#28). Tokens are never modelled in the mock. */
+let demoProviders: MetadataProvider[] = [
+  {
+    id: 1,
+    name: "ScreenScraper",
+    baseUrl: "https://api.screenscraper.example/v1",
+    secretConfigured: true,
+    priority: 10,
+    enabled: true,
+    mapping: {},
+    createdAt: "2026-10-02T09:12:00Z",
+    updatedAt: "2026-10-02T09:12:00Z",
+  },
+  {
+    id: 2,
+    name: "GiantBomb",
+    baseUrl: "https://www.giantbomb.example/api",
+    secretConfigured: false,
+    priority: 20,
+    enabled: false,
+    mapping: { title: "data.name", coverUrl: "data.image.medium_url" },
+    createdAt: "2026-10-11T16:40:00Z",
+    updatedAt: "2026-10-11T16:40:00Z",
+  },
+];
+
+function demoProviderCandidates(title: string): ProviderCandidate[] {
+  return [
+    {
+      id: "demo-1",
+      title,
+      description: `Demo metadata for ${title}.`,
+      releaseDate: "2020-09-17",
+      genres: ["Action"],
+      developers: ["Demo Studio"],
+      rating: 88,
+    },
+  ];
 }
 
 function requireDemoAdmin(token: string | null): User {
@@ -1580,6 +1624,99 @@ export const mockApi = {
     demoOidc.issuer = null;
     demoOidc.clientId = null;
     return demoOidcResponse(demoOidc);
+  },
+
+  /* admin metadata providers (#28) */
+  async adminMetadataProviders(token: string | null): Promise<MetadataProvider[]> {
+    await latency();
+    requireDemoAdmin(token);
+    return clone(demoProviders).sort((left, right) => left.priority - right.priority || left.id - right.id);
+  },
+
+  async createMetadataProvider(token: string | null, body: MetadataProviderInput): Promise<MetadataProvider> {
+    await latency();
+    requireDemoAdmin(token);
+    const name = body.name?.trim();
+    if (!name) fail(400, "invalid_provider_name", "Provider name is required");
+    if (!body.baseUrl?.trim()) fail(400, "invalid_provider_url", "Base URL is required");
+    if (demoProviders.some((provider) => provider.name.toLowerCase() === name.toLowerCase())) {
+      fail(400, "provider_name_taken", "A provider with this name already exists");
+    }
+    const stamp = nowIso();
+    const provider: MetadataProvider = {
+      id: Math.max(0, ...demoProviders.map((entry) => entry.id)) + 1,
+      name,
+      baseUrl: body.baseUrl.trim(),
+      secretConfigured: Boolean(body.token?.trim()),
+      priority: body.priority ?? 100,
+      enabled: body.enabled ?? false,
+      mapping: body.mapping ?? {},
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
+    demoProviders.push(provider);
+    return clone(provider);
+  },
+
+  async updateMetadataProvider(token: string | null, id: number, body: MetadataProviderInput): Promise<MetadataProvider> {
+    await latency();
+    requireDemoAdmin(token);
+    const provider = demoProviders.find((entry) => entry.id === id);
+    if (!provider) fail(404, "metadata_provider_not_found", "Metadata provider not found");
+    if (body.name !== undefined) {
+      const name = body.name.trim();
+      if (!name) fail(400, "invalid_provider_name", "Provider name is required");
+      if (demoProviders.some((entry) => entry.id !== id && entry.name.toLowerCase() === name.toLowerCase())) {
+        fail(400, "provider_name_taken", "A provider with this name already exists");
+      }
+      provider.name = name;
+    }
+    if (body.baseUrl !== undefined) {
+      if (!body.baseUrl.trim()) fail(400, "invalid_provider_url", "Base URL is required");
+      provider.baseUrl = body.baseUrl.trim();
+    }
+    if (body.token?.trim()) provider.secretConfigured = true;
+    if (body.clearToken) provider.secretConfigured = false;
+    if (body.priority !== undefined) provider.priority = body.priority;
+    if (body.enabled !== undefined) provider.enabled = body.enabled;
+    if (body.mapping !== undefined) provider.mapping = body.mapping;
+    provider.updatedAt = nowIso();
+    return clone(provider);
+  },
+
+  async deleteMetadataProvider(token: string | null, id: number): Promise<void> {
+    await latency();
+    requireDemoAdmin(token);
+    demoProviders = demoProviders.filter((entry) => entry.id !== id);
+  },
+
+  async reorderMetadataProviders(token: string | null, ids: number[]): Promise<MetadataProvider[]> {
+    await latency();
+    requireDemoAdmin(token);
+    ids.forEach((id, index) => {
+      const provider = demoProviders.find((entry) => entry.id === id);
+      if (!provider) fail(400, "invalid_provider_order", "Unknown provider id in the requested order");
+      provider.priority = (index + 1) * 10;
+      provider.updatedAt = nowIso();
+    });
+    return clone(demoProviders).sort((left, right) => left.priority - right.priority || left.id - right.id);
+  },
+
+  async testMetadataProvider(
+    token: string | null,
+    id: number,
+    body: { title: string; year?: number },
+  ): Promise<ProviderTestResult> {
+    await latency();
+    requireDemoAdmin(token);
+    const provider = demoProviders.find((entry) => entry.id === id);
+    if (!provider) fail(404, "metadata_provider_not_found", "Metadata provider not found");
+    const title = body.title.trim();
+    if (!title) return { ok: false, candidates: [], error: "A title is required to test a provider", elapsedMs: 0 };
+    if (!provider.enabled) {
+      return { ok: false, candidates: [], error: "The demo provider is disabled; enable it to test it.", elapsedMs: 42 };
+    }
+    return { ok: true, candidates: demoProviderCandidates(title), statusCode: 200, elapsedMs: 128 };
   },
 
   async health() {

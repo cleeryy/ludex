@@ -18,6 +18,7 @@ import {
   Moon,
   Plus,
   KeyRound,
+  PlugZap,
   RefreshCw,
   Search,
   Server,
@@ -154,6 +155,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 { id: "adm-news", group: t("Admin"), label: t("News editor"), icon: <ShieldCheck className="size-3.5" />, run: go("/admin/news") },
                 { id: "adm-server", group: t("Admin"), label: t("Server"), icon: <Server className="size-3.5" />, run: go("/admin/server") },
                 { id: "adm-authentication", group: t("Admin"), label: t("Authentication"), icon: <KeyRound className="size-3.5" />, run: go("/admin/authentication") },
+                { id: "adm-metadata", group: t("Admin"), label: t("Metadata providers"), icon: <PlugZap className="size-3.5" />, run: go("/admin/metadata") },
               ]
             : []),
         ]

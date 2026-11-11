@@ -1,0 +1,44 @@
+[
+  {
+    "id": "celeste-1",
+    "title": "Celeste",
+    "description": "Help Madeline survive her inner demons on a journey to the top of Celeste Mountain.",
+    "releaseDate": "2018-01-25",
+    "coverUrl": "https://cdn.example.invalid/celeste/cover.jpg",
+    "backgroundUrl": "https://cdn.example.invalid/celeste/hero.jpg",
+    "screenshots": ["https://cdn.example.invalid/celeste/1.jpg"],
+    "genres": ["Platformer", "Indie"],
+    "developers": ["Maddy Makes Games"],
+    "publishers": ["Extremely OK Games"],
+    "tags": ["precision-platformer", "speedrun"],
+    "rating": 92,
+    "ageRating": 7,
+    "providerUrl": "https://metadata.example.invalid/celeste"
+  },
+  {
+    "id": "hades-1",
+    "title": "Hades",
+    "description": "Defy the god of the dead as you hack and slash your way out of the Underworld.",
+    "releaseDate": "2020-09-17",
+    "coverUrl": "https://cdn.example.invalid/hades/cover.jpg",
+    "genres": ["Roguelike", "Action"],
+    "developers": ["Supergiant Games"],
+    "publishers": ["Supergiant Games"],
+    "rating": 93,
+    "ageRating": 12,
+    "providerUrl": "https://metadata.example.invalid/hades"
+  },
+  {
+    "id": "hollow-knight-1",
+    "title": "Hollow Knight",
+    "description": "Explore a vast ruined kingdom of insects and heroes.",
+    "releaseDate": "2017-02-24",
+    "coverUrl": "https://cdn.example.invalid/hollow-knight/cover.jpg",
+    "genres": ["Metroidvania"],
+    "developers": ["Team Cherry"],
+    "publishers": ["Team Cherry"],
+    "rating": 90,
+    "ageRating": 7,
+    "providerUrl": "https://metadata.example.invalid/hollow-knight"
+  }
+]

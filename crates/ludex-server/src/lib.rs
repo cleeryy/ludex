@@ -48,10 +48,12 @@ pub mod metrics;
 pub mod models;
 pub mod oidc;
 pub mod openapi;
+pub mod providers;
 pub mod roots;
 pub mod routes;
 pub mod saves;
 pub mod scanner;
+pub mod secrets;
 pub mod security;
 pub mod share;
 pub mod sql;
@@ -191,6 +193,10 @@ async fn prepare(config: Config) -> Result<Prepared> {
         _ => None,
     };
 
+    // Community metadata providers are configured at runtime; a broken row
+    // (rotated secret, invalid mapping) is skipped instead of failing startup.
+    let providers = providers::load_enabled(&pool, &secret, config.providers_allow_private).await;
+
     let (scan_tx, scan_rx) = mpsc::channel::<ScanRequest>(4);
     let (cancel_tx, cancel_rx) = watch::channel(false);
     // Settings saved from the admin UI are the fallback; `LUDEX_OIDC_*`
@@ -263,6 +269,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
         scan_tx: scan_tx.clone(),
         http,
         igdb,
+        providers: Arc::new(RwLock::new(providers)),
         oidc: Arc::new(RwLock::new(oidc)),
         oidc_status: Arc::new(RwLock::new(oidc_status)),
         events,

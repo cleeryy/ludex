@@ -502,8 +502,15 @@ pub struct ProviderMetadata {
     pub provider: ProviderRef,
 }
 
-/// Looks a game up through the provider chain, first match wins.
-pub async fn lookup(state: &AppState, title: &str, year: Option<u16>) -> Option<ProviderMetadata> {
+/// Looks a game up through the provider chain, first match wins: IGDB (when
+/// configured), then enabled community providers by priority, then Steam.
+/// Provider failures are logged and never abort the chain.
+pub async fn lookup(
+    state: &AppState,
+    title: &str,
+    year: Option<u16>,
+    game_id: Option<i64>,
+) -> Option<ProviderMetadata> {
     if let Some(igdb) = &state.igdb {
         match igdb.search(title, year).await {
             Ok(Some(metadata)) => return Some(metadata),
@@ -514,6 +521,10 @@ pub async fn lookup(state: &AppState, title: &str, year: Option<u16>) -> Option<
         }
     }
 
+    if let Some(metadata) = provider_lookup(state, title, year, game_id).await {
+        return Some(metadata);
+    }
+
     match steam_search(&state.http, title).await {
         Ok(metadata) => metadata,
         Err(error) => {
@@ -521,6 +532,49 @@ pub async fn lookup(state: &AppState, title: &str, year: Option<u16>) -> Option<
             None
         }
     }
+}
+
+/// Tries the enabled community providers in priority order. The first
+/// confident match wins; every attempt is recorded in `provider_fetches`.
+async fn provider_lookup(
+    state: &AppState,
+    title: &str,
+    year: Option<u16>,
+    game_id: Option<i64>,
+) -> Option<ProviderMetadata> {
+    let configs = state.providers.read().await.clone();
+    for config in configs {
+        match crate::providers::search(&config, title, year).await {
+            Ok(candidates) => {
+                crate::providers::record_fetch(
+                    &state.pool,
+                    config.id,
+                    game_id,
+                    Ok(candidates.len()),
+                )
+                .await;
+                if let Some(candidate) = crate::providers::best_candidate(&candidates, title, year)
+                {
+                    tracing::info!(
+                        provider = %config.name,
+                        game_id,
+                        title = %candidate.title,
+                        "metadata provider match"
+                    );
+                    return Some(candidate.to_metadata(&config.slug));
+                }
+            }
+            Err(error) => {
+                crate::providers::record_fetch(&state.pool, config.id, game_id, Err(&error)).await;
+                tracing::warn!(
+                    provider = %config.name,
+                    error = %error,
+                    "metadata provider lookup failed"
+                );
+            }
+        }
+    }
+    None
 }
 
 /// Enriches one game and caches its artwork. Safe to call concurrently for
@@ -541,7 +595,7 @@ pub async fn enrich_game(state: &AppState, game_id: i64) {
         .and_then(|value| value.get(0..4))
         .and_then(|value| value.parse::<u16>().ok());
 
-    let Some(metadata) = lookup(state, &title, year).await else {
+    let Some(metadata) = lookup(state, &title, year, Some(game_id)).await else {
         tracing::debug!(game_id, title = %title, "no metadata match");
         return;
     };

@@ -15,6 +15,7 @@ import {
   KeyRound,
   ListOrdered,
   ListPlus,
+  PlugZap,
   LogOut,
   Moon,
   MoreHorizontal,
@@ -161,6 +162,7 @@ function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
                 <RailLink label={t("News editor")} icon={<ShieldCheck className="size-4" />} active={path === "/admin/news"} onClick={() => go("/admin/news")} />
                 <RailLink label={t("Server")} icon={<Server className="size-4" />} active={path === "/admin/server"} onClick={() => go("/admin/server")} />
                 <RailLink label={t("Authentication")} icon={<KeyRound className="size-4" />} active={path === "/admin/authentication"} onClick={() => go("/admin/authentication")} />
+                <RailLink label={t("Metadata providers")} icon={<PlugZap className="size-4" />} active={path === "/admin/metadata"} onClick={() => go("/admin/metadata")} />
               </>
             )}
           </>
@@ -457,6 +459,7 @@ function MobileMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open
             {isAdmin && <Row label={t("Users")} icon={<Users className="size-3.5" />} onClick={() => go("/admin/users")} />}
             {isAdmin && <Row label={t("Server")} icon={<Server className="size-3.5" />} onClick={() => go("/admin/server")} />}
             {isAdmin && <Row label={t("Authentication")} icon={<KeyRound className="size-3.5" />} onClick={() => go("/admin/authentication")} />}
+            {isAdmin && <Row label={t("Metadata providers")} icon={<PlugZap className="size-3.5" />} onClick={() => go("/admin/metadata")} />}
           </>
         )}
         <Row
