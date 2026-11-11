@@ -170,47 +170,118 @@ fn relative_string(install_root: &Path, path: &Path) -> String {
         .join("/")
 }
 
-/// Crack/Steam-emulator directories are never game-owned settings. They are
-/// read by other parts of the app for read-only achievement data, but exposing
-/// them in the config editor would invite editing DRM/emulation files.
-const SKIPPED_DIR_NAMES: &[&str] = &[
-    "cracks",
-    "steam_settings",
-    "mr_goldberg",
-    "goldberg",
-    "rune",
-    "codex",
-    "plaza",
-    "skidrow",
-    "reloaded",
-    "empress",
-];
-
-/// Emulator config files that live next to a game or under Cracks/.
-const SKIPPED_FILE_NAMES: &[&str] = &[
-    "steam_emu.ini",
-    "steam_api.ini",
-    "steam_api64.ini",
-    "cream_api.ini",
-];
-
 fn is_skipped_dir(name: &str) -> bool {
     // `.prefix` is a Wine prefix: thousands of files, never a game config we
     // want to surface. Hidden folders cover staging directories too.
-    let lower = name.to_ascii_lowercase();
-    name.starts_with('.') || lower == "drive_c" || SKIPPED_DIR_NAMES.contains(&lower.as_str())
+    name.starts_with('.') || name.eq_ignore_ascii_case("drive_c")
 }
 
-fn is_skipped_file(name: &str) -> bool {
-    SKIPPED_FILE_NAMES.contains(&name.to_ascii_lowercase().as_str())
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextEncoding {
+    Utf8,
+    Utf16Le,
+    Utf16Be,
+    Windows1252,
 }
 
-fn looks_binary(bytes: &[u8]) -> bool {
-    bytes.iter().take(8192).any(|byte| *byte == 0)
+struct TextFile {
+    text: String,
+    encoding: TextEncoding,
+    bom: bool,
+    size: u64,
 }
 
-/// Read a file that is expected to be text: bounded, UTF-8, no NUL bytes.
-fn read_text(path: &Path) -> Result<String, String> {
+impl TextFile {
+    /// Re-encode with the encoding and BOM the file had on disk.
+    fn encode(&self, text: &str) -> Result<Vec<u8>, String> {
+        match self.encoding {
+            TextEncoding::Utf8 => {
+                let mut bytes = Vec::with_capacity(text.len() + 3);
+                if self.bom {
+                    bytes.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+                }
+                bytes.extend_from_slice(text.as_bytes());
+                Ok(bytes)
+            }
+            TextEncoding::Utf16Le | TextEncoding::Utf16Be => {
+                let encoding = if self.encoding == TextEncoding::Utf16Le {
+                    encoding_rs::UTF_16LE
+                } else {
+                    encoding_rs::UTF_16BE
+                };
+                let (encoded, _, had_errors) = encoding.encode(text);
+                if had_errors {
+                    return Err(
+                        "The new text cannot be represented in the file's UTF-16 encoding."
+                            .to_string(),
+                    );
+                }
+                let mut bytes = Vec::with_capacity(encoded.len() + 2);
+                if self.bom {
+                    if self.encoding == TextEncoding::Utf16Le {
+                        bytes.extend_from_slice(&[0xFF, 0xFE]);
+                    } else {
+                        bytes.extend_from_slice(&[0xFE, 0xFF]);
+                    }
+                }
+                bytes.extend_from_slice(&encoded);
+                Ok(bytes)
+            }
+            TextEncoding::Windows1252 => {
+                let (encoded, _, had_errors) = encoding_rs::WINDOWS_1252.encode(text);
+                if had_errors {
+                    return Err(
+                        "The new text cannot be represented in the file's Windows-1252 encoding."
+                            .to_string(),
+                    );
+                }
+                Ok(encoded.into_owned())
+            }
+        }
+    }
+}
+
+fn decode_text(bytes: &[u8]) -> Result<(String, TextEncoding, bool), String> {
+    // BOMs first: UTF-16 text legitimately contains NUL bytes.
+    if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        let (text, had_errors) = encoding_rs::UTF_8.decode_without_bom_handling(rest);
+        if had_errors {
+            return Err("The file has a UTF-8 BOM but is not valid UTF-8.".to_string());
+        }
+        return Ok((text.into_owned(), TextEncoding::Utf8, true));
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
+        let (text, had_errors) = encoding_rs::UTF_16LE.decode_without_bom_handling(rest);
+        if had_errors {
+            return Err("The file has a UTF-16LE BOM but contains invalid text.".to_string());
+        }
+        return Ok((text.into_owned(), TextEncoding::Utf16Le, true));
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
+        let (text, had_errors) = encoding_rs::UTF_16BE.decode_without_bom_handling(rest);
+        if had_errors {
+            return Err("The file has a UTF-16BE BOM but contains invalid text.".to_string());
+        }
+        return Ok((text.into_owned(), TextEncoding::Utf16Be, true));
+    }
+    if bytes.iter().any(|byte| *byte == 0) {
+        return Err(
+            "The file looks binary (NUL bytes); Ludex only edits text configs.".to_string(),
+        );
+    }
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return Ok((text.to_string(), TextEncoding::Utf8, false));
+    }
+    let (text, had_errors) = encoding_rs::WINDOWS_1252.decode_without_bom_handling(bytes);
+    if had_errors {
+        return Err("The file is not valid UTF-8, UTF-16 or Windows-1252 text.".to_string());
+    }
+    Ok((text.into_owned(), TextEncoding::Windows1252, false))
+}
+
+/// Read a bounded text config, detecting UTF-8/UTF-16 BOMs and falling back to
+/// Windows-1252 for legacy INI files.
+fn read_text_file(path: &Path) -> Result<TextFile, String> {
     let metadata =
         fs::metadata(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
     if !metadata.is_file() {
@@ -225,14 +296,13 @@ fn read_text(path: &Path) -> Result<String, String> {
         ));
     }
     let bytes = fs::read(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
-    if looks_binary(&bytes) {
-        return Err(format!(
-            "{} looks like a binary file; Ludex only edits text configs.",
-            path.display()
-        ));
-    }
-    String::from_utf8(bytes)
-        .map_err(|_| format!("{} is not UTF-8 text; refusing to edit it.", path.display()))
+    let (text, encoding, bom) = decode_text(&bytes)?;
+    Ok(TextFile {
+        text,
+        encoding,
+        bom,
+        size: metadata.len(),
+    })
 }
 
 /// Resolve a relative config path and refuse anything outside the install
@@ -752,8 +822,8 @@ pub fn read(install_root: &Path, relative: &str) -> Result<ConfigDocument, Strin
     let path = resolve_relative(install_root, relative)?;
     let format =
         ConfigFormat::for_path(&path).ok_or_else(|| "Unsupported config format.".to_string())?;
-    let text = read_text(&path)?;
-    let size_bytes = text.len() as u64;
+    let file = read_text_file(&path)?;
+    let size_bytes = file.size;
     let note = if format == ConfigFormat::Json {
         Some("JSON comments are not supported by the format.".to_string())
     } else {
@@ -764,7 +834,7 @@ pub fn read(install_root: &Path, relative: &str) -> Result<ConfigDocument, Strin
         &path,
         relative,
         format,
-        &text,
+        &file.text,
         size_bytes,
         note,
     )
@@ -808,9 +878,6 @@ fn walk(root: &Path, directory: &Path, depth: usize, files: &mut Vec<ConfigFileI
             continue;
         }
         if !file_type.is_file() {
-            continue;
-        }
-        if is_skipped_file(&entry.file_name().to_string_lossy()) {
             continue;
         }
         let Some(format) = ConfigFormat::for_path(&path) else {
@@ -1103,7 +1170,7 @@ pub fn backup_file(
     Ok(backup)
 }
 
-fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
+fn write_atomic(path: &Path, content: &[u8]) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| format!("Invalid config path: {}", path.display()))?;
@@ -1117,7 +1184,7 @@ fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
     {
         let mut file = fs::File::create(&tmp)
             .map_err(|e| format!("Could not write {}: {e}", tmp.display()))?;
-        file.write_all(content.as_bytes())
+        file.write_all(content)
             .map_err(|e| format!("Could not write {}: {e}", tmp.display()))?;
         file.sync_all()
             .map_err(|e| format!("Could not flush {}: {e}", tmp.display()))?;
@@ -1166,12 +1233,13 @@ pub fn write(
     let path = resolve_relative(install_root, relative)?;
     let format =
         ConfigFormat::for_path(&path).ok_or_else(|| "Unsupported config format.".to_string())?;
-    let text = read_text(&path)?;
-    let bytes = text.len() as u64;
-    let (updated, diff) = apply_edits(format, &text, edits)?;
-    if updated == text {
+    let file = read_text_file(&path)?;
+    let bytes = file.size;
+    let (updated, diff) = apply_edits(format, &file.text, edits)?;
+    if updated == file.text {
         return Err("These values are already set; nothing was written.".to_string());
     }
+    let encoded = file.encode(&updated)?;
 
     // Backup first. Nothing is written if the copy fails.
     let backup_path = backup_file(app_data, game_id, &path, bytes)?;
@@ -1189,14 +1257,14 @@ pub fn write(
         created_at: now_rfc3339(),
     };
 
-    write_atomic(&path, &updated)?;
+    write_atomic(&path, &encoded)?;
     let document = document_for(
         install_root,
         &path,
         relative,
         format,
         &updated,
-        updated.len() as u64,
+        encoded.len() as u64,
         None,
     )?;
     Ok(WriteOutcome {
@@ -1229,18 +1297,20 @@ pub fn restore_backup(
     if !backup.starts_with(&expected_root) || !backup.is_file() {
         return Err("That backup does not belong to this game.".to_string());
     }
-    let restored = read_text(&backup)?;
-    let current = read_text(&path)?;
-    let safety_backup_path = backup_file(app_data, game_id, &path, current.len() as u64)?;
-    let diff = line_diff(&current, &restored);
-    write_atomic(&path, &restored)?;
+    let restored = read_text_file(&backup)?;
+    let current = read_text_file(&path)?;
+    let restored_bytes =
+        fs::read(&backup).map_err(|e| format!("Could not read {}: {e}", backup.display()))?;
+    let safety_backup_path = backup_file(app_data, game_id, &path, current.size)?;
+    let diff = line_diff(&current.text, &restored.text);
+    write_atomic(&path, &restored_bytes)?;
     let document = document_for(
         install_root,
         &path,
         relative,
         format,
-        &restored,
-        restored.len() as u64,
+        &restored.text,
+        restored_bytes.len() as u64,
         None,
     )?;
     Ok(RestoreOutcome {
@@ -1252,7 +1322,7 @@ pub fn restore_backup(
             file_path: relative.to_string(),
             backup_path: safety_backup_path.to_string_lossy().to_string(),
             diff: String::new(),
-            bytes: current.len() as i64,
+            bytes: current.size as i64,
             origin: "restore".to_string(),
             created_at: now_rfc3339(),
         },
@@ -1286,8 +1356,8 @@ mod tests {
     }
 
     #[test]
-    fn crack_and_steam_emu_files_are_not_listed() {
-        let root = temp_dir("cracks");
+    fn all_text_configs_are_listed_including_emulator_files() {
+        let root = temp_dir("all-configs");
         write_file(&root, "GameUserSettings.ini", "[a]\nvalue=1\n");
         write_file(
             &root,
@@ -1310,10 +1380,86 @@ mod tests {
         let paths: Vec<&str> = files.iter().map(|file| file.path.as_str()).collect();
         assert_eq!(
             paths,
-            vec!["GameUserSettings.ini", "Uncharted4_data/screeninfo.cfg"]
+            vec![
+                "Cracks/Mr_Goldberg/steam_settings/achievements.json",
+                "Cracks/RUNE/steam_emu.ini",
+                "GameUserSettings.ini",
+                "Uncharted4_data/screeninfo.cfg",
+                "steam_emu.ini",
+            ]
         );
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn utf16_ini_round_trips_with_its_bom_and_crlf() {
+        let root = temp_dir("utf16");
+        let app_data = temp_dir("utf16-backups");
+        let text = "[Settings]\r\nLanguage=english\r\n";
+        let mut bytes = vec![0xFF, 0xFE];
+        for unit in text.encode_utf16() {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+        fs::write(root.join("steam_emu.ini"), &bytes).unwrap();
+
+        let document = read(&root, "steam_emu.ini").unwrap();
+        assert_eq!(document.entries[0].value, "english");
+
+        write(
+            &root,
+            &app_data,
+            1,
+            "steam_emu.ini",
+            &[ConfigEditInput {
+                key: "Settings/Language".into(),
+                value: "french".into(),
+            }],
+            "manual",
+        )
+        .unwrap();
+
+        let saved = fs::read(root.join("steam_emu.ini")).unwrap();
+        assert_eq!(&saved[..2], &[0xFF, 0xFE]);
+        let (decoded, had_errors) = encoding_rs::UTF_16LE.decode_without_bom_handling(&saved[2..]);
+        assert!(!had_errors);
+        assert!(decoded.contains("Language=french"));
+        assert!(decoded.contains("\r\n"));
+
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&app_data);
+    }
+
+    #[test]
+    fn windows_1252_ini_round_trips() {
+        let root = temp_dir("win1252");
+        let app_data = temp_dir("win1252-backups");
+        let mut bytes = b"[Settings]\nName=caf".to_vec();
+        bytes.push(0xE9);
+        bytes.push(b'\n');
+        fs::write(root.join("steam_emu.ini"), &bytes).unwrap();
+
+        let document = read(&root, "steam_emu.ini").unwrap();
+        assert_eq!(document.entries[0].value, "café");
+
+        write(
+            &root,
+            &app_data,
+            1,
+            "steam_emu.ini",
+            &[ConfigEditInput {
+                key: "Settings/Name".into(),
+                value: "café".into(),
+            }],
+            "manual",
+        )
+        .unwrap();
+
+        let saved = fs::read(root.join("steam_emu.ini")).unwrap();
+        assert!(saved.contains(&0xE9));
+
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&app_data);
     }
 
     #[test]

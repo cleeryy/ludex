@@ -35,6 +35,7 @@ ludex-server = { path = "../../../crates/ludex-server", default-features = false
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+encoding_rs = "0.8"
 # The Ludusavi manifest is YAML (#107). The manifest is never bundled: Ludex
 # only reads a copy the user installed themselves.
 serde_yaml = "0.9"

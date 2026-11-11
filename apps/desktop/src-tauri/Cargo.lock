@@ -2873,6 +2873,7 @@ dependencies = [
  "chrono",
  "crc32fast",
  "discord-rich-presence",
+ "encoding_rs",
  "fs2",
  "futures-util",
  "hex",
