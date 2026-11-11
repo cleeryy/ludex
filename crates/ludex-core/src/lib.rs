@@ -37,7 +37,11 @@ pub use archive::{
     zip_entry_info, zip_stream_manifest, zip_tar_size, ArchiveError, ArchiveFormat, ArchiveReport,
     ExtractOptions, ExtractProgress, ExtractReport, StreamEntry, StreamManifest, TarStreamReport,
 };
-pub use exe::{is_installer, pick_executable};
+pub use exe::{
+    clamp_scan_depth, discover_executables, is_installer, pick_executable,
+    pick_executable_with_depth, Discovery, ExecutableCandidate, DEFAULT_SCAN_DEPTH, MAX_SCAN_DEPTH,
+    MIN_SCAN_DEPTH,
+};
 pub use fingerprint::{archive_fingerprint, is_fingerprint, FINGERPRINT_PREFIX};
 pub use models::{
     GameDetail, GameSummary, GameVersion, LaunchInfo, NewsPost, Paginated, ProgressState,

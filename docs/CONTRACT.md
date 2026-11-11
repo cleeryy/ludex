@@ -969,6 +969,8 @@ interface LocalSettings {
   sunshineConfPath: string;          // Sunshine sunshine.conf override (#97)
   moonlightBinary: string;           // Moonlight binary override (#98), empty = detect
   moonlightConfigPath: string;       // Moonlight.conf override (#98), empty = detect
+  gamevaultRoots: string[];          // ordered GameVault install roots (#134)
+  gamevaultScanDepth: number;        // executable search depth for scans, 4-8, default 6
 }
 
 interface InstallLocation {
@@ -1105,12 +1107,13 @@ interface AdoptExistingInstall {
 
 interface AdoptPreview {
   folder: string;              // canonical folder that would be stored
-  executable: string | null;   // detected with ludex_core::pick_executable
+  executable: string | null;   // discovery choice; null when inconclusive
+  executableCandidates: string[]; // ranked files found (#134)
   sizeBytes: number;
   fileCount: number;
   versionId: number;           // 0 = unknown, never guessed from the title
   version: string | null;
-  warnings: string[];
+  warnings: string[];          // includes unreadable folders and depth notes
   existing: AdoptExistingInstall | null; // needs replace: true when not adopted
 }
 
@@ -1131,23 +1134,47 @@ interface ManifestProgress {
 type GameVaultMatchStatus = "exact" | "containment" | "ambiguous" | "none";
 
 interface GameVaultCandidate {
-  folder: string; name: string; executable: string | null;
+  folder: string; name: string;
+  sourceRoot: string;                // configured root it was found under (#134)
+  executable: string | null;         // null = "link anyway and choose" (#134)
+  executableCandidates: string[];    // ranked, best first (#134)
   sizeBytes: number; fileCount: number;
   metadataTitle: string | null;      // read from gamevault.json, never written
   matchedGameId: number | null; matchedTitle: string | null;
   matchStatus: GameVaultMatchStatus; // ambiguous is never adopted automatically
   installed: string | null;          // adopted / ludex / launcher id
-  notes: string[];
+  notes: string[];                   // depth, skipped subfolders, chosen exe…
+  warnings: string[];                // unreadable folder, broken link, long path
+}
+
+interface GameVaultRootScan {
+  root: string;
+  candidates: number;
+  warnings: string[];
+  error: string | null;              // root unreadable or refused
+}
+
+interface GameVaultRootProposal {
+  path: string;
+  reason: string;                    // usual location, GameVault config file…
+  exists: boolean;
+  configured: boolean;               // already in the ordered list
+  gameFolders: number;               // immediate folders that look like games
 }
 
 interface GameVaultScan {
-  root: string;
-  candidates: GameVaultCandidate[];
+  roots: GameVaultRootScan[];        // one per configured root, in order (#134)
+  candidates: GameVaultCandidate[];  // deduplicated by canonical folder
   warnings: string[];
   matched: boolean;                  // false: the server could not be listed
+  maxDepth: number;                  // folder depth used for this scan
 }
 
-interface GameVaultAdoptEntry { folder: string; gameId: number; versionId?: number | null; version?: string | null }
+interface GameVaultAdoptEntry {
+  folder: string; gameId: number;
+  versionId?: number | null; version?: string | null;
+  executable?: string | null;        // chosen among the ranked candidates
+}
 
 interface GameVaultAdoptReport {
   adopted: InstalledGame[];
@@ -1487,13 +1514,17 @@ interface StreamTarget {
 | `steam_import` | `{ appIds }` | `SteamImportReport`; no download, launches through Steam |
 | `launcher_scan` | — | `LauncherPreview`; reads Steam, Epic, GOG, EA, Ubisoft, Xbox, itch, Heroic and Lutris metadata (#116), matches titles and marks existing imports |
 | `launcher_import` | `{ entries: LauncherImportEntry[] }` | `LauncherImportReport`; writes external rows with `launchUri`, `versionId: 0`, `source` = launcher id. Nothing is downloaded or copied; a second import of the same URI is refused |
-| `adopt_installation` | `{ gameId, folder, versionId?, version?, title? }` | `AdoptPreview`; canonicalizes and validates the folder, runs `pick_executable`, returns size/file count/warnings and any existing row. Writes nothing (#129) |
+| `adopt_installation` | `{ gameId, folder, versionId?, version?, executable?, title? }` | `AdoptPreview`; canonicalizes and validates the folder, runs read-only executable discovery, returns ranked candidates, size/file count/warnings and any existing row. Writes nothing (#129, #134) |
 | `confirm_adopt_installation` | `{ gameId, folder, versionId?, version?, executable?, replace?, title? }` | `InstalledGame`; writes the `source: "adopted"` row with `installRoot` = the folder's parent and `archiveHash: null`. Nothing is copied or moved. Replacing a `ludex`/launcher row requires `replace: true`; launcher-owned folders are refused |
 | `build_install_manifest` | `{ gameId }` | `ManifestReport`; hashes the folder into `install_manifests` (progress on `install://manifest-progress`). No file is written inside the game folder |
 | `unlink_installation` | `{ gameId }` | `null`; removes the index row, manifest and detected save paths. Files stay on disk |
 | `delete_adopted_installation` | `{ gameId, confirmPath? }` | `DeleteAdoptedPreview`; without `confirmPath` it only counts files/size. With a `confirmPath` exactly equal to the canonical stored path it deletes the folder and the row. Refuses non-adopted rows, symlinks and folders directly inside a drive/home/install root |
-| `scan_gamevault_folders` | `{ root }` | `GameVaultScan`; lists immediate subfolders with a plausible executable, reads an optional `gamevault.json` title (read-only) and matches library titles by exact normalised title, then word-boundary containment. Ambiguity is reported, never guessed |
-| `adopt_gamevault_installations` | `{ root, entries: GameVaultAdoptEntry[] }` | `GameVaultAdoptReport`; bulk adoption of selected candidates after confirmation. Every folder must be an immediate child of `root`; per-entry failures are skipped with a reason |
+| `scan_gamevault_folders` | `{ roots?: string[] }` | `GameVaultScan`; scans every configured root (or the given list) in one pass, with per-root status. Lists immediate subfolders that contain an executable (depth 4-8, default 6), match a library title or carry GameVault metadata; a matched folder is never dropped when no executable is found. Deduplicates by canonical folder and matches titles by exact normalised title, then word-boundary containment. Ambiguity is reported, never guessed (#134) |
+| `adopt_gamevault_installations` | `{ roots: string[], entries: GameVaultAdoptEntry[] }` | `GameVaultAdoptReport`; bulk adoption of selected candidates after confirmation. Every folder must be an immediate child of one of the roots; per-entry failures are skipped with a reason |
+| `add_gamevault_root` | `{ path }` | `LocalSettings`; canonicalizes the folder, refuses the home/drive root and duplicates, appends it to `gamevaultRoots` (#134) |
+| `remove_gamevault_root` | `{ path }` | `LocalSettings`; removes the matching canonical root (#134) |
+| `reorder_gamevault_roots` | `{ roots: string[] }` | `LocalSettings`; persists the new order, ignoring unknown entries and keeping unlisted roots at the end (#134) |
+| `detect_gamevault_roots` | — | `GameVaultRootProposal[]`; read-only probe of the usual GameVault locations and GameVault's client config files. Never writes to GameVault (#134) |
 | `detect_save_paths` | `{ gameId }` | `SavePaths`; runs Ludusavi CLI/manifest detection, merges persisted manual paths and saves the mapping + preview. `saves` entries are `{ path, kind: "file" \| "directory", source: "manifest" \| "manual" \| "override", primary, sizeBytes, lastModified, notes }`; `detected: false` plus `message` is the explicit "no save folder detected" state. Paths stay local |
 | `redetect_save_paths` | `{ gameId }` | `SavePaths`; same as `detect_save_paths`, for a re-run after the game created its saves |
 | `get_save_paths` | `{ gameId }` | `SavePaths` from SQLite + last preview; never rescans the disk |
@@ -1620,10 +1651,10 @@ archive by default (`keepArchives` setting false).
   server.
 - **Adopted installs (#129).** `adopt_installation` validates a folder the user
   points at (absolute, canonical, no `..`, no link in the chosen path, not a
-  drive/home root or the install root, no symlink escaping the tree), detects
-  the executable with `ludex_core::pick_executable` and returns a preview
-  (executable, size, file count, version, warnings, existing row). Nothing is
-  written until `confirm_adopt_installation`, and nothing is ever copied or
+  drive/home root or the install root, no symlink escaping the tree), runs
+  read-only executable discovery (#134) and returns a preview (executable,
+  ranked candidates, size, file count, version, warnings, existing row). Nothing
+  is written until `confirm_adopt_installation`, and nothing is ever copied or
   moved. The row uses `source: "adopted"`, `installRoot` = the folder's parent,
   `versionId: 0` ("unknown") unless the user picked a server version — versions
   are never matched from the title — and `archiveHash: null`. One row per game:
@@ -1640,13 +1671,23 @@ archive by default (`keepArchives` setting false).
   refusing non-adopted rows, links and folders directly inside a drive, home or
   install root. `uninstall_game` refuses adopted rows. Game updates are not
   offered for adopted rows: an update would replace files Ludex does not own.
-  `scan_gamevault_folders` lists the immediate subfolders of a root that contain
-  a plausible executable, reads an optional `gamevault.json`/`.gamevault.json`
-  title without writing it, and matches folder names to library titles by exact
-  normalised title, then word-boundary containment; ambiguous matches are
-  reported and adopted only after the user picks the game and version on the
-  game page. `adopt_gamevault_installations` only accepts immediate children of
-  the scanned root.
+  `scan_gamevault_folders` scans every configured GameVault root (#134) in one
+  pass. Immediate subfolders are kept when they contain a plausible executable
+  (searched to `gamevaultScanDepth`, default 6, clamped 4-8), match a library
+  title or carry GameVault metadata. A matched folder is never dropped: when no
+  executable is found it is returned with `executable: null`, an explicit note
+  and the `.exe` files that were found, so the user can link it and choose the
+  executable in the game settings. Per-candidate `warnings` carry unreadable
+  folders, broken links and long-path errors with the affected path. Discovery
+  follows junctions/symlinks with canonicalisation and a visited set (no loops),
+  skips redist/support/tools/installer folders, and returns a ranked candidate
+  list: an unrelated executable is never auto-picked among several. Duplicate
+  roots and folders reachable from two roots are listed once. GameVault roots
+  live in local settings as an ordered list (`gamevaultRoots`) with
+  add/remove/reorder commands, and `detect_gamevault_roots` proposes usual
+  locations and roots read from GameVault's config files without writing
+  anything. `adopt_gamevault_installations` only accepts immediate children of
+  one of the scanned roots.
 - **Playnite.** The plugin lives in `integrations/playnite/` and is a pure API
   client; there is no dedicated endpoint.
 
@@ -1926,8 +1967,15 @@ pub fn verify_archive(path: &Path, password: Option<&str>) -> Result<ArchiveRepo
 pub fn extract_archive(path: &Path, dest: &Path, opts: &ExtractOptions,
                        progress: &mut dyn FnMut(ExtractProgress)) -> Result<ExtractReport>;
 pub fn pick_executable(root: &Path, title: &str) -> Option<PathBuf>;
+pub fn discover_executables(root: &Path, title: &str, max_depth: usize) -> Discovery;
 pub fn slugify(s: &str) -> String;
 ```
+
+`Discovery` is the read-only folder scan (#134): ranked `ExecutableCandidate`s
+with depth/tier/score/size, the chosen executable (never an unrelated file among
+several) and path-bearing notes for unreadable folders, broken links and depth
+truncation. `discover_executables` follows junctions/symlinks with a visited set
+and clamps `max_depth` to 4..=8.
 
 Archive support: zip, rar (RAR4/RAR5), 7z. Extraction must be streaming, must
 reject absolute paths and `..` entries, and must support a password list.

@@ -10,6 +10,20 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- GameVault folder adoption rework (#134): matched folders are never silently
+  dropped — a game without a detected executable stays in the list with a note,
+  ranked `.exe` candidates and path-bearing warnings, and can be linked with a
+  manually chosen executable. Discovery walks 4–8 levels (default 6), follows
+  junctions/symlinks with loop guards, retries long Windows paths, skips
+  redist/support/installer folders and never auto-picks among unrelated
+  executables. Multiple GameVault roots are stored, scanned together, deduped
+  by canonical folder, with add/remove/reorder and read-only auto-detection;
+  per-root failures are reported instead of a generic "no executable".
+- Big Picture refreshes on open and plays a short entrance (#142): one throttled
+  refetch of games/installed/updates with cached content kept on failure, a
+  subtle 434 ms staged opacity/transform reveal (backdrop, hero, header, cards
+  with 22 ms stagger) using the house easing, no replay on shelf/index changes,
+  and an opacity-only 120 ms branch under `prefers-reduced-motion`.
 - PostgreSQL backend option (#46): `LUDEX_DATABASE_URL=postgres://…` (or
   `LUDEX_DATABASE_BACKEND`) runs the server on PostgreSQL while SQLite stays the
   default. A mirrored migration set (`migrations_postgres/`, 0001–0019), a
@@ -584,6 +598,10 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- UTF-16 config files are written as real UTF-16 again: the encoder previously
+  used `encoding_rs::Encoding::encode`, which returns UTF-8 for UTF-16, so a
+  UTF-16LE INI gained a UTF-16 BOM followed by UTF-8 bytes. Code units are now
+  encoded explicitly; the Windows-1252 and BOM/CRLF round-trip tests pass.
 - Config editor ignores crack/Steam-emulator files and refuses non-UTF-8 INIs
   (#136): `Cracks/`, `steam_settings/`, Goldberg/RUNE/CODEX/PLAZA/SKIDROW/
   RELOADED/Empress folders and `steam_emu.ini`/`steam_api*.ini`/

@@ -450,12 +450,14 @@ explicit confirmation, the folder. Nothing is downloaded, copied or moved.
 
 | Action | Command | Files |
 |---|---|---|
-| Inspect a folder | `adopt_installation { gameId, folder, versionId? }` | read only, returns executable/size/file count/warnings |
+| Inspect a folder | `adopt_installation { gameId, folder, versionId?, executable? }` | read only, returns executable/candidates/size/file count/warnings |
 | Link it | `confirm_adopt_installation { gameId, folder, versionId?, executable?, replace? }` | writes the index row only |
 | Hash it | `build_install_manifest { gameId }` | writes a manifest row in SQLite, never inside the folder |
 | Remove from Ludex | `unlink_installation { gameId }` | kept |
 | Uninstall and delete | `delete_adopted_installation { gameId, confirmPath }` | deleted, only after an exact confirmation |
-| Scan a GameVault root | `scan_gamevault_folders { root }` + `adopt_gamevault_installations` | read only / index rows |
+| Add/remove/reorder roots | `add_gamevault_root` / `remove_gamevault_root` / `reorder_gamevault_roots` | settings.json only |
+| Scan all roots | `scan_gamevault_folders { roots? }` + `adopt_gamevault_installations` | read only / index rows |
+| Detect roots | `detect_gamevault_roots` | read only, never writes to GameVault |
 
 - Adopted rows have `source: "adopted"`, `installPath` = the canonical chosen
   folder, `installRoot` = its parent, `versionId: 0` unless the user picked a
@@ -467,9 +469,9 @@ explicit confirmation, the folder. Nothing is downloaded, copied or moved.
 - Paths are canonicalized and stored canonical. Relative paths, `..`, links in
   the chosen path, drive/home roots and the Ludex install root itself are
   refused; a tree with a symlink that points outside the folder is refused too.
-- Launch uses the normal pipeline: the executable (detected with
-  `ludex_core::pick_executable` or chosen later) runs with the folder as working
-  directory and the process tree drives playtime. `launch_game` and
+- Launch uses the normal pipeline: the executable (detected by the read-only
+  discovery in `ludex_core::exe`, or chosen later) runs with the folder as
+  working directory and the process tree drives playtime. `launch_game` and
   `game://exited` carry `source: "adopted"`.
 - An adopted folder has no Ludex manifest. `verify_install` reports
   `noManifest` with a "build a manifest" message instead of a clean pass;
@@ -484,12 +486,24 @@ explicit confirmation, the folder. Nothing is downloaded, copied or moved.
   inside a drive/home/install root and any symlink escape. `uninstall_game`
   refuses adopted rows so files can never be deleted by the ordinary uninstall
   path.
-- `scan_gamevault_folders` lists the immediate subfolders of a root that contain
-  a plausible executable, reads an optional `gamevault.json`/`.gamevault.json`
-  title (read-only, never written) and matches folder names to library titles by
-  normalised exact title, then word-boundary containment. Several candidates are
-  reported as ambiguous and left for the game page, where the user picks the game
-  and version. Bulk adoption only accepts immediate children of the scanned root.
+- `scan_gamevault_folders` scans every configured GameVault root in one pass
+  (#134). Each root is stored in `gamevaultRoots` (ordered, add/remove/reorder
+  commands) and the scan reports a per-root status, so one unreadable drive
+  never hides the others. Immediate subfolders are kept when they contain an
+  executable (searched to `gamevaultScanDepth`, default 6, clamped 4-8), match a
+  library title or carry GameVault metadata. A matched folder is never dropped:
+  without an executable it is returned with `executable: null`, a note and the
+  `.exe` paths found, so it can be linked and its executable chosen in the game
+  settings ("link anyway" opens the adopt dialog with the candidate list).
+  Discovery follows junctions/symlinks with canonicalisation and a visited set
+  (loops are reported, not followed), skips redist/support/tools/installer
+  folders and long paths are retried with a Windows verbatim prefix. Several
+  executables are returned ranked; an unrelated one is never auto-picked.
+  Unreadable folders, permission errors and broken links become per-candidate
+  `warnings` with the affected path. Roots and the depth live in local settings;
+  `detect_gamevault_roots` only proposes usual locations and roots read from
+  GameVault's own config files, and never writes to GameVault.
+  `adopt_gamevault_installations` accepts immediate children of any scanned root.
 - Game updates are not offered for adopted rows: an update would replace files
   Ludex does not own. Remove or delete the adopted folder, then install the Ludex
   version.

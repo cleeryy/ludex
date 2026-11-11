@@ -204,27 +204,26 @@ impl TextFile {
                 Ok(bytes)
             }
             TextEncoding::Utf16Le | TextEncoding::Utf16Be => {
-                let encoding = if self.encoding == TextEncoding::Utf16Le {
-                    encoding_rs::UTF_16LE
-                } else {
-                    encoding_rs::UTF_16BE
-                };
-                let (encoded, _, had_errors) = encoding.encode(text);
-                if had_errors {
-                    return Err(
-                        "The new text cannot be represented in the file's UTF-16 encoding."
-                            .to_string(),
-                    );
-                }
-                let mut bytes = Vec::with_capacity(encoded.len() + 2);
+                let little_endian = self.encoding == TextEncoding::Utf16Le;
+                let mut bytes = Vec::with_capacity(text.len() * 2 + 2);
                 if self.bom {
-                    if self.encoding == TextEncoding::Utf16Le {
+                    if little_endian {
                         bytes.extend_from_slice(&[0xFF, 0xFE]);
                     } else {
                         bytes.extend_from_slice(&[0xFE, 0xFF]);
                     }
                 }
-                bytes.extend_from_slice(&encoded);
+                // `encoding_rs::Encoding::encode` returns UTF-8 for UTF-16
+                // (the encoding's *output* encoding), so encode the code units
+                // explicitly instead of trusting it. Every Rust `char` is
+                // representable in UTF-16, so this cannot fail.
+                for unit in text.encode_utf16() {
+                    if little_endian {
+                        bytes.extend_from_slice(&unit.to_le_bytes());
+                    } else {
+                        bytes.extend_from_slice(&unit.to_be_bytes());
+                    }
+                }
                 Ok(bytes)
             }
             TextEncoding::Windows1252 => {
@@ -1449,7 +1448,7 @@ mod tests {
             "steam_emu.ini",
             &[ConfigEditInput {
                 key: "Settings/Name".into(),
-                value: "café".into(),
+                value: "café au lait".into(),
             }],
             "manual",
         )

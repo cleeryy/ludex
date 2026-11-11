@@ -11,6 +11,14 @@ import { Dialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { t, tn } from "@/lib/i18n";
 
+/** Path relative to the adopted folder, for the candidate picker. */
+function relativeToFolder(path: string, folder: string): string {
+  const normalise = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "");
+  const base = normalise(folder);
+  const full = path.replace(/\\/g, "/");
+  return full.startsWith(`${base}/`) ? full.slice(base.length + 1) : path;
+}
+
 /**
  * "Link existing installation" (#129).
  *
@@ -25,6 +33,8 @@ export function AdoptInstallDialog({
   gameId,
   title,
   versions,
+  initialFolder,
+  initialExecutable,
   onAdopted,
 }: {
   open: boolean;
@@ -32,11 +42,16 @@ export function AdoptInstallDialog({
   gameId: number;
   title: string;
   versions: { id: number; version: string | null; fileName: string }[];
+  /** Prefill from a GameVault candidate (#134). */
+  initialFolder?: string;
+  /** Manual executable ("link anyway") preselected for this folder (#134). */
+  initialExecutable?: string | null;
   onAdopted?: () => void;
 }) {
   const { push } = useToast();
   const queryClient = useQueryClient();
   const [folder, setFolder] = useState("");
+  const [executable, setExecutable] = useState("");
   const [versionId, setVersionId] = useState(0);
   const [preview, setPreview] = useState<AdoptPreview | null>(null);
   const [replace, setReplace] = useState(false);
@@ -44,15 +59,24 @@ export function AdoptInstallDialog({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open) {
+    if (open) {
+      setFolder(initialFolder ?? "");
+      setExecutable(initialExecutable ?? "");
+      setVersionId(0);
+      setPreview(null);
+      setReplace(false);
+      setBusy(null);
+      setError(null);
+    } else {
       setFolder("");
+      setExecutable("");
       setVersionId(0);
       setPreview(null);
       setReplace(false);
       setBusy(null);
       setError(null);
     }
-  }, [open]);
+  }, [open, initialFolder, initialExecutable]);
 
   // Any change invalidates the inspection: the confirmation is about one folder.
   useEffect(() => {
@@ -92,6 +116,7 @@ export function AdoptInstallDialog({
         folder: folder.trim(),
         versionId,
         version: versionLabel,
+        executable: executable.trim() || null,
         title,
       });
       setPreview(next);
@@ -117,7 +142,7 @@ export function AdoptInstallDialog({
         folder: preview.folder,
         versionId: preview.versionId,
         version: preview.version,
-        executable: preview.executable,
+        executable: executable.trim() || preview.executable,
         replace: needsReplace ? replace : false,
         title,
       });
@@ -212,6 +237,42 @@ export function AdoptInstallDialog({
             />
           </div>
         </Field>
+
+        <Field
+          label={t("Executable")}
+          htmlFor="adopt-executable"
+          hint={t("Leave empty to use the detected executable. You can also choose one of the files found, or type a path inside the folder.")}
+        >
+          <Input
+            id="adopt-executable"
+            value={executable}
+            onChange={(event) => setExecutable(event.target.value)}
+            placeholder={preview?.executable ?? t("Detected automatically")}
+            spellCheck={false}
+            disabled={busy !== null}
+            className="h-10 font-mono text-[11.5px]"
+          />
+        </Field>
+
+        {preview && preview.executableCandidates.length > 0 && (
+          <Field
+            label={t("Executables found")}
+            htmlFor="adopt-executable-candidates"
+            hint={t("Only the selected one is launched; nothing else is changed.")}
+          >
+            <Select
+              id="adopt-executable-candidates"
+              label={t("Executables found")}
+              value={executable || preview.executable || ""}
+              onChange={setExecutable}
+              options={preview.executableCandidates.map((path) => ({
+                value: path,
+                label: relativeToFolder(path, preview.folder),
+              }))}
+              disabled={busy !== null}
+            />
+          </Field>
+        )}
 
         {preview && (
           <div className="flex flex-col gap-3 border border-line bg-surface/50 p-3">

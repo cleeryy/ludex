@@ -42,6 +42,9 @@ pub struct AdoptPreview {
     /// Canonical folder that would be stored.
     pub folder: String,
     pub executable: Option<String>,
+    /// Ranked executables found in the folder (#134): the first one is the
+    /// current choice, the rest can be selected with a manual executable.
+    pub executable_candidates: Vec<String>,
     pub size_bytes: u64,
     pub file_count: u64,
     /// `0` means "unknown"; versions are never guessed from the title.
@@ -349,6 +352,14 @@ fn indexed_path(stored: &str) -> PathBuf {
     fs::canonicalize(stored).unwrap_or_else(|_| PathBuf::from(stored))
 }
 
+/// Canonical comparison key for a folder that may be missing right now (#134).
+pub fn canonical_path_key(raw: &str) -> String {
+    fs::canonicalize(raw)
+        .unwrap_or_else(|_| PathBuf::from(raw))
+        .to_string_lossy()
+        .to_string()
+}
+
 /* ------------------------------ inspection ------------------------------- */
 
 /// Inspect a folder and build the preview + index row for it.
@@ -421,11 +432,20 @@ pub fn prepare_adoption(
         }
     }
 
+    let discovery =
+        crate::bridge::discover_executables(&canonical, title, crate::bridge::DEFAULT_SCAN_DEPTH);
+    let executable_candidates: Vec<String> = discovery
+        .candidates
+        .iter()
+        .map(|candidate| candidate.path.to_string_lossy().to_string())
+        .collect();
     let executable_path = match executable.map(str::trim).filter(|value| !value.is_empty()) {
         Some(requested) => Some(resolve_executable(&canonical, requested)?),
-        None => crate::bridge::pick_executable(&canonical, title)
+        None => discovery
+            .chosen
             .map(|path| path.to_string_lossy().to_string()),
     };
+    warnings.extend(discovery.notes);
     if executable_path.is_none() {
         warnings.push(
             "No game executable was found in this folder. You can still link it and choose the executable from the game settings."
@@ -445,6 +465,7 @@ pub fn prepare_adoption(
     let preview = AdoptPreview {
         folder: folder_string.clone(),
         executable: executable_path.clone(),
+        executable_candidates,
         size_bytes,
         file_count,
         version_id: recorded_version,
@@ -778,13 +799,18 @@ pub fn confirmation_matches(typed: &str, folder: &Path) -> bool {
 
 /* ------------------------------- GameVault ------------------------------- */
 
-/// One subfolder of a GameVault-style install root (#129).
+/// One subfolder of a GameVault-style install root (#129, #134).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameVaultCandidate {
     pub folder: String,
     pub name: String,
+    /// Root this candidate was found under (#134).
+    pub source_root: String,
+    /// Executable Ludex would launch now; `None` means "link anyway and choose".
     pub executable: Option<String>,
+    /// Every plausible executable found, best first (#134). Empty when none.
+    pub executable_candidates: Vec<String>,
     pub size_bytes: u64,
     pub file_count: u64,
     /// Title read from an optional `gamevault.json`/`.gamevault.json`.
@@ -794,17 +820,54 @@ pub struct GameVaultCandidate {
     pub match_status: MatchStatus,
     /// `adopted`, `ludex` or a launcher id when the folder is already indexed.
     pub installed: Option<String>,
+    /// Informational diagnostics: skipped subfolders, depth truncation, the
+    /// chosen candidate among several, Store-style layouts…
     pub notes: Vec<String>,
+    /// Problems that need attention: unreadable folders, permission errors,
+    /// broken links, long-path failures. Always carry the affected path.
+    pub warnings: Vec<String>,
 }
 
+/// Status of one root in a multi-root scan (#134).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameVaultRootScan {
+    pub root: String,
+    /// Immediate game folders found under this root.
+    pub candidates: usize,
+    pub warnings: Vec<String>,
+    /// Set when the root itself could not be read or prepared.
+    pub error: Option<String>,
+}
+
+/// Result of scanning one or more GameVault roots in a single pass (#134).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameVaultScan {
-    pub root: String,
+    /// One entry per configured root, in the order the user configured.
+    pub roots: Vec<GameVaultRootScan>,
+    /// Deduplicated candidates from every root, grouped by root order.
     pub candidates: Vec<GameVaultCandidate>,
+    /// Scan-level diagnostics (duplicate roots, folders found twice…).
     pub warnings: Vec<String>,
     /// False when the server could not be listed, so nothing was matched.
     pub matched: bool,
+    /// Folder depth actually used for this scan.
+    pub max_depth: usize,
+}
+
+/// A GameVault root proposed by the read-only auto-detection (#134).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameVaultRootProposal {
+    pub path: String,
+    /// Why this folder is proposed: already exists, read from a config file…
+    pub reason: String,
+    pub exists: bool,
+    /// True when the root is already configured and needs no action.
+    pub configured: bool,
+    /// Immediate subfolders that look like game folders, for confirmation.
+    pub game_folders: u64,
 }
 
 /// Read a GameVault metadata title without ever writing the file back.
@@ -832,6 +895,13 @@ fn read_metadata_title(folder: &Path) -> Option<String> {
     None
 }
 
+/// True when a folder carries GameVault metadata, read-only.
+fn has_metadata(folder: &Path) -> bool {
+    GAMEVAULT_METADATA_FILES
+        .iter()
+        .any(|name| folder.join(name).is_file())
+}
+
 /// Match a parsed folder name to server titles. Returns the normalized name and
 /// the raw name so containment works on both forms.
 fn folder_names(folder: &Path) -> Vec<String> {
@@ -849,96 +919,505 @@ fn folder_names(folder: &Path) -> Vec<String> {
     names
 }
 
-/// List the immediate subfolders of `root` that contain a plausible executable.
+/// True for a Microsoft Store layout, which never has a classic `.exe`.
+fn is_store_folder(folder: &Path) -> bool {
+    folder.join("AppxManifest.xml").is_file() || folder.join("AppxBlockMap.xml").is_file()
+}
+
+/// Best-effort executable hunt for a folder, with the user's scan depth.
+fn scan_folder_executables(
+    folder: &Path,
+    title: &str,
+    max_depth: usize,
+) -> crate::bridge::Discovery {
+    crate::bridge::discover_executables(folder, title, max_depth)
+}
+
+/// Split discovery notes into informational notes and actionable warnings.
+fn split_discovery_notes(discovery: &crate::bridge::Discovery) -> (Vec<String>, Vec<String>) {
+    let mut notes = Vec::new();
+    let mut warnings = Vec::new();
+    for note in &discovery.notes {
+        if note.starts_with("Could not read")
+            || note.starts_with("Could not inspect")
+            || note.contains("broken link")
+        {
+            warnings.push(note.clone());
+        } else {
+            notes.push(note.clone());
+        }
+    }
+    (notes, warnings)
+}
+
+/// Scan several GameVault roots in one pass (#134).
 ///
-/// GameVault keeps one folder per game; anything else (downloads, extras) is
-/// skipped with a note instead of being guessed. Nothing is written.
+/// Every immediate subfolder that contains an executable, matches a library
+/// game or carries GameVault metadata is returned. A matched or metadata-bearing
+/// folder is never dropped: when no executable is found it stays with
+/// `executable: None`, a note and the `.exe` files that were found. Candidate
+/// folders are deduplicated by canonical path across roots, and each root keeps
+/// its own status so an unreadable drive never hides the others.
+///
+/// Nothing is written, and GameVault metadata is only read.
+pub fn scan_gamevault_roots(
+    roots: &[PathBuf],
+    installed: &[(i64, String, String)],
+    server: &[(i64, String)],
+    max_depth: usize,
+) -> (Vec<GameVaultCandidate>, Vec<GameVaultRootScan>, Vec<String>) {
+    let max_depth = crate::bridge::clamp_scan_depth(max_depth);
+    let mut candidates: Vec<GameVaultCandidate> = Vec::new();
+    let mut root_scans: Vec<GameVaultRootScan> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
+    let mut seen_roots: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen_folders: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+
+    for raw_root in roots {
+        let canonical_root = fs::canonicalize(raw_root).unwrap_or_else(|_| raw_root.clone());
+        let root_key = canonical_root.to_string_lossy().to_string();
+        if !seen_roots.insert(root_key.clone()) {
+            warnings.push(format!(
+                "{root_key} is listed twice as a GameVault root; it is scanned once."
+            ));
+            continue;
+        }
+
+        let mut root_scan = GameVaultRootScan {
+            root: root_key.clone(),
+            candidates: 0,
+            warnings: Vec::new(),
+            error: None,
+        };
+
+        let entries = match fs::read_dir(&canonical_root) {
+            Ok(entries) => entries,
+            Err(error) => {
+                let message = format!("Could not read {root_key}: {error}");
+                root_scan.error = Some(message.clone());
+                warnings.push(message);
+                root_scans.push(root_scan);
+                continue;
+            }
+        };
+
+        let mut folders: Vec<PathBuf> = Vec::new();
+        for entry in entries {
+            let Ok(entry) = entry else {
+                root_scan
+                    .warnings
+                    .push(format!("Could not read an entry in {root_key}."));
+                continue;
+            };
+            let path = entry.path();
+            // `metadata` follows a junction/symlink so a linked game folder is
+            // still discovered; `canonical_folder` refuses linked folders later
+            // and the note below explains it.
+            let Ok(metadata) = fs::metadata(&path) else {
+                root_scan
+                    .warnings
+                    .push(format!("Could not inspect {}.", path.display()));
+                continue;
+            };
+            if metadata.is_dir() {
+                let link = fs::symlink_metadata(&path)
+                    .map(|meta| meta.file_type().is_symlink())
+                    .unwrap_or(false);
+                if link {
+                    root_scan.warnings.push(format!(
+                        "{} is a link. Linking it will ask for the real folder.",
+                        path.display()
+                    ));
+                }
+                folders.push(path);
+            }
+        }
+        folders.sort();
+
+        for folder in folders {
+            let name = folder
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if name.starts_with('.') {
+                continue;
+            }
+
+            let canonical = fs::canonicalize(&folder).unwrap_or_else(|_| folder.clone());
+            let folder_key = canonical.to_string_lossy().to_string();
+
+            let metadata_title = read_metadata_title(&folder);
+            let store_folder = is_store_folder(&folder);
+            let mut names = folder_names(&folder);
+            if let Some(title) = &metadata_title {
+                names.push(title.clone());
+            }
+            let (matched_game_id, match_status) = match_library_title(&names, server);
+            let discovery = scan_folder_executables(
+                &folder,
+                metadata_title.as_deref().unwrap_or(&name),
+                max_depth,
+            );
+            let executable = discovery
+                .chosen
+                .as_ref()
+                .map(|path| path.to_string_lossy().to_string());
+            let executable_candidates: Vec<String> = discovery
+                .candidates
+                .iter()
+                .map(|candidate| candidate.path.to_string_lossy().to_string())
+                .collect();
+
+            let matched = matched_game_id.is_some() || match_status == MatchStatus::Ambiguous;
+            if !matched
+                && executable_candidates.is_empty()
+                && metadata_title.is_none()
+                && !store_folder
+            {
+                warnings.push(format!(
+                    "{name}: no game executable found and no library game matches; skipped."
+                ));
+                continue;
+            }
+
+            if let Some(first_root) = seen_folders.get(&folder_key) {
+                let message = format!(
+                    "{} is listed under both {first_root} and {root_key}; it is listed once.",
+                    canonical.display()
+                );
+                warnings.push(message.clone());
+                root_scan.warnings.push(message);
+                continue;
+            }
+            seen_folders.insert(folder_key.clone(), root_key.clone());
+
+            let (size_bytes, file_count) = paths::dir_stats(&canonical);
+            let installed_source = installed
+                .iter()
+                .find(|(_, path, _)| path_matches(path, &canonical))
+                .map(|(_, _, source)| source.clone());
+            let matched_title = matched_game_id.and_then(|id| {
+                server
+                    .iter()
+                    .find(|(entry, _)| *entry == id)
+                    .map(|(_, title)| title.clone())
+            });
+
+            let (mut notes, candidate_warnings) = split_discovery_notes(&discovery);
+            if match_status == MatchStatus::Ambiguous {
+                notes.push(
+                    "Several library games match this folder; choose the right one before adopting."
+                        .to_string(),
+                );
+            }
+            if let Some(source) = &installed_source {
+                notes.push(format!("Already indexed as {source}."));
+            }
+            if executable.is_none() {
+                if store_folder {
+                    notes.push(
+                        "This looks like a Microsoft Store package: there is no classic .exe to launch. Link it anyway and choose the executable in the game settings if the game ships one."
+                            .to_string(),
+                    );
+                } else if matched {
+                    notes.push(format!(
+                        "No game executable was found (searched {max_depth} folder levels). Link it anyway and choose the executable in the game settings."
+                    ));
+                }
+            } else if executable_candidates.len() > 1 {
+                notes.push(format!(
+                    "{} executables found; the first one is used. You can choose another in the game settings.",
+                    executable_candidates.len()
+                ));
+            }
+            if executable.is_none() && !executable_candidates.is_empty() {
+                notes.push(format!(
+                    "Found {} executable(s) but none matches the title: {}",
+                    executable_candidates.len(),
+                    executable_candidates
+                        .iter()
+                        .take(3)
+                        .cloned()
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                ));
+            }
+
+            root_scan.candidates += 1;
+            candidates.push(GameVaultCandidate {
+                folder: folder_key,
+                name,
+                source_root: root_key.clone(),
+                executable,
+                executable_candidates,
+                size_bytes,
+                file_count,
+                metadata_title,
+                matched_game_id,
+                matched_title,
+                match_status,
+                installed: installed_source,
+                notes,
+                warnings: candidate_warnings,
+            });
+        }
+
+        root_scans.push(root_scan);
+    }
+
+    (candidates, root_scans, warnings)
+}
+
+/// Scan a single root (kept for callers and tests that only need one).
+#[cfg(test)]
 pub fn scan_gamevault_root(
     root: &Path,
     installed: &[(i64, String, String)],
     server: &[(i64, String)],
-) -> Result<(Vec<GameVaultCandidate>, Vec<String>), String> {
-    let mut warnings = Vec::new();
-    let entries =
-        fs::read_dir(root).map_err(|e| format!("Could not read {}: {e}", root.display()))?;
-    let mut candidates = Vec::new();
-    let mut folders: Vec<PathBuf> = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Ok(metadata) = fs::symlink_metadata(&path) else {
-            continue;
-        };
-        if metadata.is_dir() {
-            folders.push(path);
-        }
-    }
-    folders.sort();
-
-    for folder in folders {
-        let name = folder
-            .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_default();
-        if name.starts_with('.') {
-            continue;
-        }
-        let metadata_title = read_metadata_title(&folder);
-        let mut names = folder_names(&folder);
-        if let Some(title) = &metadata_title {
-            names.push(title.clone());
-        }
-        let Some(executable) =
-            crate::bridge::pick_executable(&folder, metadata_title.as_deref().unwrap_or(&name))
-        else {
-            warnings.push(format!("{name}: no game executable found; skipped."));
-            continue;
-        };
-        let (size_bytes, file_count) = paths::dir_stats(&folder);
-        let canonical = fs::canonicalize(&folder).unwrap_or(folder);
-        let (matched_game_id, match_status) = match_library_title(&names, server);
-        let installed_source = installed
-            .iter()
-            .find(|(_, path, _)| path_matches(path, &canonical))
-            .map(|(_, _, source)| source.clone());
-        let matched_title = matched_game_id.and_then(|id| {
-            server
-                .iter()
-                .find(|(entry, _)| *entry == id)
-                .map(|(_, title)| title.clone())
-        });
-        let mut notes = Vec::new();
-        if match_status == MatchStatus::Ambiguous {
-            notes.push(
-                "Several library games match this folder; choose the right one before adopting."
-                    .to_string(),
-            );
-        }
-        if let Some(source) = &installed_source {
-            notes.push(format!("Already indexed as {source}."));
-        }
-        candidates.push(GameVaultCandidate {
-            folder: canonical.to_string_lossy().to_string(),
-            name,
-            executable: Some(executable.to_string_lossy().to_string()),
-            size_bytes,
-            file_count,
-            metadata_title,
-            matched_game_id,
-            matched_title,
-            match_status,
-            installed: installed_source,
-            notes,
-        });
-    }
-
-    Ok((candidates, warnings))
+) -> (Vec<GameVaultCandidate>, Vec<String>) {
+    let (candidates, roots, warnings) = scan_gamevault_roots(
+        &[root.to_path_buf()],
+        installed,
+        server,
+        crate::bridge::DEFAULT_SCAN_DEPTH,
+    );
+    let mut errors: Vec<String> = roots.into_iter().filter_map(|scan| scan.error).collect();
+    errors.extend(warnings);
+    (candidates, errors)
 }
 
-/* ------------------------------ command side ----------------------------- */
+/* ---------------------- GameVault root auto-detection -------------------- */
 
-/// Canonicalize and validate a GameVault scan root without listing it.
+/// Absolute directories worth probing for a GameVault install (#134).
+fn gamevault_probe_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(home) = home_dir() {
+        for name in ["Games/GameVault", "GameVault", "games/GameVault"] {
+            dirs.push(home.join(name));
+        }
+    }
+    #[cfg(windows)]
+    {
+        // A: and B: are floppy drives on old machines and can block for seconds.
+        for letter in b'C'..=b'Z' {
+            let drive = format!("{}:\\", letter as char);
+            dirs.push(PathBuf::from(&drive).join("Games").join("GameVault"));
+            dirs.push(PathBuf::from(&drive).join("GameVault"));
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        for base in ["/mnt", "/media", "/run/media"] {
+            let base = PathBuf::from(base);
+            if !base.is_dir() {
+                continue;
+            }
+            if let Ok(entries) = fs::read_dir(&base) {
+                for entry in entries.flatten() {
+                    let path = entry.path().join("Games").join("GameVault");
+                    if path.is_dir() {
+                        dirs.push(path);
+                    }
+                }
+            }
+        }
+    }
+    dirs
+}
+
+/// GameVault client config files probed read-only (#134).
+fn gamevault_config_files() -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    if let Some(home) = home_dir() {
+        for name in [
+            ".config/gamevault/config.json",
+            ".config/GameVault/config.json",
+            ".config/gamevault/settings.json",
+            ".gamevault/config.json",
+        ] {
+            files.push(home.join(name));
+        }
+    }
+    for variable in ["APPDATA", "LOCALAPPDATA", "PROGRAMDATA"] {
+        if let Some(raw) = std::env::var_os(variable) {
+            let base = PathBuf::from(raw);
+            for name in ["GameVault", "gamevault"] {
+                files.push(base.join(name).join("config.json"));
+                files.push(base.join(name).join("settings.json"));
+            }
+        }
+    }
+    files
+}
+
+/// Collect string values whose key looks like an install folder, recursively.
+fn collect_config_paths(value: &serde_json::Value, found: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, entry) in map {
+                let lower = key.to_ascii_lowercase();
+                let key_looks_like_a_folder = [
+                    "install",
+                    "path",
+                    "folder",
+                    "directory",
+                    "library",
+                    "root",
+                    "download",
+                    "games",
+                ]
+                .iter()
+                .any(|needle| lower.contains(needle));
+                if key_looks_like_a_folder {
+                    if let Some(raw) = entry.as_str() {
+                        found.push(raw.to_string());
+                    }
+                }
+                collect_config_paths(entry, found);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_config_paths(item, found);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Immediate subfolders that look like game folders, for confirmation only.
+fn count_game_folders(root: &Path) -> u64 {
+    let Ok(entries) = fs::read_dir(root) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .filter(|entry| {
+            let path = entry.path();
+            if !path.is_dir() {
+                return false;
+            }
+            if has_metadata(&path) || is_store_folder(&path) {
+                return true;
+            }
+            // A hint is enough here: this only labels a proposal, the real scan
+            // runs when the user confirms.
+            crate::bridge::discover_executables(&path, "", 3)
+                .candidates
+                .iter()
+                .any(|candidate| {
+                    candidate
+                        .path
+                        .extension()
+                        .and_then(|extension| extension.to_str())
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+                })
+        })
+        .count() as u64
+}
+
+/// Read-only proposal of GameVault roots (#134).
+///
+/// Probes the usual locations (one GameVault install location per drive) and,
+/// when they exist, GameVault's own client config files. It never writes to
+/// GameVault and never adopts anything: the UI shows each proposal with its
+/// reason and the user confirms before it becomes a configured root.
+pub fn detect_gamevault_roots(configured: &[String]) -> Vec<GameVaultRootProposal> {
+    let mut proposals: Vec<GameVaultRootProposal> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let configured_keys: std::collections::HashSet<String> = configured
+        .iter()
+        .map(|raw| {
+            fs::canonicalize(raw)
+                .unwrap_or_else(|_| PathBuf::from(raw))
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+
+    let mut push = |path: PathBuf, reason: String| {
+        let Some(canonical) = fs::canonicalize(&path).ok() else {
+            return;
+        };
+        let key = canonical.to_string_lossy().to_string();
+        if !seen.insert(key.clone()) {
+            return;
+        }
+        proposals.push(GameVaultRootProposal {
+            path: key.clone(),
+            reason,
+            exists: canonical.is_dir(),
+            configured: configured_keys.contains(&key),
+            game_folders: if canonical.is_dir() {
+                count_game_folders(&canonical)
+            } else {
+                0
+            },
+        });
+    };
+
+    for dir in gamevault_probe_dirs() {
+        if dir.is_dir() {
+            push(dir, "Found at a usual GameVault location.".to_string());
+        }
+    }
+
+    for file in gamevault_config_files() {
+        if !file.is_file() {
+            continue;
+        }
+        let Ok(raw) = fs::read_to_string(&file) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        let mut found = Vec::new();
+        collect_config_paths(&value, &mut found);
+        for entry in found {
+            let candidate = PathBuf::from(entry.trim());
+            if !candidate.is_absolute() || !candidate.is_dir() {
+                continue;
+            }
+            push(candidate, format!("Configured in {}.", file.display()));
+        }
+    }
+
+    proposals
+}
+
+/// Canonicalize and validate a GameVault scan root without listing it (#134).
+///
+/// Unlike [`canonical_folder`], a root may be a junction/symlink: scanning is
+/// read-only and the canonical target is what gets stored, so a linked
+/// `C:\Games\GameVault` still works. Candidates are validated separately when
+/// they are adopted.
 pub fn prepare_scan_root(raw: &str) -> Result<PathBuf, String> {
-    let canonical = canonical_folder(raw)?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("Choose the GameVault folder to scan.".to_string());
+    }
+    if trimmed.chars().any(char::is_control) {
+        return Err("The folder path contains control characters.".to_string());
+    }
+    let path = PathBuf::from(trimmed);
+    if !path.is_absolute() {
+        return Err("The folder path must be absolute.".to_string());
+    }
+    if path
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err("The folder path cannot contain “..”.".to_string());
+    }
+    let metadata =
+        fs::metadata(&path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
+    if !metadata.is_dir() {
+        return Err(format!("{} is not a folder.", path.display()));
+    }
+    let canonical = fs::canonicalize(&path)
+        .map_err(|e| format!("Could not resolve {}: {e}", path.display()))?;
     if canonical.parent().is_none() {
         return Err("Choose the games folder, not a drive root.".to_string());
     }
@@ -962,6 +1441,9 @@ pub struct GameVaultAdoptEntry {
     pub version_id: Option<i64>,
     #[serde(default)]
     pub version: Option<String>,
+    /// Executable chosen among the ranked candidates (#134). Empty = detect.
+    #[serde(default)]
+    pub executable: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1427,6 +1909,21 @@ mod tests {
         assert!(prepare_scan_root("").is_err());
         #[cfg(unix)]
         assert!(prepare_scan_root("/").is_err());
+        // A linked root is resolved: scanning it is read-only and the canonical
+        // target is what gets remembered (#134).
+        #[cfg(unix)]
+        {
+            let link = root.with_file_name(format!(
+                "{}-link",
+                root.file_name().unwrap().to_string_lossy()
+            ));
+            std::os::unix::fs::symlink(&root, &link).unwrap();
+            assert_eq!(
+                prepare_scan_root(&link.to_string_lossy()).unwrap(),
+                fs::canonicalize(&root).unwrap()
+            );
+            let _ = fs::remove_file(&link);
+        }
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -1492,7 +1989,7 @@ mod tests {
         fs::write(data_only.join("track.mp3"), b"id3").unwrap();
 
         let server = vec![(1, "Hades".to_string()), (2, "Celeste".to_string())];
-        let (candidates, warnings) = scan_gamevault_root(&root, &[], &server).unwrap();
+        let (candidates, warnings) = scan_gamevault_root(&root, &[], &server);
 
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].name, "Hades (v1.0)");
@@ -1500,6 +1997,10 @@ mod tests {
         assert_eq!(candidates[0].matched_game_id, Some(1));
         assert_eq!(candidates[0].match_status, MatchStatus::Exact);
         assert!(candidates[0].executable.is_some());
+        assert_eq!(
+            candidates[0].source_root,
+            fs::canonicalize(&root).unwrap().to_string_lossy()
+        );
         assert!(warnings
             .iter()
             .any(|warning| warning.contains("Soundtracks")));
@@ -1509,6 +2010,335 @@ mod tests {
             fs::read_to_string(hades.join("gamevault.json")).unwrap(),
             r#"{"title":"Hades"}"#
         );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn gamevault_scan_finds_a_nested_executable_at_depth_five_and_beyond() {
+        let root = temp_dir("gamevault-deep");
+        let game = root.join("Forza Horizon 6");
+        fs::create_dir_all(game.join("a/b/c/d")).unwrap();
+        fs::write(game.join("a/b/c/d/ForzaHorizon6.exe"), b"MZ").unwrap();
+
+        let server = vec![(10, "Forza Horizon 6".to_string())];
+        let (candidates, _) = scan_gamevault_root(&root, &[], &server);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates[0].executable.as_deref(),
+            Some(
+                game.join("a/b/c/d/ForzaHorizon6.exe")
+                    .to_string_lossy()
+                    .as_ref()
+            )
+        );
+        // The ranked list is exposed so the UI can offer another file.
+        assert!(candidates[0].executable_candidates.len() >= 1);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn gamevault_scan_keeps_a_matched_folder_without_any_executable() {
+        let root = temp_dir("gamevault-noexe");
+        let game = root.join("It Takes Two");
+        fs::create_dir_all(game.join("data")).unwrap();
+        fs::write(game.join("data/level.bin"), b"data").unwrap();
+        fs::write(game.join("readme.txt"), b"hello").unwrap();
+
+        let server = vec![(20, "It Takes Two".to_string())];
+        let (candidates, warnings) = scan_gamevault_root(&root, &[], &server);
+
+        // Never dropped: the user can link it and choose the executable later.
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].matched_game_id, Some(20));
+        assert_eq!(candidates[0].executable, None);
+        assert!(candidates[0].executable_candidates.is_empty());
+        assert!(candidates[0]
+            .notes
+            .iter()
+            .any(|note| note.contains("Link it anyway")));
+        assert!(candidates[0].notes.iter().any(|note| note.contains("6")));
+        // Not a generic "no executable": the folder itself was readable.
+        assert!(
+            candidates[0].warnings.is_empty(),
+            "{:?}",
+            candidates[0].warnings
+        );
+        assert!(warnings.is_empty(), "{warnings:?}");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn gamevault_scan_keeps_a_store_style_folder_without_a_classic_exe() {
+        let root = temp_dir("gamevault-store");
+        let game = root.join("Minecraft Dungeons");
+        fs::create_dir_all(game.join("Content")).unwrap();
+        fs::write(game.join("AppxManifest.xml"), b"<Package/>").unwrap();
+        fs::write(game.join("Content/level.pak"), b"pak").unwrap();
+
+        let server = vec![(30, "Minecraft Dungeons".to_string())];
+        let (candidates, _) = scan_gamevault_root(&root, &[], &server);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].matched_game_id, Some(30));
+        assert_eq!(candidates[0].executable, None);
+        assert!(candidates[0]
+            .notes
+            .iter()
+            .any(|note| note.contains("Microsoft Store")));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn gamevault_scan_ranks_multiple_executables_and_never_guesses_unrelated_ones() {
+        let root = temp_dir("gamevault-multi");
+        let hades = root.join("Hades");
+        fs::create_dir_all(&hades).unwrap();
+        fs::write(hades.join("Hades.exe"), b"MZ").unwrap();
+        fs::write(hades.join("Unrelated.exe"), b"MZ").unwrap();
+        let server = vec![(1, "Hades".to_string())];
+        let (candidates, _) = scan_gamevault_root(&root, &[], &server);
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0]
+            .executable
+            .as_deref()
+            .is_some_and(|path| path.ends_with("Hades.exe")));
+        assert_eq!(candidates[0].executable_candidates.len(), 2);
+        assert!(candidates[0]
+            .executable_candidates
+            .first()
+            .is_some_and(|path| path.ends_with("Hades.exe")));
+        assert!(candidates[0]
+            .notes
+            .iter()
+            .any(|note| note.contains("2 executables found")));
+
+        // Unrelated files only: the folder is kept, but no executable is chosen.
+        let forza = root.join("Forza Horizon 6");
+        fs::create_dir_all(&forza).unwrap();
+        fs::write(forza.join("Helper.exe"), b"MZ").unwrap();
+        fs::write(forza.join("Other.exe"), b"MZ").unwrap();
+        let server = vec![(2, "Forza Horizon 6".to_string())];
+        let (candidates, _) = scan_gamevault_root(&root, &[], &server);
+        let forza = candidates
+            .iter()
+            .find(|candidate| candidate.name == "Forza Horizon 6")
+            .expect("candidate");
+        assert_eq!(forza.executable, None);
+        assert_eq!(forza.executable_candidates.len(), 2);
+        assert!(forza
+            .notes
+            .iter()
+            .any(|note| note.contains("choose one manually")
+                || note.contains("none matches the title")));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn gamevault_scan_handles_multiple_roots_and_duplicate_roots() {
+        let root_a = temp_dir("gamevault-a");
+        let root_b = temp_dir("gamevault-b");
+        let alpha = root_a.join("Alpha");
+        fs::create_dir_all(&alpha).unwrap();
+        fs::write(alpha.join("Alpha.exe"), b"MZ").unwrap();
+        let beta = root_b.join("Beta");
+        fs::create_dir_all(&beta).unwrap();
+        fs::write(beta.join("Beta.exe"), b"MZ").unwrap();
+
+        let server = vec![(1, "Alpha".to_string()), (2, "Beta".to_string())];
+        let (candidates, roots, _warnings) =
+            scan_gamevault_roots(&[root_a.clone(), root_b.clone()], &[], &server, 6);
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(roots.len(), 2);
+        assert_eq!(roots[0].candidates, 1);
+        assert_eq!(roots[1].candidates, 1);
+        assert!(roots.iter().all(|root| root.error.is_none()));
+        let alpha_source = fs::canonicalize(&root_a)
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        let beta_source = fs::canonicalize(&root_b)
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        assert!(candidates
+            .iter()
+            .any(|candidate| candidate.name == "Alpha" && candidate.source_root == alpha_source));
+        assert!(candidates
+            .iter()
+            .any(|candidate| candidate.name == "Beta" && candidate.source_root == beta_source));
+
+        // The same root twice is scanned once and reported.
+        let (candidates, roots, warnings) =
+            scan_gamevault_roots(&[root_a.clone(), root_a.clone()], &[], &server, 6);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(roots.len(), 1);
+        assert!(warnings
+            .iter()
+            .any(|warning| warning.contains("listed twice")));
+
+        // Two roots can expose the same game folder (a link): list it once.
+        #[cfg(unix)]
+        {
+            let link = root_b.join("Alpha alias");
+            let _ = std::os::unix::fs::symlink(&alpha, &link);
+            let (candidates, _, warnings) =
+                scan_gamevault_roots(&[root_a.clone(), root_b.clone()], &[], &server, 6);
+            assert_eq!(candidates.len(), 2);
+            assert_eq!(
+                candidates
+                    .iter()
+                    .filter(|candidate| candidate.name == "Alpha")
+                    .count(),
+                1
+            );
+            assert!(warnings
+                .iter()
+                .any(|warning| warning.contains("listed under both")));
+        }
+
+        let _ = fs::remove_dir_all(&root_a);
+        let _ = fs::remove_dir_all(&root_b);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn gamevault_scan_reports_unreadable_folders_with_the_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_dir("gamevault-locked");
+        let locked = root.join("Locked Game");
+        fs::create_dir_all(&locked).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+        // Running as root bypasses permissions: skip instead of asserting a lie.
+        if fs::read_dir(&locked).is_ok() {
+            fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+            let _ = fs::remove_dir_all(&root);
+            return;
+        }
+
+        let server = vec![(40, "Locked Game".to_string())];
+        let (candidates, _) = scan_gamevault_root(&root, &[], &server);
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0]
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("Could not read") && warning.contains("Locked Game")));
+        assert!(candidates[0]
+            .notes
+            .iter()
+            .any(|note| note.contains("Link it anyway")));
+
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn gamevault_scan_survives_a_symlink_loop() {
+        let root = temp_dir("gamevault-loop");
+        let game = root.join("Sackboy");
+        fs::create_dir_all(&game).unwrap();
+        fs::write(game.join("Sackboy.exe"), b"MZ").unwrap();
+        std::os::unix::fs::symlink(&game, game.join("loop")).unwrap();
+
+        let server = vec![(50, "Sackboy".to_string())];
+        let (candidates, _) = scan_gamevault_root(&root, &[], &server);
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0]
+            .executable
+            .as_deref()
+            .is_some_and(|path| path.ends_with("Sackboy.exe")));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn gamevault_scan_skips_installer_redist_and_support_subfolders() {
+        let root = temp_dir("gamevault-redist");
+        let game = root.join("Uncharted");
+        fs::create_dir_all(game.join("_CommonRedist")).unwrap();
+        fs::create_dir_all(game.join("Support")).unwrap();
+        fs::write(game.join("_CommonRedist/dxsetup.exe"), b"MZ").unwrap();
+        fs::write(game.join("Support/helper.exe"), b"MZ").unwrap();
+        fs::write(game.join("unins000.exe"), b"MZ").unwrap();
+        fs::write(game.join("Uncharted.exe"), b"MZ").unwrap();
+
+        let server = vec![(60, "Uncharted".to_string())];
+        let (candidates, _) = scan_gamevault_root(&root, &[], &server);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].executable_candidates.len(), 1);
+        assert!(candidates[0]
+            .executable
+            .as_deref()
+            .is_some_and(|path| path.ends_with("Uncharted.exe")));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn gamevault_detection_is_read_only_and_only_proposes_existing_folders() {
+        // No environment tricks: the probe list simply must never invent a path
+        // and must never write anything.
+        let proposals = detect_gamevault_roots(&[]);
+        for proposal in &proposals {
+            assert!(proposal.exists, "{}", proposal.path);
+            assert!(Path::new(&proposal.path).is_absolute());
+            assert!(!proposal.reason.is_empty());
+        }
+    }
+
+    #[test]
+    fn preview_lists_executable_candidates_and_accepts_a_manual_choice() {
+        let root = temp_dir("preview-manual");
+        let folder = root.join("Hades");
+        fs::create_dir_all(folder.join("bin")).unwrap();
+        fs::write(folder.join("bin/Hades.exe"), b"MZ").unwrap();
+        fs::write(folder.join("Unrelated.exe"), b"MZ").unwrap();
+
+        let (preview, _record) = prepare_adoption(
+            &[],
+            &root,
+            7,
+            "Hades",
+            None,
+            None,
+            &folder.to_string_lossy(),
+            None,
+        )
+        .unwrap();
+        assert!(preview
+            .executable
+            .as_deref()
+            .is_some_and(|path| path.ends_with("Hades.exe")));
+        assert_eq!(preview.executable_candidates.len(), 2);
+
+        // Linking anyway with an explicit executable works and is recorded.
+        let (preview, record) = prepare_adoption(
+            &[],
+            &root,
+            7,
+            "Hades",
+            None,
+            None,
+            &folder.to_string_lossy(),
+            Some("Unrelated.exe"),
+        )
+        .unwrap();
+        assert!(preview
+            .executable
+            .as_deref()
+            .is_some_and(|path| path.ends_with("Unrelated.exe")));
+        assert!(record
+            .executable
+            .as_deref()
+            .is_some_and(|path| path.ends_with("Unrelated.exe")));
 
         let _ = fs::remove_dir_all(&root);
     }

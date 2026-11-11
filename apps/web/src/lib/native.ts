@@ -19,6 +19,7 @@ import type {
   GameUpdate,
   GameVaultAdoptEntry,
   GameVaultAdoptReport,
+  GameVaultRootProposal,
   GameVaultScan,
   InstallGameArgs,
   InstallJob,
@@ -368,6 +369,8 @@ export const native = {
     folder: string;
     versionId?: number | null;
     version?: string | null;
+    /** Manual executable ("link anyway"), relative to the folder or absolute. */
+    executable?: string | null;
     title?: string | null;
   }): Promise<AdoptPreview> {
     return invoke<AdoptPreview>("adopt_installation", args);
@@ -397,14 +400,34 @@ export const native = {
     return invoke<DeleteAdoptedPreview>("delete_adopted_installation", { gameId, confirmPath: confirmPath ?? null });
   },
 
-  /** List the immediate subfolders of a GameVault-style root with a game exe. */
-  async scanGameVaultFolders(root: string): Promise<GameVaultScan> {
-    return invoke<GameVaultScan>("scan_gamevault_folders", { root });
+  /** Scan every configured GameVault root in one pass (#134). */
+  async scanGameVaultFolders(roots?: string[]): Promise<GameVaultScan> {
+    return invoke<GameVaultScan>("scan_gamevault_folders", { roots: roots ?? null });
   },
 
   /** Adopt selected GameVault candidates after the user confirmed the matches. */
-  async adoptGameVaultInstallations(root: string, entries: GameVaultAdoptEntry[]): Promise<GameVaultAdoptReport> {
-    return invoke<GameVaultAdoptReport>("adopt_gamevault_installations", { root, entries });
+  async adoptGameVaultInstallations(roots: string[], entries: GameVaultAdoptEntry[]): Promise<GameVaultAdoptReport> {
+    return invoke<GameVaultAdoptReport>("adopt_gamevault_installations", { roots, entries });
+  },
+
+  /** Add one root to the ordered list, persisted in local settings (#134). */
+  async addGameVaultRoot(path: string): Promise<LocalSettings> {
+    return invoke<LocalSettings>("add_gamevault_root", { path });
+  },
+
+  /** Remove one root from the ordered list (#134). */
+  async removeGameVaultRoot(path: string): Promise<LocalSettings> {
+    return invoke<LocalSettings>("remove_gamevault_root", { path });
+  },
+
+  /** Persist a new root order (#134). */
+  async reorderGameVaultRoots(roots: string[]): Promise<LocalSettings> {
+    return invoke<LocalSettings>("reorder_gamevault_roots", { roots });
+  },
+
+  /** Propose GameVault roots found on this machine, read-only (#134). */
+  async detectGameVaultRoots(): Promise<GameVaultRootProposal[]> {
+    return invoke<GameVaultRootProposal[]>("detect_gamevault_roots");
   },
 
   async onManifestProgress(handler: (progress: ManifestProgress) => void): Promise<() => void> {
@@ -720,4 +743,6 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   sunshineConfPath: "",
   moonlightBinary: "",
   moonlightConfigPath: "",
+  gamevaultRoots: [],
+  gamevaultScanDepth: 6,
 };

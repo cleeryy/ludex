@@ -1,5 +1,6 @@
 //! Tauri commands exposed to the web UI (`docs/CONTRACT.md`, Desktop section).
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -1657,6 +1658,7 @@ pub async fn adopt_installation(
     version_id: Option<i64>,
     version: Option<String>,
     folder: String,
+    executable: Option<String>,
     title: Option<String>,
 ) -> Result<adopt::AdoptPreview, String> {
     let state = app.state::<AppState>();
@@ -1681,7 +1683,7 @@ pub async fn adopt_installation(
             version_id,
             version.as_deref(),
             &folder,
-            None,
+            executable.as_deref(),
         )?;
         Ok::<adopt::AdoptPreview, String>(preview)
     })
@@ -1787,16 +1789,49 @@ pub async fn delete_adopted_installation(
     adopt::delete_adopted(&app, game_id, confirm_path).await
 }
 
-/// List GameVault-style install folders under a root (#129).
+/// List GameVault-style install folders under one or more roots (#129, #134).
+///
+/// With no `roots` (or an empty list) the configured roots from local settings
+/// are scanned. Every configured root keeps its own status: an unreadable drive
+/// is reported per root instead of failing the whole scan. Nothing is written.
 #[tauri::command]
 pub async fn scan_gamevault_folders(
     app: AppHandle,
-    root: String,
+    roots: Option<Vec<String>>,
 ) -> Result<adopt::GameVaultScan, String> {
     let state = app.state::<AppState>();
-    let canonical = tokio::task::spawn_blocking(move || adopt::prepare_scan_root(&root))
-        .await
-        .map_err(|error| format!("The scan failed: {error}"))??;
+    let settings = state.settings_snapshot();
+    let requested = roots.filter(|list| !list.is_empty()).unwrap_or_else(|| {
+        settings
+            .gamevault_root_paths()
+            .iter()
+            .map(|path| path.to_string_lossy().to_string())
+            .collect()
+    });
+    if requested.is_empty() {
+        return Err(
+            "Add at least one GameVault folder in Settings → Installed before scanning."
+                .to_string(),
+        );
+    }
+    let max_depth = settings.gamevault_depth();
+
+    let prepared = tokio::task::spawn_blocking(move || {
+        requested
+            .into_iter()
+            .map(|raw| {
+                let result = adopt::prepare_scan_root(&raw);
+                (raw, result)
+            })
+            .collect::<Vec<(String, Result<PathBuf, String>)>>()
+    })
+    .await
+    .map_err(|error| format!("The scan failed: {error}"))?;
+
+    let canonical_roots: Vec<PathBuf> = prepared
+        .iter()
+        .filter_map(|(_, result)| result.as_ref().ok().cloned())
+        .collect();
 
     let (server_games, server_listed) = match server_game_titles(&state).await {
         Ok(games) => (games, true),
@@ -1814,35 +1849,170 @@ pub async fn scan_gamevault_folders(
         db::installed_paths(&connection)?
     };
 
-    let scan_root = canonical.clone();
-    let (candidates, warnings) = tokio::task::spawn_blocking(move || {
-        adopt::scan_gamevault_root(&scan_root, &installed, &server_games)
+    let (candidates, scanned_roots, mut warnings) = tokio::task::spawn_blocking(move || {
+        adopt::scan_gamevault_roots(&canonical_roots, &installed, &server_games, max_depth)
     })
     .await
-    .map_err(|error| format!("The scan failed: {error}"))??;
+    .map_err(|error| format!("The scan failed: {error}"))?;
+
+    // Keep the configured root order: an invalid root becomes a status row with
+    // its own error instead of disappearing or failing the whole scan.
+    let mut ordered: Vec<adopt::GameVaultRootScan> = Vec::new();
+    for (raw, result) in prepared {
+        match result {
+            Ok(canonical) => {
+                let key = canonical.to_string_lossy().to_string();
+                let status = scanned_roots.iter().find(|scan| scan.root == key).cloned();
+                ordered.push(status.unwrap_or(adopt::GameVaultRootScan {
+                    root: key,
+                    candidates: 0,
+                    warnings: Vec::new(),
+                    error: None,
+                }));
+            }
+            Err(error) => {
+                let message = format!("{raw}: {error}");
+                warnings.push(message.clone());
+                ordered.push(adopt::GameVaultRootScan {
+                    root: raw,
+                    candidates: 0,
+                    warnings: vec![message.clone()],
+                    error: Some(message),
+                });
+            }
+        }
+    }
 
     Ok(adopt::GameVaultScan {
-        root: canonical.to_string_lossy().to_string(),
+        roots: ordered,
         candidates,
         warnings,
         matched,
+        max_depth,
     })
 }
 
-/// Adopt selected GameVault folders after the user confirmed each match (#129).
+/// Add a GameVault root to the ordered local list (#134).
+#[tauri::command]
+pub async fn add_gamevault_root(app: AppHandle, path: String) -> Result<LocalSettings, String> {
+    let state = app.state::<AppState>();
+    let canonical = tokio::task::spawn_blocking(move || adopt::prepare_scan_root(&path))
+        .await
+        .map_err(|error| format!("The folder could not be checked: {error}"))??;
+    let mut settings = state.settings_snapshot();
+    let key = canonical.to_string_lossy().to_string();
+    if settings
+        .gamevault_roots
+        .iter()
+        .any(|root| adopt::canonical_path_key(root) == key)
+    {
+        return Err(format!("{key} is already a GameVault folder."));
+    }
+    settings.gamevault_roots.push(key);
+    state.persist_settings(settings)
+}
+
+/// Remove a GameVault root from the ordered local list (#134).
+#[tauri::command]
+pub async fn remove_gamevault_root(app: AppHandle, path: String) -> Result<LocalSettings, String> {
+    let state = app.state::<AppState>();
+    let key = tokio::task::spawn_blocking(move || adopt::canonical_path_key(&path))
+        .await
+        .map_err(|error| format!("The folder could not be checked: {error}"))?;
+    let mut settings = state.settings_snapshot();
+    let before = settings.gamevault_roots.len();
+    settings
+        .gamevault_roots
+        .retain(|root| adopt::canonical_path_key(root) != key);
+    if settings.gamevault_roots.len() == before {
+        return Err(format!("{key} is not a configured GameVault folder."));
+    }
+    state.persist_settings(settings)
+}
+
+/// Replace the GameVault root order (#134). The set must be the same; unknown
+/// entries are ignored and missing ones keep their previous order at the end.
+#[tauri::command]
+pub async fn reorder_gamevault_roots(
+    app: AppHandle,
+    roots: Vec<String>,
+) -> Result<LocalSettings, String> {
+    let state = app.state::<AppState>();
+    let keys = tokio::task::spawn_blocking(move || {
+        roots
+            .iter()
+            .map(|root| adopt::canonical_path_key(root))
+            .collect::<Vec<String>>()
+    })
+    .await
+    .map_err(|error| format!("The folder could not be checked: {error}"))?;
+    let mut settings = state.settings_snapshot();
+    let existing = settings.gamevault_roots.clone();
+    let mut ordered: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for key in keys {
+        if let Some(root) = existing
+            .iter()
+            .find(|root| adopt::canonical_path_key(root) == key)
+        {
+            if seen.insert(key) {
+                ordered.push(root.clone());
+            }
+        }
+    }
+    for root in &existing {
+        let key = adopt::canonical_path_key(root);
+        if seen.insert(key) {
+            ordered.push(root.clone());
+        }
+    }
+    settings.gamevault_roots = ordered;
+    state.persist_settings(settings)
+}
+
+/// Propose GameVault roots found on this machine, read-only (#134).
+#[tauri::command]
+pub async fn detect_gamevault_roots(
+    app: AppHandle,
+) -> Result<Vec<adopt::GameVaultRootProposal>, String> {
+    let state = app.state::<AppState>();
+    let configured = state.settings_snapshot().gamevault_roots;
+    tokio::task::spawn_blocking(move || adopt::detect_gamevault_roots(&configured))
+        .await
+        .map_err(|error| format!("The detection failed: {error}"))
+}
+
+/// Adopt selected GameVault folders after the user confirmed each match (#129,
+/// #134). `roots` defaults to the configured list; every folder must be an
+/// immediate child of one of them.
 #[tauri::command]
 pub async fn adopt_gamevault_installations(
     app: AppHandle,
-    root: String,
+    roots: Vec<String>,
     entries: Vec<adopt::GameVaultAdoptEntry>,
 ) -> Result<adopt::GameVaultAdoptReport, String> {
     if entries.is_empty() {
         return Err("Select at least one folder to adopt.".to_string());
     }
     let state = app.state::<AppState>();
-    let canonical_root = tokio::task::spawn_blocking(move || adopt::prepare_scan_root(&root))
-        .await
-        .map_err(|error| format!("The scan failed: {error}"))??;
+    let configured = state.settings_snapshot().gamevault_roots;
+    let requested = if roots.is_empty() { configured } else { roots };
+    if requested.is_empty() {
+        return Err(
+            "Add at least one GameVault folder in Settings → Installed before linking.".to_string(),
+        );
+    }
+    let canonical_roots = tokio::task::spawn_blocking(move || {
+        requested
+            .into_iter()
+            .filter_map(|root| adopt::prepare_scan_root(&root).ok())
+            .collect::<Vec<PathBuf>>()
+    })
+    .await
+    .map_err(|error| format!("The scan failed: {error}"))?;
+    if canonical_roots.is_empty() {
+        return Err("None of the configured GameVault folders can be read.".to_string());
+    }
 
     let mut adopted = Vec::new();
     let mut skipped = Vec::new();
@@ -1860,6 +2030,7 @@ pub async fn adopt_gamevault_installations(
         let game_id = entry.game_id;
         let version_id = entry.version_id;
         let version = entry.version;
+        let executable = entry.executable;
         let rows = {
             let connection = state
                 .db
@@ -1885,16 +2056,33 @@ pub async fn adopt_gamevault_installations(
                     .unwrap_or_else(|| folder.clone())
             });
 
-        let task_root = canonical_root.clone();
+        let task_roots = canonical_roots.clone();
         let task_install_root = install_root.clone();
         let task_folder = folder.clone();
         let prepared = tokio::task::spawn_blocking(move || {
-            // Every bulk entry must be an immediate child of the scanned root:
-            // the UI cannot widen the adoption surface with a crafted path.
+            // Every bulk entry must be an immediate child of one of the scanned
+            // roots, or the canonical target of a linked child (a GameVault
+            // folder can be a junction to another drive). The UI cannot widen
+            // the adoption surface with a crafted path.
             let canonical = adopt::canonical_folder(&task_folder)?;
-            if canonical.parent() != Some(task_root.as_path()) {
+            let parent = canonical.parent();
+            let allowed = task_roots.iter().any(|root| {
+                if parent == Some(root.as_path()) {
+                    return true;
+                }
+                fs::read_dir(root)
+                    .map(|entries| {
+                        entries.flatten().any(|entry| {
+                            fs::canonicalize(entry.path())
+                                .map(|target| target == canonical)
+                                .unwrap_or(false)
+                        })
+                    })
+                    .unwrap_or(false)
+            });
+            if !allowed {
                 return Err(format!(
-                    "{} is not inside the scanned folder.",
+                    "{} is not inside a configured GameVault folder.",
                     canonical.display()
                 ));
             }
@@ -1906,7 +2094,7 @@ pub async fn adopt_gamevault_installations(
                 version_id,
                 version.as_deref(),
                 &canonical.to_string_lossy(),
-                None,
+                executable.as_deref(),
             )
         })
         .await

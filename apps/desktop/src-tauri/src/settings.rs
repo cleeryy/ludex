@@ -204,6 +204,22 @@ pub struct LocalSettings {
     /// Moonlight config override (#98). Empty = detect.
     #[serde(default)]
     pub moonlight_config_path: String,
+    /// Ordered GameVault install roots (#134). One entry per install location,
+    /// e.g. `C:\Games\GameVault` and `D:\Games\GameVault`.
+    #[serde(default)]
+    pub gamevault_roots: Vec<String>,
+    /// Legacy single GameVault root (#134). Only read to migrate an older
+    /// settings file or an older web bundle; never written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gamevault_root: Option<String>,
+    /// Folder depth used by GameVault folder scans (#134), clamped 4..=8.
+    #[serde(default = "default_gamevault_scan_depth")]
+    pub gamevault_scan_depth: u8,
+}
+
+/// Default executable search depth for folder scans (#134).
+pub const fn default_gamevault_scan_depth() -> u8 {
+    6
 }
 
 impl Default for LocalSettings {
@@ -247,6 +263,9 @@ impl Default for LocalSettings {
             sunshine_conf_path: String::new(),
             moonlight_binary: String::new(),
             moonlight_config_path: String::new(),
+            gamevault_roots: Vec::new(),
+            gamevault_root: None,
+            gamevault_scan_depth: default_gamevault_scan_depth(),
         }
     }
 }
@@ -316,6 +335,7 @@ impl LocalSettings {
         self.sunshine_conf_path = self.sunshine_conf_path.trim().to_string();
         self.moonlight_binary = self.moonlight_binary.trim().to_string();
         self.moonlight_config_path = self.moonlight_config_path.trim().to_string();
+        self.normalize_gamevault_roots();
         self.active_server_id = self.active_server_id.trim().to_string();
         self.servers = self
             .servers
@@ -347,6 +367,51 @@ impl LocalSettings {
         {
             self.active_server_id.clear();
         }
+    }
+
+    /// Trim, deduplicate and migrate the GameVault roots (#134).
+    ///
+    /// The list is the source of truth. A settings file (or an older web
+    /// bundle) that only knows `gamevaultRoot` is migrated into the list, then
+    /// the legacy field is cleared so it is never written back. Roots are not
+    /// canonicalized here: a drive can be unplugged, and the scan reports that
+    /// per root instead of dropping the entry.
+    fn normalize_gamevault_roots(&mut self) {
+        if let Some(legacy) = self
+            .gamevault_root
+            .take()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+        {
+            self.gamevault_roots.push(legacy);
+        }
+        let mut seen = std::collections::HashSet::new();
+        self.gamevault_roots.retain_mut(|raw| {
+            *raw = raw.trim().to_string();
+            if raw.is_empty() {
+                return false;
+            }
+            seen.insert(gamevault_root_key(raw))
+        });
+        self.gamevault_scan_depth = if self.gamevault_scan_depth == 0 {
+            default_gamevault_scan_depth()
+        } else {
+            self.gamevault_scan_depth.clamp(4, 8)
+        };
+    }
+
+    /// Configured GameVault roots as paths (#134).
+    pub fn gamevault_root_paths(&self) -> Vec<PathBuf> {
+        self.gamevault_roots
+            .iter()
+            .map(|root| PathBuf::from(root.trim()))
+            .filter(|path| !path.as_os_str().is_empty())
+            .collect()
+    }
+
+    /// Effective executable search depth for folder scans (#134).
+    pub fn gamevault_depth(&self) -> usize {
+        usize::from(self.gamevault_scan_depth).clamp(4, 8)
     }
 
     /// Trim, deduplicate and migrate the named locations (#99).
@@ -504,6 +569,23 @@ impl LocalSettings {
         self.default_location(LocationKind::Download)
             .map(|location| PathBuf::from(location.path.trim()))
             .unwrap_or_else(|| PathBuf::from(&self.download_dir))
+    }
+}
+
+/// Stable comparison key for a GameVault root: separators normalised and
+/// case-insensitive on Windows, where paths are.
+fn gamevault_root_key(raw: &str) -> String {
+    let normalised = raw.trim().replace('\\', "/");
+    let trimmed = normalised.trim_end_matches('/');
+    let value = if trimmed.is_empty() {
+        normalised.as_str()
+    } else {
+        trimmed
+    };
+    if cfg!(windows) {
+        value.to_ascii_lowercase()
+    } else {
+        value.to_string()
     }
 }
 
@@ -1104,5 +1186,54 @@ mod tests {
             .resolve_location(Some("gone"), LocationKind::Install)
             .unwrap_err()
             .contains("no longer exists"));
+    }
+
+    #[test]
+    fn legacy_single_gamevault_root_migrates_to_the_list() {
+        // An older settings file or web bundle only knows `gamevaultRoot`.
+        let raw = serde_json::json!({
+            "installDir": "/games",
+            "gamevaultRoot": "  D:\\Games\\GameVault  ",
+        });
+        let mut settings: LocalSettings = serde_json::from_value(raw).unwrap();
+        settings.normalize(Path::new("/data"));
+
+        assert_eq!(settings.gamevault_roots, vec!["D:\\Games\\GameVault"]);
+        assert!(settings.gamevault_root.is_none());
+        // The legacy field is not written back.
+        let json = serde_json::to_value(&settings).unwrap();
+        assert!(json.get("gamevaultRoot").is_none());
+        assert_eq!(
+            json["gamevaultRoots"],
+            serde_json::json!(["D:\\Games\\GameVault"])
+        );
+        assert_eq!(json["gamevaultScanDepth"], 6);
+    }
+
+    #[test]
+    fn gamevault_roots_are_trimmed_deduplicated_and_depth_is_clamped() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.gamevault_roots = vec![
+            "  C:\\Games\\GameVault  ".into(),
+            "C:\\Games\\GameVault".into(),
+            "   ".into(),
+            "/mnt/gamevault".into(),
+        ];
+        settings.gamevault_scan_depth = 0;
+        settings.normalize(Path::new("/data"));
+
+        assert_eq!(settings.gamevault_roots.len(), 2);
+        assert_eq!(settings.gamevault_roots[0], "C:\\Games\\GameVault");
+        assert_eq!(settings.gamevault_roots[1], "/mnt/gamevault");
+        // 0 means "not configured" and falls back to the documented default.
+        assert_eq!(settings.gamevault_depth(), 6);
+
+        settings.gamevault_scan_depth = 2;
+        settings.normalize(Path::new("/data"));
+        assert_eq!(settings.gamevault_depth(), 4);
+
+        settings.gamevault_scan_depth = 42;
+        settings.normalize(Path::new("/data"));
+        assert_eq!(settings.gamevault_depth(), 8);
     }
 }

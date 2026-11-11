@@ -712,6 +712,10 @@ export interface LocalSettings {
   moonlightBinary: string;
   /** Moonlight config override (#98). Empty = detect. */
   moonlightConfigPath: string;
+  /** Ordered GameVault install roots (#134). */
+  gamevaultRoots: string[];
+  /** Folder depth used by GameVault scans (#134), 4-8, default 6. */
+  gamevaultScanDepth: number;
 }
 
 /* --------------------------- servers and profiles (#24) ------------------ */
@@ -877,6 +881,8 @@ export interface AdoptExistingInstall {
 export interface AdoptPreview {
   folder: string;
   executable: string | null;
+  /** Ranked executables found in the folder (#134); choose one manually. */
+  executableCandidates: string[];
   sizeBytes: number;
   fileCount: number;
   /** 0 means unknown; versions are never guessed from the title. */
@@ -930,7 +936,12 @@ export type GameVaultMatchStatus = "exact" | "containment" | "ambiguous" | "none
 export interface GameVaultCandidate {
   folder: string;
   name: string;
+  /** Configured GameVault root this folder was found under (#134). */
+  sourceRoot: string;
+  /** Executable Ludex would launch now; null means "link anyway and choose". */
   executable: string | null;
+  /** Every plausible executable found, best first (#134). */
+  executableCandidates: string[];
   sizeBytes: number;
   fileCount: number;
   /** Title read from an optional `gamevault.json`, never written. */
@@ -940,15 +951,42 @@ export interface GameVaultCandidate {
   matchStatus: GameVaultMatchStatus;
   /** `adopted`, `ludex` or a launcher id when the folder is already indexed. */
   installed: string | null;
+  /** Informational diagnostics: skipped subfolders, depth, chosen candidate. */
   notes: string[];
+  /** Problems that need attention: unreadable folders, broken links. */
+  warnings: string[];
+}
+
+/** Status of one configured root in a multi-root scan (#134). */
+export interface GameVaultRootScan {
+  root: string;
+  candidates: number;
+  warnings: string[];
+  /** Set when the root itself could not be read or prepared. */
+  error: string | null;
+}
+
+/** A GameVault root proposed by the read-only auto-detection (#134). */
+export interface GameVaultRootProposal {
+  path: string;
+  /** Why it is proposed: usual location, GameVault config file… */
+  reason: string;
+  exists: boolean;
+  /** Already in the configured list: nothing to do. */
+  configured: boolean;
+  /** Immediate subfolders that look like game folders. */
+  gameFolders: number;
 }
 
 export interface GameVaultScan {
-  root: string;
+  /** One status per configured root, in configured order. */
+  roots: GameVaultRootScan[];
   candidates: GameVaultCandidate[];
   warnings: string[];
   /** False when the server could not be listed, so nothing was matched. */
   matched: boolean;
+  /** Folder depth used for this scan (4-8). */
+  maxDepth: number;
 }
 
 export interface GameVaultAdoptEntry {
@@ -956,6 +994,8 @@ export interface GameVaultAdoptEntry {
   gameId: number;
   versionId?: number | null;
   version?: string | null;
+  /** Executable chosen among the ranked candidates; empty = detected. */
+  executable?: string | null;
 }
 
 export interface GameVaultAdoptSkip {

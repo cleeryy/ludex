@@ -5,6 +5,11 @@
 
 use std::path::{Path, PathBuf};
 
+/// Default folder depth for GameVault-style scans (#134).
+pub use ludex_core::exe::DEFAULT_SCAN_DEPTH;
+/// Read-only executable discovery result (#134).
+pub use ludex_core::exe::{clamp_scan_depth, discover_executables, Discovery};
+
 /// Folder-name slug for a title (`ludex_core::slug::slugify`).
 pub fn slugify(value: &str) -> String {
     ludex_core::slug::slugify(value)
