@@ -12,7 +12,7 @@ use anyhow::{Context, Result as AnyResult};
 use axum::http::{HeaderMap, StatusCode};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use jsonwebtoken::jwk::{Jwk, JwkSet, PublicKeyUse};
+use jsonwebtoken::jwk::{AlgorithmParameters, Jwk, JwkSet, PublicKeyUse};
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use ludex_core::models::Role;
 use rand::RngCore;
@@ -1087,15 +1087,23 @@ impl OidcClient {
             candidates = candidate_keys(&set, header.kid.as_deref());
         }
         if candidates.is_empty() {
+            tracing::warn!(
+                kid = header.kid.as_deref().unwrap_or("<none>"),
+                "OIDC ID token has no matching JWKS signing key"
+            );
             return Err(invalid_token());
         }
 
         let mut validation = Validation::new(header.alg);
-        validation.set_issuer(&[self.issuer.as_str()]);
+        // Issuer matching is done below with normalize_issuer(): providers such
+        // as Authentik put a trailing slash in the `iss` claim while the
+        // configured value is normalized without it. jsonwebtoken's set_issuer
+        // is an exact string match and would reject both valid variants.
         validation.set_audience(&[self.client_id.as_str()]);
         validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
 
         let mut decoded: Option<Value> = None;
+        let mut decode_error: Option<String> = None;
         for jwk in &candidates {
             if let Some(usage) = &jwk.common.public_key_use {
                 if usage != &PublicKeyUse::Signature {
@@ -1107,31 +1115,81 @@ impl OidcClient {
                     continue;
                 }
             }
-            let Ok(key) = DecodingKey::from_jwk(jwk) else {
-                continue;
+            // `from_jwk` is the happy path; some providers publish keys that
+            // only expose the RSA components, so fall back to n/e like other
+            // OIDC clients do.
+            let key = match DecodingKey::from_jwk(jwk) {
+                Ok(key) => key,
+                Err(_) => {
+                    let AlgorithmParameters::RSA(rsa) = &jwk.algorithm else {
+                        continue;
+                    };
+                    let Ok(key) = DecodingKey::from_rsa_components(&rsa.n, &rsa.e) else {
+                        continue;
+                    };
+                    key
+                }
             };
-            if let Ok(data) = decode::<Value>(id_token, &key, &validation) {
-                decoded = Some(data.claims);
-                break;
+            match decode::<Value>(id_token, &key, &validation) {
+                Ok(data) => {
+                    decoded = Some(data.claims);
+                    break;
+                }
+                Err(error) => decode_error = Some(error.to_string()),
             }
         }
-        let claims = decoded.ok_or_else(invalid_token)?;
+        let claims = decoded.ok_or_else(|| {
+            tracing::warn!(
+                alg = %alg_name,
+                kid = header.kid.as_deref().unwrap_or("<none>"),
+                error = decode_error.as_deref().unwrap_or("no usable signing key"),
+                "OIDC ID token signature or registered-claims validation failed"
+            );
+            invalid_token()
+        })?;
+
+        let issuer_claim = claims.get("iss").and_then(Value::as_str).ok_or_else(|| {
+            tracing::warn!("OIDC ID token is missing the iss claim");
+            invalid_token()
+        })?;
+        if !issuer_matches(&self.issuer, issuer_claim) {
+            tracing::warn!(
+                expected = %self.issuer,
+                actual = %issuer_claim,
+                "OIDC ID token issuer mismatch"
+            );
+            return Err(invalid_token());
+        }
 
         let multiple_audiences = claims
             .get("aud")
             .and_then(Value::as_array)
             .is_some_and(|audiences| audiences.len() > 1);
         match claims.get("azp").and_then(Value::as_str) {
-            Some(azp) if azp != self.client_id => return Err(invalid_token()),
-            None if multiple_audiences => return Err(invalid_token()),
+            Some(azp) if azp != self.client_id => {
+                tracing::warn!(
+                    expected = %self.client_id,
+                    actual = %azp,
+                    "OIDC ID token azp claim does not match the client id"
+                );
+                return Err(invalid_token());
+            }
+            None if multiple_audiences => {
+                tracing::warn!(
+                    audiences = ?claims.get("aud"),
+                    "OIDC ID token has multiple audiences but no azp claim"
+                );
+                return Err(invalid_token());
+            }
             _ => {}
         }
 
-        let nonce = claims
-            .get("nonce")
-            .and_then(Value::as_str)
-            .ok_or_else(invalid_token)?;
+        let nonce = claims.get("nonce").and_then(Value::as_str).ok_or_else(|| {
+            tracing::warn!("OIDC ID token is missing the nonce claim");
+            invalid_token()
+        })?;
         if !bool::from(nonce.as_bytes().ct_eq(expected_nonce.as_bytes())) {
+            tracing::warn!("OIDC ID token nonce does not match the login request");
             return Err(invalid_token());
         }
 
@@ -1481,6 +1539,12 @@ fn normalize_issuer(value: &str) -> AnyResult<String> {
     Ok(trimmed.to_string())
 }
 
+/// Compares a token issuer claim with the configured issuer using the same
+/// normalization as discovery, so `…/slug` and `…/slug/` are both accepted.
+fn issuer_matches(configured: &str, claim: &str) -> bool {
+    normalize_issuer(claim).is_ok_and(|issuer| issuer == configured)
+}
+
 fn validate_public_base(value: &str) -> AnyResult<String> {
     let trimmed = value.trim().trim_end_matches('/');
     if has_unsafe_url_chars(trimmed) {
@@ -1749,6 +1813,29 @@ mod tests {
         assert_eq!(sanitize_username("  Alice <admin>  "), "Alice _admin_");
         assert_eq!(sanitize_username("..."), "oidc-user");
         assert!(sanitize_username(&"a".repeat(100)).len() <= 64);
+    }
+
+    #[test]
+    fn issuer_matches_with_or_without_trailing_slash() {
+        let configured =
+            normalize_issuer("https://auth.example.com/application/o/ludex/").expect("issuer");
+        assert_eq!(configured, "https://auth.example.com/application/o/ludex");
+        assert!(issuer_matches(
+            &configured,
+            "https://auth.example.com/application/o/ludex/"
+        ));
+        assert!(issuer_matches(
+            &configured,
+            "https://auth.example.com/application/o/ludex"
+        ));
+        assert!(!issuer_matches(
+            &configured,
+            "https://auth.example.com/application/o/other/"
+        ));
+        assert!(!issuer_matches(
+            &configured,
+            "https://auth.example.com/application/o/ludex/?next=evil"
+        ));
     }
 
     #[test]
