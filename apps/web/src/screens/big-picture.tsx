@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, useReducedMotion } from "motion/react";
 import { Download, Gamepad2, Play, RefreshCw, X } from "lucide-react";
@@ -9,7 +9,8 @@ import { errorMessage } from "@/lib/http";
 import { formatBytes, formatMinutes, formatRating, formatRelative, formatYear, stateLabel, formatPercent } from "@/lib/format";
 import { isNative } from "@/lib/native";
 import { useAllGames, useInstalledMap, useLaunchGame } from "@/lib/hooks";
-import { useGamepad, type GamepadAction } from "@/lib/gamepad";
+import { useGamepad, gamepadDebugEnabled, type GamepadAction } from "@/lib/gamepad";
+import { GamepadDebugPanel } from "@/components/gamepad/gamepad-debug";
 import { useControllerProfile } from "@/lib/use-controller-profile";
 import { useDownloads } from "@/state/downloads";
 import { useToast } from "@/state/toasts";
@@ -44,6 +45,8 @@ let lastRefreshAt = 0;
  */
 export function BigPictureScreen() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const debug = gamepadDebugEnabled(location.search);
   const { push } = useToast();
   const queryClient = useQueryClient();
   const { data, isPending, isFetching } = useAllGames();
@@ -307,18 +310,20 @@ export function BigPictureScreen() {
   }, []);
 
   // Gamepad: d-pad/stick moves, A confirms, B exits, Y opens downloads and the
-  // shoulders change shelf (the same action as up/down).
+  // shoulders change shelf (the same action as up/down). Back and downloads
+  // stay live on the empty shelf; movement needs a selected game.
   const onGamepad = (action: GamepadAction) => {
+    if (action === "back") return exit();
+    if (action === "downloads") return navigate("/downloads");
+    if (!selected) return;
     if (action === "left") move(-1);
     else if (action === "right") move(1);
     else if (action === "up" || action === "prevTab") switchShelf(-1);
     else if (action === "down" || action === "nextTab") switchShelf(1);
     else if (action === "confirm") confirm();
-    else if (action === "back") exit();
-    else if (action === "downloads") navigate("/downloads");
   };
   const controllerProfile = useControllerProfile(selected?.id ?? null);
-  const gamepad = useGamepad(onGamepad, { enabled: !installOpen, profile: controllerProfile });
+  const gamepad = useGamepad(onGamepad, { profile: controllerProfile, debug });
 
   const time = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(clock);
 
@@ -334,6 +339,7 @@ export function BigPictureScreen() {
             <Skeleton key={i} className="aspect-[3/4] w-[132px]" />
           ))}
         </div>
+        {debug && <GamepadDebugPanel info={gamepad.debug} />}
       </div>
     );
   }
@@ -346,6 +352,7 @@ export function BigPictureScreen() {
         <Button variant="primary" onClick={exit}>
           {t("Exit Big Picture")}
         </Button>
+        {debug && <GamepadDebugPanel info={gamepad.debug} />}
       </div>
     );
   }
@@ -572,6 +579,8 @@ export function BigPictureScreen() {
       {version && detail.data && (
         <InstallDialog open={installOpen} onOpenChange={setInstallOpen} game={detail.data} version={version} />
       )}
+
+      {debug && <GamepadDebugPanel info={gamepad.debug} />}
     </div>
   );
 }

@@ -598,6 +598,15 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- Gamepad navigation is reliable in Library and Big Picture (#137): detection
+  now handles hot-plug/unplug, pads that only appear after a button press,
+  window focus return and multiple controllers (latest input wins); sticks are
+  decoded as axis 0/1 and 2/3 (the old code read `axes[axis*2]`, so up moved
+  left), with dominant-direction diagonals, deadzone/curve/sign from the active
+  profile and edge-detected repeat (380 ms initial, 130 ms repeat). Movement is
+  geometry-based and focus is restored after a modal closes; only true
+  `aria-modal` dialogs block input. `?gamepadDebug=1` adds an on-screen pad
+  overlay and console trace. 40+ new pure-logic tests (143 web tests total).
 - UTF-16 config files are written as real UTF-16 again: the encoder previously
   used `encoding_rs::Encoding::encode`, which returns UTF-8 for UTF-16, so a
   UTF-16LE INI gained a UTF-16 BOM followed by UTF-8 bytes. Code units are now

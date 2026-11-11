@@ -2184,6 +2184,28 @@ Resolution is `game ?? global ?? xbox preset`. The web client applies it in
 `useGamepad`; the editor supports live pad detection, per-input remapping,
 JSON import/export and reset.
 
+### Gamepad navigation diagnostics (#137)
+
+`useGamepad` polls only while its screen is mounted and the window is visible,
+re-scans on focus and on `gamepadconnected` / `gamepaddisconnected`, and reads
+the pad that last produced input (sticky while it stays connected).
+Open Library (or Big Picture) with `?gamepadDebug=1` in the route query — after
+the hash works too, e.g. `#/library?gamepadDebug=1` — to show an overlay with
+the pad id/index/mapping, raw axes and pressed buttons, the resolved profile
+and the last action, and to enable `[gamepad]` lines in `console.debug`. The
+overlay is absent unless the flag is present. While a modal dialog is open the
+gamepad cannot move focus behind it; B dismisses it (the same path as Escape),
+and focus returns to the gamepad target afterwards.
+
+Status: the target is Windows/WebView2 with the standard mapping; a pad that
+only reports itself after its first button press is expected and handled by the
+poll loop. A physical Xbox and DualSense pass on Windows is still required
+before calling this verified. Linux and Steam Deck are **not** verified: Steam
+Input may hide the physical pad or present a virtual Xbox pad, and the browser
+Gamepad API is only available on secure origins (`tauri://localhost` and
+localhost included). Use the debug overlay there to confirm the axes/buttons
+before changing a profile.
+
 ## Emulators and ROMs (#52)
 
 A library root has `kind: "game" | "rom"`. ROM roots index emulator ROMs

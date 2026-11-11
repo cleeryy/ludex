@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useReducedMotion } from "motion/react";
 import { Gamepad2, LayoutGrid, List, Plus, SlidersHorizontal, X } from "lucide-react";
@@ -27,7 +27,9 @@ import {
   stateOptions,
   type FilterKey,
 } from "@/lib/library-filters";
-import { focusGamepadTarget, useGamepad, type GamepadAction } from "@/lib/gamepad";
+import { focusGamepadTarget, gamepadDebugEnabled, useGamepad, type GamepadAction } from "@/lib/gamepad";
+import { moveTargetIndex, type TargetRect } from "@/lib/gamepad-core";
+import { GamepadDebugPanel } from "@/components/gamepad/gamepad-debug";
 import { useControllerProfile } from "@/lib/use-controller-profile";
 import { OPEN_FILTERS_EVENT } from "@/lib/ui-events";
 import { EmptyState, ErrorState, PageHeader } from "@/components/page";
@@ -82,6 +84,8 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const debug = gamepadDebugEnabled(location.search);
   const isEditor = useIsEditor();
   const { user } = useAuth();
   const { view, setView } = useSettings();
@@ -114,7 +118,13 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
     restored.current = true;
     if (hasFilterParams(params) || params.has("sort") || params.has("order")) return;
     const saved = loadFilters();
-    if (saved) setParams(saved, { replace: true });
+    if (saved) {
+      // Diagnostic flags are not filters; restoring the saved filter set must
+      // not drop `?gamepadDebug=1`.
+      const diagnostic = params.get("gamepadDebug");
+      if (diagnostic) saved.set("gamepadDebug", diagnostic);
+      setParams(saved, { replace: true });
+    }
     // Run once per mount; params deliberately read at mount time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
@@ -199,23 +209,28 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
 
   /* ------------------------------- gamepad -------------------------------- */
 
-  const targets = () =>
-    Array.from(gridRef.current?.querySelectorAll<HTMLElement>("[data-gamepad-target]") ?? []).filter(
-      (element) => element.offsetParent !== null,
-    );
-
-  const columns = (elements: HTMLElement[]): number => {
-    if (elements.length < 2) return 1;
-    const top = elements[0].offsetTop;
-    let count = 1;
-    for (let index = 1; index < elements.length; index += 1) {
-      if (elements[index].offsetTop !== top) break;
-      count += 1;
-    }
-    return Math.max(1, count);
+  // Only real, laid-out targets count: hidden filter results, skeletons and
+  // elements collapsed by the responsive grid are skipped. Geometry comes from
+  // the DOM rectangles, so the movement follows the rendered grid (#137).
+  const targets = () => {
+    const root = gridRef.current;
+    if (!root) return [];
+    return Array.from(root.querySelectorAll<HTMLElement>("[data-gamepad-target]")).filter((element) => {
+      if (element.offsetParent === null) return false;
+      const rect = element.getBoundingClientRect();
+      return rect.width > 1 && rect.height > 1;
+    });
   };
 
+  const rects = (elements: HTMLElement[]): TargetRect[] =>
+    elements.map((element) => {
+      const rect = element.getBoundingClientRect();
+      return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+    });
+
   const currentIndex = (elements: HTMLElement[]): number => {
+    const marked = elements.findIndex((element) => element.hasAttribute("data-gamepad-focus"));
+    if (marked >= 0) return marked;
     const focused = elements.findIndex(
       (element) => element === document.activeElement || element.contains(document.activeElement),
     );
@@ -248,39 +263,43 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
     const index = currentIndex(elements);
 
     if (action === "confirm") {
-      elements[index]?.click();
+      const target = elements[index];
+      target?.click();
       return;
     }
 
-    const cols = columns(elements);
-    const next =
-      action === "left"
-        ? index - 1
-        : action === "right"
-          ? index + 1
-          : action === "up"
-            ? index - cols
-            : index + cols;
-    const bounded = clamp(next, 0, elements.length - 1);
-    setPadIndex(bounded);
-    focusGamepadTarget(elements, bounded, !reduceMotion);
+    if (action !== "left" && action !== "right" && action !== "up" && action !== "down") return;
+    const next = moveTargetIndex(rects(elements), index, action);
+    setPadIndex(next);
+    focusGamepadTarget(elements, next, !reduceMotion);
   };
 
   const controllerProfile = useControllerProfile();
-  const gamepad = useGamepad(onGamepad, { enabled: !filterOpen, profile: controllerProfile });
+  const gamepad = useGamepad(onGamepad, { profile: controllerProfile, debug });
 
+  // Keep the numeric cursor and the ring in sync when the result set, the
+  // layout or the route changes (filters, sort, grid/list, new data). The ring
+  // is re-applied only for a connected pad, when the gamepad owns focus, and
+  // never from a form field or an open dialog.
   useEffect(() => {
-    setPadIndex(0);
-  }, [mode, search]);
-
-  useEffect(() => {
-    if (!gamepad.connected) return;
     const elements = targets();
     if (elements.length === 0) return;
-    setPadIndex((current) => clamp(current, 0, elements.length - 1));
-    // Only clamp when the result set changes size.
+    const marked = elements.findIndex((element) => element.hasAttribute("data-gamepad-focus"));
+    const next = marked >= 0 ? marked : clamp(padIndex, 0, elements.length - 1);
+    setPadIndex((current) => (current === next ? current : next));
+    if (!gamepad.connected) return;
+    if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+    const active = document.activeElement as HTMLElement | null;
+    const ownsFocus =
+      !active ||
+      active === document.body ||
+      active.hasAttribute("data-gamepad-focus") ||
+      active.closest("[data-gamepad-target]") !== null;
+    if (!ownsFocus) return;
+    focusGamepadTarget(elements, next, false, { scroll: marked >= 0 });
+    // The DOM is the source of truth here; mode/search/view changes rebuild it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items.length, gamepad.connected]);
+  }, [mode, search, effectiveView, items.length, gamepad.connected]);
 
   const headerActions = (
     <>
@@ -614,6 +633,8 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
         onChange={update}
         onClearAll={clearFilters}
       />
+
+      {debug && <GamepadDebugPanel info={gamepad.debug} />}
     </div>
   );
 }
