@@ -6,7 +6,7 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-11-11
+## [0.3.1] - 2026-11-11
 
 ### Added
 
@@ -82,6 +82,10 @@ All notable changes to Ludex are documented here. The format is based on
   subtle 434 ms staged opacity/transform reveal (backdrop, hero, header, cards
   with 22 ms stagger) using the house easing, no replay on shelf/index changes,
   and an opacity-only 120 ms branch under `prefers-reduced-motion`.
+## [0.3.0] - 2026-11-11
+
+### Added
+
 - PostgreSQL backend option (#46): `LUDEX_DATABASE_URL=postgres://…` (or
   `LUDEX_DATABASE_BACKEND`) runs the server on PostgreSQL while SQLite stays the
   default. A mirrored migration set (`migrations_postgres/`, 0001–0019), a
