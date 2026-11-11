@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { scopedStorageKey } from "@/lib/server-storage";
 
 export type ThemePref = "dark" | "light" | "system";
 export type LibraryView = "grid" | "list";
@@ -31,7 +32,7 @@ function applyTheme(pref: ThemePref): "dark" | "light" {
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<ThemePref>(() => (localStorage.getItem(THEME_KEY) as ThemePref) || "system");
   const [resolved, setResolved] = useState<"dark" | "light">(() => applyTheme((localStorage.getItem(THEME_KEY) as ThemePref) || "system"));
-  const [view, setViewState] = useState<LibraryView>(() => (localStorage.getItem(VIEW_KEY) as LibraryView) || "grid");
+  const [view, setViewState] = useState<LibraryView>(() => (localStorage.getItem(scopedStorageKey(VIEW_KEY)) as LibraryView) || "grid");
 
   const setTheme = useCallback((next: ThemePref) => {
     setThemeState(next);
@@ -41,7 +42,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const setView = useCallback((next: LibraryView) => {
     setViewState(next);
-    localStorage.setItem(VIEW_KEY, next);
+    localStorage.setItem(scopedStorageKey(VIEW_KEY), next);
   }, []);
 
   useEffect(() => {

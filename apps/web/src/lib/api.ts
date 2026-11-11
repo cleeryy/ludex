@@ -1,5 +1,6 @@
 import { ApiError } from "@/lib/http";
 import { USING_MOCKS } from "@/lib/flags";
+import { activeStorageScope, legacyTokenKey } from "@/lib/server-storage";
 import { mockApi } from "@/lib/mock";
 import { t } from "@/lib/i18n";
 import type {
@@ -51,7 +52,7 @@ import type {
 
 export { USING_MOCKS };
 
-export const TOKEN_KEY = "ludex.token";
+export const TOKEN_KEY = legacyTokenKey;
 
 let baseUrl = ((import.meta.env.VITE_API_URL as string | undefined) ?? "").replace(/\/$/, "");
 
@@ -75,14 +76,25 @@ export function assetUrl(path: string | null | undefined): string | null {
   return `${baseUrl}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
+/**
+ * Tokens are scoped per saved server in the browser (#24) so switching servers
+ * never reuses another server's session. The desktop app keeps its token in
+ * `settings.json` (0600) and the profile copies in the OS keychain, so it keeps
+ * using the legacy key here.
+ */
 export const tokenStore = {
   get(): string | null {
+    const scoped = activeStorageScope();
+    if (scoped) return localStorage.getItem(scoped.tokenKey) ?? localStorage.getItem(TOKEN_KEY);
     return localStorage.getItem(TOKEN_KEY);
   },
   set(token: string) {
-    localStorage.setItem(TOKEN_KEY, token);
+    const scoped = activeStorageScope();
+    localStorage.setItem(scoped ? scoped.tokenKey : TOKEN_KEY, token);
   },
   clear() {
+    const scoped = activeStorageScope();
+    if (scoped) localStorage.removeItem(scoped.tokenKey);
     localStorage.removeItem(TOKEN_KEY);
   },
 };

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, setApiBase, tokenStore, UNAUTHORIZED_EVENT } from "@/lib/api";
 import { isNative, native } from "@/lib/native";
+import { bootstrapBrowserServer } from "@/lib/servers";
 import type { SetupStatus, User } from "@/lib/types";
 import { t } from "@/lib/i18n";
 
@@ -39,6 +40,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const retryBoot = useCallback(() => {
     setBootError(null);
+    setUser(null);
+    setToken(tokenStore.get());
     setReady(false);
     setAttempt((n) => n + 1);
   }, []);
@@ -48,6 +51,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function boot() {
       try {
+        // #24: a browser can follow several saved servers; point the client at
+        // the active one before the first request.
+        if (!isNative()) bootstrapBrowserServer();
         if (isNative()) {
           const settings = await native.getSettings();
           if (settings?.serverUrl) setApiBase(settings.serverUrl);

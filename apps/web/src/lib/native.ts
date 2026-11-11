@@ -35,12 +35,20 @@ import type {
   ManifestReport,
   MoveProgress,
   PresenceStatus,
+  MoonlightStatus,
   PrefixInfo,
   ProtonDbRating,
   RepairProgress,
   RepairReport,
+  ServerList,
+  ServerTest,
   SteamImportReport,
   SteamPreview,
+  StreamLaunch,
+  StreamTarget,
+  SunshinePreview,
+  SunshineReport,
+  SunshineStatus,
   UpdateInstalled,
   UpdateProgress,
   UpdateStatus,
@@ -555,6 +563,80 @@ export const native = {
   async configAdapters(gameId: number): Promise<AdapterReport> {
     return invoke<AdapterReport>("game_config_adapters", { gameId });
   },
+
+  /* ---------------------- Sunshine host (#97) ---------------------------- */
+
+  async sunshineStatus(): Promise<SunshineStatus> {
+    return invoke<SunshineStatus>("sunshine_status");
+  },
+
+  async sunshinePreview(): Promise<SunshinePreview> {
+    return invoke<SunshinePreview>("sunshine_preview");
+  },
+
+  async sunshineSync(args: { dryRun?: boolean; removeMissing?: boolean; downloadCovers?: boolean } = {}): Promise<SunshineReport> {
+    return invoke<SunshineReport>("sunshine_sync", {
+      dryRun: args.dryRun ?? false,
+      removeMissing: args.removeMissing ?? true,
+      downloadCovers: args.downloadCovers ?? true,
+    });
+  },
+
+  async sunshineRemoveManaged(): Promise<SunshineReport> {
+    return invoke<SunshineReport>("sunshine_remove_managed");
+  },
+
+  /* --------------------- Moonlight client (#98) -------------------------- */
+
+  async moonlightStatus(): Promise<MoonlightStatus> {
+    return invoke<MoonlightStatus>("moonlight_status");
+  },
+
+  async streamTarget(gameId: number): Promise<StreamTarget> {
+    return invoke<StreamTarget>("stream_target", { gameId });
+  },
+
+  async streamGame(gameId: number, host?: string | null): Promise<StreamLaunch> {
+    return invoke<StreamLaunch>("stream_game", { gameId, host: host ?? null });
+  },
+
+  async moonlightStream(host: string, appName: string): Promise<StreamLaunch> {
+    return invoke<StreamLaunch>("moonlight_stream", { host, appName });
+  },
+
+  /* ------------------ multiple servers and accounts (#24) ---------------- */
+
+  async listServers(): Promise<ServerList> {
+    return invoke<ServerList>("list_servers");
+  },
+
+  async saveServer(args: {
+    id?: string | null;
+    label: string;
+    url: string;
+    username?: string | null;
+    token?: string | null;
+  }): Promise<ServerList> {
+    return invoke<ServerList>("save_server", {
+      id: args.id ?? null,
+      label: args.label,
+      url: args.url,
+      username: args.username ?? null,
+      token: args.token ?? null,
+    });
+  },
+
+  async removeServer(id: string): Promise<ServerList> {
+    return invoke<ServerList>("remove_server", { id });
+  },
+
+  async switchServer(id: string): Promise<ServerList> {
+    return invoke<ServerList>("switch_server", { id });
+  },
+
+  async testServer(url: string, token?: string | null): Promise<ServerTest> {
+    return invoke<ServerTest>("test_server", { url, token: token ?? null });
+  },
 };
 
 async function listen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
@@ -594,4 +676,10 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   cloudAutoSync: true,
   cloudDeviceId: "",
   cloudDeviceLabel: null,
+  servers: [],
+  activeServerId: "",
+  sunshineAppsPath: "",
+  sunshineConfPath: "",
+  moonlightBinary: "",
+  moonlightConfigPath: "",
 };

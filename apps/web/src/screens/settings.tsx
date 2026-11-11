@@ -22,6 +22,8 @@ import { CompatibilityPanel } from "@/components/settings/compatibility-panel";
 import { LauncherImportPanel } from "@/components/settings/launcher-import";
 import { InstalledPanel } from "@/components/settings/installed-games";
 import { PresenceStatus } from "@/components/settings/presence-status";
+import { StreamingPanel } from "@/components/settings/streaming-panel";
+import { ServersPanel } from "@/components/shell/server-switcher";
 import { GettingStartedCard } from "@/components/onboarding/getting-started";
 import { LocationsPanel } from "@/components/settings/locations-panel";
 import { openOnboarding, restoreGettingStarted } from "@/lib/onboarding";
@@ -733,6 +735,14 @@ export function SettingsScreen() {
           </div>
         </section>
       )}
+
+      {isNative() && draft && (
+        <section className="mt-12 max-w-[980px]">
+          <StreamingPanel draft={draft} update={update} />
+        </section>
+      )}
+
+      <ServersPanel />
 
       {isNative() && (
         <section className="mt-12 max-w-[980px]" aria-labelledby="installed-heading">
