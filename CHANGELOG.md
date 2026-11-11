@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-11
+
 ### Added
 
 - Launcher discovery and import (#116): the desktop app reads the metadata
