@@ -68,6 +68,13 @@ pub fn save_settings(
     // An older web bundle still sends the two single folders (#99). Map them
     // onto the default location instead of letting `normalize` discard them.
     let mut patch = settings;
+    // Profiles and the active server are managed by `save_server` /
+    // `switch_server`; a stale full-settings payload from another tab must not
+    // drop a profile that was added meanwhile (#24).
+    if let Some(object) = patch.as_object_mut() {
+        object.remove("servers");
+        object.remove("activeServerId");
+    }
     let has_locations = patch.get("locations").is_some();
     let install_legacy = patch
         .as_object_mut()
