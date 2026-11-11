@@ -10,6 +10,13 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Installable desktop prereleases on every `main` push (#149): a new
+  `edge-desktop` CI matrix (Linux AppImage/deb, Windows NSIS) stamps a
+  monotonic `<next patch>-edge.<run_number>` version for the build only, signs
+  the bundles, merges the updater `latest.json` and uploads them with
+  `.sha256` checksums to the rolling `edge` prerelease; the same files are kept
+  as a 14-day workflow artifact. E2E-gated, never on pull requests; stable
+  releases and `/releases/latest` are untouched.
 - Executable pickers in Launch options (#143): `list_game_executables` walks
   the installed folder (depth 4–8, loop-safe, root-confined, 5 s cache) and
   classifies entries as launch/installer/uninstaller/other with the detected

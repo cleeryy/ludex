@@ -45,12 +45,14 @@ key); unsigned dev builds report updates as *not configured*.
 | `early` | `/releases/download/edge/latest.json` | the moving `edge` prerelease — **not published yet**: the edge workflow builds the server only, so the app reports the channel as unavailable instead of offering a broken update |
 
 GitHub's `/releases/latest` skips prereleases, so stable never picks up `edge`.
-To publish the early channel, the `edge` release must carry the updater
-artifacts: build the desktop bundle on the edge commit, upload `latest.json` and
-the platform signatures to the `edge` prerelease with `--clobber`, and keep the
-version in `tauri.conf.json` ahead of the last stable release (for example
-`0.3.0-edge.1`). Until that job exists, `early` clients get a 404 and the check
-reports the HTTP error — stable keeps working.
+The `edge-desktop` CI job publishes the early channel on every `main` push that
+passes `rust`, `web` and `E2E`: it builds Linux (AppImage/deb) and Windows
+(NSIS) bundles with a monotonic version (`<next patch>-edge.<run_number>`, for
+example `0.3.1-edge.42`), signs them, merges the updater entries into
+`latest.json` and uploads everything to the rolling `edge` prerelease together
+with `.sha256` checksums. The same bundles are kept as a 14-day workflow
+artifact named `ludex-edge-<platform>-<sha>` so a specific commit can be tested
+without keeping a release per commit.
 
 Signing keys rotate by publishing a release signed with the new key **and**
 shipping the new public key in the previous release, otherwise existing installs
@@ -214,16 +216,21 @@ unsigned; Windows SmartScreen and macOS Gatekeeper warnings are expected.
 
 ## Edge process
 
-Every push to `main` that touches server-affecting paths triggers
-`edge-release` after `rust`, `web` and `E2E`:
+Every push to `main` that passes `rust`, `web` and `E2E` updates two jobs:
 
-- Builds `ludex-server --features embed-web`.
-- Packages `ludex-server-edge-x86_64-unknown-linux-gnu.tar.gz` + `.sha256`.
-- Force-moves the `edge` tag to the current commit and creates/updates the
-  **Ludex edge** prerelease with `--clobber`.
+- `edge-release` builds `ludex-server --features embed-web`, packages
+  `ludex-server-edge-x86_64-unknown-linux-gnu.tar.gz` + `.sha256`, force-moves
+  the `edge` tag and creates/updates the **Ludex edge** release.
+- `edge-desktop` (Linux + Windows matrix) stamps a monotonic
+  `<next>-edge.<run_number>` version (the committed files are untouched), builds
+  the bundles, signs them, uploads `Ludex_<version>_amd64.AppImage`,
+  `_amd64.deb`, `_x64-setup.exe`, their `.sha256`, `.sig` and a merged
+  `latest.json` with `--clobber`, and posts the same files as a 14-day
+  workflow artifact.
 
-Docs-only pushes skip the rebuild via a path gate but still pass CI. The edge
-release is public so the CT258 timer can download it without a token.
+E2E is the gate for both; the desktop matrix does not run on pull requests. The
+edge release is public so the CT258 timer and early-channel clients can consume
+it without a token. Stable releases and `/releases/latest` are unaffected.
 
 ## Post-release verification
 

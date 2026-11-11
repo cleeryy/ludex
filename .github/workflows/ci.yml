@@ -308,6 +308,165 @@ jobs:
       - name: Smoke test the window under Xvfb
         run: xvfb-run -a -s "-screen 0 1440x900x24" scripts/desktop-smoke.sh
 
+  edge-desktop:
+    name: Edge desktop (${{ matrix.label }})
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [rust, web, e2e]
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-24.04
+            label: Linux x64
+            bundles: appimage,deb
+          - platform: windows-latest
+            label: Windows x64
+            bundles: nsis
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev librsvg2-dev patchelf libgtk-3-dev \
+            libxdo-dev libssl-dev libfuse2t64 libayatana-appindicator3-dev
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "${{ hashFiles('pnpm-lock.yaml') != '' && 'pnpm' || '' }}"
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      - name: Install dependencies
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+          else
+            pnpm install --no-frozen-lockfile
+          fi
+
+      - name: Stamp the edge version
+        id: version
+        run: |
+          node - <<'JS'
+          const fs = require('node:fs');
+          const path = 'apps/desktop/src-tauri/tauri.conf.json';
+          const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const [major, minor, patch] = config.version.split('-')[0].split('.').map(Number);
+          const next = `${major}.${minor}.${patch + 1}-edge.${{ github.run_number }}`;
+          config.version = next;
+          fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${next}\n`);
+          JS
+
+      - name: Ensure the edge release exists
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view edge >/dev/null 2>&1 || \
+            gh release create edge --prerelease --title "Ludex edge" \
+              --notes "Rolling prerelease built from main. E2E-gated; not for production."
+
+      - name: Build web UI
+        run: pnpm --filter @ludex/web build
+
+      - name: Build and upload the edge desktop bundle
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          tagName: edge
+          releaseName: "Ludex edge"
+          releaseDraft: false
+          prerelease: true
+          includeUpdaterJson: true
+          args: "--bundles ${{ matrix.bundles }}"
+
+      - name: Checksums and edge upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          node - <<'JS'
+          const { execFileSync } = require('node:child_process');
+          const crypto = require('node:crypto');
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const root = 'apps/desktop/src-tauri/target';
+          const wanted = /(\\.AppImage|\\.deb|-setup\\.exe)$/;
+          const files = [];
+          const walk = (dir) => {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              const full = path.join(dir, entry.name);
+              if (entry.isDirectory()) walk(full);
+              else if (wanted.test(entry.name)) files.push(full);
+            }
+          };
+          if (fs.existsSync(root)) walk(root);
+          if (files.length === 0) {
+            console.error('::error::no desktop bundle found after the build');
+            process.exit(1);
+          }
+          const sums = [];
+          for (const file of files) {
+            const hash = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+            const line = `${hash}  ${path.basename(file)}\n`;
+            fs.writeFileSync(`${file}.sha256`, line);
+            sums.push(line.trimEnd());
+          }
+          fs.writeFileSync('edge-checksums.txt', sums.join('\n') + '\n');
+          const upload = (args) =>
+            execFileSync('gh', ['release', 'upload', 'edge', ...args, '--clobber'], {
+              stdio: 'inherit',
+            });
+          upload(['edge-checksums.txt']);
+          for (const file of files) upload([file, `${file}.sha256`]);
+          console.log(`uploaded ${files.length} bundle(s) for ${process.env.VERSION}`);
+          JS
+
+      - name: Upload the bundle as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ludex-edge-${{ matrix.label }}-${{ github.sha }}
+          path: |
+            apps/desktop/src-tauri/target/**/bundle/**/*.AppImage
+            apps/desktop/src-tauri/target/**/bundle/**/*.deb
+            apps/desktop/src-tauri/target/**/bundle/**/*-setup.exe
+            apps/desktop/src-tauri/target/**/bundle/**/*.sig
+            apps/desktop/src-tauri/target/**/bundle/**/latest.json
+          if-no-files-found: ignore
+          retention-days: 14
+
   edge-release:
     name: Edge release (main)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
