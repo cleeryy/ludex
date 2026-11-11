@@ -565,6 +565,35 @@ pub const ROUTES: &[RouteDoc] = &[
         Auth::Editor,
         Payload::Schema("RefreshResponse"),
     ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/games/{id}/metadata/candidates",
+            "Games",
+            "Search metadata providers for a manual match",
+            Auth::Editor,
+            Payload::Schema("MetadataCandidatesResponse"),
+        ),
+        &[
+            ("q", "Search text; defaults to the game title"),
+            ("provider", "Restrict to one provider slug"),
+            ("year", "Preferred release year"),
+        ],
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/games/{id}/metadata/apply",
+                "Games",
+                "Apply one provider record to a game",
+                Auth::Editor,
+                Payload::Schema("GameDetail"),
+            ),
+            "ApplyMetadataRequest",
+        ),
+        200,
+    ),
     body(
         route(
             HttpMethod::Post,
@@ -1863,6 +1892,10 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::routes::metadata_providers::UpdateMetadataProviderRequest>()
         .schema_from::<crate::routes::metadata_providers::ReorderMetadataProvidersRequest>()
         .schema_from::<crate::routes::metadata_providers::TestMetadataProviderRequest>()
+        .schema_from::<crate::routes::game_metadata::MetadataCandidate>()
+        .schema_from::<crate::routes::game_metadata::MetadataProviderStatus>()
+        .schema_from::<crate::routes::game_metadata::MetadataCandidatesResponse>()
+        .schema_from::<crate::routes::game_metadata::ApplyMetadataRequest>()
         .schema_from::<crate::models::LibraryFolders>()
         .schema_from::<crate::roots::LibraryRootView>()
         .schema_from::<crate::models::CreateLibraryRootRequest>()

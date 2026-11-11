@@ -1,0 +1,38 @@
+[   31384ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[   31512ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5199/#/updates:0
+[   65026ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[   65242ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5199/#/updates:0
+[   65533ms] Error: useAuth must be used inside AuthProvider
+    at useAuth (http://127.0.0.1:5199/src/state/auth.tsx?t=1794433205225:168:21)
+    at ServerSwitcher (http://127.0.0.1:5199/src/components/shell/server-switcher.tsx?t=1794433205225:48:25)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:20259:20)
+    at renderWithHooks (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:5918:24)
+    at updateFunctionComponent (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7763:21)
+    at beginWork (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:8843:20)
+    at runWithFiberInDEV (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:1133:72)
+    at performUnitOfWork (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13598:98)
+    at workLoopSync (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13461:43)
+    at renderRootSync (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13445:13)
+[   65529ms] [WARNING] %s
+
+%s
+ An error occurred in the <ServerSwitcher> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7240
+[   73475ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[   73602ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5199/#/updates:0
+[   73890ms] Error: useAuth must be used inside AuthProvider
+    at useAuth (http://127.0.0.1:5199/src/state/auth.tsx?t=1794433216264:168:21)
+    at ServerSwitcher (http://127.0.0.1:5199/src/components/shell/server-switcher.tsx?t=1794433214262:48:25)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:20259:20)
+    at renderWithHooks (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:5918:24)
+    at updateFunctionComponent (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7763:21)
+    at beginWork (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:8843:20)
+    at runWithFiberInDEV (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:1133:72)
+    at performUnitOfWork (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13598:98)
+    at workLoopSync (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13461:43)
+    at renderRootSync (http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13445:13)
+[   73890ms] [WARNING] %s
+
+%s
+ An error occurred in the <ServerSwitcher> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7240

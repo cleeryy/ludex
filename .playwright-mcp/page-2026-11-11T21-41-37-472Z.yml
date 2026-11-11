@@ -1,0 +1,788 @@
+- generic [ref=f20e2]:
+  - generic [ref=f20e404]:
+    - banner [ref=f20e405]:
+      - button "Ludex home" [ref=f20e407] [cursor=pointer]:
+        - img "Ludex" [ref=f20e408]
+      - generic [ref=f20e417]:
+        - button "Search games ⌘K" [ref=f20e418] [cursor=pointer]:
+          - generic [ref=f20e422]: Search games
+          - generic [ref=f20e423]: ⌘K
+        - generic [ref=f20e424]:
+          - button "Pick a random game" [ref=f20e425] [cursor=pointer]
+          - button "Big Picture mode" [ref=f20e429] [cursor=pointer]
+          - 'button "Server: localhost:5199" [ref=f20e1378] [cursor=pointer]':
+            - generic [ref=f20e1380]: localhost:5199
+          - button "Account menu for mara" [ref=f20e435] [cursor=pointer]:
+            - generic [ref=f20e436]: MA
+            - generic [ref=f20e437]: mara
+    - generic [ref=f20e440]:
+      - complementary "Sidebar" [ref=f20e441]:
+        - generic [ref=f20e442]:
+          - navigation "Library" [ref=f20e443]:
+            - paragraph [ref=f20e444]: Browse
+            - button "Home" [ref=f20e445] [cursor=pointer]
+            - button "Library 19" [ref=f20e1383] [cursor=pointer]:
+              - generic [ref=f20e455]: Library
+              - generic [ref=f20e1384]: "19"
+            - button "Recently played" [ref=f20e456] [cursor=pointer]
+            - button "Bookmarks" [ref=f20e462] [cursor=pointer]
+            - button "Index" [ref=f20e467] [cursor=pointer]
+            - button "Collections" [ref=f20e473] [cursor=pointer]
+            - button "Community" [ref=f20e477] [cursor=pointer]
+            - button "Installed 3" [ref=f20e485] [cursor=pointer]:
+              - generic [ref=f20e489]: Installed
+              - generic [ref=f20e490]: "3"
+            - button "Downloads 2" [ref=f20e491] [cursor=pointer]:
+              - generic [ref=f20e496]: Downloads
+              - generic [ref=f20e497]: "2"
+            - button "News" [ref=f20e498] [cursor=pointer]
+            - paragraph [ref=f20e1385]: Genres
+            - button "Action" [ref=f20e1386] [cursor=pointer]
+            - button "Adventure" [ref=f20e1390] [cursor=pointer]
+            - button "Horror" [ref=f20e1394] [cursor=pointer]
+            - button "Mystery" [ref=f20e1398] [cursor=pointer]
+            - button "Platformer" [ref=f20e1402] [cursor=pointer]
+            - button "Puzzle" [ref=f20e1406] [cursor=pointer]
+            - button "Racing" [ref=f20e1410] [cursor=pointer]
+            - button "Role-Playing" [ref=f20e1414] [cursor=pointer]
+            - button "RPG" [ref=f20e1418] [cursor=pointer]
+            - button "Shooter" [ref=f20e1422] [cursor=pointer]
+            - button "Simulation" [ref=f20e1426] [cursor=pointer]
+            - button "Stealth" [ref=f20e1430] [cursor=pointer]
+            - paragraph [ref=f20e504]: Admin
+            - button "Ingest" [ref=f20e505] [cursor=pointer]
+            - button "Upload game" [ref=f20e511] [cursor=pointer]
+            - button "Library scan" [ref=f20e517] [cursor=pointer]
+            - button "Users" [ref=f20e525] [cursor=pointer]
+            - button "News editor" [ref=f20e533] [cursor=pointer]
+            - button "Server" [ref=f20e539] [cursor=pointer]
+            - button "Authentication" [ref=f20e545] [cursor=pointer]
+            - button "Metadata providers" [ref=f20e551] [cursor=pointer]
+          - generic [ref=f20e560]:
+            - button "Search ⌘K" [ref=f20e561] [cursor=pointer]:
+              - generic [ref=f20e565]: Search
+              - generic [ref=f20e566]: ⌘K
+            - generic [ref=f20e567]:
+              - generic [ref=f20e569]: Ludex Archive
+              - generic [ref=f20e570]: v0.1.0
+            - generic [ref=f20e571]: Demo data
+      - main [ref=f20e573]:
+        - generic [ref=f20e574]:
+          - generic [ref=f20e575]:
+            - heading "Settings" [level=1] [ref=f20e577]
+            - generic [ref=f20e578]: Signed in as mara
+          - generic [ref=f20e580]:
+            - generic [ref=f20e581]:
+              - heading "Account" [level=2] [ref=f20e584]
+              - generic [ref=f20e585]:
+                - generic [ref=f20e586]:
+                  - term [ref=f20e587]: Username
+                  - definition [ref=f20e588]: mara
+                - generic [ref=f20e589]:
+                  - term [ref=f20e590]: Email
+                  - definition [ref=f20e591]: mara@ludex.local
+                - generic [ref=f20e592]:
+                  - term [ref=f20e593]: Role
+                  - definition [ref=f20e594]: Administrator
+                - generic [ref=f20e595]:
+                  - term [ref=f20e596]: Member since
+                  - definition [ref=f20e597]: 11 Feb 2026
+              - generic [ref=f20e599]:
+                - generic [ref=f20e601]:
+                  - heading "Language" [level=2] [ref=f20e602]
+                  - generic [ref=f20e603]: Applies to this browser or app window. Community translations fall back to English for missing strings.
+                - generic [ref=f20e604]:
+                  - paragraph [ref=f20e605]: Official languages
+                  - generic [ref=f20e606]:
+                    - button "English English Official" [pressed] [ref=f20e607] [cursor=pointer]:
+                      - generic [ref=f20e608]:
+                        - generic [ref=f20e609]: English
+                        - generic [ref=f20e610]: English
+                      - generic [ref=f20e611]: Official
+                    - button "Français French 100% Official" [ref=f20e613] [cursor=pointer]:
+                      - generic [ref=f20e614]:
+                        - generic [ref=f20e615]: Français
+                        - generic [ref=f20e616]: French
+                      - generic [ref=f20e617]:
+                        - generic [ref=f20e618]: 100%
+                        - generic [ref=f20e619]: Official
+                - generic [ref=f20e620]:
+                  - paragraph [ref=f20e621]: Community translations
+                  - generic [ref=f20e622]:
+                    - button "Español Spanish 100% Community · unreviewed" [ref=f20e623] [cursor=pointer]:
+                      - generic [ref=f20e624]:
+                        - generic [ref=f20e625]: Español
+                        - generic [ref=f20e626]: Spanish
+                      - generic [ref=f20e627]:
+                        - generic [ref=f20e628]: 100%
+                        - generic [ref=f20e629]: Community · unreviewed
+                    - button "Português (Brasil) Portuguese (Brazil) 100% Community · unreviewed" [ref=f20e630] [cursor=pointer]:
+                      - generic [ref=f20e631]:
+                        - generic [ref=f20e632]: Português (Brasil)
+                        - generic [ref=f20e633]: Portuguese (Brazil)
+                      - generic [ref=f20e634]:
+                        - generic [ref=f20e635]: 100%
+                        - generic [ref=f20e636]: Community · unreviewed
+                    - button "Deutsch German 100% Community · unreviewed" [ref=f20e637] [cursor=pointer]:
+                      - generic [ref=f20e638]:
+                        - generic [ref=f20e639]: Deutsch
+                        - generic [ref=f20e640]: German
+                      - generic [ref=f20e641]:
+                        - generic [ref=f20e642]: 100%
+                        - generic [ref=f20e643]: Community · unreviewed
+                    - button "Polski Polish 100% Community · unreviewed" [ref=f20e644] [cursor=pointer]:
+                      - generic [ref=f20e645]:
+                        - generic [ref=f20e646]: Polski
+                        - generic [ref=f20e647]: Polish
+                      - generic [ref=f20e648]:
+                        - generic [ref=f20e649]: 100%
+                        - generic [ref=f20e650]: Community · unreviewed
+                    - button "Türkçe Turkish 100% Community · unreviewed" [ref=f20e651] [cursor=pointer]:
+                      - generic [ref=f20e652]:
+                        - generic [ref=f20e653]: Türkçe
+                        - generic [ref=f20e654]: Turkish
+                      - generic [ref=f20e655]:
+                        - generic [ref=f20e656]: 100%
+                        - generic [ref=f20e657]: Community · unreviewed
+                    - button "Italiano Italian 100% Community · unreviewed" [ref=f20e658] [cursor=pointer]:
+                      - generic [ref=f20e659]:
+                        - generic [ref=f20e660]: Italiano
+                        - generic [ref=f20e661]: Italian
+                      - generic [ref=f20e662]:
+                        - generic [ref=f20e663]: 100%
+                        - generic [ref=f20e664]: Community · unreviewed
+                - paragraph [ref=f20e665]: Community locales are contributed as JSON files. See docs/I18N.md for the contribution flow; Arabic is machine-seeded and unreviewed.
+            - generic [ref=f20e666]:
+              - generic [ref=f20e668]:
+                - heading "Password" [level=2] [ref=f20e669]
+                - generic [ref=f20e670]: Eight characters or more.
+              - generic [ref=f20e671]:
+                - generic [ref=f20e672]:
+                  - generic [ref=f20e673]: Current password
+                  - textbox "Current password" [ref=f20e675]
+                - generic [ref=f20e676]:
+                  - generic [ref=f20e677]: New password
+                  - textbox "New password" [ref=f20e679]
+                - generic [ref=f20e680]:
+                  - generic [ref=f20e681]: Confirm new password
+                  - textbox "Confirm new password" [ref=f20e683]
+                - button "Change password" [ref=f20e685] [cursor=pointer]
+          - region "Appearance" [ref=f20e686]:
+            - generic [ref=f20e688]:
+              - heading "Appearance" [level=2] [ref=f20e689]
+              - generic [ref=f20e690]: Applies to this browser or app window. Every screen and Big Picture follow the same tokens.
+            - generic [ref=f20e692]:
+              - generic [ref=f20e693]:
+                - generic [ref=f20e694]:
+                  - generic [ref=f20e695]:
+                    - paragraph [ref=f20e696]: Theme
+                    - paragraph [ref=f20e697]: Pick a theme. Changes apply immediately, in the library and in Big Picture.
+                  - generic [ref=f20e698]: "Now: Follow the system"
+                - generic [ref=f20e699]:
+                  - button "Follow the system — Light" [pressed] [ref=f20e701] [cursor=pointer]:
+                    - generic [ref=f20e741]:
+                      - generic [ref=f20e742]: Follow the system
+                      - generic [ref=f20e743]: Light
+                  - button "Midnight — Dark" [ref=f20e748] [cursor=pointer]:
+                    - generic [ref=f20e769]:
+                      - generic [ref=f20e770]: Midnight
+                      - generic [ref=f20e771]: Dark
+                  - button "Paper — Light" [ref=f20e776] [cursor=pointer]:
+                    - generic [ref=f20e797]:
+                      - generic [ref=f20e798]: Paper
+                      - generic [ref=f20e799]: Light
+                  - button "Nord — Dark" [ref=f20e804] [cursor=pointer]:
+                    - generic [ref=f20e825]:
+                      - generic [ref=f20e826]: Nord
+                      - generic [ref=f20e827]: Dark
+                  - button "Gruvbox — Dark" [ref=f20e832] [cursor=pointer]:
+                    - generic [ref=f20e853]:
+                      - generic [ref=f20e854]: Gruvbox
+                      - generic [ref=f20e855]: Dark
+                  - button "Amber — Dark" [ref=f20e860] [cursor=pointer]:
+                    - generic [ref=f20e881]:
+                      - generic [ref=f20e882]: Amber
+                      - generic [ref=f20e883]: Dark
+                - paragraph [ref=f20e887]: The system option follows your OS light and dark setting and reacts when it changes.
+              - generic [ref=f20e888]:
+                - generic [ref=f20e889]:
+                  - generic [ref=f20e890]:
+                    - generic [ref=f20e891]:
+                      - paragraph [ref=f20e892]: Custom accent
+                      - paragraph [ref=f20e893]: Used for buttons, selection markers and the focus ring.
+                    - generic [ref=f20e894]:
+                      - button "Use accent 1" [ref=f20e895] [cursor=pointer]
+                      - button "Use accent 2" [ref=f20e896] [cursor=pointer]
+                      - button "Use accent 3" [ref=f20e897] [cursor=pointer]
+                      - button "Use accent 4" [ref=f20e898] [cursor=pointer]
+                      - button "Use accent 5" [ref=f20e899] [cursor=pointer]
+                      - generic "Pick an accent colour" [ref=f20e900] [cursor=pointer]:
+                        - textbox "Pick an accent colour" [ref=f20e901]: "#f0c000"
+                        - generic [ref=f20e902]: +
+                  - generic [ref=f20e903]:
+                    - generic [ref=f20e904]:
+                      - generic [ref=f20e905]: "#"
+                      - textbox "Accent hex" [ref=f20e906]:
+                        - /placeholder: rrggbb
+                    - generic [ref=f20e907]: 5.60:1 AA
+                    - button "Clear" [disabled]
+                  - paragraph [ref=f20e908]: Accents below 4.5:1 against the background are refused; the measured ratio is shown above.
+                - generic [ref=f20e909]:
+                  - generic [ref=f20e910]:
+                    - generic [ref=f20e911]:
+                      - paragraph [ref=f20e912]: Background tint
+                      - paragraph [ref=f20e913]: A subtle wash over the base theme's surfaces. Text contrast is re-checked.
+                    - generic [ref=f20e914]:
+                      - generic "Pick a tint colour" [ref=f20e915] [cursor=pointer]:
+                        - textbox "Pick a tint colour" [ref=f20e916]: "#f1ede0"
+                      - button "Clear" [disabled]
+                  - generic [ref=f20e917]:
+                    - generic [ref=f20e918]: No tint
+                    - generic [ref=f20e919]: Base surfaces
+              - generic [ref=f20e920]:
+                - generic [ref=f20e921]:
+                  - generic [ref=f20e922]:
+                    - paragraph [ref=f20e923]: Theme file
+                    - paragraph [ref=f20e924]: Export the current theme as JSON, or import one. Unknown tokens, invalid colours and low-contrast pairs are rejected with the measured value.
+                  - generic [ref=f20e925]:
+                    - button "Export" [ref=f20e926] [cursor=pointer]
+                    - button "Import" [ref=f20e930] [cursor=pointer]
+                    - button "Theme file to import" [ref=f20e934]
+                - generic [ref=f20e935]:
+                  - generic [ref=f20e936]: "Base: Paper"
+                  - generic [ref=f20e937]: ·
+                  - generic [ref=f20e938]: "Accent: theme default"
+                - group [ref=f20e939]:
+                  - generic "Or paste a theme file" [ref=f20e940] [cursor=pointer]
+              - region "Big Picture layout" [ref=f20e941]:
+                - generic [ref=f20e942]:
+                  - generic [ref=f20e943]:
+                    - paragraph [ref=f20e944]: Big Picture layout
+                    - paragraph [ref=f20e945]: Big Picture opens in this layout. Changes apply immediately, here and in a running screen.
+                  - generic [ref=f20e946]: "Now: Shelf"
+                - group "Big Picture layout" [ref=f20e947]:
+                  - 'button "Shelf One shelf at a time: a large plate, its title and a caption rail." [pressed] [ref=f20e948] [cursor=pointer]':
+                    - generic [ref=f20e966]: Shelf
+                    - generic [ref=f20e971]: "One shelf at a time: a large plate, its title and a caption rail."
+                  - button "Hero A full-screen backdrop, a big title and one centred rail." [ref=f20e972] [cursor=pointer]:
+                    - generic [ref=f20e984]: Hero
+                    - generic [ref=f20e989]: A full-screen backdrop, a big title and one centred rail.
+                  - button "Grid Many covers at once, under a focused header. The fastest way to browse a big library." [ref=f20e990] [cursor=pointer]:
+                    - generic [ref=f20e1012]: Grid
+                    - generic [ref=f20e1017]: Many covers at once, under a focused header. The fastest way to browse a big library.
+                  - button "Compact Dense rows with a details pane, for large libraries and quick stepping." [ref=f20e1018] [cursor=pointer]:
+                    - generic [ref=f20e1040]: Compact
+                    - generic [ref=f20e1045]: Dense rows with a details pane, for large libraries and quick stepping.
+                - paragraph [ref=f20e1046]: Saved on this device. Big Picture switches with L on a keyboard or X on a controller.
+              - generic [ref=f20e1047]:
+                - generic [ref=f20e1048]:
+                  - paragraph [ref=f20e1049]: Big Picture uses the same theme with TV contrast. Focus rings stay visible and decorative text is lifted to 7:1.
+                  - button "Reset appearance" [ref=f20e1050] [cursor=pointer]
+                - generic [ref=f20e1054]:
+                  - generic [ref=f20e1055]:
+                    - generic [ref=f20e1056]: Body text
+                    - generic [ref=f20e1057]:
+                      - generic [ref=f20e1058]: 14.13:1
+                      - generic [ref=f20e1059]: AA
+                  - generic [ref=f20e1060]:
+                    - generic [ref=f20e1061]: Secondary text
+                    - generic [ref=f20e1062]:
+                      - generic [ref=f20e1063]: 6.16:1
+                      - generic [ref=f20e1064]: AA
+                  - generic [ref=f20e1065]:
+                    - generic [ref=f20e1066]: Muted text
+                    - generic [ref=f20e1067]:
+                      - generic [ref=f20e1068]: 5.07:1
+                      - generic [ref=f20e1069]: AA
+                  - generic [ref=f20e1070]:
+                    - generic [ref=f20e1071]: Focus ring
+                    - generic [ref=f20e1072]:
+                      - generic [ref=f20e1073]: 5.60:1
+                      - generic [ref=f20e1074]: AA
+          - region "Public profile Your display name, bio, library, public collections and activity become visible to other accounts. Playtime totals and private collections stay private. Public profile Display name Mara Shown instead of your login name. Optional. Bio Runs the archive. Puzzle games and long nights. A sentence or two. Optional. Save profile Your page is listed in Community." [ref=f20e1434]:
+            - generic [ref=f20e1076]:
+              - generic [ref=f20e1077]:
+                - heading "Community profile" [level=2] [ref=f20e1078]
+                - generic [ref=f20e1079]: Opt in to a public page. Private accounts never appear in the feed or the member list.
+              - link "View public page" [ref=f20e1435] [cursor=pointer]:
+                - /url: "#/community/u/1"
+            - generic [ref=f20e1436]:
+              - generic [ref=f20e1437]:
+                - generic [ref=f20e1438]:
+                  - generic [ref=f20e1439]:
+                    - paragraph [ref=f20e1440]: Public profile
+                    - paragraph [ref=f20e1441]: Your display name, bio, library, public collections and activity become visible to other accounts. Playtime totals and private collections stay private.
+                  - switch "Public profile" [checked] [ref=f20e1442] [cursor=pointer]
+                - generic [ref=f20e1443]:
+                  - generic [ref=f20e1444]: Display name
+                  - textbox "Display name" [ref=f20e1446]:
+                    - /placeholder: mara
+                    - text: Mara
+                  - paragraph [ref=f20e1447]: Shown instead of your login name. Optional.
+              - generic [ref=f20e1448]:
+                - generic [ref=f20e1449]:
+                  - generic [ref=f20e1450]: Bio
+                  - textbox "Bio" [ref=f20e1452]:
+                    - /placeholder: Puzzle games and long nights.
+                    - text: Runs the archive. Puzzle games and long nights.
+                  - paragraph [ref=f20e1453]: A sentence or two. Optional.
+                - generic [ref=f20e1454]:
+                  - button "Save profile" [ref=f20e1455] [cursor=pointer]
+                  - generic [ref=f20e1456]: Your page is listed in Community.
+          - generic [ref=f20e1082]:
+            - generic [ref=f20e1084]:
+              - heading "Desktop" [level=2] [ref=f20e1085]
+              - generic [ref=f20e1086]: Where games are installed, how archives are downloaded, and how passwords are tried.
+            - generic [ref=f20e1087]:
+              - generic [ref=f20e1457]:
+                - generic [ref=f20e1458]: "Mode: Remote server"
+                - generic [ref=f20e1459]: "Server: https://ludex.mara.lan"
+                - generic [ref=f20e1460]: Preview values from the demo adapter
+              - generic [ref=f20e1462]:
+                - generic [ref=f20e1463]:
+                  - generic [ref=f20e1464]:
+                    - paragraph [ref=f20e1465]: Locations
+                    - paragraph [ref=f20e1466]: Named folders for installs, temporary archives and scratch space. Each install can pick one, and an unplugged drive only fails that job.
+                  - generic [ref=f20e1467]: 3 locations
+                - generic [ref=f20e1468]:
+                  - generic [ref=f20e1469]:
+                    - generic [ref=f20e1470]:
+                      - textbox "Location name" [ref=f20e1472]: Games
+                      - textbox "Location folder" [ref=f20e1474]: /home/mara/Games/Ludex
+                      - button "Location kind" [ref=f20e1476] [cursor=pointer]:
+                        - generic [ref=f20e1477]: Install
+                      - generic [ref=f20e1480]:
+                        - generic [ref=f20e1481]: Default
+                        - button "Check" [disabled]
+                        - button "Remove Games" [ref=f20e1482] [cursor=pointer]
+                    - generic [ref=f20e1486]:
+                      - generic [ref=f20e1487]: Install
+                      - generic [ref=f20e1488]: Desktop app only
+                  - generic [ref=f20e1489]:
+                    - generic [ref=f20e1490]:
+                      - textbox "Location name" [ref=f20e1492]: Fast SSD
+                      - textbox "Location folder" [ref=f20e1494]: /mnt/ssd/Ludex
+                      - button "Location kind" [ref=f20e1496] [cursor=pointer]:
+                        - generic [ref=f20e1497]: Install
+                      - generic [ref=f20e1500]:
+                        - button "Make default" [ref=f20e1501] [cursor=pointer]
+                        - button "Check" [disabled]
+                        - button "Remove Fast SSD" [ref=f20e1502] [cursor=pointer]
+                    - generic [ref=f20e1506]:
+                      - generic [ref=f20e1507]: Install
+                      - generic [ref=f20e1508]: Desktop app only
+                  - generic [ref=f20e1509]:
+                    - generic [ref=f20e1510]:
+                      - textbox "Location name" [ref=f20e1512]: Downloads
+                      - textbox "Location folder" [ref=f20e1514]: /home/mara/Downloads/Ludex
+                      - button "Location kind" [ref=f20e1516] [cursor=pointer]:
+                        - generic [ref=f20e1517]: Download
+                      - generic [ref=f20e1520]:
+                        - generic [ref=f20e1521]: Default
+                        - button "Check" [disabled]
+                        - button "Remove Downloads" [ref=f20e1522] [cursor=pointer]
+                    - generic [ref=f20e1526]:
+                      - generic [ref=f20e1527]: Download
+                      - generic [ref=f20e1528]: Desktop app only
+                - generic [ref=f20e1529]:
+                  - generic [ref=f20e1530]:
+                    - generic [ref=f20e1531]: Name
+                    - textbox "Name" [ref=f20e1533]:
+                      - /placeholder: Fast SSD
+                  - generic [ref=f20e1534]:
+                    - generic [ref=f20e1535]: Folder
+                    - generic [ref=f20e1537]:
+                      - textbox "Folder" [ref=f20e1538]:
+                        - /placeholder: /mnt/fast/Games
+                      - button "Choose folder" [ref=f20e1539] [cursor=pointer]
+                  - generic [ref=f20e1542]:
+                    - generic [ref=f20e1543]: Use for
+                    - button "Use for" [ref=f20e1545] [cursor=pointer]:
+                      - generic [ref=f20e1546]: Install
+                  - button "Add" [ref=f20e1549] [cursor=pointer]
+              - generic [ref=f20e1551]:
+                - generic [ref=f20e1553]:
+                  - generic [ref=f20e1554]: Steam folder
+                  - generic [ref=f20e1555]:
+                    - textbox "Steam folder" [ref=f20e1556]:
+                      - /placeholder: /home/user/Games
+                    - button "Browse" [ref=f20e1557] [cursor=pointer]
+                  - paragraph [ref=f20e1560]: Optional. Only used by the Steam import when auto-detection fails.
+                - generic [ref=f20e1561]:
+                  - generic [ref=f20e1562]:
+                    - generic [ref=f20e1563]:
+                      - paragraph [ref=f20e1564]: Stream installs from the server
+                      - paragraph [ref=f20e1565]: "ZIP archives only. Files are written as they arrive, so the archive never touches the disk. A dropped connection, a pause or an app restart resumes at file granularity: completed files are kept and only missing ones are downloaded again. 7z/RAR archives, and servers without the per-entry API, fall back to the normal resumable download."
+                    - switch "Stream installs from the server" [checked] [ref=f20e1566] [cursor=pointer]
+                  - generic [ref=f20e1567]:
+                    - generic [ref=f20e1568]:
+                      - paragraph [ref=f20e1569]: Keep downloaded archives
+                      - paragraph [ref=f20e1570]: Leave the archive in the download folder after a successful install. Off by default; the desktop deletes it to save space.
+                    - switch "Keep downloaded archives" [ref=f20e1571] [cursor=pointer]
+                  - generic [ref=f20e1572]:
+                    - text: Bandwidth limit
+                    - paragraph [ref=f20e1573]: Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.
+                    - generic [ref=f20e1574]:
+                      - spinbutton "Bandwidth limit" [ref=f20e1575]: "0"
+                      - generic [ref=f20e1576]: KiB/s
+                      - generic [ref=f20e1577]: Unlimited
+                  - generic [ref=f20e1578]:
+                    - text: Archive passwords
+                    - paragraph [ref=f20e1579]: Tried in order when an archive is encrypted. One per line, or separated by commas.
+                    - textbox "Archive passwords" [ref=f20e1580]:
+                      - /placeholder: "first-password\nsecond-password"
+                    - paragraph [ref=f20e1581]: No passwords. Encrypted archives will fail to extract.
+                  - generic [ref=f20e1582]:
+                    - generic [ref=f20e1583]:
+                      - paragraph [ref=f20e1584]: Close to tray
+                      - paragraph [ref=f20e1585]: Closing the window keeps Ludex running in the system tray so downloads continue. Quit from the tray menu.
+                    - switch "Close to tray" [checked] [ref=f20e1586] [cursor=pointer]
+                  - generic [ref=f20e1587]:
+                    - generic [ref=f20e1588]:
+                      - paragraph [ref=f20e1589]: Check for updates at startup
+                      - paragraph [ref=f20e1590]: At most once every 24 hours. Manual checks from this page always run.
+                    - switch "Check for updates at startup" [checked] [ref=f20e1591] [cursor=pointer]
+                  - generic [ref=f20e1592]:
+                    - generic [ref=f20e1593]:
+                      - generic [ref=f20e1594]:
+                        - paragraph [ref=f20e1595]: Discord Rich Presence
+                        - paragraph [ref=f20e1596]: Show the running game, its cover and the elapsed time on your Discord profile. Uses the local Discord app, never a bot token. Off by default.
+                      - switch "Discord Rich Presence" [ref=f20e1597] [cursor=pointer]
+                    - generic [ref=f20e1598]:
+                      - textbox "Discord application id" [ref=f20e1599]
+                      - generic [ref=f20e1600]: An application id labels the activity; it is not a secret.
+                    - paragraph [ref=f20e1601]: Presence is off.
+                  - generic [ref=f20e1602]:
+                    - paragraph [ref=f20e1603]: Silent installer arguments
+                    - paragraph [ref=f20e1604]: Tried in order when a game ships a setup program, one argument set per line. Leave empty for the built-in presets (/S, /silent, /VERYSILENT /SUPPRESSMSGBOXES /NORESTART, --silent).
+                    - textbox "/S /VERYSILENT /SUPPRESSMSGBOXES /NORESTART" [ref=f20e1605]:
+                      - /placeholder: "/S\n/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
+                    - generic [ref=f20e1606]:
+                      - generic [ref=f20e1607]: Timeout per attempt
+                      - spinbutton "Timeout per attempt" [ref=f20e1608]: "600"
+                      - generic [ref=f20e1609]: seconds
+                  - generic [ref=f20e1610]:
+                    - paragraph [ref=f20e1611]: Update channel
+                    - paragraph [ref=f20e1612]: Early access builds come from the edge prerelease and can be rough. Save the settings to switch.
+                    - button "Update channel" [ref=f20e1614] [cursor=pointer]:
+                      - generic [ref=f20e1615]: Stable
+              - generic [ref=f20e1618]:
+                - generic [ref=f20e1620]:
+                  - paragraph [ref=f20e1621]: Automatic cloud saves
+                  - paragraph [ref=f20e1622]: "Automatic cloud saves need the Ludex desktop app: they read and write save files on this machine. The browser can still download and upload manual snapshots."
+                - paragraph [ref=f20e1623]: "Privacy: snapshots are uploaded to the Ludex server you are signed in to, under your account, and only you can list or download them. The server stores the archive as-is and never opens it. Host paths, device names and file contents stay between this machine and your server."
+              - generic [ref=f20e1625]:
+                - generic [ref=f20e1626]:
+                  - generic [ref=f20e1627]:
+                    - paragraph [ref=f20e1628]: App updates
+                    - generic [ref=f20e1629]: Desktop only
+                  - paragraph [ref=f20e1630]: "App updates need the desktop build: the browser always runs the build your server serves. Release notes and downloads are on GitHub."
+                - link [ref=f20e1632] [cursor=pointer]:
+                  - /url: "#/updates"
+                  - button "Open update center" [ref=f20e1633]
+              - generic [ref=f20e1636]:
+                - button "Save desktop settings" [disabled]
+                - button "Open install folder" [ref=f20e1637] [cursor=pointer]
+          - region [ref=f20e1641]:
+            - generic [ref=f20e1642]:
+              - generic [ref=f20e1643]:
+                - heading "Save database" [level=2] [ref=f20e1644]
+                - generic [ref=f20e1645]: Ludusavi save-path data, downloaded and refreshed by Ludex so save detection works without installing anything.
+              - generic [ref=f20e1646]:
+                - button "Update manifest" [ref=f20e1647] [cursor=pointer]
+                - button "Remove cached copy" [disabled]
+            - generic [ref=f20e1653]:
+              - generic [ref=f20e1654]:
+                - generic [ref=f20e1655]: Not downloaded
+                - generic [ref=f20e1656]: No save database yet. Ludex can download the official Ludusavi manifest so save detection works without installing Ludusavi.
+              - generic [ref=f20e1657]:
+                - generic [ref=f20e1658]:
+                  - term [ref=f20e1659]: Version
+                  - definition [ref=f20e1660]: Unknown
+                - generic [ref=f20e1661]:
+                  - term [ref=f20e1662]: Last updated
+                  - definition [ref=f20e1663]: Never
+                - generic [ref=f20e1664]:
+                  - term [ref=f20e1665]: Last checked
+                  - definition [ref=f20e1666]: Never
+                - generic [ref=f20e1667]:
+                  - term [ref=f20e1668]: Size
+                  - definition [ref=f20e1669]: —
+              - paragraph [ref=f20e1670]: https://raw.githubusercontent.com/mtkennerly/ludusavi-manifest/data/data/manifest.yaml
+              - generic [ref=f20e1675]:
+                - generic [ref=f20e1676]:
+                  - paragraph [ref=f20e1677]: Download updates automatically
+                  - paragraph [ref=f20e1678]: Checks at most once per day at startup and keeps the cached copy when the download fails. Turn this off to update only from this page.
+                - switch "Download updates automatically" [checked] [ref=f20e1679] [cursor=pointer]
+              - generic [ref=f20e1680]:
+                - generic [ref=f20e1681]:
+                  - generic [ref=f20e1682]: Download URL
+                  - textbox "Download URL Leave empty for the official manifest. A mirror or pinned copy must serve the same manifest.yaml. Save the settings before updating." [ref=f20e1683]:
+                    - /placeholder: https://raw.githubusercontent.com/mtkennerly/ludusavi-manifest/data/data/manifest.yaml
+                  - generic [ref=f20e1684]: Leave empty for the official manifest. A mirror or pinned copy must serve the same manifest.yaml. Save the settings before updating.
+                - generic [ref=f20e1685]:
+                  - generic [ref=f20e1686]: Manifest path override
+                  - textbox "Manifest path override A file you point at wins over the managed copy. Leave empty to use the downloaded database, then a Ludusavi install." [ref=f20e1687]:
+                    - /placeholder: Detected automatically
+                  - generic [ref=f20e1688]: A file you point at wins over the managed copy. Leave empty to use the downloaded database, then a Ludusavi install.
+                - generic [ref=f20e1689]:
+                  - generic [ref=f20e1690]: Ludusavi binary (optional)
+                  - 'textbox "Ludusavi binary (optional) Advanced: a Ludusavi CLI can preview saves with its own rules. It is only asked when the manifest lists nothing." [ref=f20e1691]':
+                    - /placeholder: Looked up on PATH
+                  - generic [ref=f20e1692]: "Advanced: a Ludusavi CLI can preview saves with its own rules. It is only asked when the manifest lists nothing."
+              - paragraph [ref=f20e1693]: The save database comes from the Ludusavi manifest (MIT), which is built from PCGamingWiki data (CC BY-NC-SA). Ludex downloads it at runtime, never bundles it and never sends it to your server. Saves stay on this machine unless you upload a snapshot.
+          - 'region "Registry v1 · depth ≤4 · 2000 entries per folder. Paths stay on this machine. A guess is never archived or uploaded automatically. Hades Likely Engine default saved_games /home/mara/Saved Games/Hades Game title folders: {saved_games}/{product} Hades · First seen 11 Nov 2026 Confirm Edit path Ignore Guess Engine default xdg_config Guessed from an engine default; check the path before confirming. /home/mara/.config/unity3d/Supergiant/Hades Unity default layout: {xdg_config}/unity3d/{company}/{product} unity3d/Supergiant/Hades · First seen 11 Nov 2026 Confirm guess Edit path Ignore Celeste Certain Store ground truth xdg_data /home/mara/.local/share/Celeste Steam Cloud remotecache.vdf lists files under SteamCloudDocuments Celeste · First seen 11 Nov 2026 Confirm Edit path Ignore" [ref=f20e1695]':
+            - generic [ref=f20e1696]:
+              - generic [ref=f20e1697]:
+                - heading "Save locations" [level=2] [ref=f20e1698]
+                - generic [ref=f20e1699]: Candidates found by the OS and engine registry, with their root, provenance and confidence. Nothing is archived until you confirm it.
+              - button "Scan installed games" [ref=f20e1700] [cursor=pointer]
+            - generic [ref=f20e1706]:
+              - paragraph [ref=f20e1707]: Registry v1 · depth ≤4 · 2000 entries per folder. Paths stay on this machine. A guess is never archived or uploaded automatically.
+              - generic [ref=f20e1708]:
+                - generic [ref=f20e1709]:
+                  - paragraph [ref=f20e1710]: Hades
+                  - list [ref=f20e1711]:
+                    - listitem [ref=f20e1712]:
+                      - generic [ref=f20e1713]:
+                        - generic [ref=f20e1714]: Likely
+                        - generic [ref=f20e1715]: Engine default
+                        - generic [ref=f20e1716]: saved_games
+                      - paragraph [ref=f20e1717]: /home/mara/Saved Games/Hades
+                      - paragraph [ref=f20e1718]: "Game title folders: {saved_games}/{product}"
+                      - paragraph [ref=f20e1719]: Hades · First seen 11 Nov 2026
+                      - generic [ref=f20e1720]:
+                        - button "Confirm" [ref=f20e1721] [cursor=pointer]
+                        - button "Edit path" [ref=f20e1724] [cursor=pointer]
+                        - button "Ignore" [ref=f20e1728] [cursor=pointer]
+                    - listitem [ref=f20e1732]:
+                      - generic [ref=f20e1733]:
+                        - generic [ref=f20e1734]: Guess
+                        - generic [ref=f20e1735]: Engine default
+                        - generic [ref=f20e1736]: xdg_config
+                        - generic [ref=f20e1737]: Guessed from an engine default; check the path before confirming.
+                      - paragraph [ref=f20e1738]: /home/mara/.config/unity3d/Supergiant/Hades
+                      - paragraph [ref=f20e1739]: "Unity default layout: {xdg_config}/unity3d/{company}/{product}"
+                      - paragraph [ref=f20e1740]: unity3d/Supergiant/Hades · First seen 11 Nov 2026
+                      - generic [ref=f20e1741]:
+                        - button "Confirm guess" [ref=f20e1742] [cursor=pointer]
+                        - button "Edit path" [ref=f20e1745] [cursor=pointer]
+                        - button "Ignore" [ref=f20e1749] [cursor=pointer]
+                - generic [ref=f20e1753]:
+                  - paragraph [ref=f20e1754]: Celeste
+                  - list [ref=f20e1755]:
+                    - listitem [ref=f20e1756]:
+                      - generic [ref=f20e1757]:
+                        - generic [ref=f20e1758]: Certain
+                        - generic [ref=f20e1759]: Store ground truth
+                        - generic [ref=f20e1760]: xdg_data
+                      - paragraph [ref=f20e1761]: /home/mara/.local/share/Celeste
+                      - paragraph [ref=f20e1762]: Steam Cloud remotecache.vdf lists files under SteamCloudDocuments
+                      - paragraph [ref=f20e1763]: Celeste · First seen 11 Nov 2026
+                      - generic [ref=f20e1764]:
+                        - button "Confirm" [ref=f20e1765] [cursor=pointer]
+                        - button "Edit path" [ref=f20e1768] [cursor=pointer]
+                        - button "Ignore" [ref=f20e1772] [cursor=pointer]
+          - region [ref=f20e1089]:
+            - generic [ref=f20e1090]:
+              - generic [ref=f20e1091]:
+                - heading "Servers" [level=2] [ref=f20e1092]
+                - paragraph [ref=f20e1093]: Keep more than one Ludex server or account. Each server has its own session, installed-game index and download queue.
+              - button "Add server" [ref=f20e1094] [cursor=pointer]
+            - generic [ref=f20e1776]:
+              - generic [ref=f20e1778]:
+                - paragraph [ref=f20e1779]:
+                  - generic [ref=f20e1780]: localhost:5199
+                  - generic [ref=f20e1781]: In use
+                - paragraph [ref=f20e1782]: http://localhost:5199
+              - generic "A token is saved for this server." [ref=f20e1783]: token saved
+              - generic [ref=f20e1787]:
+                - button "Edit" [ref=f20e1788] [cursor=pointer]
+                - button "Remove" [ref=f20e1792] [cursor=pointer]
+            - paragraph [ref=f20e1098]: In the browser, each server's session token is kept in this browser's local storage and never shared with the other servers.
+          - region [ref=f20e1099]:
+            - generic [ref=f20e1101]:
+              - heading "Help" [level=2] [ref=f20e1102]
+              - generic [ref=f20e1103]: Replay the first-run tour or finish the recommended setup steps.
+            - generic [ref=f20e1105]:
+              - button "Restart onboarding" [ref=f20e1106] [cursor=pointer]
+              - generic [ref=f20e1107]: This clears the completed flag and reopens the wizard at the first step.
+          - generic [ref=f20e1108]:
+            - generic [ref=f20e1110]:
+              - heading "Emulators" [level=2] [ref=f20e1111]
+              - generic [ref=f20e1112]: Local commands used to launch ROMs. Ludex never bundles an emulator binary.
+            - paragraph [ref=f20e1114]: The emulator registry is available in the desktop app.
+          - generic [ref=f20e1115]:
+            - generic [ref=f20e1117]:
+              - heading "Controllers" [level=2] [ref=f20e1118]
+              - generic [ref=f20e1119]: Deadzone, sensitivity, remapping and vibration apply in the library and Big Picture.
+            - generic [ref=f20e1121]:
+              - generic [ref=f20e1122]:
+                - generic [ref=f20e1123]:
+                  - heading "Controller profile" [level=3] [ref=f20e1124]
+                  - paragraph [ref=f20e1127]: Applies to every game unless that game has its own profile.
+                - generic [ref=f20e1128]: No gamepad detected
+              - generic [ref=f20e1129]:
+                - generic [ref=f20e1130]:
+                  - generic [ref=f20e1131]: Name
+                  - textbox [ref=f20e1133]: Xbox
+                - generic [ref=f20e1134]:
+                  - generic [ref=f20e1135]: Start from a preset
+                  - button "Preset" [ref=f20e1137] [cursor=pointer]:
+                    - generic [ref=f20e1138]: Choose a preset
+              - generic [ref=f20e1141]:
+                - generic [ref=f20e1142]:
+                  - generic [ref=f20e1143]:
+                    - text: Deadzone
+                    - generic [ref=f20e1144]: "0.18"
+                  - slider "Deadzone 0.18" [ref=f20e1145]: "0.18"
+                - generic [ref=f20e1146]:
+                  - generic [ref=f20e1147]:
+                    - text: Sensitivity
+                    - generic [ref=f20e1148]: 1.00×
+                  - slider "Sensitivity 1.00×" [ref=f20e1149]: "1"
+                - generic [ref=f20e1150]:
+                  - generic [ref=f20e1151]:
+                    - text: Response curve
+                    - generic [ref=f20e1152]: "1.00"
+                  - slider "Response curve 1.00" [ref=f20e1153]: "1"
+                - generic [ref=f20e1154]:
+                  - generic [ref=f20e1155]:
+                    - text: Trigger threshold
+                    - generic [ref=f20e1156]: "0.35"
+                  - slider "Trigger threshold 0.35" [ref=f20e1157]: "0.35"
+              - generic [ref=f20e1158]:
+                - switch "Invert horizontal stick" [ref=f20e1159] [cursor=pointer]
+                - switch "Invert vertical stick" [ref=f20e1160] [cursor=pointer]
+                - switch "Vibration" [checked] [ref=f20e1161] [cursor=pointer]
+              - generic [ref=f20e1162]: Connect a controller and press a button to see it here.
+              - generic [ref=f20e1163]:
+                - generic [ref=f20e1164]:
+                  - heading "Button map" [level=4] [ref=f20e1165]
+                  - button "Listen for a button" [ref=f20e1166] [cursor=pointer]
+                - list [ref=f20e1168]:
+                  - listitem [ref=f20e1169]:
+                    - generic [ref=f20e1170]: Stick 1 −
+                    - button "Stick 1 −" [ref=f20e1171] [cursor=pointer]:
+                      - generic [ref=f20e1172]: Left
+                    - button "Remove mapping for Stick 1 −" [ref=f20e1175] [cursor=pointer]
+                  - listitem [ref=f20e1179]:
+                    - generic [ref=f20e1180]: Stick 1 +
+                    - button "Stick 1 +" [ref=f20e1181] [cursor=pointer]:
+                      - generic [ref=f20e1182]: Right
+                    - button "Remove mapping for Stick 1 +" [ref=f20e1185] [cursor=pointer]
+                  - listitem [ref=f20e1189]:
+                    - generic [ref=f20e1190]: Stick 2 −
+                    - button "Stick 2 −" [ref=f20e1191] [cursor=pointer]:
+                      - generic [ref=f20e1192]: Up
+                    - button "Remove mapping for Stick 2 −" [ref=f20e1195] [cursor=pointer]
+                  - listitem [ref=f20e1199]:
+                    - generic [ref=f20e1200]: Stick 2 +
+                    - button "Stick 2 +" [ref=f20e1201] [cursor=pointer]:
+                      - generic [ref=f20e1202]: Down
+                    - button "Remove mapping for Stick 2 +" [ref=f20e1205] [cursor=pointer]
+                  - listitem [ref=f20e1209]:
+                    - generic [ref=f20e1210]: A / Cross
+                    - button "A / Cross" [ref=f20e1211] [cursor=pointer]:
+                      - generic [ref=f20e1212]: Confirm
+                    - button "Remove mapping for A / Cross" [ref=f20e1215] [cursor=pointer]
+                  - listitem [ref=f20e1219]:
+                    - generic [ref=f20e1220]: B / Circle
+                    - button "B / Circle" [ref=f20e1221] [cursor=pointer]:
+                      - generic [ref=f20e1222]: Back
+                    - button "Remove mapping for B / Circle" [ref=f20e1225] [cursor=pointer]
+                  - listitem [ref=f20e1229]:
+                    - generic [ref=f20e1230]: D-pad up
+                    - button "D-pad up" [ref=f20e1231] [cursor=pointer]:
+                      - generic [ref=f20e1232]: Up
+                    - button "Remove mapping for D-pad up" [ref=f20e1235] [cursor=pointer]
+                  - listitem [ref=f20e1239]:
+                    - generic [ref=f20e1240]: D-pad down
+                    - button "D-pad down" [ref=f20e1241] [cursor=pointer]:
+                      - generic [ref=f20e1242]: Down
+                    - button "Remove mapping for D-pad down" [ref=f20e1245] [cursor=pointer]
+                  - listitem [ref=f20e1249]:
+                    - generic [ref=f20e1250]: D-pad left
+                    - button "D-pad left" [ref=f20e1251] [cursor=pointer]:
+                      - generic [ref=f20e1252]: Left
+                    - button "Remove mapping for D-pad left" [ref=f20e1255] [cursor=pointer]
+                  - listitem [ref=f20e1259]:
+                    - generic [ref=f20e1260]: D-pad right
+                    - button "D-pad right" [ref=f20e1261] [cursor=pointer]:
+                      - generic [ref=f20e1262]: Right
+                    - button "Remove mapping for D-pad right" [ref=f20e1265] [cursor=pointer]
+                  - listitem [ref=f20e1269]:
+                    - generic [ref=f20e1270]: X / Square
+                    - button "X / Square" [ref=f20e1271] [cursor=pointer]:
+                      - generic [ref=f20e1272]: Menu
+                    - button "Remove mapping for X / Square" [ref=f20e1275] [cursor=pointer]
+                  - listitem [ref=f20e1279]:
+                    - generic [ref=f20e1280]: Y / Triangle
+                    - button "Y / Triangle" [ref=f20e1281] [cursor=pointer]:
+                      - generic [ref=f20e1282]: Downloads
+                    - button "Remove mapping for Y / Triangle" [ref=f20e1285] [cursor=pointer]
+                  - listitem [ref=f20e1289]:
+                    - generic [ref=f20e1290]: LB / L1
+                    - button "LB / L1" [ref=f20e1291] [cursor=pointer]:
+                      - generic [ref=f20e1292]: Previous tab
+                    - button "Remove mapping for LB / L1" [ref=f20e1295] [cursor=pointer]
+                  - listitem [ref=f20e1299]:
+                    - generic [ref=f20e1300]: RB / R1
+                    - button "RB / R1" [ref=f20e1301] [cursor=pointer]:
+                      - generic [ref=f20e1302]: Next tab
+                    - button "Remove mapping for RB / R1" [ref=f20e1305] [cursor=pointer]
+              - generic [ref=f20e1309]:
+                - button "Save profile" [ref=f20e1310] [cursor=pointer]
+                - button "Reset" [disabled]
+                - button "Export JSON" [ref=f20e1311] [cursor=pointer]
+                - button "Import JSON" [ref=f20e1315] [cursor=pointer]
+                - button "Import a controller profile" [ref=f20e1319]
+    - 'link "Downloads: Cat Quest II, 65 percent" [ref=f20e1320] [cursor=pointer]':
+      - /url: "#/downloads"
+      - generic [ref=f20e1326]: Cat Quest II
+      - generic [ref=f20e1327]: "+1"
+      - generic [ref=f20e1328]: 65%
+      - generic [ref=f20e1329]: 76 MB/s
+      - generic [ref=f20e1330]: 11m 50s left
+      - generic [ref=f20e1331]: Downloads
+    - dialog [active] [ref=f20e1335]:
+      - generic [ref=f20e1336]:
+        - generic [ref=f20e1337]:
+          - paragraph [ref=f20e1338]: Getting started
+          - heading "Welcome to Ludex" [level=2] [ref=f20e1342]
+        - button "Close onboarding" [ref=f20e1343] [cursor=pointer]
+      - generic [ref=f20e1348]:
+        - paragraph [ref=f20e1349]: Ludex indexes the archives on your disk and keeps progress, collections and saves per account. It never uploads your games to a third party.
+        - generic [ref=f20e1350]:
+          - generic [ref=f20e1351]:
+            - term [ref=f20e1352]: Library location
+            - definition [ref=f20e1353]: On the server
+          - generic [ref=f20e1354]:
+            - term [ref=f20e1355]: Connection
+            - definition [ref=f20e1356]: Remote server
+          - generic [ref=f20e1357]:
+            - term [ref=f20e1358]: Server
+            - definition [ref=f20e1359]: Ludex Archive
+          - generic [ref=f20e1796]:
+            - term [ref=f20e1797]: Games folder
+            - definition [ref=f20e1798]: /srv/ludex/games
+        - paragraph [ref=f20e1360]: You can change all of this later. Nothing in this tour changes a setting for you.
+      - generic [ref=f20e1361]:
+        - generic [ref=f20e1362]:
+          - button "Skip for now" [ref=f20e1363] [cursor=pointer]
+          - button "Don’t show again" [ref=f20e1364] [cursor=pointer]
+        - generic [ref=f20e1365]:
+          - group "Step 1 of 7" [ref=f20e1366]
+          - generic [ref=f20e1374]:
+            - button "Back" [disabled]
+            - button "Next" [ref=f20e1375] [cursor=pointer]
+  - region "Notifications"
+  - status [ref=f20e386]:
+    - generic [ref=f20e387]:
+      - generic [ref=f20e391]:
+        - paragraph [ref=f20e392]: Install Ludex
+        - paragraph [ref=f20e393]: Keep the shell on your home screen and open the library full screen, even offline.
+        - generic [ref=f20e394]:
+          - button "Install" [ref=f20e395] [cursor=pointer]
+          - button "Not now" [ref=f20e399] [cursor=pointer]
+      - button "Dismiss" [ref=f20e400] [cursor=pointer]

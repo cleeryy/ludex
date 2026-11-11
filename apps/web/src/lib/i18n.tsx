@@ -8,9 +8,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type enCatalog from "../locales/en.json";
+import enCatalog from "../locales/en.json";
 import coverageData from "../locales/coverage.json";
 import localeManifest from "../locales/manifest.json";
+import { PSEUDO_LOCALE, pseudoCatalog } from "./pseudo";
 
 /**
  * Ludex i18n. English is the source language, so the English message id *is*
@@ -21,12 +22,25 @@ import localeManifest from "../locales/manifest.json";
  *
  * `apps/web/scripts/i18n.mjs` owns the catalog: it extracts every `t("…")` and
  * `tn(…, "one", "other")` from the source, writes `src/locales/en.json`, checks
- * key parity, placeholders and freshness of `coverage.json`.
+ * key parity, placeholders, plural categories, RTL coherence, coverage
+ * thresholds and the pseudo-locale, and keeps `coverage.json` fresh.
+ *
+ * Locale selection rules (#139):
+ *   - a locale is offered in the picker when its catalog covers at least
+ *     `SELECTABLE_PERCENT` of the ids (official locales are complete by CI);
+ *   - everything else stays hidden and the user sees English, key by key —
+ *     never a raw key and never a half-translated screen;
+ *   - the choice is stored per device; the first run follows the browser
+ *     (`navigator.languages`) and `?lang=xx` forces a locale for that session
+ *     without persisting it (translator/reviewer escape hatch).
  */
 
 export type LocaleCode = string;
 export type LocaleDir = "ltr" | "rtl";
-export type LocaleStatus = "official" | "community";
+/** `official` = reviewed, complete; `preview` = shipped, still being reviewed. */
+export type LocaleStatus = "official" | "preview" | "pseudo";
+/** `top10` locales are the #139 target set; `extended` is everything after. */
+export type LocaleTier = "source" | "top10" | "extended" | "dev";
 
 export interface LocaleMeta {
   code: LocaleCode;
@@ -35,14 +49,19 @@ export interface LocaleMeta {
   englishLabel: string;
   dir: LocaleDir;
   status: LocaleStatus;
+  tier: LocaleTier;
   /** Community translations start unreviewed; Arabic is machine-seeded. */
   reviewed: boolean;
-  /** Intl locale used for dates, numbers and relative times. */
+  /** Expected catalog file, relative to `src/locales`. */
+  file: string | null;
+  /** Intl locale used for dates, numbers, relative times and plurals. */
   intl: string;
 }
 
 export const LOCALE_STORAGE_KEY = "ludex.locale";
 export const DEFAULT_LOCALE: LocaleCode = "en";
+/** Below this coverage a locale is hidden from the picker. */
+export const SELECTABLE_PERCENT = 95;
 
 export const LOCALES = localeManifest as readonly LocaleMeta[];
 export const LOCALE_CODES: LocaleCode[] = LOCALES.map((locale) => locale.code);
@@ -56,7 +75,8 @@ export type MessageKey = keyof typeof enCatalog;
 /**
  * Every locale file is discovered at build time. Adding a language means
  * dropping `src/locales/xx.json` and adding an entry to `manifest.json`; no
- * TypeScript changes are needed.
+ * TypeScript changes are needed. `en-XA` is generated from the English catalog
+ * at runtime and never ships a file.
  */
 const localeModules = import.meta.glob<{ default: Messages }>([
   "../locales/*.json",
@@ -77,22 +97,125 @@ export function isRtl(code: LocaleCode = activeLocale): boolean {
   return localeMeta(code).dir === "rtl";
 }
 
-export function getStoredLocale(): LocaleCode {
+/* ------------------------------ coverage -------------------------------- */
+
+export interface LocaleCoverage {
+  translated: number;
+  total: number;
+  percent: number;
+}
+
+type Coverage = Partial<Record<LocaleCode, LocaleCoverage>>;
+
+const activeCoverage: Coverage = coverageData as Coverage;
+
+export function coverageFor(code: LocaleCode): LocaleCoverage | undefined {
+  const coverage = activeCoverage[code];
+  if (!coverage) {
+    return code === DEFAULT_LOCALE ? { translated: 1, total: 1, percent: 100 } : undefined;
+  }
+  // The source can grow between catalog regenerations; never report > 100 %.
+  return { ...coverage, percent: Math.min(100, coverage.percent) };
+}
+
+export function coveragePercent(code: LocaleCode): number {
+  return coverageFor(code)?.percent ?? 0;
+}
+
+/** Whether the picker offers the locale, i.e. the UI would not mix languages. */
+export function isSelectable(code: LocaleCode): boolean {
+  if (!LOCALE_BY_CODE.has(code)) return false;
+  const meta = localeMeta(code);
+  if (meta.status === "pseudo") return false;
+  if (meta.status === "official") return true;
+  return coveragePercent(code) >= SELECTABLE_PERCENT;
+}
+
+/** Locales the picker can show, official first then best-covered previews. */
+export function selectableLocales(): LocaleMeta[] {
+  return LOCALES.filter((locale) => locale.status !== "pseudo")
+    .filter((locale) => isSelectable(locale.code))
+    .sort((a, b) => {
+      if (a.status !== b.status) return a.status === "official" ? -1 : 1;
+      return coveragePercent(b.code) - coveragePercent(a.code);
+    });
+}
+
+/* ------------------------------ selection ------------------------------- */
+
+function storeLocale(code: LocaleCode): void {
+  try {
+    localStorage.setItem(LOCALE_STORAGE_KEY, code);
+  } catch {
+    /* private mode: the preference is session-only */
+  }
+}
+
+/** Stored preference, or `null` on a first run (and in private mode). */
+export function storedLocale(): LocaleCode | null {
   try {
     const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
-    return isLocaleCode(stored) ? stored : DEFAULT_LOCALE;
+    return isLocaleCode(stored) ? stored : null;
   } catch {
-    return DEFAULT_LOCALE;
+    return null;
   }
+}
+
+export function getStoredLocale(): LocaleCode {
+  return storedLocale() ?? DEFAULT_LOCALE;
+}
+
+/**
+ * `?lang=xx` (also accepted inside the hash route) forces a locale for this
+ * session without persisting it. Reviewers and translators use it to look at a
+ * catalog that the coverage gate still hides.
+ */
+export function readLocaleOverride(href?: string): LocaleCode | null {
+  const haystack =
+    href ?? (typeof window === "undefined" ? "" : `${window.location.search}${window.location.hash}`);
+  if (!haystack) return null;
+  const match = /[?&]lang=([A-Za-z-]{2,16})/.exec(haystack);
+  if (!match) return null;
+  const wanted = match[1].toLowerCase();
+  return LOCALES.find((locale) => locale.code.toLowerCase() === wanted)?.code ?? null;
+}
+
+function browserLanguages(): string[] {
+  if (typeof navigator === "undefined") return [];
+  const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
+  return languages.filter((language): language is string => typeof language === "string" && language.length > 0);
+}
+
+/**
+ * Best selectable locale for an ordered language list, walking the list in the
+ * user's priority order: an exact BCP-47 match (`pt-BR`) first, then the
+ * best-covered sibling of the base language (`pt` → `pt-BR`, `zh` → `zh-CN`).
+ * Locales below the coverage gate are never detected automatically, so a
+ * half-translated catalog is never forced on someone who did not ask for it.
+ */
+export function detectLocale(candidates: readonly string[]): LocaleCode | null {
+  const normalized = candidates.map((candidate) => candidate.toLowerCase().replace(/_/g, "-"));
+  for (const candidate of normalized) {
+    const exact = LOCALES.find((locale) => locale.status !== "pseudo" && locale.code.toLowerCase() === candidate);
+    if (exact && isSelectable(exact.code)) return exact.code;
+    const base = candidate.split("-")[0];
+    const siblings = LOCALES.filter(
+      (locale) => locale.status !== "pseudo" && locale.code.split("-")[0].toLowerCase() === base,
+    ).sort((a, b) => coveragePercent(b.code) - coveragePercent(a.code));
+    if (siblings[0] && isSelectable(siblings[0].code)) return siblings[0].code;
+  }
+  return null;
 }
 
 let activeLocale: LocaleCode = DEFAULT_LOCALE;
 let activeMessages: Messages = {};
 let hydrationToken = 0;
-let activeCoverage: Coverage = coverageData as Coverage;
 
 async function loadMessages(code: LocaleCode): Promise<Messages> {
   if (code === DEFAULT_LOCALE) return {};
+  // The pseudo-locale is generated from the English catalog: no file, and any
+  // string that stays plain ASCII on screen never went through `t()`.
+  if (code === PSEUDO_LOCALE) return pseudoCatalog(enCatalog as Messages);
   const loader = localeModules[`../locales/${code}.json`];
   if (!loader) return {};
   try {
@@ -109,25 +232,27 @@ function applyDocumentLocale(code: LocaleCode): void {
   root.lang = code;
   root.dir = isRtl(code) ? "rtl" : "ltr";
   root.dataset.locale = code;
+  root.dataset.localeStatus = localeMeta(code).status;
 }
 
 /** Loads the persisted locale before the first React render (see main.tsx). */
 export async function bootstrapI18n(): Promise<void> {
-  const code = getStoredLocale();
+  const override = readLocaleOverride();
+  const stored = storedLocale();
+  const detected = stored ? null : detectLocale(browserLanguages());
+  const code = override ?? stored ?? detected ?? DEFAULT_LOCALE;
   const messages = await loadMessages(code);
   activeLocale = code;
   activeMessages = messages;
   applyDocumentLocale(code);
+  // Persist an OS/browser match once, so later visits keep the user's locale
+  // even if the browser languages change. An override stays session-only.
+  if (!override && !stored && detected) storeLocale(detected);
 }
 
 /** Applied before paint by the inline boot script in index.html. */
 export function getLocaleFromStorageUnsafe(): LocaleCode {
-  try {
-    const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
-    return isLocaleCode(stored) ? stored : DEFAULT_LOCALE;
-  } catch {
-    return DEFAULT_LOCALE;
-  }
+  return getStoredLocale();
 }
 
 export function getLocale(): LocaleCode {
@@ -246,6 +371,7 @@ interface I18nValue {
   locale: LocaleCode;
   meta: LocaleMeta;
   dir: LocaleDir;
+  coverage: LocaleCoverage | undefined;
   /** Changes the locale, loading its catalog first so the tree remounts once. */
   setLocale: (code: LocaleCode) => Promise<void>;
 }
@@ -262,12 +388,18 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setLocale = useCallback(async (next: LocaleCode) => {
-    if (next === activeLocale) return;
+    if (next === activeLocale || !isLocaleCode(next)) return;
     await hydrate(next, setLocaleState);
   }, []);
 
   const value = useMemo<I18nValue>(
-    () => ({ locale, meta: localeMeta(locale), dir: localeMeta(locale).dir, setLocale }),
+    () => ({
+      locale,
+      meta: localeMeta(locale),
+      dir: localeMeta(locale).dir,
+      coverage: coverageFor(locale),
+      setLocale,
+    }),
     [locale, setLocale],
   );
 
@@ -287,11 +419,7 @@ async function hydrate(code: LocaleCode, set: (code: LocaleCode) => void): Promi
   if (token !== hydrationToken) return;
   activeLocale = code;
   activeMessages = messages;
-  try {
-    localStorage.setItem(LOCALE_STORAGE_KEY, code);
-  } catch {
-    /* private mode: the preference is session-only */
-  }
+  storeLocale(code);
   applyDocumentLocale(code);
   set(code);
 }
@@ -302,19 +430,7 @@ export function useI18n(): I18nValue {
   return value;
 }
 
-/* ------------------------------ coverage -------------------------------- */
-
-export interface LocaleCoverage {
-  translated: number;
-  total: number;
-  percent: number;
-}
-
-type Coverage = Partial<Record<LocaleCode, LocaleCoverage>>;
-
-export function coverageFor(code: LocaleCode): LocaleCoverage | undefined {
-  return activeCoverage[code];
-}
+/* ------------------------------ labels ---------------------------------- */
 
 export function statusLabel(locale: LocaleMeta): string {
   if (locale.status === "official") return t("Official");

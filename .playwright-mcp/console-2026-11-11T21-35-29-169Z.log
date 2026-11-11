@@ -1,0 +1,86 @@
+[   14901ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[   22250ms] Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5199/src/state/auth.tsx?t=1794432938004:168:21)
+    at DownloadsProvider (http://localhost:5199/src/state/downloads.tsx?t=1794432936011:37:20)
+    at Object.react_stack_bottom_frame (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:20259:20)
+    at renderWithHooks (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:5918:24)
+    at updateFunctionComponent (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7763:21)
+    at beginWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:8843:20)
+    at runWithFiberInDEV (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:1133:72)
+    at performUnitOfWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13598:98)
+    at workLoopSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13461:43)
+    at renderRootSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13445:13)
+[   22226ms] [WARNING] %s
+
+%s
+ An error occurred in the <DownloadsProvider> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7240
+[   22283ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5199/#/login:0
+[   46219ms] Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5199/src/state/auth.tsx?t=1794432936011:168:21)
+    at ConfigSyncDefaults (http://localhost:5199/src/app.tsx?t=1794432936011:290:20)
+    at Object.react_stack_bottom_frame (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:20259:20)
+    at renderWithHooks (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:5918:24)
+    at updateFunctionComponent (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7763:21)
+    at beginWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:8843:20)
+    at runWithFiberInDEV (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:1133:72)
+    at performUnitOfWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13598:98)
+    at workLoopSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13461:43)
+    at renderRootSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13445:13)
+[   46220ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConfigSyncDefaults> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7240
+[   79213ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[   79340ms] Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5199/src/state/auth.tsx?t=1794432985925:168:21)
+    at DownloadsProvider (http://localhost:5199/src/state/downloads.tsx?t=1794432982459:37:20)
+    at Object.react_stack_bottom_frame (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:20259:20)
+    at renderWithHooks (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:5918:24)
+    at updateFunctionComponent (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7763:21)
+    at beginWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:8843:20)
+    at runWithFiberInDEV (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:1133:72)
+    at performUnitOfWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13598:98)
+    at workLoopSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13461:43)
+    at renderRootSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13445:13)
+[   79339ms] [WARNING] %s
+
+%s
+ An error occurred in the <DownloadsProvider> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7240
+[   79403ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5199/#/login:0
+[   96134ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[   96344ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5199/#/login:0
+[   98538ms] Error: useI18n must be used inside I18nProvider
+    at useI18n (http://localhost:5199/src/lib/i18n.tsx?t=1794433020153:273:21)
+    at ConfigSyncDefaults (http://localhost:5199/src/app.tsx?t=1794433019926:289:22)
+    at Object.react_stack_bottom_frame (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:20259:20)
+    at renderWithHooks (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:5918:24)
+    at updateFunctionComponent (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7763:21)
+    at beginWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:8843:20)
+    at runWithFiberInDEV (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:1133:72)
+    at performUnitOfWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13598:98)
+    at workLoopSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13461:43)
+    at renderRootSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13445:13)
+[   98537ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConfigSyncDefaults> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7240
+[   98588ms] Error: useI18n must be used inside I18nProvider
+    at useI18n (http://localhost:5199/src/lib/i18n.tsx?t=1794433020153:273:21)
+    at ConfigSyncDefaults (http://localhost:5199/src/app.tsx?t=1794433019926:289:22)
+    at Object.react_stack_bottom_frame (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:20259:20)
+    at renderWithHooks (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:5918:24)
+    at updateFunctionComponent (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7763:21)
+    at beginWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:8843:20)
+    at runWithFiberInDEV (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:1133:72)
+    at performUnitOfWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13598:98)
+    at workLoopSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13461:43)
+    at renderRootSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13445:13)
+[   98581ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConfigSyncDefaults> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7240

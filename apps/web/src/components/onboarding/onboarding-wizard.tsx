@@ -6,7 +6,7 @@ import { ArrowLeft, ArrowRight, Download, FolderOpen, HardDrive, Palette, Server
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatRelative } from "@/lib/format";
-import { formatNumber, LOCALES, t, tn, useI18n } from "@/lib/i18n";
+import { formatNumber, selectableLocales, t, tn, useI18n } from "@/lib/i18n";
 import { installBridge, installsAvailable } from "@/lib/install";
 import { isNative } from "@/lib/native";
 import {
@@ -511,7 +511,7 @@ function AppearanceStep() {
           label={t("Language")}
           value={locale}
           onChange={(value) => void setLocale(value)}
-          options={LOCALES.map((entry) => ({ value: entry.code, label: entry.label, hint: entry.englishLabel }))}
+          options={selectableLocales().map((entry) => ({ value: entry.code, label: entry.label, hint: entry.englishLabel }))}
         />
         <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">
           {t("Community translations fall back to English for missing strings.")}

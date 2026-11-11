@@ -162,10 +162,32 @@ the last played game), with Play/Install/Download, followed by a horizontal Rece
 and an All games grid. It uses the same plates and type as the library; it is not a separate visual
 system.
 
-**Big Picture** (`/bigpicture`) is a full-screen console layout: a large cover plate, the selected
-game's title and actions on ink, one shelf with captions, and a strip of key hints. Arrow keys,
-Enter, Escape and the Gamepad API (stick, d-pad, A/B/Y) drive it. It reuses the dark stage and the
-plate system, so it reads as the same product at ten feet.
+**Big Picture** (`/bigpicture`) is a full-screen console layout in four selectable shapes, all built
+from the same plate system, so it reads as the same product at ten feet:
+
+- **Shelf** (default): a large cover plate with the selected game's title and actions on ink, one
+  captioned shelf below, and a strip of key hints. This is the original Big Picture.
+- **Hero**: the backdrop *is* the hero — the title is centred over full-bleed key art with the meta
+  line and actions, and one centred rail underneath (PlayStation-ish).
+- **Grid**: a focused header keeps the selected game's plate and actions in reach while a wall of
+  covers fills the screen; columns follow the viewport (8 at 4K, 7 at 1080p, 6 on a 1366 laptop,
+  2 on a phone).
+- **Compact**: dense rows — index, thumbnail, title, state, live progress — beside a details pane.
+  The fastest layout for a large library.
+
+The layout is a per-device preference (`localStorage`, `ludex.bigPicture.layout`, scoped per server)
+shared by a small module store: the header control inside Big Picture, its quick switcher and
+Settings → Appearance all write the same value, so a change applies to a running screen without a
+reload. `L` on a keyboard or X on a controller opens the switcher. Direction semantics come from one
+pure `stepForLayout` table: rails walk sideways and change shelf vertically, the grid walks rows by
+its own column count, and the list changes shelf sideways. A/Enter, B/Escape and the shoulders mean
+the same thing in every layout, the selected game and shelf survive a switch, and the gamepad ring is
+restored to that game. Scroll-into-view uses `block: nearest`, so only the container that clips the
+card moves.
+
+Big Picture is overscan-aware (10-foot type, `clamp()` gutters, a 7:1 TV token set from #140), never
+relies on hover, and respects `prefers-reduced-motion` for both the #142 entrance and the focus
+transitions.
 
 **Desktop settings** live in Settings: install and download folders with a folder picker and free
 space, stream installs (ZIP tar stream; saves disk, uses bandwidth, no mid-file resume), keep

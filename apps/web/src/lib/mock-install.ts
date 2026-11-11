@@ -2,6 +2,7 @@ import { DEMO_GAMES } from "@/data/demo";
 import { USING_MOCKS } from "@/lib/flags";
 import { ALL_LAUNCHER_IDS } from "@/lib/launchers";
 import { slugify } from "@/lib/art";
+import type { SaveCandidate, SaveCandidateGroup, SaveCandidateOverview } from "@/lib/save-discovery";
 import type {
   DiskUsage,
   InstallGameArgs,
@@ -557,6 +558,51 @@ export const mockInstalls = {
     return Promise.resolve(demoManifestStatus());
   },
 
+  /** Demo save-location candidates (#146), including one labelled guess. */
+  saveCandidates(): Promise<SaveCandidateOverview> {
+    return Promise.resolve(demoSaveCandidates());
+  },
+
+  scanSaveCandidates(): Promise<SaveCandidateOverview> {
+    return Promise.resolve(demoSaveCandidates());
+  },
+
+  confirmSaveCandidate(
+    gameId: number,
+    path: string,
+    editedPath?: string | null,
+  ): Promise<SaveCandidateGroup> {
+    const overview = demoSaveCandidates();
+    const group = overview.groups.find((entry) => entry.gameId === gameId) ?? {
+      gameId,
+      title: "Game",
+      candidates: [],
+    };
+    const confirmed: SaveCandidateGroup = {
+      ...group,
+      candidates: group.candidates.map((candidate) =>
+        candidate.path === path
+          ? {
+              ...candidate,
+              path: editedPath?.trim() || candidate.path,
+              confirmed: true,
+              source: editedPath ? "manual" : candidate.source,
+            }
+          : candidate,
+      ),
+    };
+    return Promise.resolve(confirmed);
+  },
+
+  ignoreSaveCandidate(gameId: number, path: string): Promise<SaveCandidateGroup> {
+    const group = demoSaveCandidates().groups.find((entry) => entry.gameId === gameId);
+    return Promise.resolve({
+      gameId,
+      title: group?.title ?? "Game",
+      candidates: (group?.candidates ?? []).filter((candidate) => candidate.path !== path),
+    });
+  },
+
   saveSettings(settings: LocalSettings): Promise<LocalSettings | null> {
     localStorage.setItem("ludex.demo.desktop", JSON.stringify(settings));
     return Promise.resolve(clone(settings));
@@ -613,3 +659,59 @@ export const mockInstalls = {
   },
 };
 
+/** Static demo candidates (#146): one likely, one store ground truth, one guess. */
+function demoSaveCandidates(): SaveCandidateOverview {
+  const candidate = (patch: Partial<SaveCandidate>): SaveCandidate => ({
+    path: "/home/mara/Saved Games/Hades",
+    kind: "directory",
+    rootId: "saved_games",
+    subpath: "Hades",
+    source: "engine",
+    confidence: "likely",
+    evidence: "Game title folders: {saved_games}/{product}",
+    sizeBytes: 0,
+    lastModified: null,
+    firstSeen: "2026-11-11T00:00:00Z",
+    lastVerified: "2026-11-11T00:00:00Z",
+    confirmed: false,
+    ignored: false,
+    ...patch,
+  });
+  return {
+    registryVersion: 1,
+    maxDepth: 4,
+    maxEntries: 2000,
+    warnings: [],
+    groups: [
+      {
+        gameId: 1,
+        title: "Hades",
+        candidates: [
+          candidate({}),
+          candidate({
+            path: "/home/mara/.config/unity3d/Supergiant/Hades",
+            rootId: "xdg_config",
+            subpath: "unity3d/Supergiant/Hades",
+            source: "engine",
+            confidence: "guess",
+            evidence: "Unity default layout: {xdg_config}/unity3d/{company}/{product}",
+          }),
+        ],
+      },
+      {
+        gameId: 2,
+        title: "Celeste",
+        candidates: [
+          candidate({
+            path: "/home/mara/.local/share/Celeste",
+            rootId: "xdg_data",
+            subpath: "Celeste",
+            source: "store",
+            confidence: "certain",
+            evidence: "Steam Cloud remotecache.vdf lists files under SteamCloudDocuments",
+          }),
+        ],
+      },
+    ],
+  };
+}

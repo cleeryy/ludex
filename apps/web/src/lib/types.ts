@@ -403,6 +403,51 @@ export interface ProviderTestResult {
   elapsedMs: number;
 }
 
+/** One record the editor can pick in the manual match dialog (#135). */
+export interface MetadataCandidate {
+  provider: string;
+  providerName: string;
+  providerId: string;
+  providerUrl: string | null;
+  title: string;
+  year: number | null;
+  coverUrl: string | null;
+  summary: string | null;
+  developers: string[];
+  platforms: string[];
+  /** Relevance score; higher is a closer title/year match. */
+  score: number;
+  /** `score` normalised to 0-1. */
+  confidence: number;
+  /** Whether this record is the game's current match. */
+  selected: boolean;
+}
+
+/** Per-provider outcome of a candidates query. */
+export interface MetadataProviderStatus {
+  slug: string;
+  name: string;
+  ok: boolean;
+  error: string | null;
+  candidates: number;
+  elapsedMs: number;
+}
+
+export interface MetadataCandidates {
+  query: string;
+  gameId: number;
+  /** Metadata fields edited by hand; preserved by default when applying. */
+  manualFields: string[];
+  candidates: MetadataCandidate[];
+  providers: MetadataProviderStatus[];
+}
+
+export interface MetadataApplyInput {
+  provider: string;
+  providerId: string;
+  replaceManual?: boolean;
+}
+
 export interface LibraryStats {
   games: number;
   versions: number;
@@ -739,6 +784,8 @@ export interface LocalSettings {
   checkUpdatesOnStartup: boolean;
   /** Last update check, RFC 3339. */
   lastUpdateCheckAt: string | null;
+  /** Version the user skipped (#163); only silences notifications. */
+  skippedUpdateVersion?: string | null;
   /** Publish the running game as Discord Rich Presence (#12). Off by default. */
   discordPresence: boolean;
   /** Discord application id used for Rich Presence (not a bot token). */
@@ -1402,14 +1449,26 @@ export interface UpdateInfo {
   currentVersion: string;
   notes: string | null;
   publishedAt: string | null;
+  /** Release page for this build (#163). */
+  releaseUrl: string;
+  /** True for `edge` builds such as `0.3.2-edge.179`. */
+  isPrerelease: boolean;
+  /** CI run number of an `edge` build, when the version carries one. */
+  build: number | null;
 }
 
-/** Result of an application update check (#16). */
+/** Result of an application update check (#16, #163). */
 export interface UpdateStatus {
   configured: boolean;
   channel: "stable" | "early";
   currentVersion: string;
   lastCheckedAt: string | null;
+  /** GitHub endpoint the check queried, shown in the update center. */
+  endpoint: string;
+  /** Version the user asked not to be prompted about (#163). */
+  skippedVersion: string | null;
+  /** False for a skipped version: no toast, no badge, no startup prompt. */
+  notify: boolean;
   available: UpdateInfo | null;
   message: string | null;
 }
@@ -1418,6 +1477,8 @@ export interface UpdateProgress {
   downloaded: number;
   total: number | null;
   percent: number | null;
+  /** Instantaneous download speed in bytes/s. */
+  speedBps: number;
 }
 
 export interface UpdateInstalled {

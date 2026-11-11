@@ -17,14 +17,128 @@ host path.
   instead of producing an empty archive.
 - Save editing, save migration and anti-cheat/DRM games are out of scope.
 
+## Registry and candidate discovery (#146)
+
+There is no cross-industry save-location standard. Discovery therefore combines
+three reliable layers: resolvable OS folders (the root), engine defaults (the
+layout), and per-game observations (the manifest or a user override). The
+versioned resolver lives in the repository:
+
+| File | Purpose |
+|---|---|
+| `data/save-roots.yaml` | Per-OS known folders, engine patterns, Steam Cloud roots, exclusions and caps. Embedded into the desktop binary at build time. |
+| `data/save-overrides.yaml` | Optional per-game observations, sourced from a real launch. Empty by default. |
+
+Neither file is a copy of Ludusavi or PCGamingWiki data. The registry contains
+no per-game paths, and adding a root or an engine is a data change plus a test
+fixture in `apps/desktop/src-tauri/src/saves_registry.rs`.
+
+### Known folders
+
+Known folders are resolved through an injectable resolver, not string
+concatenation:
+
+- **Windows**: `SHGetKnownFolderPath` supplies `FOLDERID_Profile`,
+  `FOLDERID_SavedGames`, `FOLDERID_Documents`, `FOLDERID_RoamingAppData`,
+  `FOLDERID_LocalAppData`, `FOLDERID_LocalAppDataLow`, `FOLDERID_ProgramData`
+  and `FOLDERID_Public`. Tests inject the same map, so no Windows shell is
+  needed. `%USERPROFILE%\Documents` is never built by hand: OneDrive Known
+  Folder Move and GPO redirection are honoured. When the shell API is
+  unavailable, Documents can still resolve through the `OneDrive`,
+  `OneDriveConsumer` or `OneDriveCommercial` environment, and Saved Games uses
+  its documented default (Known Folder Move does not redirect it).
+- **LocalLow**: Windows has no `%LOCALAPPDATA%Low` variable. The resolver asks
+  for `FOLDERID_LocalAppDataLow`; the fallback derives `LocalLow` from the
+  resolved LocalAppData parent (`...\AppData\Local` → `...\AppData\LocalLow`).
+- **Linux**: `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_STATE_HOME` with the
+  XDG defaults, plus `~/.var/app` for Flatpak app data.
+- **Proton**: `drive_c/users/<user>/{Saved Games,Documents,AppData/Local,
+  AppData/LocalLow,AppData/Roaming}` inside the per-game prefix (#121).
+- **macOS**: `~/Library/Application Support`, `~/Library/Containers/<bundle-id>/Data`
+  and `~/Library/Preferences`. Container bundle ids are only matched when they
+  contain the game title; a container far from the title is not guessed.
+
+### Engines, stores and provenance
+
+`data/save-roots.yaml` lists patterns for Unity, Unreal Engine, Godot, Ren'Py
+and Minecraft, plus a generic title-folder pattern for the known roots. A
+pattern uses a root placeholder first (`{saved_games}`, `{documents}`,
+`{xdg_data}`, `{application_support}`, `{proton_drive_c}`, …) and then literal
+segments or placeholders:
+
+| Placeholder | Meaning |
+|---|---|
+| `{product}`, `{project}`, `{game}` | Must match the game title (normalised, edition suffix removed). Never guessed from a partial token. |
+| `{company}`, `{publisher}` | Enumerated one level below an engine marker (`unity3d`, `godot`, `app_user_data`, …). |
+| `{windows_user}` | A user folder inside a Proton prefix. |
+| `{bundle}` | A macOS container whose bundle id contains the title. |
+
+Steam `remotecache.vdf` is the store ground truth when the game has an app id
+and a Steam userdata folder. Its `WinSavedGames`, `WinMyDocuments`,
+`WinAppDataLocal`, `WinAppDataLocalLow`, `WinAppDataRoaming`,
+`WinProgramData` and `SteamCloudDocuments` roots map to the same known folders
+(or to the Proton prefix for a Windows build). Reading that small, bounded VDF
+file is the only file read during discovery; no save file is opened.
+
+Every candidate carries:
+
+| Field | Meaning |
+|---|---|
+| `path` | Canonical host path. Local only; never uploaded. |
+| `rootId` | Known-folder id, or `proton_prefix`. |
+| `subpath` | Path below that root. |
+| `source` | `override`, `store`, `known-folder`, `engine` (or `manifest`/`manual` for the older layers). |
+| `confidence` | `certain`, `likely` or `guess`. |
+| `evidence` | Human-readable reason, e.g. `Unity default layout: …`. |
+| `firstSeen`, `lastVerified` | RFC 3339 timestamps, kept across scans. |
+| `confirmed` | True once the user confirmed it; it is then a save path. |
+
+A **guess is labelled and requires an explicit confirmation**. Registry
+candidates are never written to `save_paths` automatically, so automatic sync
+(#108) cannot archive one. Only the per-game manifest result keeps its existing
+behaviour, and a confirmed candidate is folded into the next snapshot.
+
+### Safety caps
+
+- Enumeration stops at `limits.max_depth` (4) below a root.
+- A directory read stops at `limits.max_entries` (2000); one run stops at
+  `limits.max_candidates` (64).
+- At or below `limits.whitelist_min_depth` (2), wildcards are only expanded
+  under a literal engine marker or for a game-title match — never across a
+  whole home directory.
+- Symlinks, junctions and Windows reparse points are skipped, including
+  `dosdevices/z:`. Paths outside the allowlisted roots are dropped.
+- Exclusions (`Cache`, `Logs`, `CrashReportClient`, `Screenshots`, redists,
+  `*.log`, …) are filtered by name, and candidates are directories, not file
+  lists.
+
+### Adding a root or an engine
+
+1. Edit `data/save-roots.yaml`. Windows folders need a `FOLDERID_*` id and a
+   GUID when `api: true`; never add an `env` entry for Saved Games or LocalLow.
+2. Keep every pattern at most `max_depth` segments below its root and use only
+   the placeholders above.
+3. Add a fixture in `saves_registry.rs` that creates the layout and asserts the
+   root id, source and confidence. A malformed registry fails the test suite
+   before a release build.
+
+Xbox / Game Pass opaque containers and encrypted saves remain unsupported:
+their files are not portable save directories and are never listed as
+candidates.
+
 ## Sources and precedence
 
 Detection uses the first source that produces paths, and always keeps the user's
-manual entries:
+manual entries. Registry candidates (#146) are listed separately and never
+archived until confirmed; the resolver ranks a user override before Steam
+ground truth, a known folder and an engine default. The per-game manifest stays
+the trusted layer for the paths that can be archived:
 
 1. **Manual / override paths** (SQLite, per game). Always included. A manual path
    that matches a manifest result wins for that location, and is labelled
-   `override`; a standalone manual path is labelled `manual`.
+   `override`; a standalone manual path is labelled `manual`. A confirmed
+   registry candidate is a `SavePathRecord` owned by the user, so it survives
+   the next detection just like a manual path.
 2. **Ludusavi manifest**, in this order (#153):
    1. `ludusaviManifestPath` when the user set it and the file exists;
    2. the copy Ludex downloaded into
@@ -108,6 +222,16 @@ The upstream project publishes it on the `data` branch of
   a Docker image, and Settings shows the attribution.
 
 ## Settings
+
+Settings → Saves → **Save locations** reads the local candidate index and can
+run the registry on demand. The desktop commands stay local:
+
+| Command | Purpose |
+|---|---|
+| `list_save_candidates` | Persisted candidates grouped by installed game; no disk scan. |
+| `scan_save_candidates` | Run the registry for every installed game and persist the result. |
+| `confirm_save_candidate` | Validate one candidate (or an edited path) and add it to `save_paths`. |
+| `ignore_save_candidate` | Dismiss a candidate so a later scan does not resurface it. |
 
 The save-detection extras in `LocalSettings`:
 

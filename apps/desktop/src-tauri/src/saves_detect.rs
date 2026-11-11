@@ -26,6 +26,7 @@ use serde_json::Value as JsonValue;
 use serde_yaml::Value as YamlValue;
 
 use crate::db::{InstalledGame, SaveDetectionRecord, SavePathRecord};
+use crate::saves_registry::{self, ResolvedFolders, SaveCandidate, SaveRegistry};
 use crate::settings::LocalSettings;
 use crate::steam;
 
@@ -79,20 +80,24 @@ impl Platform {
 pub struct WindowsDirs {
     pub app_data: Option<PathBuf>,
     pub local_app_data: Option<PathBuf>,
+    pub local_app_data_low: Option<PathBuf>,
     pub documents: Option<PathBuf>,
+    pub saved_games: Option<PathBuf>,
     pub public: Option<PathBuf>,
     pub program_data: Option<PathBuf>,
     pub win_dir: Option<PathBuf>,
 }
 
 impl WindowsDirs {
-    fn from_env() -> Self {
+    fn from_folders(folders: &ResolvedFolders) -> Self {
         Self {
-            app_data: env_path("APPDATA"),
-            local_app_data: env_path("LOCALAPPDATA"),
-            documents: env_path("USERPROFILE").map(|home| home.join("Documents")),
-            public: env_path("PUBLIC"),
-            program_data: env_path("PROGRAMDATA"),
+            app_data: folders.get("roaming_app_data"),
+            local_app_data: folders.get("local_app_data"),
+            local_app_data_low: folders.get("local_app_data_low"),
+            documents: folders.get("documents"),
+            saved_games: folders.get("saved_games"),
+            public: folders.get("public"),
+            program_data: folders.get("program_data"),
             win_dir: env_path("SYSTEMROOT").or_else(|| env_path("WINDIR")),
         }
     }
@@ -101,7 +106,9 @@ impl WindowsDirs {
         [
             &self.app_data,
             &self.local_app_data,
+            &self.local_app_data_low,
             &self.documents,
+            &self.saved_games,
             &self.public,
             &self.program_data,
             &self.win_dir,
@@ -121,7 +128,14 @@ pub struct DetectEnv {
     pub platform: Platform,
     pub xdg_data: PathBuf,
     pub xdg_config: PathBuf,
+    pub xdg_state: PathBuf,
     pub windows: WindowsDirs,
+    /// Resolved known folders from `data/save-roots.yaml` (#146).
+    pub known: ResolvedFolders,
+    /// Versioned resolver registry, embedded at build time.
+    pub registry: SaveRegistry,
+    /// Steam library roots, used for store ground truth and prefixes.
+    pub steam_roots: Vec<PathBuf>,
     /// Wine/Proton prefix containing `drive_c`, when the game is a Windows build
     /// running on Linux/macOS.
     pub prefix: Option<PathBuf>,
@@ -148,15 +162,27 @@ impl DetectEnv {
         app_id_override: Option<u32>,
     ) -> Self {
         let platform = Platform::current();
-        let home = home_dir();
+        let known = saves_registry::system_known_folders(platform);
+        let home = known
+            .get("home")
+            .or_else(|| known.get("profile"))
+            .unwrap_or_else(home_dir);
         let os_user_name = current_user_name(&home);
-        let xdg_data = env_path("XDG_DATA_HOME").unwrap_or_else(|| home.join(".local/share"));
-        let xdg_config = env_path("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config"));
-        let windows = WindowsDirs::from_env();
+        let xdg_data = known
+            .get("xdg_data")
+            .unwrap_or_else(|| home.join(".local/share"));
+        let xdg_config = known
+            .get("xdg_config")
+            .unwrap_or_else(|| home.join(".config"));
+        let xdg_state = known
+            .get("xdg_state")
+            .unwrap_or_else(|| home.join(".local/state"));
+        let windows = WindowsDirs::from_folders(&known);
         let mut context = GameContext::from_installed(game);
         if context.steam_app_id.is_none() {
             context.steam_app_id = app_id_override;
         }
+        let steam_roots = steam::discover_roots(None);
         let prefix = resolve_prefix(
             settings,
             &home,
@@ -172,7 +198,11 @@ impl DetectEnv {
             platform,
             xdg_data,
             xdg_config,
+            xdg_state,
             windows,
+            known,
+            registry: saves_registry::registry().clone(),
+            steam_roots,
             prefix,
             steam_user_ids: discover_steam_user_ids(),
             manifest_path,
@@ -237,6 +267,13 @@ pub struct Detection {
     pub manifest_version: Option<String>,
     pub message: String,
     pub warnings: Vec<String>,
+    /// Resolver candidates (#146). They are never archived automatically: a
+    /// guess, and every other registry candidate, waits for a confirmation.
+    #[serde(default)]
+    pub candidates: Vec<SaveCandidate>,
+    /// Version of `data/save-roots.yaml` used for this run.
+    #[serde(default)]
+    pub registry_version: Option<u32>,
 }
 
 /// One path in the `setSavePaths` payload.
@@ -303,6 +340,17 @@ pub fn detect_for_game(
 
 /// Run detection with an explicit environment. This is the testable core.
 pub fn detect(env: &DetectEnv, game: &GameContext, manual: &[SavePathRecord]) -> Detection {
+    detect_at(env, game, manual, &crate::util::now_rfc3339())
+}
+
+/// Run detection with an explicit clock, so candidates and confirmations carry
+/// stable first-seen/last-verified timestamps in tests.
+pub fn detect_at(
+    env: &DetectEnv,
+    game: &GameContext,
+    manual: &[SavePathRecord],
+    now: &str,
+) -> Detection {
     let roots = canonical_roots(env, game);
     let mut detection = Detection::default();
 
@@ -438,6 +486,37 @@ pub fn detect(env: &DetectEnv, game: &GameContext, manual: &[SavePathRecord]) ->
     let combined: Vec<DetectedSave> = manual_saves.into_iter().chain(provider_saves).collect();
     detection.saves = aggregate(combined);
 
+    // 3. Known roots and engine defaults (#146). These are candidates only:
+    //    they are shown with their root, provenance and confidence, and are
+    //    never archived until the user confirms them. Manifest results above
+    //    stay the trusted per-game layer and are de-duplicated here.
+    let discovery = saves_registry::discover(&saves_registry::DiscoveryInputs {
+        platform: env.platform,
+        user_name: &env.os_user_name,
+        folders: &env.known,
+        prefix: env.prefix.as_deref(),
+        title: &game.title,
+        steam_app_id: game.steam_app_id,
+        steam_roots: &env.steam_roots,
+        steam_user_ids: &env.steam_user_ids,
+        roots: &roots,
+        now,
+        registry: &env.registry,
+        overrides: saves_registry::overrides(),
+    });
+    let saved_paths: BTreeSet<String> = detection
+        .saves
+        .iter()
+        .map(|save| save.path.clone())
+        .collect();
+    detection.candidates = discovery
+        .candidates
+        .into_iter()
+        .filter(|candidate| !saved_paths.contains(&candidate.path))
+        .collect();
+    detection.warnings.extend(discovery.warnings);
+    detection.registry_version = Some(env.registry.version);
+
     let manual_count = detection
         .saves
         .iter()
@@ -479,6 +558,22 @@ pub fn detect(env: &DetectEnv, game: &GameContext, manual: &[SavePathRecord]) ->
             "The configured save path is missing right now. Launch the game once, then re-detect."
                 .to_string()
         }
+    } else if !detection.candidates.is_empty() {
+        let guesses = detection
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.is_guess())
+            .count();
+        if guesses == detection.candidates.len() {
+            format!(
+                "{guesses} guessed save location(s) were found from engine defaults; confirm the right one in Settings → Saves before it is archived."
+            )
+        } else {
+            format!(
+                "{} possible save location(s) found; confirm the right one in Settings → Saves before it is archived.",
+                detection.candidates.len()
+            )
+        }
     } else {
         status.unwrap_or_else(|| NO_SAVE_MESSAGE.to_string())
     };
@@ -487,6 +582,76 @@ pub fn detect(env: &DetectEnv, game: &GameContext, manual: &[SavePathRecord]) ->
     detection.warnings.dedup();
     detection.manifest_version = manifest_version;
     detection
+}
+
+/// Validate one save path against the allowlisted roots. Used by manual edits
+/// and by candidate confirmation (#146). The path must exist, be readable and
+/// stay inside a known root; returns the canonical path and its kind.
+pub fn validate_save_path(
+    env: &DetectEnv,
+    game: &GameContext,
+    raw: &str,
+) -> Result<(PathBuf, String), String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err("A save path cannot be empty.".to_string());
+    }
+    let roots = canonical_roots(env, game);
+    let path = manual_path(raw, env);
+    if path
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err(format!("Refusing a save path containing '..': {raw}"));
+    }
+
+    let canonical = path
+        .canonicalize()
+        .map_err(|error| format!("The save path {raw} is not accessible: {error}"))?;
+    if !inside_roots(&canonical, &roots) {
+        return Err(format!(
+            "Refusing {} because it is outside the allowed save locations (home, XDG folders, install folder, Wine prefix).",
+            canonical.display()
+        ));
+    }
+
+    let metadata = fs::metadata(&canonical)
+        .map_err(|error| format!("Could not read {}: {error}", canonical.display()))?;
+    let kind = if metadata.is_dir() {
+        "directory"
+    } else if metadata.is_file() {
+        "file"
+    } else {
+        return Err(format!(
+            "{} is not a file or a folder.",
+            canonical.display()
+        ));
+    };
+
+    // Test readability before persisting.
+    if kind == "directory" {
+        fs::read_dir(&canonical)
+            .map_err(|error| format!("Could not list {}: {error}", canonical.display()))?;
+    } else {
+        fs::File::open(&canonical)
+            .map_err(|error| format!("Could not read {}: {error}", canonical.display()))?;
+    }
+
+    Ok((canonical, kind.to_string()))
+}
+
+/// Describe an existing path as a detected save (size, modification time and
+/// scan notes). Used when a confirmed candidate is folded into the snapshot.
+pub fn measured_save(path: &Path, source: &str) -> DetectedSave {
+    let measured = measure(path);
+    DetectedSave {
+        path: path.to_string_lossy().to_string(),
+        kind: measured.kind,
+        source: source.to_string(),
+        size_bytes: measured.size,
+        last_modified: measured.last_modified,
+        notes: join_notes(measured.notes),
+    }
 }
 
 /// Validate and persist a manual override list. The whole list replaces the
@@ -499,46 +664,14 @@ pub fn manual_override(
     inputs: &[SavePathInput],
     now: &str,
 ) -> Result<(Vec<SavePathRecord>, Detection), String> {
-    let roots = canonical_roots(env, game);
     let mut records: Vec<SavePathRecord> = Vec::new();
     let mut saves: Vec<DetectedSave> = Vec::new();
     let mut primary_taken = false;
 
     for input in inputs {
         let raw = input.path.trim();
-        if raw.is_empty() {
-            return Err("A save path cannot be empty.".to_string());
-        }
-        let path = manual_path(raw, env);
-        if path
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
-        {
-            return Err(format!("Refusing a save path containing '..': {raw}"));
-        }
-
-        let canonical = path
-            .canonicalize()
-            .map_err(|error| format!("The save path {raw} is not accessible: {error}"))?;
-        if !inside_roots(&canonical, &roots) {
-            return Err(format!(
-                "Refusing {} because it is outside the allowed save locations (home, XDG folders, install folder, Wine prefix).",
-                canonical.display()
-            ));
-        }
-
-        let metadata = fs::metadata(&canonical)
-            .map_err(|error| format!("Could not read {}: {error}", canonical.display()))?;
-        let kind = if metadata.is_dir() {
-            "directory"
-        } else if metadata.is_file() {
-            "file"
-        } else {
-            return Err(format!(
-                "{} is not a file or a folder.",
-                canonical.display()
-            ));
-        };
+        let (canonical, kind) = validate_save_path(env, game, raw)?;
+        let kind = kind.as_str();
 
         if let Some(requested) = input
             .kind
@@ -552,15 +685,6 @@ pub fn manual_override(
                     canonical.display()
                 ));
             }
-        }
-
-        // Test readability before persisting.
-        if kind == "directory" {
-            fs::read_dir(&canonical)
-                .map_err(|error| format!("Could not list {}: {error}", canonical.display()))?;
-        } else {
-            fs::File::open(&canonical)
-                .map_err(|error| format!("Could not read {}: {error}", canonical.display()))?;
         }
 
         let path_string = canonical.to_string_lossy().to_string();
@@ -635,6 +759,7 @@ pub fn manual_override(
             format!("{manual_count} manually configured save path(s).")
         },
         warnings: Vec::new(),
+        ..Detection::default()
     };
     Ok((records, detection))
 }
@@ -1018,16 +1143,25 @@ fn prefix_drive_c(prefix: &Path) -> PathBuf {
     }
 }
 
+/// Canonical allowlisted roots used by detection and candidate discovery.
+/// Exposed so Settings → Saves can run the registry without the full Ludusavi
+/// manifest pass (#146).
+pub fn save_roots(env: &DetectEnv, game: &GameContext) -> Vec<PathBuf> {
+    canonical_roots(env, game)
+}
+
 fn canonical_roots(env: &DetectEnv, game: &GameContext) -> Vec<PathBuf> {
     let mut roots = vec![
         env.home.clone(),
         env.xdg_data.clone(),
         env.xdg_config.clone(),
+        env.xdg_state.clone(),
         game.install_dir.clone(),
     ];
     if let Some(prefix) = &env.prefix {
         roots.push(prefix_drive_c(prefix));
     }
+    roots.extend(env.known.values().cloned());
     roots.extend(env.windows.roots());
 
     let mut canonical: Vec<PathBuf> = Vec::new();
@@ -2157,13 +2291,24 @@ mod tests {
         fs::create_dir_all(prefix.join("drive_c/users/Public")).unwrap();
         fs::create_dir_all(prefix.join("drive_c/ProgramData")).unwrap();
 
+        let mut known = ResolvedFolders::default();
+        known.insert("home", home.clone());
+        known.insert("xdg_data", home.join(".local/share"));
+        known.insert("xdg_config", home.join(".config"));
+        known.insert("xdg_state", home.join(".local/state"));
+        fs::create_dir_all(home.join(".local/state")).unwrap();
+
         let env = DetectEnv {
             home: home.clone(),
             os_user_name: "player".to_string(),
             platform: Platform::Linux,
             xdg_data: home.join(".local/share"),
             xdg_config: home.join(".config"),
+            xdg_state: home.join(".local/state"),
             windows: WindowsDirs::default(),
+            known,
+            registry: saves_registry::registry().clone(),
+            steam_roots: Vec::new(),
             prefix: Some(prefix.clone()),
             steam_user_ids: vec!["76561198000000001".to_string()],
             manifest_path: None,
@@ -2600,6 +2745,7 @@ mod tests {
             manifest_version: Some("sha256:abc".to_string()),
             message: "1 save path(s) detected.".to_string(),
             warnings: Vec::new(),
+            ..Detection::default()
         };
         let rows = records_from_detection(1, &detection, Some("/home/player/.config/Game"), "t");
         let record = SaveDetectionRecord {
@@ -2748,6 +2894,60 @@ mod tests {
             detection.message.contains("auto-managed"),
             "{}",
             detection.message
+        );
+    }
+
+    #[test]
+    fn discovery_candidates_are_listed_but_never_become_save_paths() {
+        let fixture = fixture("saves-candidates");
+        fs::create_dir_all(fixture.home.join(".local/share/Hades")).unwrap();
+
+        let detection = detect(&fixture.env, &fixture.game, &[]);
+        assert!(detection.saves.is_empty(), "{:?}", detection.saves);
+        assert!(!detection.detected);
+        let candidate = detection
+            .candidates
+            .iter()
+            .find(|candidate| candidate.path.ends_with(".local/share/Hades"))
+            .expect("candidate");
+        assert_eq!(candidate.source, saves_registry::SOURCE_KNOWN_FOLDER);
+        assert!(candidate.confidence == saves_registry::CONFIDENCE_LIKELY);
+        assert!(!candidate.confirmed);
+        assert!(
+            detection.message.contains("confirm"),
+            "{}",
+            detection.message
+        );
+        assert_eq!(
+            detection.registry_version,
+            Some(fixture.env.registry.version)
+        );
+        // Nothing is archived until the user confirms the candidate.
+        assert!(records_from_detection(1, &detection, None, "t").is_empty());
+    }
+
+    #[test]
+    fn a_manifest_save_is_not_repeated_as_a_candidate() {
+        let fixture = fixture("saves-candidate-dedupe");
+        let save_dir = fixture.home.join(".config/Hades");
+        fs::create_dir_all(&save_dir).unwrap();
+        fs::write(save_dir.join("save.dat"), b"x").unwrap();
+        let manifest = r#"
+"Hades":
+  files:
+    - <home>/.config/Hades
+"#;
+        let mut game = fixture.game.clone();
+        game.steam_app_id = None;
+        let detection = detect_with_context(&fixture, manifest, &game);
+        assert_eq!(detection.saves.len(), 1, "{:?}", detection.saves);
+        assert!(
+            detection
+                .candidates
+                .iter()
+                .all(|candidate| !candidate.path.ends_with(".config/Hades")),
+            "{:?}",
+            detection.candidates
         );
     }
 

@@ -18,6 +18,7 @@ import {
   Palette,
   Play,
   RefreshCw,
+  Search,
   Share2,
   Trash2,
 } from "lucide-react";
@@ -35,6 +36,7 @@ import { RomPanel } from "@/components/game/rom-panel";
 import { ControllerPanel } from "@/components/settings/controller-panel";
 import { CloudSaves } from "@/components/game/cloud-saves";
 import { ArtworkDialog } from "@/components/game/artwork-dialog";
+import { MatchMetadataDialog } from "@/components/game/match-metadata";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { InstallFiles } from "@/components/game/install-files";
 import { GameSettingsPanel } from "@/components/game/game-settings";
@@ -92,6 +94,7 @@ export function GameDetailScreen() {
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [artworkOpen, setArtworkOpen] = useState(false);
+  const [matchOpen, setMatchOpen] = useState(false);
   const [launchOpen, setLaunchOpen] = useState(false);
   const [streamOpen, setStreamOpen] = useState(false);
 
@@ -274,6 +277,11 @@ export function GameDetailScreen() {
   const menu = [
     ...(isEditor
       ? [
+          {
+            label: t("Match metadata…"),
+            icon: <Search className="size-3.5" />,
+            onSelect: () => setMatchOpen(true),
+          },
           {
             label: t("Refresh metadata"),
             icon: <RefreshCw className="size-3.5" />,
@@ -760,6 +768,7 @@ export function GameDetailScreen() {
       <ShareDialog open={shareOpen} onOpenChange={setShareOpen} game={game} />
       <StreamDialog gameId={game.id} title={game.title} open={streamOpen} onOpenChange={setStreamOpen} />
       <ArtworkDialog open={artworkOpen} onOpenChange={setArtworkOpen} game={game} />
+      <MatchMetadataDialog open={matchOpen} onOpenChange={setMatchOpen} game={game} />
     </div>
   );
 }

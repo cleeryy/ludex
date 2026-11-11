@@ -98,6 +98,19 @@ jobs:
             pnpm install --no-frozen-lockfile
           fi
 
+      # i18n gate (#139): catalog parity, placeholders, plural categories,
+      # registry/RTL coherence, coverage thresholds, pseudo-locale. A locale
+      # whose file is not committed yet is "not shipped" and never fails here.
+      - name: i18n gate
+        run: pnpm --filter @ludex/web i18n:check
+
+      # Advisory until every top-10 catalog reaches 100 % (the translation
+      # lanes run in parallel with this infrastructure work); drop
+      # `continue-on-error` once the strict gate is green on main.
+      - name: i18n strict coverage (advisory)
+        continue-on-error: true
+        run: pnpm --filter @ludex/web i18n:strict
+
       - name: Build web UI
         run: pnpm --filter @ludex/web build
 

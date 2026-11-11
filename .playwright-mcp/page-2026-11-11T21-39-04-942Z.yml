@@ -1,0 +1,160 @@
+- generic [ref=f11e2]:
+  - generic [ref=f11e299]:
+    - banner [ref=f11e300]:
+      - button "Ludex home" [ref=f11e302] [cursor=pointer]:
+        - img "Ludex" [ref=f11e303]
+      - generic [ref=f11e312]:
+        - button "Search games ⌘K" [ref=f11e313] [cursor=pointer]:
+          - generic [ref=f11e317]: Search games
+          - generic [ref=f11e318]: ⌘K
+        - generic [ref=f11e319]:
+          - button "Pick a random game" [ref=f11e320] [cursor=pointer]
+          - button "Big Picture mode" [ref=f11e324] [cursor=pointer]
+          - 'button "Server: 127.0.0.1:5199" [ref=f11e329] [cursor=pointer]':
+            - generic [ref=f11e331]: 127.0.0.1:5199
+          - button "Account menu for mara" [ref=f11e334] [cursor=pointer]:
+            - generic [ref=f11e335]: MA
+            - generic [ref=f11e336]: mara
+    - generic [ref=f11e339]:
+      - complementary "Sidebar" [ref=f11e340]:
+        - generic [ref=f11e341]:
+          - navigation "Library" [ref=f11e342]:
+            - paragraph [ref=f11e343]: Browse
+            - button "Home" [ref=f11e344] [cursor=pointer]
+            - button "Library 19" [ref=f11e350] [cursor=pointer]:
+              - generic [ref=f11e354]: Library
+              - generic [ref=f11e355]: "19"
+            - button "Recently played" [ref=f11e356] [cursor=pointer]
+            - button "Bookmarks" [ref=f11e362] [cursor=pointer]
+            - button "Index" [ref=f11e367] [cursor=pointer]
+            - button "Collections" [ref=f11e373] [cursor=pointer]
+            - button "Community" [ref=f11e377] [cursor=pointer]
+            - button "Installed 3" [ref=f11e385] [cursor=pointer]:
+              - generic [ref=f11e389]: Installed
+              - generic [ref=f11e390]: "3"
+            - button "Downloads 2" [ref=f11e391] [cursor=pointer]:
+              - generic [ref=f11e396]: Downloads
+              - generic [ref=f11e397]: "2"
+            - button "News" [ref=f11e398] [cursor=pointer]
+            - paragraph [ref=f11e403]: Genres
+            - button "Action" [ref=f11e404] [cursor=pointer]
+            - button "Adventure" [ref=f11e408] [cursor=pointer]
+            - button "Horror" [ref=f11e412] [cursor=pointer]
+            - button "Mystery" [ref=f11e416] [cursor=pointer]
+            - button "Platformer" [ref=f11e420] [cursor=pointer]
+            - button "Puzzle" [ref=f11e424] [cursor=pointer]
+            - button "Racing" [ref=f11e428] [cursor=pointer]
+            - button "Role-Playing" [ref=f11e432] [cursor=pointer]
+            - button "RPG" [ref=f11e436] [cursor=pointer]
+            - button "Shooter" [ref=f11e440] [cursor=pointer]
+            - button "Simulation" [ref=f11e444] [cursor=pointer]
+            - button "Stealth" [ref=f11e448] [cursor=pointer]
+            - paragraph [ref=f11e452]: Admin
+            - button "Ingest" [ref=f11e453] [cursor=pointer]
+            - button "Upload game" [ref=f11e459] [cursor=pointer]
+            - button "Library scan" [ref=f11e465] [cursor=pointer]
+            - button "Users" [ref=f11e473] [cursor=pointer]
+            - button "News editor" [ref=f11e481] [cursor=pointer]
+            - button "Server" [ref=f11e487] [cursor=pointer]
+            - button "Authentication" [ref=f11e493] [cursor=pointer]
+            - button "Metadata providers" [ref=f11e499] [cursor=pointer]
+          - generic [ref=f11e508]:
+            - button "Search ⌘K" [ref=f11e509] [cursor=pointer]:
+              - generic [ref=f11e513]: Search
+              - generic [ref=f11e514]: ⌘K
+            - generic [ref=f11e515]:
+              - generic [ref=f11e517]: Ludex Archive
+              - generic [ref=f11e518]: v0.1.0
+            - generic [ref=f11e519]: Demo data
+      - main [ref=f11e521]:
+        - generic [ref=f11e1439]:
+          - generic [ref=f11e1440]:
+            - heading "Update center" [level=1] [ref=f11e1442]
+            - generic [ref=f11e1443]: Desktop app
+            - paragraph [ref=f11e1445]: "See what changed, switch channel and install the next version. Ludex replaces only itself: game files, install folders and saves are never part of an app update."
+          - generic [ref=f11e1447]:
+            - generic [ref=f11e1448]:
+              - generic [ref=f11e1449]: Desktop app
+              - heading "Ludex updates itself in the desktop app." [level=2] [ref=f11e1450]
+              - paragraph [ref=f11e1451]: A browser cannot replace the Ludex application or its signature check. Install the desktop build once, then every new version, its notes and the channel switch live in this same update center.
+              - generic [ref=f11e1452]:
+                - link "Download Ludex" [ref=f11e1453] [cursor=pointer]:
+                  - /url: https://github.com/cleeryy/ludex/releases/latest
+                - link "Release notes and downloads" [ref=f11e1457] [cursor=pointer]:
+                  - /url: https://github.com/cleeryy/ludex/releases
+              - generic [ref=f11e1461]:
+                - heading "This browser session" [level=3] [ref=f11e1462]
+                - generic [ref=f11e1463]:
+                  - generic [ref=f11e1464]:
+                    - term [ref=f11e1465]: Current version
+                    - definition [ref=f11e1466]: —
+                  - generic [ref=f11e1467]:
+                    - term [ref=f11e1468]: Updates
+                    - definition [ref=f11e1469]: Desktop app only
+                - paragraph [ref=f11e1470]: The browser always runs the build your server serves; a new page build arrives on the next reload. This is separate from the desktop app's version.
+            - complementary [ref=f11e1471]:
+              - generic [ref=f11e1472]:
+                - heading "How desktop updates work" [level=2] [ref=f11e1473]
+                - list [ref=f11e1474]:
+                  - listitem [ref=f11e1475]:
+                    - generic [ref=f11e1476]: "01"
+                    - generic [ref=f11e1477]: Ludex checks the stable or early channel at most once a day.
+                  - listitem [ref=f11e1478]:
+                    - generic [ref=f11e1479]: "02"
+                    - generic [ref=f11e1480]: A new version shows its notes and date before anything is downloaded.
+                  - listitem [ref=f11e1481]:
+                    - generic [ref=f11e1482]: "03"
+                    - generic [ref=f11e1483]: The download is checked against the release signature, then Ludex restarts.
+                  - listitem [ref=f11e1484]:
+                    - generic [ref=f11e1485]: "04"
+                    - generic [ref=f11e1486]: Game files and saves are never part of an app update.
+              - paragraph [ref=f11e1487]: Releases are published from GitHub and signed. Issues and screenshots are welcome on the release page.
+    - 'link "Downloads: Cat Quest II, 64 percent" [ref=f11e1378] [cursor=pointer]':
+      - /url: "#/downloads"
+      - generic [ref=f11e1384]: Cat Quest II
+      - generic [ref=f11e1385]: "+1"
+      - generic [ref=f11e1386]: 64%
+      - generic [ref=f11e1387]: 72 MB/s
+      - generic [ref=f11e1388]: 12m 49s left
+      - generic [ref=f11e1389]: Downloads
+    - dialog [active] [ref=f11e1393]:
+      - generic [ref=f11e1394]:
+        - generic [ref=f11e1395]:
+          - paragraph [ref=f11e1396]: Getting started
+          - heading "Welcome to Ludex" [level=2] [ref=f11e1400]
+        - button "Close onboarding" [ref=f11e1401] [cursor=pointer]
+      - generic [ref=f11e1406]:
+        - paragraph [ref=f11e1407]: Ludex indexes the archives on your disk and keeps progress, collections and saves per account. It never uploads your games to a third party.
+        - generic [ref=f11e1408]:
+          - generic [ref=f11e1409]:
+            - term [ref=f11e1410]: Library location
+            - definition [ref=f11e1411]: On the server
+          - generic [ref=f11e1412]:
+            - term [ref=f11e1413]: Connection
+            - definition [ref=f11e1414]: Remote server
+          - generic [ref=f11e1415]:
+            - term [ref=f11e1416]: Server
+            - definition [ref=f11e1417]: Ludex Archive
+          - generic [ref=f11e1418]:
+            - term [ref=f11e1419]: Games folder
+            - definition [ref=f11e1420]: /srv/ludex/games
+        - paragraph [ref=f11e1421]: You can change all of this later. Nothing in this tour changes a setting for you.
+      - generic [ref=f11e1422]:
+        - generic [ref=f11e1423]:
+          - button "Skip for now" [ref=f11e1424] [cursor=pointer]
+          - button "Don’t show again" [ref=f11e1425] [cursor=pointer]
+        - generic [ref=f11e1426]:
+          - group "Step 1 of 7" [ref=f11e1427]
+          - generic [ref=f11e1435]:
+            - button "Back" [disabled]
+            - button "Next" [ref=f11e1436] [cursor=pointer]
+  - region "Notifications"
+  - status [ref=f11e281]:
+    - generic [ref=f11e282]:
+      - generic [ref=f11e286]:
+        - paragraph [ref=f11e287]: Install Ludex
+        - paragraph [ref=f11e288]: Keep the shell on your home screen and open the library full screen, even offline.
+        - generic [ref=f11e289]:
+          - button "Install" [ref=f11e290] [cursor=pointer]
+          - button "Not now" [ref=f11e294] [cursor=pointer]
+      - button "Dismiss" [ref=f11e295] [cursor=pointer]

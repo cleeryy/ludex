@@ -42,17 +42,40 @@ pub struct IgdbClient {
     client_secret: String,
     http: Client,
     token: Arc<Mutex<Option<CachedToken>>>,
+    token_url: String,
+    games_url: String,
 }
 
 impl IgdbClient {
     /// Builds a client from IGDB application credentials.
     #[must_use]
     pub fn new(http: Client, client_id: String, client_secret: String) -> Self {
+        Self::with_endpoints(
+            http,
+            client_id,
+            client_secret,
+            IGDB_TOKEN_URL,
+            IGDB_GAMES_URL,
+        )
+    }
+
+    /// Builds a client against explicit endpoints. Tests point this at a local
+    /// fixture server so the metadata pipeline never touches the network.
+    #[must_use]
+    pub fn with_endpoints(
+        http: Client,
+        client_id: String,
+        client_secret: String,
+        token_url: impl Into<String>,
+        games_url: impl Into<String>,
+    ) -> Self {
         Self {
             client_id,
             client_secret,
             http,
             token: Arc::new(Mutex::new(None)),
+            token_url: token_url.into(),
+            games_url: games_url.into(),
         }
     }
 
@@ -71,7 +94,7 @@ impl IgdbClient {
         ];
         let response = self
             .http
-            .post(IGDB_TOKEN_URL)
+            .post(&self.token_url)
             .form(&form)
             .send()
             .await
@@ -102,17 +125,54 @@ impl IgdbClient {
             return Ok(None);
         }
         let body = format!("search \"{query}\"; fields {IGDB_FIELDS}; limit 10;");
+        let games = self.query(&body).await?;
+        let best = games
+            .iter()
+            .filter_map(|game| {
+                let score = score_igdb(game, title, year)?;
+                Some((score, game))
+            })
+            .max_by_key(|(score, _)| *score)
+            .map(|(_, game)| game);
+        Ok(best.map(map_igdb))
+    }
 
+    /// Searches IGDB and returns every candidate, unscored. Used by the manual
+    /// match dialog, where a weak title match must still be pickable.
+    pub async fn candidates(&self, title: &str) -> Result<Vec<ProviderMetadata>> {
+        let query = sanitise_search_term(title);
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let body = format!("search \"{query}\"; fields {IGDB_FIELDS}; limit 20;");
+        let games = self.query(&body).await?;
+        Ok(games.iter().map(map_igdb).collect())
+    }
+
+    /// Fetches one IGDB record by id. Returns `Ok(None)` when the record no
+    /// longer exists (deleted or a search-index artefact).
+    pub async fn fetch_by_id(&self, id: &str) -> Result<Option<ProviderMetadata>> {
+        let id = id.trim();
+        let Some(id) = id.parse::<i64>().ok().filter(|id| *id > 0) else {
+            anyhow::bail!("invalid IGDB id: {id}");
+        };
+        let body = format!("fields {IGDB_FIELDS}; where id = {id};");
+        let games = self.query(&body).await?;
+        Ok(games.first().map(map_igdb))
+    }
+
+    /// Posts one APIcalypse query and decodes the response.
+    async fn query(&self, body: &str) -> Result<Vec<IgdbGame>> {
         let mut retried = false;
         loop {
             let token = self.access_token().await?;
             let response = self
                 .http
-                .post(IGDB_GAMES_URL)
+                .post(&self.games_url)
                 .header("Client-ID", &self.client_id)
                 .header("Authorization", format!("Bearer {token}"))
                 .header("Accept", "application/json")
-                .body(body.clone())
+                .body(body.to_string())
                 .send()
                 .await
                 .context("query IGDB games")?;
@@ -125,19 +185,7 @@ impl IgdbClient {
             if !response.status().is_success() {
                 anyhow::bail!("IGDB games endpoint returned {}", response.status());
             }
-            let games: Vec<IgdbGame> = response
-                .json()
-                .await
-                .context("decode IGDB games response")?;
-            let best = games
-                .iter()
-                .filter_map(|game| {
-                    let score = score_igdb(game, title, year)?;
-                    Some((score, game))
-                })
-                .max_by_key(|(score, _)| *score)
-                .map(|(_, game)| game);
-            return Ok(best.map(map_igdb));
+            return response.json().await.context("decode IGDB games response");
         }
     }
 }
@@ -326,6 +374,7 @@ fn map_igdb(game: &IgdbGame) -> ProviderMetadata {
     }
 
     ProviderMetadata {
+        title: game.name.clone(),
         description: game
             .summary
             .clone()
@@ -343,6 +392,7 @@ fn map_igdb(game: &IgdbGame) -> ProviderMetadata {
         early_access: None,
         alt_titles,
         max_players,
+        platforms: names(&game.platforms),
         provider: ProviderRef {
             slug: "igdb".to_string(),
             id: game.id.to_string(),
@@ -470,6 +520,8 @@ fn timestamp_year(timestamp: i64) -> Option<u16> {
 /// Provider-independent metadata used to update a game row.
 #[derive(Debug, Clone)]
 pub struct ProviderMetadata {
+    /// Canonical title of the matched record.
+    pub title: Option<String>,
     /// Long description.
     pub description: Option<String>,
     /// Release date.
@@ -498,6 +550,9 @@ pub struct ProviderMetadata {
     pub alt_titles: Vec<String>,
     /// Highest supported player count, when known.
     pub max_players: Option<u32>,
+    /// Platform labels reported by the provider (display only; enrichment
+    /// keeps the library's own `kind`/`platform`).
+    pub platforms: Vec<String>,
     /// Provider reference.
     pub provider: ProviderRef,
 }
@@ -579,15 +634,26 @@ async fn provider_lookup(
 
 /// Enriches one game and caches its artwork. Safe to call concurrently for
 /// different games; provider failures are logged and leave the row untouched.
+///
+/// When the row already stores a provider reference the record is fetched by
+/// id, so a refresh keeps the match an editor picked instead of re-running the
+/// title search (which could return the wrong first result, #135).
 pub async fn enrich_game(state: &AppState, game_id: i64) {
-    let game = db::query_as::<(String, Option<String>, String)>(
-        "SELECT title, release_date, kind FROM games WHERE id = ?",
+    let game = db::query_as::<(
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+        Option<String>,
+    )>(
+        "SELECT title, release_date, kind, provider_slug, provider_id
+         FROM games WHERE id = ?",
     )
     .bind(game_id)
     .fetch_optional(&state.pool)
     .await;
 
-    let Ok(Some((title, release_date, kind))) = game else {
+    let Ok(Some((title, release_date, kind, provider_slug, provider_id))) = game else {
         return;
     };
     let year = release_date
@@ -597,31 +663,56 @@ pub async fn enrich_game(state: &AppState, game_id: i64) {
 
     // ROMs only consult community providers (or their gamelist): the built-in
     // PC providers would attach the wrong edition.
-    let metadata = if kind == "rom" {
-        provider_lookup(state, &title, year, Some(game_id)).await
-    } else {
-        lookup(state, &title, year, Some(game_id)).await
+    let stored = match (
+        provider_slug.as_deref().filter(|slug| !slug.is_empty()),
+        provider_id.as_deref().filter(|id| !id.is_empty()),
+    ) {
+        (Some(slug), Some(id)) => Some((slug.to_string(), id.to_string())),
+        _ => None,
+    };
+    let mut metadata = None;
+    if let Some((slug, id)) = stored {
+        if kind != "rom" || community_slug(state, &slug).await {
+            metadata = match fetch_by_id(state, &slug, &id, Some(game_id)).await {
+                Ok(Some(metadata)) => Some(metadata),
+                Ok(None) => {
+                    tracing::warn!(
+                        game_id,
+                        provider = %slug,
+                        provider_id = %id,
+                        "stored metadata record disappeared; falling back to a title search"
+                    );
+                    None
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        game_id,
+                        provider = %slug,
+                        provider_id = %id,
+                        error = %error,
+                        "could not fetch the stored metadata record; falling back to a title search"
+                    );
+                    None
+                }
+            };
+        }
+    }
+    let metadata = match metadata {
+        Some(metadata) => Some(metadata),
+        None if kind == "rom" => provider_lookup(state, &title, year, Some(game_id)).await,
+        None => lookup(state, &title, year, Some(game_id)).await,
     };
     let Some(metadata) = metadata else {
         tracing::debug!(game_id, title = %title, "no metadata match");
         return;
     };
 
-    let media_dir = state.config.media_dir.as_path();
-    let cover = cache_optional(&state.http, media_dir, metadata.cover_url.as_deref()).await;
-    let mut screenshot_names = cache_images(&state.http, media_dir, &metadata.screenshots).await;
-    screenshot_names.retain(|name| name.is_some());
-    let background =
-        match cache_optional(&state.http, media_dir, metadata.background_url.as_deref()).await {
-            Some(name) => Some(name),
-            None => screenshot_names.iter().flatten().next().cloned(),
-        };
-    let screenshots: Vec<String> = screenshot_names.into_iter().flatten().collect();
+    let artwork = cache_artwork(state, &metadata).await;
 
-    let screenshots_json = if screenshots.is_empty() {
+    let screenshots_json = if artwork.screenshots.is_empty() {
         None
     } else {
-        Some(db::dump_json_list(&screenshots))
+        Some(db::dump_json_list(&artwork.screenshots))
     };
     let trailers_json = if metadata.trailers.is_empty() {
         None
@@ -659,8 +750,8 @@ pub async fn enrich_game(state: &AppState, game_id: i64) {
     )
     .bind(metadata.description)
     .bind(release_date)
-    .bind(cover)
-    .bind(background)
+    .bind(artwork.cover)
+    .bind(artwork.background)
     .bind(screenshots_json)
     .bind(trailers_json)
     .bind(genres_json)
@@ -687,6 +778,112 @@ pub async fn enrich_game(state: &AppState, game_id: i64) {
             "metadata enriched"
         ),
         Err(error) => tracing::warn!(game_id, error = %error, "metadata update failed"),
+    }
+}
+
+/// Whether `slug` names an enabled community provider.
+async fn community_slug(state: &AppState, slug: &str) -> bool {
+    state
+        .providers
+        .read()
+        .await
+        .iter()
+        .any(|config| config.slug == slug)
+}
+
+/// Why a provider record could not be fetched by id.
+#[derive(Debug)]
+pub enum FetchByIdError {
+    /// The provider does not know this id any more.
+    NotFound,
+    /// Any other provider failure (network, timeout, bad response).
+    Failed(String),
+}
+
+impl std::fmt::Display for FetchByIdError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => formatter.write_str("provider record not found"),
+            Self::Failed(message) => formatter.write_str(message),
+        }
+    }
+}
+
+/// Fetches one record by provider id. `Ok(None)` means the provider answered
+/// but no longer returns the record; `Err(NotFound)` is the same outcome
+/// reported as an HTTP 404 by a community provider.
+pub async fn fetch_by_id(
+    state: &AppState,
+    slug: &str,
+    provider_id: &str,
+    game_id: Option<i64>,
+) -> Result<Option<ProviderMetadata>, FetchByIdError> {
+    match slug {
+        "igdb" => {
+            let Some(igdb) = &state.igdb else {
+                return Ok(None);
+            };
+            igdb.fetch_by_id(provider_id)
+                .await
+                .map_err(|error| FetchByIdError::Failed(error.to_string()))
+        }
+        "steam" => {
+            let Ok(app_id) = provider_id.parse::<i64>() else {
+                return Ok(None);
+            };
+            steam_details(&state.http, app_id)
+                .await
+                .map_err(|error| FetchByIdError::Failed(error.to_string()))
+        }
+        other => {
+            let configs = state.providers.read().await.clone();
+            let Some(config) = configs.into_iter().find(|config| config.slug == other) else {
+                return Ok(None);
+            };
+            let result = crate::providers::fetch_by_id(&config, provider_id).await;
+            let found = result
+                .as_ref()
+                .map(|candidate| usize::from(candidate.is_some()));
+            crate::providers::record_fetch(&state.pool, config.id, game_id, found).await;
+            match result {
+                Ok(candidate) => Ok(candidate.map(|candidate| candidate.to_metadata(&config.slug))),
+                Err(crate::providers::ProviderError::Status(404, _)) => {
+                    Err(FetchByIdError::NotFound)
+                }
+                Err(error) => Err(FetchByIdError::Failed(error.to_string())),
+            }
+        }
+    }
+}
+
+/// Artwork cached during one enrichment or match pass.
+#[derive(Debug, Default)]
+pub(crate) struct CachedArtwork {
+    /// Cached cover file name.
+    pub cover: Option<String>,
+    /// Cached background file name.
+    pub background: Option<String>,
+    /// Cached screenshot file names.
+    pub screenshots: Vec<String>,
+}
+
+/// Downloads and caches the artwork referenced by `metadata`. Replaced files
+/// stay on disk until the media GC collects them: they are unreferenced once
+/// the row is updated.
+pub(crate) async fn cache_artwork(state: &AppState, metadata: &ProviderMetadata) -> CachedArtwork {
+    let media_dir = state.config.media_dir.as_path();
+    let cover = cache_optional(&state.http, media_dir, metadata.cover_url.as_deref()).await;
+    let mut screenshot_names = cache_images(&state.http, media_dir, &metadata.screenshots).await;
+    screenshot_names.retain(|name| name.is_some());
+    let background =
+        match cache_optional(&state.http, media_dir, metadata.background_url.as_deref()).await {
+            Some(name) => Some(name),
+            None => screenshot_names.iter().flatten().next().cloned(),
+        };
+    CachedArtwork {
+        cover,
+        background,
+        screenshots: screenshot_names.into_iter().flatten().collect(),
     }
 }
 
@@ -731,8 +928,69 @@ async fn cache_images(http: &Client, media_dir: &Path, urls: &[String]) -> Vec<O
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn steam_search(http: &Client, title: &str) -> Result<Option<ProviderMetadata>> {
+    steam_search_at(STEAM_SEARCH_URL, http, title).await
+}
+
+/// [`steam_search`] against an explicit endpoint, for tests.
+pub(crate) async fn steam_search_at(
+    base: &str,
+    http: &Client,
+    title: &str,
+) -> Result<Option<ProviderMetadata>> {
+    let hits = steam_search_hits(base, http, title).await?;
+    let best = hits
+        .iter()
+        .filter(|hit| hit.kind.as_deref() != Some("bundle"))
+        .filter_map(|hit| {
+            let score = score_candidate(
+                title,
+                &hit.name,
+                &MatchContext {
+                    query_year: None,
+                    candidate_year: None,
+                    has_pc: hit.windows,
+                    web_only: false,
+                    has_release_date: false,
+                    category: None,
+                },
+            )?;
+            Some((score, hit))
+        })
+        .max_by_key(|(score, _)| *score)
+        .map(|(_, hit)| hit);
+
+    let Some(best) = best else {
+        return Ok(None);
+    };
+    steam_details_at(STEAM_DETAILS_URL, http, best.id).await
+}
+
+/// One row of the Steam Store search response.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct SteamSearchHit {
+    /// Steam application id.
+    pub(crate) id: i64,
+    /// Store name.
+    pub(crate) name: String,
+    /// `app`, `bundle`, ...
+    #[serde(rename = "type", default)]
+    pub(crate) kind: Option<String>,
+    /// Small capsule used by the match dialog.
+    #[serde(default)]
+    pub(crate) tiny_image: Option<String>,
+    /// Whether the store lists Windows.
+    #[serde(default)]
+    pub(crate) windows: bool,
+}
+
+/// Queries the Steam Store search endpoint and returns every hit.
+pub(crate) async fn steam_search_hits(
+    base: &str,
+    http: &Client,
+    title: &str,
+) -> Result<Vec<SteamSearchHit>> {
     let response = http
-        .get(STEAM_SEARCH_URL)
+        .get(base)
         .query(&[("term", title), ("l", "english"), ("cc", "US")])
         .send()
         .await
@@ -744,43 +1002,40 @@ pub(crate) async fn steam_search(http: &Client, title: &str) -> Result<Option<Pr
         .json()
         .await
         .context("decode Steam search response")?;
-
-    let best = search
+    Ok(search
         .items
-        .iter()
-        .filter(|item| item.kind.as_deref() != Some("bundle"))
-        .filter_map(|item| {
-            let windows = item
+        .into_iter()
+        .map(|item| SteamSearchHit {
+            id: item.id,
+            name: item.name,
+            kind: item.kind,
+            tiny_image: item.tiny_image,
+            windows: item
                 .platforms
                 .as_ref()
                 .and_then(|platforms| platforms.windows)
-                .unwrap_or(false);
-            let score = score_candidate(
-                title,
-                &item.name,
-                &MatchContext {
-                    query_year: None,
-                    candidate_year: None,
-                    has_pc: windows,
-                    web_only: false,
-                    has_release_date: false,
-                    category: None,
-                },
-            )?;
-            Some((score, item))
+                .unwrap_or(false),
         })
-        .max_by_key(|(score, _)| *score)
-        .map(|(_, item)| item);
+        .collect())
+}
 
-    let Some(best) = best else {
-        return Ok(None);
-    };
-    steam_details(http, best.id).await
+/// Steam Store search hits for the manual match dialog (#135).
+pub(crate) async fn steam_candidates(http: &Client, title: &str) -> Result<Vec<SteamSearchHit>> {
+    steam_search_hits(STEAM_SEARCH_URL, http, title).await
 }
 
 pub(crate) async fn steam_details(http: &Client, app_id: i64) -> Result<Option<ProviderMetadata>> {
+    steam_details_at(STEAM_DETAILS_URL, http, app_id).await
+}
+
+/// [`steam_details`] against an explicit endpoint, for tests.
+pub(crate) async fn steam_details_at(
+    base: &str,
+    http: &Client,
+    app_id: i64,
+) -> Result<Option<ProviderMetadata>> {
     let response = http
-        .get(STEAM_DETAILS_URL)
+        .get(base)
         .query(&[
             ("appids", app_id.to_string()),
             ("l", "english".to_string()),
@@ -869,8 +1124,24 @@ pub(crate) async fn steam_details(http: &Client, app_id: i64) -> Result<Option<P
         .and_then(|value| value.as_i64().or_else(|| value.as_str()?.parse().ok()))
         .filter(|age| *age > 0)
         .and_then(|age| u8::try_from(age).ok());
+    let platforms = app
+        .platforms
+        .as_ref()
+        .map(|platforms| {
+            [
+                (platforms.windows, "Windows"),
+                (platforms.mac, "macOS"),
+                (platforms.linux, "Linux"),
+            ]
+            .into_iter()
+            .filter(|(supported, _)| *supported)
+            .map(|(_, label)| label.to_string())
+            .collect()
+        })
+        .unwrap_or_default();
 
     Ok(Some(ProviderMetadata {
+        title: app.name.clone(),
         description,
         release_date,
         cover_url: app.header_image.clone(),
@@ -885,6 +1156,7 @@ pub(crate) async fn steam_details(http: &Client, app_id: i64) -> Result<Option<P
         early_access: Some(early_access),
         alt_titles: Vec::new(),
         max_players: None,
+        platforms,
         provider: ProviderRef {
             slug: "steam".to_string(),
             id: app_id.to_string(),
@@ -915,6 +1187,8 @@ struct SteamSearchItem {
     name: String,
     #[serde(rename = "type", default)]
     kind: Option<String>,
+    #[serde(default)]
+    tiny_image: Option<String>,
     #[serde(default)]
     platforms: Option<SteamPlatforms>,
 }
@@ -952,6 +1226,8 @@ struct SteamApp {
     #[serde(rename = "type", default)]
     kind: Option<String>,
     #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
     short_description: Option<String>,
     #[serde(default)]
     about_the_game: Option<String>,
@@ -973,6 +1249,18 @@ struct SteamApp {
     release_date: Option<SteamReleaseDate>,
     #[serde(default)]
     required_age: Option<serde_json::Value>,
+    #[serde(default)]
+    platforms: Option<SteamAppPlatforms>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct SteamAppPlatforms {
+    #[serde(default)]
+    windows: bool,
+    #[serde(default)]
+    mac: bool,
+    #[serde(default)]
+    linux: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1207,6 +1495,44 @@ fn name_score(query: &str, candidate: &str) -> Option<i32> {
     Some(i32::try_from(overlap * 100 / longest).unwrap_or(0))
 }
 
+/// Lenient ranking used by the manual match list (#135): unlike
+/// [`score_candidate`] it never rejects a candidate, because the editor is
+/// looking at the list precisely because the automatic pick was wrong.
+#[must_use]
+pub fn rank_score(
+    query: &str,
+    candidate: &str,
+    query_year: Option<u16>,
+    candidate_year: Option<u16>,
+    has_pc: bool,
+) -> i32 {
+    let query = normalize_title(query);
+    let candidate = normalize_title(candidate);
+    if query.is_empty() || candidate.is_empty() {
+        return 0;
+    }
+    let mut score = name_score(&query, &candidate).unwrap_or(0);
+    if let (Some(query_year), Some(candidate_year)) = (query_year, candidate_year) {
+        if query_year == candidate_year {
+            score += 120;
+        } else {
+            score -= 60;
+        }
+    } else if candidate_year.is_some() {
+        score += 20;
+    }
+    if has_pc {
+        score += 40;
+    }
+    score.max(0)
+}
+
+/// Maps a [`rank_score`] onto the 0..1 confidence shown by the match dialog.
+#[must_use]
+pub fn confidence(score: i32) -> f64 {
+    (f64::from(score) / 1160.0).clamp(0.0, 1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1437,5 +1763,193 @@ mod tests {
             "Hades Ultimate"
         );
         assert_eq!(sanitise_search_term("a\\b"), "ab");
+    }
+
+    #[test]
+    fn rank_score_is_lenient_and_rewards_year_and_pc() {
+        let exact = rank_score("PEAK", "PEAK", None, Some(2025), true);
+        let fuzzy = rank_score("PEAK", "Peak Climber", None, None, false);
+        assert!(exact > fuzzy, "{exact} vs {fuzzy}");
+        assert_eq!(rank_score("", "PEAK", None, None, false), 0);
+        assert!(confidence(exact) > confidence(fuzzy));
+        assert!((0.0..=1.0).contains(&confidence(i32::MAX)));
+    }
+
+    /// Local HTTP fixture server used by the mocked-provider tests.
+    async fn mock_http(handler: fn(&str) -> String) -> (String, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind mock server");
+        let address = listener.local_addr().expect("address");
+        let task = tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                tokio::spawn(async move {
+                    let mut buffer = Vec::new();
+                    let mut chunk = [0_u8; 4096];
+                    loop {
+                        let Ok(read) = socket.read(&mut chunk).await else {
+                            return;
+                        };
+                        if read == 0 {
+                            break;
+                        }
+                        buffer.extend_from_slice(&chunk[..read]);
+                        let request = String::from_utf8_lossy(&buffer).to_string();
+                        if let Some(end) = request.find("\r\n\r\n") {
+                            let length = request[..end]
+                                .lines()
+                                .find_map(|line| {
+                                    line.to_ascii_lowercase()
+                                        .strip_prefix("content-length:")
+                                        .map(|value| value.trim().parse::<usize>().unwrap_or(0))
+                                })
+                                .unwrap_or(0);
+                            if buffer.len() >= end + 4 + length {
+                                break;
+                            }
+                        }
+                    }
+                    let request = String::from_utf8_lossy(&buffer).to_string();
+                    let response = handler(&request);
+                    let _ = socket.write_all(response.as_bytes()).await;
+                    let _ = socket.shutdown().await;
+                });
+            }
+        });
+        (format!("http://{address}"), task)
+    }
+
+    fn http_response(body: &str) -> String {
+        format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    #[tokio::test]
+    async fn igdb_fetches_a_record_by_id() {
+        fn handler(request: &str) -> String {
+            if request.starts_with("POST /oauth2/token") {
+                return http_response(r#"{"access_token":"tok","expires_in":3600}"#);
+            }
+            assert!(request.contains("client-id: application-id"), "{request}");
+            assert!(request.contains("Bearer tok"), "{request}");
+            assert!(
+                request.contains("fields name,summary") && request.contains("where id = 42;"),
+                "{request}"
+            );
+            http_response(
+                r#"[{"id":42,"name":"PEAK","summary":"Climb","first_release_date":1760000000,
+                    "platforms":[{"id":6,"name":"PC (Microsoft Windows)"}]}]"#,
+            )
+        }
+        let (base, _task) = mock_http(handler).await;
+        let client = IgdbClient::with_endpoints(
+            reqwest::Client::new(),
+            "application-id".to_string(),
+            "secret".to_string(),
+            format!("{base}/oauth2/token"),
+            format!("{base}/v4/games"),
+        );
+        let metadata = client
+            .fetch_by_id("42")
+            .await
+            .expect("request")
+            .expect("record");
+        assert_eq!(metadata.provider.id, "42");
+        assert_eq!(metadata.title.as_deref(), Some("PEAK"));
+        assert_eq!(
+            metadata.platforms,
+            vec!["PC (Microsoft Windows)".to_string()]
+        );
+        assert!(client.fetch_by_id("abc").await.is_err());
+        assert!(client.fetch_by_id("0").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn igdb_candidates_are_unfiltered() {
+        fn handler(request: &str) -> String {
+            if request.starts_with("POST /oauth2/token") {
+                return http_response(r#"{"access_token":"tok","expires_in":3600}"#);
+            }
+            assert!(request.contains("search \"PEAK\";"), "{request}");
+            assert!(request.contains("limit 20;"), "{request}");
+            http_response(r#"[{"id":1,"name":"PEAK"},{"id":2,"name":"A Short Hike"}]"#)
+        }
+        let (base, _task) = mock_http(handler).await;
+        let client = IgdbClient::with_endpoints(
+            reqwest::Client::new(),
+            "application-id".to_string(),
+            "secret".to_string(),
+            format!("{base}/oauth2/token"),
+            format!("{base}/v4/games"),
+        );
+        let records = client.candidates("PEAK").await.expect("request");
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[1].title.as_deref(), Some("A Short Hike"));
+    }
+
+    #[tokio::test]
+    async fn steam_candidates_and_details_are_parsed() {
+        fn handler(request: &str) -> String {
+            if request.starts_with("GET /storesearch") {
+                assert!(request.contains("term=PEAK"), "{request}");
+                return http_response(
+                    r#"{"items":[
+                        {"id":3527290,"name":"PEAK","type":"app","tiny_image":"https://cdn.test/peak.jpg",
+                         "platforms":{"windows":true}},
+                        {"id":9,"name":"PEAK Soundtrack","type":"music"}
+                    ]}"#,
+                );
+            }
+            if request.starts_with("GET /appdetails") {
+                assert!(request.contains("appids=3527290"), "{request}");
+                return http_response(
+                    r#"{"3527290":{"success":true,"data":{
+                        "name":"PEAK","type":"game",
+                        "about_the_game":"<p>Climb with friends</p>",
+                        "header_image":"https://cdn.test/header.jpg",
+                        "platforms":{"windows":true,"linux":true},
+                        "release_date":{"date":"17 Sep, 2025","coming_soon":false},
+                        "developers":["Aggro Crab","Landfall"],
+                        "genres":[{"id":"23","description":"Indie"}]
+                    }}}"#,
+                );
+            }
+            "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n".to_string()
+        }
+        let (base, _task) = mock_http(handler).await;
+        let http = reqwest::Client::new();
+        let hits = steam_search_hits(&format!("{base}/storesearch"), &http, "PEAK")
+            .await
+            .expect("search");
+        assert_eq!(hits.len(), 2);
+        assert!(hits[0].windows);
+        assert_eq!(
+            hits[0].tiny_image.as_deref(),
+            Some("https://cdn.test/peak.jpg")
+        );
+
+        let metadata = steam_details_at(&format!("{base}/appdetails"), &http, 3_527_290)
+            .await
+            .expect("details")
+            .expect("record");
+        assert_eq!(metadata.title.as_deref(), Some("PEAK"));
+        assert_eq!(
+            metadata.platforms,
+            vec!["Windows".to_string(), "Linux".to_string()]
+        );
+        assert_eq!(metadata.developers.len(), 2);
+        assert_eq!(
+            metadata
+                .release_date
+                .map(|date| date.format("%Y").to_string()),
+            Some("2025".to_string())
+        );
     }
 }

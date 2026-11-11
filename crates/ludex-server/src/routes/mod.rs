@@ -9,6 +9,7 @@ pub mod collections;
 pub mod community;
 pub mod controllers;
 pub mod emulators;
+pub mod game_metadata;
 pub mod games;
 pub mod integrity;
 pub mod keys;
@@ -41,6 +42,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(admin_oidc::router())
         .merge(metadata_providers::router())
         .merge(games::router())
+        .merge(game_metadata::router())
         .merge(artwork::router())
         .merge(integrity::router())
         .merge(collections::router())

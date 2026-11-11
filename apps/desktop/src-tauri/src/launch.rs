@@ -127,18 +127,39 @@ pub async fn launch(
             &installed.title,
         )?),
     };
+    // #160: adopted folders often wrap the game in an edition/version folder,
+    // so a nested executable runs from its own folder (see the rule on
+    // [`launch_working_directory`]).
+    let working_dir = executable_path
+        .as_deref()
+        .map(|path| launch_working_directory(&install_path, path, &installed.source));
+    if let (Some(path), Some(cwd)) = (executable_path.as_deref(), working_dir.as_deref()) {
+        tracing::info!(
+            game_id,
+            source = %installed.source,
+            executable = %path.display(),
+            working_dir = %cwd.display(),
+            args = args.as_deref().unwrap_or(""),
+            "launching the game"
+        );
+    }
 
     let (mut command, tool) = prepare_launch(
         app,
         &installed,
         executable_path.as_deref(),
+        working_dir.as_deref(),
         &install_path,
         &prefix,
         args.as_deref(),
         &options,
     )?;
     let child = command.spawn().map_err(|e| match &executable_path {
-        Some(path) => format!("Could not launch {}: {e}", path.display()),
+        Some(path) => format!(
+            "Could not launch {} (working directory {}): {e}",
+            path.display(),
+            working_dir.as_deref().unwrap_or(&install_path).display()
+        ),
         None => format!(
             "Could not open {}: {e}",
             installed.launch_uri.as_deref().unwrap_or("the game")
@@ -245,6 +266,7 @@ fn prepare_launch(
     app: &AppHandle,
     installed: &db::InstalledGame,
     executable: Option<&Path>,
+    working_dir: Option<&Path>,
     install_path: &Path,
     prefix: &Path,
     args: Option<&str>,
@@ -261,9 +283,10 @@ fn prepare_launch(
 
     let executable =
         executable.ok_or_else(|| "No executable was found for this game.".to_string())?;
+    let working_dir = working_dir.unwrap_or(install_path);
     let state = app.state::<AppState>();
     let settings = state.settings_snapshot();
-    linux_prepare_launch(executable, install_path, prefix, args, options, &settings)
+    linux_prepare_launch(executable, working_dir, prefix, args, options, &settings)
 }
 
 /// Windows and macOS: no compatibility layer.
@@ -273,6 +296,7 @@ fn prepare_launch(
     _app: &AppHandle,
     installed: &db::InstalledGame,
     executable: Option<&Path>,
+    working_dir: Option<&Path>,
     install_path: &Path,
     _prefix: &Path,
     args: Option<&str>,
@@ -289,14 +313,19 @@ fn prepare_launch(
 
     let executable =
         executable.ok_or_else(|| "No executable was found for this game.".to_string())?;
-    Ok((build_command(executable, install_path, args)?, None))
+    let working_dir = working_dir.unwrap_or(install_path);
+    Ok((build_command(executable, working_dir, args)?, None))
 }
 
 /// Linux: run a Windows executable through the selected compatibility tool.
+///
+/// The runner receives the resolved executable path in its arguments and the
+/// same working directory as a native launch (#160), so a nested adopted
+/// executable is found from the Wine/UMU side too.
 #[cfg(all(unix, not(target_os = "macos")))]
 fn linux_prepare_launch(
     executable: &Path,
-    install_path: &Path,
+    working_dir: &Path,
     prefix: &Path,
     args: Option<&str>,
     options: &crate::linux_gaming::LaunchOptions,
@@ -319,7 +348,7 @@ fn linux_prepare_launch(
     // Native keeps the historical behaviour: `.sh` through `sh`, `.exe`
     // through Wine when the user explicitly asked for it.
     if mode == LaunchMode::Native {
-        return Ok((build_command(executable, install_path, args)?, None));
+        return Ok((build_command(executable, working_dir, args)?, None));
     }
 
     if !is_windows_exe {
@@ -346,7 +375,7 @@ fn linux_prepare_launch(
     let mut command = Command::new(&plan.program);
     command
         .args(&plan.args)
-        .current_dir(install_path)
+        .current_dir(working_dir)
         .envs(plan.env.iter())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -354,6 +383,7 @@ fn linux_prepare_launch(
     tracing::info!(
         tool = %plan.tool_name,
         prefix = %plan.prefix.display(),
+        working_dir = %working_dir.display(),
         "launching a Windows game through a compatibility tool"
     );
     Ok((command, Some(plan.tool_name)))
@@ -374,6 +404,21 @@ fn record_launch(
     Ok(())
 }
 
+/// Deepest folder scan tried when a recorded executable is gone (#160).
+///
+/// `ludex_core::exe::discover_executables` clamps to 4..=8; the maximum covers
+/// GameVault layouts such as
+/// `Installation/<edition>/<version>/binaries/x64/game.exe`.
+const STALE_EXECUTABLE_SCAN_DEPTH: usize = ludex_core::exe::MAX_SCAN_DEPTH;
+
+/// Resolve the program to launch for an install (#160).
+///
+/// Order: the explicit choice for this launch, then the recorded executable,
+/// then a folder scan. A recorded path is rooted at the install folder when it
+/// is relative (GameVault/adopted rows can store either form) and must stay
+/// inside the install folder or the Wine prefix of the same game; a folder or a
+/// path outside the folder is never launched. Only a *missing* path falls
+/// through, so moving or renaming the game's folder does not brick Play.
 fn resolve_executable(
     install_path: &Path,
     extra_root: Option<&Path>,
@@ -381,51 +426,260 @@ fn resolve_executable(
     stored: Option<&str>,
     title: &str,
 ) -> Result<PathBuf, String> {
-    let candidate = requested
-        .and_then(|value| non_empty(Some(value)))
-        .map(PathBuf::from)
-        .or_else(|| {
-            stored
-                .and_then(|value| non_empty(Some(value)))
-                .map(PathBuf::from)
-        });
-
-    if let Some(candidate) = candidate {
-        let full = if candidate.is_absolute() {
-            candidate
-        } else {
-            install_path.join(candidate)
-        };
-        if full.exists() {
-            let allowed = paths::is_inside(install_path, &full)
-                || extra_root
-                    .map(|root| paths::is_inside(root, &full))
-                    .unwrap_or(false);
-            if !allowed {
+    // A path chosen for this launch wins, but the Play button also forwards the
+    // recorded path here (apps/web `useLaunchGame`), so a stale value must fall
+    // through to the record/discovery instead of blocking the launch (#160).
+    if let Some(requested) = non_empty(requested) {
+        match resolve_recorded_executable(install_path, extra_root, requested) {
+            Ok(path) => return Ok(path),
+            Err(ExecutableError::Missing(reason)) => tracing::warn!(
+                executable = %requested,
+                reason = %reason,
+                "the requested executable is gone; trying the recorded path and a scan"
+            ),
+            Err(error) => {
                 return Err(format!(
-                    "Refusing to launch {} because it is outside the install folder.",
-                    full.display()
+                    "The selected executable cannot be used: {}",
+                    error.message()
                 ));
             }
-            return Ok(full);
-        }
-        if requested.is_some() {
-            return Err(format!(
-                "The selected executable does not exist: {}",
-                full.display()
-            ));
         }
     }
 
-    // A repack installer (#93) may have placed the game inside the Wine prefix.
-    crate::bridge::pick_executable(install_path, title)
-        .or_else(|| extra_root.and_then(|root| crate::bridge::pick_executable(root, title)))
-        .ok_or_else(|| {
-            format!(
-                "No executable was found in {}. Choose one in the game settings.",
-                install_path.display()
-            )
-        })
+    let recorded = non_empty(stored);
+    if let Some(recorded) = recorded {
+        match resolve_recorded_executable(install_path, extra_root, recorded) {
+            Ok(path) => return Ok(path),
+            Err(ExecutableError::Missing(reason)) => tracing::warn!(
+                executable = %recorded,
+                install_path = %install_path.display(),
+                reason = %reason,
+                "the recorded executable is gone; scanning the folder again"
+            ),
+            // A path that exists but must not be launched (outside the folder,
+            // a directory) is never silently replaced by a scan (#160).
+            Err(ExecutableError::Rejected(reason)) => {
+                return Err(format!(
+                    "The saved executable for this game cannot be used: {reason}. Choose the game executable in the game settings."
+                ));
+            }
+        }
+    }
+
+    // A stale (or absent) record falls back to discovery, deep enough for a
+    // nested GameVault/edition folder (#160).
+    let mut discovery =
+        crate::bridge::discover_executables(install_path, title, STALE_EXECUTABLE_SCAN_DEPTH);
+    let mut chosen = discovery.chosen.clone();
+    if chosen.is_none() {
+        if let Some(root) = extra_root {
+            // A repack installer (#93) may have placed the game inside the
+            // Wine prefix.
+            let extra =
+                crate::bridge::discover_executables(root, title, STALE_EXECUTABLE_SCAN_DEPTH);
+            chosen = extra.chosen.clone();
+            discovery.candidates.extend(extra.candidates);
+            discovery.notes.extend(extra.notes);
+        }
+    }
+    if let Some(path) = chosen {
+        if recorded.is_some() {
+            tracing::info!(
+                executable = %path.display(),
+                "using the discovered executable instead of the stale recorded path"
+            );
+        }
+        return Ok(path);
+    }
+
+    Err(missing_executable_message(
+        install_path,
+        recorded,
+        &discovery,
+    ))
+}
+
+/// Why a recorded/selected executable cannot be used (#160).
+#[derive(Debug)]
+enum ExecutableError {
+    /// The path no longer exists: a folder scan may find the game again.
+    Missing(String),
+    /// The path exists but must never be launched: outside the install folder
+    /// (or the Wine prefix), or a folder instead of a program.
+    Rejected(String),
+}
+
+impl ExecutableError {
+    fn message(&self) -> &str {
+        match self {
+            ExecutableError::Missing(message) | ExecutableError::Rejected(message) => message,
+        }
+    }
+}
+
+/// Validate one recorded/selected executable path.
+///
+/// Returns the canonical path so the launch uses exactly what was checked.
+/// Relative paths are resolved against the install folder; absolute paths must
+/// still be inside it (or inside the game's Wine prefix).
+fn resolve_recorded_executable(
+    install_path: &Path,
+    extra_root: Option<&Path>,
+    recorded: &str,
+) -> Result<PathBuf, ExecutableError> {
+    let candidate = PathBuf::from(recorded.trim());
+    let full = if candidate.is_absolute() {
+        candidate
+    } else {
+        install_path.join(candidate)
+    };
+    let metadata = match std::fs::metadata(&full) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(ExecutableError::Missing(format!(
+                "{} does not exist",
+                full.display()
+            )));
+        }
+        Err(error) => {
+            return Err(ExecutableError::Rejected(format!(
+                "{} cannot be read: {error}",
+                full.display()
+            )));
+        }
+    };
+    let canonical = std::fs::canonicalize(&full).map_err(|error| {
+        ExecutableError::Rejected(format!("{} cannot be resolved: {error}", full.display()))
+    })?;
+    let allowed = paths::is_inside(install_path, &canonical)
+        || extra_root
+            .map(|root| paths::is_inside(root, &canonical))
+            .unwrap_or(false);
+    if !allowed {
+        return Err(ExecutableError::Rejected(format!(
+            "{} is outside the install folder",
+            canonical.display()
+        )));
+    }
+    if !metadata.is_file() && !is_app_bundle(&full) {
+        return Err(ExecutableError::Rejected(format!(
+            "{} is a folder, not a file",
+            canonical.display()
+        )));
+    }
+    Ok(canonical)
+}
+
+/// True when a path is a program to launch: a regular file, or a macOS `.app`
+/// bundle (which is a directory the system opens).
+pub(crate) fn is_launchable_executable(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if metadata.is_file() {
+        return true;
+    }
+    is_app_bundle(path)
+}
+
+/// True for a macOS `.app` bundle directory.
+fn is_app_bundle(path: &Path) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        path.is_dir()
+            && path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("app"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+/// The error shown when no executable can be resolved (#160).
+///
+/// It names the recorded path that was tried and lists what the scan found, so
+/// the user can pick the right file in the game settings instead of guessing
+/// why Play did nothing.
+fn missing_executable_message(
+    install_path: &Path,
+    recorded: Option<&str>,
+    discovery: &crate::bridge::Discovery,
+) -> String {
+    let mut message = match recorded {
+        Some(recorded) => format!(
+            "The saved executable for this game is missing: {recorded} (looked in {}).",
+            install_path.display()
+        ),
+        None => format!(
+            "No executable is recorded for this game in {}.",
+            install_path.display()
+        ),
+    };
+    if discovery.candidates.is_empty() {
+        message.push_str(&format!(
+            " Scanning {STALE_EXECUTABLE_SCAN_DEPTH} folder levels found nothing to run; choose the game executable in the game settings."
+        ));
+    } else {
+        let listed = discovery
+            .candidates
+            .iter()
+            .take(5)
+            .map(|candidate| candidate.path.display().to_string())
+            .collect::<Vec<String>>()
+            .join(", ");
+        let more = discovery.candidates.len().saturating_sub(5);
+        message.push_str(&format!(
+            " Ludex found {} executable(s) but cannot tell which one starts the game: {listed}",
+            discovery.candidates.len()
+        ));
+        if more > 0 {
+            message.push_str(&format!(" (and {more} more)"));
+        }
+        message.push_str(". Choose the right one in the game settings.");
+    }
+    for note in discovery.notes.iter().take(3) {
+        message.push(' ');
+        message.push_str(note);
+    }
+    message
+}
+
+/// Working directory for a launched game (#160).
+///
+/// Deterministic rule:
+/// - an **adopted** install whose executable sits in a subfolder runs from the
+///   executable's own folder. Adopted GameVault folders wrap the game in a
+///   version/edition folder and the game loads its data relative to the binary;
+///   running from the linked parent made it exit immediately (Uncharted).
+/// - a **root-level** executable runs from the install root, which is also the
+///   executable's folder.
+/// - `ludex` installs keep the historical install-root behaviour (#129) so a
+///   working layout is never moved under a game's feet.
+pub(crate) fn launch_working_directory(
+    install_path: &Path,
+    executable: &Path,
+    source: &str,
+) -> PathBuf {
+    if source == db::SOURCE_ADOPTED {
+        if let Some(parent) = executable.parent() {
+            if !parent.as_os_str().is_empty() && !same_path(parent, install_path) {
+                return parent.to_path_buf();
+            }
+        }
+    }
+    install_path.to_path_buf()
+}
+
+/// Path equality that tolerates one side being canonical and the other not.
+fn same_path(left: &Path, right: &Path) -> bool {
+    fn canonical(path: &Path) -> PathBuf {
+        std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    }
+    canonical(left) == canonical(right)
 }
 
 fn build_command(
@@ -809,12 +1063,22 @@ pub async fn sync_pending(app: AppHandle) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn resolve_prefers_requested_then_stored() {
+    fn temp_root(label: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "ludex-launch-{}",
+            "ludex-launch-{label}-{}",
             crate::util::short_id(&uuid::Uuid::new_v4().to_string())
         ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn canonical(path: &Path) -> PathBuf {
+        std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    }
+
+    #[test]
+    fn resolve_prefers_requested_then_stored() {
+        let root = temp_root("prefer");
         std::fs::create_dir_all(root.join("bin")).unwrap();
         std::fs::write(root.join("bin/game.exe"), b"x").unwrap();
         std::fs::write(root.join("other.exe"), b"x").unwrap();
@@ -824,6 +1088,285 @@ mod tests {
 
         let resolved = resolve_executable(&root, None, None, Some("other.exe"), "Game").unwrap();
         assert!(resolved.ends_with("other.exe"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// #160: the GameVault layout stores the linked folder as the parent of an
+    /// edition folder, and the executable as a path relative to it.
+    #[test]
+    fn a_relative_stored_executable_resolves_inside_the_adopted_folder() {
+        let root = temp_root("nested");
+        let installation = root.join("Installation");
+        let edition = installation.join("Uncharted Legacy of Thieves Collection");
+        std::fs::create_dir_all(edition.join("Uncharted4_data")).unwrap();
+        std::fs::write(edition.join("Uncharted4.exe"), b"MZ").unwrap();
+        std::fs::write(edition.join("Uncharted4_data/pak0.psarc"), b"data").unwrap();
+
+        let stored = Path::new("Uncharted Legacy of Thieves Collection")
+            .join("Uncharted4.exe")
+            .to_string_lossy()
+            .to_string();
+        let resolved = resolve_executable(
+            &installation,
+            None,
+            None,
+            Some(&stored),
+            "Uncharted: Legacy of Thieves Collection",
+        )
+        .unwrap();
+        assert_eq!(resolved, canonical(&edition.join("Uncharted4.exe")));
+
+        let cwd = launch_working_directory(&installation, &resolved, db::SOURCE_ADOPTED);
+        assert_eq!(canonical(&cwd), canonical(&edition));
+        assert!(cwd.starts_with(&installation));
+    }
+
+    /// #160: a stale recorded path falls back to a scan deep enough for
+    /// GameVault's `Installation/<edition>/<version>/binaries/x64` nesting.
+    #[test]
+    fn a_stale_stored_executable_falls_back_to_a_deep_discovery() {
+        let root = temp_root("stale");
+        let installation = root.join("Installation");
+        let deep = installation.join("a/b/c/d/e");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(deep.join("Uncharted4.exe"), b"MZ").unwrap();
+
+        let resolved = resolve_executable(
+            &installation,
+            None,
+            None,
+            Some("binaries/x64/Uncharted4.exe"),
+            "Uncharted 4",
+        )
+        .unwrap();
+        assert_eq!(resolved, canonical(&deep.join("Uncharted4.exe")));
+
+        let cwd = launch_working_directory(&installation, &resolved, db::SOURCE_ADOPTED);
+        assert_eq!(canonical(&cwd), canonical(&deep));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The Play button forwards the recorded path as `requested`
+    /// (`apps/web/src/lib/hooks.ts`); a stale value there must fall back to the
+    /// record and then to a scan, exactly like a stale stored path.
+    #[test]
+    fn a_stale_requested_executable_falls_back_to_the_record_and_a_scan() {
+        let root = temp_root("stale-requested");
+        let installation = root.join("Installation");
+        std::fs::create_dir_all(installation.join("bin")).unwrap();
+        std::fs::write(installation.join("bin/Uncharted4.exe"), b"MZ").unwrap();
+
+        // The recorded path is still good.
+        let resolved = resolve_executable(
+            &installation,
+            None,
+            Some("gone/Uncharted4.exe"),
+            Some("bin/Uncharted4.exe"),
+            "Uncharted 4",
+        )
+        .unwrap();
+        assert_eq!(
+            resolved,
+            canonical(&installation.join("bin/Uncharted4.exe"))
+        );
+
+        // No record at all: discovery takes over.
+        let resolved = resolve_executable(
+            &installation,
+            None,
+            Some("gone/Uncharted4.exe"),
+            None,
+            "Uncharted 4",
+        )
+        .unwrap();
+        assert_eq!(
+            resolved,
+            canonical(&installation.join("bin/Uncharted4.exe"))
+        );
+
+        // A requested path that exists but escapes the folder still fails hard.
+        std::fs::write(root.join("outside.exe"), b"MZ").unwrap();
+        let absolute = root.join("outside.exe").to_string_lossy().to_string();
+        let error = resolve_executable(&installation, None, Some(&absolute), None, "Uncharted 4")
+            .unwrap_err();
+        assert!(error.contains("outside the install folder"), "{error}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_executable_outside_the_install_folder_is_never_launched() {
+        let root = temp_root("outside");
+        let installation = root.join("Installation");
+        std::fs::create_dir_all(&installation).unwrap();
+        std::fs::write(root.join("outside.exe"), b"MZ").unwrap();
+
+        // A recorded path escaping the folder is refused instead of scanned
+        // around: an existing file outside the folder must never run.
+        let error = resolve_executable(
+            &installation,
+            None,
+            None,
+            Some("../outside.exe"),
+            "Uncharted 4",
+        )
+        .unwrap_err();
+        assert!(error.contains("outside the install folder"), "{error}");
+
+        let absolute = root.join("outside.exe").to_string_lossy().to_string();
+        let error = resolve_executable(&installation, None, Some(&absolute), None, "Uncharted 4")
+            .unwrap_err();
+        assert!(error.contains("outside the install folder"), "{error}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_folder_recorded_as_the_executable_is_rejected() {
+        let root = temp_root("folder-exe");
+        let installation = root.join("Installation");
+        std::fs::create_dir_all(installation.join("binaries")).unwrap();
+        std::fs::write(installation.join("Uncharted4.exe"), b"MZ").unwrap();
+
+        let error = resolve_executable(&installation, None, None, Some("binaries"), "Uncharted 4")
+            .unwrap_err();
+        assert!(error.contains("is a folder, not a file"), "{error}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_missing_executable_error_lists_what_the_scan_found() {
+        let root = temp_root("candidates");
+        let installation = root.join("Installation");
+        std::fs::create_dir_all(installation.join("alpha")).unwrap();
+        std::fs::create_dir_all(installation.join("beta")).unwrap();
+        std::fs::write(installation.join("alpha/alpha.exe"), b"MZ").unwrap();
+        std::fs::write(installation.join("beta/beta.exe"), b"MZ").unwrap();
+
+        let error = resolve_executable(
+            &installation,
+            None,
+            None,
+            Some("binaries/x64/Uncharted4.exe"),
+            "Uncharted 4",
+        )
+        .unwrap_err();
+        // The saved path is named, both candidates are listed, and the user is
+        // pointed at the settings instead of a bare failure.
+        assert!(error.contains("Uncharted4.exe"), "{error}");
+        assert!(error.contains("alpha.exe"), "{error}");
+        assert!(error.contains("beta.exe"), "{error}");
+        assert!(error.contains("game settings"), "{error}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_missing_executable_error_explains_an_empty_scan() {
+        let root = temp_root("empty");
+        let installation = root.join("Installation");
+        std::fs::create_dir_all(&installation).unwrap();
+
+        let error = resolve_executable(&installation, None, None, None, "Uncharted 4").unwrap_err();
+        assert!(error.contains("No executable is recorded"), "{error}");
+        assert!(error.contains("folder levels"), "{error}");
+        assert!(error.contains("game settings"), "{error}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_root_level_executable_keeps_the_install_root_as_working_directory() {
+        let root = temp_root("root-level");
+        std::fs::write(root.join("Uncharted4.exe"), b"MZ").unwrap();
+
+        let resolved =
+            resolve_executable(&root, None, None, Some("Uncharted4.exe"), "Uncharted 4").unwrap();
+        let cwd = launch_working_directory(&root, &resolved, db::SOURCE_ADOPTED);
+        assert_eq!(canonical(&cwd), canonical(&root));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The cwd rule is scoped to adopted folders: a `ludex` install keeps the
+    /// historical install-root behaviour (#129) even with a nested executable.
+    #[test]
+    fn a_ludex_install_keeps_the_install_root_as_working_directory() {
+        let root = temp_root("ludex-level");
+        std::fs::create_dir_all(root.join("bin")).unwrap();
+        std::fs::write(root.join("bin/game.exe"), b"MZ").unwrap();
+
+        let resolved = resolve_executable(&root, None, None, Some("bin/game.exe"), "Game").unwrap();
+        let cwd = launch_working_directory(&root, &resolved, db::SOURCE_LUDEX);
+        assert_eq!(canonical(&cwd), canonical(&root));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// #160 end-to-end: the resolved nested executable really runs, from its
+    /// own folder, with the launch arguments, as a direct child (the process
+    /// the playtime watcher tracks is the game, not a wrapper).
+    #[cfg(unix)]
+    #[test]
+    fn a_nested_adopted_executable_launches_with_its_folder_as_cwd_and_args() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_root("spawn");
+        let installation = root.join("Installation");
+        let edition = installation.join("Uncharted Legacy of Thieves Collection");
+        std::fs::create_dir_all(&edition).unwrap();
+        let script = edition.join("launch.sh");
+        std::fs::write(
+            &script,
+            r#"#!/bin/sh
+out="$1"
+shift
+{
+  printf 'cwd=%s\n' "$(pwd -P)"
+  for arg in "$@"; do
+    printf 'arg=%s\n' "$arg"
+  done
+} > "$out"
+"#,
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&script).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&script, permissions).unwrap();
+
+        let stored = Path::new("Uncharted Legacy of Thieves Collection")
+            .join("launch.sh")
+            .to_string_lossy()
+            .to_string();
+        let executable = resolve_executable(
+            &installation,
+            None,
+            None,
+            Some(&stored),
+            "Uncharted: Legacy of Thieves Collection",
+        )
+        .unwrap();
+        let cwd = launch_working_directory(&installation, &executable, db::SOURCE_ADOPTED);
+
+        let output = root.join("launch.txt");
+        let args = format!("\"{}\" --windowed \"save slot\"", output.display());
+        let status = build_command(&executable, &cwd, Some(&args))
+            .unwrap()
+            .status()
+            .unwrap();
+        assert!(status.success(), "the fixture game exited with {status}");
+
+        let recorded = std::fs::read_to_string(&output).unwrap();
+        let expected_cwd = canonical(&edition).display().to_string();
+        assert!(
+            recorded.contains(&format!("cwd={expected_cwd}")),
+            "wrong working directory: {recorded}"
+        );
+        assert!(recorded.contains("arg=--windowed"), "{recorded}");
+        assert!(recorded.contains("arg=save slot"), "{recorded}");
 
         let _ = std::fs::remove_dir_all(&root);
     }

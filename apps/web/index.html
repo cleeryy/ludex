@@ -72,9 +72,17 @@
           root.style.colorScheme = mode;
           root.dataset.themeMode = mode;
 
-          var locale = localStorage.getItem("ludex.locale") || "en";
+          // Right-to-left base languages. Kept as a literal so this script stays
+          // synchronous and dependency-free; `scripts/i18n.mjs` fails the build
+          // when this list and src/locales/manifest.json disagree.
+          var LUDEX_RTL_LOCALES = ["ar", "he", "fa", "ur"];
+          var search = typeof location === "undefined" ? "" : location.search + location.hash;
+          var override = /[?&]lang=([A-Za-z-]{2,16})/.exec(search);
+          var locale = (override && override[1]) || localStorage.getItem("ludex.locale") || "en";
+          var base = String(locale).split("-")[0].toLowerCase();
           root.lang = locale;
-          root.dir = locale === "ar" ? "rtl" : "ltr";
+          root.dir = LUDEX_RTL_LOCALES.indexOf(base) === -1 ? "ltr" : "rtl";
+          root.dataset.locale = locale;
         } catch (e) {}
       })();
     </script>

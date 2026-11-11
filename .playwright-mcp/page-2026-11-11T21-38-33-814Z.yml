@@ -1,0 +1,46 @@
+- generic [ref=f9e2]:
+  - generic [ref=f9e151]:
+    - complementary [ref=f9e152]:
+      - generic [ref=f9e153]:
+        - img "Ludex" [ref=f9e154]
+        - generic [ref=f9e163]: Self-hosted
+      - generic [ref=f9e240]:
+        - paragraph [ref=f9e241]: The shelf you actually own.
+        - paragraph [ref=f9e242]: Ludex indexes the archives on your server and serves them to your machines. No storefront, no account anywhere else.
+    - main [ref=f9e243]:
+      - generic [ref=f9e247]:
+        - generic [ref=f9e248]:
+          - heading "Sign in" [level=1] [ref=f9e249]
+          - paragraph [ref=f9e250]:
+            - generic [ref=f9e251]: Ludex Archive
+            - generic [ref=f9e253]: v0.1.0
+        - generic [ref=f9e254]:
+          - button "Sign in with Authentik" [ref=f9e255] [cursor=pointer]
+          - generic [ref=f9e259]: or use a password
+        - generic [ref=f9e263]:
+          - generic [ref=f9e264]:
+            - generic [ref=f9e265]: Username
+            - textbox "Username" [active] [ref=f9e267]:
+              - /placeholder: Your username
+          - generic [ref=f9e268]:
+            - generic [ref=f9e269]: Password
+            - textbox "Password" [ref=f9e271]:
+              - /placeholder: Your password
+        - button "Sign in" [ref=f9e272] [cursor=pointer]
+        - generic [ref=f9e275]:
+          - paragraph [ref=f9e276]: Demo data is on. Sign in as mara with the password ludex, or use the single sign-on button.
+          - button "Fill demo credentials" [ref=f9e277] [cursor=pointer]
+      - generic [ref=f9e278]:
+        - generic [ref=f9e279]: v0.1.0
+        - link "AGPL-3.0" [ref=f9e280] [cursor=pointer]:
+          - /url: https://github.com/cleeryy/ludex/blob/main/LICENSE
+  - region "Notifications"
+  - status [ref=f9e281]:
+    - generic [ref=f9e282]:
+      - generic [ref=f9e286]:
+        - paragraph [ref=f9e287]: Install Ludex
+        - paragraph [ref=f9e288]: Keep the shell on your home screen and open the library full screen, even offline.
+        - generic [ref=f9e289]:
+          - button "Install" [ref=f9e290] [cursor=pointer]
+          - button "Not now" [ref=f9e294] [cursor=pointer]
+      - button "Dismiss" [ref=f9e295] [cursor=pointer]

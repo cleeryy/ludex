@@ -2901,6 +2901,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid 1.29.2",
+ "windows",
  "zip 2.6.1",
 ]
 

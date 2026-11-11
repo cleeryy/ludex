@@ -37,6 +37,9 @@ import type {
   InstalledGame,
   LibraryFile,
   LibraryStats,
+  MetadataApplyInput,
+  MetadataCandidate,
+  MetadataCandidates,
   MetadataProvider,
   MetadataProviderInput,
   NewsPost,
@@ -98,6 +101,8 @@ function clone<T>(value: T): T {
 /* --------------------------------- state --------------------------------- */
 
 let games: GameDetail[] = clone(DEMO_GAMES);
+/** Fields edited by hand in the demo, mirroring `games.manual_fields_json` (#135). */
+const manualFields = new Map<number, Set<string>>();
 let users: User[] = loadUsers();
 let passwords = new Map<number, string>();
 let news: NewsPost[] = clone(DEMO_NEWS);
@@ -733,6 +738,62 @@ function demoUserAchievements(
   };
 }
 
+/**
+ * Demo candidates for the manual match dialog (#135): the current record plus
+ * an IGDB and a Steam alternative, so the dialog can be reviewed in the demo.
+ */
+function demoCandidates(game: GameDetail): MetadataCandidate[] {
+  const year = game.releaseDate ? Number(game.releaseDate.slice(0, 4)) : null;
+  const currentSlug = game.provider?.slug ?? "demo";
+  return [
+    {
+      provider: currentSlug,
+      providerName: currentSlug === "demo" ? "Ludex demo" : currentSlug.toUpperCase(),
+      providerId: game.provider?.id ?? `demo-${game.id}`,
+      providerUrl: game.provider?.url ?? null,
+      title: game.title,
+      year,
+      coverUrl: game.coverUrl,
+      summary: game.description,
+      developers: game.developers,
+      platforms: ["Windows"],
+      score: 1000,
+      confidence: 1,
+      selected: true,
+    },
+    {
+      provider: "igdb",
+      providerName: "IGDB",
+      providerId: `igdb-${game.id}`,
+      providerUrl: `https://www.igdb.com/games/${game.id}`,
+      title: game.title,
+      year: year ? year - 7 : null,
+      coverUrl: game.coverUrl,
+      summary: `${game.title} — demo IGDB record used by the web demo build.`,
+      developers: game.developers,
+      platforms: ["PC (Microsoft Windows)", "PlayStation 5"],
+      score: 940,
+      confidence: 0.81,
+      selected: currentSlug === "igdb" && game.provider?.id === `igdb-${game.id}`,
+    },
+    {
+      provider: "steam",
+      providerName: "Steam",
+      providerId: String(100_000 + game.id),
+      providerUrl: `https://store.steampowered.com/app/${100_000 + game.id}`,
+      title: `${game.title} Demo`,
+      year,
+      coverUrl: game.coverUrl,
+      summary: "Steam demo record used by the web demo build.",
+      developers: game.developers,
+      platforms: ["Windows", "Linux"],
+      score: 700,
+      confidence: 0.6,
+      selected: currentSlug === "steam" && game.provider?.id === String(100_000 + game.id),
+    },
+  ];
+}
+
 export const mockApi = {
   async setupStatus(): Promise<SetupStatus> {
     await latency();
@@ -872,6 +933,24 @@ export const mockApi = {
     if (players !== undefined) game.maxPlayers = players;
     if (launch) game.launch = { ...game.launch, ...launch };
     if (patch.title) game.sortTitle = patch.title.toLowerCase();
+    // #135: remember hand edits so a later provider match can preserve them.
+    const marked = manualFields.get(id) ?? new Set<string>();
+    const tracked: Array<[keyof GamePatch, string]> = [
+      ["title", "title"],
+      ["releaseDate", "releaseDate"],
+      ["description", "description"],
+      ["genres", "genres"],
+      ["developers", "developers"],
+      ["publishers", "publishers"],
+      ["rating", "rating"],
+      ["ageRating", "ageRating"],
+      ["altTitles", "altTitles"],
+      ["players", "players"],
+    ];
+    for (const [key, field] of tracked) {
+      if (patch[key] !== undefined) marked.add(field);
+    }
+    if (marked.size) manualFields.set(id, marked);
     return clone(game);
   },
 
@@ -881,6 +960,65 @@ export const mockApi = {
     if (user.role === "user") fail(403, "forbidden", "Editor role required");
     if (!games.some((g) => g.id === id)) fail(404, "game_not_found", "That game is not in the library");
     return { queued: true };
+  },
+
+  /** Manual metadata match (#135): demo candidates derived from the game. */
+  async metadataCandidates(
+    token: string | null,
+    id: number,
+    params: { q?: string; provider?: string; year?: number },
+  ): Promise<MetadataCandidates> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role === "user") fail(403, "forbidden", "Editor role required");
+    const game = visibleGames().find((g) => g.id === id);
+    if (!game) fail(404, "game_not_found", "That game is not in the library");
+    const query = (params.q ?? game.title).trim();
+    if (!query) fail(400, "invalid_query", "The search query is required");
+    const all = demoCandidates(game);
+    const candidates = all
+      .filter((candidate) => !params.provider || candidate.provider === params.provider)
+      .sort((a, b) => b.score - a.score);
+    const providers = [...new Set(all.map((candidate) => candidate.provider))].map((slug) => ({
+      slug,
+      name: all.find((candidate) => candidate.provider === slug)?.providerName ?? slug,
+      ok: true,
+      error: null,
+      candidates: all.filter((candidate) => candidate.provider === slug).length,
+      elapsedMs: 42,
+    }));
+    return {
+      query,
+      gameId: id,
+      manualFields: [...(manualFields.get(id) ?? [])],
+      candidates,
+      providers,
+    };
+  },
+
+  async applyMetadata(token: string | null, id: number, body: MetadataApplyInput): Promise<GameDetail> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role === "user") fail(403, "forbidden", "Editor role required");
+    const game = games.find((g) => g.id === id);
+    if (!game) fail(404, "game_not_found", "That game is not in the library");
+    const candidate = demoCandidates(game).find(
+      (entry) => entry.provider === body.provider && entry.providerId === body.providerId,
+    );
+    if (!candidate) fail(404, "metadata_candidate_not_found", "The provider no longer returns this record");
+    const marked = manualFields.get(id);
+    const keep = (field: string) => !body.replaceManual && (marked?.has(field) ?? false);
+    if (!keep("title")) {
+      game.title = candidate.title;
+      game.sortTitle = candidate.title.toLowerCase();
+    }
+    if (!keep("releaseDate") && candidate.year) game.releaseDate = `${candidate.year}-01-01T00:00:00Z`;
+    if (!keep("description")) game.description = candidate.summary;
+    if (!keep("developers")) game.developers = candidate.developers;
+    game.coverUrl = candidate.coverUrl ?? game.coverUrl;
+    game.provider = { slug: candidate.provider, id: candidate.providerId, url: candidate.providerUrl };
+    if (body.replaceManual) manualFields.delete(id);
+    return clone(game);
   },
 
   async setProgress(token: string | null, id: number, state: ProgressState) {

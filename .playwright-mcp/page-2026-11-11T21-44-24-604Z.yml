@@ -1,0 +1,38 @@
+- generic [ref=f22e2]:
+  - generic [ref=f22e3]:
+    - banner [ref=f22e4]:
+      - img "Ludex" [ref=f22e5]
+      - generic [ref=f22e14]: Big Picture
+      - generic [ref=f22e15]:
+        - button "2 downloading 64%" [ref=f22e16] [cursor=pointer]:
+          - generic [ref=f22e20]: 2 downloading
+          - generic [ref=f22e21]: 64%
+        - button "Big Picture layout — Grid" [ref=f22e22] [cursor=pointer]:
+          - generic [ref=f22e28]: Grid
+        - generic [ref=f22e31]: 22:44
+        - button "Exit" [ref=f22e32] [cursor=pointer]
+    - main [ref=f22e36]
+    - contentinfo [ref=f22e59]:
+      - generic [ref=f22e60]:
+        - generic [ref=f22e61]: ←
+        - generic [ref=f22e62]: →
+        - text: shelf
+      - generic [ref=f22e63]:
+        - generic [ref=f22e64]: ↑
+        - generic [ref=f22e65]: ↓
+        - text: select
+      - generic [ref=f22e66]:
+        - generic [ref=f22e67]: "["
+        - generic [ref=f22e68]: "]"
+        - text: shelf
+      - generic [ref=f22e69]:
+        - generic [ref=f22e70]: ↵
+        - text: play or install
+      - generic [ref=f22e71]:
+        - generic [ref=f22e72]: L
+        - text: layout
+      - generic [ref=f22e73]:
+        - generic [ref=f22e74]: esc
+        - text: exit
+      - generic [ref=f22e75]: Keyboard only — connect a controller for couch navigation
+  - region "Notifications"

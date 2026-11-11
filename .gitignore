@@ -16,6 +16,11 @@ apps/desktop/src-tauri/icons/*.png.bak
 
 # Runtime data (repo root only — do not ignore apps/web/src/data)
 /data/
+# The save-root registry is source data (#146), not runtime state.
+!/data/
+/data/*
+!/data/save-roots.yaml
+!/data/save-overrides.yaml
 /media/
 /games/
 *.db

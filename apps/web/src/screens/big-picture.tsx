@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion, useReducedMotion } from "motion/react";
-import { Download, Gamepad2, Play, RefreshCw, X } from "lucide-react";
+import { useReducedMotion } from "motion/react";
+import { Download, Play, RefreshCw, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { downloadGame } from "@/lib/download";
 import { errorMessage } from "@/lib/http";
-import { formatBytes, formatMinutes, formatRating, formatRelative, formatYear, stateLabel, formatPercent } from "@/lib/format";
+import { formatPercent } from "@/lib/format";
 import { isNative } from "@/lib/native";
 import { useAllGames, useInstalledMap, useLaunchGame } from "@/lib/hooks";
 import { useGamepad, gamepadDebugEnabled, type GamepadAction } from "@/lib/gamepad";
@@ -16,23 +16,25 @@ import { useDownloads } from "@/state/downloads";
 import { useSettings } from "@/state/settings";
 import { useToast } from "@/state/toasts";
 import { Wordmark } from "@/components/brand";
-import { ArtPlate, GameCover } from "@/components/art/cover";
 import { InstallDialog } from "@/components/game/install-dialog";
-import { Button, Kbd, Skeleton } from "@/components/ui/controls";
+import { Button } from "@/components/ui/controls";
+import { ENTRANCE_MS } from "@/components/big-picture/entrance";
+import { CompactLayout } from "@/components/big-picture/layout-compact";
+import { GridLayout } from "@/components/big-picture/layout-grid";
+import { HeroLayout } from "@/components/big-picture/layout-hero";
+import { ShelfLayout } from "@/components/big-picture/layout-shelf";
+import { LayoutSkeleton } from "@/components/big-picture/layout-skeleton";
+import { LayoutPicker, LayoutTrigger } from "@/components/big-picture/layout-switcher";
 import {
-  BACKDROP_CUE,
-  CARD_CUE,
-  COPY_CUE,
-  ENTRANCE_MS,
-  HEADER_CUE,
-  HERO_CUE,
-  cardDelay,
-  reveal,
-} from "@/components/big-picture/entrance";
-import { cn } from "@/lib/cn";
-import { t , tn } from "@/lib/i18n";
-
-const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+  BIG_PICTURE_LAYOUTS,
+  gridColumns,
+  type BigPictureLayout,
+} from "@/components/big-picture/layout";
+import { jobPercent, type BigPictureLayoutProps } from "@/components/big-picture/model";
+import { useBigPictureNavigation, type BigPictureShelf } from "@/components/big-picture/navigation";
+import { BigPictureFooter } from "@/components/big-picture/parts";
+import { useBigPictureLayout, useViewportWidth } from "@/components/big-picture/use-layout";
+import { t, tn } from "@/lib/i18n";
 
 /** Ask the server once per open; a quick round trip through the route is free. */
 const REFRESH_ON_OPEN_MS = 10_000;
@@ -41,8 +43,11 @@ const REFRESH_ON_FOCUS_MS = 30_000;
 let lastRefreshAt = 0;
 
 /**
- * Big Picture: the same archive language at ten feet. Full-screen, dark, one
- * shelf at a time, driven by arrows, Enter and a gamepad.
+ * Big Picture: the same archive language at ten feet (#141). One screen, four
+ * layouts — shelf, hero, cover grid and compact list — driven by the same
+ * selection model, the same keys and the same gamepad buttons. The layout is a
+ * device preference: it lives in `localStorage` (see `use-layout.ts`) and
+ * applies from here, from the quick switcher or from Settings → Appearance.
  */
 export function BigPictureScreen() {
   const navigate = useNavigate();
@@ -51,16 +56,22 @@ export function BigPictureScreen() {
   const debug = gamepadDebugEnabled(location.search);
   const { push } = useToast();
   const queryClient = useQueryClient();
-  const { data, isPending, isFetching } = useAllGames();
+  const { data, isPending, isError, error, isFetching, refetch } = useAllGames();
   const installed = useInstalledMap();
   const downloads = useDownloads();
   const launch = useLaunchGame();
-  const [shelfIndex, setShelfIndex] = useState(0);
-  const [index, setIndex] = useState(0);
+  const [layout, setLayout] = useBigPictureLayout();
   const [installOpen, setInstallOpen] = useState(false);
   const [clock, setClock] = useState(() => new Date());
   const [entranceDone, setEntranceDone] = useState(false);
+  const [layoutTouched, setLayoutTouched] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerIndex, setPickerIndex] = useState(0);
+  // Mirror of the highlight that is always in step with the last key press:
+  // a fast A after two d-pad clicks must apply the card that is on screen.
+  const pickerIndexRef = useRef(0);
   const reduceMotion = useReducedMotion();
+  const columns = gridColumns(useViewportWidth());
 
   // Big Picture is watched from a couch: the provider lifts text to 7:1 and
   // widens the focus ring while this screen is mounted (#140).
@@ -71,7 +82,7 @@ export function BigPictureScreen() {
 
   const games = data?.items ?? [];
 
-  const shelves = useMemo(() => {
+  const shelves = useMemo<BigPictureShelf[]>(() => {
     const recent = games
       .filter((game) => game.lastPlayedAt)
       .sort((a, b) => Date.parse(b.lastPlayedAt ?? "") - Date.parse(a.lastPlayedAt ?? ""));
@@ -81,9 +92,14 @@ export function BigPictureScreen() {
     ].filter((shelf) => shelf.games.length > 0);
   }, [games]);
 
-  const shelf = shelves[Math.min(shelfIndex, shelves.length - 1)];
-  const shelfGames = shelf?.games ?? [];
-  const selected = shelfGames[Math.min(index, shelfGames.length - 1)];
+  const nav = useBigPictureNavigation({
+    shelves,
+    layout,
+    columns,
+    data: data?.items,
+    reduceMotion,
+  });
+  const selected = nav.selected;
 
   const detail = useQuery({
     queryKey: ["game", selected?.id],
@@ -94,7 +110,7 @@ export function BigPictureScreen() {
   const version = detail.data?.versions[0];
   const installedGame = selected ? installed.get(selected.id) : undefined;
   const job = selected ? downloads.jobForGame(selected.id) : undefined;
-  const pct = job?.bytesTotal ? Math.min(100, (job.bytesDone / job.bytesTotal) * 100) : job ? 0 : null;
+  const percent = jobPercent(job);
 
   useEffect(() => {
     const timer = setInterval(() => setClock(new Date()), 30_000);
@@ -155,7 +171,8 @@ export function BigPictureScreen() {
 
   // The cascade is for the first paint that actually shows a game: a cold
   // skeleton never eats the entrance. Cards that arrive later (a shelf switch,
-  // or a refresh adding an entry) mount settled instead of replaying it.
+  // a refresh adding an entry or a layout switch) mount settled instead of
+  // replaying it.
   const ready = Boolean(selected);
   useEffect(() => {
     if (!ready) return;
@@ -209,66 +226,28 @@ export function BigPictureScreen() {
     };
   }, [push]);
 
-  const selectedIdRef = useRef<number | null>(null);
-
-  // A refresh can reorder "Recently played" or drop a title. Follow the selected
-  // game to its new slot; fall back to the first card only when it is gone.
-  // Layout effect so a stale slot never paints before the correction.
-  useLayoutEffect(() => {
-    const previous = selectedIdRef.current;
-    setIndex((current) => {
-      if (previous !== null) {
-        const position = shelfGames.findIndex((game) => game.id === previous);
-        return shelfGames[current]?.id === previous ? current : position === -1 ? 0 : position;
-      }
-      return clamp(current, 0, Math.max(0, shelfGames.length - 1));
-    });
-  }, [data]);
-
-  // Runs after the sync above: the ref always holds the game on screen.
-  useLayoutEffect(() => {
-    selectedIdRef.current = selected?.id ?? null;
-  }, [selected?.id]);
-
-  const railRef = useRef<HTMLDivElement>(null);
-  const cardRefs = useRef<Array<HTMLButtonElement | null>>([]);
-
-  useEffect(() => {
-    cardRefs.current[index]?.scrollIntoView({
-      behavior: reduceMotion ? "auto" : "smooth",
-      inline: "center",
-      block: "nearest",
-    });
-  }, [index, shelfIndex, reduceMotion]);
-
   const exit = () => {
     if (window.history.length > 1) navigate(-1);
     else navigate("/");
   };
 
-  const move = (delta: number) => setIndex((current) => clamp(current + delta, 0, shelfGames.length - 1));
-  const switchShelf = (delta: number) => {
-    if (shelves.length < 2) return;
-    setShelfIndex((current) => {
-      const next = clamp(current + delta, 0, shelves.length - 1);
-      setIndex(0);
-      return next;
-    });
-  };
-
-  const download = async () => {
+  const download = useCallback(async () => {
     if (!selected) return;
     try {
       await downloadGame(selected.id, version?.id);
     } catch (cause) {
       push({ title: t("Download did not start"), description: errorMessage(cause), tone: "danger" });
     }
-  };
+  }, [selected, version?.id, push]);
 
   const confirm = () => {
     if (!selected) return;
     if (installedGame) {
-      launch.mutate({ id: selected.id, title: selected.title, executable: installedGame.executable ?? detail.data?.launch.executable });
+      launch.mutate({
+        id: selected.id,
+        title: selected.title,
+        executable: installedGame.executable ?? detail.data?.launch.executable,
+      });
     } else if (job) {
       navigate("/downloads");
     } else if (isNative()) {
@@ -278,108 +257,187 @@ export function BigPictureScreen() {
     }
   };
 
-  const actions = useRef({ left: () => {}, right: () => {}, up: () => {}, down: () => {}, confirm: () => {}, back: () => {}, downloads: () => {} });
-  actions.current = {
-    left: () => move(-1),
-    right: () => move(1),
-    up: () => switchShelf(-1),
-    down: () => switchShelf(1),
+  /* ------------------------------ the layout ------------------------------ */
+
+  const highlightPicker = useCallback((index: number) => {
+    pickerIndexRef.current = index;
+    setPickerIndex(index);
+  }, []);
+  const openPicker = () => {
+    highlightPicker(Math.max(0, BIG_PICTURE_LAYOUTS.indexOf(layout)));
+    setPickerOpen(true);
+  };
+  const closePicker = () => setPickerOpen(false);
+  const togglePicker = () => (pickerOpen ? closePicker() : openPicker());
+
+  const applyLayout = (next: BigPictureLayout) => {
+    setPickerOpen(false);
+    if (next === layout) return;
+    setLayout(next);
+    // A manual switch must not replay the #142 cascade: the new view mounts
+    // settled, keeping the entrance to one per open.
+    setLayoutTouched(true);
+  };
+  const movePicker = (delta: number) => {
+    const count = BIG_PICTURE_LAYOUTS.length;
+    highlightPicker((((pickerIndexRef.current + delta) % count) + count) % count);
+  };
+
+  // One action map for the keyboard and the pad. Movement and shelf changes go
+  // through the navigation hook, so a layout switch never re-wires them.
+  const controls = useRef({
+    left: () => {},
+    right: () => {},
+    up: () => {},
+    down: () => {},
+    prevShelf: () => {},
+    nextShelf: () => {},
+    confirm: () => {},
+    back: () => {},
+    downloads: () => {},
+    menu: () => {},
+    applyPicker: () => {},
+    movePicker: (_delta: number) => {},
+    closePicker: () => {},
+  });
+  controls.current = {
+    left: nav.actions.left,
+    right: nav.actions.right,
+    up: nav.actions.up,
+    down: nav.actions.down,
+    prevShelf: nav.actions.prevShelf,
+    nextShelf: nav.actions.nextShelf,
     confirm,
     back: exit,
     downloads: () => navigate("/downloads"),
+    menu: openPicker,
+    applyPicker: () => applyLayout(BIG_PICTURE_LAYOUTS[pickerIndexRef.current] ?? layout),
+    movePicker,
+    closePicker,
   };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
-      if (event.key === "ArrowLeft") {
+      const key = event.key;
+
+      // The quick switcher owns the arrows while it is open, so a stray Enter
+      // never launches a game behind it.
+      if (pickerOpen) {
+        if (key === "ArrowLeft") {
+          event.preventDefault();
+          controls.current.movePicker(-1);
+        } else if (key === "ArrowRight") {
+          event.preventDefault();
+          controls.current.movePicker(1);
+        } else if (key === "Enter") {
+          event.preventDefault();
+          controls.current.applyPicker();
+        } else if (key === "Escape" || key.toLowerCase() === "l") {
+          event.preventDefault();
+          controls.current.closePicker();
+        }
+        return;
+      }
+
+      if (key === "ArrowLeft") {
         event.preventDefault();
-        actions.current.left();
-      } else if (event.key === "ArrowRight") {
+        controls.current.left();
+      } else if (key === "ArrowRight") {
         event.preventDefault();
-        actions.current.right();
-      } else if (event.key === "ArrowUp") {
+        controls.current.right();
+      } else if (key === "ArrowUp") {
         event.preventDefault();
-        actions.current.up();
-      } else if (event.key === "ArrowDown") {
+        controls.current.up();
+      } else if (key === "ArrowDown") {
         event.preventDefault();
-        actions.current.down();
-      } else if (event.key === "Enter") {
+        controls.current.down();
+      } else if (key === "Enter") {
         event.preventDefault();
-        actions.current.confirm();
-      } else if (event.key === "Escape" || event.key === "Backspace") {
+        controls.current.confirm();
+      } else if (key === "Escape" || key === "Backspace") {
         event.preventDefault();
-        actions.current.back();
-      } else if (event.key.toLowerCase() === "d") {
-        actions.current.downloads();
+        controls.current.back();
+      } else if (key === "[") {
+        event.preventDefault();
+        controls.current.prevShelf();
+      } else if (key === "]") {
+        event.preventDefault();
+        controls.current.nextShelf();
+      } else if (key.toLowerCase() === "d") {
+        controls.current.downloads();
+      } else if (key.toLowerCase() === "l") {
+        event.preventDefault();
+        controls.current.menu();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [pickerOpen]);
 
-  // Gamepad: d-pad/stick moves, A confirms, B exits, Y opens downloads and the
-  // shoulders change shelf (the same action as up/down). Back and downloads
-  // stay live on the empty shelf; movement needs a selected game.
+  // Gamepad: d-pad/stick moves, A confirms, B exits, X opens the layout
+  // switcher, Y opens downloads and the shoulders change shelf (the same
+  // actions as the arrows). Back, X and downloads stay live on an empty shelf.
   const onGamepad = (action: GamepadAction) => {
+    if (pickerOpen) {
+      if (action === "back" || action === "menu") return closePicker();
+      if (action === "confirm") return applyLayout(BIG_PICTURE_LAYOUTS[pickerIndexRef.current] ?? layout);
+      if (action === "left") return movePicker(-1);
+      if (action === "right") return movePicker(1);
+      return;
+    }
+
     if (action === "back") return exit();
     if (action === "downloads") return navigate("/downloads");
+    if (action === "menu") return openPicker();
+    if (action === "prevTab") return nav.actions.prevShelf();
+    if (action === "nextTab") return nav.actions.nextShelf();
     if (!selected) return;
-    if (action === "left") move(-1);
-    else if (action === "right") move(1);
-    else if (action === "up" || action === "prevTab") switchShelf(-1);
-    else if (action === "down" || action === "nextTab") switchShelf(1);
+    if (action === "left") nav.actions.left();
+    else if (action === "right") nav.actions.right();
+    else if (action === "up") nav.actions.up();
+    else if (action === "down") nav.actions.down();
     else if (action === "confirm") confirm();
   };
   const controllerProfile = useControllerProfile(selected?.id ?? null);
   const gamepad = useGamepad(onGamepad, { profile: controllerProfile, debug });
 
+  // After a layout switch the ring must come back to the same game. Only when
+  // the pad owns focus: a mouse click on the switcher keeps its own focus.
+  const lastLayout = useRef(layout);
+  useEffect(() => {
+    if (lastLayout.current === layout) return;
+    lastLayout.current = layout;
+    if (!gamepad.connected) return;
+    const active = document.activeElement as HTMLElement | null;
+    const ownsFocus =
+      !active ||
+      active === document.body ||
+      active.hasAttribute("data-gamepad-focus") ||
+      active.closest("[data-gamepad-target]") !== null;
+    if (ownsFocus) nav.focusSelected();
+  }, [layout, gamepad.connected, nav]);
+
   const time = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(clock);
 
-  if (isPending) {
-    return (
-      <div className="flex h-dvh flex-col bg-bg-deep">
-        <div className="h-16 border-b border-line" />
-        <div className="flex flex-1 items-end p-10">
-          <Skeleton className="h-16 w-1/2" />
-        </div>
-        <div className="flex gap-3 border-t border-line p-6">
-          {Array.from({ length: 7 }).map((_, i) => (
-            <Skeleton key={i} className="aspect-[3/4] w-[132px]" />
-          ))}
-        </div>
-        {debug && <GamepadDebugPanel info={gamepad.debug} />}
-      </div>
-    );
-  }
-
-  if (!selected) {
-    return (
-      <div className="flex h-dvh flex-col items-center justify-center gap-5 bg-bg-deep text-center">
-        <Wordmark height={22} />
-        <p className="text-[15px] text-ink-2">{t("The library is empty. Add a game first.")}</p>
-        <Button variant="primary" onClick={exit}>
-          {t("Exit Big Picture")}
-        </Button>
-        {debug && <GamepadDebugPanel info={gamepad.debug} />}
-      </div>
-    );
-  }
-
-  const primary = installedGame ? (
+  const primary = !selected ? null : installedGame ? (
     <Button
       variant="primary"
       size="lg"
       icon={<Play className="size-4" />}
       onClick={() =>
-        launch.mutate({ id: selected.id, title: selected.title, executable: installedGame.executable ?? detail.data?.launch.executable })
+        launch.mutate({
+          id: selected.id,
+          title: selected.title,
+          executable: installedGame.executable ?? detail.data?.launch.executable,
+        })
       }
     >
       {t("Play")}
     </Button>
   ) : job ? (
     <Button variant="default" size="lg" icon={<Download className="size-4" />} onClick={() => navigate("/downloads")}>
-      {t("Installing {percent}", { percent: pct !== null ? formatPercent(pct) : "" })}
+      {t("Installing {percent}", { percent: percent !== null ? formatPercent(percent) : "" })}
     </Button>
   ) : isNative() ? (
     <Button variant="primary" size="lg" icon={<Download className="size-4" />} disabled={!version} onClick={() => setInstallOpen(true)}>
@@ -391,14 +449,63 @@ export function BigPictureScreen() {
     </Button>
   );
 
+  const viewProps: BigPictureLayoutProps = {
+    nav,
+    layout,
+    columns,
+    reduceMotion,
+    settled: entranceDone || layoutTouched,
+    detail: detail.data,
+    installed,
+    job,
+    percent,
+    primary,
+    onOpenGame: (gameId) => navigate(`/game/${gameId}`),
+    jobFor: downloads.jobForGame,
+  };
+
+  const body = isPending ? (
+    <LayoutSkeleton layout={layout} columns={columns} />
+  ) : isError && games.length === 0 ? (
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+      <Wordmark height={22} />
+      <p className="text-[15px] text-ink-2">{t("The library could not be loaded.")}</p>
+      <p className="max-w-[56ch] font-mono text-[11px] leading-relaxed text-ink-3">{errorMessage(error)}</p>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <Button variant="primary" onClick={() => void refetch()}>
+          {t("Try again")}
+        </Button>
+        <Button variant="default" onClick={exit}>
+          {t("Exit Big Picture")}
+        </Button>
+      </div>
+    </div>
+  ) : !selected ? (
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 px-6 text-center">
+      <Wordmark height={22} />
+      <p className="text-[15px] text-ink-2">{t("The library is empty. Add a game first.")}</p>
+      <Button variant="primary" onClick={exit}>
+        {t("Exit Big Picture")}
+      </Button>
+    </div>
+  ) : layout === "hero" ? (
+    <HeroLayout {...viewProps} />
+  ) : layout === "grid" ? (
+    <GridLayout {...viewProps} />
+  ) : layout === "compact" ? (
+    <CompactLayout {...viewProps} />
+  ) : (
+    <ShelfLayout {...viewProps} />
+  );
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-bg-deep text-ink">
       <div className="grain" aria-hidden="true" />
 
-      <header className="relative z-10 flex h-16 shrink-0 items-center gap-4 border-b border-line px-6 lg:px-8">
+      <header className="relative z-20 flex h-16 shrink-0 items-center gap-4 border-b border-line px-5 lg:px-7">
         <Wordmark height={17} />
         <span className="hidden font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3 sm:inline">{t("Big Picture")}</span>
-        {isFetching && (
+        {!isPending && isFetching && (
           <span
             role="status"
             className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3"
@@ -421,169 +528,32 @@ export function BigPictureScreen() {
               )}
             </button>
           )}
-          <span className="num text-[12px] text-ink-2">{time}</span>
+          <LayoutTrigger layout={layout} open={pickerOpen} onToggle={togglePicker} />
+          <span className="num hidden text-[12px] text-ink-2 sm:inline">{time}</span>
           <Button variant="ghost" size="sm" icon={<X className="size-3.5" />} onClick={exit}>
             {t("Exit")}
           </Button>
         </div>
       </header>
 
-      <main className="relative z-10 flex min-h-0 flex-1 flex-col">
-        <section className="relative flex min-h-0 flex-1 items-center overflow-hidden">
-          <motion.div className="absolute inset-0" {...reveal(reduceMotion, BACKDROP_CUE)}>
-            <ArtPlate
-              title={selected.title}
-              artUrl={detail.data?.backgroundUrl ?? selected.backgroundUrl}
-              className="h-full w-full"
-            />
-          </motion.div>
-          <div className="absolute inset-0 bp-shade" />
+      <main className="relative z-10 flex min-h-0 flex-1 flex-col">{body}</main>
 
-          <div className="relative flex w-full items-center gap-6 px-6 py-6 lg:gap-10 lg:px-12">
-            <motion.div
-              className="w-[148px] shrink-0 sm:w-[200px] lg:w-[264px] xl:w-[296px]"
-              {...reveal(reduceMotion, HERO_CUE)}
-            >
-              <div className="shadow-hero">
-                <GameCover
-                  title={selected.title}
-                  coverUrl={selected.coverUrl}
-                  index={selected.id}
-                  year={formatYear(selected.releaseDate)}
-                  genre={selected.genres[0]}
-                />
-              </div>
-            </motion.div>
-
-            <motion.div
-              className="flex min-w-0 flex-1 flex-col gap-3"
-              {...reveal(reduceMotion, COPY_CUE)}
-            >
-              <span className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-signal">
-                <span className="h-px w-8 bg-signal" aria-hidden="true" />
-                {selected.lastPlayedAt ? t("Continue playing") : t("From the library")}
-              </span>
-              <h1 className="max-w-[20ch] text-[clamp(2rem,4.4vw,4.35rem)] font-semibold leading-[0.92] tracking-[-0.04em] text-stage-ink">
-                {selected.title}
-              </h1>
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-[11px] text-stage-ink-2">
-                <span>{formatYear(selected.releaseDate)}</span>
-                <span>{stateLabel(selected.state)}</span>
-                {formatRating(selected.rating) && <span>{formatRating(selected.rating)} / 100</span>}
-                {formatMinutes(selected.minutesPlayed) && <span>{t("{duration} played", { duration: formatMinutes(selected.minutesPlayed) ?? "" })}</span>}
-                {selected.lastPlayedAt && <span>{t("Last played")} {formatRelative(selected.lastPlayedAt)}</span>}
-                {installedGame && <span className="text-stage-ok">{t("Installed")}</span>}
-              </div>
-              {detail.data?.description && (
-                <p className="line-clamp-2 max-w-[64ch] text-[14px] leading-relaxed text-stage-ink-2">{detail.data.description}</p>
-              )}
-              {job && (
-                <p className="flex flex-wrap items-baseline gap-x-3 font-mono text-[10.5px] text-stage-ink-2">
-                  <span className="text-signal">{pct !== null ? formatPercent(pct) : t("Preparing")}</span>
-                  {job.bytesTotal && <span>{t("{done} of {total}", { done: formatBytes(job.bytesDone), total: formatBytes(job.bytesTotal) })}</span>}
-                  {job.speedBps > 0 && <span>{formatBytes(job.speedBps, 0)}/s</span>}
-                </p>
-              )}
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                {primary}
-                <Button variant="default" onClick={() => navigate(`/game/${selected.id}`)}>
-                  {t("Game page")}
-                </Button>
-              </div>
-            </motion.div>
-          </div>
-        </section>
-
-        <section className="relative shrink-0 border-t border-line px-4 pb-3 pt-4 lg:px-6" aria-label={t("Games")}>
-          <motion.div
-            className="mb-2 flex items-baseline justify-between px-2"
-            {...reveal(reduceMotion, HEADER_CUE)}
-          >
-            <span className="text-[12px] text-ink-3">{shelf?.label}</span>
-            <span className="num text-[10.5px] text-ink-3">
-              {index + 1} / {shelfGames.length}
-            </span>
-          </motion.div>
-          <div ref={railRef} className="nav-scroll flex gap-3 overflow-x-auto px-3 pb-3">
-            {shelfGames.map((game, position) => {
-              const isSelected = position === index;
-              return (
-                <motion.div
-                  key={game.id}
-                  className="shrink-0"
-                  {...reveal(reduceMotion, {
-                    ...CARD_CUE,
-                    delay: cardDelay(position),
-                    settled: entranceDone,
-                  })}
-                >
-                  <button
-                    type="button"
-                    ref={(element) => {
-                      cardRefs.current[position] = element;
-                    }}
-                    onClick={() => setIndex(position)}
-                    aria-current={isSelected ? "true" : undefined}
-                    aria-label={game.title}
-                    className={cn(
-                      "relative w-[118px] shrink-0 rounded-[2px] text-left transition-[transform,opacity] duration-150 lg:w-[132px]",
-                      isSelected ? "scale-[1.03] opacity-100" : "opacity-70 hover:opacity-100",
-                    )}
-                  >
-                    <GameCover title={game.title} coverUrl={game.coverUrl} index={game.id} showType={false} />
-                    {isSelected && (
-                      <span
-                        className="pointer-events-none absolute -inset-[4px] z-10 rounded-[2px] ring-2 ring-signal ring-offset-2 ring-offset-stage"
-                        aria-hidden="true"
-                      />
-                    )}
-                    <span className={cn("mt-2 block truncate text-[12px]", isSelected ? "text-ink" : "text-ink-3")}>
-                      {game.title}
-                    </span>
-                    <span className="num block text-[9.5px] text-ink-3">{formatYear(game.releaseDate)}</span>
-                    {installed.has(game.id) && (
-                      <span className="absolute left-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-ok" aria-hidden="true" />
-                    )}
-                  </button>
-                </motion.div>
-              );
-            })}
-          </div>
-        </section>
-
-        <footer className="relative flex h-10 shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-t border-line px-6 text-[10.5px] text-ink-3 lg:px-8">
-          <span className="flex items-center gap-1.5">
-            <Kbd>←</Kbd>
-            <Kbd>→</Kbd>
-            {t("select")}
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Kbd>↑</Kbd>
-            <Kbd>↓</Kbd>
-            {t("shelf")}
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Kbd>↵</Kbd>
-            {t("play or install")}
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Kbd>esc</Kbd>
-            {t("exit")}
-          </span>
-          <span className="ml-auto flex items-center gap-1.5">
-            <Gamepad2 className="size-3.5" aria-hidden="true" />
-            {gamepad.connected
-              ? t("Gamepad: stick or d-pad, A, B, Y, LB/RB shelf")
-              : t("Keyboard only — connect a controller for couch navigation")}
-          </span>
-        </footer>
-      </main>
+      <BigPictureFooter layout={layout} connected={gamepad.connected} />
 
       {version && detail.data && (
         <InstallDialog open={installOpen} onOpenChange={setInstallOpen} game={detail.data} version={version} />
       )}
-
       {debug && <GamepadDebugPanel info={gamepad.debug} />}
+      {pickerOpen && (
+        <LayoutPicker
+          layout={layout}
+          highlight={pickerIndex}
+          reduceMotion={reduceMotion}
+          onHighlight={highlightPicker}
+          onSelect={applyLayout}
+          onClose={closePicker}
+        />
+      )}
     </div>
   );
 }

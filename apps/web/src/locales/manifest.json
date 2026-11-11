@@ -5,7 +5,9 @@
     "englishLabel": "English",
     "dir": "ltr",
     "status": "official",
+    "tier": "source",
     "reviewed": true,
+    "file": "en.json",
     "intl": "en-GB"
   },
   {
@@ -14,34 +16,163 @@
     "englishLabel": "French",
     "dir": "ltr",
     "status": "official",
+    "tier": "top10",
     "reviewed": true,
+    "file": "fr.json",
     "intl": "fr-FR"
   },
   {
-    "code": "de",
-    "label": "Deutsch",
-    "englishLabel": "German",
+    "code": "zh-CN",
+    "label": "中文（简体）",
+    "englishLabel": "Simplified Chinese",
     "dir": "ltr",
-    "status": "community",
+    "status": "preview",
+    "tier": "top10",
     "reviewed": false,
-    "intl": "de-DE"
+    "file": "zh-CN.json",
+    "intl": "zh-CN"
+  },
+  {
+    "code": "ru",
+    "label": "Русский",
+    "englishLabel": "Russian",
+    "dir": "ltr",
+    "status": "preview",
+    "tier": "top10",
+    "reviewed": false,
+    "file": "ru.json",
+    "intl": "ru-RU"
   },
   {
     "code": "es",
     "label": "Español",
     "englishLabel": "Spanish",
     "dir": "ltr",
-    "status": "community",
+    "status": "preview",
+    "tier": "top10",
     "reviewed": false,
+    "file": "es.json",
     "intl": "es-ES"
+  },
+  {
+    "code": "pt-BR",
+    "label": "Português (Brasil)",
+    "englishLabel": "Portuguese (Brazil)",
+    "dir": "ltr",
+    "status": "preview",
+    "tier": "top10",
+    "reviewed": false,
+    "file": "pt-BR.json",
+    "intl": "pt-BR"
+  },
+  {
+    "code": "de",
+    "label": "Deutsch",
+    "englishLabel": "German",
+    "dir": "ltr",
+    "status": "preview",
+    "tier": "top10",
+    "reviewed": false,
+    "file": "de.json",
+    "intl": "de-DE"
+  },
+  {
+    "code": "ja",
+    "label": "日本語",
+    "englishLabel": "Japanese",
+    "dir": "ltr",
+    "status": "preview",
+    "tier": "top10",
+    "reviewed": false,
+    "file": "ja.json",
+    "intl": "ja-JP"
+  },
+  {
+    "code": "ko",
+    "label": "한국어",
+    "englishLabel": "Korean",
+    "dir": "ltr",
+    "status": "preview",
+    "tier": "top10",
+    "reviewed": false,
+    "file": "ko.json",
+    "intl": "ko-KR"
+  },
+  {
+    "code": "pl",
+    "label": "Polski",
+    "englishLabel": "Polish",
+    "dir": "ltr",
+    "status": "preview",
+    "tier": "top10",
+    "reviewed": false,
+    "file": "pl.json",
+    "intl": "pl-PL"
+  },
+  {
+    "code": "tr",
+    "label": "Türkçe",
+    "englishLabel": "Turkish",
+    "dir": "ltr",
+    "status": "preview",
+    "tier": "top10",
+    "reviewed": false,
+    "file": "tr.json",
+    "intl": "tr-TR"
+  },
+  {
+    "code": "it",
+    "label": "Italiano",
+    "englishLabel": "Italian",
+    "dir": "ltr",
+    "status": "preview",
+    "tier": "extended",
+    "reviewed": false,
+    "file": "it.json",
+    "intl": "it-IT"
+  },
+  {
+    "code": "nl",
+    "label": "Nederlands",
+    "englishLabel": "Dutch",
+    "dir": "ltr",
+    "status": "preview",
+    "tier": "extended",
+    "reviewed": false,
+    "file": "nl.json",
+    "intl": "nl-NL"
+  },
+  {
+    "code": "uk",
+    "label": "Українська",
+    "englishLabel": "Ukrainian",
+    "dir": "ltr",
+    "status": "preview",
+    "tier": "extended",
+    "reviewed": false,
+    "file": "uk.json",
+    "intl": "uk-UA"
   },
   {
     "code": "ar",
     "label": "العربية",
     "englishLabel": "Arabic",
     "dir": "rtl",
-    "status": "community",
+    "status": "preview",
+    "tier": "extended",
     "reviewed": false,
+    "file": "ar.json",
     "intl": "ar"
+  },
+  {
+    "code": "en-XA",
+    "label": "English (pseudo)",
+    "englishLabel": "Pseudo-locale",
+    "dir": "ltr",
+    "status": "pseudo",
+    "tier": "dev",
+    "reviewed": false,
+    "file": null,
+    "intl": "en-GB"
   }
 ]

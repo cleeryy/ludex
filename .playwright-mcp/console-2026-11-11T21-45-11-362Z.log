@@ -1,0 +1,84 @@
+[    3354ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[    3645ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5199/#/settings:0
+[    4642ms] [VERBOSE] [DOM] Password forms should have (optionally hidden) username fields for accessibility: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:5199/#/settings:0
+[    7949ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[    8274ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5199/#/bigpicture:0
+[   54666ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[   54798ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5199/#/bigpicture:0
+[   83002ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[   83137ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5199/#/bigpicture:0
+[  109322ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[  109408ms] Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5199/src/state/auth.tsx?t=1794433617654:168:21)
+    at DownloadsProvider (http://localhost:5199/src/state/downloads.tsx?t=1794433616601:37:20)
+    at Object.react_stack_bottom_frame (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:20259:20)
+    at renderWithHooks (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:5918:24)
+    at updateFunctionComponent (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7763:21)
+    at beginWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:8843:20)
+    at runWithFiberInDEV (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:1133:72)
+    at performUnitOfWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13598:98)
+    at workLoopSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13461:43)
+    at renderRootSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13445:13)
+[  109405ms] [WARNING] %s
+
+%s
+ An error occurred in the <DownloadsProvider> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7240
+[  109438ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5199/#/bigpicture:0
+[  117089ms] Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5199/src/state/auth.tsx?t=1794433616601:168:21)
+    at ConfigSyncDefaults (http://localhost:5199/src/app.tsx?t=1794433616601:290:20)
+    at Object.react_stack_bottom_frame (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:20259:20)
+    at renderWithHooks (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:5918:24)
+    at updateFunctionComponent (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7763:21)
+    at beginWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:8843:20)
+    at runWithFiberInDEV (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:1133:72)
+    at performUnitOfWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13598:98)
+    at workLoopSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13461:43)
+    at renderRootSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13445:13)
+[  117087ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConfigSyncDefaults> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7240
+[  117118ms] Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5199/src/state/auth.tsx?t=1794433616601:168:21)
+    at ConfigSyncDefaults (http://localhost:5199/src/app.tsx?t=1794433616601:290:20)
+    at Object.react_stack_bottom_frame (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:20259:20)
+    at renderWithHooks (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:5918:24)
+    at updateFunctionComponent (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7763:21)
+    at beginWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:8843:20)
+    at runWithFiberInDEV (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:1133:72)
+    at performUnitOfWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13598:98)
+    at workLoopSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13461:43)
+    at renderRootSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13445:13)
+[  117117ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConfigSyncDefaults> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7240
+[  205656ms] Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5199/src/state/auth.tsx?t=1794433616601:168:21)
+    at ConfigSyncDefaults (http://localhost:5199/src/app.tsx?t=1794433616601:290:20)
+    at Object.react_stack_bottom_frame (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:20259:20)
+    at renderWithHooks (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:5918:24)
+    at updateFunctionComponent (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7763:21)
+    at beginWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:8843:20)
+    at runWithFiberInDEV (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:1133:72)
+    at performUnitOfWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13598:98)
+    at workLoopSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13461:43)
+    at renderRootSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13445:13)
+[  205655ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConfigSyncDefaults> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7240
+[  234411ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:5199/@vite/client:864
+[  235801ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[  235926ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5199/#/bigpicture:0
+[  645447ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[  645554ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5199/#/bigpicture:0
+[  658192ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[  658303ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5199/#/bigpicture:0
+[  663082ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[  663191ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5199/#/bigpicture:0

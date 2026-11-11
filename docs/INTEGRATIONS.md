@@ -240,8 +240,11 @@ token is configured. The response is a JSON object with a `results` array
 - Covers, backgrounds and screenshots are downloaded by the server and cached
   in the media directory, exactly like IGDB artwork. Only local `/api/media/...`
   paths are stored in the database.
-- `GET {baseUrl}/games/{id}` is optional and used by future refreshes. It returns
-  either one candidate object or a `{"results": [ ... ]}` envelope.
+- `GET {baseUrl}/games/{id}` is optional but recommended: refreshes and the
+  manual match dialog (#135) fetch the stored provider id through it, so a
+  selected record survives `refresh-metadata` instead of being re-searched by
+  title. It returns either one candidate object or a
+  `{"results": [ ... ]}` envelope.
 
 ### Field mapping
 

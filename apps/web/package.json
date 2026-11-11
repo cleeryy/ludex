@@ -13,6 +13,9 @@
     "i18n:check": "node scripts/i18n.mjs",
     "i18n:write": "node scripts/i18n.mjs --write",
     "i18n:strict": "node scripts/i18n.mjs --strict",
+    "i18n:coverage": "node scripts/i18n.mjs --coverage",
+    "i18n:hardcoded": "node scripts/i18n.mjs --hardcoded",
+    "i18n:pseudo": "node scripts/i18n.mjs --pseudo",
     "theme:check": "node scripts/theme.mjs",
     "theme:write": "node scripts/theme.mjs --write"
   },

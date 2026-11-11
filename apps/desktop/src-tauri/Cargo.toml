@@ -67,6 +67,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # manually uploaded snapshots readable on restore. Bounded in saves_sync.rs.
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
+# Known-folder resolution (#146): SHGetKnownFolderPath is the only correct way
+# to read Documents (OneDrive KFM/GPO), Saved Games and LocalLow on Windows.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_System_Com", "Win32_UI_Shell"] }
+
 [profile.release]
 codegen-units = 1
 lto = true

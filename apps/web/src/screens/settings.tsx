@@ -9,14 +9,14 @@ import { isNative, native } from "@/lib/native";
 import { setTitleBarPreference, supportsCustomTitleBar } from "@/lib/window-chrome";
 import { formatBytes, formatDate } from "@/lib/format";
 import type { LocalSettings, LauncherId } from "@/lib/types";
-import { cn } from "@/lib/cn";
 import { useAuth } from "@/state/auth";
-import { coverageFor, LOCALES, statusLabel, useI18n, tr } from "@/lib/i18n";
+import { tr } from "@/lib/i18n";
 import { useToast } from "@/state/toasts";
 import { PageHeader, SectionHeader } from "@/components/page";
-import { Badge, Button, Field, Input, Switch, Textarea } from "@/components/ui/controls";
+import { Button, Field, Input, Switch, Textarea } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { DesktopUpdatePanel } from "@/components/settings/desktop-update";
+import { LanguagePanel } from "@/components/settings/language-panel";
 import { AppearancePanel } from "@/components/settings/appearance-panel";import { CompatibilityPanel } from "@/components/settings/compatibility-panel";
 import { LauncherImportPanel } from "@/components/settings/launcher-import";
 import { InstalledPanel } from "@/components/settings/installed-games";
@@ -28,12 +28,12 @@ import { LocationsPanel } from "@/components/settings/locations-panel";
 import { openOnboarding, restoreGettingStarted } from "@/lib/onboarding";
 import { ControllerPanel } from "@/components/settings/controller-panel";
 import { RomEmulatorsPanel } from "@/components/settings/rom-emulators";
+import { SaveDiscoveryPanel } from "@/components/settings/save-discovery-panel";
 import { SaveManifestPanel } from "@/components/settings/save-manifest-panel";
 import { t } from "@/lib/i18n";
 
 export function SettingsScreen() {
   const { user, refreshUser } = useAuth();
-  const { locale: activeLocale, setLocale } = useI18n();
   const { push } = useToast();
   const queryClient = useQueryClient();
   const desktopAvailable = installsAvailable();
@@ -237,55 +237,7 @@ export function SettingsScreen() {
           )}
 
           <div className="mt-8">
-            <SectionHeader
-              title={t("Language")}
-              description={t("Applies to this browser or app window. Community translations fall back to English for missing strings.")}
-            />
-            {[
-              { status: "official" as const, title: t("Official languages") },
-              { status: "community" as const, title: t("Community translations") },
-            ].map((group) => (
-              <div key={group.status} className="mt-4 first:mt-0">
-                <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{group.title}</p>
-                <div className="grid gap-1.5 sm:grid-cols-2">
-                  {LOCALES.filter((entry) => entry.status === group.status).map((entry) => {
-                    const coverage = entry.code === "en" ? { percent: 100 } : coverageFor(entry.code);
-                    const selected = activeLocale === entry.code;
-                    return (
-                      <button
-                        key={entry.code}
-                        type="button"
-                        lang={entry.code}
-                        dir={entry.dir}
-                        aria-pressed={selected}
-                        onClick={() => void setLocale(entry.code)}
-                        className={cn(
-                          "flex min-h-11 items-center justify-between gap-3 border px-3 py-2 text-start transition-colors",
-                          selected ? "border-signal bg-surface-2" : "border-line hover:border-line-2 hover:bg-surface",
-                        )}
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate text-[13px] text-ink">{entry.label}</span>
-                          <span className="block truncate font-mono text-[10px] text-ink-3">
-                            {entry.englishLabel}
-                            {entry.dir === "rtl" ? " · RTL" : ""}
-                          </span>
-                        </span>
-                        <span className="flex shrink-0 items-center gap-1.5">
-                          {entry.code !== "en" && coverage && (
-                            <span className="num text-[10px] text-ink-3">{coverage.percent}%</span>
-                          )}
-                          <Badge tone={selected ? "signal" : "outline"}>{statusLabel(entry)}</Badge>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-            <p className="mt-3 text-[11.5px] leading-relaxed text-ink-3">
-              {t("Community locales are contributed as JSON files. See docs/I18N.md for the contribution flow; Arabic is machine-seeded and unreviewed.")}
-            </p>
+            <LanguagePanel />
           </div>
         </section>
 
@@ -754,6 +706,12 @@ export function SettingsScreen() {
       {desktopAvailable && draft && (
         <div className="mt-12 max-w-[980px]">
           <SaveManifestPanel draft={draft} update={update} />
+        </div>
+      )}
+
+      {desktopAvailable && draft && (
+        <div className="mt-12 max-w-[980px]">
+          <SaveDiscoveryPanel />
         </div>
       )}
 

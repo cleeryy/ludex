@@ -1,0 +1,48 @@
+- generic [ref=f5e2]:
+  - generic [ref=f5e3]:
+    - complementary [ref=f5e4]:
+      - generic [ref=f5e5]:
+        - img "Ludex" [ref=f5e6]
+        - generic [ref=f5e15]: Self-hosted
+      - generic [ref=f5e92]:
+        - paragraph [ref=f5e93]: The shelf you actually own.
+        - paragraph [ref=f5e94]: Ludex indexes the archives on your server and serves them to your machines. No storefront, no account anywhere else.
+    - main [ref=f5e95]:
+      - generic [ref=f5e99]:
+        - generic [ref=f5e100]:
+          - heading "Sign in" [level=1] [ref=f5e101]
+          - paragraph [ref=f5e102]:
+            - generic [ref=f5e103]: Ludex Archive
+            - generic [ref=f5e105]: v0.1.0
+        - generic [ref=f5e106]:
+          - button "Sign in with Authentik" [ref=f5e107] [cursor=pointer]
+          - generic [ref=f5e111]: or use a password
+        - generic [ref=f5e115]:
+          - generic [ref=f5e116]:
+            - generic [ref=f5e117]: Username
+            - textbox "Username" [ref=f5e119]:
+              - /placeholder: Your username
+              - text: mara
+          - generic [ref=f5e120]:
+            - generic [ref=f5e121]: Password
+            - textbox "Password" [ref=f5e123]:
+              - /placeholder: Your password
+              - text: ludex
+        - button "Sign in" [ref=f5e124] [cursor=pointer]
+        - generic [ref=f5e127]:
+          - paragraph [ref=f5e128]: Demo data is on. Sign in as mara with the password ludex, or use the single sign-on button.
+          - button "Fill demo credentials" [active] [ref=f5e129] [cursor=pointer]
+      - generic [ref=f5e130]:
+        - generic [ref=f5e131]: v0.1.0
+        - link "AGPL-3.0" [ref=f5e132] [cursor=pointer]:
+          - /url: https://github.com/cleeryy/ludex/blob/main/LICENSE
+  - region "Notifications"
+  - status [ref=f5e133]:
+    - generic [ref=f5e134]:
+      - generic [ref=f5e138]:
+        - paragraph [ref=f5e139]: Install Ludex
+        - paragraph [ref=f5e140]: Keep the shell on your home screen and open the library full screen, even offline.
+        - generic [ref=f5e141]:
+          - button "Install" [ref=f5e142] [cursor=pointer]
+          - button "Not now" [ref=f5e146] [cursor=pointer]
+      - button "Dismiss" [ref=f5e147] [cursor=pointer]

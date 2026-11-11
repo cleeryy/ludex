@@ -1,6 +1,7 @@
 import { USING_MOCKS } from "@/lib/flags";
 import { isNative, native } from "@/lib/native";
 import { mockInstalls } from "@/lib/mock-install";
+import type { SaveCandidateGroup, SaveCandidateOverview } from "@/lib/save-discovery";
 import type {
   DiskUsage,
   InstallGameArgs,
@@ -89,6 +90,34 @@ export const installBridge = {
   /** Delete the cached save database (#153). */
   removeManifest(): Promise<ManifestStatus> {
     return USING_MOCKS ? mockInstalls.removeManifest() : native.removeLudusaviManifest();
+  },
+
+  /** Persisted save-location candidates (#146). Local to the desktop app. */
+  saveCandidates(): Promise<SaveCandidateOverview> {
+    return USING_MOCKS ? mockInstalls.saveCandidates() : native.listSaveCandidates();
+  },
+
+  /** Run the OS/engine save-location registry for every installed game (#146). */
+  scanSaveCandidates(): Promise<SaveCandidateOverview> {
+    return USING_MOCKS ? mockInstalls.scanSaveCandidates() : native.scanSaveCandidates();
+  },
+
+  /** Confirm a candidate; `editedPath` corrects a bad guess first (#146). */
+  confirmSaveCandidate(
+    gameId: number,
+    path: string,
+    editedPath?: string | null,
+  ): Promise<SaveCandidateGroup> {
+    return USING_MOCKS
+      ? mockInstalls.confirmSaveCandidate(gameId, path, editedPath)
+      : native.confirmSaveCandidate(gameId, path, editedPath);
+  },
+
+  /** Dismiss a candidate (#146). */
+  ignoreSaveCandidate(gameId: number, path: string): Promise<SaveCandidateGroup> {
+    return USING_MOCKS
+      ? mockInstalls.ignoreSaveCandidate(gameId, path)
+      : native.ignoreSaveCandidate(gameId, path);
   },
 
   openPath(path: string): Promise<void> {

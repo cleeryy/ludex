@@ -1,0 +1,38 @@
+[  141562ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[  141679ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5199/#/bigpicture:0
+[  146993ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[  147063ms] Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5199/src/state/auth.tsx?t=1794433467296:168:21)
+    at DownloadsProvider (http://localhost:5199/src/state/downloads.tsx?t=1794433465978:37:20)
+    at Object.react_stack_bottom_frame (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:20259:20)
+    at renderWithHooks (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:5918:24)
+    at updateFunctionComponent (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7763:21)
+    at beginWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:8843:20)
+    at runWithFiberInDEV (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:1133:72)
+    at performUnitOfWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13598:98)
+    at workLoopSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13461:43)
+    at renderRootSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13445:13)
+[  147061ms] [WARNING] %s
+
+%s
+ An error occurred in the <DownloadsProvider> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7240
+[  147103ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5199/#/bigpicture:0
+[  156752ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:22164
+[  156902ms] Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5199/src/state/auth.tsx?t=1794433474769:168:21)
+    at DownloadsProvider (http://localhost:5199/src/state/downloads.tsx?t=1794433472610:37:20)
+    at Object.react_stack_bottom_frame (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:20259:20)
+    at renderWithHooks (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:5918:24)
+    at updateFunctionComponent (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7763:21)
+    at beginWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:8843:20)
+    at runWithFiberInDEV (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:1133:72)
+    at performUnitOfWork (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13598:98)
+    at workLoopSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13461:43)
+    at renderRootSync (http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:13445:13)
+[  156900ms] [WARNING] %s
+
+%s
+ An error occurred in the <DownloadsProvider> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=73a2035d:7240
+[  156955ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5199/#/bigpicture:0

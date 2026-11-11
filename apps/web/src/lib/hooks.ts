@@ -206,17 +206,8 @@ export function useNativeEvents() {
       if (cancelled) offLaunch();
       else unlisteners.push(offLaunch);
 
-      // App updates (#16): announce a new version found at startup.
-      const offUpdate = await native.onUpdateAvailable((status) => {
-        if (!status.available) return;
-        push({
-          title: t("Ludex {version} is available", { version: status.available.version }),
-          description: t("Open Settings to download and install it."),
-          tone: "success",
-        });
-      });
-      if (cancelled) offUpdate();
-      else unlisteners.push(offUpdate);
+      // App updates (#16, #163): the update center's notifier owns the launch
+      // prompt, the badge and the skip decision, so no duplicate toast here.
     })();
 
     return () => {

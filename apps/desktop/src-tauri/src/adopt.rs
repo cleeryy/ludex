@@ -440,7 +440,10 @@ pub fn prepare_adoption(
         .map(|candidate| candidate.path.to_string_lossy().to_string())
         .collect();
     let executable_path = match executable.map(str::trim).filter(|value| !value.is_empty()) {
-        Some(requested) => Some(resolve_executable(&canonical, requested)?),
+        Some(requested) => Some(
+            resolve_executable(&canonical, requested)
+                .map_err(|error| with_candidate_hint(error, &canonical, &discovery))?,
+        ),
         None => discovery
             .chosen
             .map(|path| path.to_string_lossy().to_string()),
@@ -505,6 +508,10 @@ pub fn prepare_adoption(
 }
 
 /// Resolve an executable chosen by the user, relative to the adopted folder.
+///
+/// The recorded value is the canonical absolute path (#129) and must stay
+/// inside the folder (#160); a folder is refused because launching it would
+/// spawn nothing useful.
 fn resolve_executable(folder: &Path, requested: &str) -> Result<String, String> {
     let candidate = PathBuf::from(requested.trim());
     let full = if candidate.is_absolute() {
@@ -515,6 +522,12 @@ fn resolve_executable(folder: &Path, requested: &str) -> Result<String, String> 
     if !full.exists() {
         return Err(format!("The executable does not exist: {}", full.display()));
     }
+    if !crate::launch::is_launchable_executable(&full) {
+        return Err(format!(
+            "{} is a folder, not a game executable. Choose the file the game starts.",
+            full.display()
+        ));
+    }
     let canonical = fs::canonicalize(&full)
         .map_err(|e| format!("Could not resolve {}: {e}", full.display()))?;
     if canonical != folder && !canonical.starts_with(folder) {
@@ -524,6 +537,33 @@ fn resolve_executable(folder: &Path, requested: &str) -> Result<String, String> 
         ));
     }
     Ok(canonical.to_string_lossy().to_string())
+}
+
+/// Append the executables discovery found to a manual-path error (#160), so a
+/// typo in the Launch options points at the files that do exist.
+fn with_candidate_hint(
+    message: String,
+    folder: &Path,
+    discovery: &crate::bridge::Discovery,
+) -> String {
+    if discovery.candidates.is_empty() {
+        return message;
+    }
+    let listed = discovery
+        .candidates
+        .iter()
+        .take(3)
+        .map(|candidate| {
+            candidate
+                .path
+                .strip_prefix(folder)
+                .unwrap_or(&candidate.path)
+                .display()
+                .to_string()
+        })
+        .collect::<Vec<String>>()
+        .join(", ");
+    format!("{message} Found: {listed}.")
 }
 
 /* ------------------------------ unlink/delete ---------------------------- */
@@ -2339,6 +2379,131 @@ mod tests {
             .executable
             .as_deref()
             .is_some_and(|path| path.ends_with("Unrelated.exe")));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// #160: the chosen executable may live in a nested folder of the linked
+    /// root (GameVault wraps the game in an edition/version tree).
+    #[test]
+    fn preview_accepts_a_nested_executable_inside_the_adopted_folder() {
+        let root = temp_dir("nested-exe");
+        let folder = root
+            .join("Uncharted - Legacy of Thieves Collection")
+            .join("Versions/Unspecified/Installation");
+        let edition = folder.join("Uncharted Legacy of Thieves Collection");
+        fs::create_dir_all(edition.join("Uncharted4_data")).unwrap();
+        fs::write(edition.join("Uncharted4.exe"), b"MZ").unwrap();
+
+        let requested = Path::new("Uncharted Legacy of Thieves Collection")
+            .join("Uncharted4.exe")
+            .to_string_lossy()
+            .to_string();
+        let (preview, record) = prepare_adoption(
+            &[],
+            &root,
+            7,
+            "Uncharted: Legacy of Thieves Collection",
+            None,
+            None,
+            &folder.to_string_lossy(),
+            Some(&requested),
+        )
+        .unwrap();
+
+        let expected = fs::canonicalize(edition.join("Uncharted4.exe")).unwrap();
+        assert_eq!(
+            record.executable.as_deref(),
+            Some(expected.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            preview.executable.as_deref(),
+            Some(expected.to_string_lossy().as_ref())
+        );
+        // The linked root is unchanged: launch derives the working directory
+        // from the executable's own folder.
+        assert_eq!(
+            PathBuf::from(&record.install_path),
+            fs::canonicalize(&folder).unwrap()
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn preview_refuses_an_executable_outside_the_adopted_folder() {
+        let root = temp_dir("outside-exe");
+        let folder = root.join("Game");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(root.join("outside.exe"), b"MZ").unwrap();
+
+        let requested = Path::new("..")
+            .join("outside.exe")
+            .to_string_lossy()
+            .to_string();
+        let error = prepare_adoption(
+            &[],
+            &root,
+            7,
+            "Game",
+            None,
+            None,
+            &folder.to_string_lossy(),
+            Some(&requested),
+        )
+        .unwrap_err();
+        assert!(error.contains("outside the adopted folder"), "{error}");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn preview_refuses_a_folder_as_the_executable_and_lists_candidates() {
+        let root = temp_dir("folder-exe");
+        let folder = root.join("Hades");
+        fs::create_dir_all(folder.join("bin")).unwrap();
+        fs::write(folder.join("bin/Hades.exe"), b"MZ").unwrap();
+
+        let error = prepare_adoption(
+            &[],
+            &root,
+            7,
+            "Hades",
+            None,
+            None,
+            &folder.to_string_lossy(),
+            Some("bin"),
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("is a folder, not a game executable"),
+            "{error}"
+        );
+        assert!(error.contains("Hades.exe"), "{error}");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_wrong_manual_executable_lists_the_files_that_exist() {
+        let root = temp_dir("missing-exe");
+        let folder = root.join("Hades");
+        fs::create_dir_all(folder.join("bin")).unwrap();
+        fs::write(folder.join("bin/Hades.exe"), b"MZ").unwrap();
+
+        let error = prepare_adoption(
+            &[],
+            &root,
+            7,
+            "Hades",
+            None,
+            None,
+            &folder.to_string_lossy(),
+            Some("missing.exe"),
+        )
+        .unwrap_err();
+        assert!(error.contains("does not exist"), "{error}");
+        assert!(error.contains("Hades.exe"), "{error}");
 
         let _ = fs::remove_dir_all(&root);
     }

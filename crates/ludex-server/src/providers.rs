@@ -139,6 +139,7 @@ impl ProviderCandidate {
     #[must_use]
     pub fn to_metadata(&self, slug: &str) -> ProviderMetadata {
         ProviderMetadata {
+            title: Some(self.title.clone()),
             description: self
                 .description
                 .as_deref()
@@ -157,6 +158,7 @@ impl ProviderCandidate {
             early_access: None,
             alt_titles: Vec::new(),
             max_players: None,
+            platforms: Vec::new(),
             provider: ProviderRef {
                 slug: slug.to_string(),
                 id: self.id.clone(),

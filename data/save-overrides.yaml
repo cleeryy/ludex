@@ -1,0 +1,23 @@
+# Per-game save-path overrides (#146).
+#
+# Optional. Every entry must come from primary observation on a real machine
+# (launch the game, look at where it wrote, then record it here). This is not a
+# place for Ludusavi or PCGamingWiki data: that stays fetched at runtime.
+#
+# Shape:
+#
+#   version: 1
+#   overrides:
+#     - title: "Example Game"          # required
+#       steam_app_id: 123456           # optional, matches first when set
+#       note: "Observed after the first launch"   # optional, shown as evidence
+#       roots:
+#         - root: saved_games          # a root id from save-roots.yaml
+#           path: "Example Game/Saves" # subpath below that root
+#
+# A root id that the current OS does not define is skipped with a warning, and
+# a path that does not exist is skipped silently. Overrides are candidates with
+# `certain` confidence, like store ground truth: they still need one
+# confirmation before an archive is uploaded.
+version: 1
+overrides: []

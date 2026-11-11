@@ -1,0 +1,106 @@
+- generic [ref=f17e2]:
+  - generic [ref=f17e3]:
+    - banner [ref=f17e4]:
+      - img "Ludex" [ref=f17e5]
+      - generic [ref=f17e14]: Big Picture
+      - generic [ref=f17e15]:
+        - button "2 downloading 64%" [ref=f17e16] [cursor=pointer]:
+          - generic [ref=f17e20]: 2 downloading
+          - generic [ref=f17e21]: 64%
+        - button "Big Picture layout — Shelf" [ref=f17e22] [cursor=pointer]:
+          - generic [ref=f17e25]: Shelf
+        - generic [ref=f17e28]: 22:40
+        - button "Exit" [ref=f17e29] [cursor=pointer]
+    - main [ref=f17e33]:
+      - generic [ref=f17e50]:
+        - generic [ref=f17e53]:
+          - generic:
+            - generic:
+              - generic: Ludex
+              - generic: No. 012
+            - generic:
+              - generic: Marvel's Spider-Man 2
+              - generic:
+                - generic: "2023"
+                - generic: Action
+        - generic [ref=f17e66]:
+          - generic [ref=f17e67]: Continue playing
+          - heading "Marvel's Spider-Man 2" [level=1] [ref=f17e69]
+          - generic [ref=f17e70]:
+            - generic [ref=f17e71]: "2023"
+            - generic [ref=f17e72]: Playing
+            - generic [ref=f17e73]: 90 / 100
+            - generic [ref=f17e74]: 10h 20m played
+            - generic [ref=f17e75]: Last played 2 days ago
+          - paragraph [ref=f17e76]: Two spider-people, one city, and a symbiote that makes every fight worse for everyone involved. Swinging is still the point.
+          - generic [ref=f17e77]:
+            - button "Download" [ref=f17e78] [cursor=pointer]
+            - button "Game page" [ref=f17e82] [cursor=pointer]
+      - region "Games" [ref=f17e83]:
+        - generic [ref=f17e84]:
+          - group "Shelves" [ref=f17e85]:
+            - button "Recently played 13" [pressed] [ref=f17e86] [cursor=pointer]:
+              - generic [ref=f17e87]: Recently played
+              - generic [ref=f17e88]: "13"
+            - button "All games 19" [ref=f17e89] [cursor=pointer]:
+              - generic [ref=f17e90]: All games
+              - generic [ref=f17e91]: "19"
+          - generic [ref=f17e92]: 1 / 13
+        - generic [ref=f17e93]:
+          - button "Marvel's Spider-Man 2" [ref=f17e95] [cursor=pointer]:
+            - generic [ref=f17e111]: 2023 · Playing
+          - button "Forza Horizon 6" [ref=f17e113] [cursor=pointer]:
+            - generic [ref=f17e127]: "2026"
+          - button "It Takes Two" [ref=f17e129] [cursor=pointer]:
+            - generic [ref=f17e142]: "2021"
+          - button "Chrono Trigger" [ref=f17e144] [cursor=pointer]:
+            - generic [ref=f17e165]: "1995"
+          - 'button "Call of Duty: Black Ops III" [ref=f17e167] [cursor=pointer]':
+            - generic [ref=f17e185]: "2015"
+          - button "Cat Quest II" [ref=f17e187] [cursor=pointer]:
+            - generic [ref=f17e211]: "2019"
+          - button "HITMAN 3" [ref=f17e213] [cursor=pointer]:
+            - generic [ref=f17e227]: "2021"
+          - button "Little Nightmares II" [ref=f17e229] [cursor=pointer]:
+            - generic [ref=f17e250]: "2021"
+          - button "Little Nightmares" [ref=f17e252] [cursor=pointer]:
+            - img [ref=f17e255]:
+              - generic [ref=f17e256]: L
+            - generic [ref=f17e262]: "2017"
+          - button "Outer Wilds" [ref=f17e264] [cursor=pointer]:
+            - generic [ref=f17e298]: "2019"
+          - 'button "Sackboy: A Big Adventure" [ref=f17e300] [cursor=pointer]':
+            - generic [ref=f17e324]: "2020"
+          - button "Minecraft Dungeons" [ref=f17e326] [cursor=pointer]:
+            - generic [ref=f17e346]: "2020"
+          - 'button "UNCHARTED: Legacy of Thieves Collection" [ref=f17e348] [cursor=pointer]':
+            - generic [ref=f17e369]: "2022"
+    - contentinfo [ref=f17e370]:
+      - generic [ref=f17e371]:
+        - generic [ref=f17e372]: ←
+        - generic [ref=f17e373]: →
+        - text: select
+      - generic [ref=f17e374]:
+        - generic [ref=f17e375]: ↑
+        - generic [ref=f17e376]: ↓
+        - text: shelf
+      - generic [ref=f17e377]:
+        - generic [ref=f17e378]: ↵
+        - text: play or install
+      - generic [ref=f17e379]:
+        - generic [ref=f17e380]: L
+        - text: layout
+      - generic [ref=f17e381]:
+        - generic [ref=f17e382]: esc
+        - text: exit
+      - generic [ref=f17e383]: Keyboard only — connect a controller for couch navigation
+  - region "Notifications"
+  - status [ref=f17e386]:
+    - generic [ref=f17e387]:
+      - generic [ref=f17e391]:
+        - paragraph [ref=f17e392]: Install Ludex
+        - paragraph [ref=f17e393]: Keep the shell on your home screen and open the library full screen, even offline.
+        - generic [ref=f17e394]:
+          - button "Install" [ref=f17e395] [cursor=pointer]
+          - button "Not now" [ref=f17e399] [cursor=pointer]
+      - button "Dismiss" [ref=f17e400] [cursor=pointer]

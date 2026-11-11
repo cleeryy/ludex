@@ -1,5 +1,6 @@
 import { t } from "@/lib/i18n";
 import { ALL_LAUNCHER_IDS } from "@/lib/launchers";
+import type { SaveCandidateGroup, SaveCandidateOverview } from "@/lib/save-discovery";
 import type {
   AdapterReport,
   AdoptInstallArgs,
@@ -149,6 +150,40 @@ export const native = {
     return invoke<ManifestStatus>("remove_ludusavi_manifest");
   },
 
+  /**
+   * Every persisted save-location candidate (#146). Reads the local index, so
+   * opening Settings never scans the disk.
+   */
+  async listSaveCandidates(): Promise<SaveCandidateOverview> {
+    return invoke<SaveCandidateOverview>("list_save_candidates");
+  },
+
+  /** Run the OS/engine registry for every installed game (#146). */
+  async scanSaveCandidates(): Promise<SaveCandidateOverview> {
+    return invoke<SaveCandidateOverview>("scan_save_candidates");
+  },
+
+  /**
+   * Confirm a candidate as a save path (#146). `editedPath` corrects a wrong
+   * guess before saving; the original candidate is then dismissed.
+   */
+  async confirmSaveCandidate(
+    gameId: number,
+    path: string,
+    editedPath?: string | null,
+  ): Promise<SaveCandidateGroup> {
+    return invoke<SaveCandidateGroup>("confirm_save_candidate", {
+      gameId,
+      path,
+      editedPath: editedPath ?? null,
+    });
+  },
+
+  /** Dismiss a candidate so a later scan does not resurface it (#146). */
+  async ignoreSaveCandidate(gameId: number, path: string): Promise<SaveCandidateGroup> {
+    return invoke<SaveCandidateGroup>("ignore_save_candidate", { gameId, path });
+  },
+
   async startLocalServer(): Promise<{ url: string; token: string }> {
     return invoke<{ url: string; token: string }>("local_server_start");
   },
@@ -276,6 +311,26 @@ export const native = {
 
   async installUpdate(): Promise<UpdateStatus> {
     return invoke<UpdateStatus>("install_update");
+  },
+
+  /** Current updater state without a network check (#163). */
+  async updateStatus(): Promise<UpdateStatus | null> {
+    if (!isNative()) return null;
+    try {
+      return await invoke<UpdateStatus>("update_status");
+    } catch {
+      return null;
+    }
+  },
+
+  /** Persist the channel and re-check on it (#163). */
+  async setUpdateChannel(channel: UpdateStatus["channel"]): Promise<UpdateStatus> {
+    return invoke<UpdateStatus>("set_update_channel", { channel });
+  },
+
+  /** Persist (or clear with null) the skipped version (#163). */
+  async setUpdateSkip(version: string | null): Promise<UpdateStatus> {
+    return invoke<UpdateStatus>("set_update_skip", { version });
   },
 
   async restartApp(): Promise<void> {
@@ -917,6 +972,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   updateChannel: "stable",
   checkUpdatesOnStartup: true,
   lastUpdateCheckAt: null,
+  skippedUpdateVersion: null,
   discordPresence: false,
   discordClientId: "",
   installerSilentArgs: [],

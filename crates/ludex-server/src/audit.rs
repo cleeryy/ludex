@@ -96,6 +96,8 @@ pub mod actions {
     pub const ACHIEVEMENT_DEFINITION_DELETED: &str = "achievement.definition_deleted";
     /// A community metadata provider was created, updated, reordered or deleted.
     pub const METADATA_PROVIDER_UPDATED: &str = "settings.metadata_provider_updated";
+    /// An editor picked a metadata provider record for a game (#135).
+    pub const GAME_METADATA_MATCHED: &str = "game.metadata_matched";
 }
 
 /// Writes one event to `audit_logs`. Failures are logged, never propagated:

@@ -1,0 +1,291 @@
+# Ludex save-root registry (#146).
+#
+# This file is the data half of save discovery: per-OS known folders, engine
+# layout defaults, store ground-truth roots, exclusions and the caps that keep a
+# scan shallow. `apps/desktop/src-tauri/src/saves_registry.rs` embeds this file
+# at build time and validates it in tests. Adding a root or an engine is a data
+# change here plus a fixture in that module — no code change is required when
+# the pattern uses a known placeholder.
+#
+# It is a resolver, not a manifest. It contains no per-game save paths and no
+# data derived from Ludusavi or PCGamingWiki. Per-game observations live in
+# `data/save-overrides.yaml`, separately, and are optional.
+#
+# Placeholders:
+#   {profile} {saved_games} {documents} {roaming_app_data} {local_app_data}
+#   {local_app_data_low} {program_data} {public} {home} {xdg_data}
+#   {xdg_config} {xdg_state} {documents} {flatpak_apps} {application_support}
+#   {containers} {preferences} {proton_drive_c} {steam_root} {appid}
+#     Resolve to a known folder or to a runtime value. The first placeholder of
+#     an engine pattern is its root.
+#   {product} {project} {game}
+#     Match the game title (normalised, edition stripped). Never guessed.
+#   {company} {publisher} {windows_user} {bundle}
+#     Enumerated one level below the current directory, bounded by `limits`.
+#     `{bundle}` only keeps names that contain a title token (macOS containers).
+
+version: 1
+updated: "2026-11-11"
+
+# Provenance tags accepted on candidates, highest priority first. `manifest` and
+# `manual` are produced by saves_detect; the resolver produces the others.
+provenance:
+  - override
+  - store
+  - known-folder
+  - engine
+  - manifest
+
+confidence:
+  - certain
+  - likely
+  - guess
+
+limits:
+  # Maximum number of path segments below a root. A save folder deeper than
+  # this is not discovered automatically; the user can still add it by hand.
+  max_depth: 4
+  # Entries read from one directory while expanding one wildcard segment.
+  max_entries: 2000
+  # Candidates returned by one discovery run.
+  max_candidates: 64
+  # Wildcards are only enumerated below this depth. At or above it, a segment
+  # must be a literal or a title match (a name whitelist).
+  whitelist_min_depth: 2
+  # Entries read from one Steam remotecache.vdf.
+  max_store_entries: 5000
+
+exclusions:
+  # Directory names that are never a save folder and must not be descended into.
+  directory_names:
+    - Cache
+    - Caches
+    - cache
+    - Logs
+    - logs
+    - Log
+    - CrashReportClient
+    - CrashReports
+    - Crashes
+    - Screenshots
+    - screenshots
+    - redists
+    - Redist
+    - _CommonRedist
+    - DirectX
+    - DirectXRedist
+    - dotnet
+    - vcredist
+    - __installer
+  # Case-insensitive suffixes applied to directory names.
+  directory_suffixes:
+    - Cache
+    - Caches
+    - Logs
+    - CrashReports
+  # File suffixes that are never a save path. Directory scans skip files
+  # entirely; this list keeps a file-shaped candidate from being confirmed.
+  file_suffixes:
+    - .log
+    - .dmp
+    - .tmp
+    - .cache
+    - .etl
+    - .pdb
+
+known_folders:
+  windows:
+    profile:
+      folder_id: FOLDERID_Profile
+      guid: "{5E6C858F-0E22-4760-9AFE-EA3317B67173}"
+      env: [USERPROFILE]
+      api: true
+    saved_games:
+      folder_id: FOLDERID_SavedGames
+      guid: "{4C5C32FF-BB9D-43B0-B5B4-2D72E54EAAA4}"
+      # No dedicated environment variable exists. The fallback is only used
+      # when the shell API is unavailable; Known Folder Move does not redirect
+      # Saved Games.
+      env: []
+      api: true
+      fallback: "{profile}/Saved Games"
+    documents:
+      folder_id: FOLDERID_Documents
+      guid: "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}"
+      # Never expanded as %USERPROFILE%\Documents: resolve the known folder so
+      # OneDrive Known Folder Move and GPO redirections are honoured.
+      api: true
+      redirect_env: [OneDrive, OneDriveConsumer, OneDriveCommercial]
+    roaming_app_data:
+      folder_id: FOLDERID_RoamingAppData
+      guid: "{3EB685DB-65F9-4CF6-A03A-E3EF65729F3D}"
+      env: [APPDATA]
+      api: true
+    local_app_data:
+      folder_id: FOLDERID_LocalAppData
+      guid: "{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}"
+      env: [LOCALAPPDATA]
+      api: true
+    local_app_data_low:
+      folder_id: FOLDERID_LocalAppDataLow
+      guid: "{A520A1A4-1780-4FF6-BD18-167343C5AF16}"
+      # There is no %LOCALAPPDATA%Low variable; the documented wrong expansion
+      # is deliberately rejected. The fallback derives LocalLow from the
+      # resolved LocalAppData parent, never from %USERPROFILE%.
+      env: []
+      api: true
+      fallback: "{local_app_data}/../LocalLow"
+    program_data:
+      folder_id: FOLDERID_ProgramData
+      guid: "{62AB5D82-FDC1-4DC3-A9DD-070D1D495D97}"
+      env: [PROGRAMDATA]
+      api: true
+      read_only: true
+    public:
+      folder_id: FOLDERID_Public
+      guid: "{DFDF76A2-C82A-4D63-906A-5644AC457385}"
+      env: [PUBLIC]
+      api: true
+      read_only: true
+
+  linux:
+    home:
+      env: [HOME]
+    xdg_data:
+      env: [XDG_DATA_HOME]
+      fallback: "{home}/.local/share"
+    xdg_config:
+      env: [XDG_CONFIG_HOME]
+      fallback: "{home}/.config"
+    xdg_state:
+      env: [XDG_STATE_HOME]
+      fallback: "{home}/.local/state"
+    documents:
+      env: [XDG_DOCUMENTS_DIR]
+      fallback: "{home}/Documents"
+    flatpak_apps:
+      # Each child is an app id, e.g. com.mojang.Minecraft.
+      pattern: "{home}/.var/app"
+
+  macos:
+    home:
+      env: [HOME]
+    application_support:
+      fallback: "{home}/Library/Application Support"
+    containers:
+      # Each child is a bundle id, e.g. com.company.game.
+      pattern: "{home}/Library/Containers"
+    preferences:
+      fallback: "{home}/Library/Preferences"
+
+store_roots:
+  steam:
+    # Root ids exposed by Steam Auto-Cloud. This is the ground-truth mapping
+    # used when a `remotecache.vdf` lists files for the game.
+    cloud_roots:
+      WinSavedGames: saved_games
+      WinMyDocuments: documents
+      WinAppDataLocal: local_app_data
+      WinAppDataLocalLow: local_app_data_low
+      WinAppDataRoaming: roaming_app_data
+      WinProgramData: program_data
+      SteamCloudDocuments: documents
+    prefix: "{steam_root}/steamapps/compatdata/{appid}/pfx"
+    remotecache: "{steam_root}/userdata/{user_id}/{appid}/remotecache.vdf"
+
+engines:
+  - id: generic
+    label: Game title folders
+    provenance: engine
+    source: known-folder
+    # A folder named exactly after the game under a real known folder is
+    # strong evidence, but it still needs confirmation before it is archived.
+    confidence: likely
+    patterns:
+      windows:
+        - "{saved_games}/{product}"
+        - "{documents}/My Games/{product}"
+        - "{documents}/{product}"
+        - "{roaming_app_data}/{product}"
+        - "{local_app_data}/{product}"
+        - "{local_app_data_low}/{company}/{product}"
+      linux:
+        - "{xdg_data}/{product}"
+        - "{xdg_config}/{product}"
+        - "{xdg_state}/{product}"
+        - "{proton_drive_c}/users/{windows_user}/Saved Games/{product}"
+      macos:
+        - "{application_support}/{product}"
+
+  - id: macos_containers
+    label: macOS app container
+    provenance: engine
+    confidence: guess
+    patterns:
+      macos:
+        - "{containers}/{bundle}/Data/Documents/{product}"
+
+  - id: unity
+    label: Unity
+    provenance: engine
+    confidence: guess
+    patterns:
+      windows:
+        - "{local_app_data_low}/{company}/{product}"
+      linux:
+        - "{xdg_config}/unity3d/{company}/{product}"
+        - "{xdg_data}/unity3d/{company}/{product}"
+      macos:
+        - "{application_support}/unity.{company}.{product}"
+
+  - id: unreal
+    label: Unreal Engine
+    provenance: engine
+    confidence: guess
+    patterns:
+      windows:
+        - "{local_app_data}/{project}/Saved/SaveGames"
+        - "{documents}/My Games/{project}/Saved/SaveGames"
+      linux:
+        - "{xdg_data}/{project}/Saved/SaveGames"
+      macos:
+        - "{application_support}/{project}/Saved/SaveGames"
+
+  - id: godot
+    label: Godot
+    provenance: engine
+    confidence: guess
+    patterns:
+      windows:
+        - "{roaming_app_data}/Godot/app_userdata/{project}"
+      linux:
+        - "{xdg_data}/godot/app_userdata/{project}"
+      macos:
+        - "{application_support}/Godot/app_userdata/{project}"
+
+  - id: renpy
+    label: Ren'Py
+    provenance: engine
+    confidence: guess
+    patterns:
+      windows:
+        - "{roaming_app_data}/RenPy/{product}"
+        - "{documents}/RenPy/{product}"
+      linux:
+        - "{home}/.renpy/{product}"
+        - "{xdg_data}/renpy/{product}"
+      macos:
+        - "{home}/Library/RenPy/{product}"
+
+  - id: minecraft
+    label: Minecraft
+    provenance: engine
+    confidence: likely
+    patterns:
+      windows:
+        - "{roaming_app_data}/.minecraft/saves"
+      linux:
+        - "{home}/.minecraft/saves"
+        - "{flatpak_apps}/com.mojang.Minecraft/.minecraft/saves"
+      macos:
+        - "{home}/Library/Application Support/minecraft/saves"

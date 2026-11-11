@@ -11,6 +11,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::linux_gaming::{LaunchMode, LaunchOptions};
+use crate::saves_registry::SaveCandidate;
 
 /// Mirrors `InstalledGame` from `docs/CONTRACT.md`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,7 +117,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 12;
+const SCHEMA_VERSION: i64 = 13;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -366,6 +367,33 @@ CREATE TABLE IF NOT EXISTS config_sync_prefs (
 );
 "#;
 
+/// Save-path candidates from the OS/engine registry (#146). They are separate
+/// from `save_paths` on purpose: a candidate is never archived until the user
+/// confirms it, and a dismissed candidate keeps its `ignored` flag across
+/// detection runs. Host paths never leave this machine.
+const SCHEMA_V13: &str = r#"
+CREATE TABLE IF NOT EXISTS save_candidates (
+    game_id       INTEGER NOT NULL,
+    path          TEXT    NOT NULL,
+    kind          TEXT    NOT NULL,
+    root_id       TEXT    NOT NULL,
+    subpath       TEXT    NOT NULL,
+    source        TEXT    NOT NULL,
+    confidence    TEXT    NOT NULL,
+    evidence      TEXT    NOT NULL,
+    size_bytes    INTEGER NOT NULL DEFAULT 0,
+    last_modified TEXT,
+    first_seen    TEXT    NOT NULL,
+    last_verified TEXT,
+    confirmed     INTEGER NOT NULL DEFAULT 0,
+    ignored       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (game_id, path)
+);
+
+CREATE INDEX IF NOT EXISTS save_candidates_game_idx
+    ON save_candidates (game_id, ignored);
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -476,6 +504,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         connection.execute_batch(SCHEMA_V12).map_err(|e| {
             format!("Could not add common config fields to the desktop database: {e}")
         })?;
+    }
+    if version < 13 {
+        connection
+            .execute_batch(SCHEMA_V13)
+            .map_err(|e| format!("Could not add save candidates to the desktop database: {e}"))?;
     }
 
     if version < SCHEMA_VERSION {
@@ -1732,6 +1765,246 @@ pub fn delete_save_detection(connection: &Connection, game_id: i64) -> Result<bo
     Ok(affected > 0)
 }
 
+/* ------------------------------------------------------- save candidates */
+
+const SAVE_CANDIDATE_COLUMNS: &str = "path, kind, root_id, subpath, source, confidence, evidence,
+     size_bytes, last_modified, first_seen, last_verified, confirmed, ignored";
+
+fn map_save_candidate(row: &rusqlite::Row<'_>) -> rusqlite::Result<SaveCandidate> {
+    Ok(SaveCandidate {
+        path: row.get(0)?,
+        kind: row.get(1)?,
+        root_id: row.get(2)?,
+        subpath: row.get(3)?,
+        source: row.get(4)?,
+        confidence: row.get(5)?,
+        evidence: row.get(6)?,
+        size_bytes: row.get(7)?,
+        last_modified: row.get(8)?,
+        first_seen: row.get(9)?,
+        last_verified: row.get(10)?,
+        confirmed: row.get::<_, i64>(11)? != 0,
+        ignored: row.get::<_, i64>(12)? != 0,
+    })
+}
+
+/// Every visible candidate for one game. Ignored rows stay in the database so
+/// a re-scan does not resurface a path the user dismissed.
+pub fn list_save_candidates(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<Vec<SaveCandidate>, String> {
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {SAVE_CANDIDATE_COLUMNS} FROM save_candidates
+             WHERE game_id = ?1 AND ignored = 0
+             ORDER BY CASE confidence WHEN 'certain' THEN 0 WHEN 'likely' THEN 1 ELSE 2 END, path"
+        ))
+        .map_err(|e| format!("Could not read save candidates: {e}"))?;
+    let rows = statement
+        .query_map(params![game_id], map_save_candidate)
+        .map_err(|e| format!("Could not read save candidates: {e}"))?;
+    let mut candidates = Vec::new();
+    for row in rows {
+        candidates.push(row.map_err(|e| format!("Could not read save candidates: {e}"))?);
+    }
+    Ok(candidates)
+}
+
+/// Candidates grouped by installed game for Settings → Saves. Only games with
+/// at least one visible candidate are returned.
+pub fn list_save_candidate_groups(
+    connection: &Connection,
+) -> Result<Vec<(i64, String, Vec<SaveCandidate>)>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT c.game_id, g.title, c.path, c.kind, c.root_id, c.subpath, c.source,
+                    c.confidence, c.evidence, c.size_bytes, c.last_modified,
+                    c.first_seen, c.last_verified, c.confirmed, c.ignored
+             FROM save_candidates c
+             JOIN installed_games g ON g.game_id = c.game_id
+             WHERE c.ignored = 0
+             ORDER BY g.title COLLATE NOCASE ASC, c.game_id,
+                      CASE c.confidence WHEN 'certain' THEN 0 WHEN 'likely' THEN 1 ELSE 2 END,
+                      c.path",
+        )
+        .map_err(|e| format!("Could not read save candidates: {e}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                SaveCandidate {
+                    path: row.get(2)?,
+                    kind: row.get(3)?,
+                    root_id: row.get(4)?,
+                    subpath: row.get(5)?,
+                    source: row.get(6)?,
+                    confidence: row.get(7)?,
+                    evidence: row.get(8)?,
+                    size_bytes: row.get(9)?,
+                    last_modified: row.get(10)?,
+                    first_seen: row.get(11)?,
+                    last_verified: row.get(12)?,
+                    confirmed: row.get::<_, i64>(13)? != 0,
+                    ignored: row.get::<_, i64>(14)? != 0,
+                },
+            ))
+        })
+        .map_err(|e| format!("Could not read save candidates: {e}"))?;
+
+    let mut groups: Vec<(i64, String, Vec<SaveCandidate>)> = Vec::new();
+    for row in rows {
+        let (game_id, title, candidate) =
+            row.map_err(|e| format!("Could not read save candidates: {e}"))?;
+        match groups.last_mut() {
+            Some((last_id, _, candidates)) if *last_id == game_id => {
+                candidates.push(candidate);
+            }
+            _ => groups.push((game_id, title, vec![candidate])),
+        }
+    }
+    Ok(groups)
+}
+
+pub fn get_save_candidate(
+    connection: &Connection,
+    game_id: i64,
+    path: &str,
+) -> Result<Option<SaveCandidate>, String> {
+    connection
+        .query_row(
+            &format!(
+                "SELECT {SAVE_CANDIDATE_COLUMNS} FROM save_candidates
+                 WHERE game_id = ?1 AND path = ?2"
+            ),
+            params![game_id, path],
+            map_save_candidate,
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the save candidate: {e}"))
+}
+
+/// Persist a discovery run. `first_seen`, `confirmed` and `ignored` are
+/// preserved for a path that already existed; rows that are no longer detected
+/// and were never confirmed are removed.
+pub fn upsert_save_candidates(
+    connection: &Connection,
+    game_id: i64,
+    candidates: &[SaveCandidate],
+    now: &str,
+) -> Result<(), String> {
+    let transaction = connection
+        .unchecked_transaction()
+        .map_err(|e| format!("Could not update the save candidates: {e}"))?;
+
+    for candidate in candidates {
+        let first_seen = candidate
+            .first_seen
+            .clone()
+            .unwrap_or_else(|| now.to_string());
+        let last_verified = candidate
+            .last_verified
+            .clone()
+            .unwrap_or_else(|| now.to_string());
+        transaction
+            .execute(
+                r#"INSERT INTO save_candidates
+                       (game_id, path, kind, root_id, subpath, source, confidence, evidence,
+                        size_bytes, last_modified, first_seen, last_verified, confirmed, ignored)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                   ON CONFLICT(game_id, path) DO UPDATE SET
+                       kind          = excluded.kind,
+                       root_id       = excluded.root_id,
+                       subpath       = excluded.subpath,
+                       source        = excluded.source,
+                       confidence    = excluded.confidence,
+                       evidence      = excluded.evidence,
+                       size_bytes    = excluded.size_bytes,
+                       last_modified = excluded.last_modified,
+                       last_verified = excluded.last_verified"#,
+                params![
+                    game_id,
+                    candidate.path,
+                    candidate.kind,
+                    candidate.root_id,
+                    candidate.subpath,
+                    candidate.source,
+                    candidate.confidence,
+                    candidate.evidence,
+                    candidate.size_bytes,
+                    candidate.last_modified,
+                    first_seen,
+                    last_verified,
+                    i64::from(candidate.confirmed),
+                    i64::from(candidate.ignored),
+                ],
+            )
+            .map_err(|e| format!("Could not record the save candidate: {e}"))?;
+    }
+
+    if candidates.is_empty() {
+        transaction
+            .execute(
+                "DELETE FROM save_candidates WHERE game_id = ?1 AND confirmed = 0",
+                params![game_id],
+            )
+            .map_err(|e| format!("Could not update the save candidates: {e}"))?;
+    } else {
+        let mut statement = String::from(
+            "DELETE FROM save_candidates WHERE game_id = ?1 AND confirmed = 0 AND path NOT IN (",
+        );
+        for index in 0..candidates.len() {
+            if index > 0 {
+                statement.push_str(", ");
+            }
+            statement.push_str(&format!("?{}", index + 2));
+        }
+        statement.push(')');
+        let mut values: Vec<&dyn rusqlite::ToSql> = vec![&game_id];
+        for candidate in candidates {
+            values.push(&candidate.path);
+        }
+        transaction
+            .execute(&statement, values.as_slice())
+            .map_err(|e| format!("Could not update the save candidates: {e}"))?;
+    }
+
+    transaction
+        .commit()
+        .map_err(|e| format!("Could not update the save candidates: {e}"))
+}
+
+pub fn set_save_candidate_confirmed(
+    connection: &Connection,
+    game_id: i64,
+    path: &str,
+    confirmed: bool,
+) -> Result<bool, String> {
+    let affected = connection
+        .execute(
+            "UPDATE save_candidates SET confirmed = ?1 WHERE game_id = ?2 AND path = ?3",
+            params![i64::from(confirmed), game_id, path],
+        )
+        .map_err(|e| format!("Could not update the save candidate: {e}"))?;
+    Ok(affected > 0)
+}
+
+pub fn set_save_candidate_ignored(
+    connection: &Connection,
+    game_id: i64,
+    path: &str,
+    ignored: bool,
+) -> Result<bool, String> {
+    let affected = connection
+        .execute(
+            "UPDATE save_candidates SET ignored = ?1 WHERE game_id = ?2 AND path = ?3",
+            params![i64::from(ignored), game_id, path],
+        )
+        .map_err(|e| format!("Could not update the save candidate: {e}"))?;
+    Ok(affected > 0)
+}
+
 /// Per-game cloud save state (#108).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CloudSavePrefs {
@@ -2274,6 +2547,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V10).unwrap();
         connection.execute_batch(SCHEMA_V11).unwrap();
         connection.execute_batch(SCHEMA_V12).unwrap();
+        connection.execute_batch(SCHEMA_V13).unwrap();
         connection
     }
 
@@ -3463,5 +3737,128 @@ mod tests {
             disabled.last_applied_at.as_deref(),
             Some("2026-11-11T10:05:00Z")
         );
+    }
+    fn save_candidate(path: &str, confidence: &str) -> SaveCandidate {
+        SaveCandidate {
+            path: path.to_string(),
+            kind: "directory".to_string(),
+            root_id: "saved_games".to_string(),
+            subpath: "Hades".to_string(),
+            source: "engine".to_string(),
+            confidence: confidence.to_string(),
+            evidence: "Game title folders".to_string(),
+            size_bytes: 0,
+            last_modified: None,
+            first_seen: Some("2026-11-11T00:00:00Z".to_string()),
+            last_verified: Some("2026-11-11T00:00:00Z".to_string()),
+            confirmed: false,
+            ignored: false,
+        }
+    }
+
+    #[test]
+    fn save_candidates_preserve_confirmation_dismissal_and_first_seen() {
+        let connection = memory_database();
+        let first = save_candidate("/home/player/Saved Games/Hades", "likely");
+        upsert_save_candidates(&connection, 7, &[first], "2026-11-11T00:00:00Z").unwrap();
+
+        let listed = list_save_candidates(&connection, 7).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].path, "/home/player/Saved Games/Hades");
+        assert!(!listed[0].confirmed);
+        assert!(!listed[0].ignored);
+
+        // A confirmation survives a re-scan, including first_seen.
+        set_save_candidate_confirmed(&connection, 7, "/home/player/Saved Games/Hades", true)
+            .unwrap();
+        let mut refreshed = save_candidate("/home/player/Saved Games/Hades", "likely");
+        refreshed.first_seen = Some("2026-11-12T00:00:00Z".to_string());
+        refreshed.last_verified = Some("2026-11-12T00:00:00Z".to_string());
+        refreshed.evidence = "Game title folders: refreshed".to_string();
+        upsert_save_candidates(&connection, 7, &[refreshed], "2026-11-12T00:00:00Z").unwrap();
+        let listed = list_save_candidates(&connection, 7).unwrap();
+        assert!(listed[0].confirmed);
+        assert_eq!(
+            listed[0].first_seen.as_deref(),
+            Some("2026-11-11T00:00:00Z")
+        );
+        assert!(listed[0].evidence.contains("refreshed"));
+
+        // A dismissed candidate does not resurface, but is kept so a later
+        // scan cannot recreate it as new.
+        upsert_save_candidates(
+            &connection,
+            7,
+            &[
+                save_candidate("/home/player/Saved Games/Hades", "likely"),
+                save_candidate("/home/player/Documents/Hades", "guess"),
+            ],
+            "2026-11-13T00:00:00Z",
+        )
+        .unwrap();
+        set_save_candidate_ignored(&connection, 7, "/home/player/Documents/Hades", true).unwrap();
+        let listed = list_save_candidates(&connection, 7).unwrap();
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        upsert_save_candidates(
+            &connection,
+            7,
+            &[
+                save_candidate("/home/player/Saved Games/Hades", "likely"),
+                save_candidate("/home/player/Documents/Hades", "guess"),
+            ],
+            "2026-11-14T00:00:00Z",
+        )
+        .unwrap();
+        assert_eq!(list_save_candidates(&connection, 7).unwrap().len(), 1);
+        assert!(
+            get_save_candidate(&connection, 7, "/home/player/Documents/Hades")
+                .unwrap()
+                .unwrap()
+                .ignored
+        );
+
+        // Paths that disappear and were never confirmed are cleaned up; a
+        // confirmed path stays so its history is not lost.
+        upsert_save_candidates(&connection, 7, &[], "2026-11-15T00:00:00Z").unwrap();
+        let listed = list_save_candidates(&connection, 7).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].confirmed);
+    }
+
+    #[test]
+    fn save_candidate_groups_join_installed_games() {
+        let connection = memory_database();
+        let game = InstalledGame {
+            game_id: 7,
+            version_id: 1,
+            title: "Hades".into(),
+            version: None,
+            install_path: "/games/hades".into(),
+            executable: None,
+            size_bytes: 0,
+            installed_at: "2026-11-10T00:00:00Z".into(),
+            last_launched_at: None,
+            archive_hash: None,
+            install_root: None,
+            source: crate::db::SOURCE_LUDEX.into(),
+            launch_uri: None,
+        };
+        upsert_installed(&connection, &game).unwrap();
+        upsert_save_candidates(
+            &connection,
+            7,
+            &[
+                save_candidate("/home/player/Documents/Hades", "guess"),
+                save_candidate("/home/player/Saved Games/Hades", "likely"),
+            ],
+            "2026-11-11T00:00:00Z",
+        )
+        .unwrap();
+        let groups = list_save_candidate_groups(&connection).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].1, "Hades");
+        assert_eq!(groups[0].2.len(), 2);
+        assert_eq!(groups[0].2[0].confidence, "likely");
+        assert_eq!(groups[0].2[1].confidence, "guess");
     }
 }

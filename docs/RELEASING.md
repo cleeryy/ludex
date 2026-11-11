@@ -58,6 +58,27 @@ Signing keys rotate by publishing a release signed with the new key **and**
 shipping the new public key in the previous release, otherwise existing installs
 cannot verify the update.
 
+### What the update center shows
+
+The desktop update center (`/updates`, #163) renders the channel's `latest.json`
+directly: version, date, release notes and the release page. It also prints the
+endpoint that was queried, so a wrong channel or a private mirror is visible
+without reading logs.
+
+- `stable` publishes the release body as `notes`; write release notes in the
+  GitHub release, not only in the tag.
+- `edge` currently publishes `"notes": ""` and a generic `Ludex edge` title.
+  The update center then falls back to the stamped build number
+  (`<next patch>-edge.<run_number>`) and links to the rolling `edge` release, so
+  testers can still identify the build. Filling `notes` (commit subject list) in
+  the edge workflow would make the center show the full story.
+- Skipping a version is a local preference (`skippedUpdateVersion` in desktop
+  settings). It never hides the update from the center and never blocks an
+  install; only the launch prompt, the badge and the toast are silenced until a
+  newer version appears.
+- Switching between stable and early persists the channel and re-checks
+  immediately. Early installs show the edge warning in the center.
+
 ## macOS signing, notarization and Apple Silicon (#27)
 
 The release matrix builds a **universal** macOS DMG

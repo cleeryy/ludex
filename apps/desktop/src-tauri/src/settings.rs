@@ -153,6 +153,11 @@ pub struct LocalSettings {
     /// Last successful or attempted update check, RFC 3339. Used for the
     /// once-per-24 h throttle; cleared by a manual check.
     pub last_update_check_at: Option<String>,
+    /// Version the user asked Ludex to stop prompting about (#163). The update
+    /// stays installable from the update center; only notifications and the
+    /// startup prompt are silenced, and a newer version prompts again.
+    #[serde(default)]
+    pub skipped_update_version: Option<String>,
     /// Publish the running game as Discord Rich Presence (#12). Off by default.
     pub discord_presence: bool,
     /// Discord application id used for Rich Presence. An application id is not
@@ -297,6 +302,7 @@ impl Default for LocalSettings {
             update_channel: UpdateChannel::Stable,
             check_updates_on_startup: true,
             last_update_check_at: None,
+            skipped_update_version: None,
             discord_presence: false,
             discord_client_id: String::new(),
             installer_silent_args: Vec::new(),
@@ -414,6 +420,13 @@ impl LocalSettings {
             .collect::<String>()
             .to_lowercase();
         self.player_name = self.player_name.trim().chars().take(60).collect();
+        // #163: a skipped version is a display preference, never a security
+        // decision; trim it and drop blanks so the field serialises cleanly.
+        self.skipped_update_version = self
+            .skipped_update_version
+            .take()
+            .map(|value| value.trim().chars().take(64).collect::<String>())
+            .filter(|value| !value.is_empty());
         self.active_server_id = self.active_server_id.trim().to_string();
         self.servers = self
             .servers
@@ -942,6 +955,7 @@ mod tests {
         assert_eq!(json["updateChannel"], "stable");
         assert_eq!(json["checkUpdatesOnStartup"], true);
         assert_eq!(json["lastUpdateCheckAt"], serde_json::Value::Null);
+        assert_eq!(json["skippedUpdateVersion"], serde_json::Value::Null);
         assert_eq!(json["discordPresence"], false);
         assert_eq!(json["discordClientId"], "");
         assert_eq!(json["installerSilentArgs"], serde_json::json!([]));
@@ -1111,6 +1125,36 @@ mod tests {
         assert_eq!(json["updateChannel"], "early");
         let back: LocalSettings = serde_json::from_value(json).unwrap();
         assert_eq!(back.update_channel, UpdateChannel::Early);
+    }
+
+    #[test]
+    fn skipped_update_version_roundtrips_and_clears() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        assert!(settings.skipped_update_version.is_none());
+
+        settings.skipped_update_version = Some(" 0.3.2-edge.179 ".into());
+        settings.normalize(Path::new("/data"));
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["skippedUpdateVersion"], "0.3.2-edge.179");
+        let back: LocalSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            back.skipped_update_version.as_deref(),
+            Some("0.3.2-edge.179")
+        );
+
+        // A blank value is not a version: drop it instead of suppressing
+        // prompts forever with an empty string.
+        let mut blank = LocalSettings {
+            skipped_update_version: Some("   ".into()),
+            ..LocalSettings::default()
+        };
+        blank.normalize(Path::new("/data"));
+        assert!(blank.skipped_update_version.is_none());
+
+        // Settings files written before #163 have no key at all.
+        let legacy: LocalSettings =
+            serde_json::from_value(serde_json::json!({ "updateChannel": "stable" })).unwrap();
+        assert!(legacy.skipped_update_version.is_none());
     }
 
     #[test]

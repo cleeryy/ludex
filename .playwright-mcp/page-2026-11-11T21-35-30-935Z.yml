@@ -1,0 +1,46 @@
+- generic [ref=f1e2]:
+  - generic [ref=f1e3]:
+    - complementary [ref=f1e4]:
+      - generic [ref=f1e5]:
+        - img "Ludex" [ref=f1e6]
+        - generic [ref=f1e15]: Self-hosted
+      - generic [ref=f1e92]:
+        - paragraph [ref=f1e93]: The shelf you actually own.
+        - paragraph [ref=f1e94]: Ludex indexes the archives on your server and serves them to your machines. No storefront, no account anywhere else.
+    - main [ref=f1e95]:
+      - generic [ref=f1e99]:
+        - generic [ref=f1e100]:
+          - heading "Sign in" [level=1] [ref=f1e101]
+          - paragraph [ref=f1e102]:
+            - generic [ref=f1e103]: Ludex Archive
+            - generic [ref=f1e105]: v0.1.0
+        - generic [ref=f1e106]:
+          - button "Sign in with Authentik" [ref=f1e107] [cursor=pointer]
+          - generic [ref=f1e111]: or use a password
+        - generic [ref=f1e115]:
+          - generic [ref=f1e116]:
+            - generic [ref=f1e117]: Username
+            - textbox "Username" [active] [ref=f1e119]:
+              - /placeholder: Your username
+          - generic [ref=f1e120]:
+            - generic [ref=f1e121]: Password
+            - textbox "Password" [ref=f1e123]:
+              - /placeholder: Your password
+        - button "Sign in" [ref=f1e124] [cursor=pointer]
+        - generic [ref=f1e127]:
+          - paragraph [ref=f1e128]: Demo data is on. Sign in as mara with the password ludex, or use the single sign-on button.
+          - button "Fill demo credentials" [ref=f1e129] [cursor=pointer]
+      - generic [ref=f1e130]:
+        - generic [ref=f1e131]: v0.1.0
+        - link "AGPL-3.0" [ref=f1e132] [cursor=pointer]:
+          - /url: https://github.com/cleeryy/ludex/blob/main/LICENSE
+  - region "Notifications"
+  - status [ref=f1e133]:
+    - generic [ref=f1e134]:
+      - generic [ref=f1e138]:
+        - paragraph [ref=f1e139]: Install Ludex
+        - paragraph [ref=f1e140]: Keep the shell on your home screen and open the library full screen, even offline.
+        - generic [ref=f1e141]:
+          - button "Install" [ref=f1e142] [cursor=pointer]
+          - button "Not now" [ref=f1e146] [cursor=pointer]
+      - button "Dismiss" [ref=f1e147] [cursor=pointer]

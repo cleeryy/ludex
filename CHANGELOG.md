@@ -10,6 +10,33 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Manual metadata matching (#135): editors can search IGDB/configured providers/
+  Steam from the game page, compare candidates and apply the right record;
+  applies by provider id, caches artwork, updates metadata and provider refs,
+  preserves hand-edited fields unless explicitly replaced (migration 0020
+  `manual_fields_json`), audits `game.metadata_matched`, and later refreshes
+  fetch the selected id instead of re-searching by title.
+- Multiple Big Picture layouts (#141): Shelf, Hero, Grid and Compact with a
+  persisted preference, unified keyboard/gamepad navigation, layout switcher
+  (L/X) and Settings control, responsive 1080p/4K/small screens, entrance
+  cascade only on open, and reduced-motion support.
+- Save-discovery registry (#146): versioned `data/save-roots.yaml` with Windows
+  known-folder ids (Saved Games, LocalLow, ProgramData, Public), OneDrive
+  redirects, XDG/Flatpak/Proton/macOS roots, Unity/Unreal/Godot/Ren'Py/
+  Minecraft patterns, Steam ground truth, confidence/provenance; candidates are
+  stored separately and never become syncable until explicitly confirmed in
+  Settings → Saves.
+- Update center (#163): `/updates` with current/available version, release notes,
+  channel switch with early warning, skip-version, remind-later, download
+  progress/speed and actionable signature/disk/network errors; Settings keeps a
+  compact status and the app prompts once per version.
+- Desktop SSO handoff, launcher source selection and common config fields are
+  captured in the entries above.
+- Top-10 i18n (#139): locale registry (native names, RTL, tier/status),
+  95 % selectable gate with 100 % strict for top-10, browser/`?lang=`
+  detection, pseudo-locale `en-XA`, hardcoded-English lint, rewritten
+  validation and docs; complete catalogs for zh-CN, ru, es, pt-BR, de, fr, ja,
+  ko, pl, tr, it (plus ar preview and nl/uk not shipped).
 - Common config fields (#148): the game settings editor recognises language and
   player-name keys across editable INI/JSON/CFG/TOML files (Unreal, Unity,
   Godot, GOG, generic; case-insensitive aliases, confidence/source badges,

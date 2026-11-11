@@ -30,6 +30,8 @@ import type {
   IngestStats,
   LibraryFile,
   LibraryStats,
+  MetadataApplyInput,
+  MetadataCandidates,
   MetadataProvider,
   MetadataProviderInput,
   NewsPost,
@@ -325,6 +327,26 @@ export const api = {
     return USING_MOCKS
       ? mockApi.refreshMetadata(tokenStore.get(), id)
       : request<{ queued: boolean }>(`/games/${id}/refresh-metadata`, { method: "POST" });
+  },
+  /**
+   * Manual metadata match (#135): searches the configured providers. Runs
+   * only when the editor opens the dialog, never on page load.
+   */
+  metadataCandidates(
+    id: number,
+    params: { q?: string; provider?: string; year?: number } = {},
+  ): Promise<MetadataCandidates> {
+    return USING_MOCKS
+      ? mockApi.metadataCandidates(tokenStore.get(), id, params)
+      : request<MetadataCandidates>(`/games/${id}/metadata/candidates`, {
+          query: { q: params.q, provider: params.provider, year: params.year },
+        });
+  },
+  /** Applies one provider record; returns the updated game detail. */
+  applyMetadata(id: number, body: MetadataApplyInput): Promise<GameDetail> {
+    return USING_MOCKS
+      ? mockApi.applyMetadata(tokenStore.get(), id, body)
+      : request<GameDetail>(`/games/${id}/metadata/apply`, { method: "POST", body });
   },
   downloadTicket(id: number, versionId?: number): Promise<{ url: string; expiresAt: string }> {
     if (USING_MOCKS) return Promise.resolve({ url: "", expiresAt: new Date(Date.now() + 15 * 60_000).toISOString() });

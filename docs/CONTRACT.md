@@ -258,7 +258,9 @@ payload are ignored. New and existing accounts default to
 | GET | `/api/games/{id}` | `GameDetail` |
 | GET | `/api/games/random` | same filters as list → `GameSummary`; 404 when empty |
 | PATCH | `/api/games/{id}` | editor; editable metadata fields (`altTitles`, `players`) + `launch` object; returns `GameDetail` |
-| POST | `/api/games/{id}/refresh-metadata` | editor; 202 `{ queued: true }` |
+| POST | `/api/games/{id}/refresh-metadata` | editor; 202 `{ queued: true }`. The job fetches the stored provider id when one is set instead of searching by title again (#135) |
+| GET | `/api/games/{id}/metadata/candidates` | editor; query `q` (defaults to the game title, 1-120 chars), `provider` (one slug), `year` → `{ query, gameId, manualFields, candidates, providers }`. Network runs only when this route is called; each provider has a 6 s deadline and its own error state |
+| POST | `/api/games/{id}/metadata/apply` | editor; `{ provider, providerId, replaceManual? }` → `GameDetail`; caches the record's cover/background/screenshots/trailers, replaces title/year/description/genres/developers/publishers/rating/ageRating/maxPlayers/altTitles, always sets `provider.slug/id/url`, and emits `game.metadata_matched` |
 | POST | `/api/games/{id}/download-ticket` | `{ versionId? }` → `{ url, expiresAt }` (15 min, no auth needed on the URL) |
 | GET | `/api/games/{id}/download?versionId=&token=` | file stream, Range supported, `Content-Disposition` |
 | GET | `/api/games/{id}/versions/{versionId}/stream?token=` | Stream install: an uncompressed `application/x-tar` of the archive entries, no archive stored on the client. ZIP, 7z and RAR (RAR4/RAR5) are supported; unsupported files return 415 and the client falls back, encrypted archives return 409. Exact `Content-Length`. Same auth rules as download. |
@@ -266,6 +268,47 @@ payload are ignored. New and existing accounts default to
 | GET | `/api/games/{id}/versions/{versionId}/stream/entries/{index}?token=` | Raw content of one ZIP entry, single HTTP `Range` supported (`206` + `Content-Range`, `416` + `Content-Range: bytes */size`). `Content-Length` is exact. Unknown index → `404 entry_not_found`; directories → `404 entry_not_found`. Same auth as `/stream`. |
 | GET | `/api/games/{id}/versions/latest` | newest non-missing version → `LatestVersion`; 404 `no_versions` when the game has none |
 | GET | `/api/games/{id}/versions/{versionId}/local-path` | embedded/local mode + loopback only → `{ path }`, else 404 |
+
+### Manual metadata match (#135)
+
+`GET /api/games/{id}/metadata/candidates` searches IGDB (when configured) and
+the enabled community providers in priority order. Steam is the fallback: it
+is queried when no other provider is configured, or when the request asks for
+`provider=steam` explicitly. Responses are ranked by a lenient title/year score
+so a weak automatic match is still pickable:
+
+```ts
+interface MetadataCandidate {
+  provider: string; providerName: string; providerId: string;
+  providerUrl: string | null; title: string; year: number | null;
+  coverUrl: string | null; summary: string | null;
+  developers: string[]; platforms: string[];
+  score: number; confidence: number; // 0-1
+  selected: boolean;                // matches the game's current provider id
+}
+interface MetadataProviderStatus {
+  slug: string; name: string; ok: boolean;
+  error: string | null; candidates: number; elapsedMs: number;
+}
+```
+
+A provider that fails (timeout, unreachable, bad payload) appears in
+`providers` with `ok: false`; the request still answers 200 with the other
+providers' candidates. Unknown slugs and empty queries are `400
+invalid_provider` / `400 invalid_query`.
+
+`POST /api/games/{id}/metadata/apply` fetches the record by id (`IGDB
+games/{id}`, Steam `appdetails?appids=`, community `GET {base_url}/games/{id}`)
+and writes it to the game row. `provider.slug`, `provider.id`, `provider.url`
+and the cached artwork always follow the selected record. Fields absent from
+the record keep their current value. Metadata fields edited by hand through
+`PATCH /api/games/{id}` are tracked in `games.manual_fields_json`
+(`title`, `releaseDate`, `description`, `genres`, `developers`, `publishers`,
+`rating`, `ageRating`, `altTitles`, `players`) and are preserved unless the
+request sets `replaceManual: true`; the candidates response lists them as
+`manualFields`. A missing record is `404 metadata_candidate_not_found`, a
+provider failure `502 provider_request_failed`. Replaced artwork files become
+unreferenced and are collected by the media GC after its grace period.
 
 ### Version fingerprints
 
@@ -661,7 +704,7 @@ Every security-relevant event is written to `audit_logs` with an actor
 metadata, IP when known, and timestamp. Recorded actions: `login.succeeded`,
 `login.failed`, `user.created|updated|deleted|password_changed|password_reset`,
 `api_key.created|revoked`,
-`game.ingested|deleted`, `download.completed`, `settings.updated`,
+`game.ingested|deleted`, `game.metadata_matched`, `download.completed`, `settings.updated`,
 `settings.oidc_updated`, `settings.metadata_provider_updated`,
 `webhook.created|updated|deleted`,
 `save.uploaded|deleted`, `oidc.login`, `oidc.linked`,
@@ -998,6 +1041,7 @@ interface LocalSettings {
   updateChannel: "stable" | "early"; // app updater channel (default stable)
   checkUpdatesOnStartup: boolean;    // throttled to once per 24 h
   lastUpdateCheckAt: string | null;  // RFC 3339, drives the throttle
+  skippedUpdateVersion: string | null; // #163: no prompt/badge for this version
   discordPresence: boolean;          // Discord Rich Presence (#12), default false
   discordClientId: string;           // Discord application id, not a bot token
   installerSilentArgs: string[][];   // silent install attempts (#7), empty = presets
@@ -1345,8 +1389,12 @@ interface UpdateStatus {
   channel: "stable" | "early";
   currentVersion: string;
   lastCheckedAt: string | null;
+  endpoint: string;                 // GitHub latest.json the check used (#163)
+  skippedVersion: string | null;    // #163: prompt/badge silenced for this version
+  notify: boolean;                  // false when the version is skipped, or none is available
   available: { version: string; currentVersion: string; notes: string | null;
-               publishedAt: string | null } | null;
+               publishedAt: string | null; releaseUrl: string; // (#163)
+               isPrerelease: boolean; build: number | null } | null;
   message: string | null;
 }
 
@@ -1646,9 +1694,12 @@ interface StreamTarget {
 | `get_game_playtime` | `{ gameId, days?, sessions? }` | `GamePlaytime` (defaults: 30 days, 10 sessions) |
 | `check_game_updates` | — | `GameUpdate[]`; per-game failures are skipped |
 | `update_game` | `{ gameId }` | `InstallJob`; installs the newest server version, keeps the previous install until the new files are in place |
-| `check_for_updates` | `{ manual? }` | `UpdateStatus`; manual checks bypass the 24 h throttle |
-| `install_update` | — | `UpdateStatus` after download+install; refuses when no signing key is configured |
+| `check_for_updates` | `{ manual? }` | `UpdateStatus`; manual checks bypass the 24 h throttle. A skipped version keeps `available` but sets `notify: false` (#163) |
+| `install_update` | — | `UpdateStatus` after download+install; refuses when no signing key is configured. Signature, disk and network failures return a specific message (#163) |
 | `restart_app` | — | `null` (restarts Ludex; Linux/macOS after an update) |
+| `update_status` | — | `UpdateStatus` without a network check: current version, channel, endpoint, skipped version, last check (#163) |
+| `set_update_channel` | `{ channel }` | Persists `updateChannel` then re-checks on it; unknown values are rejected (#163) |
+| `set_update_skip` | `{ version }` | Persists `skippedUpdateVersion` (`null` clears it) and returns the status without a network check. Silences prompts/badges only (#163) |
 | `installer_plan` | `{ gameId?, executable? }` | `InstallerPlan`; never runs anything. On Linux `compatTool`/`prefix` show the tool a run would use |
 | `run_installer` | `{ gameId, executable?, interactive?, args? }` | `InstallerReport`; Windows runs `setup.exe` directly, Linux through UMU/Proton/Wine (#93); interactive runs use no arguments and no timeout |
 | `cancel_installer` | `{ gameId }` | `null`; stops a running installer at the next poll |
@@ -1742,8 +1793,10 @@ Events:
 - `local-server://status` → `{ running, url }`
 - `ui://navigate` → `string` (tray menu asked for a route, e.g. `/downloads`)
 - `ui://launch` → `number` (tray "Recent games" item; the UI calls `launch_game`)
-- `update://available` → `UpdateStatus` (startup check found a version)
-- `update://progress` → `{ downloaded, total, percent }`
+- `update://available` → `UpdateStatus` (startup check found a version; emitted
+  for a skipped version too, with `notify: false` — listeners gate prompts and
+  badges on that flag, #163)
+- `update://progress` → `{ downloaded, total, percent, speedBps }`
 - `update://installed` → `{ version, restarted }`
 - `installer://done` → `{ gameId, success, exitCode, tool }` (#7, #93; `tool` is
   the Linux compatibility tool or `null`)
@@ -2052,10 +2105,20 @@ stops every write. Each applied change appears in the Backups tab with
   quitting; the tray menu offers Show/Hide, Downloads, Recent games (latest
   launch, else import/install date), Check for updates and Quit. Left click
   toggles the window and the tooltip reports active downloads.
-- **App updates (#16).** `stable` follows the latest GitHub release, `early`
-  follows the moving `edge` prerelease. Checks run at startup at most once per
-  24 h plus on demand. Install requires a configured signing key; without one the
-  status reports `configured: false` and `install_update` refuses explicitly.
+- **App updates (#16, #163).** `stable` follows the latest GitHub release,
+  `early` follows the moving `edge` prerelease. Checks run at startup at most
+  once per 24 h plus on demand from `/updates`, Settings or the tray. The update
+  center shows the current version, the queried endpoint, the last check, the
+  available version with sanitised release notes/date and a release-page link;
+  `UpdateStatus` carries `endpoint`, `skippedVersion` and `notify`. Skipping a
+  version persists `skippedUpdateVersion` and silences the launch prompt, badge
+  and toast only: the install stays available. Switching channel persists
+  `updateChannel` and re-checks immediately. Install requires a configured
+  signing key; without one the status reports `configured: false` and
+  `install_update` refuses explicitly. Signature, disk and network failures are
+  mapped to specific messages. No token, signing key or password is logged.
+  The browser build has no updater: `/updates` explains that updates are
+  desktop-only and links to the release page.
 - **Move.** `move_install` takes a new install root and keeps the
   `{slug}/{versionLabel}` layout. Same filesystem: an atomic rename. Different
   filesystem: copy to a hidden sibling, verify the byte count, rename into
@@ -2489,6 +2552,24 @@ Input may hide the physical pad or present a virtual Xbox pad, and the browser
 Gamepad API is only available on secure origins (`tauri://localhost` and
 localhost included). Use the debug overlay there to confirm the axes/buttons
 before changing a profile.
+
+### Big Picture layouts (#141)
+
+`/bigpicture` renders one of four layouts — `shelf` (default), `hero`, `grid`,
+`compact` — from a single navigation model. Directions are resolved per layout
+by a pure table: the rails (`shelf`, `hero`) walk left/right and change shelf
+with up/down; `grid` walks left/right and steps a row with up/down, using the
+same column count as its CSS grid; `compact` walks the list with up/down and
+changes shelf with left/right. A/Enter, B/Escape, Y/downloads, X/layout and
+LB/RB mean the same thing in all four.
+
+The layout is a **device** preference, not an account setting: it is stored in
+`localStorage` under `ludex.bigPicture.layout` (scoped per server through
+`scopedStorageKey`, like `ludex.libraryView`) and shared by a module store, so
+the header control, the quick switcher (`L` on a keyboard, X on a controller)
+and Settings → Appearance all apply it to a running screen without a reload.
+Unknown or missing values fall back to `shelf`. Switching layouts preserves the
+selected game and shelf; the ring is restored to that game.
 
 ## Emulators and ROMs (#52)
 

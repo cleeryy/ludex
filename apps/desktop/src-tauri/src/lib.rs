@@ -28,6 +28,7 @@ mod protondb;
 mod roms;
 mod saves_detect;
 mod saves_manifest;
+mod saves_registry;
 mod saves_sync;
 mod secrets;
 mod server;
@@ -156,6 +157,9 @@ pub fn run() {
             commands::check_for_updates,
             commands::install_update,
             commands::restart_app,
+            updater::update_status,
+            updater::set_update_channel,
+            updater::set_update_skip,
             commands::open_path,
             commands::get_disk_usage,
             commands::installer_plan,
@@ -195,6 +199,10 @@ pub fn run() {
             commands::ludusavi_manifest_status,
             commands::update_ludusavi_manifest,
             commands::remove_ludusavi_manifest,
+            commands::list_save_candidates,
+            commands::scan_save_candidates,
+            commands::confirm_save_candidate,
+            commands::ignore_save_candidate,
             commands::cloud_save_status,
             commands::set_cloud_save_sync,
             commands::sync_cloud_save_now,

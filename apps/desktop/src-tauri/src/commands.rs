@@ -33,6 +33,7 @@ use crate::profiles;
 use crate::protondb::{self, ProtonDbRating};
 use crate::saves_detect::{self, SavePathInput, SavePaths};
 use crate::saves_manifest::{self, ManifestStatus, ManifestUpdate};
+use crate::saves_registry::{self, SaveCandidateGroup, SaveCandidateOverview};
 use crate::saves_sync::{self, CloudSaveStatus, RestoreOutcome, SyncToggleResponse};
 use crate::server::{self, ServerInfo, ServerStatus};
 use crate::settings::{self, LocalSettings};
@@ -2611,6 +2612,14 @@ fn detect_and_persist(app: &AppHandle, game_id: i64) -> Result<SavePaths, String
             .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
         db::replace_save_paths(&connection, game_id, &rows)?;
         db::upsert_save_detection(&connection, &record)?;
+        // Candidates are persisted separately and are never archived until
+        // the user confirms them (#146).
+        db::upsert_save_candidates(
+            &connection,
+            game_id,
+            &detection.candidates,
+            &record.detected_at,
+        )?;
     }
 
     Ok(saves_detect::persisted(game_id, rows, Some(record)))
@@ -2652,6 +2661,271 @@ pub async fn update_ludusavi_manifest(app: AppHandle) -> Result<ManifestUpdate, 
 #[tauri::command]
 pub fn remove_ludusavi_manifest(app: AppHandle) -> Result<ManifestStatus, String> {
     saves_manifest::remove_now(&app)
+}
+
+/* ------------------------------------------------------- save candidates */
+
+/// Settings → Saves overview of every persisted candidate (#146). Reads the
+/// local index only: this command never scans the disk.
+#[tauri::command]
+pub fn list_save_candidates(state: State<'_, AppState>) -> Result<SaveCandidateOverview, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    candidate_overview(&connection, Vec::new())
+}
+
+fn candidate_overview(
+    connection: &rusqlite::Connection,
+    warnings: Vec<String>,
+) -> Result<SaveCandidateOverview, String> {
+    let registry = saves_registry::registry();
+    let groups = db::list_save_candidate_groups(connection)?
+        .into_iter()
+        .map(|(game_id, title, candidates)| SaveCandidateGroup {
+            game_id,
+            title,
+            candidates,
+        })
+        .collect();
+    Ok(SaveCandidateOverview {
+        registry_version: registry.version,
+        max_depth: registry.limits.max_depth,
+        max_entries: registry.limits.max_entries,
+        groups,
+        warnings,
+    })
+}
+
+/// Run the OS/engine registry for every installed game (#146). This is the
+/// "Scan installed games" action in Settings → Saves; it does not read the
+/// Ludusavi manifest, so the scan stays cheap even with a large library.
+#[tauri::command]
+pub async fn scan_save_candidates(app: AppHandle) -> Result<SaveCandidateOverview, String> {
+    tauri::async_runtime::spawn_blocking(move || scan_and_persist_candidates(&app))
+        .await
+        .map_err(|error| format!("The save candidate scan failed: {error}"))?
+}
+
+fn scan_and_persist_candidates(app: &AppHandle) -> Result<SaveCandidateOverview, String> {
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+    let now = now_rfc3339();
+    let games = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::list_installed(&connection)?
+    };
+    let mut warnings: Vec<String> = Vec::new();
+    for game in games.iter().take(500) {
+        let launch_options = {
+            let connection = state
+                .db
+                .lock()
+                .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+            db::get_launch_options(&connection, game.game_id)?
+        };
+        let prefix_override = crate::util::non_empty(Some(launch_options.prefix_path.as_str()));
+        let env = saves_detect::DetectEnv::for_game(
+            &settings,
+            game,
+            &state.app_data,
+            prefix_override,
+            launch_options.steam_app_id,
+        );
+        let mut context = saves_detect::GameContext::from_installed(game);
+        if context.steam_app_id.is_none() {
+            context.steam_app_id = launch_options.steam_app_id;
+        }
+        let roots = saves_detect::save_roots(&env, &context);
+        let discovery = saves_registry::discover(&saves_registry::DiscoveryInputs {
+            platform: env.platform,
+            user_name: &env.os_user_name,
+            folders: &env.known,
+            prefix: env.prefix.as_deref(),
+            title: &game.title,
+            steam_app_id: context.steam_app_id,
+            steam_roots: &env.steam_roots,
+            steam_user_ids: &env.steam_user_ids,
+            roots: &roots,
+            now: &now,
+            registry: &env.registry,
+            overrides: saves_registry::overrides(),
+        });
+        warnings.extend(discovery.warnings);
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        // A path that is already a save path needs no confirmation, so it is
+        // not offered again as a candidate.
+        let saved = db::list_save_paths(&connection, game.game_id)?;
+        let candidates: Vec<_> = discovery
+            .candidates
+            .into_iter()
+            .filter(|candidate| !saved.iter().any(|row| row.path == candidate.path))
+            .collect();
+        db::upsert_save_candidates(&connection, game.game_id, &candidates, &now)?;
+    }
+    warnings.sort();
+    warnings.dedup();
+    warnings.truncate(12);
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    candidate_overview(&connection, warnings)
+}
+
+/// Confirm a discovered candidate so it becomes a save path (#146). The user
+/// may correct the path first (`editedPath`); the original is then ignored.
+/// Nothing is uploaded here: the next snapshot is still an explicit action.
+#[tauri::command]
+pub async fn confirm_save_candidate(
+    app: AppHandle,
+    game_id: i64,
+    path: String,
+    edited_path: Option<String>,
+) -> Result<SaveCandidateGroup, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        confirm_candidate(&app, game_id, &path, edited_path.as_deref())
+    })
+    .await
+    .map_err(|error| format!("The save candidate confirmation failed: {error}"))?
+}
+
+fn confirm_candidate(
+    app: &AppHandle,
+    game_id: i64,
+    path: &str,
+    edited_path: Option<&str>,
+) -> Result<SaveCandidateGroup, String> {
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+    let (game, launch_options, candidate) = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        let game = db::get_installed(&connection, game_id)?
+            .ok_or_else(|| format!("Game {game_id} is not installed on this machine."))?;
+        let launch_options = db::get_launch_options(&connection, game_id)?;
+        let candidate = db::get_save_candidate(&connection, game_id, path)?
+            .ok_or_else(|| "This candidate no longer exists; run the scan again.".to_string())?;
+        (game, launch_options, candidate)
+    };
+
+    let env = saves_detect::DetectEnv::for_game(
+        &settings,
+        &game,
+        &state.app_data,
+        crate::util::non_empty(Some(launch_options.prefix_path.as_str())),
+        launch_options.steam_app_id,
+    );
+    let mut context = saves_detect::GameContext::from_installed(&game);
+    if context.steam_app_id.is_none() {
+        context.steam_app_id = launch_options.steam_app_id;
+    }
+
+    let edited = edited_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != path);
+    let target = edited.unwrap_or(path);
+    let (canonical, kind) = saves_detect::validate_save_path(&env, &context, target)?;
+    let path_string = canonical.to_string_lossy().to_string();
+    let source = if edited.is_some() {
+        saves_detect::SOURCE_MANUAL
+    } else {
+        candidate.source.as_str()
+    };
+    let now = now_rfc3339();
+
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    let mut rows = db::list_save_paths(&connection, game_id)?;
+    if !rows.iter().any(|row| row.path == path_string) {
+        let primary = rows.is_empty();
+        rows.push(db::SavePathRecord {
+            game_id,
+            path: path_string.clone(),
+            kind: kind.clone(),
+            source: source.to_string(),
+            primary,
+            created_at: now.clone(),
+        });
+    }
+    db::replace_save_paths(&connection, game_id, &rows)?;
+    db::set_save_candidate_confirmed(&connection, game_id, path, true)?;
+    if edited.is_some() {
+        db::set_save_candidate_ignored(&connection, game_id, path, true)?;
+    }
+
+    // Fold the confirmed path into the last snapshot so the game page and the
+    // cloud-save panel show its size without waiting for another detection.
+    let previous = db::get_save_detection(&connection, game_id)?;
+    let mut snapshot: saves_detect::Detection = previous
+        .as_ref()
+        .and_then(|record| serde_json::from_str(&record.result_json).ok())
+        .unwrap_or_default();
+    if !snapshot.saves.iter().any(|save| save.path == path_string) {
+        snapshot
+            .saves
+            .push(saves_detect::measured_save(&canonical, source));
+    }
+    snapshot.detected = true;
+    snapshot.total_bytes = snapshot
+        .saves
+        .iter()
+        .map(|save| save.size_bytes.max(0))
+        .sum();
+    snapshot.source = source.to_string();
+    snapshot.message = format!("{} confirmed save path(s).", snapshot.saves.len());
+    let record = db::SaveDetectionRecord {
+        game_id,
+        version_id: game.version_id,
+        manifest_version: previous
+            .as_ref()
+            .and_then(|record| record.manifest_version.clone()),
+        detected_at: now,
+        result_json: serde_json::to_string(&snapshot)
+            .map_err(|error| format!("Could not encode the save paths: {error}"))?,
+    };
+    db::upsert_save_detection(&connection, &record)?;
+
+    let candidates = db::list_save_candidates(&connection, game_id)?;
+    Ok(SaveCandidateGroup {
+        game_id,
+        title: game.title,
+        candidates,
+    })
+}
+
+/// Dismiss a candidate so the next scan does not resurface it (#146). The
+/// saved paths are untouched.
+#[tauri::command]
+pub fn ignore_save_candidate(
+    state: State<'_, AppState>,
+    game_id: i64,
+    path: String,
+) -> Result<SaveCandidateGroup, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    let game = db::get_installed(&connection, game_id)?
+        .ok_or_else(|| format!("Game {game_id} is not installed on this machine."))?;
+    db::set_save_candidate_ignored(&connection, game_id, &path, true)?;
+    let candidates = db::list_save_candidates(&connection, game_id)?;
+    Ok(SaveCandidateGroup {
+        game_id,
+        title: game.title,
+        candidates,
+    })
 }
 
 /// Persisted save mapping and last preview. Never rescans the disk (#107).

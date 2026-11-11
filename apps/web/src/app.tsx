@@ -7,6 +7,9 @@ import { isNative, native } from "@/lib/native";
 import { useAuth, useIsAdmin, useIsEditor } from "@/state/auth";
 import { SettingsProvider } from "@/state/settings";
 import { I18nProvider, useI18n } from "@/lib/i18n";
+import { UpdateProvider } from "@/components/updates/update-provider";
+import { UpdateNotifier } from "@/components/updates/update-notifier";
+import { UpdatesScreen } from "@/screens/updates";
 import { ToastProvider } from "@/state/toasts";
 import { AuthProvider } from "@/state/auth";
 import { DownloadsProvider } from "@/state/downloads";
@@ -194,8 +197,10 @@ export function App() {
           <AuthProvider>
             <DownloadsProvider>
             <I18nProvider>
+            <UpdateProvider>
             <ConfigSyncDefaults />
             <HashRouter>
+              <UpdateNotifier />
               <Routes>
                 {/* Public and account-free: must stay outside the Gate (#9). */}
                 <Route path="/share/:token" element={<ShareScreen />} />
@@ -243,6 +248,7 @@ export function App() {
                   <Route path="community/u/:id" element={<ProfileScreen />} />
                   <Route path="news" element={<NewsScreen />} />
                   <Route path="settings" element={<SettingsScreen />} />
+                  <Route path="updates" element={<UpdatesScreen />} />
                   <Route
                     path="admin/ingest"
                     element={
@@ -313,6 +319,7 @@ export function App() {
             </HashRouter>
             <ToastViewport />
             <PwaPrompts />
+            </UpdateProvider>
             </I18nProvider>
             </DownloadsProvider>
           </AuthProvider>
