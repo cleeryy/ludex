@@ -64,6 +64,8 @@ export function InstallerPanel({
       if (result.recordedExecutable) {
         void queryClient.invalidateQueries({ queryKey: ["installed"] });
       }
+      // An installer may have written new programs into the folder (#143).
+      void queryClient.invalidateQueries({ queryKey: ["game-executables"] });
       push({
         title: result.success ? `${title} installed` : `${title} installer needs attention`,
         description: result.message,

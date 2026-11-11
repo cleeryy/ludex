@@ -794,6 +794,13 @@ pub async fn repair_install(app: &AppHandle, game_id: i64) -> Result<RepairRepor
     });
 
     let _ = app.emit("install://verify-progress", verify_done(&verify));
+    // Restored files may include a deleted executable; the picker must rescan
+    // instead of serving the pre-repair listing (#143).
+    if let Ok(mut cache) = state.executables.lock() {
+        if let Ok(root) = crate::game_executables::installed_root(&installed) {
+            cache.invalidate(&root.to_string_lossy());
+        }
+    }
     Ok(RepairReport {
         game_id,
         repaired: restored.repaired,

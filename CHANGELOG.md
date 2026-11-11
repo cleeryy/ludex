@@ -10,6 +10,16 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Executable pickers in Launch options (#143): `list_game_executables` walks
+  the installed folder (depth 4–8, loop-safe, root-confined, 5 s cache) and
+  classifies entries as launch/installer/uninstaller/other with the detected
+  main executable marked "Detected". Launch, installer and uninstaller values
+  are chosen from searchable, keyboard-navigable lists (path + size, Refresh,
+  Browse folder, manual entry kept as an advanced fallback); games without a
+  local install keep the manual fields. `check_game_executable` validates every
+  saved value (traversal, absolute and symlink escapes rejected) and syncs the
+  local installed row; the listing is invalidated after move, repair, installer
+  run and install completion.
 - GameVault folder adoption rework (#134): matched folders are never silently
   dropped — a game without a detected executable stays in the list with a note,
   ranked `.exe` candidates and path-bearing warnings, and can be linked with a

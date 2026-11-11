@@ -38,7 +38,7 @@ pub use archive::{
     ExtractOptions, ExtractProgress, ExtractReport, StreamEntry, StreamManifest, TarStreamReport,
 };
 pub use exe::{
-    clamp_scan_depth, discover_executables, is_installer, pick_executable,
+    clamp_scan_depth, discover_executables, is_excluded_folder, is_installer, pick_executable,
     pick_executable_with_depth, Discovery, ExecutableCandidate, DEFAULT_SCAN_DEPTH, MAX_SCAN_DEPTH,
     MIN_SCAN_DEPTH,
 };

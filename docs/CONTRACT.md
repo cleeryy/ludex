@@ -1502,6 +1502,8 @@ interface StreamTarget {
 | `cancel_installer` | `{ gameId }` | `null`; stops a running installer at the next poll |
 | `set_executable` | `{ gameId, executable }` | `InstalledGame`; the file must be inside the install folder or its Wine prefix |
 | `choose_executable` | `{ gameId }` | `InstalledGame \| null`; system file dialog, records the pick |
+| `list_game_executables` | `{ gameId, refresh? }` | `GameExecutables`; scans the game's install folder (depth 4-8, default 6, bounded, loop-safe) for the Launch options pickers. `entries` are `{ path, name, sizeBytes, modifiedAt, kind: "launch" \| "installer" \| "uninstaller" \| "other", recommended }`; `path` is relative to `installPath` and never leaves it, `recommended` marks the `pick_executable` result. Installer kinds are `setup*`, `install*`, `gog*`; uninstallers are `unins*`, `uninstall*`. Works for `ludex` installs, adopted folders and launcher imports that have a folder; a row without a usable folder errors. Cached for 5 s, `refresh: true` rescans (#143) |
+| `check_game_executable` | `{ gameId, path }` | `string`: the normalised forward-slash relative path. Resolves the value inside the install folder and rejects `..`, absolute paths outside it and symlink escapes; used before saving the server launch config (#143) |
 | `compat_scan` | — | `CompatScan`; detects Steam roots, Proton builds, UMU, Wine, winetricks and protonfixes (#90) |
 | `get_launch_options` | `{ gameId }` | `LaunchOptions`; defaults when nothing was saved (#89) |
 | `set_launch_options` | `{ gameId, options }` | `LaunchOptions`; validates env names, verbs and prefix (#89, #92) |
@@ -1622,6 +1624,19 @@ archive by default (`keepArchives` setting false).
   offline, and supports a manual `steamAppId`. `wine_prefix_info`,
   `reset_wine_prefix` and `run_winetricks` manage the prefix; reset refuses
   while the game runs and never deletes an install folder or its ancestor.
+- **Executable picker (#143).** The Launch options form offers the programs
+  actually present in the install folder instead of a free-text path.
+  `list_game_executables` returns them with `kind` (`launch`, `installer`,
+  `uninstaller`, `other`), size, modification time and `recommended` (the
+  `pick_executable` heuristic from #134). The launch picker preselects the
+  detected program, marks it "Detected" and hides redistributables/support
+  programs; separate filtered lists drive the installer and uninstaller fields.
+  A "Browse folder" action opens the folder in the OS file manager and a manual
+  relative path stays available as an advanced fallback (and for games with no
+  folder on this device). Before saving, `check_game_executable` normalises the
+  value and refuses traversal, absolute paths outside the folder and symlink
+  escapes. The listing is cached for 5 s with an explicit refresh; moving,
+  repairing or running an installer invalidates it.
 - **Discord presence.** Optional, off by default, uses the local Discord IPC
   (application id, no bot token). Payload: game title, public cover URL
   (`https`, non-private host), session start; idle when nothing runs.

@@ -869,6 +869,34 @@ export interface InstalledGame {
   launchUri?: string | null;
 }
 
+/** Kind of program found in an install folder (#143). */
+export type GameExecutableKind = "launch" | "installer" | "uninstaller" | "other";
+
+/** One program inside the install folder of a game (#143). */
+export interface GameExecutable {
+  /** Path relative to the install folder, forward slashes, never escapes it. */
+  path: string;
+  name: string;
+  sizeBytes: number;
+  /** RFC 3339, null when the filesystem does not expose it. */
+  modifiedAt: string | null;
+  kind: GameExecutableKind;
+  /** True for the file Ludex would launch now (`pick_executable`). */
+  recommended: boolean;
+}
+
+/** Result of scanning an install folder for the Launch options pickers (#143). */
+export interface GameExecutables {
+  gameId: number;
+  installPath: string;
+  entries: GameExecutable[];
+  /** Skipped links, unreadable folders, truncation. */
+  notes: string[];
+  scannedAt: string;
+  /** True when the answer came from the short-lived desktop cache. */
+  cached: boolean;
+}
+
 /** An index row that already exists for the game being adopted (#129). */
 export interface AdoptExistingInstall {
   gameId: number;

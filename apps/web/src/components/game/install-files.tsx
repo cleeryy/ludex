@@ -97,6 +97,7 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
       setRepair(next);
       setReport(next.verify);
       void queryClient.invalidateQueries({ queryKey: ["installed"] });
+      void queryClient.invalidateQueries({ queryKey: ["game-executables"] });
       push({
         title: next.fallback ? "Repair needs a reinstall" : `${title} repaired`,
         description: next.message,

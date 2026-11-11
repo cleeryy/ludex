@@ -313,6 +313,8 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       void queryClient.invalidateQueries({ queryKey: ["game-updates"] });
       void queryClient.invalidateQueries({ queryKey: ["games"] });
       void queryClient.invalidateQueries({ queryKey: ["game"] });
+      // A finished install has a new folder to scan for the executable picker (#143).
+      void queryClient.invalidateQueries({ queryKey: ["game-executables"] });
     }
   }, [jobs, available, titleFor, push, queryClient]);
 

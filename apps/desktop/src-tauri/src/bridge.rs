@@ -5,6 +5,8 @@
 
 use std::path::{Path, PathBuf};
 
+/// True for `Redist`, `Support`, `Tools` and similar folders (#134, #143).
+pub use ludex_core::exe::is_excluded_folder;
 /// Default folder depth for GameVault-style scans (#134).
 pub use ludex_core::exe::DEFAULT_SCAN_DEPTH;
 /// Read-only executable discovery result (#134).

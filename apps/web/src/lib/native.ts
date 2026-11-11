@@ -15,6 +15,7 @@ import type {
   DeleteAdoptedPreview,
   DiskUsage,
   GameConfigListing,
+  GameExecutables,
   GamePlaytime,
   GameUpdate,
   GameVaultAdoptEntry,
@@ -312,6 +313,18 @@ export const native = {
 
   async chooseExecutable(gameId: number): Promise<InstalledGame | null> {
     return invoke<InstalledGame | null>("choose_executable", { gameId });
+  },
+
+  /* --------------------- executable picker (#143) ------------------------ */
+
+  /** Programs found in the install folder; `refresh` bypasses the 5 s cache. */
+  async listGameExecutables(gameId: number, refresh = false): Promise<GameExecutables> {
+    return invoke<GameExecutables>("list_game_executables", { gameId, refresh });
+  },
+
+  /** Normalise a chosen executable path; refuses anything outside the folder. */
+  async checkGameExecutable(gameId: number, path: string): Promise<string> {
+    return invoke<string>("check_game_executable", { gameId, path });
   },
 
   /* ---------------------------- presence (#12) --------------------------- */

@@ -10,6 +10,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::db;
+use crate::game_executables::ExecutableCache;
 use crate::install::{InstallJob, InstallParams};
 use crate::profiles;
 use crate::secrets::SecretStore;
@@ -152,6 +153,8 @@ pub struct AppState {
     pub processes: Mutex<HashMap<String, Arc<ProcessEntry>>>,
     /// Cancellation flags for `run_installer` runs, per game (#7).
     pub installers: Mutex<HashMap<i64, Arc<AtomicBool>>>,
+    /// Short-lived executable listings for the Launch options picker (#143).
+    pub executables: Mutex<ExecutableCache>,
     pub http: reqwest::Client,
     /// Install jobs run one at a time by default to avoid disk thrash on large
     /// archives. Additional requests wait in the queued phase.
@@ -225,6 +228,7 @@ impl AppState {
             jobs: Mutex::new(HashMap::new()),
             processes: Mutex::new(HashMap::new()),
             installers: Mutex::new(HashMap::new()),
+            executables: Mutex::new(ExecutableCache::default()),
             http,
             install_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_INSTALLS)),
             secrets,

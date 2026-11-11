@@ -16,6 +16,7 @@ use crate::compat::{self, CompatScan};
 use crate::config_adapters::{self, AdapterReport};
 use crate::db::{self, GamePlaytime, InstalledGame};
 use crate::game_config::{self, ConfigDocument, ConfigEditInput};
+use crate::game_executables::{self, GameExecutables};
 use crate::install::{self, InstallJob, InstallParams};
 use crate::installer::{self, AttemptReport};
 use crate::launch::{self, LaunchResult};
@@ -873,10 +874,21 @@ pub async fn run_installer(
         }
     }
 
+    // A successful installer may have written new programs into the install
+    // folder; the picker must not keep serving the pre-install listing (#143).
+    if report.success {
+        if let Ok(mut cache) = state.executables.lock() {
+            if let Ok(root) = game_executables::installed_root(&installed) {
+                cache.invalidate(&root.to_string_lossy());
+            }
+        }
+    }
+
     let via = compatibility_tool
         .as_deref()
         .map(|tool| format!(" via {tool}"))
         .unwrap_or_default();
+
     let message = if report.cancelled {
         "Installer cancelled.".to_string()
     } else if report.success {
@@ -1073,6 +1085,47 @@ pub async fn choose_executable(
     let mut updated = installed;
     updated.executable = Some(value);
     Ok(Some(updated))
+}
+
+/* ------------------- executable picker (#143) --------------------------- */
+
+/// Every program found in the game's install folder, for the Launch options
+/// pickers. `refresh` bypasses the short-lived scan cache.
+///
+/// Works for `ludex` installs, adopted folders (#129) and launcher imports that
+/// have a folder. A row without a folder returns an error and the UI keeps the
+/// manual field.
+#[tauri::command]
+pub async fn list_game_executables(
+    app: AppHandle,
+    game_id: i64,
+    refresh: Option<bool>,
+) -> Result<GameExecutables, String> {
+    // The walk touches the disk: keep it off the UI thread (#143).
+    tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let installed = installed_or_error(&state, game_id)?;
+        let mut cache = state
+            .executables
+            .lock()
+            .map_err(|_| "The executable cache is unavailable; restart Ludex.".to_string())?;
+        game_executables::list(&mut cache, &installed, refresh.unwrap_or(false))
+    })
+    .await
+    .map_err(|error| format!("The executable scan failed: {error}"))?
+}
+
+/// Normalise a chosen executable path and refuse anything outside the install
+/// folder (#143). Returns the forward-slash relative path to save.
+#[tauri::command]
+pub fn check_game_executable(
+    state: State<'_, AppState>,
+    game_id: i64,
+    path: String,
+) -> Result<String, String> {
+    let installed = installed_or_error(&state, game_id)?;
+    let root = game_executables::installed_root(&installed)?;
+    game_executables::resolve_relative(&root, &path)
 }
 
 /* --------------------- Discord Rich Presence (#12) ---------------------- */

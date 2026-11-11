@@ -227,7 +227,7 @@ pub fn discover_executables(root: &Path, title: &str, max_depth: usize) -> Disco
                     let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
                         continue;
                     };
-                    if name.starts_with('.') || is_excluded_dir(name) {
+                    if name.starts_with('.') || is_excluded_folder(name) {
                         continue;
                     }
                     if !visited_dirs.insert(target.clone()) {
@@ -264,7 +264,7 @@ pub fn discover_executables(root: &Path, title: &str, max_depth: usize) -> Disco
                 let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
                     continue;
                 };
-                if name.starts_with('.') || is_excluded_dir(name) {
+                if name.starts_with('.') || is_excluded_folder(name) {
                     continue;
                 }
                 if is_bundle(&path) {
@@ -513,7 +513,17 @@ fn extension_eq(path: &Path, expected: &str) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case(expected))
 }
 
-fn is_excluded_dir(name: &str) -> bool {
+/// Returns `true` when a directory name is a redistributable, support or tools
+/// folder that never holds the game executable (#134).
+///
+/// The comparison is a case-insensitive substring match: `_CommonRedist`,
+/// `Redist` and `redist_x64` all match `redist`.
+///
+/// ```
+/// assert!(ludex_core::exe::is_excluded_folder("_CommonRedist"));
+/// assert!(!ludex_core::exe::is_excluded_folder("Game"));
+/// ```
+pub fn is_excluded_folder(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     EXCLUDED_DIRS
         .iter()

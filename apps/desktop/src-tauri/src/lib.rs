@@ -8,6 +8,7 @@ mod compat;
 mod config_adapters;
 mod db;
 mod game_config;
+mod game_executables;
 mod install;
 mod installer;
 mod launch;
@@ -154,6 +155,8 @@ pub fn run() {
             commands::cancel_installer,
             commands::set_executable,
             commands::choose_executable,
+            commands::list_game_executables,
+            commands::check_game_executable,
             commands::presence_status,
             commands::steam_scan,
             commands::steam_import,
