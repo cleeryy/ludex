@@ -2,7 +2,8 @@
 
 Ludex can use an external OpenID Connect provider for web login. Local accounts
 remain available, and the first-run setup still creates a local administrator.
-SSO is web-only: the desktop app keeps using the server password.
+The desktop app signs in through the same web page and receives the session
+through a one-time handoff code (see *Desktop app (Tauri)*).
 
 Since v0.3 the provider can be configured entirely from **Admin →
 Authentication**, without editing environment files or restarting the server.
@@ -157,10 +158,56 @@ the number of linked accounts.
   accounts are linked by verified email without touching the local password.
 - The callback returns a one-time code to the SPA; the JWT is never placed in a
   URL. The code expires after 60 seconds and can be used once.
-- The desktop app hides SSO because the OAuth callback returns to the web UI;
-  local/remote password login still works in Tauri. Desktop deep-link SSO is
-  tracked in issue #50.
+- The desktop app signs in through the same web page and receives the session
+  through a one-time handoff code (see below); local/remote password login still
+  works in Tauri, including on servers without SSO.
 - If OIDC is disabled or misconfigured, local login is unaffected.
+
+## Desktop app (Tauri)
+
+The desktop app does not bind a loopback port and does not register a custom URL
+scheme. **Sign in with `<provider>`** opens the normal web login page in the
+system browser:
+
+```
+{serverUrl}/#/login?desktop_state=<43-64 char random state>
+```
+
+1. The page keeps `desktop_state` in `sessionStorage` so it survives the round
+   trip to the provider.
+2. After a successful sign-in (SSO or a local password on that page) it calls
+   `POST /api/auth/desktop-handoff { state }` and shows
+   *"Return to Ludex; you can close this tab."*. The endpoint requires the
+   web session and the `write` scope and returns only an expiry.
+3. The app polls `POST /api/auth/desktop-handoff/claim { state }` every second
+   for up to five minutes. The first successful claim returns
+   `{ code, expiresAt }`; every later claim answers `410`.
+4. The app redeems the code through the existing
+   `POST /api/auth/oidc/exchange`, stores the token in the active server
+   profile (OS keychain or the local secret store) and enters the library.
+
+If the browser cannot be opened, times out, the user cancels or the provider
+rejects the login, the app shows the reason plus **Open web login** (the same
+page without `desktop_state`) and **Try again**. Password sign-in stays
+available in the app.
+
+The desktop flow needs an OIDC client to be configured, exactly like the
+exchange endpoint it feeds. Servers without SSO keep password login.
+
+### Handoff security notes
+
+| Property | Value |
+| --- | --- |
+| State | 32 random bytes (43 chars base64url, or 64 hex from the app), 43–128 chars of `A-Z a-z 0-9 - _` |
+| Handoff lifetime | 120 s (`LUDEX_DESKTOP_HANDOFF_TTL_SECONDS`, 30–600) |
+| Code lifetime | Same as the handoff; single use, removed on claim |
+| Token in URL | Never: the JWT is only returned by `POST /api/auth/oidc/exchange` |
+| Claim | Unauthenticated but requires the exact state, compared in constant time; unknown, expired and used states all answer `410` (no pending-signin oracle) |
+| Binding | A state already bound to another account is rejected (`409`), so a leaked state cannot be re-pointed |
+| Rate limits | 12 handoff creations per account per minute; 120 claims per address per minute (`429 handoff_throttled` + `Retry-After`) |
+| Storage | Memory only, bounded to 1024 pending handoffs, lazily expired on every access; a restart drops them |
+| Logs | Neither the state nor the code is logged, traced or put in audit metadata; the desktop poll logs only the terminal status |
+
 
 ## API reference
 

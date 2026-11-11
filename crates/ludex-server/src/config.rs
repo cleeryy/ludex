@@ -128,6 +128,12 @@ pub const DEFAULT_RATE_LIMIT_BURST: u32 = 300;
 pub const DEFAULT_LOGIN_MAX_ATTEMPTS: u32 = 5;
 /// Default lockout duration after too many failed logins.
 pub const DEFAULT_LOGIN_LOCKOUT_SECONDS: u64 = 900;
+/// Default lifetime of a pending desktop SSO handoff, in seconds (#157).
+pub const DEFAULT_DESKTOP_HANDOFF_TTL_SECONDS: u64 = 120;
+/// Default number of desktop handoffs one account may create per minute.
+pub const DEFAULT_HANDOFF_CREATE_LIMIT: u32 = 12;
+/// Default number of desktop handoff claims one address may make per minute.
+pub const DEFAULT_HANDOFF_CLAIM_LIMIT: u32 = 120;
 /// Default chunk size accepted by resumable archive uploads (16 MiB).
 pub const DEFAULT_UPLOAD_CHUNK_BYTES: u64 = 16 * 1024 * 1024;
 /// Default maximum size of a resumable archive upload (100 GiB).
@@ -248,6 +254,12 @@ pub struct Config {
     pub login_lockout: Duration,
     /// Base delay of the exponential login backoff.
     pub login_backoff: Duration,
+    /// Lifetime of a pending desktop SSO handoff (#157).
+    pub desktop_handoff_ttl: Duration,
+    /// Handoffs one account may create per minute (#157).
+    pub handoff_create_limit: u32,
+    /// Handoff claims one address may make per minute (#157).
+    pub handoff_claim_limit: u32,
     /// Chunk size accepted by `PUT /api/uploads/{id}/parts/{n}`.
     pub upload_chunk_bytes: u64,
     /// Maximum accepted archive upload size.
@@ -447,6 +459,13 @@ impl Config {
                 .context("LUDEX_LOGIN_BACKOFF_MS must be an integer")?,
             None => 500,
         };
+        let desktop_handoff_ttl_seconds = match env_opt("LUDEX_DESKTOP_HANDOFF_TTL_SECONDS") {
+            Some(value) => value
+                .parse::<u64>()
+                .context("LUDEX_DESKTOP_HANDOFF_TTL_SECONDS must be an integer")?
+                .clamp(30, 600),
+            None => DEFAULT_DESKTOP_HANDOFF_TTL_SECONDS,
+        };
         let upload_chunk_bytes = match env_opt("LUDEX_UPLOAD_CHUNK_BYTES") {
             Some(value) => {
                 let parsed = value
@@ -553,6 +572,9 @@ impl Config {
             login_max_attempts,
             login_lockout: Duration::from_secs(login_lockout_seconds),
             login_backoff: Duration::from_millis(login_backoff_ms),
+            desktop_handoff_ttl: Duration::from_secs(desktop_handoff_ttl_seconds.max(1)),
+            handoff_create_limit: DEFAULT_HANDOFF_CREATE_LIMIT,
+            handoff_claim_limit: DEFAULT_HANDOFF_CLAIM_LIMIT,
             upload_chunk_bytes,
             upload_max_bytes,
             upload_ttl: Duration::from_secs(upload_ttl_hours * 3_600),
@@ -637,6 +659,9 @@ impl Config {
             login_max_attempts: DEFAULT_LOGIN_MAX_ATTEMPTS,
             login_lockout: Duration::from_secs(DEFAULT_LOGIN_LOCKOUT_SECONDS),
             login_backoff: Duration::from_millis(500),
+            desktop_handoff_ttl: Duration::from_secs(DEFAULT_DESKTOP_HANDOFF_TTL_SECONDS),
+            handoff_create_limit: DEFAULT_HANDOFF_CREATE_LIMIT,
+            handoff_claim_limit: DEFAULT_HANDOFF_CLAIM_LIMIT,
             upload_chunk_bytes: DEFAULT_UPLOAD_CHUNK_BYTES,
             upload_max_bytes: DEFAULT_UPLOAD_MAX_BYTES,
             upload_ttl: Duration::from_secs(DEFAULT_UPLOAD_TTL_HOURS * 3_600),

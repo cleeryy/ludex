@@ -40,6 +40,8 @@ import type {
   MoveProgress,
   PresenceStatus,
   MoonlightStatus,
+  OidcLoginPoll,
+  OidcLoginStart,
   PrefixInfo,
   ProtonDbRating,
   RepairProgress,
@@ -749,6 +751,38 @@ export const native = {
 
   async testServer(url: string, token?: string | null): Promise<ServerTest> {
     return invoke<ServerTest>("test_server", { url, token: token ?? null });
+  },
+
+  /* --------------------- desktop SSO handoff (#157) ---------------------- */
+
+  /**
+   * Opens `{server}/#/login?desktop_state=…` in the system browser. No local
+   * port is opened; the app then polls the claim endpoint.
+   */
+  async oidcLoginStart(): Promise<OidcLoginStart> {
+    if (!isNative()) throw nativeUnavailable();
+    return invoke<OidcLoginStart>("oidc_login_start");
+  },
+
+  /** Waits for the web page to hand the session back (up to ~5 minutes). */
+  async oidcLoginPoll(sessionId: string): Promise<OidcLoginPoll> {
+    if (!isNative()) throw nativeUnavailable();
+    return invoke<OidcLoginPoll>("oidc_login_poll", { sessionId });
+  },
+
+  /** Stops an in-flight poll; the attempt resolves as `cancelled`. */
+  async oidcLoginCancel(sessionId: string): Promise<void> {
+    if (!isNative()) return;
+    await invoke<null>("oidc_login_cancel", { sessionId });
+  },
+
+  /**
+   * Opens an http(s) address in the system browser. The webview cannot open a
+   * second window itself, and `openPath` only accepts files.
+   */
+  async openExternalUrl(url: string): Promise<void> {
+    if (!isNative()) throw nativeUnavailable();
+    await invoke<null>("open_external_url", { url });
   },
 };
 

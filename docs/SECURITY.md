@@ -64,6 +64,38 @@ router (`LUDEX_RATE_LIMIT_RPS`, burst `LUDEX_RATE_LIMIT_BURST`). Health,
 and discovery never consume a budget. 429s carry `Retry-After`. Set
 `LUDEX_RATE_LIMIT_RPS=0` to disable (the desktop local server does this).
 
+## Desktop SSO handoff (#157)
+
+The Tauri app cannot receive an OIDC redirect, so the web page hands the session
+back through a one-time code instead of a token:
+
+- **No token in a URL.** The only response that ever contains a JWT is
+  `POST /api/auth/oidc/exchange`; the handoff creation returns `{ expiresAt }`
+  and the claim returns a single-use code.
+- **State as a capability, never a credential.** `POST
+  /api/auth/desktop-handoff` requires an authenticated web session with the
+  `write` scope; the 256-bit state only binds that session to the desktop
+  attempt. It is validated (43–128 chars, `A-Z a-z 0-9 - _`), compared in
+  constant time and cannot be re-bound to another account (`409`).
+- **One-time, short-lived.** The claim removes the entry, so a second claim is
+  `410`. Both the handoff and its code expire after
+  `LUDEX_DESKTOP_HANDOFF_TTL_SECONDS` (default 120 s, clamped 30–600).
+- **No pending-signin oracle.** Unknown, expired and used states all answer
+  `410 handoff_unavailable` with the same body; no user id or account detail is
+  returned.
+- **Bounded and in memory.** At most 1024 pending handoffs, lazily expired on
+  every access. Nothing is persisted and a restart drops every pending attempt.
+- **Rate limited.** 12 handoff creations per account per minute and 120 claims
+  per address per minute (`429 handoff_throttled`, `Retry-After` set), on top of
+  the global per-IP limiter.
+- **Audited without secrets.** `oidc.handoff_created`, `oidc.handoff_claimed`
+  and `oidc.handoff_failed` record the account (when known), the IP and a
+  reason — never the state or the code.
+
+The desktop poll runs for at most five minutes, logs only its terminal status,
+and stops immediately on cancel. A browser that cannot be opened produces an
+actionable error with the plain web login URL instead of a dead end.
+
 ## Share links (#9)
 
 A share link is a capability URL: whoever holds the token (and the optional
@@ -139,6 +171,9 @@ password; prefer expiry/cap or a strong password.
 - The HTTP trace span records the method and path only, never the query string,
   so download tickets (`?token=...`) do not reach logs. Share passwords travel
   in a JSON body that is never logged.
+- The desktop SSO handoff (#157) never logs its state or its one-time code; the
+  poll loop records the terminal status only, and audit events carry the reason
+  (`not_found`, `invalid_state`) without either value.
 - Audit metadata never includes passwords, tokens or webhook secrets. Share
   audits record the game/version id and denial reason, not the token.
 - Error responses are generic for 500s; database and IO errors are logged

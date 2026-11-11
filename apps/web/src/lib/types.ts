@@ -418,6 +418,31 @@ export interface AuthResult {
   expiresAt?: string;
 }
 
+/** `POST /api/auth/desktop-handoff` (#157). Never contains a code or a token. */
+export interface DesktopHandoff {
+  /** When the pending handoff stops being redeemable. */
+  expiresAt: string;
+}
+
+/** `oidc_login_start` (#157): opened URL and the id used to poll/cancel. */
+export interface OidcLoginStart {
+  sessionId: string;
+  /** Plain `{server}/#/login`, offered when the browser cannot be opened. */
+  webLoginUrl: string;
+  /** When the app stops waiting for the web page. */
+  expiresAt: string;
+}
+
+/** `oidc_login_poll` status (#157). */
+export type OidcLoginStatus = "pending" | "claimed" | "expired" | "cancelled" | "error";
+
+/** `oidc_login_poll` result (#157). `code` is set only for `claimed`. */
+export interface OidcLoginPoll {
+  status: OidcLoginStatus;
+  code: string | null;
+  message: string | null;
+}
+
 export interface GameListQuery {
   q?: string;
   genre?: string;

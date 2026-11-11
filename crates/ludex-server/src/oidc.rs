@@ -32,12 +32,8 @@ use crate::state::AppState;
 
 /// Pending authorization request lifetime.
 const PENDING_TTL: Duration = Duration::from_secs(10 * 60);
-/// One-time exchange code lifetime.
-const CODE_TTL: Duration = Duration::from_secs(60);
 /// Maximum pending authorization requests kept in memory.
 const MAX_PENDING: usize = 1024;
-/// Maximum one-time codes kept in memory.
-const MAX_CODES: usize = 1024;
 /// JWKS cache lifetime.
 const JWKS_TTL: Duration = Duration::from_secs(60 * 60);
 /// Timeout for the discovery request made when saving or testing settings.
@@ -599,19 +595,10 @@ struct PendingLogin {
     created_at: Instant,
 }
 
-/// One one-time code returned to the SPA.
-#[derive(Clone)]
-struct OneTimeCode {
-    code: String,
-    user_id: i64,
-    expires_at: Instant,
-}
-
-/// In-memory state and code stores.
+/// In-memory pending authorization requests.
 #[derive(Default)]
 struct OidcStore {
     pending: Mutex<Vec<PendingLogin>>,
-    codes: Mutex<Vec<OneTimeCode>>,
 }
 
 impl OidcStore {
@@ -635,34 +622,6 @@ impl OidcStore {
             .iter()
             .position(|entry| bool::from(entry.state.as_bytes().ct_eq(state.as_bytes())))?;
         Some(pending.remove(index))
-    }
-
-    fn insert_code(&self, code: &str, user_id: i64) -> Result<(), ApiError> {
-        let mut codes = lock(&self.codes);
-        let now = Instant::now();
-        codes.retain(|entry| entry.expires_at > now);
-        if codes.len() >= MAX_CODES {
-            return Err(ApiError::too_many_requests(
-                "oidc_busy",
-                "Too many pending SSO exchanges; try again shortly",
-            ));
-        }
-        codes.push(OneTimeCode {
-            code: code.to_string(),
-            user_id,
-            expires_at: now + CODE_TTL,
-        });
-        Ok(())
-    }
-
-    fn take_code(&self, code: &str) -> Option<i64> {
-        let mut codes = lock(&self.codes);
-        let now = Instant::now();
-        codes.retain(|entry| entry.expires_at > now);
-        let index = codes
-            .iter()
-            .position(|entry| bool::from(entry.code.as_bytes().ct_eq(code.as_bytes())))?;
-        Some(codes.remove(index).user_id)
     }
 }
 
@@ -875,20 +834,6 @@ impl OidcClient {
         let token = self.exchange_code(&discovery, code, &pending).await?;
         self.verify_id_token(&discovery, &token.id_token, &pending.nonce)
             .await
-    }
-
-    /// Issues a one-time code for the SPA.
-    pub fn issue_code(&self, user_id: i64) -> Result<String, ApiError> {
-        let code = random_token();
-        self.store.insert_code(&code, user_id)?;
-        Ok(code)
-    }
-
-    /// Consumes a one-time code. Returns `None` when it is unknown, expired or
-    /// already used.
-    #[must_use]
-    pub fn take_code(&self, code: &str) -> Option<i64> {
-        self.store.take_code(code)
     }
 
     /// URL the browser is redirected to after a successful callback.
@@ -1762,23 +1707,6 @@ mod tests {
         login.created_at = Instant::now() - PENDING_TTL - Duration::from_secs(1);
         store.insert_pending(login).expect("insert");
         assert!(store.take_pending("expired").is_none());
-    }
-
-    #[test]
-    fn one_time_codes_are_single_use_and_expire() {
-        let store = OidcStore::default();
-        store.insert_code("code-one", 7).expect("insert");
-        assert_eq!(store.take_code("code-one"), Some(7));
-        assert_eq!(store.take_code("code-one"), None);
-
-        let mut code = OneTimeCode {
-            code: "expired".to_string(),
-            user_id: 9,
-            expires_at: Instant::now() + CODE_TTL,
-        };
-        code.expires_at = Instant::now() - Duration::from_secs(1);
-        lock(&store.codes).push(code);
-        assert_eq!(store.take_code("expired"), None);
     }
 
     #[test]

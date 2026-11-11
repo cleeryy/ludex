@@ -17,6 +17,7 @@ mod linux_gaming;
 mod locations;
 mod maintenance;
 mod manifest;
+mod oidc_login;
 mod paths;
 mod prefix;
 mod presence;
@@ -220,6 +221,10 @@ pub fn run() {
             commands::remove_server,
             commands::switch_server,
             commands::test_server,
+            commands::open_external_url,
+            commands::oidc_login_start,
+            commands::oidc_login_poll,
+            commands::oidc_login_cancel,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Ludex application");

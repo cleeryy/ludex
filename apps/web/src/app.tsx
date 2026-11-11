@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HashRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "@/lib/api";
+import { pendingDesktopState, readDesktopStateFromSearch } from "@/lib/desktop-handoff";
 import { isNative, native } from "@/lib/native";
 import { useAuth, useIsAdmin, useIsEditor } from "@/state/auth";
 import { SettingsProvider } from "@/state/settings";
@@ -112,7 +113,7 @@ function BootError({ message }: { message: string }) {
 }
 
 function Gate({ children }: { children: React.ReactNode }) {
-  const { ready, bootError, user, setup } = useAuth();
+  const { ready, bootError, user, setup, holdLogin } = useAuth();
   const location = useLocation();
 
   if (!ready) return <BootScreen />;
@@ -120,11 +121,18 @@ function Gate({ children }: { children: React.ReactNode }) {
 
   const needsSetup = setup?.needsSetup ?? false;
   const at = location.pathname;
+  // #157: a desktop handoff opens /login in the user's browser. It must stay
+  // reachable both before signing in and when that browser already has a
+  // session (the page then hands the session back immediately).
+  const desktopHandoff =
+    readDesktopStateFromSearch(location.search) !== null || pendingDesktopState() !== null;
 
   if (needsSetup && at !== "/setup") return <Navigate to="/setup" replace />;
   if (!needsSetup && at === "/setup") return <Navigate to={user ? "/" : "/login"} replace />;
   if (!needsSetup && !user && at !== "/login") return <Navigate to="/login" replace />;
-  if (user && at === "/login") return <Navigate to="/" replace />;
+  // #157: a desktop handoff keeps the login page mounted just long enough to
+  // show "Return to Ludex", even though the account is already signed in.
+  if (user && at === "/login" && !holdLogin && !desktopHandoff) return <Navigate to="/" replace />;
 
   return <>{children}</>;
 }

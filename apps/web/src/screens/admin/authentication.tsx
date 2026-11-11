@@ -246,7 +246,7 @@ export function AuthenticationScreen() {
             {USING_MOCKS && <Badge tone="outline">{t("Demo data")}</Badge>}
           </>
         }
-        description={t("Single sign-on for the web interface. Password sign-in always stays available, and the desktop app keeps using the server password.")}
+        description={t("Single sign-on for the web interface and the desktop app. Password sign-in always stays available.")}
         actions={
           <>
             <a

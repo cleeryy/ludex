@@ -10,6 +10,15 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Desktop SSO through the web page (#157): the desktop app opens
+  `{server}/#/login?desktop_state=…` in the system browser; after SSO or
+  password login the authenticated web page creates a state-bound one-time
+  handoff (120 s TTL, single use, in-memory, rate-limited) and the desktop polls
+  and redeems it through the existing `/api/auth/oidc/exchange` — no loopback
+  listener, no custom scheme, no JWT in any URL. The SSO button now appears in
+  the desktop app with progress/cancel/error and an "Open web login" fallback.
+  Audit records create/claim/failure without state or code; limits and TTL are
+  configurable (`LUDEX_DESKTOP_HANDOFF_TTL_SECONDS`).
 - Auto-managed Ludusavi manifest (#153): the desktop app downloads the
   canonical manifest into `{appDataDir}/manifest/` with ETag/304, atomic
   replace, optional checksum verification, size/timeout limits and a 24 h

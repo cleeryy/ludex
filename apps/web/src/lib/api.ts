@@ -16,6 +16,7 @@ import type {
   ControllerProfile,
   ControllerProfileEntry,
   ControllerProfilesResponse,
+  DesktopHandoff,
   Emulator,
   EmulatorDefault,
   EmulatorLaunch,
@@ -225,6 +226,16 @@ export const api = {
     return USING_MOCKS
       ? mockApi.oidcExchange(code)
       : request<AuthResult>("/auth/oidc/exchange", { method: "POST", body: { code }, auth: false });
+  },
+  /**
+   * Desktop handoff (#157): binds the current web session to the state the
+   * desktop app generated. Returns only the expiry; the desktop claims the
+   * one-time code itself.
+   */
+  createDesktopHandoff(state: string): Promise<DesktopHandoff> {
+    return USING_MOCKS
+      ? mockApi.createDesktopHandoff(tokenStore.get(), state)
+      : request<DesktopHandoff>("/auth/desktop-handoff", { method: "POST", body: { state } });
   },
   changePassword(body: { currentPassword: string; newPassword: string }): Promise<void> {
     return USING_MOCKS

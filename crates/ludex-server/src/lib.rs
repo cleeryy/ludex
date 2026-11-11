@@ -36,6 +36,7 @@ pub mod community;
 pub mod config;
 pub mod controller_profiles;
 pub mod db;
+pub mod desktop_handoff;
 pub mod emulators;
 pub mod error;
 pub mod events;
@@ -300,6 +301,18 @@ async fn prepare(config: Config) -> Result<Prepared> {
             config.login_backoff,
         )),
         session_touch: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        desktop_handoffs: Arc::new(desktop_handoff::DesktopHandoffs::new(
+            config.desktop_handoff_ttl,
+        )),
+        exchange_codes: Arc::new(desktop_handoff::ExchangeCodes::new()),
+        handoff_create_limits: Arc::new(security::AttemptCounter::new(
+            config.handoff_create_limit,
+            Duration::from_secs(60),
+        )),
+        handoff_claim_limits: Arc::new(security::AttemptCounter::new(
+            config.handoff_claim_limit,
+            Duration::from_secs(60),
+        )),
     };
 
     let watcher_handle = watcher::start(&state).await;

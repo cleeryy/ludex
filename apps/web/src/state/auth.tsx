@@ -12,6 +12,12 @@ interface AuthValue {
   bootError: string | null;
   setup: SetupStatus | null;
   nativeFirstRun: boolean;
+  /**
+   * Keeps `/login` mounted after a successful sign-in while a desktop handoff
+   * finishes (#157); the router redirects authenticated users otherwise.
+   */
+  holdLogin: boolean;
+  setHoldLogin: (hold: boolean) => void;
   adoptSession: (args: { serverUrl: string; token: string; user?: User }) => Promise<void>;
   signIn: (username: string, password: string) => Promise<void>;
   signInWithOidc: (code: string) => Promise<void>;
@@ -36,6 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [nativeFirstRun, setNativeFirstRun] = useState(false);
+  const [holdLogin, setHoldLogin] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   const retryBoot = useCallback(() => {
@@ -127,6 +134,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(result.token);
     setUser(result.user);
     setSetup((current) => (current ? { ...current, needsSetup: false } : current));
+    // Desktop SSO (#157): the exchanged session must reach the active server
+    // profile (its token goes to the OS keychain or the local secret store), so
+    // signing in on the login screen survives a restart.
+    if (isNative()) {
+      try {
+        const current = await native.getSettings();
+        if (current) await native.saveSettings({ ...current, token: result.token });
+      } catch {
+        // The session still works for this run; the next save persists it.
+      }
+    }
   }, []);
 
   const completeSetup = useCallback(async (body: { username: string; password: string; serverName?: string }) => {
@@ -191,8 +209,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, token, ready, bootError, setup, nativeFirstRun, adoptSession, signIn, signInWithOidc, completeSetup, signOut, refreshUser, updateOnboarding, retryBoot }),
-    [user, token, ready, bootError, setup, nativeFirstRun, adoptSession, signIn, signInWithOidc, completeSetup, signOut, refreshUser, updateOnboarding, retryBoot],
+    () => ({ user, token, ready, bootError, setup, nativeFirstRun, holdLogin, setHoldLogin, adoptSession, signIn, signInWithOidc, completeSetup, signOut, refreshUser, updateOnboarding, retryBoot }),
+    [user, token, ready, bootError, setup, nativeFirstRun, holdLogin, adoptSession, signIn, signInWithOidc, completeSetup, signOut, refreshUser, updateOnboarding, retryBoot],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

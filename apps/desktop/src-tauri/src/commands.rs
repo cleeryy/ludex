@@ -3539,3 +3539,64 @@ pub async fn test_server(
         });
     Ok(profiles::test_connection(&state.http, &url, stored.as_deref()).await)
 }
+
+/* ------------------------- desktop SSO (#157) --------------------------- */
+
+/// Start an SSO sign-in through the system browser (#157).
+///
+/// Generates the random state, opens `{server}/#/login?desktop_state=…` with
+/// the opener plugin and registers the attempt for `oidc_login_poll`. No local
+/// port is opened and no token is involved yet.
+#[tauri::command]
+pub fn oidc_login_start(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::oidc_login::OidcLoginStart, String> {
+    let settings = state.settings_snapshot();
+    crate::oidc_login::start_with_opener(&state.oidc_logins, &settings.server_url, |url| {
+        app.opener()
+            .open_url(url.to_string(), None::<&str>)
+            .map_err(|error| error.to_string())
+    })
+}
+
+/// Poll the claim endpoint until the web page hands the session back (#157).
+///
+/// Resolves with `{ status: "claimed", code }` once, then the webview redeems
+/// the code through the existing `/api/auth/oidc/exchange`. `expired`,
+/// `cancelled` and `error` carry an actionable message instead of a code.
+#[tauri::command]
+pub async fn oidc_login_poll(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<crate::oidc_login::OidcLoginPoll, String> {
+    crate::oidc_login::poll_session(
+        &state.http,
+        &state.oidc_logins,
+        &session_id,
+        &crate::oidc_login::PollOptions::default(),
+    )
+    .await
+}
+
+/// Stop polling for a desktop SSO sign-in (#157). Idempotent.
+#[tauri::command]
+pub fn oidc_login_cancel(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+    state.oidc_logins.cancel(&session_id);
+    Ok(())
+}
+
+/// Open an http(s) URL in the system browser (#157).
+///
+/// Only used for the "Open web login" fallback: the webview cannot open a
+/// second browser window itself, and `open_path` refuses URLs.
+#[tauri::command]
+pub fn open_external_url(app: AppHandle, url: String) -> Result<(), String> {
+    let url = url.trim();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("Only http:// and https:// addresses can be opened.".to_string());
+    }
+    app.opener()
+        .open_url(url.to_string(), None::<&str>)
+        .map_err(|error| format!("Could not open {url}: {error}"))
+}

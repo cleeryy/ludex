@@ -24,6 +24,7 @@ import type {
   CollectionGamesResponse,
   CollectionInput,
   CompleteUploadResponse,
+  DesktopHandoff,
   GameAchievements,
   GameDetail,
   GameList,
@@ -783,6 +784,14 @@ export const mockApi = {
     if (!user) fail(409, "setup_required", "This server has no accounts yet");
     if (!user.activated) fail(403, "account_disabled", "This account is not activated");
     return { token: `mock.${user.id}.${Date.now()}`, user };
+  },
+
+  /** Desktop handoff (#157): the demo build accepts any well-formed state. */
+  async createDesktopHandoff(token: string | null, state: string): Promise<DesktopHandoff> {
+    await latency();
+    currentUser(token);
+    if (!state) fail(400, "invalid_handoff_state", "Missing handoff state");
+    return { expiresAt: new Date(Date.now() + 120_000).toISOString() };
   },
 
   async changePassword(token: string | null, body: { currentPassword: string; newPassword: string }): Promise<void> {

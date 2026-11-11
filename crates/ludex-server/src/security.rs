@@ -248,6 +248,82 @@ fn seconds_until(now: Instant, until: Instant) -> u64 {
         .map_or(1, |duration| duration.as_secs().max(1))
 }
 
+/// Upper bound on tracked keys of a fixed-window counter.
+const MAX_COUNTER_KEYS: usize = 10_000;
+
+#[derive(Debug)]
+struct CounterWindow {
+    used: u32,
+    reset_at: Instant,
+}
+
+/// Fixed-window request counter keyed by an arbitrary string.
+///
+/// Used by the desktop SSO handoff (#157) where a token bucket is the wrong
+/// shape: creating a handoff is rare and must be capped per account, while
+/// claiming is polled once per second and must be capped per address.
+#[derive(Debug)]
+pub struct AttemptCounter {
+    limit: u32,
+    window: Duration,
+    entries: Mutex<HashMap<String, CounterWindow>>,
+}
+
+impl AttemptCounter {
+    /// Builds a counter. `limit == 0` disables it.
+    #[must_use]
+    pub fn new(limit: u32, window: Duration) -> Self {
+        Self {
+            limit,
+            window,
+            entries: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// A counter that never rejects a request.
+    #[must_use]
+    pub fn disabled() -> Self {
+        Self::new(0, Duration::ZERO)
+    }
+
+    /// Whether the counter is active.
+    #[must_use]
+    pub fn enabled(&self) -> bool {
+        self.limit > 0 && !self.window.is_zero()
+    }
+
+    /// Counts one request for `key`.
+    ///
+    /// Returns `Ok(())` when the request may proceed, or the number of seconds
+    /// until the window resets.
+    pub fn check(&self, key: &str) -> Result<(), u64> {
+        if !self.enabled() {
+            return Ok(());
+        }
+        let now = Instant::now();
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if entries.len() > MAX_COUNTER_KEYS {
+            entries.retain(|_, window| window.reset_at > now);
+        }
+        let window = entries.entry(key.to_string()).or_insert(CounterWindow {
+            used: 0,
+            reset_at: now + self.window,
+        });
+        if window.reset_at <= now {
+            window.used = 0;
+            window.reset_at = now + self.window;
+        }
+        if window.used >= self.limit {
+            return Err(seconds_until(now, window.reset_at));
+        }
+        window.used = window.used.saturating_add(1);
+        Ok(())
+    }
+}
+
 /// Global API rate-limit middleware.
 ///
 /// Health checks, OpenAPI discovery and CORS preflights are exempt so probes
@@ -340,6 +416,31 @@ mod tests {
         assert!(wait >= 1);
         guard.record_success(&key);
         assert!(guard.check(&key).is_ok());
+    }
+
+    #[test]
+    fn attempt_counter_limits_within_a_window() {
+        let counter = AttemptCounter::new(2, Duration::from_secs(60));
+        assert!(counter.check("user:1").is_ok());
+        assert!(counter.check("user:1").is_ok());
+        let wait = counter.check("user:1").expect_err("throttled");
+        assert!(wait >= 59);
+        // A different key has its own window.
+        assert!(counter.check("user:2").is_ok());
+    }
+
+    #[test]
+    fn attempt_counter_window_resets_and_disabled_never_throttles() {
+        let counter = AttemptCounter::new(1, Duration::from_millis(20));
+        assert!(counter.check("ip").is_ok());
+        assert!(counter.check("ip").is_err());
+        std::thread::sleep(Duration::from_millis(30));
+        assert!(counter.check("ip").is_ok());
+
+        let disabled = AttemptCounter::disabled();
+        for _ in 0..10_000 {
+            assert!(disabled.check("ip").is_ok());
+        }
     }
 
     #[test]

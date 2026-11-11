@@ -72,6 +72,14 @@ pub struct AppState {
     pub login_guard: Arc<crate::security::LoginGuard>,
     /// Last `auth_sessions.last_seen_at` refresh per token, in Unix seconds.
     pub session_touch: Arc<Mutex<HashMap<String, i64>>>,
+    /// Pending desktop SSO handoffs, keyed by the desktop-generated state (#157).
+    pub desktop_handoffs: Arc<crate::desktop_handoff::DesktopHandoffs>,
+    /// Short-lived one-time login exchange codes (web OIDC and desktop handoff).
+    pub exchange_codes: Arc<crate::desktop_handoff::ExchangeCodes>,
+    /// Per-account throttle for handoff creation (#157).
+    pub handoff_create_limits: Arc<crate::security::AttemptCounter>,
+    /// Per-address throttle for handoff claims (#157).
+    pub handoff_claim_limits: Arc<crate::security::AttemptCounter>,
 }
 
 impl AppState {
@@ -114,6 +122,16 @@ impl AppState {
             config.login_lockout,
             config.login_backoff,
         );
+        let desktop_handoffs =
+            crate::desktop_handoff::DesktopHandoffs::new(config.desktop_handoff_ttl);
+        let handoff_create_limits = crate::security::AttemptCounter::new(
+            config.handoff_create_limit,
+            std::time::Duration::from_secs(60),
+        );
+        let handoff_claim_limits = crate::security::AttemptCounter::new(
+            config.handoff_claim_limit,
+            std::time::Duration::from_secs(60),
+        );
         Self {
             config: Arc::new(config),
             pool,
@@ -139,6 +157,10 @@ impl AppState {
             rate_limiter: Arc::new(rate_limiter),
             login_guard: Arc::new(login_guard),
             session_touch: Arc::new(Mutex::new(HashMap::new())),
+            desktop_handoffs: Arc::new(desktop_handoffs),
+            exchange_codes: Arc::new(crate::desktop_handoff::ExchangeCodes::new()),
+            handoff_create_limits: Arc::new(handoff_create_limits),
+            handoff_claim_limits: Arc::new(handoff_claim_limits),
         }
     }
 }

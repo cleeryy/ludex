@@ -183,6 +183,51 @@ keys. It is safe for uptime monitors and dashboards.
 | POST | `/api/auth/logout` | 204 (client discards token) |
 | POST | `/api/auth/change-password` | `{ currentPassword, newPassword }` |
 | PUT | `/api/auth/onboarding` | `{ completed?, step? }` → `{ user }`; self-service wizard preference, see *Onboarding (#119)* |
+| POST | `/api/auth/desktop-handoff` | session + `write` scope; `{ state }` → `{ expiresAt }`; binds the calling web session to a desktop sign-in, see *Desktop SSO handoff (#157)* |
+| POST | `/api/auth/desktop-handoff/claim` | public; `{ state }` → `{ code, expiresAt }` **once**; 410 `handoff_unavailable` when unknown, expired or used |
+
+### Desktop SSO handoff (#157)
+
+The desktop app cannot receive an OIDC redirect, so the browser hands the
+session back through a short-lived, state-bound one-time code. No local port is
+opened and no token ever travels in a URL.
+
+1. The app generates a 32-byte state (`43` chars base64url or `64` hex) and
+   opens `{serverUrl}/#/login?desktop_state=<state>` in the system browser.
+2. The web app keeps the state in `sessionStorage` across the OIDC redirect.
+3. After a successful sign-in (SSO **or** password) it calls
+   `POST /api/auth/desktop-handoff { state }` once and shows *"Return to Ludex;
+   you can close this tab."*. Without `desktop_state`, nothing changes.
+4. The app polls `POST /api/auth/desktop-handoff/claim { state }` every second
+   for up to five minutes, then redeems the code through
+   `POST /api/auth/oidc/exchange` — the only place a JWT is issued.
+
+```ts
+interface DesktopHandoff {           // POST /api/auth/desktop-handoff
+  expiresAt: string;                 // RFC 3339, ~2 min (LUDEX_DESKTOP_HANDOFF_TTL_SECONDS)
+}
+
+interface DesktopHandoffClaim {      // POST /api/auth/desktop-handoff/claim
+  code: string;                      // single-use exchange code, never a token
+  expiresAt: string;
+}
+```
+
+- `state` must be 43–128 characters of `A-Z a-z 0-9 - _` and is compared in
+  constant time; a state already bound to another account is a `409
+  handoff_state_conflict`.
+- Creation requires SSO to be configured, the `write` scope, and is limited to
+  12 handoffs per account per minute (`429 handoff_throttled` +
+  `Retry-After`). Claims are limited to 120 per address per minute.
+- Claims answer `410 handoff_unavailable` for unknown, expired and already-used
+  states alike: the endpoint never reveals whether a sign-in is pending or for
+  whom. The code is removed on claim, so a second claim always fails.
+- Pending handoffs live in memory only (bounded to 1024 entries, lazy expiry on
+  every access) and die with the process. The code expires with the handoff.
+- Audited as `oidc.handoff_created`, `oidc.handoff_claimed` and
+  `oidc.handoff_failed` (reason only). Neither the state nor the code is
+  recorded.
+
 
 ### Onboarding preferences (#119)
 
@@ -619,7 +664,8 @@ metadata, IP when known, and timestamp. Recorded actions: `login.succeeded`,
 `game.ingested|deleted`, `download.completed`, `settings.updated`,
 `settings.oidc_updated`, `settings.metadata_provider_updated`,
 `webhook.created|updated|deleted`,
-`save.uploaded|deleted`, `oidc.login`, `oidc.linked`.
+`save.uploaded|deleted`, `oidc.login`, `oidc.linked`,
+`oidc.handoff_created|claimed|failed`.
 
 ```ts
 interface AuditLog {
@@ -1623,6 +1669,10 @@ interface StreamTarget {
 | `remove_server` | `{ id }` | `ServerList`; deletes the saved token. When the active profile is removed the first remaining one becomes active |
 | `switch_server` | `{ id }` | `ServerList`; refused while a game runs or an install is active. Swaps the per-profile desktop index |
 | `test_server` | `{ url, token? }` | `ServerTest`; `GET {url}/api/health` with an 8 s timeout. Uses the saved token when omitted |
+| `oidc_login_start` | — | `{ sessionId, webLoginUrl, expiresAt }`; generates a 32-byte state and opens `{serverUrl}/#/login?desktop_state=…` in the system browser. A browser-open failure is a string error naming the fallback URL (#157) |
+| `oidc_login_poll` | `{ sessionId }` | `{ status: "claimed" \| "expired" \| "cancelled" \| "error", code, message }`; polls the claim endpoint every second for up to five minutes, then the webview redeems `code` through the existing exchange. `code` is `null` unless `status` is `claimed`; the app never logs the state or the code (#157) |
+| `oidc_login_cancel` | `{ sessionId }` | Stops an in-flight poll; idempotent, the attempt resolves as `cancelled` (#157) |
+| `open_external_url` | `{ url }` | Opens an `http(s)` address in the system browser (the "Open web login" fallback). Refuses any other scheme (#157) |
 
 Events:
 
@@ -2205,6 +2255,7 @@ interface UploadSession {
 | `LUDEX_UPLOAD_CHUNK_BYTES` | `16777216` | Chunk size returned by `POST /api/uploads` (capped at 64 MiB) |
 | `LUDEX_UPLOAD_MAX_BYTES` | `107374182400` | Largest accepted archive upload |
 | `LUDEX_UPLOAD_TTL_HOURS` | `24` | Stale upload cleanup age |
+| `LUDEX_DESKTOP_HANDOFF_TTL_SECONDS` | `120` (30–600) | Lifetime of a pending desktop SSO handoff (#157) |
 | `LUDEX_OPENAPI_DOCS` | `false` | Serve `/api/docs` |
 
 ## Achievements (#117, #118)

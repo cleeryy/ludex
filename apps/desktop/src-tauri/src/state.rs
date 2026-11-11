@@ -161,6 +161,8 @@ pub struct AppState {
     pub install_slots: Arc<tokio::sync::Semaphore>,
     /// Per-profile tokens (#24): OS keychain, or a local SQLite fallback.
     pub secrets: SecretStore,
+    /// Pending desktop SSO sign-ins (#157), keyed by the generated state.
+    pub oidc_logins: Arc<crate::oidc_login::LoginSessions>,
 }
 
 impl AppState {
@@ -231,6 +233,7 @@ impl AppState {
             http,
             install_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_INSTALLS)),
             secrets,
+            oidc_logins: Arc::new(crate::oidc_login::LoginSessions::new()),
         })
     }
 

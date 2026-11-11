@@ -85,6 +85,12 @@ async fn main() -> Result<()> {
         rate_limiter: Arc::new(ludex_server::security::RateLimiter::disabled()),
         login_guard: Arc::new(ludex_server::security::LoginGuard::disabled()),
         session_touch: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        desktop_handoffs: Arc::new(ludex_server::desktop_handoff::DesktopHandoffs::new(
+            std::time::Duration::from_secs(120),
+        )),
+        exchange_codes: Arc::new(ludex_server::desktop_handoff::ExchangeCodes::new()),
+        handoff_create_limits: Arc::new(ludex_server::security::AttemptCounter::disabled()),
+        handoff_claim_limits: Arc::new(ludex_server::security::AttemptCounter::disabled()),
     };
 
     let ids = ludex_server::db::query_scalar::<i64>("SELECT id FROM games ORDER BY id")

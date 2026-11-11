@@ -56,6 +56,12 @@ pub mod actions {
     pub const OIDC_LOGIN: &str = "oidc.login";
     /// OIDC identity linked to an existing local account.
     pub const OIDC_LINKED: &str = "oidc.linked";
+    /// A desktop SSO handoff was created by an authenticated web session.
+    pub const OIDC_HANDOFF_CREATED: &str = "oidc.handoff_created";
+    /// The desktop app claimed a pending SSO handoff.
+    pub const OIDC_HANDOFF_CLAIMED: &str = "oidc.handoff_claimed";
+    /// A handoff claim was rejected (unknown, expired, used or invalid state).
+    pub const OIDC_HANDOFF_FAILED: &str = "oidc.handoff_failed";
     /// Library root added.
     pub const LIBRARY_ROOT_CREATED: &str = "library_root.created";
     /// Library root label, path, ordering or enabled flag changed.

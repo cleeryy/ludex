@@ -297,3 +297,122 @@ pub async fn serve_zip(
         handle,
     }
 }
+
+/// A tiny scripted JSON server for the SSO handoff tests (#157).
+pub struct JsonServer {
+    /// Base URL; callers append the API path they want to hit.
+    pub url: String,
+    /// Parsed JSON body of every request, in order.
+    pub requests: Arc<Mutex<Vec<serde_json::Value>>>,
+    handle: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for JsonServer {
+    fn drop(&mut self) {
+        self.handle.abort();
+    }
+}
+
+/// Serves the given `(status, body)` responses in order; the last one repeats.
+///
+/// Every request body is parsed as JSON and recorded, so a test can assert on
+/// what the client actually sent.
+pub async fn serve_json(responses: Vec<(u16, serde_json::Value)>) -> JsonServer {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&requests);
+    let responses = Arc::new(responses);
+    let next = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    let handle = tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let requests = Arc::clone(&recorded);
+            let responses = Arc::clone(&responses);
+            let next = Arc::clone(&next);
+            tokio::spawn(async move {
+                let mut buffer = vec![0u8; 32 * 1024];
+                let mut read = 0usize;
+                let header_end = loop {
+                    if read == buffer.len() {
+                        return;
+                    }
+                    match socket.read(&mut buffer[read..]).await {
+                        Ok(0) => return,
+                        Ok(bytes) => {
+                            read += bytes;
+                            if let Some(position) = buffer[..read]
+                                .windows(4)
+                                .position(|window| window == b"\r\n\r\n")
+                            {
+                                break position + 4;
+                            }
+                        }
+                        Err(_) => return,
+                    }
+                };
+
+                let request = String::from_utf8_lossy(&buffer[..header_end]).to_string();
+                let content_length = request
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())
+                            .flatten()
+                    })
+                    .unwrap_or(0)
+                    .min(buffer.len() - header_end);
+                while read < header_end + content_length {
+                    match socket
+                        .read(&mut buffer[read..header_end + content_length])
+                        .await
+                    {
+                        Ok(0) | Err(_) => break,
+                        Ok(bytes) => read += bytes,
+                    }
+                }
+                let body = &buffer[header_end..read];
+                if let Ok(value) = serde_json::from_slice::<serde_json::Value>(body) {
+                    if let Ok(mut requests) = requests.lock() {
+                        requests.push(value);
+                    }
+                }
+
+                let index = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let (status, payload) = responses
+                    .get(index)
+                    .or_else(|| responses.last())
+                    .cloned()
+                    .unwrap_or((500, serde_json::json!({})));
+                let body = serde_json::to_vec(&payload).unwrap_or_default();
+                let reason = match status {
+                    200 => "OK",
+                    401 => "Unauthorized",
+                    404 => "Not Found",
+                    410 => "Gone",
+                    429 => "Too Many Requests",
+                    500 => "Internal Server Error",
+                    _ => "Status",
+                };
+                let head = format!(
+                    "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let mut response = head.into_bytes();
+                response.extend_from_slice(&body);
+                let _ = socket.write_all(&response).await;
+                let _ = socket.shutdown().await;
+            });
+        }
+    });
+
+    JsonServer {
+        url: format!("http://{address}"),
+        requests,
+        handle,
+    }
+}

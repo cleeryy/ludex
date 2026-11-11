@@ -424,6 +424,35 @@ pub const ROUTES: &[RouteDoc] = &[
         ),
         "OidcExchangeRequest",
     ),
+    // Desktop SSO handoff (#157)
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/auth/desktop-handoff",
+                "Authentication",
+                "Bind the current web session to a desktop sign-in state",
+                Auth::Session,
+                Payload::Schema("DesktopHandoffResponse"),
+            ),
+            "DesktopHandoffRequest",
+        ),
+        200,
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/auth/desktop-handoff/claim",
+                "Authentication",
+                "Claim a pending desktop handoff exactly once",
+                Auth::Public,
+                Payload::Schema("DesktopHandoffClaimResponse"),
+            ),
+            "DesktopHandoffClaimRequest",
+        ),
+        200,
+    ),
     // Users
     route(
         HttpMethod::Get,
@@ -1894,6 +1923,10 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::models::SuggestResponse>()
         .schema_from::<crate::models::GameSuggestion>()
         .schema_from::<crate::routes::oidc::OidcExchangeRequest>()
+        .schema_from::<crate::routes::oidc::DesktopHandoffRequest>()
+        .schema_from::<crate::routes::oidc::DesktopHandoffResponse>()
+        .schema_from::<crate::routes::oidc::DesktopHandoffClaimRequest>()
+        .schema_from::<crate::routes::oidc::DesktopHandoffClaimResponse>()
         .schema_from::<crate::share::CreateShareRequest>()
         .schema_from::<crate::share::ShareAccessRequest>()
         .schema_from::<crate::share::ShareLink>()
