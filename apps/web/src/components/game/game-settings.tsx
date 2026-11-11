@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileClock, FileCog, RotateCcw, Save, Search, SlidersHorizontal } from "lucide-react";
+import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { native } from "@/lib/native";
 import { formatBytes, formatRelative } from "@/lib/format";
@@ -11,19 +12,31 @@ import {
   filterConfigFiles,
   readOnlyReason,
 } from "@/lib/config-files";
+import {
+  canKeepInSync,
+  candidateLabel,
+  confidenceTone,
+  isResolvedField,
+  mappingFor,
+  targetForField,
+} from "@/lib/config-fields";
 import type {
   AdapterField,
+  CommonFieldMatch,
+  CommonFieldPreview,
+  CommonFieldTarget,
   ConfigAdapter,
   ConfigBackupRecord,
   ConfigDocument,
   ConfigEditInput,
   ConfigFileInfo,
 } from "@/lib/types";
-import { Badge, Button, Input, Switch } from "@/components/ui/controls";
+import { Badge, Button, Input, Switch, Textarea } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
+import { useAuth } from "@/state/auth";
 import { useToast } from "@/state/toasts";
-import { t } from "@/lib/i18n";
+import { t, useI18n } from "@/lib/i18n";
 
 type Tab = "adapters" | "files" | "backups";
 
@@ -372,7 +385,9 @@ function FilesTab({
   if (error) return <p className="text-[12.5px] text-danger">{error}</p>;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
+    <>
+      <CommonFieldsPanel gameId={gameId} onSaved={onSaved} />
+      <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
       <div>
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-3" aria-hidden="true" />
@@ -451,7 +466,8 @@ function FilesTab({
           <p className="text-[12.5px] text-ink-3">{t("Choose a file on the left.")}</p>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -555,6 +571,356 @@ function KeyEditor({
         {t("The file keeps its encoding (UTF-8, UTF-16 or Windows-1252) and line endings when saved.")}
       </p>
     </div>
+  );
+}
+
+/* ------------------------------ common fields ---------------------------- */
+
+type PendingField = {
+  match: CommonFieldMatch;
+  target: CommonFieldTarget;
+  preview: CommonFieldPreview;
+};
+
+function confidenceLabel(confidence: CommonFieldMatch["confidence"]): string {
+  if (confidence === "certain") return t("Certain");
+  if (confidence === "likely") return t("Likely");
+  return t("Ambiguous");
+}
+
+function fieldLabel(field: CommonFieldMatch["field"]): string {
+  return field === "language" ? t("Language") : t("Player name");
+}
+
+/**
+ * "Common fields" panel (#148). Detection is read-only; apply is always an
+ * explicit preview → confirm, and an ambiguous match only offers a pin. The
+ * raw key list below stays the fallback for everything else.
+ */
+function CommonFieldsPanel({ gameId, onSaved }: { gameId: number; onSaved: () => void }) {
+  const { push } = useToast();
+  const queryClient = useQueryClient();
+  const { locale } = useI18n();
+  const { user } = useAuth();
+  const profile = useQuery({
+    queryKey: ["my-profile"],
+    queryFn: () => api.myProfile(),
+    enabled: Boolean(user),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const displayName = profile.data?.displayName?.trim() || user?.username || "";
+
+  const report = useQuery({
+    queryKey: ["game-config-common-fields", gameId],
+    queryFn: () => native.commonConfigFields(gameId),
+  });
+  const sync = useQuery({
+    queryKey: ["game-config-sync", gameId],
+    queryFn: () => native.configSyncPrefs(gameId),
+  });
+  const [pending, setPending] = useState<PendingField | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [toggling, setToggling] = useState(false);
+  const [template, setTemplate] = useState<string | null>(null);
+
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ["game-config-common-fields", gameId] });
+    void queryClient.invalidateQueries({ queryKey: ["game-config-sync", gameId] });
+    onSaved();
+  };
+
+  const openPreview = async (match: CommonFieldMatch, target: CommonFieldTarget) => {
+    if (!match.file || !match.key) return;
+    try {
+      const preview = await native.previewCommonField(gameId, match.file, match.key, target);
+      setPending({ match, target, preview });
+    } catch (cause) {
+      push({ title: t("Could not preview this change"), description: errorMessage(cause), tone: "danger" });
+    }
+  };
+
+  const applyPending = async () => {
+    if (!pending?.match.file || !pending.match.key) return;
+    setApplying(true);
+    try {
+      await native.applyCommonField(gameId, pending.match.file, pending.match.key, pending.target);
+      push({
+        title: t("Config field applied"),
+        description: `${pending.match.file} · ${pending.match.key}`,
+        tone: "success",
+      });
+      setPending(null);
+      refresh();
+    } catch (cause) {
+      push({ title: t("Could not apply this field"), description: errorMessage(cause), tone: "danger" });
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const pin = async (field: CommonFieldMatch["field"], file: string, key: string) => {
+    try {
+      await native.saveConfigFieldMapping(gameId, field, file, key);
+      push({ title: t("Key pinned"), description: `${file} · ${key}`, tone: "success" });
+      refresh();
+    } catch (cause) {
+      push({ title: t("Could not pin this key"), description: errorMessage(cause), tone: "danger" });
+    }
+  };
+
+  const unpin = async (field: CommonFieldMatch["field"]) => {
+    try {
+      await native.deleteConfigFieldMapping(gameId, field);
+      push({ title: t("Detection restored"), tone: "success" });
+      refresh();
+    } catch (cause) {
+      push({ title: t("Could not unpin this key"), description: errorMessage(cause), tone: "danger" });
+    }
+  };
+
+  const toggleSync = async (enabled: boolean) => {
+    setToggling(true);
+    try {
+      await native.setConfigSyncPrefs(gameId, { enabled, language: locale, playerName: displayName });
+      push({ title: t("Sync preference saved"), tone: "success" });
+      refresh();
+    } catch (cause) {
+      push({ title: t("Could not save the sync preference"), description: errorMessage(cause), tone: "danger" });
+    } finally {
+      setToggling(false);
+    }
+  };
+
+  const exportTemplate = async () => {
+    try {
+      setTemplate(await native.exportConfigMappings(gameId));
+    } catch (cause) {
+      push({ title: t("Could not export the template"), description: errorMessage(cause), tone: "danger" });
+    }
+  };
+
+  const copyTemplate = async () => {
+    if (!template) return;
+    try {
+      await navigator.clipboard.writeText(template);
+      push({ title: t("Copied"), tone: "success" });
+    } catch {
+      push({ title: t("Select the text and copy it manually."), tone: "danger" });
+    }
+  };
+
+  if (report.isPending || report.isError || !report.data) return null;
+  const fields = report.data.fields;
+  if (fields.length === 0) return null;
+  const syncOn = sync.data?.enabled ?? false;
+  const languageTarget = targetForField("language", locale, displayName);
+  const nameTarget = targetForField("playerName", locale, displayName);
+
+  return (
+    <section aria-labelledby="common-fields-heading" className="mb-6 border border-line">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-3">
+        <div className="min-w-0">
+          <h3 id="common-fields-heading" className="text-[13px] font-medium text-ink">
+            {t("Common fields")}
+          </h3>
+          <p className="mt-1 max-w-[70ch] text-[11px] leading-relaxed text-ink-3">
+            {t("Ludex recognised the language and player name this game stores. Applying one previews the change and backs the file up first.")}
+          </p>
+        </div>
+        {report.data.mappings.length > 0 && (
+          <Button variant="ghost" size="sm" onClick={() => void exportTemplate()}>
+            {t("Export template")}
+          </Button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-[12px] text-ink-2">{t("Keep in sync on launch")}</p>
+          <p className="mt-0.5 max-w-[70ch] text-[11px] leading-relaxed text-ink-3">
+            {t(
+              "Ludex applies {language} and {name} without asking the next time this game starts.",
+              { language: locale.toUpperCase(), name: displayName || t("your profile name") },
+            )}
+          </p>
+        </div>
+        <Switch
+          checked={syncOn}
+          disabled={sync.isPending || toggling || !canKeepInSync(report.data)}
+          onCheckedChange={(checked) => void toggleSync(checked)}
+          label={t("Keep in sync on launch")}
+        />
+      </div>
+
+      {fields.map((match) => {
+        const pinned = match.source === "template" ? mappingFor(report.data, match.field) : null;
+        return (
+          <div key={match.field} className="border-b border-line px-4 py-3 last:border-0">
+            <div className="flex flex-wrap items-baseline gap-2">
+              <span className="text-[12.5px] font-medium text-ink">{fieldLabel(match.field)}</span>
+              <Badge tone={confidenceTone(match.confidence)}>{confidenceLabel(match.confidence)}</Badge>
+              <Badge tone="outline">{match.source === "template" ? t("Game template") : t("Built-in")}</Badge>
+              {isResolvedField(match) && (
+                <span className="min-w-0 truncate font-mono text-[10.5px] text-ink-3">
+                  {match.file} · {match.key}
+                </span>
+              )}
+            </div>
+
+            {isResolvedField(match) ? (
+              <>
+                <p className="mt-1 text-[11.5px] text-ink-2">
+                  {t("Current value")}:{" "}
+                  <span className="font-mono text-ink">{match.value || t("empty")}</span>
+                </p>
+                {match.allowedValues.length > 0 && (
+                  <p className="mt-0.5 text-[10.5px] text-ink-3">
+                    {t("Accepted values: {values}", { values: match.allowedValues.join(", ") })}
+                  </p>
+                )}
+                {match.note && <p className="mt-0.5 text-[10.5px] leading-relaxed text-ink-3">{match.note}</p>}
+
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {match.field === "language" ? (
+                    languageTarget ? (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => void openPreview(match, languageTarget)}
+                      >
+                        {t("Apply Ludex language ({code})", { code: languageTarget.value })}
+                      </Button>
+                    ) : null
+                  ) : nameTarget ? (
+                    <Button variant="default" size="sm" onClick={() => void openPreview(match, nameTarget)}>
+                      {t("Apply my name ({name})", { name: nameTarget.value })}
+                    </Button>
+                  ) : (
+                    <span className="text-[10.5px] text-ink-3">
+                      {t("Set a display name in Settings → Profile to apply it here.")}
+                    </span>
+                  )}
+                  {pinned ? (
+                    <Button variant="ghost" size="sm" onClick={() => void unpin(match.field)}>
+                      {t("Use detection again")}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void pin(match.field, match.file, match.key)}
+                    >
+                      {t("Pin this key")}
+                    </Button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mt-1 text-[11.5px] leading-relaxed text-ink-2">
+                  {t("Several keys match. Choose the one this game reads; Ludex will not guess.")}
+                </p>
+                <div className="mt-2 flex flex-col divide-y divide-line border-y border-line">
+                  {match.candidates.map((candidate) => (
+                    <div
+                      key={candidateLabel(candidate)}
+                      className="flex flex-wrap items-center justify-between gap-2 py-2"
+                    >
+                      <span className="min-w-0 truncate font-mono text-[10.5px] text-ink-3">
+                        {candidateLabel(candidate)} ={" "}
+                        <span className="text-ink-2">{candidate.value || t("empty")}</span>
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void pin(match.field, candidate.file, candidate.key)}
+                      >
+                        {t("Use this key")}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })}
+
+      <Dialog
+        open={Boolean(pending)}
+        onOpenChange={(open) => {
+          if (!open && !applying) setPending(null);
+        }}
+        title={pending ? t("Apply {field}?", { field: fieldLabel(pending.match.field) }) : ""}
+        description={pending ? `${pending.match.file ?? ""} · ${pending.match.key ?? ""}` : undefined}
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPending(null)} disabled={applying}>
+              {t("Cancel")}
+            </Button>
+            <Button
+              variant="primary"
+              loading={applying}
+              disabled={pending?.preview.unchanged ?? true}
+              onClick={() => void applyPending()}
+            >
+              {t("Apply")}
+            </Button>
+          </>
+        }
+      >
+        {pending && (
+          <div>
+            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px]">
+              <span className="text-ink-3">{t("Before")}</span>
+              <span className="break-all text-ink-2">{pending.preview.currentValue || t("empty")}</span>
+              <span className="text-ink-3">{t("After")}</span>
+              <span className="break-all text-ink">{pending.preview.nextValue || t("empty")}</span>
+            </div>
+            {pending.preview.unchanged ? (
+              <p className="mt-3 text-[11.5px] text-ink-2">
+                {t("This value is already set; nothing will be written.")}
+              </p>
+            ) : (
+              <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap border-l-2 border-line-2 pl-3 font-mono text-[10px] leading-relaxed text-ink-3">
+                {pending.preview.diff}
+              </pre>
+            )}
+            <p className="mt-2 text-[10.5px] leading-relaxed text-ink-3">
+              {t("The file is copied to the Backups tab before it changes, and keeps its encoding.")}
+            </p>
+          </div>
+        )}
+      </Dialog>
+
+      <Dialog
+        open={template !== null}
+        onOpenChange={(open) => !open && setTemplate(null)}
+        title={t("Game template")}
+        description={t("Pinned keys exported as JSON.")}
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setTemplate(null)}>
+              {t("Close")}
+            </Button>
+            <Button variant="primary" onClick={() => void copyTemplate()}>
+              {t("Copy")}
+            </Button>
+          </>
+        }
+      >
+        <Textarea
+          readOnly
+          rows={10}
+          value={template ?? ""}
+          aria-label={t("Game template")}
+          className="font-mono text-[10.5px]"
+        />
+      </Dialog>
+    </section>
   );
 }
 

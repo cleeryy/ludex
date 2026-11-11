@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
@@ -14,6 +14,7 @@ use crate::adopt;
 use crate::chrome;
 use crate::compat::{self, CompatScan};
 use crate::config_adapters::{self, AdapterReport};
+use crate::config_fields::{self, CommonFieldTarget};
 use crate::db::{self, GamePlaytime, InstalledGame};
 use crate::game_config::{self, ConfigDocument, ConfigEditInput};
 use crate::game_executables::{self, GameExecutables};
@@ -3038,6 +3039,262 @@ pub fn game_config_adapters(
         ));
     }
     Ok(config_adapters::report(game_id, &root))
+}
+
+/* ------------------- common config fields (#148) ------------------------ */
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigSyncInput {
+    pub enabled: bool,
+    #[serde(default)]
+    pub language: String,
+    #[serde(default)]
+    pub player_name: String,
+    /// Omitted keeps the previous choice (default: both fields on).
+    #[serde(default)]
+    pub apply_language: Option<bool>,
+    #[serde(default)]
+    pub apply_player_name: Option<bool>,
+}
+
+fn common_fields_report(
+    state: &AppState,
+    game_id: i64,
+) -> Result<config_fields::CommonFieldsReport, String> {
+    let installed = installed_or_error(state, game_id)?;
+    let root = PathBuf::from(&installed.install_path);
+    if !root.is_dir() {
+        return Err(format!(
+            "The install folder is missing: {}. Reinstall the game to inspect its settings.",
+            root.display()
+        ));
+    }
+    let mappings = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::list_config_field_mappings(&connection, game_id)?
+    };
+    let detection = config_fields::detect(&root, &mappings);
+    let mut notes = detection.notes;
+    if detection.files == 0 {
+        notes.push(
+            "No editable config file was found in this install folder; the raw editor above is the only option."
+                .to_string(),
+        );
+    } else if detection.fields.is_empty() {
+        notes.push(format!(
+            "No language or player-name key matched in {} editable config file(s). Use the raw key list below.",
+            detection.files
+        ));
+    }
+    Ok(config_fields::CommonFieldsReport {
+        game_id,
+        install_path: installed.install_path,
+        fields: detection.fields,
+        mappings,
+        notes,
+    })
+}
+
+/// Recognise the language and player-name keys of an installed game (#148).
+/// Read-only: detection never writes, and an ambiguous match is returned as a
+/// candidate list with no chosen file/key.
+#[tauri::command]
+pub fn game_config_common_fields(
+    state: State<'_, AppState>,
+    game_id: i64,
+) -> Result<config_fields::CommonFieldsReport, String> {
+    common_fields_report(&state, game_id)
+}
+
+/// Normalise one value and show the exact diff before anything is written.
+#[tauri::command]
+pub fn preview_game_config_common_field(
+    state: State<'_, AppState>,
+    game_id: i64,
+    file: String,
+    key: String,
+    target: CommonFieldTarget,
+) -> Result<config_fields::CommonFieldPreview, String> {
+    let installed = installed_or_error(&state, game_id)?;
+    config_fields::preview(Path::new(&installed.install_path), &file, &key, &target)
+}
+
+/// Apply one recognised field through the regular backup + diff path.
+#[tauri::command]
+pub fn apply_game_config_common_field(
+    state: State<'_, AppState>,
+    game_id: i64,
+    file: String,
+    key: String,
+    target: CommonFieldTarget,
+) -> Result<ConfigWriteReport, String> {
+    let installed = installed_or_error(&state, game_id)?;
+    let outcome = config_fields::apply(
+        Path::new(&installed.install_path),
+        &state.app_data,
+        game_id,
+        &file,
+        &key,
+        &target,
+        "common-field",
+    )?;
+    {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        if let Err(error) = db::insert_config_edit(&connection, &outcome.record) {
+            tracing::warn!(error = %error, "could not record the common-field edit");
+        }
+    }
+    Ok(ConfigWriteReport {
+        document: outcome.document,
+        diff: outcome.diff,
+        backup: outcome.record,
+    })
+}
+
+/// Pin one field to a file/key for this game. The mapping overrides the
+/// built-in catalog on the next detection and during launch-time sync.
+#[tauri::command]
+pub fn save_game_config_field_mapping(
+    state: State<'_, AppState>,
+    game_id: i64,
+    field: String,
+    file: String,
+    key: String,
+) -> Result<config_fields::CommonFieldsReport, String> {
+    let installed = installed_or_error(&state, game_id)?;
+    if !config_fields::is_known_field(&field) {
+        return Err(format!("Unknown common field “{field}”."));
+    }
+    let document = game_config::read(Path::new(&installed.install_path), &file)?;
+    let matches = document
+        .entries
+        .iter()
+        .filter(|entry| entry.key == key)
+        .count();
+    if matches == 0 {
+        return Err(format!("{key} is not in {file}."));
+    }
+    if matches > 1 {
+        return Err(format!(
+            "{key} appears more than once in {file}; a pin would be ambiguous."
+        ));
+    }
+    {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::save_config_field_mapping(&connection, game_id, &field, &file, &key, &now_rfc3339())?;
+    }
+    common_fields_report(&state, game_id)
+}
+
+#[tauri::command]
+pub fn delete_game_config_field_mapping(
+    state: State<'_, AppState>,
+    game_id: i64,
+    field: String,
+) -> Result<config_fields::CommonFieldsReport, String> {
+    {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::delete_config_field_mapping(&connection, game_id, &field)?;
+    }
+    common_fields_report(&state, game_id)
+}
+
+/// JSON export of the pinned keys (#148); the UI shows it so it can be saved.
+#[tauri::command]
+pub fn export_game_config_mappings(
+    state: State<'_, AppState>,
+    game_id: i64,
+) -> Result<String, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    let mappings = db::list_config_field_mappings(&connection, game_id)?;
+    Ok(config_fields::export_mappings(game_id, &mappings))
+}
+
+/// Per-game "keep in sync" state (#148). Defaults to off when never touched.
+#[tauri::command]
+pub fn game_config_sync_prefs(
+    state: State<'_, AppState>,
+    game_id: i64,
+) -> Result<db::ConfigSyncPrefs, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    Ok(
+        db::get_config_sync_prefs(&connection, game_id)?.unwrap_or(db::ConfigSyncPrefs {
+            game_id,
+            enabled: false,
+            language: String::new(),
+            player_name: String::new(),
+            apply_language: true,
+            apply_player_name: true,
+            last_applied_at: None,
+            updated_at: String::new(),
+        }),
+    )
+}
+
+/// Opt a game into (or out of) the launch-time sync and remember the values.
+#[tauri::command]
+pub fn set_game_config_sync_prefs(
+    state: State<'_, AppState>,
+    game_id: i64,
+    prefs: ConfigSyncInput,
+) -> Result<db::ConfigSyncPrefs, String> {
+    let _ = installed_or_error(&state, game_id)?;
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    let current = db::get_config_sync_prefs(&connection, game_id)?;
+    let apply_language = prefs
+        .apply_language
+        .or(current.as_ref().map(|prefs| prefs.apply_language))
+        .unwrap_or(true);
+    let apply_player_name = prefs
+        .apply_player_name
+        .or(current.as_ref().map(|prefs| prefs.apply_player_name))
+        .unwrap_or(true);
+    db::save_config_sync_prefs(
+        &connection,
+        game_id,
+        prefs.enabled,
+        prefs.language.trim(),
+        prefs.player_name.trim(),
+        apply_language,
+        apply_player_name,
+        &now_rfc3339(),
+    )
+}
+
+/// Mirror the app locale and profile name for launch-time config sync (#148).
+/// They only affect games whose "keep in sync" toggle is on.
+#[tauri::command]
+pub fn set_config_sync_defaults(
+    state: State<'_, AppState>,
+    language: String,
+    player_name: String,
+) -> Result<LocalSettings, String> {
+    state.update_settings(|settings| {
+        settings.ui_language = language.trim().to_string();
+        settings.player_name = player_name.trim().to_string();
+    })
 }
 
 /* --------------------- Sunshine host (#97), Moonlight (#98) --------------- */

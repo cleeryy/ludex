@@ -1,11 +1,12 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { HashRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { useEffect } from "react";
 import { api } from "@/lib/api";
 import { pendingDesktopState, readDesktopStateFromSearch } from "@/lib/desktop-handoff";
 import { isNative, native } from "@/lib/native";
 import { useAuth, useIsAdmin, useIsEditor } from "@/state/auth";
 import { SettingsProvider } from "@/state/settings";
-import { I18nProvider } from "@/lib/i18n";
+import { I18nProvider, useI18n } from "@/lib/i18n";
 import { ToastProvider } from "@/state/toasts";
 import { AuthProvider } from "@/state/auth";
 import { DownloadsProvider } from "@/state/downloads";
@@ -149,6 +150,42 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * Mirror the app locale and profile display name into the desktop settings
+ * (#148), so a game that opted into "keep in sync" gets the current values on
+ * its next launch even when its settings page is never opened.
+ */
+let lastSyncedDefaults = "";
+
+function ConfigSyncDefaults() {
+  const { locale } = useI18n();
+  const { user } = useAuth();
+  const profile = useQuery({
+    queryKey: ["my-profile"],
+    queryFn: () => api.myProfile(),
+    enabled: isNative() && Boolean(user),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const name = profile.data?.displayName?.trim() || user?.username || "";
+
+  useEffect(() => {
+    if (!isNative()) return;
+    const key = `${locale}\u0000${name}`;
+    if (key === lastSyncedDefaults) return;
+    void native
+      .setConfigSyncDefaults(locale, name)
+      .then(() => {
+        lastSyncedDefaults = key;
+      })
+      .catch(() => {
+        /* the mirror is best effort; the game settings page still works */
+      });
+  }, [locale, name]);
+
+  return null;
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -157,6 +194,7 @@ export function App() {
           <AuthProvider>
             <DownloadsProvider>
             <I18nProvider>
+            <ConfigSyncDefaults />
             <HashRouter>
               <Routes>
                 {/* Public and account-free: must stay outside the Gate (#9). */}

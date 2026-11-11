@@ -1465,8 +1465,50 @@ interface ConfigBackupRecord {
   id: string; gameId: number; filePath: string;
   backupPath: string;           // local machine only
   diff: string; bytes: number;
-  origin: "manual" | "adapter" | "restore";
+  origin: "manual" | "adapter" | "restore" | "common-field" | "sync";
   createdAt: string;            // RFC 3339
+}
+/** Common config fields (#148). Detection is read-only. An ambiguous match has
+ *  no file/key/value: the UI lists `candidates` and never auto-picks. */
+interface CommonFieldCandidate {
+  file: string; key: string; value: string;
+  valueType: "string" | "number" | "boolean";
+  line: number; section: string | null;
+  exact: boolean;               // key itself matched, not just its section
+}
+interface CommonFieldMatch {
+  field: "language" | "playerName"; label: string;
+  confidence: "certain" | "likely" | "ambiguous";
+  source: "builtin" | "template"; // catalog heuristic vs pinned per-game mapping
+  file: string | null; key: string | null; value: string | null;
+  valueType: ConfigEntry["valueType"] | null;
+  allowedValues: string[];      // values the file itself lists (GOG langs[n])
+  candidates: CommonFieldCandidate[];
+  note: string | null;
+}
+interface CommonFieldsReport {
+  gameId: number; installPath: string;
+  fields: CommonFieldMatch[];   // empty = no panel
+  mappings: ConfigFieldMapping[];
+  notes: string[];
+}
+interface ConfigFieldMapping {
+  gameId: number;
+  field: "language" | "playerName";
+  file: string; key: string;    // relative to the install folder
+  createdAt: string;
+}
+interface CommonFieldPreview {
+  field: "language" | "playerName";
+  file: string; key: string;
+  currentValue: string; nextValue: string;
+  unchanged: boolean; diff: string;
+}
+interface ConfigSyncPrefs {
+  gameId: number; enabled: boolean;
+  language: string; playerName: string; // last values handed over by the UI
+  applyLanguage: boolean; applyPlayerName: boolean;
+  lastAppliedAt: string | null; updatedAt: string;
 }
 interface AdapterField {
   id: string; label: string;
@@ -1658,6 +1700,13 @@ interface StreamTarget {
 | `restore_game_config` | `{ gameId, backupId }` | `{ document, diff, backup }`; backs up the current file first, then restores the history entry byte-for-byte |
 | `list_game_config_backups` | `{ gameId }` | `ConfigBackupRecord[]`, newest first (max 100) |
 | `game_config_adapters` | `{ gameId }` | `AdapterReport`; Unreal/GOG/Godot/Unity detection plus typed fields (#106) |
+| `game_config_common_fields` | `{ gameId }` | `CommonFieldsReport`; read-only detection of the language/player-name keys across the editable config files. Reports `confidence` (`certain`/`likely`/`ambiguous`), the source (`builtin` catalog or pinned `template`), the exact file/key and the file's allowed values. Ambiguous matches return candidates with no chosen key; no match returns `fields: []` (#148) |
+| `preview_game_config_common_field` | `{ gameId, file, key, target: { field, value } }` | `CommonFieldPreview`; normalises the value (`fr`/`French`/`Français`, allowed values, player-name rules), validates the file's encoding and returns the before/after diff. Never writes |
+| `apply_game_config_common_field` | `{ gameId, file, key, target }` | `{ document, diff, backup }`; same normalisation, then the regular backup + atomic write with `origin: "common-field"` |
+| `save_game_config_field_mapping` / `delete_game_config_field_mapping` | `{ gameId, field, file, key }` / `{ gameId, field }` | `CommonFieldsReport` after the change. A pinned file/key overrides the catalog; re-pinning replaces it. Deleting returns to heuristics (#148) |
+| `export_game_config_mappings` | `{ gameId }` | `string`; pretty JSON `{ gameId, exportedAt, mappings[] }` for saving/importing a template (#148) |
+| `game_config_sync_prefs` / `set_game_config_sync_prefs` | `{ gameId }` / `{ gameId, prefs: { enabled, language?, playerName?, applyLanguage?, applyPlayerName? } }` | `ConfigSyncPrefs`; the per-game opt-in that re-applies the values at launch without a dialog. Off by default; toggling it off stops all writes (#148) |
+| `set_config_sync_defaults` | `{ language, playerName }` | `LocalSettings`; mirrors the web locale/profile name so launch-time sync uses the current values even when the game page was never opened (#148) |
 | `sunshine_status` | — | `SunshineStatus`; Sunshine install, `apps.json`/`sunshine.conf` paths, binary and managed-entry counts (#97) |
 | `sunshine_preview` | — | `SunshinePreview`; what a sync would add, update and remove. Never writes |
 | `sunshine_sync` | `{ dryRun?, removeMissing?, downloadCovers? }` | `SunshineReport`. Every real write copies `apps.json` to `apps.json.ludex-backup-<stamp>-<id>.bak` first. `removeMissing` defaults to true |
@@ -1931,6 +1980,37 @@ resolution, window mode, V-Sync, frame limit, quality and language to typed
 fields with the exact file and key. A field whose storage lives outside the
 install folder (Windows registry, UE `%LOCALAPPDATA%`, Godot `user://`) is
 returned read-only with a note instead of being edited.
+
+Common fields (#148) build on the same file layer. `game_config_common_fields`
+reads the editable config files (up to 40) and matches key and section names
+case-insensitively against a built-in catalog: language
+(`Language`, `Locale`, `Culture`, `LanguageID`, `TextLanguage`, …) and player
+name (`UserName`, `Username`, `PlayerName`, `Nickname`, `AccountName`, …).
+Section-derived matches (`[Internationalization] Fallback`, `[Player] Name`) and
+Unity's `_h<hash>` suffix are handled; only string (and numeric language ids,
+reported as unmappable) values qualify. Each match carries a confidence and a
+source: `certain`/`likely` resolve to one file + key, `ambiguous` lists the
+candidates and resolves to nothing until the user pins one
+(`save_game_config_field_mapping`). A pinned mapping always wins over the
+catalog and is exported as JSON. Detection never writes.
+
+Applying a field normalises the value first: language codes and names map onto
+the style the file already uses (`en`→`fr`, `english`→`french`,
+`English`→`French`, `Français`→`Deutsch`, `en-US`→`fr`) and the file's own
+allowed list (GOG `langs[n]`) takes precedence; player names are trimmed,
+limited to 32 characters and a conservative character set. The preview runs the
+same parsing and encoding checks as the write and returns the exact diff, so a
+value Windows-1252 or JSON cannot represent fails before the user confirms. The
+write then goes through the normal backup + atomic replace path with
+`origin: "common-field"`.
+
+A game can opt into "keep in sync" (`set_game_config_sync_prefs`): at the next
+launch, `launch` re-detects the fields and writes the mirrored app language and
+profile name without a dialog, logging warnings instead of blocking the launch.
+The values come from `set_config_sync_defaults` (kept current by the web app)
+with the last value sent by the panel as a fallback; toggling the opt-in off
+stops every write. Each applied change appears in the Backups tab with
+`origin: "sync"`.
 
 ### Install lifecycle
 

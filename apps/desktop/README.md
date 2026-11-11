@@ -158,9 +158,14 @@ switching servers never mixes installed games, sessions or download jobs.
   last restored snapshot (#108).
 - `config_edits` (#105) — one row per game-settings write: relative file path,
   absolute backup path under `{appDataDir}/config-backups/game-<id>/`, line
-  diff, size, origin (`manual`, `adapter`, `restore`) and timestamp. Restoring
-  a row copies the current file to a new `restore` row first. Schema v11,
-  after the stream-checkpoint v10 from #115.
+  diff, size, origin (`manual`, `adapter`, `common-field`, `sync`, `restore`)
+  and timestamp. Restoring a row copies the current file to a new `restore` row
+  first. Schema v11, after the stream-checkpoint v10 from #115.
+- `config_field_mappings` (#148) — at most one pinned file/key per game and
+  field (`language`, `playerName`), overriding the built-in catalog. Schema v12.
+- `config_sync_prefs` (#148) — the per-game "keep in sync" opt-in, the last
+  language/player-name values handed over by the UI, per-field flags and the
+  last application time. Off until the user enables it; schema v12.
 
 ## Streaming and server profiles
 
@@ -615,6 +620,41 @@ Adapters are detection-only and point each typed field at a file + key:
 Several can apply at once. Values stored in the Windows registry, Unreal's
 `%LOCALAPPDATA%` or Godot's `user://` are returned read-only with a note rather
 than edited outside the install folder.
+
+### Common fields (#148)
+
+The Config files tab shows a **Common fields** panel above the raw key list when
+`game_config_common_fields` recognises the game's language or player-name key.
+Detection scans the same editable files (up to 40) and matches key/section names
+case-insensitively against a built-in catalog: language (`Language`, `Locale`,
+`Culture`, `LanguageID`, `TextLanguage`, `GameLanguage`, …) and player name
+(`UserName`, `Username`, `PlayerName`, `Nickname`, `AccountName`, `DisplayName`,
+…). Section-derived matches (`[Internationalization] Fallback`, `[Player] Name`)
+and Unity's `_h<hash>` suffix are supported. Nothing is written while detecting,
+and an ambiguous key is returned as a candidate list with no chosen file/key:
+the panel asks the user to pin one (stored per field in
+`config_field_mappings`) rather than picking.
+
+Each match reports a confidence (`certain`/`likely`/`ambiguous`) and a source
+(`builtin` catalog or pinned `template`). "Apply Ludex language" uses the UI
+locale, "Apply my name" the profile display name (username fallback); the
+action always opens a preview with the normalised before/after and the diff,
+then writes through the standard backup + atomic replace path with
+`origin: "common-field"`. Normalisation understands codes and names
+(`en`→`fr`, `english`→`french`, `English`→`French`, `Français`→`Deutsch`,
+`en-US`→`fr`), prefers the values the file lists (GOG
+`langs[n]`), and rejects a value the file cannot represent (numeric language id,
+Windows-1252 text, over-long or invalid player name) before anything changes.
+Quotes, comments, BOM and line endings are preserved by the shared writer.
+
+The per-game **Keep in sync on launch** switch stores the opt-in plus the
+current language/name in `config_sync_prefs`. At the next launch the mirrored
+app language and profile name (`set_config_sync_defaults`, kept current by the
+web app, with the stored values as fallback) are applied without a dialog, with
+warnings logged instead of blocking the game; turning the switch off stops all
+writes. Pinned mappings can be exported as JSON from
+the panel for use as a per-game template. The raw key editor stays available for
+everything the catalog does not recognise.
 
 ## Move, verify and repair
 

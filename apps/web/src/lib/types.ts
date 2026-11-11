@@ -795,6 +795,10 @@ export interface LocalSettings {
    * Disabling a source never removes games already imported from it.
    */
   launcherSources: LauncherId[];
+  /** Ludex UI language mirrored from the web locale (#148), used by the launch-time config sync. */
+  uiLanguage?: string;
+  /** Ludex profile display name mirrored from the web profile (#148). */
+  playerName?: string;
 }
 
 /* ------------------- Ludusavi save-path manifest (#153) ------------------ */
@@ -1757,7 +1761,7 @@ export interface ConfigBackupRecord {
   backupPath: string;
   diff: string;
   bytes: number;
-  origin: "manual" | "adapter" | "restore";
+  origin: "manual" | "adapter" | "restore" | "common-field" | "sync";
   createdAt: string;
 }
 
@@ -1811,6 +1815,95 @@ export interface AdapterReport {
   installPath: string;
   adapters: ConfigAdapter[];
   notes: string[];
+}
+
+/* ------------------ common config fields (#148) -------------------- */
+
+/** One key that may hold a common field. */
+export interface CommonFieldCandidate {
+  /** Path relative to the install folder. */
+  file: string;
+  key: string;
+  value: string;
+  valueType: "string" | "number" | "boolean";
+  line: number;
+  section: string | null;
+  /** True when the key itself, not its section, matched the catalog. */
+  exact: boolean;
+}
+
+/**
+ * A detected language/player-name field. `file`, `key` and `value` are null
+ * when `confidence` is `ambiguous`: Ludex lists the candidates and never picks.
+ */
+export interface CommonFieldMatch {
+  field: "language" | "playerName";
+  label: string;
+  confidence: "certain" | "likely" | "ambiguous";
+  source: "builtin" | "template";
+  file: string | null;
+  key: string | null;
+  value: string | null;
+  valueType: "string" | "number" | "boolean" | null;
+  /** Values the file itself lists as accepted (GOG `langs[n]`), else empty. */
+  allowedValues: string[];
+  candidates: CommonFieldCandidate[];
+  note: string | null;
+}
+
+/** Pinned file/key overriding the catalog for one game. */
+export interface ConfigFieldMapping {
+  gameId: number;
+  field: "language" | "playerName";
+  /** Relative to the install folder; serialized as `file`. */
+  file: string;
+  key: string;
+  createdAt: string;
+}
+
+export interface CommonFieldsReport {
+  gameId: number;
+  installPath: string;
+  /** Empty means no panel at all. */
+  fields: CommonFieldMatch[];
+  mappings: ConfigFieldMapping[];
+  notes: string[];
+}
+
+/** What to write: the field id plus the desired language code or player name. */
+export interface CommonFieldTarget {
+  field: "language" | "playerName";
+  value: string;
+}
+
+export interface CommonFieldPreview {
+  field: "language" | "playerName";
+  file: string;
+  key: string;
+  currentValue: string;
+  nextValue: string;
+  unchanged: boolean;
+  diff: string;
+}
+
+/** Per-game launch-time sync state (#148). Off until the user opts in. */
+export interface ConfigSyncPrefs {
+  gameId: number;
+  enabled: boolean;
+  language: string;
+  playerName: string;
+  applyLanguage: boolean;
+  applyPlayerName: boolean;
+  lastAppliedAt: string | null;
+  updatedAt: string;
+}
+
+export interface ConfigSyncInput {
+  enabled: boolean;
+  language?: string;
+  playerName?: string;
+  applyLanguage?: boolean;
+  applyPlayerName?: boolean;
 }
 
 /* ---------------------------------- Controller profiles (#51) ---------------------------------- */

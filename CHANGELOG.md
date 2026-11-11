@@ -10,6 +10,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Common config fields (#148): the game settings editor recognises language and
+  player-name keys across editable INI/JSON/CFG/TOML files (Unreal, Unity,
+  Godot, GOG, generic; case-insensitive aliases, confidence/source badges,
+  ambiguity never auto-picked). A "Common fields" panel shows the detected
+  file/key/value, previews a normalised change (fr/French/Français, allowed
+  values, name validation, encoding preserved) before writing with a backup,
+  supports pinned per-game mappings/export and an opt-in "keep in sync" applied
+  at launch. Raw editor unchanged; no detection writes.
 - Selectable launcher sources (#155): Settings → Integrations lists the nine
   launcher sources with a checkbox each, Select all/None and per-source status
   (detected/no games/not detected/disabled). The enabled set is persisted,

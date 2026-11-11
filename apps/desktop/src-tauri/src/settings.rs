@@ -244,6 +244,15 @@ pub struct LocalSettings {
     /// local index.
     #[serde(default = "default_launcher_sources")]
     pub launcher_sources: Vec<String>,
+    /// Ludex UI language, mirrored from the web locale (#148). Only read when a
+    /// game opted into config sync, so a launch can apply the language without
+    /// the web view. Empty means "not known yet".
+    #[serde(default)]
+    pub ui_language: String,
+    /// Ludex profile display name (or username), mirrored from the web profile
+    /// (#148) for the same launch-time config sync. Empty means "not set".
+    #[serde(default)]
+    pub player_name: String,
 }
 
 /// Default executable search depth for folder scans (#134).
@@ -316,6 +325,8 @@ impl Default for LocalSettings {
             gamevault_root: None,
             gamevault_scan_depth: default_gamevault_scan_depth(),
             launcher_sources: default_launcher_sources(),
+            ui_language: String::new(),
+            player_name: String::new(),
         }
     }
 }
@@ -395,6 +406,14 @@ impl LocalSettings {
         // Keep known sources only, deduplicated and in display order; an empty
         // set stays empty ("none enabled"), it never silently becomes "all".
         self.launcher_sources = crate::launchers::canonical_ids(&self.launcher_sources);
+        self.ui_language = self
+            .ui_language
+            .trim()
+            .chars()
+            .take(16)
+            .collect::<String>()
+            .to_lowercase();
+        self.player_name = self.player_name.trim().chars().take(60).collect();
         self.active_server_id = self.active_server_id.trim().to_string();
         self.servers = self
             .servers

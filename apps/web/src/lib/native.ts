@@ -8,10 +8,15 @@ import type {
   CloudSaveStatus,
   CloudSaveStrategy,
   CloudSyncToggleResponse,
+  CommonFieldPreview,
+  CommonFieldTarget,
+  CommonFieldsReport,
   CompatScan,
   ConfigBackupRecord,
   ConfigDocument,
   ConfigEditInput,
+  ConfigSyncInput,
+  ConfigSyncPrefs,
   ConfigWriteReport,
   DeleteAdoptedPreview,
   DiskUsage,
@@ -699,6 +704,84 @@ export const native = {
 
   async configAdapters(gameId: number): Promise<AdapterReport> {
     return invoke<AdapterReport>("game_config_adapters", { gameId });
+  },
+
+  /* ---------------- common config fields (#148) ------------------------- */
+
+  /** Read-only detection of language/player-name keys; writes nothing. */
+  async commonConfigFields(gameId: number): Promise<CommonFieldsReport> {
+    return invoke<CommonFieldsReport>("game_config_common_fields", { gameId });
+  },
+
+  async previewCommonField(
+    gameId: number,
+    file: string,
+    key: string,
+    target: CommonFieldTarget,
+  ): Promise<CommonFieldPreview> {
+    return invoke<CommonFieldPreview>("preview_game_config_common_field", {
+      gameId,
+      file,
+      key,
+      target,
+    });
+  },
+
+  async applyCommonField(
+    gameId: number,
+    file: string,
+    key: string,
+    target: CommonFieldTarget,
+  ): Promise<ConfigWriteReport> {
+    return invoke<ConfigWriteReport>("apply_game_config_common_field", {
+      gameId,
+      file,
+      key,
+      target,
+    });
+  },
+
+  async saveConfigFieldMapping(
+    gameId: number,
+    field: CommonFieldTarget["field"],
+    file: string,
+    key: string,
+  ): Promise<CommonFieldsReport> {
+    return invoke<CommonFieldsReport>("save_game_config_field_mapping", {
+      gameId,
+      field,
+      file,
+      key,
+    });
+  },
+
+  async deleteConfigFieldMapping(
+    gameId: number,
+    field: CommonFieldTarget["field"],
+  ): Promise<CommonFieldsReport> {
+    return invoke<CommonFieldsReport>("delete_game_config_field_mapping", { gameId, field });
+  },
+
+  /** JSON template of the pinned keys; shown so the user can save it. */
+  async exportConfigMappings(gameId: number): Promise<string> {
+    return invoke<string>("export_game_config_mappings", { gameId });
+  },
+
+  async configSyncPrefs(gameId: number): Promise<ConfigSyncPrefs> {
+    return invoke<ConfigSyncPrefs>("game_config_sync_prefs", { gameId });
+  },
+
+  async setConfigSyncPrefs(gameId: number, prefs: ConfigSyncInput): Promise<ConfigSyncPrefs> {
+    return invoke<ConfigSyncPrefs>("set_game_config_sync_prefs", { gameId, prefs });
+  },
+
+  /** Mirror the app locale/profile name for launch-time sync (#148). */
+  async setConfigSyncDefaults(
+    language: string,
+    playerName: string,
+  ): Promise<LocalSettings | null> {
+    if (!isNative()) return null;
+    return invoke<LocalSettings>("set_config_sync_defaults", { language, playerName });
   },
 
   /* ---------------------- Sunshine host (#97) ---------------------------- */

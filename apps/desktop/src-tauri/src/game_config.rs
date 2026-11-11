@@ -1246,6 +1246,27 @@ fn write_atomic(path: &Path, content: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Compute the result of an edit without touching the disk (#148).
+///
+/// The preview applies the same parsing, type validation and encoding check as
+/// [`write`], so a value the file cannot represent (Windows-1252, JSON syntax,
+/// duplicate key) fails here instead of after an explicit confirmation.
+pub fn preview(
+    install_root: &Path,
+    relative: &str,
+    edits: &[ConfigEditInput],
+) -> Result<(String, String), String> {
+    let path = resolve_relative(install_root, relative)?;
+    let format =
+        ConfigFormat::for_path(&path).ok_or_else(|| "Unsupported config format.".to_string())?;
+    let file = read_text_file(&path)?;
+    let (updated, diff) = apply_edits(format, &file.text, edits)?;
+    // Prove the new text still fits the source encoding before the UI offers
+    // to write it; nothing is written here.
+    let _ = file.encode(&updated)?;
+    Ok((updated, diff))
+}
+
 /// Write edited values after a mandatory backup.
 pub fn write(
     install_root: &Path,

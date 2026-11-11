@@ -116,7 +116,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -336,6 +336,36 @@ CREATE TABLE IF NOT EXISTS config_edits (
 CREATE INDEX IF NOT EXISTS config_edits_game_idx ON config_edits (game_id, created_at DESC);
 "#;
 
+/// Common config fields (#148): a per-game pinned key for a recognised field
+/// (language, player name) and the opt-in that re-applies it on launch.
+///
+/// `config_field_mappings` overrides the built-in catalog: at most one row per
+/// field, pointing at the exact relative file and key. `config_sync_prefs`
+/// stores the last values the UI handed over, so a launch can apply them
+/// without the web view; `apply_language`/`apply_player_name` let a game sync
+/// only one of the two.
+const SCHEMA_V12: &str = r#"
+CREATE TABLE IF NOT EXISTS config_field_mappings (
+    game_id    INTEGER NOT NULL,
+    field      TEXT    NOT NULL,
+    file_path  TEXT    NOT NULL,
+    key        TEXT    NOT NULL,
+    created_at TEXT    NOT NULL,
+    PRIMARY KEY (game_id, field)
+);
+
+CREATE TABLE IF NOT EXISTS config_sync_prefs (
+    game_id           INTEGER PRIMARY KEY,
+    enabled           INTEGER NOT NULL DEFAULT 0,
+    language          TEXT    NOT NULL DEFAULT '',
+    player_name       TEXT    NOT NULL DEFAULT '',
+    apply_language    INTEGER NOT NULL DEFAULT 1,
+    apply_player_name INTEGER NOT NULL DEFAULT 1,
+    last_applied_at   TEXT,
+    updated_at        TEXT    NOT NULL
+);
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -441,6 +471,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         connection
             .execute_batch(SCHEMA_V11)
             .map_err(|e| format!("Could not add game config edits to the desktop database: {e}"))?;
+    }
+    if version < 12 {
+        connection.execute_batch(SCHEMA_V12).map_err(|e| {
+            format!("Could not add common config fields to the desktop database: {e}")
+        })?;
     }
 
     if version < SCHEMA_VERSION {
@@ -2045,6 +2080,182 @@ pub fn get_config_edit(
         .map_err(|e| format!("Could not read the config edit: {e}"))
 }
 
+/// One pinned common field for a game (#148). `field` is `language` or
+/// `playerName`; the row overrides the built-in catalog and always wins when
+/// the file still contains that key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigFieldMapping {
+    pub game_id: i64,
+    pub field: String,
+    /// Relative to the install folder (`Saved/Config/Windows/Engine.ini`).
+    #[serde(rename = "file")]
+    pub file_path: String,
+    pub key: String,
+    pub created_at: String,
+}
+
+/// Per-game "keep in sync" state (#148). Values are the last ones the UI sent;
+/// a launch prefers the current app language/profile name and falls back to
+/// these when the desktop settings carry none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigSyncPrefs {
+    pub game_id: i64,
+    pub enabled: bool,
+    pub language: String,
+    pub player_name: String,
+    pub apply_language: bool,
+    pub apply_player_name: bool,
+    pub last_applied_at: Option<String>,
+    pub updated_at: String,
+}
+
+pub fn list_config_field_mappings(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<Vec<ConfigFieldMapping>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT game_id, field, file_path, key, created_at
+             FROM config_field_mappings WHERE game_id = ?1 ORDER BY field ASC",
+        )
+        .map_err(|e| format!("Could not read the pinned config fields: {e}"))?;
+    let rows = statement
+        .query_map(params![game_id], |row| {
+            Ok(ConfigFieldMapping {
+                game_id: row.get(0)?,
+                field: row.get(1)?,
+                file_path: row.get(2)?,
+                key: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })
+        .map_err(|e| format!("Could not read the pinned config fields: {e}"))?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| format!("Could not read the pinned config fields: {e}"))
+}
+
+/// Pin `field` to one file/key for this game. Replaces a previous mapping.
+pub fn save_config_field_mapping(
+    connection: &Connection,
+    game_id: i64,
+    field: &str,
+    file_path: &str,
+    key: &str,
+    created_at: &str,
+) -> Result<(), String> {
+    connection
+        .execute(
+            r#"INSERT INTO config_field_mappings (game_id, field, file_path, key, created_at)
+               VALUES (?1, ?2, ?3, ?4, ?5)
+               ON CONFLICT(game_id, field) DO UPDATE SET
+                   file_path = excluded.file_path,
+                   key = excluded.key,
+                   created_at = excluded.created_at"#,
+            params![game_id, field, file_path, key, created_at],
+        )
+        .map_err(|e| format!("Could not pin the config field: {e}"))?;
+    Ok(())
+}
+
+pub fn delete_config_field_mapping(
+    connection: &Connection,
+    game_id: i64,
+    field: &str,
+) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM config_field_mappings WHERE game_id = ?1 AND field = ?2",
+            params![game_id, field],
+        )
+        .map_err(|e| format!("Could not unpin the config field: {e}"))?;
+    Ok(())
+}
+
+const CONFIG_SYNC_COLUMNS: &str = "game_id, enabled, language, player_name, apply_language,
+     apply_player_name, last_applied_at, updated_at";
+
+fn map_config_sync_prefs(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConfigSyncPrefs> {
+    Ok(ConfigSyncPrefs {
+        game_id: row.get(0)?,
+        enabled: row.get::<_, i64>(1)? != 0,
+        language: row.get(2)?,
+        player_name: row.get(3)?,
+        apply_language: row.get::<_, i64>(4)? != 0,
+        apply_player_name: row.get::<_, i64>(5)? != 0,
+        last_applied_at: row.get(6)?,
+        updated_at: row.get(7)?,
+    })
+}
+
+pub fn get_config_sync_prefs(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<Option<ConfigSyncPrefs>, String> {
+    connection
+        .query_row(
+            &format!("SELECT {CONFIG_SYNC_COLUMNS} FROM config_sync_prefs WHERE game_id = ?1"),
+            params![game_id],
+            map_config_sync_prefs,
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the config sync state: {e}"))
+}
+
+/// Store the per-game sync opt-in. A missing row is created on first save.
+#[allow(clippy::too_many_arguments)]
+pub fn save_config_sync_prefs(
+    connection: &Connection,
+    game_id: i64,
+    enabled: bool,
+    language: &str,
+    player_name: &str,
+    apply_language: bool,
+    apply_player_name: bool,
+    updated_at: &str,
+) -> Result<ConfigSyncPrefs, String> {
+    connection
+        .execute(
+            r#"INSERT INTO config_sync_prefs
+                   (game_id, enabled, language, player_name, apply_language, apply_player_name, updated_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+               ON CONFLICT(game_id) DO UPDATE SET
+                   enabled           = excluded.enabled,
+                   language          = excluded.language,
+                   player_name       = excluded.player_name,
+                   apply_language    = excluded.apply_language,
+                   apply_player_name = excluded.apply_player_name,
+                   updated_at        = excluded.updated_at"#,
+            params![
+                game_id,
+                i64::from(enabled),
+                language,
+                player_name,
+                i64::from(apply_language),
+                i64::from(apply_player_name),
+                updated_at,
+            ],
+        )
+        .map_err(|e| format!("Could not save the config sync state: {e}"))?;
+    get_config_sync_prefs(connection, game_id)?
+        .ok_or_else(|| "Could not read the config sync state.".to_string())
+}
+
+pub fn mark_config_sync_applied(
+    connection: &Connection,
+    game_id: i64,
+    applied_at: &str,
+) -> Result<(), String> {
+    connection
+        .execute(
+            "UPDATE config_sync_prefs SET last_applied_at = ?2 WHERE game_id = ?1",
+            params![game_id, applied_at],
+        )
+        .map_err(|e| format!("Could not record the config sync: {e}"))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2062,6 +2273,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V9).unwrap();
         connection.execute_batch(SCHEMA_V10).unwrap();
         connection.execute_batch(SCHEMA_V11).unwrap();
+        connection.execute_batch(SCHEMA_V12).unwrap();
         connection
     }
 
@@ -3140,6 +3352,116 @@ mod tests {
                 .unwrap()
                 .file_path,
             "GameUserSettings.ini"
+        );
+    }
+
+    #[test]
+    fn common_field_mappings_are_per_game_and_replaceable() {
+        let connection = memory_database();
+        save_config_field_mapping(
+            &connection,
+            7,
+            "language",
+            "Saved/Config/Windows/Engine.ini",
+            "Internationalization/Culture",
+            "2026-11-11T10:00:00Z",
+        )
+        .unwrap();
+        save_config_field_mapping(
+            &connection,
+            7,
+            "playerName",
+            "steam_emu.ini",
+            "Settings/UserName",
+            "2026-11-11T10:01:00Z",
+        )
+        .unwrap();
+        save_config_field_mapping(
+            &connection,
+            8,
+            "language",
+            "goggame-1.info",
+            "language",
+            "2026-11-11T10:02:00Z",
+        )
+        .unwrap();
+
+        let mappings = list_config_field_mappings(&connection, 7).unwrap();
+        assert_eq!(mappings.len(), 2);
+        assert_eq!(mappings[0].field, "language");
+        assert_eq!(mappings[0].file_path, "Saved/Config/Windows/Engine.ini");
+        assert_eq!(mappings[1].game_id, 7);
+
+        // Re-pinning the same field replaces the previous key, it never stacks.
+        save_config_field_mapping(
+            &connection,
+            7,
+            "language",
+            "steam_emu.ini",
+            "Settings/Language",
+            "2026-11-11T10:03:00Z",
+        )
+        .unwrap();
+        let mappings = list_config_field_mappings(&connection, 7).unwrap();
+        assert_eq!(mappings.len(), 2);
+        let language = mappings
+            .iter()
+            .find(|mapping| mapping.field == "language")
+            .unwrap();
+        assert_eq!(language.file_path, "steam_emu.ini");
+        assert_eq!(language.key, "Settings/Language");
+
+        delete_config_field_mapping(&connection, 7, "language").unwrap();
+        let mappings = list_config_field_mappings(&connection, 7).unwrap();
+        assert_eq!(mappings.len(), 1);
+        assert_eq!(list_config_field_mappings(&connection, 8).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn config_sync_prefs_round_trip_and_default_to_off() {
+        let connection = memory_database();
+        assert!(get_config_sync_prefs(&connection, 7).unwrap().is_none());
+
+        let saved = save_config_sync_prefs(
+            &connection,
+            7,
+            true,
+            "fr",
+            "cleeryy",
+            true,
+            false,
+            "2026-11-11T10:00:00Z",
+        )
+        .unwrap();
+        assert!(saved.enabled);
+        assert_eq!(saved.language, "fr");
+        assert_eq!(saved.player_name, "cleeryy");
+        assert!(saved.apply_language);
+        assert!(!saved.apply_player_name);
+        assert_eq!(saved.last_applied_at, None);
+
+        mark_config_sync_applied(&connection, 7, "2026-11-11T10:05:00Z").unwrap();
+        let read = get_config_sync_prefs(&connection, 7).unwrap().unwrap();
+        assert_eq!(
+            read.last_applied_at.as_deref(),
+            Some("2026-11-11T10:05:00Z")
+        );
+
+        let disabled = save_config_sync_prefs(
+            &connection,
+            7,
+            false,
+            "fr",
+            "cleeryy",
+            true,
+            true,
+            "2026-11-11T10:06:00Z",
+        )
+        .unwrap();
+        assert!(!disabled.enabled);
+        assert_eq!(
+            disabled.last_applied_at.as_deref(),
+            Some("2026-11-11T10:05:00Z")
         );
     }
 }

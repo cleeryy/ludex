@@ -100,6 +100,13 @@ pub async fn launch(
         None => crate::linux_gaming::prefix_for(&install_path, &options.prefix_path)?,
     };
 
+    // #148: a game can opt into keeping its language and player name in sync
+    // with Ludex. Apply them before the process starts, without a dialog; a
+    // config that cannot be written is logged and never blocks the launch.
+    if external_uri.is_none() {
+        apply_config_sync(app, game_id, &install_path);
+    }
+
     {
         let processes = state
             .processes
@@ -197,6 +204,37 @@ pub async fn launch(
         tool,
         source: installed.source,
     })
+}
+
+/// Re-apply the language/name a game opted into (#148) before it starts.
+/// Best effort: a config that cannot be written must never block a launch.
+fn apply_config_sync(app: &AppHandle, game_id: i64, install_path: &Path) {
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+    let outcome = {
+        let Ok(connection) = state.db.lock() else {
+            tracing::warn!("config sync skipped: the local database lock is poisoned");
+            return;
+        };
+        crate::config_fields::apply_sync(
+            &state.app_data,
+            install_path,
+            &connection,
+            game_id,
+            &settings.ui_language,
+            &settings.player_name,
+        )
+    };
+    if !outcome.applied.is_empty() {
+        tracing::info!(
+            game_id,
+            applied = outcome.applied.len(),
+            "config sync applied to the game config"
+        );
+    }
+    for warning in outcome.warnings {
+        tracing::warn!(game_id, warning = %warning, "config sync warning");
+    }
 }
 
 /// Build the process for a launch: URI handler, native executable, or a Linux

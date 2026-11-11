@@ -6,6 +6,7 @@ mod chrome;
 mod commands;
 mod compat;
 mod config_adapters;
+mod config_fields;
 mod db;
 mod game_config;
 mod game_executables;
@@ -208,6 +209,15 @@ pub fn run() {
             commands::restore_game_config,
             commands::list_game_config_backups,
             commands::game_config_adapters,
+            commands::game_config_common_fields,
+            commands::preview_game_config_common_field,
+            commands::apply_game_config_common_field,
+            commands::save_game_config_field_mapping,
+            commands::delete_game_config_field_mapping,
+            commands::export_game_config_mappings,
+            commands::game_config_sync_prefs,
+            commands::set_game_config_sync_prefs,
+            commands::set_config_sync_defaults,
             commands::sunshine_status,
             commands::sunshine_preview,
             commands::sunshine_sync,
