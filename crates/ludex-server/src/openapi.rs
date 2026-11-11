@@ -1407,6 +1407,145 @@ pub const ROUTES: &[RouteDoc] = &[
         Auth::Session,
         Payload::Schema("UserAchievements"),
     ),
+    // Controller profiles (#51)
+    route(
+        HttpMethod::Get,
+        "/controller-profiles",
+        "Controller profiles",
+        "Controller profiles of the current account and built-in presets",
+        Auth::Session,
+        Payload::Schema("ControllerProfilesResponse"),
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/controller-profiles",
+            "Controller profiles",
+            "Save the account-wide or a per-game controller profile",
+            Auth::Session,
+            Payload::Schema("ControllerProfileEntry"),
+        ),
+        "SaveControllerProfileRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/controller-profiles/{gameId}",
+            "Controller profiles",
+            "Delete a controller profile scope (0 = account-wide)",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    // Emulators and ROMs (#52)
+    route(
+        HttpMethod::Get,
+        "/emulators",
+        "Emulators",
+        "List configured emulators",
+        Auth::Session,
+        Payload::Array("Emulator"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/emulators",
+            "Emulators",
+            "Register an emulator command",
+            Auth::Admin,
+            Payload::Schema("Emulator"),
+        ),
+        "CreateEmulatorRequest",
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/emulators/validate",
+                "Emulators",
+                "Validate an emulator command template without running it",
+                Auth::Admin,
+                Payload::Schema("ValidateCommandResponse"),
+            ),
+            "ValidateCommandRequest",
+        ),
+        200,
+    ),
+    route(
+        HttpMethod::Get,
+        "/emulators/defaults",
+        "Emulators",
+        "Default emulator per platform",
+        Auth::Session,
+        Payload::Array("PlatformDefault"),
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/emulators/defaults",
+            "Emulators",
+            "Set or clear platform default emulators",
+            Auth::Admin,
+            Payload::Array("PlatformDefault"),
+        ),
+        "UpdateDefaultsRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/emulators/{id}",
+            "Emulators",
+            "Update an emulator",
+            Auth::Admin,
+            Payload::Schema("Emulator"),
+        ),
+        "UpdateEmulatorRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/emulators/{id}",
+            "Emulators",
+            "Delete an emulator",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Get,
+        "/platforms",
+        "Emulators",
+        "Platform catalog with ROM counts",
+        Auth::Session,
+        Payload::Array("PlatformView"),
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/games/{id}/launch-command",
+            "Emulators",
+            "Resolve the emulator launch command for a ROM game",
+            Auth::Session,
+            Payload::Schema("EmulatorLaunch"),
+        ),
+        200,
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Put,
+                "/games/{id}/emulator",
+                "Emulators",
+                "Set or clear the per-game emulator override",
+                Auth::Editor,
+                Payload::None,
+            ),
+            "SetGameEmulatorRequest",
+        ),
+        204,
+    ),
 ];
 
 /// Concrete list shape used by `GET /api/games`.
@@ -1699,6 +1838,21 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::roots::LibraryRootView>()
         .schema_from::<crate::models::CreateLibraryRootRequest>()
         .schema_from::<crate::models::UpdateLibraryRootRequest>()
+        .schema_from::<ludex_core::gamepad::ControllerProfile>()
+        .schema_from::<crate::controller_profiles::ControllerProfileEntry>()
+        .schema_from::<crate::controller_profiles::ControllerProfilesResponse>()
+        .schema_from::<crate::controller_profiles::PresetEntry>()
+        .schema_from::<crate::controller_profiles::SaveControllerProfileRequest>()
+        .schema_from::<crate::emulators::Emulator>()
+        .schema_from::<crate::emulators::CreateEmulatorRequest>()
+        .schema_from::<crate::emulators::UpdateEmulatorRequest>()
+        .schema_from::<crate::emulators::PlatformView>()
+        .schema_from::<crate::emulators::PlatformDefault>()
+        .schema_from::<crate::emulators::UpdateDefaultsRequest>()
+        .schema_from::<crate::emulators::ValidateCommandRequest>()
+        .schema_from::<crate::emulators::ValidateCommandResponse>()
+        .schema_from::<crate::emulators::SetGameEmulatorRequest>()
+        .schema_from::<crate::emulators::EmulatorLaunch>()
         .schema_from::<crate::models::RootScanResponse>()
         .schema_from::<crate::models::IntegrityCheckRequest>()
         .schema_from::<crate::models::IntegrityCheckResponse>()

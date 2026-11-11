@@ -42,7 +42,7 @@ use crate::stream::{archive_tar_body, entry_body};
 
 pub(crate) const LIST_COLUMNS: &str = "g.id, g.title, g.sort_title, g.release_date, g.cover_path, \
 g.background_path, g.rating, g.genres_json, g.early_access, g.alt_titles_json, g.max_players, \
-g.provider_slug, \
+g.provider_slug, g.kind, g.platform, g.emulator_id, \
 COALESCE(p.state, 'unplayed') AS state, COALESCE(p.minutes_played, 0) AS minutes_played, \
 CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END AS bookmarked, p.last_played_at, \
 (SELECT COUNT(*) FROM game_versions v WHERE v.game_id = g.id AND v.missing = 0) AS version_count, \
@@ -54,7 +54,8 @@ g.developers_json, g.publishers_json, g.tags_json, g.rating, g.age_rating, g.ear
 g.alt_titles_json, g.max_players, \
 g.provider_slug, g.provider_id, g.provider_url, g.launch_executable, g.launch_parameters, \
 g.installer_executable, g.installer_parameters, g.uninstaller_executable, \
-g.uninstaller_parameters, COALESCE(p.state, 'unplayed') AS state, \
+g.uninstaller_parameters, g.kind, g.platform, g.emulator_id, \
+COALESCE(p.state, 'unplayed') AS state, \
 COALESCE(p.minutes_played, 0) AS minutes_played, \
 CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END AS bookmarked, p.last_played_at, \
 (SELECT COUNT(*) FROM game_versions v WHERE v.game_id = g.id AND v.missing = 0) AS version_count, \
@@ -167,6 +168,30 @@ impl Filters {
         {
             clauses.push("g.provider_slug = ?".to_string());
             binds.push(Bind::Text(provider.to_string()));
+        }
+        if let Some(platform) = query
+            .platform
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            clauses.push("g.platform = ?".to_string());
+            binds.push(Bind::Text(platform.to_string()));
+        }
+        if let Some(kind) = query
+            .kind
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            if kind != "game" && kind != "rom" {
+                return Err(ApiError::bad_request(
+                    "invalid_kind",
+                    "kind must be `game` or `rom`",
+                ));
+            }
+            clauses.push("g.kind = ?".to_string());
+            binds.push(Bind::Text(kind.to_string()));
         }
 
         let sort = match query.sort.as_deref().unwrap_or("title") {
@@ -1855,6 +1880,9 @@ pub(crate) fn summary_from_list(row: GameListRow) -> GameSummary {
         matched_field: None,
         matched_title: None,
         match_score: None,
+        kind: row.kind,
+        platform: row.platform,
+        emulator_id: row.emulator_id,
     }
 }
 
@@ -1879,6 +1907,9 @@ fn summary_from_detail(row: &GameDetailRow) -> GameSummary {
         matched_field: None,
         matched_title: None,
         match_score: None,
+        kind: row.kind.clone(),
+        platform: row.platform.clone(),
+        emulator_id: row.emulator_id,
     }
 }
 

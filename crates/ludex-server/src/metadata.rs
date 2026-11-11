@@ -580,14 +580,14 @@ async fn provider_lookup(
 /// Enriches one game and caches its artwork. Safe to call concurrently for
 /// different games; provider failures are logged and leave the row untouched.
 pub async fn enrich_game(state: &AppState, game_id: i64) {
-    let game = sqlx::query_as::<_, (String, Option<String>)>(
-        "SELECT title, release_date FROM games WHERE id = ?",
+    let game = sqlx::query_as::<_, (String, Option<String>, String)>(
+        "SELECT title, release_date, kind FROM games WHERE id = ?",
     )
     .bind(game_id)
     .fetch_optional(&state.pool)
     .await;
 
-    let Ok(Some((title, release_date))) = game else {
+    let Ok(Some((title, release_date, kind))) = game else {
         return;
     };
     let year = release_date
@@ -595,7 +595,14 @@ pub async fn enrich_game(state: &AppState, game_id: i64) {
         .and_then(|value| value.get(0..4))
         .and_then(|value| value.parse::<u16>().ok());
 
-    let Some(metadata) = lookup(state, &title, year, Some(game_id)).await else {
+    // ROMs only consult community providers (or their gamelist): the built-in
+    // PC providers would attach the wrong edition.
+    let metadata = if kind == "rom" {
+        provider_lookup(state, &title, year, Some(game_id)).await
+    } else {
+        lookup(state, &title, year, Some(game_id)).await
+    };
+    let Some(metadata) = metadata else {
         tracing::debug!(game_id, title = %title, "no metadata match");
         return;
     };
@@ -723,7 +730,7 @@ async fn cache_images(http: &Client, media_dir: &Path, urls: &[String]) -> Vec<O
 // Steam Store fallback
 // ---------------------------------------------------------------------------
 
-async fn steam_search(http: &Client, title: &str) -> Result<Option<ProviderMetadata>> {
+pub(crate) async fn steam_search(http: &Client, title: &str) -> Result<Option<ProviderMetadata>> {
     let response = http
         .get(STEAM_SEARCH_URL)
         .query(&[("term", title), ("l", "english"), ("cc", "US")])
@@ -771,7 +778,7 @@ async fn steam_search(http: &Client, title: &str) -> Result<Option<ProviderMetad
     steam_details(http, best.id).await
 }
 
-async fn steam_details(http: &Client, app_id: i64) -> Result<Option<ProviderMetadata>> {
+pub(crate) async fn steam_details(http: &Client, app_id: i64) -> Result<Option<ProviderMetadata>> {
     let response = http
         .get(STEAM_DETAILS_URL)
         .query(&[

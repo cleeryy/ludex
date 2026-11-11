@@ -16,6 +16,10 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use ludex_core::archive::is_archive_path;
 use ludex_core::naming::{grouping_key, parse_filename, ParsedName};
+use ludex_core::rom::{
+    clean_rom_title, detect_platform, is_rom_path, parse_gamelist, rom_group_key, rom_rank,
+    GamelistEntry,
+};
 use sha2::{Digest, Sha256};
 use tokio::sync::{mpsc, watch};
 use walkdir::{DirEntry, WalkDir};
@@ -39,6 +43,9 @@ const BLOCKED_DIRECTORIES: &[&str] = &[
 
 /// Files below this size are ignored unless they are portable executables.
 const MIN_ARCHIVE_BYTES: u64 = 1024 * 1024;
+
+/// ROMs can be tiny (a 32 KiB NES cart), so ROM roots use their own floor.
+const MIN_ROM_BYTES: u64 = 64;
 
 /// Maximum directory depth walked from the library root.
 const MAX_DEPTH: usize = 3;
@@ -90,6 +97,12 @@ struct Candidate {
     modified: i64,
     parsed: ParsedName,
     content_hash: Option<String>,
+    /// `game` for an archive, `rom` for an emulator ROM.
+    kind: String,
+    /// Platform slug for ROM candidates.
+    platform: Option<String>,
+    /// Metadata from the root's `gamelist.xml`, when present.
+    gamelist: Option<GamelistEntry>,
 }
 
 struct Discovered {
@@ -196,7 +209,9 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
     for root in &roots {
         let path = PathBuf::from(&root.path);
         let root_id = root.id;
-        let discovered = tokio::task::spawn_blocking(move || discover_root(&path, root_id)).await;
+        let kind = root.kind.clone();
+        let discovered =
+            tokio::task::spawn_blocking(move || discover_root(&path, root_id, &kind)).await;
         match discovered {
             Ok(Ok(discovered)) => {
                 if discovered.available {
@@ -396,9 +411,16 @@ struct ProcessOutcome {
 }
 
 async fn process_candidate(state: &AppState, candidate: &Candidate) -> Result<ProcessOutcome> {
-    let key = grouping_key(&candidate.parsed);
+    let key = if candidate.kind == "rom" {
+        rom_group_key(&candidate.file_name)
+    } else {
+        grouping_key(&candidate.parsed)
+    };
     let (game_id, game_created) = ensure_game(state, candidate, &key).await?;
     let (version_id, version_created) = upsert_version(state, game_id, candidate).await?;
+    if candidate.kind == "rom" {
+        apply_gamelist_metadata(state, game_id, candidate).await;
+    }
     Ok(ProcessOutcome {
         game_id,
         version_id,
@@ -408,40 +430,67 @@ async fn process_candidate(state: &AppState, candidate: &Candidate) -> Result<Pr
 }
 
 async fn ensure_game(state: &AppState, candidate: &Candidate, key: &str) -> Result<(i64, bool)> {
-    if let Some(id) =
-        sqlx::query_scalar::<_, i64>("SELECT id FROM games WHERE group_key = ? ORDER BY id LIMIT 1")
-            .bind(key)
-            .fetch_optional(&state.pool)
-            .await
-            .context("find grouped game")?
-    {
+    let existing = sqlx::query_as::<_, (i64, Option<String>)>(
+        "SELECT id, platform FROM games WHERE group_key = ? ORDER BY id LIMIT 1",
+    )
+    .bind(key)
+    .fetch_optional(&state.pool)
+    .await
+    .context("find grouped game")?;
+    if let Some((id, platform)) = existing {
+        // A ROM indexed before platform detection existed gets backfilled.
+        if candidate.kind == "rom" && platform.is_none() {
+            if let Some(platform) = candidate.platform.as_deref() {
+                sqlx::query("UPDATE games SET platform = ?, updated_at = ? WHERE id = ?")
+                    .bind(platform)
+                    .bind(db::db_time(db::now()))
+                    .bind(id)
+                    .execute(&state.pool)
+                    .await
+                    .context("backfill ROM platform")?;
+            }
+        }
         return Ok((id, false));
     }
 
-    let title = if candidate.parsed.title.trim().is_empty() {
+    let rom = candidate.kind == "rom";
+    let gamelist = candidate.gamelist.as_ref();
+    let title = if rom {
+        gamelist
+            .and_then(|entry| entry.name.clone())
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| clean_rom_title(&candidate.file_name))
+    } else if candidate.parsed.title.trim().is_empty() {
         candidate.file_name.clone()
     } else {
         candidate.parsed.title.clone()
     };
-    let sort_title = if candidate.parsed.sort_title.trim().is_empty() {
+    let sort_title = if rom || candidate.parsed.sort_title.trim().is_empty() {
         title.clone()
     } else {
         candidate.parsed.sort_title.clone()
     };
-    let release_date = candidate
-        .parsed
-        .year
-        .and_then(db::date_from_year)
-        .map(db::db_time);
+    let release_date = if rom {
+        gamelist
+            .and_then(|entry| entry.release_date.as_deref())
+            .and_then(parse_gamelist_date)
+            .map(db::db_time)
+    } else {
+        candidate
+            .parsed
+            .year
+            .and_then(db::date_from_year)
+            .map(db::db_time)
+    };
     let tags_json = db::dump_json_list(&candidate.parsed.tags);
-    let early_access = i64::from(looks_early_access(&candidate.file_name));
+    let early_access = i64::from(!rom && looks_early_access(&candidate.file_name));
     let now = db::db_time(db::now());
 
     let result = sqlx::query(
         "INSERT INTO games
             (title, sort_title, group_key, release_date, tags_json, early_access,
-             root_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             root_id, kind, platform, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&title)
     .bind(&sort_title)
@@ -450,6 +499,8 @@ async fn ensure_game(state: &AppState, candidate: &Candidate, key: &str) -> Resu
     .bind(tags_json)
     .bind(early_access)
     .bind(candidate.root_id)
+    .bind(&candidate.kind)
+    .bind(candidate.platform.as_deref())
     .bind(&now)
     .bind(&now)
     .execute(&state.pool)
@@ -457,6 +508,142 @@ async fn ensure_game(state: &AppState, candidate: &Candidate, key: &str) -> Resu
     .context("insert game")?;
 
     Ok((result.last_insert_rowid(), true))
+}
+
+/// Parses `YYYYMMDDT000000`, `YYYY-MM-DD` and `YYYY` gamelist dates.
+fn parse_gamelist_date(raw: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let trimmed = raw.trim();
+    if trimmed.len() >= 8 && trimmed.as_bytes()[..8].iter().all(u8::is_ascii_digit) {
+        let formatted = format!("{}-{}-{}", &trimmed[0..4], &trimmed[4..6], &trimmed[6..8]);
+        return db::parse_date(&formatted);
+    }
+    db::parse_date(trimmed)
+}
+
+/// Applies local `gamelist.xml` metadata to a ROM game without overwriting
+/// values that were set manually or by a provider.
+async fn apply_gamelist_metadata(state: &AppState, game_id: i64, candidate: &Candidate) {
+    let Some(entry) = candidate.gamelist.as_ref() else {
+        return;
+    };
+    let description = entry
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty());
+    let developers = db::dump_json_list(
+        &entry
+            .developer
+            .iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>(),
+    );
+    let publishers = db::dump_json_list(
+        &entry
+            .publisher
+            .iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>(),
+    );
+    let genres = db::dump_json_list(
+        &entry
+            .genre
+            .iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>(),
+    );
+    let has_developers = developers != "[]";
+    let has_publishers = publishers != "[]";
+    let has_genres = genres != "[]";
+    if description.is_some() || has_developers || has_publishers || has_genres {
+        let _ = sqlx::query(
+            "UPDATE games SET
+                description = COALESCE(description, ?),
+                developers_json = CASE WHEN developers_json = '[]' THEN ? ELSE developers_json END,
+                publishers_json = CASE WHEN publishers_json = '[]' THEN ? ELSE publishers_json END,
+                genres_json = CASE WHEN genres_json = '[]' THEN ? ELSE genres_json END,
+                updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(description)
+        .bind(developers)
+        .bind(publishers)
+        .bind(genres)
+        .bind(db::db_time(db::now()))
+        .bind(game_id)
+        .execute(&state.pool)
+        .await;
+    }
+
+    let Some(image) = entry
+        .image
+        .as_deref()
+        .map(str::trim)
+        .filter(|image| !image.is_empty())
+    else {
+        return;
+    };
+    let cover = if image.starts_with("http://") || image.starts_with("https://") {
+        crate::media::download_media(&state.http, &state.config.media_dir, image)
+            .await
+            .ok()
+    } else {
+        copy_gamelist_image(state, candidate, image).await
+    };
+    if let Some(cover) = cover {
+        let _ = sqlx::query(
+            "UPDATE games SET cover_path = COALESCE(cover_path, ?), updated_at = ? WHERE id = ?",
+        )
+        .bind(cover)
+        .bind(db::db_time(db::now()))
+        .bind(game_id)
+        .execute(&state.pool)
+        .await;
+    }
+}
+
+/// Copies a gamelist image into the media directory. Only files inside the
+/// library root are accepted.
+async fn copy_gamelist_image(
+    state: &AppState,
+    candidate: &Candidate,
+    image: &str,
+) -> Option<String> {
+    let root = PathBuf::from(&candidate.root_path);
+    let relative = candidate
+        .relative
+        .rsplit_once('/')
+        .map_or("", |(parent, _)| parent);
+    let joined = if relative.is_empty() {
+        root.join(image)
+    } else {
+        root.join(relative).join(image)
+    };
+    let canonical_root = root.canonicalize().ok()?;
+    let canonical = joined.canonicalize().ok()?;
+    if !canonical.starts_with(&canonical_root) || !canonical.is_file() {
+        return None;
+    }
+    let extension = canonical
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase())
+        .filter(|extension| matches!(extension.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif"))
+        .unwrap_or_else(|| "png".to_string());
+    let digest = Sha256::digest(canonical.to_string_lossy().as_bytes());
+    let name = format!("rom-{}.{}", hex::encode(digest), extension);
+    let destination = state.config.media_dir.join(&name);
+    if tokio::fs::try_exists(&destination).await.unwrap_or(false) {
+        return Some(name);
+    }
+    tokio::fs::create_dir_all(&state.config.media_dir)
+        .await
+        .ok()?;
+    tokio::fs::copy(&canonical, &destination).await.ok()?;
+    Some(name)
 }
 
 async fn upsert_version(
@@ -533,7 +720,10 @@ async fn upsert_version(
         // New archives, replaced archives and rows indexed before S3 was
         // enabled are published once. The local file stays in place as the
         // fallback, so a failed upload never makes a game undownloadable.
-        if state.storage.is_remote() && (replaced || backend != "s3" || object_key.is_none()) {
+        if candidate.kind != "rom"
+            && state.storage.is_remote()
+            && (replaced || backend != "s3" || object_key.is_none())
+        {
             publish_archive(state, candidate, id).await;
         }
         Ok((id, false))
@@ -577,7 +767,7 @@ async fn upsert_version(
             .await
             .context("store the archive fingerprint")?;
         }
-        if state.storage.is_remote() {
+        if candidate.kind != "rom" && state.storage.is_remote() {
             publish_archive(state, candidate, version_id).await;
         }
         Ok((version_id, true))
@@ -759,6 +949,8 @@ async fn mark_missing(
 
 async fn enrich_batch(state: AppState, game_ids: Vec<i64>) {
     use futures_util::StreamExt;
+    // `enrich_game` filters the provider chain for ROM entries: only external
+    // ROM metadata plugins (or the local gamelist) apply.
     futures_util::stream::iter(game_ids)
         .for_each_concurrent(2, |game_id| {
             let state = state.clone();
@@ -771,7 +963,7 @@ async fn enrich_batch(state: AppState, game_ids: Vec<i64>) {
         .await;
 }
 
-fn discover_root(root: &Path, root_id: i64) -> Result<Discovered> {
+fn discover_root(root: &Path, root_id: i64, kind: &str) -> Result<Discovered> {
     if !root.is_dir() {
         return Ok(Discovered {
             available: false,
@@ -779,9 +971,16 @@ fn discover_root(root: &Path, root_id: i64) -> Result<Discovered> {
             candidates: Vec::new(),
         });
     }
+    let rom_root = kind == "rom";
+    let gamelist = if rom_root {
+        read_gamelist(root)
+    } else {
+        HashMap::new()
+    };
     let mut candidates = Vec::new();
+    let mut primary_stems: HashSet<(String, String)> = HashSet::new();
     for entry in WalkDir::new(root)
-        .max_depth(MAX_DEPTH)
+        .max_depth(if rom_root { MAX_DEPTH + 2 } else { MAX_DEPTH })
         .follow_links(false)
         .into_iter()
         .filter_entry(keep_entry)
@@ -790,13 +989,52 @@ fn discover_root(root: &Path, root_id: i64) -> Result<Discovered> {
         if !entry.file_type().is_file() {
             continue;
         }
-        let Some(mut candidate) = candidate_from_entry(root, &entry) else {
+        let Some(mut candidate) = candidate_from_entry(root, &entry, kind) else {
             continue;
         };
+        if rom_root {
+            let lower = candidate.file_name.to_ascii_lowercase();
+            let extension = lower.rsplit_once('.').map(|(_, extension)| extension);
+            if matches!(extension, Some("cue" | "gdi" | "chd")) {
+                if let Some((parent, stem)) = split_stem(&candidate.relative) {
+                    primary_stems.insert((parent, stem));
+                }
+            }
+            let key = candidate
+                .relative
+                .trim_start_matches("./")
+                .to_ascii_lowercase();
+            candidate.gamelist = gamelist
+                .get(&key)
+                .cloned()
+                .or_else(|| gamelist.get(&lower).cloned());
+        }
         candidate.root_id = root_id;
         candidates.push(candidate);
     }
-    candidates.sort_by(|left, right| left.relative.cmp(&right.relative));
+    if rom_root {
+        // Never index both a disc descriptor and its track file as two games.
+        candidates.retain(|candidate| {
+            let lower = candidate.file_name.to_ascii_lowercase();
+            let extension = lower.rsplit_once('.').map(|(_, extension)| extension);
+            if !matches!(extension, Some("bin" | "iso")) {
+                return true;
+            }
+            let Some((parent, stem)) = split_stem(&candidate.relative) else {
+                return true;
+            };
+            !primary_stems.contains(&(parent, stem))
+        });
+        // Prefer one file per ROM when several descriptors point at the same
+        // disc; `rom_rank` orders cue/gdi ahead of bin/iso.
+        candidates.sort_by(|left, right| {
+            left.relative
+                .cmp(&right.relative)
+                .then_with(|| rom_rank(&left.file_name).cmp(&rom_rank(&right.file_name)))
+        });
+    } else {
+        candidates.sort_by(|left, right| left.relative.cmp(&right.relative));
+    }
     Ok(Discovered {
         available: true,
         error: None,
@@ -804,10 +1042,40 @@ fn discover_root(root: &Path, root_id: i64) -> Result<Discovered> {
     })
 }
 
+fn split_stem(relative: &str) -> Option<(String, String)> {
+    let (parent, name) = relative.rsplit_once('/').unwrap_or(("", relative));
+    let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
+    Some((parent.to_ascii_lowercase(), stem.to_ascii_lowercase()))
+}
+
+/// Reads `gamelist.xml` from a ROM root, keyed by normalised relative path.
+fn read_gamelist(root: &Path) -> HashMap<String, GamelistEntry> {
+    let path = root.join("gamelist.xml");
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return HashMap::new();
+    };
+    parse_gamelist(&text)
+        .into_iter()
+        .map(|entry| {
+            let key = entry
+                .path
+                .trim_start_matches("./")
+                .replace('\\', "/")
+                .to_ascii_lowercase();
+            (key, entry)
+        })
+        .collect()
+}
+
 /// Test-only convenience wrapper returning relative candidates.
 #[cfg(test)]
 fn discover(root: &Path) -> Result<Vec<Candidate>> {
-    Ok(discover_root(root, 0)?.candidates)
+    Ok(discover_root(root, 0, "game")?.candidates)
+}
+
+#[cfg(test)]
+fn discover_roms(root: &Path) -> Result<Vec<Candidate>> {
+    Ok(discover_root(root, 0, "rom")?.candidates)
 }
 
 /// Drops archives that are byte-identical mirrors in several roots.
@@ -915,17 +1183,27 @@ fn keep_entry(entry: &DirEntry) -> bool {
     true
 }
 
-fn candidate_from_entry(root: &Path, entry: &DirEntry) -> Option<Candidate> {
-    candidate_from_path(root, entry.path())
+fn candidate_from_entry(root: &Path, entry: &DirEntry, kind: &str) -> Option<Candidate> {
+    candidate_from_path(root, entry.path(), kind)
 }
 
-fn candidate_from_path(root: &Path, path: &Path) -> Option<Candidate> {
+fn candidate_from_path(root: &Path, path: &Path, kind: &str) -> Option<Candidate> {
     let file_name = path.file_name()?.to_str()?.to_string();
-    let is_executable = path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"));
-    if !is_executable && !is_archive_path(path) {
+    let rom = kind == "rom";
+    if rom && !is_rom_path(&file_name) {
+        return None;
+    }
+    let platform = if rom {
+        detect_platform(&file_name)
+    } else {
+        None
+    };
+    let is_executable = !rom
+        && path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"));
+    if !rom && !is_executable && !is_archive_path(path) {
         return None;
     }
     let lowered = file_name.to_ascii_lowercase();
@@ -940,7 +1218,10 @@ fn candidate_from_path(root: &Path, path: &Path) -> Option<Candidate> {
         return None;
     }
     let size = metadata.len();
-    if !is_executable && size < MIN_ARCHIVE_BYTES {
+    if rom && size < MIN_ROM_BYTES {
+        return None;
+    }
+    if !rom && !is_executable && size < MIN_ARCHIVE_BYTES {
         return None;
     }
     let relative = relative_path(root, path)?;
@@ -950,6 +1231,19 @@ fn candidate_from_path(root: &Path, path: &Path) -> Option<Candidate> {
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|duration| i64::try_from(duration.as_nanos()).unwrap_or(i64::MAX))
         .unwrap_or(0);
+    let parsed = if rom {
+        let title = clean_rom_title(&file_name);
+        ParsedName {
+            title: title.clone(),
+            year: None,
+            version: None,
+            tags: Vec::new(),
+            sort_title: title.clone(),
+            slug: ludex_core::slug::slugify(&title),
+        }
+    } else {
+        parse_filename(&file_name)
+    };
     Some(Candidate {
         root_id: 0,
         root_path: root.to_path_buf(),
@@ -957,8 +1251,11 @@ fn candidate_from_path(root: &Path, path: &Path) -> Option<Candidate> {
         file_name: file_name.clone(),
         size: i64::try_from(size).unwrap_or(i64::MAX),
         modified,
-        parsed: parse_filename(&file_name),
+        parsed,
         content_hash: None,
+        kind: if rom { "rom" } else { "game" }.to_string(),
+        platform: platform.map(|platform| platform.id.to_string()),
+        gamelist: None,
     })
 }
 
@@ -976,7 +1273,7 @@ pub async fn index_uploaded_archive(state: &AppState, path: &Path) -> Result<(i6
         .or_else(|| roots.first())
         .context("no enabled library root for uploads")?;
     let root_path = PathBuf::from(&root.path);
-    let mut candidate = candidate_from_path(&root_path, path)
+    let mut candidate = candidate_from_path(&root_path, path, "game")
         .context("uploaded file is not an indexable archive")?;
     candidate.root_id = root.id;
     let outcome = process_candidate(state, &candidate).await?;
@@ -1075,7 +1372,7 @@ mod tests {
     #[test]
     fn missing_roots_are_reported_unavailable() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let discovered = discover_root(&temp.path().join("gone"), 1).expect("discover");
+        let discovered = discover_root(&temp.path().join("gone"), 1, "game").expect("discover");
         assert!(!discovered.available);
         assert!(discovered.candidates.is_empty());
         assert!(discovered.error.is_some());
@@ -1219,6 +1516,95 @@ mod tests {
             .await
             .expect("uploaded object");
         assert_eq!(object.size, MIN_ARCHIVE_BYTES + 1);
+    }
+
+    #[test]
+    fn rom_discovery_detects_platforms_and_prefers_descriptors() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        touch(&root.join("Chrono Trigger (USA).sfc"), 4096);
+        touch(&root.join("Final Fantasy VII (USA).cue"), 128);
+        touch(&root.join("Final Fantasy VII (USA).bin"), 4096);
+        touch(&root.join("Metal Slug.zip"), 4096);
+        touch(&root.join("notes.txt"), 4096);
+        touch(&root.join("gamelist.xml"), 512);
+
+        let candidates = discover_roms(root).expect("discover roms");
+        let names: Vec<&str> = candidates
+            .iter()
+            .map(|candidate| candidate.file_name.as_str())
+            .collect();
+        assert!(names.contains(&"Chrono Trigger (USA).sfc"), "{names:?}");
+        assert!(names.contains(&"Final Fantasy VII (USA).cue"), "{names:?}");
+        assert!(names.contains(&"Metal Slug.zip"), "{names:?}");
+        assert!(!names.contains(&"Final Fantasy VII (USA).bin"), "{names:?}");
+        assert!(!names.contains(&"notes.txt"), "{names:?}");
+        assert!(!names.contains(&"gamelist.xml"), "{names:?}");
+        let chrono = candidates
+            .iter()
+            .find(|candidate| candidate.file_name.starts_with("Chrono"))
+            .unwrap();
+        assert_eq!(chrono.platform.as_deref(), Some("snes"));
+        assert_eq!(chrono.kind, "rom");
+    }
+
+    #[tokio::test]
+    async fn scan_indexes_a_rom_root_with_gamelist_metadata() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let games = temp.path().join("roms");
+        let data = temp.path().join("data");
+        let media = temp.path().join("media");
+        for directory in [&games, &data, &media] {
+            fs::create_dir_all(directory).expect("mkdir");
+        }
+        touch(&games.join("Chrono Trigger (USA).sfc"), 4096);
+        fs::write(
+            games.join("gamelist.xml"),
+            r#"<?xml version="1.0"?>
+            <gameList><game>
+              <path>./Chrono Trigger (USA).sfc</path>
+              <name>Chrono Trigger</name>
+              <desc>A time travel RPG.</desc>
+              <developer>Square</developer>
+              <genre>Role-Playing</genre>
+            </game></gameList>"#,
+        )
+        .expect("gamelist");
+
+        let config = crate::config::Config::for_local(games, data, media);
+        let (scan_tx, _scan_rx) = mpsc::channel(1);
+        let state = crate::state::AppState::for_tests(config, scan_tx).await;
+        sqlx::query("UPDATE library_roots SET kind = 'rom'")
+            .execute(&state.pool)
+            .await
+            .expect("mark rom root");
+
+        run_scan(&state, ScanRequest::all()).await;
+        let (title, kind, platform, description, genres): (
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            String,
+        ) = sqlx::query_as(
+            "SELECT title, kind, platform, description, genres_json FROM games LIMIT 1",
+        )
+        .fetch_one(&state.pool)
+        .await
+        .expect("indexed rom");
+        assert_eq!(title, "Chrono Trigger");
+        assert_eq!(kind, "rom");
+        assert_eq!(platform.as_deref(), Some("snes"));
+        assert_eq!(description.as_deref(), Some("A time travel RPG."));
+        assert!(genres.contains("Role-Playing"), "{genres}");
+
+        // A second scan does not duplicate the game.
+        run_scan(&state, ScanRequest::all()).await;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM games")
+            .fetch_one(&state.pool)
+            .await
+            .expect("count");
+        assert_eq!(count, 1);
     }
 
     #[test]

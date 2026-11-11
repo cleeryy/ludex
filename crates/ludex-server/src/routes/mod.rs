@@ -7,6 +7,8 @@ pub mod audit;
 pub mod auth;
 pub mod collections;
 pub mod community;
+pub mod controllers;
+pub mod emulators;
 pub mod games;
 pub mod integrity;
 pub mod keys;
@@ -56,6 +58,8 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(uploads::router())
         .merge(openapi::router())
         .merge(achievements::router())
+        .merge(controllers::router())
+        .merge(emulators::router())
         .fallback(api_not_found)
 }
 

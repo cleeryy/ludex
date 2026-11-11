@@ -28,6 +28,9 @@ pub struct GameListRow {
     pub last_played_at: Option<String>,
     pub version_count: i64,
     pub total_size: i64,
+    pub kind: String,
+    pub platform: Option<String>,
+    pub emulator_id: Option<i64>,
 }
 
 /// Row returned by the game detail query.
@@ -66,6 +69,9 @@ pub struct GameDetailRow {
     pub last_played_at: Option<String>,
     pub version_count: i64,
     pub total_size: i64,
+    pub kind: String,
+    pub platform: Option<String>,
+    pub emulator_id: Option<i64>,
 }
 
 /// Row of the `game_versions` table.
@@ -608,6 +614,12 @@ pub struct GameQuery {
     /// Metadata provider slug (`igdb`, `steam`, ...).
     #[serde(default)]
     pub provider: Option<String>,
+    /// Platform slug for ROM entries (`snes`, `gba`, ...).
+    #[serde(default)]
+    pub platform: Option<String>,
+    /// Entry kind: `game` or `rom`.
+    #[serde(default)]
+    pub kind: Option<String>,
     /// Sort column.
     #[serde(default)]
     pub sort: Option<String>,
@@ -817,6 +829,10 @@ pub struct CreateLibraryRootRequest {
     /// Whether the scanner walks the root (default true).
     #[serde(default)]
     pub enabled: Option<bool>,
+    /// `game` (default) or `rom`. ROM roots index emulator ROMs instead of
+    /// game archives.
+    #[serde(default)]
+    pub kind: Option<String>,
 }
 
 /// `PATCH /api/library/roots/{id}` request.
@@ -835,6 +851,9 @@ pub struct UpdateLibraryRootRequest {
     /// New ordering position.
     #[serde(default)]
     pub position: Option<i64>,
+    /// `game` or `rom`; cannot be changed while the root holds versions.
+    #[serde(default)]
+    pub kind: Option<String>,
 }
 
 /// `POST /api/library/roots/{id}/scan` response.
