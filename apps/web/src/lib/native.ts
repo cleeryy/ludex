@@ -1,4 +1,5 @@
 import { t } from "@/lib/i18n";
+import { ALL_LAUNCHER_IDS } from "@/lib/launchers";
 import type {
   AdapterReport,
   AdoptInstallArgs,
@@ -27,6 +28,7 @@ import type {
   InstalledGame,
   InstallerPlan,
   InstallerReport,
+  LauncherId,
   LauncherImportEntry,
   LauncherImportReport,
   LauncherPreview,
@@ -97,6 +99,16 @@ export const native = {
   async saveSettings(settings: LocalSettings): Promise<LocalSettings | null> {
     if (!isNative()) return null;
     return invoke<LocalSettings>("save_settings", { settings });
+  },
+
+  /**
+   * Persist only the launcher source selection (#155). `save_settings` merges
+   * partial payloads onto the current settings, so the rest of the form is
+   * untouched and no other tab's edit is dropped.
+   */
+  async saveLauncherSources(sources: LauncherId[]): Promise<LocalSettings | null> {
+    if (!isNative()) return null;
+    return invoke<LocalSettings>("save_settings", { settings: { launcherSources: sources } });
   },
 
   /**
@@ -389,12 +401,22 @@ export const native = {
 
   /* ------------------- launcher discovery (#116) ------------------------- */
 
-  async launcherScan(): Promise<LauncherPreview> {
-    return invoke<LauncherPreview>("launcher_scan");
+  /**
+   * Scan the enabled sources (#155). `sources` is the set the user ticked in
+   * Settings → Integrations; omitting it lets the persisted setting decide.
+   */
+  async launcherScan(sources?: LauncherId[]): Promise<LauncherPreview> {
+    return invoke<LauncherPreview>("launcher_scan", { sources: sources ?? null });
   },
 
-  async launcherImport(entries: LauncherImportEntry[]): Promise<LauncherImportReport> {
-    return invoke<LauncherImportReport>("launcher_import", { entries });
+  async launcherImport(
+    entries: LauncherImportEntry[],
+    sources?: LauncherId[],
+  ): Promise<LauncherImportReport> {
+    return invoke<LauncherImportReport>("launcher_import", {
+      entries,
+      sources: sources ?? null,
+    });
   },
 
   /* ---------------- adopting an existing install (#129) ------------------ */
@@ -837,4 +859,5 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   moonlightHost: "",
   gamevaultRoots: [],
   gamevaultScanDepth: 6,
+  launcherSources: ALL_LAUNCHER_IDS,
 };

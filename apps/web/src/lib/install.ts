@@ -6,6 +6,7 @@ import type {
   InstallGameArgs,
   InstallJob,
   InstalledGame,
+  LauncherId,
   LocalSettings,
   ManifestStatus,
   ManifestUpdate,
@@ -57,6 +58,18 @@ export const installBridge = {
 
   saveSettings(settings: LocalSettings): Promise<LocalSettings | null> {
     return USING_MOCKS ? mockInstalls.saveSettings(settings) : native.saveSettings(settings);
+  },
+
+  /**
+   * Persist the launcher source selection on its own (#155). The source
+   * checkboxes are the whole interaction in Settings → Integrations, so they
+   * must not wait for the shared "Save desktop settings" button. The backend
+   * merges partial payloads, so nothing else is rewritten.
+   */
+  saveLauncherSources(sources: LauncherId[]): Promise<LocalSettings | null> {
+    return USING_MOCKS
+      ? mockInstalls.saveLauncherSources(sources)
+      : native.saveLauncherSources(sources);
   },
 
   diskUsage(path: string): Promise<DiskUsage> {

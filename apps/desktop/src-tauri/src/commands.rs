@@ -1428,6 +1428,8 @@ pub struct LauncherImportReport {
 /// Everything a launcher preview and an import need from one scan.
 struct LauncherData {
     scan: LauncherScan,
+    /// Sources the user allowed for this scan and import (#155).
+    enabled: launchers::LauncherSet,
     /// `externalId -> server gameId`, only for unambiguous titles.
     matches: std::collections::BTreeMap<String, i64>,
     /// Server titles by id, used for the preview.
@@ -1437,14 +1439,34 @@ struct LauncherData {
     matched: bool,
 }
 
-async fn launcher_data(app: &AppHandle) -> Result<LauncherData, String> {
+/// Resolve the sources a scan may read (#155).
+///
+/// The web UI sends the set it is showing so an unsaved toggle already applies;
+/// without an argument the persisted setting decides, which keeps older bundles
+/// working (they send nothing and scan everything).
+fn resolve_launcher_sources(
+    settings: &LocalSettings,
+    sources: Option<&[String]>,
+) -> launchers::LauncherSet {
+    match sources {
+        Some(ids) => launchers::LauncherSet::from_ids(ids),
+        None => launchers::LauncherSet::from_ids(&settings.launcher_sources),
+    }
+}
+
+async fn launcher_data(
+    app: &AppHandle,
+    sources: Option<Vec<String>>,
+) -> Result<LauncherData, String> {
     let state = app.state::<AppState>();
     let settings = state.settings_snapshot();
     let steam_root = settings.steam_root.clone();
+    let enabled = resolve_launcher_sources(&settings, sources.as_deref());
+    let scan_enabled = enabled.clone();
 
     let scan: LauncherScan = tokio::task::spawn_blocking(move || {
         let roots = launchers::ScanRoots::detect(Some(steam_root.as_str()));
-        launchers::scan(&roots)
+        launchers::scan(&roots, &scan_enabled)
     })
     .await
     .map_err(|error| format!("The launcher scan failed: {error}"))?;
@@ -1478,6 +1500,7 @@ async fn launcher_data(app: &AppHandle) -> Result<LauncherData, String> {
 
     Ok(LauncherData {
         scan,
+        enabled,
         matches,
         titles,
         imported,
@@ -1517,25 +1540,34 @@ fn launcher_preview_from(data: LauncherData) -> LauncherPreview {
 
 /// List games installed by Steam, Epic, GOG, EA, Ubisoft, Xbox, itch, Heroic
 /// and Lutris, with their Ludex match (#116).
+///
+/// `sources` is the set enabled in Settings → Integrations (#155); a disabled
+/// source is never read and is reported as `disabled` instead of "not
+/// detected". Without the argument the persisted setting decides.
 #[tauri::command]
-pub async fn launcher_scan(app: AppHandle) -> Result<LauncherPreview, String> {
-    let data = launcher_data(&app).await?;
+pub async fn launcher_scan(
+    app: AppHandle,
+    sources: Option<Vec<String>>,
+) -> Result<LauncherPreview, String> {
+    let data = launcher_data(&app, sources).await?;
     Ok(launcher_preview_from(data))
 }
 
 /// Import the selected launcher entries as external installed games.
 ///
 /// Nothing is downloaded or copied: each row carries the launcher's `launchUri`
-/// and the uninstall command only removes the index row.
+/// and the uninstall command only removes the index row. An entry whose source
+/// is disabled is skipped, never deleted (#155).
 #[tauri::command]
 pub async fn launcher_import(
     app: AppHandle,
     entries: Vec<ImportEntry>,
+    sources: Option<Vec<String>>,
 ) -> Result<LauncherImportReport, String> {
     if entries.is_empty() {
         return Err("Select at least one game to import.".to_string());
     }
-    let data = launcher_data(&app).await?;
+    let data = launcher_data(&app, sources).await?;
     let state = app.state::<AppState>();
 
     let mut imported = Vec::new();
@@ -1543,7 +1575,12 @@ pub async fn launcher_import(
     let mut used_ids: Vec<i64> = Vec::new();
 
     for entry in &entries {
-        let target = match launchers::resolve_import(entry, &data.scan.games, &data.matches) {
+        let target = match launchers::resolve_import(
+            entry,
+            &data.scan.games,
+            &data.matches,
+            &data.enabled,
+        ) {
             Ok(target) => target,
             Err(reason) => {
                 skipped.push(LauncherSkip {

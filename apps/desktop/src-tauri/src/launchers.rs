@@ -41,6 +41,19 @@ pub enum Launcher {
 }
 
 impl Launcher {
+    /// Every source Ludex knows, in display order (#155).
+    pub const ALL: [Launcher; 9] = [
+        Launcher::Steam,
+        Launcher::Epic,
+        Launcher::Gog,
+        Launcher::Ea,
+        Launcher::Ubisoft,
+        Launcher::Xbox,
+        Launcher::Itch,
+        Launcher::Heroic,
+        Launcher::Lutris,
+    ];
+
     /// Stable id stored in `installed_games.source` and sent by the web UI.
     pub fn id(self) -> &'static str {
         match self {
@@ -97,6 +110,70 @@ impl Launcher {
             Launcher::Lutris => cfg!(unix),
         }
     }
+}
+
+/// The launcher sources the user enabled in Settings → Integrations (#155).
+///
+/// A disabled source is never probed: no manifest, registry key or SQLite
+/// database is opened for it. The scan still reports its `LauncherSource` with
+/// `disabled: true`, so the preview can say "Disabled" instead of "Not
+/// detected". Games already imported from it stay in the local index: the set
+/// only decides what a *scan* reads.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LauncherSet {
+    enabled: BTreeSet<Launcher>,
+}
+
+impl LauncherSet {
+    /// Every source: the default for a fresh install and for a settings file
+    /// written before #155.
+    pub fn all() -> Self {
+        Self {
+            enabled: Launcher::ALL.into_iter().collect(),
+        }
+    }
+
+    /// Build a set from the ids stored in settings or sent by the web UI.
+    /// Unknown ids are ignored instead of failing the scan.
+    pub fn from_ids<I, S>(ids: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        Self {
+            enabled: ids
+                .into_iter()
+                .filter_map(|id| Launcher::parse(id.as_ref()))
+                .collect(),
+        }
+    }
+
+    pub fn contains(&self, launcher: Launcher) -> bool {
+        self.enabled.contains(&launcher)
+    }
+
+    /// Enabled ids in display order.
+    pub fn ids(&self) -> Vec<&'static str> {
+        Launcher::ALL
+            .into_iter()
+            .filter(|launcher| self.contains(*launcher))
+            .map(Launcher::id)
+            .collect()
+    }
+}
+
+/// Canonical ids for a settings value (#155): known sources only, deduplicated
+/// and in display order, so the file stays stable across saves.
+pub fn canonical_ids<I, S>(values: I) -> Vec<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    LauncherSet::from_ids(values)
+        .ids()
+        .into_iter()
+        .map(str::to_string)
+        .collect()
 }
 
 /// A game another launcher installed on this machine.
@@ -159,8 +236,12 @@ pub struct LauncherSource {
     pub id: Launcher,
     pub label: &'static str,
     pub found: usize,
-    /// False when nothing could be read (not installed, unsupported platform).
+    /// False when nothing could be read (not installed, unsupported platform,
+    /// or disabled by the user).
     pub available: bool,
+    /// True when the user turned this source off in Settings → Integrations
+    /// (#155). Nothing was read for it; `found` is always 0.
+    pub disabled: bool,
     pub detail: String,
 }
 
@@ -301,19 +382,20 @@ fn normalize_path(path: &str) -> String {
     }
 }
 
-/// Read every launcher reachable from `roots`.
-pub fn scan(roots: &ScanRoots) -> LauncherScan {
+/// Read every enabled launcher reachable from `roots` (#155).
+///
+/// Sources outside `enabled` are not touched at all: their scanners never run,
+/// so no file, registry key or database is read for them.
+pub fn scan(roots: &ScanRoots, enabled: &LauncherSet) -> LauncherScan {
     let mut collector = Collector::new();
-    let mut sources: Vec<LauncherSource> = Vec::with_capacity(9);
-    sources.push(scan_steam(&mut collector, roots));
-    sources.push(scan_epic(&mut collector, roots));
-    sources.push(scan_gog(&mut collector, roots));
-    sources.push(scan_ea(&mut collector, roots));
-    sources.push(scan_ubisoft(&mut collector));
-    sources.push(scan_xbox(&mut collector));
-    sources.push(scan_itch(&mut collector, roots));
-    sources.push(scan_heroic(&mut collector, roots));
-    sources.push(scan_lutris(&mut collector, roots));
+    let mut sources: Vec<LauncherSource> = Vec::with_capacity(Launcher::ALL.len());
+    for id in Launcher::ALL {
+        if enabled.contains(id) {
+            sources.push(scan_source(id, &mut collector, roots));
+        } else {
+            sources.push(disabled_status(id));
+        }
+    }
 
     let mut scan = collector.scan;
     // Assign the counts once all collectors are done.
@@ -335,13 +417,41 @@ pub fn scan(roots: &ScanRoots) -> LauncherScan {
     scan
 }
 
+/// Run the collector of one enabled source.
+fn scan_source(id: Launcher, collector: &mut Collector, roots: &ScanRoots) -> LauncherSource {
+    match id {
+        Launcher::Steam => scan_steam(collector, roots),
+        Launcher::Epic => scan_epic(collector, roots),
+        Launcher::Gog => scan_gog(collector, roots),
+        Launcher::Ea => scan_ea(collector, roots),
+        Launcher::Ubisoft => scan_ubisoft(collector),
+        Launcher::Xbox => scan_xbox(collector),
+        Launcher::Itch => scan_itch(collector, roots),
+        Launcher::Heroic => scan_heroic(collector, roots),
+        Launcher::Lutris => scan_lutris(collector, roots),
+    }
+}
+
 fn source_status(id: Launcher, available: bool, detail: impl Into<String>) -> LauncherSource {
     LauncherSource {
         id,
         label: id.label(),
         found: 0,
         available,
+        disabled: false,
         detail: detail.into(),
+    }
+}
+
+/// Status of a source the user turned off: nothing was read for it.
+fn disabled_status(id: Launcher) -> LauncherSource {
+    LauncherSource {
+        id,
+        label: id.label(),
+        found: 0,
+        available: false,
+        disabled: true,
+        detail: "Disabled in Settings → Integrations".to_string(),
     }
 }
 
@@ -1938,13 +2048,23 @@ pub fn validate_launch_uri(value: &str) -> Result<String, String> {
 }
 
 /// Resolve an import request against a fresh scan.
+///
+/// `enabled` is the source set the user allowed (#155): an entry whose source
+/// was disabled after the preview is refused instead of imported.
 pub fn resolve_import(
     entry: &ImportEntry,
     games: &[DiscoveredGame],
     matched: &BTreeMap<String, i64>,
+    enabled: &LauncherSet,
 ) -> Result<ImportTarget, String> {
     let source = Launcher::parse(&entry.source)
         .ok_or_else(|| format!("Unknown launcher “{}”.", entry.source))?;
+    if !enabled.contains(source) {
+        return Err(format!(
+            "{} is disabled in Settings → Integrations.",
+            source.label()
+        ));
+    }
     let external_id = entry.external_id.trim();
     if external_id.is_empty() {
         return Err("The launcher entry has no id.".to_string());
@@ -2510,7 +2630,7 @@ HKEY_CURRENT_USER\Software\Ubisoft\Launcher\Installs\NotAnId
             game_id: None,
             launch_uri: None,
         };
-        let target = resolve_import(&entry, &games, &matched).unwrap();
+        let target = resolve_import(&entry, &games, &matched, &LauncherSet::all()).unwrap();
         assert_eq!(target.game_id, Some(12));
         assert_eq!(
             target.launch_uri,
@@ -2523,7 +2643,7 @@ HKEY_CURRENT_USER\Software\Ubisoft\Launcher\Installs\NotAnId
             game_id: Some(99),
             launch_uri: Some("com.epicgames.launcher://apps/x?action=launch".into()),
         };
-        let target = resolve_import(&manual, &games, &matched).unwrap();
+        let target = resolve_import(&manual, &games, &matched, &LauncherSet::all()).unwrap();
         assert_eq!(target.game_id, Some(99));
 
         let missing = ImportEntry {
@@ -2532,9 +2652,11 @@ HKEY_CURRENT_USER\Software\Ubisoft\Launcher\Installs\NotAnId
             game_id: None,
             launch_uri: None,
         };
-        assert!(resolve_import(&missing, &games, &matched)
-            .unwrap_err()
-            .contains("no longer installed"));
+        assert!(
+            resolve_import(&missing, &games, &matched, &LauncherSet::all())
+                .unwrap_err()
+                .contains("no longer installed")
+        );
 
         let no_uri = ImportEntry {
             source: "ea".into(),
@@ -2542,9 +2664,11 @@ HKEY_CURRENT_USER\Software\Ubisoft\Launcher\Installs\NotAnId
             game_id: None,
             launch_uri: None,
         };
-        assert!(resolve_import(&no_uri, &games, &matched)
-            .unwrap_err()
-            .contains("needs a launch URI"));
+        assert!(
+            resolve_import(&no_uri, &games, &matched, &LauncherSet::all())
+                .unwrap_err()
+                .contains("needs a launch URI")
+        );
 
         let negative = ImportEntry {
             source: "epic".into(),
@@ -2552,9 +2676,11 @@ HKEY_CURRENT_USER\Software\Ubisoft\Launcher\Installs\NotAnId
             game_id: Some(-4),
             launch_uri: None,
         };
-        assert!(resolve_import(&negative, &games, &matched)
-            .unwrap_err()
-            .contains("positive game id"));
+        assert!(
+            resolve_import(&negative, &games, &matched, &LauncherSet::all())
+                .unwrap_err()
+                .contains("positive game id")
+        );
     }
 
     #[test]
@@ -2617,12 +2743,15 @@ HKEY_CURRENT_USER\Software\Ubisoft\Launcher\Installs\NotAnId
                 .unwrap();
         }
 
-        let scan = scan(&ScanRoots {
-            config_home: Some(config),
-            data_home: Some(data),
-            home: Some(root.clone()),
-            ..ScanRoots::default()
-        });
+        let scan = scan(
+            &ScanRoots {
+                config_home: Some(config),
+                data_home: Some(data),
+                home: Some(root.clone()),
+                ..ScanRoots::default()
+            },
+            &LauncherSet::all(),
+        );
 
         assert_eq!(scan.games.len(), 2, "{:?}", scan.games);
         assert_eq!(scan.games[0].source, Launcher::Heroic);
@@ -2652,11 +2781,14 @@ HKEY_CURRENT_USER\Software\Ubisoft\Launcher\Installs\NotAnId
         )
         .unwrap();
 
-        let scan = scan(&ScanRoots {
-            config_home: Some(config),
-            home: Some(root.clone()),
-            ..ScanRoots::default()
-        });
+        let scan = scan(
+            &ScanRoots {
+                config_home: Some(config),
+                home: Some(root.clone()),
+                ..ScanRoots::default()
+            },
+            &LauncherSet::all(),
+        );
         assert!(scan.games.is_empty());
         assert!(scan
             .warnings
@@ -2677,11 +2809,14 @@ HKEY_CURRENT_USER\Software\Ubisoft\Launcher\Installs\NotAnId
         )
         .unwrap();
 
-        let scan = scan(&ScanRoots {
-            config_home: Some(config),
-            home: Some(root.clone()),
-            ..ScanRoots::default()
-        });
+        let scan = scan(
+            &ScanRoots {
+                config_home: Some(config),
+                home: Some(root.clone()),
+                ..ScanRoots::default()
+            },
+            &LauncherSet::all(),
+        );
         assert!(scan.games.is_empty());
         assert!(scan
             .warnings
@@ -2689,6 +2824,238 @@ HKEY_CURRENT_USER\Software\Ubisoft\Launcher\Installs\NotAnId
             .any(|warning| warning.contains("Could not parse")));
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /* --------------------- choosing the scanned sources (#155) ------------- */
+
+    /// Fixture with one Epic, one Heroic and one Lutris game in existing
+    /// folders, so a scan with every source enabled finds three games.
+    fn mixed_fixture(label: &str) -> (PathBuf, ScanRoots) {
+        let root = temp_dir(label);
+        let config = root.join("config");
+        let data = root.join("data");
+        let program_data = root.join("program-data");
+        for dir in [
+            config.join("heroic/store_cache"),
+            data.join("lutris"),
+            program_data.join("Epic/UnrealEngineLauncher"),
+            root.join("games/sugar"),
+            root.join("games/epicgame"),
+            root.join("games/hades"),
+        ] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(
+            config.join("heroic/store_cache/legendary_library.json"),
+            format!(
+                r#"{{"games":[{{"app_name":"Sugar","title":"Sugar","install":{{"install_path":"{}","is_done":true}}}}]}}"#,
+                root.join("games/sugar").display()
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            program_data.join("Epic/UnrealEngineLauncher/LauncherInstalled.dat"),
+            format!(
+                r#"{{"InstallationList":[{{"InstallLocation":"{}","AppName":"EpicGame"}}]}}"#,
+                root.join("games/epicgame").display()
+            ),
+        )
+        .unwrap();
+        create_lutris_db(&data.join("lutris/pga.db"));
+        {
+            let connection = rusqlite::Connection::open(data.join("lutris/pga.db")).unwrap();
+            connection
+                .execute(
+                    "UPDATE games SET directory = ?1 WHERE id = 3",
+                    [root.join("games/hades").display().to_string()],
+                )
+                .unwrap();
+        }
+        let roots = ScanRoots {
+            program_data: Some(program_data),
+            config_home: Some(config),
+            data_home: Some(data),
+            home: Some(root.clone()),
+            ..ScanRoots::default()
+        };
+        (root, roots)
+    }
+
+    #[test]
+    fn every_source_is_scanned_by_default() {
+        let (root, roots) = mixed_fixture("all-sources");
+        let scan = scan(&roots, &LauncherSet::all());
+
+        assert_eq!(scan.games.len(), 3, "{:?}", scan.games);
+        assert!(scan.roots.iter().any(|read| read.contains("heroic")));
+        assert!(scan.sources.iter().all(|source| !source.disabled));
+        assert_eq!(scan.sources.len(), Launcher::ALL.len());
+        // Every source was read: the three with a game report it, the others
+        // report "not detected" or "no games" instead of being skipped.
+        for id in [Launcher::Epic, Launcher::Heroic, Launcher::Lutris] {
+            let source = scan.sources.iter().find(|source| source.id == id).unwrap();
+            assert!(source.available, "{id:?} should be available");
+            assert_eq!(source.found, 1, "{id:?} found one game");
+        }
+        let epic = scan
+            .sources
+            .iter()
+            .find(|source| source.id == Launcher::Epic)
+            .unwrap();
+        assert_eq!(epic.label, "Epic Games");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn disabled_sources_are_never_probed() {
+        let (root, roots) = mixed_fixture("disabled-probe");
+        // The same fixture is readable with every source on (asserted above):
+        // with only Steam enabled nothing at all may be touched.
+        let scan = scan(&roots, &LauncherSet::from_ids(["steam"]));
+
+        assert!(scan.games.is_empty(), "{:?}", scan.games);
+        assert!(scan.roots.is_empty(), "{:?}", scan.roots);
+        assert!(scan.warnings.is_empty(), "{:?}", scan.warnings);
+
+        let disabled: Vec<Launcher> = scan
+            .sources
+            .iter()
+            .filter(|source| source.disabled)
+            .map(|source| source.id)
+            .collect();
+        assert_eq!(disabled.len(), Launcher::ALL.len() - 1);
+        assert!(!disabled.contains(&Launcher::Steam));
+        for source in scan.sources.iter().filter(|source| source.disabled) {
+            assert!(!source.available);
+            assert_eq!(source.found, 0);
+            assert_eq!(source.detail, "Disabled in Settings → Integrations");
+        }
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_disabled_source_is_skipped_while_the_others_still_scan() {
+        let (root, roots) = mixed_fixture("one-disabled");
+        let enabled: Vec<&str> = Launcher::ALL
+            .iter()
+            .filter(|source| **source != Launcher::Heroic)
+            .map(|source| source.id())
+            .collect();
+        let scan = scan(&roots, &LauncherSet::from_ids(enabled));
+
+        assert!(!scan.roots.iter().any(|read| read.contains("heroic")));
+        assert!(scan
+            .games
+            .iter()
+            .all(|game| game.source != Launcher::Heroic));
+        assert_eq!(
+            scan.games.len(),
+            2,
+            "Epic and Lutris still scan: {:?}",
+            scan.games
+        );
+
+        let heroic = scan
+            .sources
+            .iter()
+            .find(|source| source.id == Launcher::Heroic)
+            .unwrap();
+        assert!(heroic.disabled);
+        assert_eq!(heroic.found, 0);
+        // The last scan read Heroic, so this is "disabled", not "not detected".
+        assert!(!heroic.available);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_disabled_source_serializes_its_status() {
+        let source = disabled_status(Launcher::Xbox);
+        let json = serde_json::to_value(&source).unwrap();
+        assert_eq!(json["id"], "xbox");
+        assert_eq!(json["label"], "Xbox / Microsoft Store");
+        assert_eq!(json["disabled"], true);
+        assert_eq!(json["available"], false);
+        assert_eq!(json["found"], 0);
+
+        let detected = source_status(Launcher::Steam, true, "/steam");
+        let json = serde_json::to_value(&detected).unwrap();
+        assert_eq!(json["disabled"], false);
+        assert_eq!(json["available"], true);
+    }
+
+    #[test]
+    fn source_ids_are_canonicalized_for_settings() {
+        assert_eq!(
+            canonical_ids(["  Epic ", "epic", "uplay", "nope", "lutris"]),
+            vec!["epic", "ubisoft", "lutris"]
+        );
+        assert!(canonical_ids(Vec::<String>::new()).is_empty());
+        assert_eq!(canonical_ids(["steam"]), vec!["steam"]);
+
+        assert_eq!(LauncherSet::all().ids().len(), 9);
+        assert!(LauncherSet::from_ids(Vec::<String>::new()).ids().is_empty());
+        assert_eq!(
+            LauncherSet::from_ids(["lutris", "steam"]).ids(),
+            vec!["steam", "lutris"]
+        );
+        assert!(LauncherSet::from_ids(["unknown"]).ids().is_empty());
+    }
+
+    #[test]
+    fn import_subset_only_honours_enabled_sources() {
+        let games = vec![
+            discovered(
+                Launcher::Epic,
+                "Sugar",
+                "Sugar",
+                None,
+                "com.epicgames.launcher://apps/Sugar?action=launch",
+            ),
+            discovered(
+                Launcher::Gog,
+                "1207666623",
+                "The Witcher 3",
+                None,
+                "goggalaxy://openGameView/1207666623",
+            ),
+        ];
+        let matched = BTreeMap::new();
+        let epic = ImportEntry {
+            source: "epic".into(),
+            external_id: "Sugar".into(),
+            game_id: None,
+            launch_uri: None,
+        };
+        let gog = ImportEntry {
+            source: "gog".into(),
+            external_id: "1207666623".into(),
+            game_id: None,
+            launch_uri: None,
+        };
+
+        // Only GOG is enabled: its entry imports, Epic's is refused.
+        let enabled = LauncherSet::from_ids(["gog"]);
+        assert!(resolve_import(&epic, &games, &matched, &enabled)
+            .unwrap_err()
+            .contains("Epic Games is disabled"));
+        let target = resolve_import(&gog, &games, &matched, &enabled).unwrap();
+        assert_eq!(target.source, Launcher::Gog);
+        assert_eq!(target.launch_uri, "goggalaxy://openGameView/1207666623");
+
+        // Nothing enabled: every entry is refused, even a valid one.
+        assert!(resolve_import(
+            &gog,
+            &games,
+            &matched,
+            &LauncherSet::from_ids(Vec::<String>::new())
+        )
+        .is_err());
+
+        // Re-enabling restores the import without any other change.
+        assert!(resolve_import(&epic, &games, &matched, &LauncherSet::all()).is_ok());
     }
 
     #[test]

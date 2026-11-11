@@ -235,11 +235,30 @@ pub struct LocalSettings {
     /// Folder depth used by GameVault folder scans (#134), clamped 4..=8.
     #[serde(default = "default_gamevault_scan_depth")]
     pub gamevault_scan_depth: u8,
+    /// Launcher sources `launcher_scan` may read (#155), in display order.
+    ///
+    /// Every source is on by default, and a settings file written before #155
+    /// has no key at all, so it deserializes to the full list. An empty list is
+    /// meaningful: the user unchecked every source. Turning one off only stops
+    /// the scan from reading it; rows already imported from it stay in the
+    /// local index.
+    #[serde(default = "default_launcher_sources")]
+    pub launcher_sources: Vec<String>,
 }
 
 /// Default executable search depth for folder scans (#134).
 pub const fn default_gamevault_scan_depth() -> u8 {
     6
+}
+
+/// Every launcher source enabled (#155): the default for a fresh install and
+/// for a settings file written before the key existed.
+pub fn default_launcher_sources() -> Vec<String> {
+    crate::launchers::LauncherSet::all()
+        .ids()
+        .into_iter()
+        .map(str::to_string)
+        .collect()
 }
 
 /// The manifest download is on by default: a fresh install has no cached copy,
@@ -296,6 +315,7 @@ impl Default for LocalSettings {
             gamevault_roots: Vec::new(),
             gamevault_root: None,
             gamevault_scan_depth: default_gamevault_scan_depth(),
+            launcher_sources: default_launcher_sources(),
         }
     }
 }
@@ -372,6 +392,9 @@ impl LocalSettings {
         self.moonlight_config_path = self.moonlight_config_path.trim().to_string();
         self.moonlight_host = self.moonlight_host.trim().to_string();
         self.normalize_gamevault_roots();
+        // Keep known sources only, deduplicated and in display order; an empty
+        // set stays empty ("none enabled"), it never silently becomes "all".
+        self.launcher_sources = crate::launchers::canonical_ids(&self.launcher_sources);
         self.active_server_id = self.active_server_id.trim().to_string();
         self.servers = self
             .servers
@@ -1195,6 +1218,79 @@ mod tests {
             ..LocalSettings::default()
         };
         assert!(validate(&settings).is_ok());
+    }
+
+    /* -------------------- launcher sources (#155) -------------------------- */
+
+    #[test]
+    fn launcher_sources_default_to_every_source() {
+        let settings = LocalSettings::for_app_data(Path::new("/data"));
+        assert_eq!(
+            settings.launcher_sources,
+            vec!["steam", "epic", "gog", "ea", "ubisoft", "xbox", "itch", "heroic", "lutris"]
+        );
+
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["launcherSources"][0], "steam");
+        assert_eq!(json["launcherSources"].as_array().unwrap().len(), 9);
+
+        // A settings file written before #155 has no key: additive migration,
+        // nothing to rewrite and every source stays on.
+        let legacy: LocalSettings =
+            serde_json::from_value(serde_json::json!({ "installDir": "D:\\Games" })).unwrap();
+        assert_eq!(legacy.launcher_sources.len(), 9);
+        assert!(legacy.launcher_sources.contains(&"lutris".to_string()));
+    }
+
+    #[test]
+    fn launcher_sources_are_normalized_and_roundtrip() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.launcher_sources = vec![
+            " Lutris ".into(),
+            "epic".into(),
+            "epic".into(),
+            "uplay".into(),
+            "nope".into(),
+        ];
+        settings.normalize(Path::new("/data"));
+        assert_eq!(
+            settings.launcher_sources,
+            vec!["epic", "ubisoft", "lutris"],
+            "unknown ids dropped, duplicates and order canonicalized"
+        );
+
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(
+            json["launcherSources"],
+            serde_json::json!(["epic", "ubisoft", "lutris"])
+        );
+        let back: LocalSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(back.launcher_sources, settings.launcher_sources);
+
+        // "None" is a real choice and must survive a save; it never falls back
+        // to the default list.
+        let mut none = LocalSettings::for_app_data(Path::new("/data"));
+        none.launcher_sources = Vec::new();
+        none.normalize(Path::new("/data"));
+        assert!(none.launcher_sources.is_empty());
+        let json = serde_json::to_value(&none).unwrap();
+        assert_eq!(json["launcherSources"], serde_json::json!([]));
+        let back: LocalSettings = serde_json::from_value(json).unwrap();
+        assert!(back.launcher_sources.is_empty());
+    }
+
+    #[test]
+    fn disabling_a_launcher_source_keeps_the_other_settings() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.install_dir = "/games".into();
+        settings.steam_root = "/steam".into();
+        settings.launcher_sources = vec!["steam".into()];
+        settings.normalize(Path::new("/data"));
+
+        // Only the source list changes: nothing else is reset or migrated.
+        assert_eq!(settings.install_dir, "/games");
+        assert_eq!(settings.steam_root, "/steam");
+        assert_eq!(settings.launcher_sources, vec!["steam"]);
     }
 
     #[test]

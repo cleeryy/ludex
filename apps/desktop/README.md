@@ -404,6 +404,19 @@ network traffic to Discord's API: the app talks to the local IPC socket.
 and lists the games it installed; `launcher_import` writes the selected ones as
 external rows. Nothing is downloaded, copied or moved.
 
+Settings → Integrations lists all nine sources with a checkbox (#155). Only
+checked sources are read: an unchecked launcher is skipped entirely — no
+manifest, registry key or SQLite database is opened — and the preview reports it
+as `Disabled` instead of `Not detected`. The choice is stored in
+`LocalSettings.launcherSources` (all sources by default; a settings file written
+before #155 has no key and keeps every source) and is normalised on save: known
+ids only, deduplicated, in display order. Disabling a source never removes or
+hides games already imported from it — the local index is untouched and the
+Installed list does not filter by source — and re-enabling it brings the scan
+back on the next run, without a restart. Both commands take the set as an
+optional `sources` argument so an unsaved toggle already applies; when the
+argument is omitted the saved setting decides.
+
 | Source | Files read | Launch URI |
 |---|---|---|
 | Steam | `steamapps/libraryfolders.vdf`, `appmanifest_*.acf` | `steam://rungameid/<appid>` |

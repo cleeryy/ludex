@@ -10,6 +10,13 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Selectable launcher sources (#155): Settings → Integrations lists the nine
+  launcher sources with a checkbox each, Select all/None and per-source status
+  (detected/no games/not detected/disabled). The enabled set is persisted,
+  passed to `launcher_scan`/`launcher_import`, and disabled collectors are not
+  invoked at all; their entries cannot be imported, while already-imported rows
+  are never removed or hidden by disabling. Re-enabling restores the scan
+  without a restart.
 - Desktop SSO through the web page (#157): the desktop app opens
   `{server}/#/login?desktop_state=…` in the system browser; after SSO or
   password login the authenticated web page creates a state-bound one-time

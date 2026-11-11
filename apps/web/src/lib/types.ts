@@ -789,6 +789,12 @@ export interface LocalSettings {
   gamevaultRoots: string[];
   /** Folder depth used by GameVault scans (#134), 4-8, default 6. */
   gamevaultScanDepth: number;
+  /**
+   * Launcher sources `launcher_scan` may read (#155), in display order. All
+   * are enabled by default; an empty list means the user unchecked everything.
+   * Disabling a source never removes games already imported from it.
+   */
+  launcherSources: LauncherId[];
 }
 
 /* ------------------- Ludusavi save-path manifest (#153) ------------------ */
@@ -1275,6 +1281,8 @@ export interface LauncherSource {
   label: string;
   found: number;
   available: boolean;
+  /** True when the user turned this source off (#155): nothing was read. */
+  disabled: boolean;
   detail: string;
 }
 

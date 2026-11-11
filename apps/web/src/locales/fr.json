@@ -2045,5 +2045,12 @@
   "Waiting for your browser": "En attente de votre navigateur",
   "You are signed in here, but Ludex did not receive the session. Try again, or close this tab and sign in from the app.": "Vous êtes connecté ici, mais Ludex n’a pas reçu la session. Réessayez, ou fermez cet onglet et connectez-vous depuis l’application.",
   "Single sign-on opens your browser. Password sign-in still works here.": "La connexion unique ouvre votre navigateur. La connexion par mot de passe fonctionne toujours ici.",
-  "Single sign-on for the web interface and the desktop app. Password sign-in always stays available.": "Connexion unique pour l’interface web et l’application de bureau. La connexion par mot de passe reste toujours disponible."
+  "Single sign-on for the web interface and the desktop app. Password sign-in always stays available.": "Connexion unique pour l’interface web et l’application de bureau. La connexion par mot de passe reste toujours disponible.",
+  "Every launcher source is disabled. Enable one to scan it.": "Toutes les sources de lanceurs sont désactivées. Activez-en une pour la scanner.",
+  "No games": "Aucun jeu",
+  "Not detected": "Non détecté",
+  "Only checked sources are read. Disabling one leaves the games already imported from it on the shelf, and checking it again brings its scan back without a restart.": "Seules les sources cochées sont lues. En désactiver une laisse les jeux déjà importés depuis celle-ci dans la bibliothèque, et la recocher relance son scan sans redémarrage.",
+  "Scan {launcher}": "Scanner {launcher}",
+  "Sources": "Sources",
+  "Could not save the launcher sources": "Impossible d’enregistrer les sources de lanceurs"
 }

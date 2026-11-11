@@ -1024,6 +1024,7 @@ interface LocalSettings {
   moonlightHost: string;             // manual host name/IP fallback (#151), empty = use saved hosts
   gamevaultRoots: string[];          // ordered GameVault install roots (#134)
   gamevaultScanDepth: number;        // executable search depth for scans, 4-8, default 6
+  launcherSources: LauncherGame["source"][]; // sources launcher_scan may read (#155); all by default, empty = none
 }
 
 interface InstallLocation {
@@ -1158,7 +1159,8 @@ interface LauncherSource {
   label: string;
   found: number;
   available: boolean;               // false: not installed / unsupported platform
-  detail: string;
+  disabled: boolean;                // #155: turned off in Settings → Integrations; nothing was read
+  detail: string;                   // path or registry key read, or why it was not
 }
 
 interface LauncherPreview {
@@ -1622,8 +1624,8 @@ interface StreamTarget {
 | `presence_status` | — | `PresenceStatus` (never blocks on the IPC socket) |
 | `steam_scan` | — | `SteamPreview`; reads Steam metadata, matches titles, marks imports |
 | `steam_import` | `{ appIds }` | `SteamImportReport`; no download, launches through Steam |
-| `launcher_scan` | — | `LauncherPreview`; reads Steam, Epic, GOG, EA, Ubisoft, Xbox, itch, Heroic and Lutris metadata (#116), matches titles and marks existing imports |
-| `launcher_import` | `{ entries: LauncherImportEntry[] }` | `LauncherImportReport`; writes external rows with `launchUri`, `versionId: 0`, `source` = launcher id. Nothing is downloaded or copied; a second import of the same URI is refused |
+| `launcher_scan` | `{ sources?: LauncherGame["source"][] }` | `LauncherPreview`; reads Steam, Epic, GOG, EA, Ubisoft, Xbox, itch, Heroic and Lutris metadata (#116), matches titles and marks existing imports. `sources` is the enabled set (#155): a source outside it is never read and is reported with `disabled: true`; omitting it uses `launcherSources` from the settings |
+| `launcher_import` | `{ entries: LauncherImportEntry[], sources?: LauncherGame["source"][] }` | `LauncherImportReport`; writes external rows with `launchUri`, `versionId: 0`, `source` = launcher id. Nothing is downloaded or copied; a second import of the same URI is refused, and an entry from a disabled source is skipped with a reason (#155) |
 | `adopt_installation` | `{ gameId, folder, versionId?, version?, executable?, title? }` | `AdoptPreview`; canonicalizes and validates the folder, runs read-only executable discovery, returns ranked candidates, size/file count/warnings and any existing row. Writes nothing (#129, #134) |
 | `confirm_adopt_installation` | `{ gameId, folder, versionId?, version?, executable?, replace?, title? }` | `InstalledGame`; writes the `source: "adopted"` row with `installRoot` = the folder's parent and `archiveHash: null`. Nothing is copied or moved. Replacing a `ludex`/launcher row requires `replace: true`; launcher-owned folders are refused |
 | `build_install_manifest` | `{ gameId }` | `ManifestReport`; hashes the folder into `install_manifests` (progress on `install://manifest-progress`). No file is written inside the game folder |
@@ -1786,6 +1788,20 @@ archive by default (`keepArchives` setting false).
   chips included) with a local dialog offering Play, Open folder, Open in
   <launcher> and Remove from Ludex. `/game/<id>` only routes positive ids, so a
   negative local id never becomes a server game page (#154).
+- **Launcher source selection (#155).** `LocalSettings.launcherSources` keeps
+  the sources the user ticked in Settings → Integrations (all nine by default;
+  a settings file written before #155 has no key and deserializes to the full
+  list, an empty array means "none"). Both launcher commands accept the set
+  explicitly, so an unsaved toggle already applies, and fall back to the
+  setting when the argument is absent. A source outside the set is never
+  probed — no manifest, registry key or database is opened — and its
+  `LauncherSource` comes back with `disabled: true`, `found: 0` and a
+  "Disabled in Settings → Integrations" detail, which the preview renders as
+  `Disabled` instead of `Not detected`. Disabling never deletes or hides rows
+  already imported from that source (the local index is untouched and the
+  installed list does not filter by source); re-enabling restores its scan on
+  the next run, no restart. The set is normalised on every save: known ids
+  only, deduplicated, in display order.
 - **Adopted installs (#129).** `adopt_installation` validates a folder the user
   points at (absolute, canonical, no `..`, no link in the chosen path, not a
   drive/home root or the install root, no symlink escaping the tree), runs

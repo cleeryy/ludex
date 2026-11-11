@@ -2146,6 +2146,44 @@ mod tests {
     }
 
     #[test]
+    fn disabling_a_launcher_source_never_touches_its_imported_rows() {
+        // #155: source selection is a scan filter. The index keeps every row,
+        // including the ones imported from a source that is now disabled.
+        let connection = memory_database();
+        let epic = InstalledGame {
+            game_id: -1_234_567_890,
+            version_id: 0,
+            title: "Control".into(),
+            version: None,
+            install_path: "C:/Program Files/Epic Games/Control".into(),
+            executable: None,
+            size_bytes: 0,
+            installed_at: "2026-11-10T00:00:00Z".into(),
+            last_launched_at: None,
+            archive_hash: None,
+            install_root: None,
+            source: "epic".into(),
+            launch_uri: Some("com.epicgames.launcher://apps/control".into()),
+        };
+        upsert_installed(&connection, &epic).unwrap();
+
+        let enabled = crate::launchers::LauncherSet::from_ids(["steam"]);
+        assert!(!enabled.contains(crate::launchers::Launcher::Epic));
+
+        // Nothing in the settings or scan path deletes rows: the Epic import is
+        // still indexed and still listed by its launch URI.
+        assert_eq!(launch_uris(&connection).unwrap().len(), 1);
+        let stored = get_installed(&connection, epic.game_id).unwrap().unwrap();
+        assert_eq!(stored.source, "epic");
+        assert_eq!(stored.launch_uri, epic.launch_uri);
+
+        // Re-enabling the source does not duplicate or drop it either.
+        let enabled = crate::launchers::LauncherSet::from_ids(["steam", "epic"]);
+        assert!(enabled.contains(crate::launchers::Launcher::Epic));
+        assert_eq!(launch_uris(&connection).unwrap().len(), 1);
+    }
+
+    #[test]
     fn adopted_installs_persist_and_refuse_other_owners() {
         let connection = memory_database();
         let adopted = InstalledGame {

@@ -8,7 +8,7 @@ import { installBridge, installsAvailable } from "@/lib/install";
 import { isNative, native } from "@/lib/native";
 import { setTitleBarPreference, supportsCustomTitleBar } from "@/lib/window-chrome";
 import { formatBytes, formatDate } from "@/lib/format";
-import type { LocalSettings } from "@/lib/types";
+import type { LocalSettings, LauncherId } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { useAuth } from "@/state/auth";
 import { coverageFor, LOCALES, statusLabel, useI18n, tr } from "@/lib/i18n";
@@ -104,6 +104,33 @@ export function SettingsScreen() {
       push({
         title: t("Folder picker needs the desktop app"),
         description: t("You can type a path here in the browser."),
+      });
+    }
+  };
+
+  /**
+   * Launcher sources persist on their own (#155): the checkbox is the whole
+   * interaction in Settings → Integrations, so it must not wait for the shared
+   * "Save desktop settings" button. The draft updates immediately (so a scan
+   * right after the click already uses the new set) and the cached snapshot is
+   * patched with the saved value, which keeps the "Unsaved changes" hint and
+   * the rest of the form untouched.
+   */
+  const applyLauncherSources = async (sources: LauncherId[]) => {
+    update({ launcherSources: sources });
+    try {
+      const saved = await installBridge.saveLauncherSources(sources);
+      if (saved) {
+        queryClient.setQueryData<LocalSettings | null>(["desktop-settings"], (current) =>
+          current ? { ...current, launcherSources: saved.launcherSources } : current,
+        );
+      }
+    } catch (cause) {
+      update({ launcherSources: settings?.launcherSources ?? [] });
+      push({
+        title: t("Could not save the launcher sources"),
+        description: errorMessage(cause),
+        tone: "danger",
       });
     }
   };
@@ -757,7 +784,7 @@ export function SettingsScreen() {
             description={t("Import games another launcher installed, Steam included, without copying a byte.")}
           />
           <div id="integrations-heading" className="border-t border-line pt-5">
-            <LauncherImportPanel />
+            <LauncherImportPanel settings={draft} onSourcesChange={applyLauncherSources} />
           </div>
         </section>
       )}

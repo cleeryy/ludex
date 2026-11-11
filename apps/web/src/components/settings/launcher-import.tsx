@@ -6,7 +6,19 @@ import { errorMessage } from "@/lib/http";
 import { formatBytes } from "@/lib/format";
 import { isNative, native } from "@/lib/native";
 import { t, tn, tr } from "@/lib/i18n";
-import type { GameSummary, LauncherGame, LauncherImportEntry, LauncherPreview } from "@/lib/types";
+import {
+  LAUNCHER_SOURCES,
+  normalizeLauncherSources,
+  launcherSourceState,
+} from "@/lib/launchers";
+import type {
+  GameSummary,
+  LauncherGame,
+  LauncherId,
+  LauncherImportEntry,
+  LauncherPreview,
+  LocalSettings,
+} from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Checkbox, Input } from "@/components/ui/controls";
 import { Popover } from "@/components/ui/popover";
@@ -19,13 +31,23 @@ import { cn } from "@/lib/cn";
  * metadata a launcher already writes on this machine is read, the user picks
  * the entries to add, and each one is recorded as an external installed game
  * with the launcher's own launch URI.
+ *
+ * The source checkboxes (#155) decide what a scan may read: an unchecked
+ * launcher is never touched on disk and is reported as disabled, while games
+ * already imported from it stay on the shelf.
  */
 export function LauncherImportPanel({
   compact = false,
   onImported,
+  settings,
+  onSourcesChange,
 }: {
   compact?: boolean;
   onImported?: () => void;
+  /** Desktop settings (the draft); its `launcherSources` drive the scan. */
+  settings?: LocalSettings | null;
+  /** Persist a new source selection (#155). */
+  onSourcesChange?: (sources: LauncherId[]) => void;
 }) {
   const { push } = useToast();
   const queryClient = useQueryClient();
@@ -36,6 +58,13 @@ export function LauncherImportPanel({
   const [scanning, setScanning] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /** Sources the user ticked; a settings file without the key means all. */
+  const enabledIds = useMemo(
+    () => normalizeLauncherSources(settings?.launcherSources),
+    [settings?.launcherSources],
+  );
+  const enabled = useMemo(() => new Set<LauncherId>(enabledIds), [enabledIds]);
 
   const titles = useQuery({
     queryKey: ["library-titles"],
@@ -51,20 +80,56 @@ export function LauncherImportPanel({
     return map;
   }, [preview]);
 
+  /**
+   * Games the import may offer right now. A preview taken before a source was
+   * unchecked keeps its rows client-side; they are hidden until it is enabled
+   * again (and the backend would refuse them anyway).
+   */
+  const visibleGames = useMemo(
+    () => (preview ? preview.games.filter((game) => enabled.has(game.source)) : []),
+    [preview, enabled],
+  );
+
   const selectable = useMemo(
-    () => (preview ? preview.games.filter((game) => !game.imported) : []),
-    [preview],
+    () => visibleGames.filter((game) => !game.imported),
+    [visibleGames],
   );
 
   const needsUri = (game: LauncherGame) => Boolean(game.issue) && !uris[keyOf(game)]?.trim();
+
+  const setSources = (next: LauncherId[]) => {
+    onSourcesChange?.(next);
+  };
+
+  const toggleSource = (id: LauncherId, checked: boolean) => {
+    const next = checked
+      ? normalizeLauncherSources([...enabledIds, id])
+      : enabledIds.filter((value) => value !== id);
+    setSources(next);
+    // Drop the selection of a source that just went off.
+    setSelected((current) => {
+      const kept = new Set<string>();
+      for (const key of current) {
+        const game = byKey.get(key);
+        if (!game || next.includes(game.source)) kept.add(key);
+      }
+      return kept;
+    });
+  };
 
   const scan = async () => {
     setScanning(true);
     setError(null);
     try {
-      const next = await native.launcherScan();
+      const next = await native.launcherScan(enabledIds);
       setPreview(next);
-      setSelected(new Set(next.games.filter((game) => !game.imported).map(keyOf)));
+      setSelected(
+        new Set(
+          next.games
+            .filter((game) => !game.imported && enabled.has(game.source))
+            .map(keyOf),
+        ),
+      );
       setMapping({});
       setUris({});
       if (next.games.length === 0) {
@@ -77,7 +142,9 @@ export function LauncherImportPanel({
               ? t("{launchers} detected, but no installed game was listed.", {
                   launchers: detected.map((source) => source.label).join(", "),
                 })
-              : t("None of the supported launchers is installed on this machine.")),
+              : next.sources.every((source) => source.disabled)
+                ? t("Every launcher source is disabled. Enable one to scan it.")
+                : t("None of the supported launchers is installed on this machine.")),
         });
       }
     } catch (cause) {
@@ -116,7 +183,7 @@ export function LauncherImportPanel({
     setImporting(true);
     setError(null);
     try {
-      const report = await native.launcherImport(entries);
+      const report = await native.launcherImport(entries, enabledIds);
       await queryClient.invalidateQueries({ queryKey: ["installed"] });
       await queryClient.invalidateQueries({ queryKey: ["recent-games"] });
       await queryClient.invalidateQueries({ queryKey: ["library"] });
@@ -193,33 +260,92 @@ export function LauncherImportPanel({
         </p>
       )}
 
+      <div className="mt-4 border-t border-line pt-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <p className="text-[12.5px] font-medium text-ink">{t("Sources")}</p>
+          <div className="flex items-center gap-3 font-mono text-[10.5px] text-ink-3">
+            <button
+              type="button"
+              className="underline-offset-4 hover:text-ink hover:underline disabled:opacity-40"
+              disabled={!settings || enabledIds.length === LAUNCHER_SOURCES.length}
+              onClick={() =>
+                setSources(normalizeLauncherSources(LAUNCHER_SOURCES.map((source) => source.id)))
+              }
+            >
+              {t("Select all")}
+            </button>
+            <button
+              type="button"
+              className="underline-offset-4 hover:text-ink hover:underline disabled:opacity-40"
+              disabled={!settings || enabledIds.length === 0}
+              onClick={() => setSources([])}
+            >
+              {t("None")}
+            </button>
+          </div>
+        </div>
+        <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+          {t(
+            "Only checked sources are read. Disabling one leaves the games already imported from it on the shelf, and checking it again brings its scan back without a restart.",
+          )}
+        </p>
+
+        <ul className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+          {LAUNCHER_SOURCES.map((source) => {
+            const info = preview?.sources.find((entry) => entry.id === source.id);
+            const state = launcherSourceState(info, enabled.has(source.id));
+            return (
+              <li key={source.id} className="flex items-center justify-between gap-3">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Checkbox
+                    checked={enabled.has(source.id)}
+                    onCheckedChange={(checked) => toggleSource(source.id, checked)}
+                    label={t("Scan {launcher}", { launcher: source.label })}
+                  />
+                  <span
+                    className={cn(
+                      "truncate text-[12.5px]",
+                      state === "disabled" ? "text-ink-3" : "text-ink-2",
+                    )}
+                  >
+                    {source.label}
+                  </span>
+                </span>
+                {preview && (
+                  <span
+                    title={info?.detail}
+                    className={cn(
+                      "shrink-0 text-right font-mono text-[10px] uppercase tracking-[0.08em]",
+                      state === "disabled" && "text-ink-3/70",
+                      state === "detected" ? "text-ink-2" : state !== "disabled" && "text-ink-3",
+                    )}
+                  >
+                    {state === "disabled"
+                      ? t("Disabled")
+                      : state === "missing"
+                        ? t("Not detected")
+                        : state === "empty"
+                          ? t("No games")
+                          : tn(info?.found ?? 0, "1 game", "{count} games")}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
       {preview && (
         <div className="mt-4 flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-            {preview.sources.map((source) => (
-              <span
-                key={source.id}
-                title={source.detail}
-                className={cn(
-                  "inline-flex items-center gap-1.5 border px-2 py-[3px] font-mono text-[10px] uppercase tracking-[0.08em]",
-                  source.available ? "border-line-2 text-ink-2" : "border-line text-ink-3/70",
-                )}
-              >
-                {source.label}
-                <span className={source.available ? "text-ink" : "text-ink-3"}>{source.found}</span>
-              </span>
-            ))}
-          </div>
-
           <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 font-mono text-[10.5px] text-ink-3">
             <span>
-              {tn(preview.games.length, "1 game", "{count} games")} ·{" "}
+              {tn(visibleGames.length, "1 game", "{count} games")} ·{" "}
               {tn(preview.roots.length, "1 source read", "{count} sources read")}
             </span>
             {!preview.matched && (
               <span className="text-signal-text">{t("not matched to the server library")}</span>
             )}
-            {preview.games.length > 0 && (
+            {visibleGames.length > 0 && (
               <button
                 type="button"
                 className="underline-offset-4 hover:text-ink hover:underline"
@@ -245,16 +371,18 @@ export function LauncherImportPanel({
             </details>
           )}
 
-          {preview.games.length === 0 ? (
+          {visibleGames.length === 0 ? (
             <p className="flex items-start gap-2 border-t border-line pt-3 text-[12.5px] leading-relaxed text-ink-3">
               <Gamepad2 className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-              {t(
-                "No installed launcher game was found. Start each launcher once so it writes its library metadata, then scan again. Steam can also be pointed at a specific folder in the desktop settings.",
-              )}
+              {enabledIds.length === 0
+                ? t("Every launcher source is disabled. Enable one to scan it.")
+                : t(
+                    "No installed launcher game was found. Start each launcher once so it writes its library metadata, then scan again. Steam can also be pointed at a specific folder in the desktop settings.",
+                  )}
             </p>
           ) : (
             <ul className={cn("overflow-y-auto border-t border-line", compact ? "max-h-[260px]" : "max-h-[420px]")}>
-              {preview.games.map((game) => {
+              {visibleGames.map((game) => {
                 const key = keyOf(game);
                 return (
                   <LauncherRow

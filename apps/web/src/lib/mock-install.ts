@@ -1,5 +1,6 @@
 import { DEMO_GAMES } from "@/data/demo";
 import { USING_MOCKS } from "@/lib/flags";
+import { ALL_LAUNCHER_IDS } from "@/lib/launchers";
 import { slugify } from "@/lib/art";
 import type {
   DiskUsage,
@@ -346,6 +347,7 @@ const DEFAULT_SETTINGS: LocalSettings = {
   moonlightHost: "",
   gamevaultRoots: [],
   gamevaultScanDepth: 6,
+  launcherSources: ALL_LAUNCHER_IDS,
 };
 
 function loadSettings(): LocalSettings {
@@ -558,6 +560,13 @@ export const mockInstalls = {
   saveSettings(settings: LocalSettings): Promise<LocalSettings | null> {
     localStorage.setItem("ludex.demo.desktop", JSON.stringify(settings));
     return Promise.resolve(clone(settings));
+  },
+
+  /** Persist only the launcher sources (#155), like `save_settings` does. */
+  saveLauncherSources(sources: LocalSettings["launcherSources"]): Promise<LocalSettings | null> {
+    const next: LocalSettings = { ...loadSettings(), launcherSources: sources };
+    localStorage.setItem("ludex.demo.desktop", JSON.stringify(next));
+    return Promise.resolve(clone(next));
   },
 
   moveInstall(gameId: number, targetDir: string): Promise<InstalledGame> {
