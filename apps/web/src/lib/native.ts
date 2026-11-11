@@ -1,6 +1,8 @@
 import { t } from "@/lib/i18n";
 import type {
   AdapterReport,
+  AdoptInstallArgs,
+  AdoptPreview,
   CloudSaveRestoreOutcome,
   CloudSaveStatus,
   CloudSaveStrategy,
@@ -10,10 +12,14 @@ import type {
   ConfigDocument,
   ConfigEditInput,
   ConfigWriteReport,
+  DeleteAdoptedPreview,
   DiskUsage,
   GameConfigListing,
   GamePlaytime,
   GameUpdate,
+  GameVaultAdoptEntry,
+  GameVaultAdoptReport,
+  GameVaultScan,
   InstallGameArgs,
   InstallJob,
   InstalledGame,
@@ -25,6 +31,8 @@ import type {
   LaunchOptions,
   LocalSettings,
   LocationStatus,
+  ManifestProgress,
+  ManifestReport,
   MoveProgress,
   PresenceStatus,
   PrefixInfo,
@@ -304,6 +312,57 @@ export const native = {
 
   async launcherImport(entries: LauncherImportEntry[]): Promise<LauncherImportReport> {
     return invoke<LauncherImportReport>("launcher_import", { entries });
+  },
+
+  /* ---------------- adopting an existing install (#129) ------------------ */
+
+  /** Inspect a folder: executable, size, file count, version. Writes nothing. */
+  async adoptInstallation(args: {
+    gameId: number;
+    folder: string;
+    versionId?: number | null;
+    version?: string | null;
+    title?: string | null;
+  }): Promise<AdoptPreview> {
+    return invoke<AdoptPreview>("adopt_installation", args);
+  },
+
+  /** Record the adopted folder. Nothing is copied or moved. */
+  async confirmAdoptInstallation(args: AdoptInstallArgs): Promise<InstalledGame> {
+    return invoke<InstalledGame>("confirm_adopt_installation", { ...args });
+  },
+
+  /** Hash the adopted folder into a manifest so Verify/Repair work. */
+  async buildInstallManifest(gameId: number): Promise<ManifestReport> {
+    return invoke<ManifestReport>("build_install_manifest", { gameId });
+  },
+
+  /** Remove the index row and manifest; the files stay on disk. */
+  async unlinkInstallation(gameId: number): Promise<void> {
+    if (!isNative()) throw nativeUnavailable();
+    await invoke<null>("unlink_installation", { gameId });
+  },
+
+  /**
+   * Preview (`confirmPath` omitted) or delete the adopted folder. The delete
+   * only runs when `confirmPath` is exactly the canonical folder.
+   */
+  async deleteAdoptedInstallation(gameId: number, confirmPath?: string | null): Promise<DeleteAdoptedPreview> {
+    return invoke<DeleteAdoptedPreview>("delete_adopted_installation", { gameId, confirmPath: confirmPath ?? null });
+  },
+
+  /** List the immediate subfolders of a GameVault-style root with a game exe. */
+  async scanGameVaultFolders(root: string): Promise<GameVaultScan> {
+    return invoke<GameVaultScan>("scan_gamevault_folders", { root });
+  },
+
+  /** Adopt selected GameVault candidates after the user confirmed the matches. */
+  async adoptGameVaultInstallations(root: string, entries: GameVaultAdoptEntry[]): Promise<GameVaultAdoptReport> {
+    return invoke<GameVaultAdoptReport>("adopt_gamevault_installations", { root, entries });
+  },
+
+  async onManifestProgress(handler: (progress: ManifestProgress) => void): Promise<() => void> {
+    return listen<ManifestProgress>("install://manifest-progress", handler);
   },
 
   /* -------------------- Linux compatibility (#89-#93) -------------------- */

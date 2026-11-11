@@ -28,9 +28,11 @@ import { EmptyState, ErrorState, SectionHeader } from "@/components/page";
 import { Button, Skeleton } from "@/components/ui/controls";
 import { t, tn } from "@/lib/i18n";
 
-/** Source label for an imported entry (#13, #116). */
+/** Source label for an imported or adopted entry (#13, #116, #129). */
 function sourceLabel(source: string): string {
   switch (source) {
+    case "adopted":
+      return t("Adopted");
     case "steam":
       return t("Steam");
     case "epic":
@@ -290,6 +292,14 @@ export function HomeScreen() {
                     <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5 font-mono text-[10.5px] text-ink-3">
                       {entry.version && <span>{`v${entry.version}`}</span>}
                       <span>{formatBytes(entry.sizeBytes)}</span>
+                      {entry.source === "adopted" && (
+                        <span className="border border-signal/40 px-1.5 py-[1px] text-[9.5px] uppercase tracking-[0.08em] text-signal-text">
+                          {t("Adopted")}
+                        </span>
+                      )}
+                      {entry.source && entry.source !== "ludex" && entry.source !== "adopted" && (
+                        <span>{sourceLabel(entry.source)}</span>
+                      )}
                       {entry.lastLaunchedAt && <span>{t("Last played")} {formatRelative(entry.lastLaunchedAt)}</span>}
                       {update && <span className="text-signal-text">{t("Update available")}</span>}
                     </p>

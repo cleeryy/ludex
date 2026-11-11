@@ -32,6 +32,18 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Adopt an existing local installation (#129): link a folder that already
+  exists (including a GameVault install) as an `adopted` install without copying
+  or moving files. The flow canonicalises and validates the path, runs
+  executable detection, shows a preview (folder, executable, size, file count)
+  and an explicit server-version choice, and refuses launcher-owned or
+  overlapping installs. Adopted games launch through the normal pipeline with
+  process-tree playtime; updates are not offered (Ludex does not own the files).
+  Verify/Repair require an on-demand manifest build, "Remove from Ludex" keeps
+  files, and "Uninstall and delete files" deletes only after an exact path
+  confirmation inside an allowlisted root. Settings → Installed gains a
+  GameVault folder scan with exact/containment/ambiguity matching and bulk
+  adoption. 18 new desktop tests.
 - Launcher discovery and import (#116): the desktop app reads the metadata
   Steam, Epic Games, GOG Galaxy, the EA app, Ubisoft Connect, Xbox/Microsoft
   Store, itch.io, Heroic and Lutris already keep on disk and imports the games

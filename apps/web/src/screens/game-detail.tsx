@@ -7,8 +7,10 @@ import {
   BookmarkCheck,
   Clock,
   Download,
+  FileSignature,
   FolderInput,
   FolderOpen,
+  Link2,
   ListPlus,
   MoreHorizontal,
   Pencil,
@@ -32,6 +34,8 @@ import { ArtworkDialog } from "@/components/game/artwork-dialog";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { InstallFiles } from "@/components/game/install-files";
 import { GameSettingsPanel } from "@/components/game/game-settings";
+import { AdoptInstallDialog } from "@/components/game/adopt-install";
+import { DeleteAdoptedDialog } from "@/components/game/delete-adopted";
 import { InstallerPanel } from "@/components/game/installer-panel";
 import { LaunchOptionsPanel } from "@/components/game/launch-options";
 import { ProtonDbBadge } from "@/components/game/protondb-badge";
@@ -67,6 +71,8 @@ export function GameDetailScreen() {
   const updates = useUpdateMap();
   const updateGame = useUpdateGame();
   const [installOpen, setInstallOpen] = useState(false);
+  const [adoptOpen, setAdoptOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -116,6 +122,7 @@ export function GameDetailScreen() {
   if (!game) return null;
 
   const isInstalled = installed.get(game.id);
+  const isAdopted = isInstalled?.source === "adopted";
   const update = updates.get(game.id);
   const activeJob = downloads.jobForGame(game.id);
   const resumableJob = downloads.resumableForGame(game.id);
@@ -206,6 +213,39 @@ export function GameDetailScreen() {
     </Button>
   );
 
+  const buildManifest = () => {
+    void native
+      .buildInstallManifest(game.id)
+      .then((report) =>
+        push({
+          title: t("Manifest built for {title}", { title: game.title }),
+          description: t("{files} hashed ({size}). Verify can now compare the folder with it.", {
+            files: report.files === 1 ? t("1 file") : t("{count} files", { count: report.files }),
+            size: formatBytes(report.bytes),
+          }),
+          tone: "success",
+        }),
+      )
+      .catch((cause: Error) =>
+        push({ title: t("Could not build the manifest"), description: cause.message, tone: "danger" }),
+      );
+  };
+
+  const removeFromLudex = () => {
+    void native
+      .unlinkInstallation(game.id)
+      .then(() => {
+        void queryClient.invalidateQueries({ queryKey: ["installed"] });
+        void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
+        void queryClient.invalidateQueries({ queryKey: ["game", game.id] });
+        push({
+          title: t("{title} removed from Ludex", { title: game.title }),
+          description: t("The files were left where they are."),
+        });
+      })
+      .catch((cause: Error) => push({ title: t("Could not remove the game"), description: cause.message, tone: "danger" }));
+  };
+
   const menu = [
     ...(isEditor
       ? [
@@ -236,25 +276,63 @@ export function GameDetailScreen() {
             icon: <FolderOpen className="size-3.5" />,
             onSelect: () => void native.openPath(isInstalled.installPath).catch((cause: Error) => push({ title: t("Could not open the folder"), description: cause.message, tone: "danger" })),
           },
-          {
-            label: t("Move install…"),
-            icon: <FolderInput className="size-3.5" />,
-            onSelect: () => setMoveOpen(true),
-          },
-          {
-            label: t("Uninstall"),
-            icon: <Trash2 className="size-3.5" />,
-            danger: true,
-            onSelect: () => {
-              void native
-                .uninstallGame(game.id)
-                .then(() => {
-                  void queryClient.invalidateQueries({ queryKey: ["installed"] });
-                  push({ title: t("Game removed"), description: t("{title} was uninstalled from this machine.", { title: game.title }) });
-                })
-                .catch((cause: Error) => push({ title: t("Could not uninstall"), description: cause.message, tone: "danger" }));
-            },
-          },
+          // Moving an adopted folder would re-parent the user's own folder; the
+          // adopted actions below cover the supported flows (#129).
+          ...(isAdopted
+            ? []
+            : [
+                {
+                  label: t("Move install…"),
+                  icon: <FolderInput className="size-3.5" />,
+                  onSelect: () => setMoveOpen(true),
+                },
+              ]),
+          ...(isNative()
+            ? [
+                {
+                  label: t("Build manifest"),
+                  icon: <FileSignature className="size-3.5" />,
+                  onSelect: buildManifest,
+                },
+              ]
+            : []),
+          ...(isAdopted
+            ? [
+                {
+                  label: t("Remove from Ludex"),
+                  icon: <Link2 className="size-3.5" />,
+                  onSelect: removeFromLudex,
+                },
+                {
+                  label: t("Uninstall and delete files…"),
+                  icon: <Trash2 className="size-3.5" />,
+                  danger: true,
+                  onSelect: () => setDeleteOpen(true),
+                },
+              ]
+            : [
+                {
+                  // Launcher imports (#116) own their files: the row goes, the
+                  // game stays installed by its own client.
+                  label: isInstalled.source && isInstalled.source !== "ludex" ? t("Remove from Ludex") : t("Uninstall"),
+                  icon: <Trash2 className="size-3.5" />,
+                  danger: true,
+                  onSelect: () => {
+                    void native
+                      .uninstallGame(game.id)
+                      .then(() => {
+                        void queryClient.invalidateQueries({ queryKey: ["installed"] });
+                        push({
+                          title: t("Game removed"),
+                          description: isInstalled.source && isInstalled.source !== "ludex"
+                            ? t("The launcher entry was removed. Its files were not touched.")
+                            : t("{title} was uninstalled from this machine.", { title: game.title }),
+                        });
+                      })
+                      .catch((cause: Error) => push({ title: t("Could not uninstall"), description: cause.message, tone: "danger" }));
+                  },
+                },
+              ]),
         ]
       : []),
   ];
@@ -280,9 +358,10 @@ export function GameDetailScreen() {
               <GameCover title={game.title} coverUrl={game.coverUrl} index={game.id} year={formatYear(game.releaseDate)} genre={game.genres[0]} />
             </div>
             {isInstalled && (
-              <p className="mt-3 flex items-center gap-2 text-[11.5px] text-ink-3">
-                <span className="size-1.5 rounded-full bg-ok" aria-hidden="true" />
+              <p className="mt-3 flex flex-wrap items-center gap-2 text-[11.5px] text-ink-3">
+                <span className={cn("size-1.5 rounded-full", isAdopted ? "bg-signal" : "bg-ok")} aria-hidden="true" />
                 {t("Installed")} {formatBytes(isInstalled.sizeBytes)}
+                {isAdopted && <Badge tone="signal">{t("Adopted")}</Badge>}
               </p>
             )}
           </div>
@@ -328,6 +407,16 @@ export function GameDetailScreen() {
 
             <div className="mt-7 flex flex-wrap items-center gap-2">
               {primary}
+              {isNative() && !isInstalled && !activeJob && (
+                <Button
+                  variant="default"
+                  size="lg"
+                  icon={<Link2 className="size-4" />}
+                  onClick={() => setAdoptOpen(true)}
+                >
+                  {t("Link existing installation")}
+                </Button>
+              )}
               {update && isInstalled && !activeJob && (
                 <Button
                   variant="default"
@@ -589,7 +678,28 @@ export function GameDetailScreen() {
         <InstallDialog open={installOpen} onOpenChange={setInstallOpen} game={game} version={version} />
       )}
 
-      {isInstalled && (
+      <AdoptInstallDialog
+        open={adoptOpen}
+        onOpenChange={setAdoptOpen}
+        gameId={game.id}
+        title={game.title}
+        versions={game.versions.map((entry) => ({
+          id: entry.id,
+          version: entry.version,
+          fileName: entry.fileName,
+        }))}
+      />
+
+      {isAdopted && (
+        <DeleteAdoptedDialog
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          gameId={game.id}
+          title={game.title}
+        />
+      )}
+
+      {isInstalled && !isAdopted && (
         <MoveInstallDialog
           open={moveOpen}
           onOpenChange={setMoveOpen}

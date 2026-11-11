@@ -21,6 +21,8 @@ pub struct LaunchResult {
     pub session_id: String,
     /// Compatibility tool used on Linux (UMU/Proton/Wine), when any.
     pub tool: Option<String>,
+    /// How the entry is managed: `ludex`, `adopted` or a launcher id (#129).
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -30,6 +32,9 @@ struct GameExited {
     game_id: i64,
     minutes_played: i64,
     seconds_played: i64,
+    /// `adopted` for a linked folder, `ludex` for an install, a launcher id for
+    /// an import (#129).
+    source: String,
 }
 
 static SYNCING: AtomicBool = AtomicBool::new(false);
@@ -75,13 +80,20 @@ pub async fn launch(
         .map(str::trim)
         .filter(|uri| !uri.is_empty());
     // Launcher imports (#116) own no files here: the client may not expose an
-    // install folder at all (Xbox Start menu entries), so only a real Ludex
-    // install has to exist on disk.
+    // install folder at all (Xbox Start menu entries), so only a real install
+    // or an adopted folder has to exist on disk.
     if external_uri.is_none() && !install_path.is_dir() {
-        return Err(format!(
-            "The install folder is missing: {}. Reinstall the game.",
-            install_path.display()
-        ));
+        return Err(if installed.source == db::SOURCE_ADOPTED {
+            format!(
+                "The adopted folder is missing: {}. Re-link it from the game page or remove it from Ludex.",
+                install_path.display()
+            )
+        } else {
+            format!(
+                "The install folder is missing: {}. Reinstall the game.",
+                install_path.display()
+            )
+        });
     }
     let prefix = match external_uri {
         Some(_) => PathBuf::new(),
@@ -163,7 +175,13 @@ pub async fn launch(
         return Err(error);
     }
 
-    spawn_watcher(app.clone(), entry, session_id.clone(), game_id);
+    spawn_watcher(
+        app.clone(),
+        entry,
+        session_id.clone(),
+        game_id,
+        installed.source.clone(),
+    );
     // The tray lists recent games by last launch.
     crate::tray::refresh_menu(app);
     announce_presence(app, game_id, &installed.title, started_at);
@@ -174,7 +192,11 @@ pub async fn launch(
         sync_pending(sync_app).await;
     });
 
-    Ok(LaunchResult { session_id, tool })
+    Ok(LaunchResult {
+        session_id,
+        tool,
+        source: installed.source,
+    })
 }
 
 /// Build the process for a launch: URI handler, native executable, or a Linux
@@ -540,7 +562,13 @@ async fn fetch_cover(
         .map(str::to_string)
 }
 
-fn spawn_watcher(app: AppHandle, entry: Arc<ProcessEntry>, session_id: String, game_id: i64) {
+fn spawn_watcher(
+    app: AppHandle,
+    entry: Arc<ProcessEntry>,
+    session_id: String,
+    game_id: i64,
+    source: String,
+) {
     std::thread::spawn(move || {
         // Process-tree tracking (#26): the session stays open while any
         // descendant of the launched game is alive, not just the root PID.
@@ -604,6 +632,7 @@ fn spawn_watcher(app: AppHandle, entry: Arc<ProcessEntry>, session_id: String, g
                 game_id,
                 minutes_played: minutes,
                 seconds_played: seconds,
+                source,
             },
         );
 

@@ -110,6 +110,11 @@ pub async fn check(app: &AppHandle) -> Result<Vec<GameUpdate>, String> {
         if game.source == db::SOURCE_STEAM || game.game_id <= 0 {
             continue;
         }
+        // Adopted folders (#129) are not updated in place: Ludex does not own
+        // their files, and an update would replace the user's folder.
+        if game.source == db::SOURCE_ADOPTED {
+            continue;
+        }
         match latest_version(&state, game.game_id).await {
             Ok(latest) => {
                 consecutive_errors = 0;
@@ -172,6 +177,14 @@ pub async fn update_game(app: &AppHandle, game_id: i64) -> Result<InstallJob, St
         db::get_installed(&connection, game_id)?
     }
     .ok_or_else(|| format!("Game {game_id} is not installed on this device."))?;
+
+    // Updating an adopted folder would replace files Ludex does not own (#129).
+    if installed.source == db::SOURCE_ADOPTED {
+        return Err(format!(
+            "“{}” is an adopted folder, so Ludex does not update it in place. Remove it from Ludex (files stay) or delete it, then install the Ludex version.",
+            installed.title
+        ));
+    }
 
     {
         let processes = state

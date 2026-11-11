@@ -32,8 +32,9 @@ pub struct InstalledGame {
     /// Absolute install root used for this game (not exposed to the web UI).
     #[serde(skip)]
     pub install_root: Option<String>,
-    /// How the entry entered the local index: `ludex` (installed by this app)
-    /// or `steam` (imported from a Steam library, #13).
+    /// How the entry entered the local index: `ludex` (installed by this app),
+    /// `adopted` (an existing folder linked in place, #129) or a launcher id
+    /// (imported from another client, #13/#116).
     #[serde(default = "default_source")]
     pub source: String,
     /// External launch URI for imported entries (`steam://rungameid/…`).
@@ -49,6 +50,16 @@ fn default_source() -> String {
 pub const SOURCE_LUDEX: &str = "ludex";
 /// A Steam game imported into the local index (#13).
 pub const SOURCE_STEAM: &str = "steam";
+/// An existing folder linked to a library game without copying or moving it
+/// (#129). Ludex can launch it, track playtime and delete it only through the
+/// confirmed `delete_adopted_installation` action.
+pub const SOURCE_ADOPTED: &str = "adopted";
+
+/// True for entries owned by another client (#13/#116): Ludex never deletes
+/// their files and never adopts the folder they live in.
+pub fn is_launcher_source(source: &str) -> bool {
+    source != SOURCE_LUDEX && source != SOURCE_ADOPTED
+}
 
 /// One recorded play session, as shown in the game page and the tray.
 #[derive(Debug, Clone, Serialize)]
@@ -442,6 +453,14 @@ fn migrate(connection: &Connection) -> Result<(), String> {
     Ok(())
 }
 
+/// A fresh in-memory index with every migration applied. Tests only.
+#[cfg(test)]
+pub(crate) fn open_in_memory_for_tests() -> Connection {
+    let connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    connection
+}
+
 pub fn upsert_installed(connection: &Connection, game: &InstalledGame) -> Result<(), String> {
     connection
         .execute(
@@ -610,6 +629,84 @@ pub fn set_executable(
         return Err(format!("Game {game_id} is not installed."));
     }
     Ok(())
+}
+
+/// Every indexed install as `(gameId, installPath, source)`.
+///
+/// Used by the adoption flow to refuse a folder another entry already owns and
+/// to dedupe the same folder adopted twice (#129). Paths are compared by the
+/// caller after canonicalization.
+pub fn installed_paths(connection: &Connection) -> Result<Vec<(i64, String, String)>, String> {
+    let mut statement = connection
+        .prepare("SELECT game_id, install_path, source FROM installed_games")
+        .map_err(|e| format!("Could not read installed games: {e}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| format!("Could not read installed games: {e}"))?;
+    let mut entries = Vec::new();
+    for row in rows {
+        entries.push(row.map_err(|e| format!("Could not read installed games: {e}"))?);
+    }
+    Ok(entries)
+}
+
+/// Record an adopted folder (#129).
+///
+/// `install_path` must already be the canonical folder. The desktop index keeps
+/// one row per game, so the caller has to say whether replacing an existing
+/// `ludex`/launcher row was confirmed (`replace`). An existing adopted row is
+/// refreshed in place: the user is re-pointing their own folder, not replacing
+/// a Ludex install.
+pub fn record_adoption(
+    connection: &Connection,
+    game: &InstalledGame,
+    replace: bool,
+) -> Result<(), String> {
+    if game.source != SOURCE_ADOPTED {
+        return Err("Only adopted installs can be recorded through adoption.".to_string());
+    }
+    if let Some(existing) = get_installed(connection, game.game_id)? {
+        if existing.source != SOURCE_ADOPTED && !replace {
+            return Err(format!(
+                "{} is already {}. Remove it from Ludex first.",
+                existing.title,
+                describe_source(&existing.source)
+            ));
+        }
+    }
+
+    // One folder can only back one entry. Launcher imports (#116) own their
+    // folder: Ludex must never take it over silently.
+    for (other_game_id, path, source) in installed_paths(connection)? {
+        if other_game_id == game.game_id || path != game.install_path {
+            continue;
+        }
+        if is_launcher_source(&source) {
+            return Err(format!(
+                "That folder belongs to a {source} import (#116). Imported games stay managed by their launcher."
+            ));
+        }
+        return Err(format!(
+            "That folder is already indexed as game {other_game_id} ({source}). Remove that entry first."
+        ));
+    }
+
+    upsert_installed(connection, game)
+}
+
+/// Human wording for a source, used in actionable errors.
+pub fn describe_source(source: &str) -> String {
+    match source {
+        SOURCE_LUDEX => "installed through Ludex".to_string(),
+        SOURCE_ADOPTED => "linked as an adopted folder".to_string(),
+        other => format!("imported from {other}"),
+    }
 }
 
 /* ------------- per-game launch options (#89, #91, #92) ------------------ */
@@ -2008,7 +2105,11 @@ mod tests {
                 "epic",
                 "com.epicgames.launcher://apps/a?action=launch",
             ),
-            (-1_234_567_891i64, "gog", "goggalaxy://openGameView/1207666623"),
+            (
+                -1_234_567_891i64,
+                "gog",
+                "goggalaxy://openGameView/1207666623",
+            ),
             (12, "steam", "steam://rungameid/440"),
             (7, SOURCE_LUDEX, ""),
         ] {
@@ -2037,11 +2138,110 @@ mod tests {
             .starts_with("com.epicgames.launcher://")
             && *game_id == -1_234_567_890
             && source == "epic"));
-        assert!(uris
-            .iter()
-            .any(|(uri, _, source)| uri == "goggalaxy://openGameView/1207666623" && source == "gog"));
+        assert!(uris.iter().any(
+            |(uri, _, source)| uri == "goggalaxy://openGameView/1207666623" && source == "gog"
+        ));
         // The Ludex install has no launch URI and stays out of the import map.
         assert!(uris.iter().all(|(uri, _, _)| !uri.is_empty()));
+    }
+
+    #[test]
+    fn adopted_installs_persist_and_refuse_other_owners() {
+        let connection = memory_database();
+        let adopted = InstalledGame {
+            game_id: 42,
+            version_id: 0,
+            title: "Adopted".into(),
+            version: None,
+            install_path: "/games/adopted".into(),
+            executable: Some("/games/adopted/game.exe".into()),
+            size_bytes: 2048,
+            installed_at: "2026-01-01T00:00:00Z".into(),
+            last_launched_at: None,
+            archive_hash: None,
+            install_root: Some("/games".into()),
+            source: SOURCE_ADOPTED.into(),
+            launch_uri: None,
+        };
+        record_adoption(&connection, &adopted, false).unwrap();
+        let loaded = get_installed(&connection, 42).unwrap().unwrap();
+        assert_eq!(loaded.source, SOURCE_ADOPTED);
+        assert_eq!(loaded.version_id, 0);
+        assert_eq!(loaded.archive_hash, None);
+
+        // Another game cannot claim the same folder.
+        let mut other = adopted.clone();
+        other.game_id = 43;
+        other.install_path = "/games/adopted".into();
+        let error = record_adoption(&connection, &other, false).unwrap_err();
+        assert!(error.contains("already indexed"), "{error}");
+
+        // A launcher row owns its folder: adoption is refused.
+        let mut steam = adopted.clone();
+        steam.game_id = 44;
+        steam.install_path = "/steam/hades".into();
+        steam.source = SOURCE_STEAM.into();
+        steam.title = "Hades".into();
+        upsert_installed(&connection, &steam).unwrap();
+        let mut wants_steam_folder = adopted.clone();
+        wants_steam_folder.game_id = 45;
+        wants_steam_folder.install_path = "/steam/hades".into();
+        let error = record_adoption(&connection, &wants_steam_folder, false).unwrap_err();
+        assert!(error.contains("launcher"), "{error}");
+    }
+
+    #[test]
+    fn record_adoption_needs_replace_for_a_ludex_row_but_not_for_an_adopted_one() {
+        let connection = memory_database();
+        let ludex = InstalledGame {
+            game_id: 7,
+            version_id: 3,
+            title: "Doom".into(),
+            version: Some("1.0".into()),
+            install_path: "/games/doom/1.0".into(),
+            executable: None,
+            size_bytes: 10,
+            installed_at: "2026-01-01T00:00:00Z".into(),
+            last_launched_at: None,
+            archive_hash: Some("sha256-sample:abc".into()),
+            install_root: Some("/games".into()),
+            source: SOURCE_LUDEX.into(),
+            launch_uri: None,
+        };
+        upsert_installed(&connection, &ludex).unwrap();
+
+        let adopted = InstalledGame {
+            game_id: 7,
+            version_id: 0,
+            title: "Doom".into(),
+            version: None,
+            install_path: "/mnt/gamevault/Doom".into(),
+            executable: None,
+            size_bytes: 20,
+            installed_at: "2026-02-01T00:00:00Z".into(),
+            last_launched_at: None,
+            archive_hash: None,
+            install_root: Some("/mnt/gamevault".into()),
+            source: SOURCE_ADOPTED.into(),
+            launch_uri: None,
+        };
+
+        let error = record_adoption(&connection, &adopted, false).unwrap_err();
+        assert!(error.contains("installed through Ludex"), "{error}");
+        record_adoption(&connection, &adopted, true).unwrap();
+        assert_eq!(
+            get_installed(&connection, 7).unwrap().unwrap().source,
+            SOURCE_ADOPTED
+        );
+
+        // Re-adopting the same row (new folder) never needs replace.
+        let mut moved = adopted.clone();
+        moved.install_path = "/mnt/gamevault/Doom 2".into();
+        record_adoption(&connection, &moved, false).unwrap();
+        assert_eq!(
+            get_installed(&connection, 7).unwrap().unwrap().install_path,
+            "/mnt/gamevault/Doom 2"
+        );
     }
 
     #[test]

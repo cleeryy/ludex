@@ -138,7 +138,16 @@ pub fn remove_installed_dir(base: &Path, target: &Path) -> Result<(), String> {
 
 /// Total size of files under `path` (symlinks are not followed).
 pub fn dir_size(path: &Path) -> u64 {
-    let mut total = 0u64;
+    dir_stats(path).0
+}
+
+/// `(total bytes, regular file count)` of everything under `path`.
+///
+/// Symlinks are neither followed nor counted: deletion never follows them and
+/// the manifest skips them too.
+pub fn dir_stats(path: &Path) -> (u64, u64) {
+    let mut bytes = 0u64;
+    let mut files = 0u64;
     let mut stack = vec![path.to_path_buf()];
     while let Some(current) = stack.pop() {
         let Ok(metadata) = fs::symlink_metadata(&current) else {
@@ -151,10 +160,11 @@ pub fn dir_size(path: &Path) -> u64 {
                 }
             }
         } else if metadata.is_file() {
-            total = total.saturating_add(metadata.len());
+            bytes = bytes.saturating_add(metadata.len());
+            files += 1;
         }
     }
-    total
+    (bytes, files)
 }
 
 fn copy_dir_inner(

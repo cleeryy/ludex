@@ -20,6 +20,7 @@ import { Select } from "@/components/ui/select";
 import { DesktopUpdatePanel } from "@/components/settings/desktop-update";
 import { CompatibilityPanel } from "@/components/settings/compatibility-panel";
 import { LauncherImportPanel } from "@/components/settings/launcher-import";
+import { InstalledPanel } from "@/components/settings/installed-games";
 import { PresenceStatus } from "@/components/settings/presence-status";
 import { GettingStartedCard } from "@/components/onboarding/getting-started";
 import { LocationsPanel } from "@/components/settings/locations-panel";
@@ -729,6 +730,18 @@ export function SettingsScreen() {
                 </div>
               </>
             )}
+          </div>
+        </section>
+      )}
+
+      {isNative() && (
+        <section className="mt-12 max-w-[980px]" aria-labelledby="installed-heading">
+          <SectionHeader
+            title={t("Installed")}
+            description={t("What this machine has, and the GameVault folders Ludex can link without copying them.")}
+          />
+          <div id="installed-heading" className="border-t border-line pt-5">
+            <InstalledPanel />
           </div>
         </section>
       )}

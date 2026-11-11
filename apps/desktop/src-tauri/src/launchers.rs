@@ -192,10 +192,10 @@ impl ScanRoots {
     pub fn detect(steam_root: Option<&str>) -> Self {
         let env = |key: &str| std::env::var_os(key).map(PathBuf::from);
         let home = env("HOME").or_else(|| env("USERPROFILE"));
-        let config_home = env("XDG_CONFIG_HOME")
-            .or_else(|| home.as_ref().map(|home| home.join(".config")));
-        let data_home = env("XDG_DATA_HOME")
-            .or_else(|| home.as_ref().map(|home| home.join(".local/share")));
+        let config_home =
+            env("XDG_CONFIG_HOME").or_else(|| home.as_ref().map(|home| home.join(".config")));
+        let data_home =
+            env("XDG_DATA_HOME").or_else(|| home.as_ref().map(|home| home.join(".local/share")));
         Self {
             steam: steam::discover_roots(steam_root).into_iter().next(),
             program_data: env("PROGRAMDATA"),
@@ -232,7 +232,12 @@ impl Collector {
     }
 
     fn warn(&mut self, message: String) {
-        if !self.scan.warnings.iter().any(|existing| existing == &message) {
+        if !self
+            .scan
+            .warnings
+            .iter()
+            .any(|existing| existing == &message)
+        {
             self.scan.warnings.push(message);
         }
     }
@@ -255,12 +260,9 @@ impl Collector {
                 game.source.label()
             ));
         }
-        if self
-            .scan
-            .games
-            .iter()
-            .any(|existing| existing.source == game.source && existing.external_id == game.external_id)
-        {
+        if self.scan.games.iter().any(|existing| {
+            existing.source == game.source && existing.external_id == game.external_id
+        }) {
             return;
         }
         // Two clients can report the same installation (Epic and Heroic, for
@@ -324,9 +326,11 @@ pub fn scan(roots: &ScanRoots) -> LauncherScan {
     }
     scan.sources = sources;
     scan.games.sort_by(|left, right| {
-        left.source
-            .cmp(&right.source)
-            .then_with(|| left.name.to_ascii_lowercase().cmp(&right.name.to_ascii_lowercase()))
+        left.source.cmp(&right.source).then_with(|| {
+            left.name
+                .to_ascii_lowercase()
+                .cmp(&right.name.to_ascii_lowercase())
+        })
     });
     scan
 }
@@ -404,13 +408,15 @@ fn scan_epic(collector: &mut Collector, roots: &ScanRoots) -> LauncherSource {
             };
             match parse_epic_manifest(&text) {
                 Ok(Some(manifest)) => {
-                    let merged = by_app.entry(manifest.app_name.clone()).or_insert(EpicEntry {
-                        app_name: manifest.app_name.clone(),
-                        display_name: manifest.display_name.clone(),
-                        install_location: manifest.install_location.clone(),
-                        namespace: None,
-                        catalog_item_id: None,
-                    });
+                    let merged = by_app
+                        .entry(manifest.app_name.clone())
+                        .or_insert(EpicEntry {
+                            app_name: manifest.app_name.clone(),
+                            display_name: manifest.display_name.clone(),
+                            install_location: manifest.install_location.clone(),
+                            namespace: None,
+                            catalog_item_id: None,
+                        });
                     merged.namespace = manifest.namespace.clone().or(merged.namespace.take());
                     merged.catalog_item_id = manifest
                         .catalog_item_id
@@ -424,7 +430,9 @@ fn scan_epic(collector: &mut Collector, roots: &ScanRoots) -> LauncherSource {
                     }
                 }
                 Ok(None) => {}
-                Err(error) => collector.warn(format!("Could not parse {}: {error}", path.display())),
+                Err(error) => {
+                    collector.warn(format!("Could not parse {}: {error}", path.display()))
+                }
             }
         }
     }
@@ -519,7 +527,11 @@ fn scan_gog(collector: &mut Collector, roots: &ScanRoots) -> LauncherSource {
         if !available {
             "GOG Galaxy was not detected".to_string()
         } else {
-            format!("{} install{}", seen.len(), if seen.len() == 1 { "" } else { "s" })
+            format!(
+                "{} install{}",
+                seen.len(),
+                if seen.len() == 1 { "" } else { "s" }
+            )
         },
     )
 }
@@ -639,21 +651,29 @@ fn scan_xbox(collector: &mut Collector) -> LauncherSource {
         // resource key, not a display name.
         let mut names: BTreeMap<String, String> = BTreeMap::new();
         if let Some(text) = query_start_apps() {
-            collector.scan.roots.push("Start menu (PowerShell)".to_string());
+            collector
+                .scan
+                .roots
+                .push("Start menu (PowerShell)".to_string());
             match parse_start_apps(&text) {
                 Ok(apps) => {
                     for app in apps {
                         names.insert(app.app_id.clone(), app.name);
                     }
                 }
-                Err(error) => collector.warn(format!("Could not parse the Start menu list: {error}")),
+                Err(error) => {
+                    collector.warn(format!("Could not parse the Start menu list: {error}"))
+                }
             }
         }
 
         // The installed packages add entries the Start menu does not list and
         // give each one its real application id.
         if let Some(text) = query_appx_packages() {
-            collector.scan.roots.push("Appx packages (PowerShell)".to_string());
+            collector
+                .scan
+                .roots
+                .push("Appx packages (PowerShell)".to_string());
             match parse_appx_packages(&text) {
                 Ok(packages) => {
                     for package in packages {
@@ -686,7 +706,9 @@ fn scan_xbox(collector: &mut Collector) -> LauncherSource {
                         });
                     }
                 }
-                Err(error) => collector.warn(format!("Could not parse the Appx package list: {error}")),
+                Err(error) => {
+                    collector.warn(format!("Could not parse the Appx package list: {error}"))
+                }
             }
         }
 
@@ -713,10 +735,17 @@ fn scan_xbox(collector: &mut Collector) -> LauncherSource {
             return source_status(
                 Launcher::Xbox,
                 true,
-                format!("{found} Microsoft Store entr{}", if found == 1 { "y" } else { "ies" }),
+                format!(
+                    "{found} Microsoft Store entr{}",
+                    if found == 1 { "y" } else { "ies" }
+                ),
             );
         }
-        return source_status(Launcher::Xbox, false, "PowerShell was not available".to_string());
+        return source_status(
+            Launcher::Xbox,
+            false,
+            "PowerShell was not available".to_string(),
+        );
     }
     #[cfg(not(windows))]
     {
@@ -767,16 +796,17 @@ fn scan_heroic(collector: &mut Collector, roots: &ScanRoots) -> LauncherSource {
         candidates.push(app_data.join("heroic"));
     }
     if let Some(home) = roots.home.as_ref() {
-        candidates.push(
-            home.join(".var/app/com.heroicgameslauncher.hgl/config/heroic"),
-        );
+        candidates.push(home.join(".var/app/com.heroicgameslauncher.hgl/config/heroic"));
     }
 
     for root in candidates {
         if !root.is_dir() {
             continue;
         }
-        collector.scan.roots.push(root.to_string_lossy().to_string());
+        collector
+            .scan
+            .roots
+            .push(root.to_string_lossy().to_string());
         for (relative, runner) in [
             ("store_cache/legendary_library.json", "epic"),
             ("store_cache/gog_library.json", "gog"),
@@ -791,7 +821,9 @@ fn scan_heroic(collector: &mut Collector, roots: &ScanRoots) -> LauncherSource {
                         collector.push(game);
                     }
                 }
-                Err(error) => collector.warn(format!("Could not parse {}: {error}", path.display())),
+                Err(error) => {
+                    collector.warn(format!("Could not parse {}: {error}", path.display()))
+                }
             }
         }
         let sideload = root.join("sideload_apps/library.json");
@@ -809,7 +841,11 @@ fn scan_heroic(collector: &mut Collector, roots: &ScanRoots) -> LauncherSource {
         }
         return source_status(Launcher::Heroic, true, root.display().to_string());
     }
-    source_status(Launcher::Heroic, false, "Heroic was not detected".to_string())
+    source_status(
+        Launcher::Heroic,
+        false,
+        "Heroic was not detected".to_string(),
+    )
 }
 
 fn scan_lutris(collector: &mut Collector, roots: &ScanRoots) -> LauncherSource {
@@ -840,7 +876,11 @@ fn scan_lutris(collector: &mut Collector, roots: &ScanRoots) -> LauncherSource {
             Err(error) => collector.warn(format!("Could not read {}: {error}", database.display())),
         }
     }
-    source_status(Launcher::Lutris, false, "Lutris was not detected".to_string())
+    source_status(
+        Launcher::Lutris,
+        false,
+        "Lutris was not detected".to_string(),
+    )
 }
 
 #[cfg(windows)]
@@ -1146,7 +1186,10 @@ fn split_registry_value(line: &str) -> Option<(String, String)> {
         if preceded {
             let rest = &line[position + "REG_".len()..];
             let (kind, value) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
-            if REGISTRY_TYPES.iter().any(|known| kind.eq_ignore_ascii_case(known)) {
+            if REGISTRY_TYPES
+                .iter()
+                .any(|known| kind.eq_ignore_ascii_case(known))
+            {
                 let name = line[..position].trim();
                 if name.is_empty() {
                     return None;
@@ -1220,7 +1263,12 @@ pub fn parse_ea_registry(text: &str) -> Result<Vec<DiscoveredGame>, String> {
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| leaf.clone());
         let install_dir = key
-            .value(&["Install Dir", "InstallDir", "installDir", "Install Location"])
+            .value(&[
+                "Install Dir",
+                "InstallDir",
+                "installDir",
+                "Install Location",
+            ])
             .map(strip_quotes)
             .filter(|path| !path.is_empty());
         // Origin-era keys sometimes carry the offer id that the EA app still
@@ -1369,9 +1417,9 @@ pub fn read_gog_database(path: &Path) -> Result<Vec<DiscoveredGame>, String> {
             ],
         );
         let sql = match install {
-            Some(install) => format!(
-                "SELECT \"{id}\", \"{title}\", \"{install}\" FROM \"{table}\""
-            ),
+            Some(install) => {
+                format!("SELECT \"{id}\", \"{title}\", \"{install}\" FROM \"{table}\"")
+            }
             None => format!("SELECT \"{id}\", \"{title}\", NULL FROM \"{table}\""),
         };
         let Ok(mut statement) = connection.prepare(&sql) else {
@@ -1388,7 +1436,10 @@ pub fn read_gog_database(path: &Path) -> Result<Vec<DiscoveredGame>, String> {
             continue;
         };
         for row in rows.flatten() {
-            let install_dir = row.2.map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
+            let install_dir = row
+                .2
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
             games.push(DiscoveredGame {
                 source: Launcher::Gog,
                 external_id: row.0.clone(),
@@ -1553,7 +1604,10 @@ pub fn read_lutris_database(path: &Path) -> Result<Vec<DiscoveredGame>, String> 
             source: Launcher::Lutris,
             external_id: row.0.clone(),
             name,
-            install_dir: row.2.map(|path| path.trim().to_string()).filter(|path| !path.is_empty()),
+            install_dir: row
+                .2
+                .map(|path| path.trim().to_string())
+                .filter(|path| !path.is_empty()),
             launch_uri: Some(lutris_uri(&row.0)),
             size_bytes: 0,
             last_played: None,
@@ -1576,7 +1630,8 @@ pub fn parse_heroic_library(
     text: &str,
     runner: Option<&str>,
 ) -> Result<Vec<DiscoveredGame>, String> {
-    let value: Value = serde_json::from_str(text).map_err(|error| format!("invalid JSON: {error}"))?;
+    let value: Value =
+        serde_json::from_str(text).map_err(|error| format!("invalid JSON: {error}"))?;
     let entries = value
         .get("games")
         .and_then(Value::as_array)
@@ -1675,7 +1730,8 @@ const NON_GAME_PACKAGES: [&str; 22] = [
 /// OS's own package families are skipped.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn parse_start_apps(text: &str) -> Result<Vec<StartApp>, String> {
-    let value: Value = serde_json::from_str(text).map_err(|error| format!("invalid JSON: {error}"))?;
+    let value: Value =
+        serde_json::from_str(text).map_err(|error| format!("invalid JSON: {error}"))?;
     let entries: Vec<&Value> = match &value {
         Value::Array(items) => items.iter().collect(),
         Value::Object(_) => vec![&value],
@@ -1732,7 +1788,8 @@ pub struct AppxPackage {
 /// leftovers rather than games.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn parse_appx_packages(text: &str) -> Result<Vec<AppxPackage>, String> {
-    let value: Value = serde_json::from_str(text).map_err(|error| format!("invalid JSON: {error}"))?;
+    let value: Value =
+        serde_json::from_str(text).map_err(|error| format!("invalid JSON: {error}"))?;
     let entries: Vec<&Value> = match &value {
         Value::Array(items) => items.iter().collect(),
         Value::Object(_) => vec![&value],
@@ -1741,14 +1798,16 @@ pub fn parse_appx_packages(text: &str) -> Result<Vec<AppxPackage>, String> {
 
     let mut packages = Vec::new();
     for entry in entries {
-        let Some(package_family_name) = json_str(entry, &["PackageFamilyName", "packageFamilyName"])
+        let Some(package_family_name) =
+            json_str(entry, &["PackageFamilyName", "packageFamilyName"])
         else {
             continue;
         };
         let Some(name) = json_str(entry, &["Name", "name"]) else {
             continue;
         };
-        let signature_kind = json_str(entry, &["SignatureKind", "signatureKind"]).map(str::to_string);
+        let signature_kind =
+            json_str(entry, &["SignatureKind", "signatureKind"]).map(str::to_string);
         if signature_kind
             .as_deref()
             .is_some_and(|kind| !kind.eq_ignore_ascii_case("store"))
@@ -1861,11 +1920,15 @@ pub fn validate_launch_uri(value: &str) -> Result<String, String> {
         return Err("The launch URI contains control characters.".to_string());
     }
     let Some((scheme, _rest)) = uri.split_once(':') else {
-        return Err("The launch URI needs a scheme, for example steam://rungameid/440.".to_string());
+        return Err(
+            "The launch URI needs a scheme, for example steam://rungameid/440.".to_string(),
+        );
     };
-    if scheme.is_empty() || !scheme.chars().all(|character| {
-        character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.')
-    }) {
+    if scheme.is_empty()
+        || !scheme.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.')
+        })
+    {
         return Err(format!("“{scheme}” is not a valid URI scheme."));
     }
     if BLOCKED_SCHEMES.contains(&scheme.to_ascii_lowercase().as_str()) {
@@ -1907,7 +1970,10 @@ pub fn resolve_import(
         })?,
     };
     if !source.supported_here() {
-        return Err(format!("{} is not available on this platform.", source.label()));
+        return Err(format!(
+            "{} is not available on this platform.",
+            source.label()
+        ));
     }
     if entry.game_id.is_some_and(|game_id| game_id <= 0) {
         return Err("A Ludex game id must be a positive game id.".to_string());
@@ -1920,7 +1986,9 @@ pub fn resolve_import(
         install_dir: game.install_dir.clone(),
         launch_uri,
         size_bytes: game.size_bytes,
-        game_id: entry.game_id.or_else(|| matched.get(&entry.external_id).copied()),
+        game_id: entry
+            .game_id
+            .or_else(|| matched.get(&entry.external_id).copied()),
     })
 }
 
@@ -2034,9 +2102,11 @@ mod tests {
         let entry = parse_epic_manifest(manifest).unwrap().unwrap();
         assert_eq!(entry.namespace.as_deref(), Some("abc"));
         assert_eq!(entry.catalog_item_id.as_deref(), Some("def"));
-        assert!(parse_epic_manifest(&manifest.replace("\"games\"", "\"plugins\""))
-            .unwrap()
-            .is_none());
+        assert!(
+            parse_epic_manifest(&manifest.replace("\"games\"", "\"plugins\""))
+                .unwrap()
+                .is_none()
+        );
         assert!(parse_epic_manifest("nope").is_err());
         assert!(parse_epic_manifest(r#"{"AppCategories":["games"]}"#)
             .unwrap()
@@ -2074,11 +2144,13 @@ HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\GOG.com\Games\1423049311
 
     #[test]
     fn registry_output_tolerates_noise_and_empty_keys() {
-        let keys = parse_registry_output(
-            "garbage\n\nHKCU\\Software\\Test\n    Value    REG_SZ    a  b\n",
-        );
+        let keys =
+            parse_registry_output("garbage\n\nHKCU\\Software\\Test\n    Value    REG_SZ    a  b\n");
         assert_eq!(keys.len(), 1);
-        assert_eq!(keys[0].values.get("Value").map(String::as_str), Some("a  b"));
+        assert_eq!(
+            keys[0].values.get("Value").map(String::as_str),
+            Some("a  b")
+        );
         assert!(parse_gog_registry("").unwrap().is_empty());
         assert!(parse_gog_registry("HKLM\\X\n    path    REG_SZ    C:\\x\n")
             .unwrap()
@@ -2178,7 +2250,10 @@ HKEY_CURRENT_USER\Software\Ubisoft\Launcher\Installs\NotAnId
         // Store + no signature: a missing SignatureKind is kept, a Developer
         // package and the OS package family are dropped.
         assert_eq!(packages.len(), 2, "{packages:?}");
-        assert_eq!(packages[0].package_family_name, "Microsoft.FlightSimulator_8wekyb3d8bbwe");
+        assert_eq!(
+            packages[0].package_family_name,
+            "Microsoft.FlightSimulator_8wekyb3d8bbwe"
+        );
         assert!(packages[1].install_location.is_none());
         assert!(parse_appx_packages("nope").is_err());
     }
@@ -2261,7 +2336,10 @@ HKEY_CURRENT_USER\Software\Ubisoft\Launcher\Installs\NotAnId
         let games = read_itch_database(&database).unwrap();
         assert_eq!(games.len(), 2);
         assert_eq!(games[0].name, "Celeste");
-        assert_eq!(games[0].launch_uri.as_deref(), Some("itch://caves/7/launch"));
+        assert_eq!(
+            games[0].launch_uri.as_deref(),
+            Some("itch://caves/7/launch")
+        );
         // Without a matching game row the folder name is used.
         assert_eq!(games[1].name, "unknown");
 
@@ -2405,10 +2483,22 @@ HKEY_CURRENT_USER\Software\Ubisoft\Launcher\Installs\NotAnId
     #[test]
     fn import_resolution_prefers_manual_mapping_and_uri() {
         let games = vec![
-            discovered(Launcher::Epic, "Sugar", "Sugar", Some("/games/sugar"), "com.epicgames.launcher://apps/Sugar?action=launch"),
+            discovered(
+                Launcher::Epic,
+                "Sugar",
+                "Sugar",
+                Some("/games/sugar"),
+                "com.epicgames.launcher://apps/Sugar?action=launch",
+            ),
             DiscoveredGame {
                 launch_uri: None,
-                ..discovered(Launcher::Ea, "MassEffect", "Mass Effect", Some("/games/me"), "")
+                ..discovered(
+                    Launcher::Ea,
+                    "MassEffect",
+                    "Mass Effect",
+                    Some("/games/me"),
+                    "",
+                )
             },
         ];
         let mut matched = BTreeMap::new();
@@ -2422,7 +2512,10 @@ HKEY_CURRENT_USER\Software\Ubisoft\Launcher\Installs\NotAnId
         };
         let target = resolve_import(&entry, &games, &matched).unwrap();
         assert_eq!(target.game_id, Some(12));
-        assert_eq!(target.launch_uri, "com.epicgames.launcher://apps/Sugar?action=launch");
+        assert_eq!(
+            target.launch_uri,
+            "com.epicgames.launcher://apps/Sugar?action=launch"
+        );
 
         let manual = ImportEntry {
             source: "epic".into(),
@@ -2536,8 +2629,14 @@ HKEY_CURRENT_USER\Software\Ubisoft\Launcher\Installs\NotAnId
         assert_eq!(scan.games[0].name, "Sugar");
         assert_eq!(scan.games[1].source, Launcher::Lutris);
         assert_eq!(scan.games[1].name, "Hades");
-        assert!(scan.sources.iter().any(|source| source.id == Launcher::Lutris && source.available));
-        assert!(scan.sources.iter().any(|source| source.id == Launcher::Xbox && !source.available));
+        assert!(scan
+            .sources
+            .iter()
+            .any(|source| source.id == Launcher::Lutris && source.available));
+        assert!(scan
+            .sources
+            .iter()
+            .any(|source| source.id == Launcher::Xbox && !source.available));
 
         std::fs::remove_dir_all(&root).ok();
     }
@@ -2584,15 +2683,27 @@ HKEY_CURRENT_USER\Software\Ubisoft\Launcher\Installs\NotAnId
             ..ScanRoots::default()
         });
         assert!(scan.games.is_empty());
-        assert!(scan.warnings.iter().any(|warning| warning.contains("Could not parse")));
+        assert!(scan
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("Could not parse")));
 
         std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
     fn steam_imports_keep_the_historical_local_id() {
-        let game = discovered(Launcher::Steam, "440", "Team Fortress 2", Some("/steam/tf2"), "steam://rungameid/440");
+        let game = discovered(
+            Launcher::Steam,
+            "440",
+            "Team Fortress 2",
+            Some("/steam/tf2"),
+            "steam://rungameid/440",
+        );
         assert_eq!(game.local_id(), -440);
-        assert_eq!(steam::app_id_from_uri(game.launch_uri.as_deref().unwrap()), Some(440));
+        assert_eq!(
+            steam::app_id_from_uri(game.launch_uri.as_deref().unwrap()),
+            Some(440)
+        );
     }
 }

@@ -1,5 +1,6 @@
 //! Ludex desktop application (Tauri 2).
 
+mod adopt;
 mod bridge;
 mod chrome;
 mod commands;
@@ -9,8 +10,8 @@ mod db;
 mod game_config;
 mod install;
 mod installer;
-mod launchers;
 mod launch;
+mod launchers;
 mod linux_gaming;
 mod locations;
 mod maintenance;
@@ -147,6 +148,13 @@ pub fn run() {
             commands::steam_import,
             commands::launcher_scan,
             commands::launcher_import,
+            commands::adopt_installation,
+            commands::confirm_adopt_installation,
+            commands::build_install_manifest,
+            commands::unlink_installation,
+            commands::delete_adopted_installation,
+            commands::scan_gamevault_folders,
+            commands::adopt_gamevault_installations,
             commands::compat_scan,
             commands::get_launch_options,
             commands::set_launch_options,

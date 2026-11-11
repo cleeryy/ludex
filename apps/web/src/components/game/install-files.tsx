@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, ShieldCheck, Wrench } from "lucide-react";
+import { FileSignature, RefreshCw, ShieldCheck, Wrench } from "lucide-react";
 import { installBridge } from "@/lib/install";
 import { isNative, native } from "@/lib/native";
 import { errorMessage } from "@/lib/http";
 import { formatBytes } from "@/lib/format";
-import type { RepairProgress, RepairReport, VerifyProgress, VerifyReport } from "@/lib/types";
+import type { ManifestProgress, RepairProgress, RepairReport, VerifyProgress, VerifyReport } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Progress } from "@/components/ui/controls";
 import { SectionHeader } from "@/components/page";
@@ -15,15 +15,18 @@ import { t, tn } from "@/lib/i18n";
 /**
  * Verify / repair panel (#37) for an installed game. Verification compares the
  * files on disk with the manifest recorded at install time; repair restores the
- * damaged files from the version archive.
+ * damaged files from the version archive. An adopted folder (#129) has no
+ * manifest until "Build manifest" hashes it; until then Verify reports
+ * `noManifest` instead of a clean pass.
  */
 export function InstallFiles({ gameId, title }: { gameId: number; title: string }) {
   const { push } = useToast();
   const queryClient = useQueryClient();
-  const [busy, setBusy] = useState<"verify" | "repair" | null>(null);
+  const [busy, setBusy] = useState<"verify" | "repair" | "manifest" | null>(null);
   const [report, setReport] = useState<VerifyReport | null>(null);
   const [repair, setRepair] = useState<RepairReport | null>(null);
   const [progress, setProgress] = useState<VerifyProgress | null>(null);
+  const [manifestProgress, setManifestProgress] = useState<ManifestProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -44,6 +47,11 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
     add(
       native.onRepairProgress((update: RepairProgress) => {
         if (update.gameId === gameId) setProgress(update);
+      }),
+    );
+    add(
+      native.onManifestProgress((update) => {
+        if (update.gameId === gameId) setManifestProgress(update);
       }),
     );
     return () => {
@@ -105,7 +113,39 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
   };
 
   const percent = progress && progress.bytesTotal > 0 ? Math.min(100, (progress.bytesDone / progress.bytesTotal) * 100) : null;
+  const manifestPercent =
+    manifestProgress && manifestProgress.bytesTotal > 0
+      ? Math.min(100, (manifestProgress.bytesDone / manifestProgress.bytesTotal) * 100)
+      : null;
   const damaged = report ? report.missing.length + report.corrupt.length : 0;
+
+  /** Hash the folder into a manifest so Verify/Repair can run (#129). */
+  const buildManifest = async () => {
+    setBusy("manifest");
+    setError(null);
+    setManifestProgress(null);
+    try {
+      const built = await native.buildInstallManifest(gameId);
+      push({
+        title: t("Manifest built for {title}", { title }),
+        description: t("{files} hashed ({size}). Verify can now compare the folder with it.", {
+          files: tn(built.files, "1 file", "{count} files"),
+          size: formatBytes(built.bytes),
+        }),
+        tone: "success",
+      });
+      setReport(null);
+      setRepair(null);
+      setProgress(null);
+    } catch (cause) {
+      const message = errorMessage(cause);
+      setError(message);
+      push({ title: t("Could not build the manifest"), description: message, tone: "danger" });
+    } finally {
+      setBusy(null);
+      setManifestProgress(null);
+    }
+  };
 
   return (
     <section className="mt-12" aria-labelledby="installed-files-heading">
@@ -114,6 +154,17 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
         description={t("Checks the files on this disk against the manifest recorded at install time")}
         actions={
           <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-ink-2"
+              icon={<FileSignature className="size-3.5" />}
+              loading={busy === "manifest"}
+              disabled={busy !== null}
+              onClick={() => void buildManifest()}
+            >
+              {t("Build manifest")}
+            </Button>
             <Button
               variant="ghost"
               size="sm"
@@ -140,6 +191,20 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
         }
       />
       <div id="installed-files-heading" className="border-t border-line pt-4">
+        {busy === "manifest" && (
+          <div className="max-w-[520px]">
+            <Progress value={manifestPercent} label={t("Manifest progress")} />
+            <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 font-mono text-[10.5px] text-ink-3">
+              <RefreshCw className="size-3 animate-spin" aria-hidden="true" />
+              <span>{manifestProgress?.message ?? t("Hashing the installed files…")}</span>
+              {manifestProgress && manifestProgress.filesTotal > 0 && (
+                <span>
+                  {t("{done} / {total} files", { done: manifestProgress.filesDone, total: manifestProgress.filesTotal })}
+                </span>
+              )}
+            </p>
+          </div>
+        )}
         {busy && (
           <div className="max-w-[520px]">
             <Progress value={percent} label={t("File check progress")} />
@@ -176,7 +241,21 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
             </div>
 
             {report.status === "noManifest" && (
-              <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-ink-3">{report.message}</p>
+              <div className="flex flex-col gap-2">
+                <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-ink-3">{report.message}</p>
+                <div>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    icon={<FileSignature className="size-3.5" />}
+                    loading={busy === "manifest"}
+                    disabled={busy !== null}
+                    onClick={() => void buildManifest()}
+                  >
+                    {t("Build manifest")}
+                  </Button>
+                </div>
+              </div>
             )}
 
             {report.status === "ok" && (

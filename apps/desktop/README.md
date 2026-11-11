@@ -414,6 +414,59 @@ external rows. Nothing is downloaded, copied or moved.
   session; for games the client launches out of process the session can be
   short.
 
+### Adopted installs (#129)
+
+An adopted install links a game folder that already exists on this machine —
+typically a GameVault download — to a library game. Ludex launches the detected
+executable in place, tracks playtime and can remove the entry or, after an
+explicit confirmation, the folder. Nothing is downloaded, copied or moved.
+
+| Action | Command | Files |
+|---|---|---|
+| Inspect a folder | `adopt_installation { gameId, folder, versionId? }` | read only, returns executable/size/file count/warnings |
+| Link it | `confirm_adopt_installation { gameId, folder, versionId?, executable?, replace? }` | writes the index row only |
+| Hash it | `build_install_manifest { gameId }` | writes a manifest row in SQLite, never inside the folder |
+| Remove from Ludex | `unlink_installation { gameId }` | kept |
+| Uninstall and delete | `delete_adopted_installation { gameId, confirmPath }` | deleted, only after an exact confirmation |
+| Scan a GameVault root | `scan_gamevault_folders { root }` + `adopt_gamevault_installations` | read only / index rows |
+
+- Adopted rows have `source: "adopted"`, `installPath` = the canonical chosen
+  folder, `installRoot` = its parent, `versionId: 0` unless the user picked a
+  server version (the version is never guessed from the title) and
+  `archiveHash: null`. One row per game: replacing an existing `ludex` or
+  launcher row requires the explicit `replace: true` the UI only sends after
+  showing the conflict. A folder already owned by a launcher import (#116) is
+  refused, and so is the same folder adopted for two games.
+- Paths are canonicalized and stored canonical. Relative paths, `..`, links in
+  the chosen path, drive/home roots and the Ludex install root itself are
+  refused; a tree with a symlink that points outside the folder is refused too.
+- Launch uses the normal pipeline: the executable (detected with
+  `ludex_core::pick_executable` or chosen later) runs with the folder as working
+  directory and the process tree drives playtime. `launch_game` and
+  `game://exited` carry `source: "adopted"`.
+- An adopted folder has no Ludex manifest. `verify_install` reports
+  `noManifest` with a "build a manifest" message instead of a clean pass;
+  `build_install_manifest` hashes it in the background (progress on
+  `install://manifest-progress`) so Verify/Repair work. Repair still needs a
+  server archive for the chosen version.
+- `unlink_installation` removes only the index row, manifest and detected save
+  paths: the folder stays. `delete_adopted_installation` without `confirmPath`
+  is a read-only preview (canonical folder, size, file count); with a
+  `confirmPath` that is exactly the canonical stored path it deletes the folder.
+  It refuses non-`adopted` rows, a folder that became a link, a folder directly
+  inside a drive/home/install root and any symlink escape. `uninstall_game`
+  refuses adopted rows so files can never be deleted by the ordinary uninstall
+  path.
+- `scan_gamevault_folders` lists the immediate subfolders of a root that contain
+  a plausible executable, reads an optional `gamevault.json`/`.gamevault.json`
+  title (read-only, never written) and matches folder names to library titles by
+  normalised exact title, then word-boundary containment. Several candidates are
+  reported as ambiguous and left for the game page, where the user picks the game
+  and version. Bulk adoption only accepts immediate children of the scanned root.
+- Game updates are not offered for adopted rows: an update would replace files
+  Ludex does not own. Remove or delete the adopted folder, then install the Ludex
+  version.
+
 ### Playnite (#14)
 
 `integrations/playnite/` is a read-only Playnite library plugin (C#, Playnite
@@ -536,6 +589,10 @@ watchdog still reports the session.
 - Slugs, version labels and executable overrides are sanitised and checked
   against the install folder; uninstall canonicalises and refuses paths outside
   the recorded install root.
+- Adopted folders (#129) are only deleted through `delete_adopted_installation`
+  after an exact path confirmation; `uninstall_game` refuses them so the
+  ordinary uninstall path can never remove files Ludex did not install. Launcher
+  imports keep their files on uninstall.
 - Tokens are never logged and only stored in the 0600 settings file.
 - Game configs are only written inside the recorded install folder, after a
   timestamped backup and a type check; a failed backup aborts the write.

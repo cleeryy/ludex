@@ -397,7 +397,7 @@ pub async fn verify_install(app: &AppHandle, game_id: i64) -> Result<VerifyRepor
     let root = PathBuf::from(&installed.install_path);
 
     let Some(manifest) = load_manifest(&state, game_id, &installed)? else {
-        return Ok(no_manifest_report(game_id));
+        return Ok(no_manifest_report(game_id, &installed.source));
     };
 
     let handle = app.clone();
@@ -452,7 +452,12 @@ fn verify_done(report: &VerifyReport) -> VerifyProgress {
     }
 }
 
-fn no_manifest_report(game_id: i64) -> VerifyReport {
+fn no_manifest_report(game_id: i64, source: &str) -> VerifyReport {
+    let message = if source == db::SOURCE_ADOPTED {
+        "This adopted folder has no file manifest yet, so its files cannot be verified. Build a manifest to enable Verify and Repair."
+    } else {
+        "This install has no file manifest, so it cannot be verified. Reinstall the game to record one."
+    };
     VerifyReport {
         game_id,
         status: VerifyStatus::NoManifest,
@@ -462,10 +467,7 @@ fn no_manifest_report(game_id: i64) -> VerifyReport {
         corrupt: Vec::new(),
         extra: Vec::new(),
         checked_at: now_rfc3339(),
-        message: Some(
-            "This install has no file manifest, so it cannot be verified. Reinstall the game to record one."
-                .to_string(),
-        ),
+        message: Some(message.to_string()),
     }
 }
 
@@ -525,10 +527,14 @@ pub async fn repair_install(app: &AppHandle, game_id: i64) -> Result<RepairRepor
             repaired: Vec::new(),
             failed: Vec::new(),
             fallback: true,
-            message:
+            message: if installed.source == db::SOURCE_ADOPTED {
+                "This adopted folder has no file manifest, so Ludex cannot tell which files are damaged. Build a manifest first."
+                    .to_string()
+            } else {
                 "This install has no file manifest, so Ludex cannot tell which files are damaged. Reinstall the game instead."
-                    .to_string(),
-            verify: no_manifest_report(game_id),
+                    .to_string()
+            },
+            verify: no_manifest_report(game_id, &installed.source),
         });
     };
 

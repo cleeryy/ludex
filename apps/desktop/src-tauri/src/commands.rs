@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
+use crate::adopt;
 use crate::chrome;
 use crate::compat::{self, CompatScan};
 use crate::config_adapters::{self, AdapterReport};
@@ -16,8 +17,8 @@ use crate::db::{self, GamePlaytime, InstalledGame};
 use crate::game_config::{self, ConfigDocument, ConfigEditInput};
 use crate::install::{self, InstallJob, InstallParams};
 use crate::installer::{self, AttemptReport};
-use crate::launchers::{self, DiscoveredGame, ImportEntry, Launcher, LauncherScan};
 use crate::launch::{self, LaunchResult};
+use crate::launchers::{self, DiscoveredGame, ImportEntry, Launcher, LauncherScan};
 use crate::linux_gaming::{self, LaunchMode, LaunchOptions};
 use crate::locations::{self, LocationStatus};
 use crate::maintenance::{self, RepairReport};
@@ -386,6 +387,16 @@ pub async fn uninstall_game(app: AppHandle, game_id: i64) -> Result<(), String> 
         db::get_installed(&connection, game_id)?
     };
     let installed = installed.ok_or_else(|| format!("Game {game_id} is not installed."))?;
+
+    // An adopted folder (#129) is deleted only by `delete_adopted_installation`,
+    // which shows the canonical path, size and file count and requires an exact
+    // confirmation. Removing the entry alone is `unlink_installation`.
+    if installed.source == db::SOURCE_ADOPTED {
+        return Err(format!(
+            "“{}” is an adopted folder. Remove it from Ludex (files stay) or use Uninstall and delete files.",
+            installed.title
+        ));
+    }
 
     {
         let processes = state
@@ -1118,7 +1129,7 @@ fn imported_steam_apps(state: &AppState) -> Result<Vec<u32>, String> {
 }
 
 /// Every server game id and title, paged, for title matching.
-async fn server_game_titles(state: &AppState) -> Result<Vec<(i64, String)>, String> {
+pub(crate) async fn server_game_titles(state: &AppState) -> Result<Vec<(i64, String)>, String> {
     let settings = state.settings_snapshot();
     let base = settings.server_url.trim_end_matches('/');
     if base.is_empty() {
@@ -1489,7 +1500,9 @@ pub async fn launcher_import(
                 title: target.name.clone(),
                 reason: format!(
                     "Already imported from {} as game {game_id}.",
-                    Launcher::parse(source).map(Launcher::label).unwrap_or(source.as_str())
+                    Launcher::parse(source)
+                        .map(Launcher::label)
+                        .unwrap_or(source.as_str())
                 ),
             });
             continue;
@@ -1560,11 +1573,365 @@ pub async fn launcher_import(
     }
 
     if imported.is_empty() && skipped.is_empty() {
-        return Err("None of the selected games are installed by their launcher any more.".to_string());
+        return Err(
+            "None of the selected games are installed by their launcher any more.".to_string(),
+        );
     }
 
     crate::tray::refresh_menu(&app);
     Ok(LauncherImportReport { imported, skipped })
+}
+
+/* --------------- Adopting an existing install (#129) -------------------- */
+
+/// Title used for executable detection and the index row.
+///
+/// The UI knows the game title; the server is the fallback when it does not.
+async fn adopt_title(
+    state: &AppState,
+    game_id: i64,
+    title: Option<String>,
+) -> Result<String, String> {
+    if let Some(title) = title.map(|value| value.trim().to_string()) {
+        if !title.is_empty() {
+            return Ok(title);
+        }
+    }
+    {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        if let Some(row) = db::get_installed(&connection, game_id)? {
+            return Ok(row.title);
+        }
+    }
+
+    let settings = state.settings_snapshot();
+    let base = settings.server_url.trim_end_matches('/');
+    if base.is_empty() {
+        return Err("Pass the game title, or configure a server so Ludex can read it.".to_string());
+    }
+    let mut request = state
+        .http
+        .get(format!("{base}/api/games/{game_id}"))
+        .timeout(Duration::from_secs(15));
+    if let Some(token) = crate::util::non_empty(settings.token.as_deref()) {
+        request = request.bearer_auth(token);
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach the server: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "The server answered HTTP {} while reading the game.",
+            response.status()
+        ));
+    }
+    let value: Value = response
+        .json()
+        .await
+        .map_err(|error| format!("Invalid game payload from the server: {error}"))?;
+    value["title"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "The server game has no title.".to_string())
+}
+
+/// Inspect an existing folder without writing anything (#129).
+///
+/// Detect the executable, size and file count, match the version chosen by the
+/// user (never by title) and report an existing index row.
+#[tauri::command]
+pub async fn adopt_installation(
+    app: AppHandle,
+    game_id: i64,
+    version_id: Option<i64>,
+    version: Option<String>,
+    folder: String,
+    title: Option<String>,
+) -> Result<adopt::AdoptPreview, String> {
+    let state = app.state::<AppState>();
+    let resolved_title = adopt_title(&state, game_id, title).await?;
+    let (installed, install_root) = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        (
+            db::list_installed(&connection)?,
+            state.settings_snapshot().install_path(),
+        )
+    };
+
+    tokio::task::spawn_blocking(move || {
+        let (preview, _) = adopt::prepare_adoption(
+            &installed,
+            &install_root,
+            game_id,
+            &resolved_title,
+            version_id,
+            version.as_deref(),
+            &folder,
+            None,
+        )?;
+        Ok::<adopt::AdoptPreview, String>(preview)
+    })
+    .await
+    .map_err(|error| format!("The adoption check failed: {error}"))?
+}
+
+/// Record an adopted folder (#129). Nothing is copied or moved.
+///
+/// Replacing an existing `ludex` or launcher entry requires `replace: true`;
+/// the UI only sends it after the preview showed the conflicting entry.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn confirm_adopt_installation(
+    app: AppHandle,
+    game_id: i64,
+    version_id: Option<i64>,
+    version: Option<String>,
+    folder: String,
+    executable: Option<String>,
+    replace: Option<bool>,
+    title: Option<String>,
+) -> Result<InstalledGame, String> {
+    let state = app.state::<AppState>();
+    let resolved_title = adopt_title(&state, game_id, title).await?;
+    let (installed, install_root) = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        (
+            db::list_installed(&connection)?,
+            state.settings_snapshot().install_path(),
+        )
+    };
+
+    let (_, record) = tokio::task::spawn_blocking(move || {
+        adopt::prepare_adoption(
+            &installed,
+            &install_root,
+            game_id,
+            &resolved_title,
+            version_id,
+            version.as_deref(),
+            &folder,
+            executable.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| format!("The adoption task failed: {error}"))??;
+
+    {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        let previous = db::get_installed(&connection, game_id)?.map(|row| row.install_path);
+        db::record_adoption(&connection, &record, replace.unwrap_or(false))?;
+        if previous.is_some_and(|path| path != record.install_path) {
+            db::remove_manifest(&connection, game_id)?;
+        }
+    }
+
+    crate::tray::refresh_menu(&app);
+    tracing::info!(
+        game_id,
+        folder = %record.install_path,
+        version_id = record.version_id,
+        "adopted an existing install"
+    );
+    Ok(record)
+}
+
+/// Hash an adopted folder into a manifest so Verify/Repair work (#129).
+#[tauri::command]
+pub async fn build_install_manifest(
+    app: AppHandle,
+    game_id: i64,
+) -> Result<adopt::ManifestReport, String> {
+    adopt::build_manifest(&app, game_id).await
+}
+
+/// Remove the index row and manifest, keeping every file (#129).
+#[tauri::command]
+pub fn unlink_installation(app: AppHandle, game_id: i64) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    adopt::unlink(&state, game_id)?;
+    crate::tray::refresh_menu(&app);
+    Ok(())
+}
+
+/// Preview or delete an adopted folder (#129).
+///
+/// With no `confirmPath` this returns the canonical folder, size and file count
+/// without touching anything. With an exact `confirmPath` it deletes the folder
+/// and the index row. Launcher imports and `ludex` installs are refused.
+#[tauri::command]
+pub async fn delete_adopted_installation(
+    app: AppHandle,
+    game_id: i64,
+    confirm_path: Option<String>,
+) -> Result<adopt::DeleteAdoptedPreview, String> {
+    adopt::delete_adopted(&app, game_id, confirm_path).await
+}
+
+/// List GameVault-style install folders under a root (#129).
+#[tauri::command]
+pub async fn scan_gamevault_folders(
+    app: AppHandle,
+    root: String,
+) -> Result<adopt::GameVaultScan, String> {
+    let state = app.state::<AppState>();
+    let canonical = tokio::task::spawn_blocking(move || adopt::prepare_scan_root(&root))
+        .await
+        .map_err(|error| format!("The scan failed: {error}"))??;
+
+    let (server_games, server_listed) = match server_game_titles(&state).await {
+        Ok(games) => (games, true),
+        Err(error) => {
+            tracing::debug!(error = %error, "GameVault scan without the server");
+            (Vec::new(), false)
+        }
+    };
+    let matched = server_listed && !server_games.is_empty();
+    let installed = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::installed_paths(&connection)?
+    };
+
+    let scan_root = canonical.clone();
+    let (candidates, warnings) = tokio::task::spawn_blocking(move || {
+        adopt::scan_gamevault_root(&scan_root, &installed, &server_games)
+    })
+    .await
+    .map_err(|error| format!("The scan failed: {error}"))??;
+
+    Ok(adopt::GameVaultScan {
+        root: canonical.to_string_lossy().to_string(),
+        candidates,
+        warnings,
+        matched,
+    })
+}
+
+/// Adopt selected GameVault folders after the user confirmed each match (#129).
+#[tauri::command]
+pub async fn adopt_gamevault_installations(
+    app: AppHandle,
+    root: String,
+    entries: Vec<adopt::GameVaultAdoptEntry>,
+) -> Result<adopt::GameVaultAdoptReport, String> {
+    if entries.is_empty() {
+        return Err("Select at least one folder to adopt.".to_string());
+    }
+    let state = app.state::<AppState>();
+    let canonical_root = tokio::task::spawn_blocking(move || adopt::prepare_scan_root(&root))
+        .await
+        .map_err(|error| format!("The scan failed: {error}"))??;
+
+    let mut adopted = Vec::new();
+    let mut skipped = Vec::new();
+    let (server_games, _) = match server_game_titles(&state).await {
+        Ok(games) => (games, true),
+        Err(error) => {
+            tracing::debug!(error = %error, "bulk adoption without the server");
+            (Vec::new(), false)
+        }
+    };
+    let install_root = state.settings_snapshot().install_path();
+
+    for entry in entries {
+        let folder = entry.folder;
+        let game_id = entry.game_id;
+        let version_id = entry.version_id;
+        let version = entry.version;
+        let rows = {
+            let connection = state
+                .db
+                .lock()
+                .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+            db::list_installed(&connection)?
+        };
+        let title = server_games
+            .iter()
+            .find(|(id, _)| *id == game_id)
+            .map(|(_, title)| title.clone())
+            .or_else(|| {
+                rows.iter()
+                    .find(|row| row.game_id == game_id)
+                    .map(|row| row.title.clone())
+            })
+            .unwrap_or_else(|| {
+                // No server title and no existing row: use the folder name, not
+                // the whole path, as the display title.
+                std::path::Path::new(&folder)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_else(|| folder.clone())
+            });
+
+        let task_root = canonical_root.clone();
+        let task_install_root = install_root.clone();
+        let task_folder = folder.clone();
+        let prepared = tokio::task::spawn_blocking(move || {
+            // Every bulk entry must be an immediate child of the scanned root:
+            // the UI cannot widen the adoption surface with a crafted path.
+            let canonical = adopt::canonical_folder(&task_folder)?;
+            if canonical.parent() != Some(task_root.as_path()) {
+                return Err(format!(
+                    "{} is not inside the scanned folder.",
+                    canonical.display()
+                ));
+            }
+            adopt::prepare_adoption(
+                &rows,
+                &task_install_root,
+                game_id,
+                &title,
+                version_id,
+                version.as_deref(),
+                &canonical.to_string_lossy(),
+                None,
+            )
+        })
+        .await
+        .map_err(|error| format!("The adoption task failed: {error}"));
+
+        match prepared {
+            Ok(Ok((_, record))) => {
+                let result = {
+                    let connection = state.db.lock().map_err(|_| {
+                        "The local database is unavailable; restart Ludex.".to_string()
+                    })?;
+                    db::record_adoption(&connection, &record, false)
+                };
+                match result {
+                    Ok(()) => adopted.push(record),
+                    Err(reason) => skipped.push(adopt::GameVaultAdoptSkip {
+                        folder: record.install_path,
+                        reason,
+                    }),
+                }
+            }
+            Ok(Err(reason)) | Err(reason) => {
+                skipped.push(adopt::GameVaultAdoptSkip { folder, reason })
+            }
+        }
+    }
+
+    if adopted.is_empty() && skipped.is_empty() {
+        return Err("None of the selected folders could be adopted.".to_string());
+    }
+    crate::tray::refresh_menu(&app);
+    Ok(adopt::GameVaultAdoptReport { adopted, skipped })
 }
 
 /* ------------- Linux compatibility (#89, #90, #91, #92, #93) ------------- */

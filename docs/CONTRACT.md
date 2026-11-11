@@ -974,8 +974,8 @@ interface InstalledGame {
   installedAt: string; lastLaunchedAt: string | null;
   /** Fingerprint of the archive this install came from, when known. */
   archiveHash: string | null;
-  /** `ludex` entries were installed here; everything else is a launcher import (#13, #116). */
-  source: "ludex" | "steam" | "epic" | "gog" | "ea" | "ubisoft" | "xbox" | "itch" | "heroic" | "lutris";
+  /** `ludex` entries were installed here, `adopted` folders were linked in place (#129); everything else is a launcher import (#13, #116). */
+  source: "ludex" | "adopted" | "steam" | "epic" | "gog" | "ea" | "ubisoft" | "xbox" | "itch" | "heroic" | "lutris";
   /** External launch URI (`steam://rungameid/<appid>`) for imported entries. */
   launchUri: string | null;
 }
@@ -1075,7 +1075,62 @@ interface LauncherImportEntry {
 interface LauncherImportReport {
   imported: InstalledGame[];
   skipped: { source: string; externalId: string; title: string; reason: string }[];
-}[];
+}
+
+/** Adopting an existing local folder (#129). */
+interface AdoptExistingInstall {
+  gameId: number; title: string; source: string; installPath: string;
+}
+
+interface AdoptPreview {
+  folder: string;              // canonical folder that would be stored
+  executable: string | null;   // detected with ludex_core::pick_executable
+  sizeBytes: number;
+  fileCount: number;
+  versionId: number;           // 0 = unknown, never guessed from the title
+  version: string | null;
+  warnings: string[];
+  existing: AdoptExistingInstall | null; // needs replace: true when not adopted
+}
+
+interface DeleteAdoptedPreview {
+  folder: string; sizeBytes: number; fileCount: number;
+  deleted: boolean;            // false for the preview call
+  missing: boolean;            // folder already gone; only the row was removed
+  warnings: string[];
+}
+
+interface ManifestReport { gameId: number; files: number; bytes: number; builtAt: string }
+
+interface ManifestProgress {
+  gameId: number; filesDone: number; filesTotal: number;
+  bytesDone: number; bytesTotal: number; message: string;
+}
+
+type GameVaultMatchStatus = "exact" | "containment" | "ambiguous" | "none";
+
+interface GameVaultCandidate {
+  folder: string; name: string; executable: string | null;
+  sizeBytes: number; fileCount: number;
+  metadataTitle: string | null;      // read from gamevault.json, never written
+  matchedGameId: number | null; matchedTitle: string | null;
+  matchStatus: GameVaultMatchStatus; // ambiguous is never adopted automatically
+  installed: string | null;          // adopted / ludex / launcher id
+  notes: string[];
+}
+
+interface GameVaultScan {
+  root: string;
+  candidates: GameVaultCandidate[];
+  warnings: string[];
+  matched: boolean;                  // false: the server could not be listed
+}
+
+interface GameVaultAdoptEntry { folder: string; gameId: number; versionId?: number | null; version?: string | null }
+
+interface GameVaultAdoptReport {
+  adopted: InstalledGame[];
+  skipped: { folder: string; reason: string }[];
 }
 
 /** How a game is started on Linux (#89); stored per game in the desktop index. */
@@ -1329,6 +1384,13 @@ interface AdapterReport {
 | `steam_import` | `{ appIds }` | `SteamImportReport`; no download, launches through Steam |
 | `launcher_scan` | — | `LauncherPreview`; reads Steam, Epic, GOG, EA, Ubisoft, Xbox, itch, Heroic and Lutris metadata (#116), matches titles and marks existing imports |
 | `launcher_import` | `{ entries: LauncherImportEntry[] }` | `LauncherImportReport`; writes external rows with `launchUri`, `versionId: 0`, `source` = launcher id. Nothing is downloaded or copied; a second import of the same URI is refused |
+| `adopt_installation` | `{ gameId, folder, versionId?, version?, title? }` | `AdoptPreview`; canonicalizes and validates the folder, runs `pick_executable`, returns size/file count/warnings and any existing row. Writes nothing (#129) |
+| `confirm_adopt_installation` | `{ gameId, folder, versionId?, version?, executable?, replace?, title? }` | `InstalledGame`; writes the `source: "adopted"` row with `installRoot` = the folder's parent and `archiveHash: null`. Nothing is copied or moved. Replacing a `ludex`/launcher row requires `replace: true`; launcher-owned folders are refused |
+| `build_install_manifest` | `{ gameId }` | `ManifestReport`; hashes the folder into `install_manifests` (progress on `install://manifest-progress`). No file is written inside the game folder |
+| `unlink_installation` | `{ gameId }` | `null`; removes the index row, manifest and detected save paths. Files stay on disk |
+| `delete_adopted_installation` | `{ gameId, confirmPath? }` | `DeleteAdoptedPreview`; without `confirmPath` it only counts files/size. With a `confirmPath` exactly equal to the canonical stored path it deletes the folder and the row. Refuses non-adopted rows, symlinks and folders directly inside a drive/home/install root |
+| `scan_gamevault_folders` | `{ root }` | `GameVaultScan`; lists immediate subfolders with a plausible executable, reads an optional `gamevault.json` title (read-only) and matches library titles by exact normalised title, then word-boundary containment. Ambiguity is reported, never guessed |
+| `adopt_gamevault_installations` | `{ root, entries: GameVaultAdoptEntry[] }` | `GameVaultAdoptReport`; bulk adoption of selected candidates after confirmation. Every folder must be an immediate child of `root`; per-entry failures are skipped with a reason |
 | `detect_save_paths` | `{ gameId }` | `SavePaths`; runs Ludusavi CLI/manifest detection, merges persisted manual paths and saves the mapping + preview. `saves` entries are `{ path, kind: "file" \| "directory", source: "manifest" \| "manual" \| "override", primary, sizeBytes, lastModified, notes }`; `detected: false` plus `message` is the explicit "no save folder detected" state. Paths stay local |
 | `redetect_save_paths` | `{ gameId }` | `SavePaths`; same as `detect_save_paths`, for a re-run after the game created its saves |
 | `get_save_paths` | `{ gameId }` | `SavePaths` from SQLite + last preview; never rescans the disk |
@@ -1356,7 +1418,8 @@ Events:
 - `install://move-progress` → `{ gameId, bytesDone, bytesTotal, message }`
 - `install://verify-progress` → `{ gameId, filesDone, filesTotal, bytesDone, bytesTotal, message }`
 - `install://repair-progress` → same shape plus `phase: "downloading" | "extracting" | "restoring" | "verifying"`
-- `game://exited` → `{ sessionId, gameId, minutesPlayed, secondsPlayed }`
+- `game://exited` → `{ sessionId, gameId, minutesPlayed, secondsPlayed, source }` (#129 adds `source`)
+- `install://manifest-progress` → `{ gameId, filesDone, filesTotal, bytesDone, bytesTotal, message }` (#129)
 - `cloud-save://synced` → `gameId` (automatic upload completed or was unchanged)
 - `cloud-save://pending` → `gameId` (automatic upload failed and was queued for retry)
 - `local-server://status` → `{ running, url }`
@@ -1367,8 +1430,9 @@ Events:
 - `update://installed` → `{ version, restarted }`
 - `installer://done` → `{ gameId, success, exitCode, tool }` (#7, #93; `tool` is
   the Linux compatibility tool or `null`)
-- `launch_game` returns `{ sessionId, tool }`; `tool` is the Linux
-  compatibility tool name when one was used (#89)
+- `launch_game` returns `{ sessionId, tool, source }`; `tool` is the Linux
+  compatibility tool name when one was used (#89), `source` is the install
+  source (`ludex`, `adopted`, or a launcher id) since #129.
 
 Native install layout: `{installDir}/{slug}/{versionLabel}/game files` plus a
 desktop SQLite index at `{appDataDir}/ludex-desktop.db` (installed games,
@@ -1436,6 +1500,35 @@ archive by default (`keepArchives` setting false).
   schemes are refused. Uninstalling an import only removes the index entry,
   never the launcher's files. Playtime for negative ids is not synced to the
   server.
+- **Adopted installs (#129).** `adopt_installation` validates a folder the user
+  points at (absolute, canonical, no `..`, no link in the chosen path, not a
+  drive/home root or the install root, no symlink escaping the tree), detects
+  the executable with `ludex_core::pick_executable` and returns a preview
+  (executable, size, file count, version, warnings, existing row). Nothing is
+  written until `confirm_adopt_installation`, and nothing is ever copied or
+  moved. The row uses `source: "adopted"`, `installRoot` = the folder's parent,
+  `versionId: 0` ("unknown") unless the user picked a server version — versions
+  are never matched from the title — and `archiveHash: null`. One row per game:
+  replacing a `ludex` or launcher row needs `replace: true`, a folder already
+  owned by a launcher import (#116) is refused, and the same folder cannot back
+  two entries. Launching uses the normal pipeline with the folder as working
+  directory and process-tree playtime; `launch_game` and `game://exited` report
+  the source. An adopted folder has no manifest, so `verify_install` returns
+  `noManifest` until `build_install_manifest` hashes it (progress on
+  `install://manifest-progress`); Repair still needs a server archive.
+  `unlink_installation` drops the row/manifest/save paths and keeps the files;
+  `delete_adopted_installation` previews (canonical path, size, file count) and
+  deletes only with a `confirmPath` exactly equal to the stored canonical path,
+  refusing non-adopted rows, links and folders directly inside a drive, home or
+  install root. `uninstall_game` refuses adopted rows. Game updates are not
+  offered for adopted rows: an update would replace files Ludex does not own.
+  `scan_gamevault_folders` lists the immediate subfolders of a root that contain
+  a plausible executable, reads an optional `gamevault.json`/`.gamevault.json`
+  title without writing it, and matches folder names to library titles by exact
+  normalised title, then word-boundary containment; ambiguous matches are
+  reported and adopted only after the user picks the game and version on the
+  game page. `adopt_gamevault_installations` only accepts immediate children of
+  the scanned root.
 - **Playnite.** The plugin lives in `integrations/playnite/` and is a pure API
   client; there is no dedicated endpoint.
 
@@ -1512,7 +1605,9 @@ returned read-only with a note instead of being edited.
   downloads the version archive (Range resume, or the local library file),
   extracts it to a temporary folder and copies back only the missing/corrupt
   files after checking their hashes. When no archive can be obtained it returns
-  `fallback: true` with a message asking for a full reinstall.
+  `fallback: true` with a message asking for a full reinstall. An adopted folder
+  (#129) has no manifest until `build_install_manifest` hashes it; until then
+  verify reports `noManifest` instead of a clean pass.
 - **Game updates (#30).** `check_game_updates` compares each installed game with
   `GET /api/games/{id}/versions/latest`: a different `versionId` is a
   `newVersion`, an identical id with a different `archiveHash` is a

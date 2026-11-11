@@ -705,10 +705,113 @@ export interface InstalledGame {
   /** Fingerprint of the archive this install came from, when known. */
   archiveHash?: string | null;
   /** `steam` entries were imported from a Steam library and launch through Steam. */
-  /** `ludex` entries were installed here; everything else is a launcher import (#116). */
-  source?: "ludex" | LauncherId;
+  /** `ludex` entries were installed here, `adopted` folders were linked in place (#129); everything else is a launcher import (#116). */
+  source?: "ludex" | "adopted" | LauncherId;
   /** External launch URI for imported entries (`steam://rungameid/…`). */
   launchUri?: string | null;
+}
+
+/** An index row that already exists for the game being adopted (#129). */
+export interface AdoptExistingInstall {
+  gameId: number;
+  title: string;
+  source: string;
+  installPath: string;
+}
+
+/** Read-only preview of linking an existing folder (#129). */
+export interface AdoptPreview {
+  folder: string;
+  executable: string | null;
+  sizeBytes: number;
+  fileCount: number;
+  /** 0 means unknown; versions are never guessed from the title. */
+  versionId: number;
+  version: string | null;
+  warnings: string[];
+  existing: AdoptExistingInstall | null;
+}
+
+export interface AdoptInstallArgs {
+  gameId: number;
+  folder: string;
+  versionId?: number | null;
+  version?: string | null;
+  executable?: string | null;
+  /** Required to replace an existing ludex/launcher row. */
+  replace?: boolean;
+  title?: string | null;
+}
+
+/** Preview of deleting an adopted folder, or the result once confirmed. */
+export interface DeleteAdoptedPreview {
+  folder: string;
+  sizeBytes: number;
+  fileCount: number;
+  deleted: boolean;
+  /** The folder was already gone; only the index row was removed. */
+  missing: boolean;
+  warnings: string[];
+}
+
+export interface ManifestProgress {
+  gameId: number;
+  filesDone: number;
+  filesTotal: number;
+  bytesDone: number;
+  bytesTotal: number;
+  message: string;
+}
+
+export interface ManifestReport {
+  gameId: number;
+  files: number;
+  bytes: number;
+  builtAt: string;
+}
+
+/** How a GameVault folder matched the library (#129). */
+export type GameVaultMatchStatus = "exact" | "containment" | "ambiguous" | "none";
+
+export interface GameVaultCandidate {
+  folder: string;
+  name: string;
+  executable: string | null;
+  sizeBytes: number;
+  fileCount: number;
+  /** Title read from an optional `gamevault.json`, never written. */
+  metadataTitle: string | null;
+  matchedGameId: number | null;
+  matchedTitle: string | null;
+  matchStatus: GameVaultMatchStatus;
+  /** `adopted`, `ludex` or a launcher id when the folder is already indexed. */
+  installed: string | null;
+  notes: string[];
+}
+
+export interface GameVaultScan {
+  root: string;
+  candidates: GameVaultCandidate[];
+  warnings: string[];
+  /** False when the server could not be listed, so nothing was matched. */
+  matched: boolean;
+}
+
+export interface GameVaultAdoptEntry {
+  folder: string;
+  gameId: number;
+  versionId?: number | null;
+  version?: string | null;
+}
+
+export interface GameVaultAdoptSkip {
+  folder: string;
+  reason: string;
+}
+
+export interface GameVaultAdoptReport {
+  adopted: InstalledGame[];
+  skipped: GameVaultAdoptSkip[];
 }
 
 /* --------------------------- desktop extras ------------------------------ */
