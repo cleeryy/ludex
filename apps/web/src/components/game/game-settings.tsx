@@ -353,10 +353,11 @@ function FilesTab({
     }
   }, [files, selected]);
 
+  const selectedFile = files.find((file) => file.path === selected);
   const document = useQuery({
     queryKey: ["game-config", gameId, selected],
     queryFn: () => native.readGameConfig(gameId, selected),
-    enabled: Boolean(selected),
+    enabled: Boolean(selectedFile?.editable),
   });
 
   const visible = useMemo(() => {
@@ -409,9 +410,18 @@ function FilesTab({
       </div>
 
       <div className="min-w-0">
-        {document.isError && <p className="text-[12.5px] text-danger">{errorMessage(document.error)}</p>}
-        {document.isPending && selected && <p className="text-[12.5px] text-ink-3">{t("Opening…")}</p>}
-        {document.data && selected && (
+        {selectedFile && !selectedFile.editable && (
+          <p className="text-[12.5px] leading-relaxed text-ink-3">
+            {selectedFile.note ?? t("Read-only")}
+          </p>
+        )}
+        {document.isError && selectedFile?.editable && (
+          <p className="text-[12.5px] text-danger">{errorMessage(document.error)}</p>
+        )}
+        {document.isPending && selectedFile?.editable && (
+          <p className="text-[12.5px] text-ink-3">{t("Opening…")}</p>
+        )}
+        {document.data && selectedFile?.editable && (
           <KeyEditor
             gameId={gameId}
             document={document.data}

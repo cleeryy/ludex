@@ -584,6 +584,12 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- Config editor ignores crack/Steam-emulator files and refuses non-UTF-8 INIs
+  (#136): `Cracks/`, `steam_settings/`, Goldberg/RUNE/CODEX/PLAZA/SKIDROW/
+  RELOADED/Empress folders and `steam_emu.ini`/`steam_api*.ini`/
+  `cream_api.ini` are never listed as game settings. Binary, oversized or
+  non-UTF-8 files stay listed read-only with the reason, and the web editor no
+  longer tries to open them.
 - Stream install failures are actionable (#114): install jobs persist a
   `stream` flag, a dropped stream shows "Retry as download" (the resumable
   Range path) as the primary action plus a warned "Retry stream", and

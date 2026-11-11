@@ -170,10 +170,39 @@ fn relative_string(install_root: &Path, path: &Path) -> String {
         .join("/")
 }
 
+/// Crack/Steam-emulator directories are never game-owned settings. They are
+/// read by other parts of the app for read-only achievement data, but exposing
+/// them in the config editor would invite editing DRM/emulation files.
+const SKIPPED_DIR_NAMES: &[&str] = &[
+    "cracks",
+    "steam_settings",
+    "mr_goldberg",
+    "goldberg",
+    "rune",
+    "codex",
+    "plaza",
+    "skidrow",
+    "reloaded",
+    "empress",
+];
+
+/// Emulator config files that live next to a game or under Cracks/.
+const SKIPPED_FILE_NAMES: &[&str] = &[
+    "steam_emu.ini",
+    "steam_api.ini",
+    "steam_api64.ini",
+    "cream_api.ini",
+];
+
 fn is_skipped_dir(name: &str) -> bool {
     // `.prefix` is a Wine prefix: thousands of files, never a game config we
     // want to surface. Hidden folders cover staging directories too.
-    name.starts_with('.') || name.eq_ignore_ascii_case("drive_c")
+    let lower = name.to_ascii_lowercase();
+    name.starts_with('.') || lower == "drive_c" || SKIPPED_DIR_NAMES.contains(&lower.as_str())
+}
+
+fn is_skipped_file(name: &str) -> bool {
+    SKIPPED_FILE_NAMES.contains(&name.to_ascii_lowercase().as_str())
 }
 
 fn looks_binary(bytes: &[u8]) -> bool {
@@ -781,6 +810,9 @@ fn walk(root: &Path, directory: &Path, depth: usize, files: &mut Vec<ConfigFileI
         if !file_type.is_file() {
             continue;
         }
+        if is_skipped_file(&entry.file_name().to_string_lossy()) {
+            continue;
+        }
         let Some(format) = ConfigFormat::for_path(&path) else {
             continue;
         };
@@ -1251,6 +1283,37 @@ mod tests {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, content).unwrap();
         path
+    }
+
+    #[test]
+    fn crack_and_steam_emu_files_are_not_listed() {
+        let root = temp_dir("cracks");
+        write_file(&root, "GameUserSettings.ini", "[a]\nvalue=1\n");
+        write_file(
+            &root,
+            "Uncharted4_data/screeninfo.cfg",
+            "[screen]\nwidth=1920\n",
+        );
+        write_file(&root, "steam_emu.ini", "[Settings]\nLanguage=english\n");
+        write_file(
+            &root,
+            "Cracks/RUNE/steam_emu.ini",
+            "[Settings]\nLanguage=english\n",
+        );
+        write_file(
+            &root,
+            "Cracks/Mr_Goldberg/steam_settings/achievements.json",
+            "{}",
+        );
+
+        let files = list(&root);
+        let paths: Vec<&str> = files.iter().map(|file| file.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec!["GameUserSettings.ini", "Uncharted4_data/screeninfo.cfg"]
+        );
+
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
