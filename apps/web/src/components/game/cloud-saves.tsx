@@ -18,7 +18,10 @@ import {
   cloudSaveReasonText,
   cloudSaves,
   cloudSavesAvailable,
+  retryDelayMs,
   shortDeviceId,
+  shouldAutoDetect,
+  shouldToastFailure,
 } from "@/lib/cloud-saves";
 import { errorMessage } from "@/lib/http";
 import { cn } from "@/lib/cn";
@@ -39,7 +42,15 @@ const MAX_SAVE_BYTES = 2 * 1024 ** 3;
  * save files on this machine, so the browser build explains that it needs the
  * desktop app instead of pretending to sync.
  */
-export function CloudSaves({ gameId, title }: { gameId: number; title: string }) {
+export function CloudSavesPanel({
+  gameId,
+  title,
+  installed,
+}: {
+  gameId: number;
+  title: string;
+  installed: boolean;
+}) {
   const { push } = useToast();
   const queryClient = useQueryClient();
   const native = cloudSavesAvailable();
@@ -47,10 +58,15 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
     queryKey: ["saves", gameId],
     queryFn: () => api.listSaves(gameId),
   });
+  // #159: one bounded request per page open, no polling, no retry loop. A slow
+  // or failed status only affects this panel; the game page already rendered.
   const cloud = useQuery({
     queryKey: ["cloud-save-status", gameId],
     queryFn: () => cloudSaves.status(gameId),
     enabled: native,
+    staleTime: 30_000,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
   const status = cloud.data ?? null;
 
@@ -70,9 +86,15 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
   const [restoring, setRestoring] = useState(false);
   const [conflictOpen, setConflictOpen] = useState(false);
   const [conflictBusy, setConflictBusy] = useState<"remote" | "keep_local" | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [retryBlocked, setRetryBlocked] = useState(false);
 
   const fileInput = useRef<HTMLInputElement>(null);
   const labelInput = useRef<HTMLInputElement>(null);
+  const autoDetected = useRef(false);
+  const retryFailures = useRef(0);
+  const retryTimer = useRef<number | null>(null);
+  const toastedError = useRef<string | null>(null);
 
   const rows = [...(saves.data ?? [])].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   const pct = progress && progress.total > 0 ? Math.min(100, (progress.loaded / progress.total) * 100) : null;
@@ -92,7 +114,11 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
         void queryClient.invalidateQueries({ queryKey: ["cloud-save-status", gameId] });
       }
     };
-    void Promise.all([cloudSaves.onSynced(refresh), cloudSaves.onPending(refresh)]).then((offs) => {
+    void Promise.all([
+      cloudSaves.onSynced(refresh),
+      cloudSaves.onPending(refresh),
+      cloudSaves.onDetected(refresh),
+    ]).then((offs) => {
       if (cancelled) offs.forEach((off) => off());
       else unlisteners.push(...offs);
     });
@@ -102,8 +128,70 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
     };
   }, [native, gameId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // #158: a fresh game (or one whose saves did not exist yet) gets one
+  // automatic detection per mount. The guard ref and `shouldAutoDetect`
+  // (10 minute freshness) keep this from turning into a polling loop.
+  useEffect(() => {
+    if (!native || !installed || !status || autoDetected.current) return;
+    if (!shouldAutoDetect(status)) return;
+    autoDetected.current = true;
+    let cancelled = false;
+    setSearching(true);
+    void cloudSaves
+      .detect(gameId)
+      .then(() => queryClient.invalidateQueries({ queryKey: ["cloud-save-status", gameId] }))
+      .catch((cause) => {
+        // The panel already explains the missing paths; a detection failure is
+        // not worth a second toast.
+        console.debug("save detection failed", cause);
+      })
+      .finally(() => {
+        if (!cancelled) setSearching(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [native, installed, status, gameId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // At most one error toast per failure streak (#159).
+  useEffect(() => {
+    if (!cloud.isError) {
+      toastedError.current = null;
+      return;
+    }
+    const key = errorMessage(cloud.error);
+    if (shouldToastFailure(toastedError.current, key)) {
+      toastedError.current = key;
+      push({ title: t("Cloud save status did not load"), description: key, tone: "danger" });
+    }
+  }, [cloud.isError, cloud.error]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (cloud.isSuccess) retryFailures.current = 0;
+  }, [cloud.isSuccess]);
+
+  useEffect(
+    () => () => {
+      if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
+    },
+    [],
+  );
+
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["saves", gameId] });
   const invalidateStatus = () => queryClient.invalidateQueries({ queryKey: ["cloud-save-status", gameId] });
+
+  // Manual retry is rate-limited: a slow server or a failing command must not
+  // be hammered by repeated clicks (#159).
+  const retryStatus = () => {
+    if (retryBlocked) return;
+    const delay = retryDelayMs(retryFailures.current + 1);
+    retryFailures.current += 1;
+    void cloud.refetch();
+    if (delay > 0) {
+      setRetryBlocked(true);
+      retryTimer.current = window.setTimeout(() => setRetryBlocked(false), delay);
+    }
+  };
 
   const resetComposer = () => {
     setFile(null);
@@ -350,8 +438,11 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
             )}
           </div>
 
-          {native && cloud.isPending && (
+          {native && (cloud.isPending || searching) && (
             <div className="mt-4 flex flex-col gap-2">
+              <p className="text-[11.5px] text-ink-3">
+                {searching ? t("Searching for save folders…") : t("Reading the save folder status…")}
+              </p>
               <Skeleton className="h-8 w-3/4" />
               <Skeleton className="h-8 w-1/2" />
             </div>
@@ -360,8 +451,8 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
           {native && cloud.isError && (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2" role="alert">
               <p className="text-[12.5px] text-ink-2">Cloud save status did not load. {errorMessage(cloud.error)}</p>
-              <Button variant="ghost" size="sm" onClick={() => void cloud.refetch()}>
-                Try again
+              <Button variant="ghost" size="sm" disabled={retryBlocked} onClick={retryStatus}>
+                {t("Try again")}
               </Button>
             </div>
           )}
@@ -422,7 +513,7 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
               )}
 
               {status.message && !status.pending.error && (
-                <p className="mt-3 text-[12px] leading-relaxed text-ink-3">{status.message}</p>
+                <p className="mt-3 whitespace-pre-line text-[12px] leading-relaxed text-ink-3">{status.message}</p>
               )}
 
               {conflict && (
@@ -771,5 +862,64 @@ export function CloudSaves({ gameId, title }: { gameId: number; title: string })
         )}
       </Dialog>
     </section>
+  );
+}
+
+/**
+ * The cloud-saves panel must not be part of the game page's first paint
+ * (#159): it triggers a desktop scan and a server request. It mounts only when
+ * it scrolls near the viewport, and the game page renders immediately with a
+ * lightweight placeholder. Explicit actions (Sync now, Restore) then behave
+ * exactly as before.
+ */
+export function CloudSaves({
+  gameId,
+  title,
+  installed,
+}: {
+  gameId: number;
+  title: string;
+  /** Detection needs an installed game: an uninstalled page has no folder to scan (#158). */
+  installed: boolean;
+}) {
+  const [visible, setVisible] = useState(false);
+  const anchor = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (visible) return;
+    const node = anchor.current;
+    if (!node) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "320px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [visible]);
+
+  if (!visible) {
+    return (
+      <div ref={anchor} className="mt-12" aria-hidden="true">
+        <Skeleton className="h-5 w-40" />
+        <div className="mt-4 flex flex-col gap-2 border-t border-line pt-4">
+          <Skeleton className="h-10 w-3/4" />
+          <Skeleton className="h-10 w-1/2" />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div ref={anchor}>
+      <CloudSavesPanel gameId={gameId} title={title} installed={installed} />
+    </div>
   );
 }

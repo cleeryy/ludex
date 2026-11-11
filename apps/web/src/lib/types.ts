@@ -176,6 +176,8 @@ export interface CloudSaveStatus {
   conflict: CloudSaveConflict | null;
   pending: CloudSavePending;
   deviceId: string | null;
+  /** ISO timestamp of the last save detection for this game, `null` if never. */
+  lastDetectionAt: string | null;
   message: string | null;
 }
 
@@ -262,6 +264,43 @@ export interface SetupStatus {
   needsSetup: boolean;
   serverName: string;
   version: string;
+}
+
+/* ---------------------------- desktop download --------------------------- */
+
+/** Platform values accepted by `GET /api/desktop/download` (#164). */
+export type DesktopPlatform = "windows" | "linux" | "macos";
+
+export type DesktopAssetKind = "installer" | "appimage" | "deb" | "rpm" | "dmg";
+
+/** One installer offered by the latest stable desktop release. */
+export interface DesktopAsset {
+  platform: DesktopPlatform;
+  kind: DesktopAssetKind;
+  name: string;
+  url: string;
+  sizeBytes: number;
+  /** Lowercase hex SHA-256 when the release publishes `SHA256SUMS`. */
+  sha256: string | null;
+}
+
+/** `GET /api/desktop/download` response: links only, never a proxied binary. */
+export interface DesktopDownload {
+  channel: "stable";
+  /** `cache` means a stale answer could not be refreshed; `fallback` is the
+   * releases page with no assets (offline or rate-limited upstream). */
+  source: "github" | "mirror" | "cache" | "fallback";
+  stale: boolean;
+  version: string | null;
+  tag: string | null;
+  releasedAt: string | null;
+  releaseUrl: string;
+  notes: string | null;
+  checksumsUrl: string | null;
+  /** Echo of the requested platform; null when every asset was listed. */
+  platform: DesktopPlatform | null;
+  recommended: DesktopAsset | null;
+  assets: DesktopAsset[];
 }
 
 /* ------------------------------- OIDC admin ------------------------------ */

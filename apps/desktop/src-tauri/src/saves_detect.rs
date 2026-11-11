@@ -256,6 +256,22 @@ pub struct DetectedSave {
     pub notes: Option<String>,
 }
 
+/// One known root inspected by a detection run, for the "why nothing was
+/// found" report (#158). The path stays on this machine, like every other
+/// detected save path.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RootReport {
+    pub id: String,
+    pub label: String,
+    pub path: String,
+    /// The root exists right now.
+    pub exists: bool,
+    /// Candidates discovery found below this root.
+    #[serde(default)]
+    pub candidates: usize,
+}
+
 /// Result of one detection run, persisted as `save_detection.result_json`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -274,6 +290,10 @@ pub struct Detection {
     /// Version of `data/save-roots.yaml` used for this run.
     #[serde(default)]
     pub registry_version: Option<u32>,
+    /// Every known root that was checked, with its resolved path and whether it
+    /// exists (#158). Used to explain "no save folder detected" per root.
+    #[serde(default)]
+    pub roots: Vec<RootReport>,
 }
 
 /// One path in the `setSavePaths` payload.
@@ -509,6 +529,7 @@ pub fn detect_at(
         .iter()
         .map(|save| save.path.clone())
         .collect();
+    detection.roots = root_reports(env, &discovery.candidates);
     detection.candidates = discovery
         .candidates
         .into_iter()
@@ -577,6 +598,21 @@ pub fn detect_at(
     } else {
         status.unwrap_or_else(|| NO_SAVE_MESSAGE.to_string())
     };
+
+    // #158: say *why* nothing was found, root by root, instead of an opaque
+    // "no paths". Only when the run produced neither saves nor candidates.
+    if detection.saves.is_empty() && detection.candidates.is_empty() {
+        if let Some(explanation) = explain_roots(&detection.roots) {
+            detection.message.push(' ');
+            detection.message.push_str(&explanation);
+        }
+        if !detection.roots.is_empty() && detection.roots.iter().all(|root| !root.exists) {
+            detection.warnings.push(
+                "None of the known save folders exists on this machine. Ludex resolves them through the OS; if they are missing, the save files are likely on another drive or this is a fresh profile."
+                    .to_string(),
+            );
+        }
+    }
 
     detection.warnings.sort();
     detection.warnings.dedup();
@@ -1178,6 +1214,109 @@ fn inside_roots(candidate: &Path, roots: &[PathBuf]) -> bool {
     roots.iter().any(|root| candidate.starts_with(root))
 }
 
+/// Known roots worth reporting per game (#158). Home and the XDG config/state
+/// folders are omitted: they are not save locations a user expects to see, and
+/// listing them would bury the useful roots.
+fn root_reports(env: &DetectEnv, candidates: &[SaveCandidate]) -> Vec<RootReport> {
+    let mut roots: Vec<RootReport> = Vec::new();
+    for (id, path) in env.known.iter() {
+        let Some(label) = root_label(id) else {
+            continue;
+        };
+        roots.push(RootReport {
+            id: id.clone(),
+            label: label.to_string(),
+            path: path.to_string_lossy().to_string(),
+            exists: path.is_dir(),
+            candidates: candidates
+                .iter()
+                .filter(|candidate| candidate.root_id == *id)
+                .count(),
+        });
+    }
+    if let Some(prefix) = env.prefix.as_deref() {
+        let drive_c = prefix_drive_c(prefix);
+        roots.push(RootReport {
+            id: saves_registry::ROOT_PROTON_PREFIX.to_string(),
+            label: "Proton prefix".to_string(),
+            path: drive_c.to_string_lossy().to_string(),
+            exists: drive_c.is_dir(),
+            candidates: candidates
+                .iter()
+                .filter(|candidate| candidate.root_id == saves_registry::ROOT_PROTON_PREFIX)
+                .count(),
+        });
+    }
+    // Most useful first, so the "why nothing was found" sentence starts with
+    // Saved Games/Documents instead of an arbitrary BTreeMap order.
+    roots.sort_by_key(|root| (root_priority(&root.id), root.id.clone()));
+    roots
+}
+
+fn root_priority(id: &str) -> u8 {
+    match id {
+        "saved_games" => 0,
+        "documents" => 1,
+        "local_app_data_low" => 2,
+        "local_app_data" => 3,
+        "roaming_app_data" => 4,
+        "program_data" => 5,
+        "public" => 6,
+        "proton_prefix" => 7,
+        "xdg_data" => 8,
+        "application_support" => 9,
+        "containers" => 10,
+        "flatpak_apps" => 11,
+        "preferences" => 12,
+        _ => 13,
+    }
+}
+
+fn root_label(id: &str) -> Option<&'static str> {
+    match id {
+        "saved_games" => Some("Saved Games"),
+        "documents" => Some("Documents"),
+        "local_app_data_low" => Some("AppData/LocalLow"),
+        "local_app_data" => Some("AppData/Local"),
+        "roaming_app_data" => Some("AppData/Roaming"),
+        "program_data" => Some("ProgramData"),
+        "public" => Some("Public"),
+        "xdg_data" => Some("application data"),
+        "application_support" => Some("Application Support"),
+        "flatpak_apps" => Some("Flatpak app data"),
+        "containers" => Some("sandbox containers"),
+        "preferences" => Some("Preferences"),
+        _ => None,
+    }
+}
+
+/// Human-readable "checked roots" sentence for a run that found nothing. It is
+/// deliberately short (at most six roots) so the game page stays readable.
+fn explain_roots(roots: &[RootReport]) -> Option<String> {
+    if roots.is_empty() {
+        return None;
+    }
+    let mut parts: Vec<String> = roots
+        .iter()
+        .take(6)
+        .map(|root| {
+            if root.exists {
+                format!("{} (no matching folder)", root.label)
+            } else {
+                format!("{} (missing)", root.label)
+            }
+        })
+        .collect();
+    if roots.len() > 6 {
+        parts.push(format!("and {} more", roots.len() - 6));
+    }
+    Some(format!(
+        "Checked {} known folder(s): {}.",
+        roots.len(),
+        parts.join(", ")
+    ))
+}
+
 /// True when reading `path` cannot leave the allowlisted roots, even if the
 /// final component does not exist yet. Symlinks are resolved when they exist.
 fn may_read(path: &Path, roots: &[PathBuf]) -> bool {
@@ -1492,8 +1631,10 @@ fn manifest_version_for_text(text: &str) -> String {
 // Template expansion
 // ---------------------------------------------------------------------------
 
-const TEMPLATES: [&str; 12] = [
+const TEMPLATES: [&str; 14] = [
+    "<winLocalAppDataLow>",
     "<winLocalAppData>",
+    "<winSavedGames>",
     "<winAppData>",
     "<winDocuments>",
     "<winPublic>",
@@ -1573,6 +1714,16 @@ fn template_variants(name: &str, env: &DetectEnv, game: &GameContext) -> Vec<Str
             user_windows_variants(env, "AppData/Local", env.windows.local_app_data.as_ref())
         }
         "<winDocuments>" => user_windows_variants(env, "Documents", env.windows.documents.as_ref()),
+        // Ludusavi manifests address Saved Games and LocalLow as well; both are
+        // known folders and must never be built from `%USERPROFILE%` (#158).
+        "<winSavedGames>" => {
+            user_windows_variants(env, "Saved Games", env.windows.saved_games.as_ref())
+        }
+        "<winLocalAppDataLow>" => user_windows_variants(
+            env,
+            "AppData/LocalLow",
+            env.windows.local_app_data_low.as_ref(),
+        ),
         "<winPublic>" => {
             if let Some(prefix) = &env.prefix {
                 vec![prefix_drive_c(prefix)
@@ -2989,5 +3140,225 @@ mod tests {
         assert!(!segment_matches("*.sav", "slot1.sav.bak"));
         assert!(!segment_matches("profile-*", "other/profile-a"));
         assert!(segment_matches("*", "anything"));
+    }
+
+    /// A native Windows machine with OneDrive-redirected Documents and every
+    /// known folder resolved by the injectable resolver (#158).
+    fn windows_fixture(label: &str) -> Fixture {
+        let root = temp_root(label);
+        let profile = root.join("Users/player");
+        let documents = profile.join("OneDrive/Documents");
+        let saved_games = profile.join("Saved Games");
+        let local_low = profile.join("AppData/LocalLow");
+        let roaming = profile.join("AppData/Roaming");
+        let local = profile.join("AppData/Local");
+        let install = root.join("Games/Hades");
+        for dir in [
+            &documents,
+            &saved_games,
+            &local_low,
+            &roaming,
+            &local,
+            &install,
+        ] {
+            fs::create_dir_all(dir).unwrap();
+        }
+        fs::create_dir_all(root.join("ProgramData")).unwrap();
+        fs::create_dir_all(root.join("Public")).unwrap();
+
+        let mut known = ResolvedFolders::default();
+        known.insert("profile", profile.clone());
+        known.insert("documents", documents.clone());
+        known.insert("saved_games", saved_games.clone());
+        known.insert("local_app_data_low", local_low.clone());
+        known.insert("roaming_app_data", roaming.clone());
+        known.insert("local_app_data", local.clone());
+        known.insert("program_data", root.join("ProgramData"));
+        known.insert("public", root.join("Public"));
+
+        let windows = WindowsDirs::from_folders(&known);
+        let env = DetectEnv {
+            home: profile.clone(),
+            os_user_name: "player".to_string(),
+            platform: Platform::Windows,
+            xdg_data: profile.join(".local/share"),
+            xdg_config: profile.join(".config"),
+            xdg_state: profile.join(".local/state"),
+            windows,
+            known,
+            registry: saves_registry::registry().clone(),
+            steam_roots: Vec::new(),
+            prefix: None,
+            steam_user_ids: Vec::new(),
+            manifest_path: None,
+            manifest_source: "none".to_string(),
+            ludusavi: None,
+        };
+        let game = GameContext {
+            title: "Hades".to_string(),
+            install_dir: install.clone(),
+            steam_app_id: Some(1145360),
+            store: Some("steam".to_string()),
+        };
+        Fixture {
+            root,
+            home: profile,
+            install,
+            prefix: PathBuf::new(),
+            env,
+            game,
+        }
+    }
+
+    #[test]
+    fn windows_saved_games_root_is_a_candidate_without_a_manifest() {
+        let fixture = windows_fixture("win-saved-games");
+        let saved_games = fixture.env.known.get("saved_games").unwrap();
+        fs::create_dir_all(saved_games.join("Hades")).unwrap();
+
+        let detection = detect(&fixture.env, &fixture.game, &[]);
+        assert!(
+            detection
+                .candidates
+                .iter()
+                .any(|candidate| candidate.root_id == "saved_games"),
+            "{:?}",
+            detection.candidates
+        );
+        let report = detection
+            .roots
+            .iter()
+            .find(|root| root.id == "saved_games")
+            .expect("Saved Games is reported");
+        assert!(report.exists, "{report:?}");
+        assert_eq!(report.candidates, 1, "{report:?}");
+        assert!(detection.message.contains("confirm"));
+    }
+
+    #[test]
+    fn windows_local_low_and_onedrive_documents_resolve() {
+        let fixture = windows_fixture("win-local-low");
+        let documents = fixture.env.known.get("documents").unwrap();
+        assert!(documents.ends_with("OneDrive/Documents"), "{documents:?}");
+        fs::create_dir_all(documents.join("My Games/Hades")).unwrap();
+        fs::create_dir_all(
+            fixture
+                .env
+                .known
+                .get("local_app_data_low")
+                .unwrap()
+                .join("Studio/Hades"),
+        )
+        .unwrap();
+
+        let detection = detect(&fixture.env, &fixture.game, &[]);
+        let roots: Vec<&str> = detection
+            .candidates
+            .iter()
+            .map(|candidate| candidate.root_id.as_str())
+            .collect();
+        assert!(roots.contains(&"documents"), "{:?}", detection.candidates);
+        assert!(
+            roots.contains(&"local_app_data_low"),
+            "{:?}",
+            detection.candidates
+        );
+        assert!(detection
+            .candidates
+            .iter()
+            .all(|candidate| candidate.path.contains("OneDrive")
+                || candidate.path.contains("LocalLow")));
+    }
+
+    #[test]
+    fn windows_saved_games_manifest_placeholder_is_resolved() {
+        let fixture = windows_fixture("win-manifest-saved-games");
+        let save_dir = fixture.env.known.get("saved_games").unwrap().join("Hades");
+        fs::create_dir_all(&save_dir).unwrap();
+        fs::write(save_dir.join("slot1.sav"), b"save").unwrap();
+
+        let manifest = r#"
+"Hades":
+  files:
+    - <winSavedGames>/Hades
+"#;
+        let detection = detect_with_manifest(&fixture, manifest);
+        assert!(detection.detected, "{detection:?}");
+        assert_eq!(detection.saves.len(), 1, "{:?}", detection.saves);
+        assert_eq!(detection.saves[0].path, save_dir.to_string_lossy());
+    }
+
+    #[test]
+    fn a_managed_manifest_wins_while_the_registry_still_runs() {
+        let fixture = windows_fixture("win-managed");
+        let documents = fixture.env.known.get("documents").unwrap();
+        let manifest_save = documents.join("Hades");
+        fs::create_dir_all(&manifest_save).unwrap();
+        fs::write(manifest_save.join("slot1.sav"), b"save").unwrap();
+        // A second, different root: the registry must still report it as a
+        // candidate even though the manifest answered for this game.
+        let saved_games = fixture.env.known.get("saved_games").unwrap();
+        fs::create_dir_all(saved_games.join("Hades")).unwrap();
+
+        let path = fixture.root.join("appdata/manifest.yaml");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, HADES_MANIFEST).unwrap();
+        let mut env = fixture.env.clone();
+        env.manifest_path = Some(path);
+        env.manifest_source = "managed".to_string();
+
+        let detection = detect(&env, &fixture.game, &[]);
+        assert!(detection.detected, "{detection:?}");
+        assert_eq!(detection.source, "manifest");
+        assert!(
+            detection.message.contains("auto-managed"),
+            "{}",
+            detection.message
+        );
+        assert!(
+            detection
+                .candidates
+                .iter()
+                .any(|candidate| candidate.root_id == "saved_games"),
+            "{:?}",
+            detection.candidates
+        );
+    }
+
+    #[test]
+    fn an_empty_windows_machine_explains_every_root() {
+        let fixture = windows_fixture("win-empty");
+        let detection = detect(&fixture.env, &fixture.game, &[]);
+        assert!(!detection.detected);
+        assert!(
+            detection.candidates.is_empty(),
+            "{:?}",
+            detection.candidates
+        );
+        assert!(
+            detection.message.contains("Checked"),
+            "{}",
+            detection.message
+        );
+        assert!(
+            detection.message.contains("Saved Games"),
+            "{}",
+            detection.message
+        );
+        assert!(
+            detection.message.contains("Documents"),
+            "{}",
+            detection.message
+        );
+        let saved_games = detection
+            .roots
+            .iter()
+            .find(|root| root.id == "saved_games")
+            .expect("Saved Games is reported");
+        assert!(saved_games.exists);
+        assert!(detection
+            .roots
+            .iter()
+            .any(|root| root.id == "local_app_data_low"));
     }
 }

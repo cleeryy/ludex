@@ -143,7 +143,15 @@ The image is published as `ghcr.io/cleeryy/ludex`. Pin a version in production
 
 ## Desktop app
 
-Download the latest installer from
+Every Ludex server serves a public **`#/download`** page (no account needed):
+it detects the visitor's OS, offers the matching installer, lists every
+platform with size and SHA-256 when the release publishes them, and links the
+release page when the release feed is unreachable. The same data is available
+at `GET /api/desktop/download?platform=windows|linux|macos`; it is cached for ten
+minutes and never proxies the binaries. Point it at a mirror with
+`LUDEX_DESKTOP_DOWNLOAD_BASE_URL` if you do not want clients hitting GitHub.
+
+You can also download the latest installer from
 [Releases](https://github.com/cleeryy/ludex/releases):
 
 - **Windows x64** — NSIS installer (`Ludex_*_x64-setup.exe`). The build is not
@@ -220,6 +228,11 @@ binary defaults to the current directory for the three paths.
 | `LUDEX_STORAGE_BACKEND` | `local` | `local` or `s3` for game archive storage. See [`docs/STORAGE.md`](docs/STORAGE.md). |
 | `LUDEX_S3_*` | unset | S3 endpoint, region, bucket, credentials, path style and prefix when the backend is `s3`. |
 | `LUDEX_METRICS_TOKEN` | unset | Bearer token for `/metrics`; unset means public but rate-limited. |
+| `LUDEX_DESKTOP_RELEASES_API` | GitHub `releases/latest` | GitHub-compatible releases endpoint for the public download page. No token is sent. |
+| `LUDEX_DESKTOP_RELEASES_PAGE` | GitHub releases | Releases page shown when the feed is offline or rate-limited. |
+| `LUDEX_DESKTOP_DOWNLOAD_BASE_URL` | unset | Flat asset mirror (`{base}/{fileName}`) instead of GitHub download URLs. |
+| `LUDEX_DESKTOP_DOWNLOAD_TTL_SECONDS` | `600` | Release metadata cache lifetime (10–86400). |
+| `LUDEX_DESKTOP_DOWNLOAD_TIMEOUT_SECONDS` | `5` | Upstream timeout for release metadata and checksums (1–30). |
 | `LUDEX_ADMIN_USERNAME` / `LUDEX_ADMIN_PASSWORD` | unset | Optional first-run admin bootstrap, only while zero users exist. Prefer the UI. |
 | `LUDEX_WEB_DIR` | unset | Serve the web UI from a directory instead of the embedded build. |
 | `LUDEX_LOCAL_MODE` | `false` | Desktop-only embedded mode; do not set on a server. |

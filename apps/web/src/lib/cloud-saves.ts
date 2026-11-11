@@ -6,7 +6,6 @@ import type {
   CloudSaveToggle,
   CloudSyncToggleResponse,
 } from "@/lib/types";
-
 /**
  * Cloud save automation client (#108).
  *
@@ -30,6 +29,47 @@ export function cloudSaveReasonText(toggle: CloudSaveToggle): string {
 export function shortDeviceId(deviceId: string | null | undefined): string {
   if (!deviceId) return "unknown device";
   return deviceId.length > 8 ? deviceId.slice(0, 8) : deviceId;
+}
+
+/** Detection is re-run on a game page at most once per mount, and only when the
+ * last run is missing or older than this (#158). After a session the desktop
+ * re-runs it itself, so a page never needs to poll. */
+export const DETECTION_MAX_AGE_MS = 10 * 60_000;
+
+/**
+ * Whether opening the game page should ask the desktop to detect save folders.
+ * Pure so the decision is testable: it must never become a render/poll loop.
+ */
+export function shouldAutoDetect(
+  status: { paths: readonly unknown[]; lastDetectionAt: string | null } | null | undefined,
+  now: number = Date.now(),
+  maxAgeMs: number = DETECTION_MAX_AGE_MS,
+): boolean {
+  if (!status) return false;
+  if (status.paths.length > 0) return false;
+  if (!status.lastDetectionAt) return true;
+  const detectedAt = Date.parse(status.lastDetectionAt);
+  if (!Number.isFinite(detectedAt)) return true;
+  return now - detectedAt > maxAgeMs;
+}
+
+/**
+ * Backoff for the panel's manual retry. A slow or failing `cloud_save_status`
+ * must not be hammered: the button is disabled for 2 s, 4 s, 8 s … capped at
+ * 30 s between attempts. Returns 0 for the first attempt.
+ */
+export function retryDelayMs(failures: number): number {
+  if (!Number.isFinite(failures) || failures <= 0) return 0;
+  const exponent = Math.min(Math.floor(failures) - 1, 4);
+  return Math.min(2_000 * 2 ** exponent, 30_000);
+}
+
+/**
+ * One error toast per failure streak: the same error is not repeated on every
+ * refetch or event invalidation. Returns true only when the key changed.
+ */
+export function shouldToastFailure(seenKey: string | null, nextKey: string): boolean {
+  return seenKey !== nextKey;
 }
 
 export const cloudSaves = {
@@ -71,5 +111,17 @@ export const cloudSaves = {
   async onPending(handler: (gameId: number) => void): Promise<() => void> {
     if (!isNative()) return () => {};
     return native.onCloudSavePending(handler);
+  },
+
+  /** Save detection ran again (#158). */
+  async onDetected(handler: (gameId: number) => void): Promise<() => void> {
+    if (!isNative()) return () => {};
+    return native.onCloudSaveDetected(handler);
+  },
+
+  /** Re-run detection for one game; resolves when the mapping is persisted. */
+  async detect(gameId: number): Promise<void> {
+    if (!isNative()) return;
+    return native.detectSavePaths(gameId);
   },
 };

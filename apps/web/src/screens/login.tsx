@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, CheckCircle2, KeyRound, Loader2, RotateCcw } from "lucide-react";
 import { api, assetUrl, USING_MOCKS } from "@/lib/api";
@@ -382,6 +382,18 @@ export function LoginScreen() {
         >
           {t("Sign in")}
         </Button>
+
+        {!isNative() && (
+          <p className="text-[12.5px] leading-relaxed text-ink-3">
+            <Link
+              to="/download"
+              className="text-ink-2 underline decoration-line-2 underline-offset-4 hover:text-ink"
+            >
+              {t("Get the desktop app")}
+            </Link>{" "}
+            {t("for installs, cloud saves and controllers.")}
+          </p>
+        )}
 
         {USING_MOCKS && (
           <div className="border-t border-line pt-4">

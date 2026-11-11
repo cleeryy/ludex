@@ -148,6 +148,8 @@ export function SaveDiscoveryPanel() {
   return (
     <section aria-labelledby="save-locations-heading">
       <SectionHeader
+        id="save-locations-heading"
+        level={3}
         title={t("Save locations")}
         description={t(
           "Candidates found by the OS and engine registry, with their root, provenance and confidence. Nothing is archived until you confirm it.",
@@ -165,7 +167,7 @@ export function SaveDiscoveryPanel() {
           </Button>
         }
       />
-      <div id="save-locations-heading" className="border-t border-line pt-4">
+      <div className="border-t border-line pt-4">
         {overview && (
           <p className="text-[11.5px] leading-relaxed text-ink-3">
             {tr("Registry v{version} · depth ≤{depth} · {entries} entries per folder.", {

@@ -24,7 +24,9 @@ import type {
   CollectionGamesResponse,
   CollectionInput,
   CompleteUploadResponse,
+  DesktopDownload,
   DesktopHandoff,
+  DesktopPlatform,
   GameAchievements,
   GameDetail,
   GameList,
@@ -1713,6 +1715,35 @@ export const mockApi = {
     const profile = DEMO_PROFILES.find((entry) => entry.id === id);
     if (!profile) fail(404, "profile_not_found", "Profile not found");
     return demoUserAchievements(id, profile);
+  },
+
+  async desktopDownload(platform?: DesktopPlatform): Promise<DesktopDownload> {
+    await latency();
+    const base = "https://github.com/cleeryy/ludex/releases/download/v0.3.2";
+    const assets = [
+      { platform: "windows" as const, kind: "installer" as const, name: "Ludex_0.3.2_x64-setup.exe", url: `${base}/Ludex_0.3.2_x64-setup.exe`, sizeBytes: 18_400_000, sha256: "5c1f0f9a2ab0b0d1d4b8f7b3f0d6df5e1f7a9c0b9d8e7f6a5b4c3d2e1f0a9b8c" },
+      { platform: "linux" as const, kind: "appimage" as const, name: "ludex_0.3.2_amd64.AppImage", url: `${base}/ludex_0.3.2_amd64.AppImage`, sizeBytes: 72_100_000, sha256: null },
+      { platform: "linux" as const, kind: "deb" as const, name: "ludex_0.3.2_amd64.deb", url: `${base}/ludex_0.3.2_amd64.deb`, sizeBytes: 21_700_000, sha256: null },
+      { platform: "macos" as const, kind: "dmg" as const, name: "Ludex_0.3.2_universal.dmg", url: `${base}/Ludex_0.3.2_universal.dmg`, sizeBytes: 24_900_000, sha256: null },
+    ];
+    const recommended =
+      platform === undefined
+        ? null
+        : (assets.find((asset) => asset.platform === platform) ?? null);
+    return {
+      channel: "stable",
+      source: "github",
+      stale: false,
+      version: "0.3.2",
+      tag: "v0.3.2",
+      releasedAt: "2026-11-10T09:30:00Z",
+      releaseUrl: "https://github.com/cleeryy/ludex/releases/tag/v0.3.2",
+      notes: "Cloud saves, controller profiles and a faster library scan.",
+      checksumsUrl: null,
+      platform: platform ?? null,
+      recommended,
+      assets,
+    };
   },
 
   async config(): Promise<ServerConfig> {

@@ -2559,7 +2559,7 @@ pub async fn protondb_rating(
 }
 
 /// Run save detection and persist the resolved mapping (#107).
-fn detect_and_persist(app: &AppHandle, game_id: i64) -> Result<SavePaths, String> {
+pub(crate) fn detect_and_persist(app: &AppHandle, game_id: i64) -> Result<SavePaths, String> {
     let state = app.state::<AppState>();
     let settings = state.settings_snapshot();
 
@@ -2621,6 +2621,8 @@ fn detect_and_persist(app: &AppHandle, game_id: i64) -> Result<SavePaths, String
             &record.detected_at,
         )?;
     }
+    // The mapping changed: the cached game-page scan is stale (#159).
+    saves_sync::invalidate_scan_cache(game_id);
 
     Ok(saves_detect::persisted(game_id, rows, Some(record)))
 }
@@ -2861,6 +2863,7 @@ fn confirm_candidate(
     }
     db::replace_save_paths(&connection, game_id, &rows)?;
     db::set_save_candidate_confirmed(&connection, game_id, path, true)?;
+    saves_sync::invalidate_scan_cache(game_id);
     if edited.is_some() {
         db::set_save_candidate_ignored(&connection, game_id, path, true)?;
     }
@@ -3033,6 +3036,7 @@ pub fn set_save_paths(
             .map_err(|error| format!("Could not encode the save paths: {error}"))?,
     };
     db::upsert_save_detection(&connection, &record)?;
+    saves_sync::invalidate_scan_cache(game_id);
 
     Ok(saves_detect::persisted(game_id, rows, Some(record)))
 }

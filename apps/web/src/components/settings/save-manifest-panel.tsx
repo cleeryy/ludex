@@ -106,6 +106,8 @@ export function SaveManifestPanel({
   return (
     <section aria-labelledby="save-database-heading">
       <SectionHeader
+        id="save-database-heading"
+        level={3}
         title={t("Save database")}
         description={t("Ludusavi save-path data, downloaded and refreshed by Ludex so save detection works without installing anything.")}
         actions={
@@ -133,7 +135,7 @@ export function SaveManifestPanel({
           </div>
         }
       />
-      <div id="save-database-heading" className="border-t border-line pt-4">
+      <div className="border-t border-line pt-4">
         {status.isError && (
           <p role="alert" className="mb-3 text-[12.5px] text-danger">
             {t("The save database status did not load.")} {errorMessage(status.error)}

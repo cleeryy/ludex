@@ -177,6 +177,20 @@ pub const ROUTES: &[RouteDoc] = &[
         Auth::Public,
         Payload::Schema("ServerConfig"),
     ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/desktop/download",
+            "System",
+            "Latest desktop app installers and checksums",
+            Auth::Public,
+            Payload::Schema("DesktopDownload"),
+        ),
+        &[(
+            "platform",
+            "windows, linux or macos; omit to list every asset",
+        )],
+    ),
     // OIDC administration (#103)
     route(
         HttpMethod::Get,
@@ -1866,6 +1880,8 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::models::HealthWatcher>()
         .schema_from::<crate::metrics::IntegritySummary>()
         .schema_from::<crate::models::ServerConfig>()
+        .schema_from::<crate::desktop_download::DesktopDownload>()
+        .schema_from::<crate::desktop_download::DesktopAsset>()
         .schema_from::<crate::models::FeatureFlags>()
         .schema_from::<crate::models::ChangePasswordRequest>()
         .schema_from::<crate::models::OnboardingRequest>()

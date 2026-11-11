@@ -90,27 +90,58 @@ and `opacity` animate; the sheen is a single 620ms pass. One orchestrated entran
 
 ```
 ┌───────────┬──────────────────────────────────────────────┐
-│ LUDEX     │ search            random  sort  account      │ 60px
+│ LUDEX     │ search            random  big picture  user  │ 60px
 ├───────────┼──────────────────────────────────────────────┤
-│ Browse    │  Library                                     │
-│  Library  │  18 games   860 GB   Sorted by Title         │
-│  Recent   │  ─────────────────────────────────────────── │
-│  Saved    │  All  Action  Horror …   [state] [early]     │
-│  Index    │  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐          │
-│  News     │  │3:4 │ │    │ │    │ │    │ │    │          │
-│ Genres    │  └────┘ └────┘ └────┘ └────┘ └────┘          │
-│ Admin     │  title  title  title  title  title           │
+│ LIBRARY ▾ │  Library                                     │
+│  Home     │  18 games   860 GB   Sorted by Title         │
+│  Library  │  ─────────────────────────────────────────── │
+│  Recent   │  All  Action  Horror …   [state] [early]     │
+│  Bookmarks│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐          │
+│  Collect. │  │3:4 │ │    │ │    │ │    │ │    │          │
+│ PLAY ▾    │  └────┘ └────┘ └────┘ └────┘ └────┘          │
+│  Downloads│  title  title  title  title  title           │
+│  …        │                                              │
+├───────────┼──────────────────────────────────────────────┤
+│ Settings  │  <main>, focusable, skip link before it      │
+│ Help      │                                              │
 └───────────┴──────────────────────────────────────────────┘
 ```
 
 - Grid: 2 / 3 / 4 / 5 / 6 columns at 390 / 640 / 1024 / 1280 / 1536. Covers are always 3:4.
-- The rail becomes a five-item bottom bar under 1024; “More” opens a sheet with genres, admin,
-  theme and sign-out.
+- The rail becomes a five-item bottom bar under 1024 (Home, Library, Downloads or Community,
+  Settings, More); “More” opens the same table as the rail, plus genres, theme and sign-out.
 - The filter bar sticks to the top of the scroll area. It stacks on phones: genres first, then
   state and the early-access toggle.
 - The game detail is a dark stage: backdrop, cover, title, actions; then paper for media, files,
   details and progress. The cover overlaps the stage edge.
 - Admin pages are worksheets: page title, hairline, sections, tables. No card grids.
+
+## Navigation and settings (#174)
+
+One table, `src/lib/navigation.ts`, declares every destination: id, route, message id, icon,
+group, visibility (`everyone`, `desktop`, `editor`, `admin`), `g`-prefixed shortcut and the aliases
+that also count as current (the Library is `/library`, and `/all` renders the same screen). The
+rail, the phone bar, the More sheet, the command palette and the shortcuts all read it, so a
+destination cannot be named, hidden or keyed differently on one surface than another. Entries are
+`<Link>`s: Cmd/Ctrl-click and middle-click open a new tab.
+
+Four groups — **Library**, **Play**, **Community**, **Admin** — with a label, a chevron and
+`aria-expanded`, plus Settings and Help in the footer next to the server name and version. The fold
+is remembered per device (`ludex.nav.collapsed`); Admin starts folded. Genres left the rail: they
+are filter chips in the Library and in the mobile sheet. The rail is one `<nav aria-label="Main
+navigation">` with a named `<ul>` per group; the active entry carries `aria-current="page"` and a
+2px signal mark. The page has a skip link to a focusable `<main id="main-content">`.
+
+Settings is one addressable page: `src/lib/settings-sections.ts` declares twelve categories, their
+copy, their availability (Streaming and Compatibility need the desktop app) and the exact panels
+each one owns (a test asserts each panel appears once). The category is in the URL
+(`/settings?section=downloads`), so onboarding, dialogs and errors deep-link instead of dropping the
+user at the top of a long scroll; legacy anchors (`#help`, `#installed-heading`) still resolve. A
+228px category column with a search field on desktop, a sticky chip row with the same search on
+phones; picking a category moves focus to its heading (`tabindex="-1"`, no painted ring) and scrolls
+the content area to the top. `aria-current="location"` marks the category. The desktop settings file
+keeps one draft and one save; the save bar is rendered inside the categories that edit it (Storage,
+Downloads, Saves, Integrations, Updates, Compatibility) rather than at the bottom of the page.
 
 ## Components
 

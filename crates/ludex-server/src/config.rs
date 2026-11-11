@@ -140,6 +140,16 @@ pub const DEFAULT_UPLOAD_CHUNK_BYTES: u64 = 16 * 1024 * 1024;
 pub const DEFAULT_UPLOAD_MAX_BYTES: u64 = 100 * 1024 * 1024 * 1024;
 /// Default lifetime of an unfinished resumable upload (24 h).
 pub const DEFAULT_UPLOAD_TTL_HOURS: u64 = 24;
+/// Stable GitHub release polled by the public download page (#164). Any
+/// GitHub-compatible endpoint (Forgejo, Gitea) works.
+pub const DEFAULT_DESKTOP_RELEASES_API: &str =
+    "https://api.github.com/repos/cleeryy/ludex/releases/latest";
+/// Human release page used for the download page fallback links (#164).
+pub const DEFAULT_DESKTOP_RELEASES_PAGE: &str = "https://github.com/cleeryy/ludex/releases";
+/// Default cache lifetime for desktop release metadata (#164).
+pub const DEFAULT_DESKTOP_DOWNLOAD_TTL_SECONDS: u64 = 600;
+/// Default upstream timeout for desktop release metadata (#164).
+pub const DEFAULT_DESKTOP_DOWNLOAD_TIMEOUT_SECONDS: u64 = 5;
 
 /// Which OIDC fields are pinned by `LUDEX_OIDC_*` environment variables.
 ///
@@ -256,6 +266,17 @@ pub struct Config {
     pub login_backoff: Duration,
     /// Lifetime of a pending desktop SSO handoff (#157).
     pub desktop_handoff_ttl: Duration,
+    /// GitHub-compatible releases API polled by `GET /api/desktop/download`
+    /// (#164). The endpoint is public and cached; it never carries a token.
+    pub desktop_releases_api: String,
+    /// Human release page used for fallback links (#164).
+    pub desktop_releases_page: String,
+    /// Optional flat mirror replacing the GitHub asset URLs (#164).
+    pub desktop_download_base_url: Option<String>,
+    /// Cache lifetime for the parsed release document (#164).
+    pub desktop_download_ttl: Duration,
+    /// Upstream timeout for the release document and checksum file (#164).
+    pub desktop_download_timeout: Duration,
     /// Handoffs one account may create per minute (#157).
     pub handoff_create_limit: u32,
     /// Handoff claims one address may make per minute (#157).
@@ -466,6 +487,23 @@ impl Config {
                 .clamp(30, 600),
             None => DEFAULT_DESKTOP_HANDOFF_TTL_SECONDS,
         };
+        let desktop_download_ttl_seconds = match env_opt("LUDEX_DESKTOP_DOWNLOAD_TTL_SECONDS") {
+            Some(value) => value
+                .parse::<u64>()
+                .context("LUDEX_DESKTOP_DOWNLOAD_TTL_SECONDS must be an integer")?
+                .clamp(10, 86_400),
+            None => DEFAULT_DESKTOP_DOWNLOAD_TTL_SECONDS,
+        };
+        let desktop_download_timeout_seconds =
+            match env_opt("LUDEX_DESKTOP_DOWNLOAD_TIMEOUT_SECONDS") {
+                Some(value) => value
+                    .parse::<u64>()
+                    .context("LUDEX_DESKTOP_DOWNLOAD_TIMEOUT_SECONDS must be an integer")?
+                    .clamp(1, 30),
+                None => DEFAULT_DESKTOP_DOWNLOAD_TIMEOUT_SECONDS,
+            };
+        let desktop_download_base_url = env_opt("LUDEX_DESKTOP_DOWNLOAD_BASE_URL")
+            .map(|value| value.trim_end_matches('/').to_string());
         let upload_chunk_bytes = match env_opt("LUDEX_UPLOAD_CHUNK_BYTES") {
             Some(value) => {
                 let parsed = value
@@ -573,6 +611,13 @@ impl Config {
             login_lockout: Duration::from_secs(login_lockout_seconds),
             login_backoff: Duration::from_millis(login_backoff_ms),
             desktop_handoff_ttl: Duration::from_secs(desktop_handoff_ttl_seconds.max(1)),
+            desktop_releases_api: env_opt("LUDEX_DESKTOP_RELEASES_API")
+                .unwrap_or_else(|| DEFAULT_DESKTOP_RELEASES_API.to_string()),
+            desktop_releases_page: env_opt("LUDEX_DESKTOP_RELEASES_PAGE")
+                .unwrap_or_else(|| DEFAULT_DESKTOP_RELEASES_PAGE.to_string()),
+            desktop_download_base_url,
+            desktop_download_ttl: Duration::from_secs(desktop_download_ttl_seconds),
+            desktop_download_timeout: Duration::from_secs(desktop_download_timeout_seconds),
             handoff_create_limit: DEFAULT_HANDOFF_CREATE_LIMIT,
             handoff_claim_limit: DEFAULT_HANDOFF_CLAIM_LIMIT,
             upload_chunk_bytes,
@@ -660,6 +705,11 @@ impl Config {
             login_lockout: Duration::from_secs(DEFAULT_LOGIN_LOCKOUT_SECONDS),
             login_backoff: Duration::from_millis(500),
             desktop_handoff_ttl: Duration::from_secs(DEFAULT_DESKTOP_HANDOFF_TTL_SECONDS),
+            desktop_releases_api: DEFAULT_DESKTOP_RELEASES_API.to_string(),
+            desktop_releases_page: DEFAULT_DESKTOP_RELEASES_PAGE.to_string(),
+            desktop_download_base_url: None,
+            desktop_download_ttl: Duration::from_secs(DEFAULT_DESKTOP_DOWNLOAD_TTL_SECONDS),
+            desktop_download_timeout: Duration::from_secs(DEFAULT_DESKTOP_DOWNLOAD_TIMEOUT_SECONDS),
             handoff_create_limit: DEFAULT_HANDOFF_CREATE_LIMIT,
             handoff_claim_limit: DEFAULT_HANDOFF_CLAIM_LIMIT,
             upload_chunk_bytes: DEFAULT_UPLOAD_CHUNK_BYTES,

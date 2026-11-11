@@ -5,6 +5,7 @@ import { assetUrl } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import type { ArtSpec } from "@/lib/art";
 import type { GameDetail, GameVideo } from "@/lib/types";
+import { hasMoreMedia, mediaWindow, MEDIA_PAGE_SIZE } from "@/lib/media";
 import { StillPlate } from "@/components/art/cover";
 import { Button, IconButton } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
@@ -183,7 +184,13 @@ function MediaFrame({
       {item.url.startsWith("demo://") ? (
         <StillPlate spec={spec} seed={seed} index={item.index} className="absolute inset-0 h-full w-full" />
       ) : (
-        <img src={assetUrl(item.url) ?? ""} alt="" className="h-full w-full object-cover" loading="lazy" />
+        <img
+          src={assetUrl(item.url) ?? ""}
+          alt=""
+          className="h-full w-full object-cover"
+          loading="lazy"
+          decoding="async"
+        />
       )}
     </div>
   );
@@ -197,7 +204,7 @@ function MediaThumb({ item, game, spec, seed }: { item: MediaItem; game: GameDet
   return (
     <div className="media-plate aspect-video w-full">
       {poster ? (
-        <img src={poster} alt="" className="h-full w-full object-cover" loading="lazy" />
+        <img src={poster} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
       ) : (
         <StillPlate spec={spec} seed={seed} index={0} className="absolute inset-0 h-full w-full" />
       )}
@@ -320,11 +327,36 @@ export function MediaGallery({ game, spec, seed }: { game: GameDetail; spec: Art
   const videos = game.videos?.length ? game.videos : (game.trailers ?? []);
   const [selectedVideo, setSelectedVideo] = useState(0);
   const [lightbox, setLightbox] = useState<number | null>(null);
+  // #159: the strip mounts one page of tiles at a time; the sentinel below
+  // reveals the next page as it scrolls into view. No full-gallery mount.
+  const [shown, setShown] = useState(MEDIA_PAGE_SIZE);
+  const moreRef = useRef<HTMLDivElement>(null);
   const items: MediaItem[] = [
     ...videos.map((video) => ({ kind: "video" as const, video })),
     ...game.screenshots.map((url, index) => ({ kind: "still" as const, url, index })),
   ];
   const activeVideo = videos[selectedVideo] ?? videos[0];
+  const total = items.length;
+
+  useEffect(() => {
+    setShown(mediaWindow(total, MEDIA_PAGE_SIZE));
+  }, [game.id, total]);
+
+  useEffect(() => {
+    if (!hasMoreMedia(total, shown)) return;
+    const node = moreRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setShown((current) => mediaWindow(total, current + MEDIA_PAGE_SIZE));
+        }
+      },
+      { rootMargin: "200px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [total, shown]);
 
   if (!items.length) return null;
 
@@ -341,34 +373,43 @@ export function MediaGallery({ game, spec, seed }: { game: GameDetail; spec: Art
             <TrailerPlayer video={activeVideo} title={game.title} />
             {videos.length > 1 && (
               <div className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
-                {videos.map((video, index) => (
-                  <button
-                    key={`${video.url}-${index}`}
-                    type="button"
-                    onClick={() => setSelectedVideo(index)}
-                    aria-pressed={index === selectedVideo}
-                    className={cn(
-                      "flex min-w-[170px] items-center gap-2 border p-2 text-left transition-colors lg:min-w-0",
-                      index === selectedVideo ? "border-signal/60 bg-surface-2" : "border-line hover:border-line-2",
-                    )}
-                  >
-                    <span className="relative aspect-video w-20 shrink-0 overflow-hidden bg-bg-deep">
-                      {videoPoster(video) ? (
-                        <img src={videoPoster(video)!} alt="" className="h-full w-full object-cover" loading="lazy" />
-                      ) : (
-                        <span className="grid h-full place-items-center">
-                          <Play className="size-4 text-ink-3" aria-hidden="true" />
-                        </span>
+                {videos.map((video, index) => {
+                  const poster = videoPoster(video);
+                  return (
+                    <button
+                      key={`${video.url}-${index}`}
+                      type="button"
+                      onClick={() => setSelectedVideo(index)}
+                      aria-pressed={index === selectedVideo}
+                      className={cn(
+                        "flex min-w-[170px] items-center gap-2 border p-2 text-left transition-colors lg:min-w-0",
+                        index === selectedVideo ? "border-signal/60 bg-surface-2" : "border-line hover:border-line-2",
                       )}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-[12px] text-ink">{video.title}</span>
-                      <span className="mt-0.5 block font-mono text-[9.5px] uppercase tracking-[0.1em] text-ink-3">
-                        {index === 0 ? t("Featured") : t("Trailer")}
+                    >
+                      <span className="relative aspect-video w-20 shrink-0 overflow-hidden bg-bg-deep">
+                        {poster ? (
+                          <img
+                            src={poster}
+                            alt=""
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                            decoding="async"
+                          />
+                        ) : (
+                          <span className="grid h-full place-items-center">
+                            <Play className="size-4 text-ink-3" aria-hidden="true" />
+                          </span>
+                        )}
                       </span>
-                    </span>
-                  </button>
-                ))}
+                      <span className="min-w-0">
+                        <span className="block truncate text-[12px] text-ink">{video.title}</span>
+                        <span className="mt-0.5 block font-mono text-[9.5px] uppercase tracking-[0.1em] text-ink-3">
+                          {index === 0 ? t("Featured") : t("Trailer")}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -378,7 +419,7 @@ export function MediaGallery({ game, spec, seed }: { game: GameDetail; spec: Art
       <section aria-labelledby="media-heading">
         <SectionHeader title={t("Media")} count={items.length} description={t("Stills and videos")} />
         <div id="media-heading" className="nav-scroll -mx-[var(--page-x)] flex gap-3 overflow-x-auto px-[var(--page-x)] pb-2">
-          {items.map((item, index) => (
+          {items.slice(0, shown).map((item, index) => (
             <button
               key={item.kind === "video" ? `video-${index}-${item.video.url}` : `still-${index}`}
               type="button"
@@ -398,6 +439,17 @@ export function MediaGallery({ game, spec, seed }: { game: GameDetail; spec: Art
               )}
             </button>
           ))}
+          {hasMoreMedia(total, shown) && (
+            <div ref={moreRef} className="flex w-[240px] shrink-0 items-center justify-center sm:w-[300px]">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShown(mediaWindow(total, shown + MEDIA_PAGE_SIZE))}
+              >
+                {t("Show more media")}
+              </Button>
+            </div>
+          )}
         </div>
       </section>
 

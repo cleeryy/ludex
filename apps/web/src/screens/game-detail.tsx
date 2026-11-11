@@ -605,7 +605,7 @@ export function GameDetailScreen() {
               <GameSettingsPanel gameId={game.id} title={game.title} />
             )}
 
-            <CloudSaves gameId={game.id} title={game.title} />
+            <CloudSaves gameId={game.id} title={game.title} installed={Boolean(isInstalled)} />
 
             <RomPanel game={game} />
 

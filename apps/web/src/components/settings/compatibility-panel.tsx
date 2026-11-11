@@ -34,6 +34,7 @@ export function CompatibilityPanel({
   return (
     <section className="mt-10" aria-labelledby="compat-heading">
       <SectionHeader
+        id="compat-heading"
         title={t("Compatibility")}
         description={t("Steam, Proton, UMU and Wine detection for Linux launches")}
         actions={
@@ -48,7 +49,7 @@ export function CompatibilityPanel({
           </Button>
         }
       />
-      <div id="compat-heading" className="border-t border-line pt-4">
+      <div className="border-t border-line pt-4">
         {scan.isError && (
           <p role="alert" className="mb-3 text-[12.5px] text-danger">
             {t("The compatibility scan failed. The desktop app reports the reason in its log.")}

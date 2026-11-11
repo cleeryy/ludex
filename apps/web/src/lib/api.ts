@@ -16,7 +16,9 @@ import type {
   ControllerProfile,
   ControllerProfileEntry,
   ControllerProfilesResponse,
+  DesktopDownload,
   DesktopHandoff,
+  DesktopPlatform,
   Emulator,
   EmulatorDefault,
   EmulatorLaunch,
@@ -210,6 +212,16 @@ export const api = {
   },
   config(): Promise<ServerConfig> {
     return USING_MOCKS ? mockApi.config() : request<ServerConfig>("/config", { auth: false });
+  },
+  /**
+   * Public desktop download metadata (#164): installer links for the requested
+   * platform (or every asset), the release page and checksums. Never carries a
+   * token so the page works logged out.
+   */
+  desktopDownload(platform?: DesktopPlatform): Promise<DesktopDownload> {
+    return USING_MOCKS
+      ? mockApi.desktopDownload(platform)
+      : request<DesktopDownload>("/desktop/download", { auth: false, query: { platform } });
   },
 
   /* auth */

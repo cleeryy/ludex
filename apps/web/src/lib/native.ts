@@ -695,6 +695,19 @@ export const native = {
     return listen<number>("cloud-save://pending", handler);
   },
 
+  /** Save detection ran again (first page open or after a game exit, #158). */
+  async onCloudSaveDetected(handler: (gameId: number) => void): Promise<() => void> {
+    return listen<number>("cloud-save://detected", handler);
+  },
+
+  /**
+   * Re-run save detection for one game (#158). Reads the Ludusavi manifest, the
+   * OS registry and the manual paths; the resulting paths stay on this machine.
+   */
+  async detectSavePaths(gameId: number): Promise<void> {
+    await invoke("redetect_save_paths", { gameId });
+  },
+
   /* ----------------------- locations (#99) ----------------------------- */
 
   async listLocations(): Promise<LocationStatus[]> {

@@ -354,6 +354,11 @@ impl ResolvedFolders {
         self.roots.values()
     }
 
+    /// Resolved roots with their ids, for per-root diagnostics (#158).
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &PathBuf)> {
+        self.roots.iter()
+    }
+
     pub fn insert(&mut self, id: impl Into<String>, path: PathBuf) {
         self.roots.insert(id.into(), path);
     }

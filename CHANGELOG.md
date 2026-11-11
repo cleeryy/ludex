@@ -715,6 +715,21 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- Windows cloud-save discovery and game-page freeze (#158, #159): detection now
+  reports per-root diagnostics (Saved Games/Documents/OneDrive/LocalLow/
+  ProgramData/Proton), trusts the managed manifest but always runs the registry,
+  resolves `<winSavedGames>`/`<winLocalAppDataLow>`, and re-runs the same
+  detection path after a game exits. Cloud status scans on the blocking pool
+  with hard caps and a short cache, the panel mounts lazily with one request and
+  no retry loop, and the media gallery is windowed with lazy images.
+- Public desktop download page and app prompt (#164): unauthenticated
+  `GET /api/desktop/download` (cached GitHub release metadata, platform mapping,
+  offline/rate-limit fallback), `#/download` page with OS detection, installers,
+  size/checksum and mobile guidance, and a one-per-session browser prompt.
+- Navigation groups, settings taxonomy and grouped command palette (#174): the
+  rail is split into Library/Play/Community/Admin with fold state, the settings
+  page becomes 12 deep-linkable (`?section=`) categories with search, and every
+  destination is driven by one tested registry.
 - Launcher imports appear in the Library and Installed views (#154): server games
   and local launcher entries are merged by a pure model, matched imports show a
   source badge on the existing card (no duplicate), and unmatched negative-id

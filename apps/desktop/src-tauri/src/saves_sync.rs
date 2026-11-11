@@ -22,7 +22,7 @@
 //! path order). A save path that is a file contains exactly one entry named
 //! after the file. Symlinks are skipped both when archiving and when extracting.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -54,6 +54,15 @@ const MAX_ARCHIVE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 /// install, and these caps keep the walk bounded on pathological trees.
 const MAX_ARCHIVE_ENTRIES: u64 = 50_000;
 const MAX_WALK_DEPTH: usize = 64;
+/// The game page preview is much tighter than an archive (#159): it is a
+/// read-only status, so a wrong root (Documents, a shared folder, a junction)
+/// must not walk the disk. A truncated preview still reports "files exist".
+const MAX_PREVIEW_FILES: u64 = 4_000;
+const MAX_PREVIEW_DEPTH: usize = 32;
+const PREVIEW_BUDGET: Duration = Duration::from_millis(200);
+/// The cloud-save page reuses a preview scan for this long. Writes that change
+/// the mapping or the files (detection, sync, restore) invalidate it sooner.
+const STATUS_CACHE_TTL: Duration = Duration::from_secs(45);
 /// Bounded retry: five failures, exponential backoff starting at 30 s.
 const MAX_RETRY_ATTEMPTS: i64 = 5;
 const RETRY_BASE_SECS: i64 = 30;
@@ -145,6 +154,10 @@ pub struct CloudSaveStatus {
     pub conflict: Option<CloudSaveConflict>,
     pub pending: CloudSavePending,
     pub device_id: Option<String>,
+    /// When save detection last ran for this game, `None` when it never did.
+    /// The game page uses it to decide whether to run detection on first open
+    /// (#158).
+    pub last_detection_at: Option<String>,
     /// Human-readable context, never an error dump. Remote failures use this
     /// field instead of failing the whole status command.
     pub message: Option<String>,
@@ -208,6 +221,9 @@ pub struct LocalSaveState {
     pub bytes: u64,
     pub newest: Option<DateTime<Utc>>,
     pub paths: Vec<LocalPathState>,
+    /// The walk stopped at its file or time cap before seeing everything. A
+    /// truncated scan must not be reported as "no save files exist" (#159).
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -221,22 +237,68 @@ pub struct LocalPathState {
     pub newest: Option<DateTime<Utc>>,
 }
 
-/// Scan the configured save paths without following symlinks.
+/// Caps for one scan. The archive walk sees everything it needs; the game page
+/// preview is deliberately shallow and time-bounded so opening a page never
+/// walks a mistaken `Documents` root (#159).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanLimits {
+    pub max_files: u64,
+    pub max_depth: usize,
+    /// Stop when this budget is exhausted. `None` only for archiving.
+    pub budget: Option<Duration>,
+}
+
+impl ScanLimits {
+    /// Status/preview scan: bounded file count, bounded depth, hard deadline.
+    pub const PREVIEW: Self = Self {
+        max_files: MAX_PREVIEW_FILES,
+        max_depth: MAX_PREVIEW_DEPTH,
+        budget: Some(PREVIEW_BUDGET),
+    };
+
+    /// Archive scan: the full tree, up to the archive caps.
+    pub const ARCHIVE: Self = Self {
+        max_files: MAX_ARCHIVE_ENTRIES,
+        max_depth: MAX_WALK_DEPTH,
+        budget: None,
+    };
+}
+
+/// Scan the configured save paths without following symlinks, with the archive
+/// caps. The game page uses the bounded preview below instead (#159); this stays
+/// for exact counts in tests and maintenance paths.
+#[allow(dead_code)]
 pub fn scan_local_state(rows: &[SavePathRecord]) -> LocalSaveState {
+    scan_local_state_with(rows, ScanLimits::ARCHIVE)
+}
+
+/// Scan with explicit caps. Every `files`/`bytes` figure is a lower bound when
+/// `truncated` is true.
+pub fn scan_local_state_with(rows: &[SavePathRecord], limits: ScanLimits) -> LocalSaveState {
+    let deadline = limits
+        .budget
+        .map(|budget| std::time::Instant::now() + budget);
     let mut state = LocalSaveState::default();
     for row in rows {
         let path = Path::new(&row.path);
         let metadata = fs::symlink_metadata(path).ok();
         let exists = metadata.is_some() && !is_symlink(&metadata);
-        let mut files = 0u64;
-        let mut bytes = 0u64;
-        let mut newest = None;
+        let mut walk = TreeScan {
+            files: 0,
+            bytes: 0,
+            newest: None,
+            seen: 0,
+            truncated: false,
+            limits,
+            deadline,
+        };
         if exists {
-            scan_tree(path, 0, &mut files, &mut bytes, &mut newest);
+            walk.visit(path, 0);
         }
-        state.files += files;
-        state.bytes += bytes;
-        state.newest = match (state.newest, newest) {
+        state.files += walk.files;
+        state.bytes += walk.bytes;
+        state.truncated |= walk.truncated;
+        state.newest = match (state.newest, walk.newest) {
             (Some(current), Some(candidate)) => Some(current.max(candidate)),
             (None, candidate) => candidate,
             (current, None) => current,
@@ -246,50 +308,77 @@ pub fn scan_local_state(rows: &[SavePathRecord]) -> LocalSaveState {
             kind: row.kind.clone(),
             primary: row.primary,
             exists,
-            files,
-            bytes,
-            newest,
+            files: walk.files,
+            bytes: walk.bytes,
+            newest: walk.newest,
         });
     }
     state
 }
 
-fn scan_tree(
-    path: &Path,
-    depth: usize,
-    files: &mut u64,
-    bytes: &mut u64,
-    newest: &mut Option<DateTime<Utc>>,
-) {
-    if depth > MAX_WALK_DEPTH || *files >= MAX_ARCHIVE_ENTRIES {
-        return;
+struct TreeScan {
+    files: u64,
+    bytes: u64,
+    newest: Option<DateTime<Utc>>,
+    /// Entries visited, used to check the time budget without a syscall per
+    /// file.
+    seen: u64,
+    truncated: bool,
+    limits: ScanLimits,
+    deadline: Option<std::time::Instant>,
+}
+
+impl TreeScan {
+    fn out_of_budget(&mut self) -> bool {
+        if self.files >= self.limits.max_files {
+            self.truncated = true;
+            return true;
+        }
+        if let Some(deadline) = self.deadline {
+            if self.seen.is_multiple_of(256) && std::time::Instant::now() >= deadline {
+                self.truncated = true;
+                return true;
+            }
+        }
+        false
     }
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(_) => return,
-    };
-    if metadata.file_type().is_symlink() {
-        return;
-    }
-    if metadata.is_file() {
-        *files += 1;
-        *bytes = bytes.saturating_add(metadata.len());
-        *newest = max_time(*newest, metadata.modified().ok());
-        return;
-    }
-    if !metadata.is_dir() {
-        return;
-    }
-    let mut entries = match fs::read_dir(path) {
-        Ok(entries) => entries.flatten().collect::<Vec<_>>(),
-        Err(_) => return,
-    };
-    entries.sort_by_key(|entry| entry.file_name());
-    for entry in entries {
-        if *files >= MAX_ARCHIVE_ENTRIES {
+
+    fn visit(&mut self, path: &Path, depth: usize) {
+        self.seen += 1;
+        if depth > self.limits.max_depth || self.out_of_budget() {
             return;
         }
-        scan_tree(&entry.path(), depth + 1, files, bytes, newest);
+        let metadata = match fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(_) => return,
+        };
+        if metadata.file_type().is_symlink() {
+            return;
+        }
+        if metadata.is_file() {
+            if self.files >= self.limits.max_files {
+                self.truncated = true;
+                return;
+            }
+            self.files += 1;
+            self.bytes = self.bytes.saturating_add(metadata.len());
+            self.newest = max_time(self.newest, metadata.modified().ok());
+            return;
+        }
+        if !metadata.is_dir() {
+            return;
+        }
+        let mut entries = match fs::read_dir(path) {
+            Ok(entries) => entries.flatten().collect::<Vec<_>>(),
+            Err(_) => return,
+        };
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            if self.out_of_budget() {
+                return;
+            }
+            self.visit(&entry.path(), depth + 1);
+        }
     }
 }
 
@@ -310,6 +399,104 @@ fn is_symlink(metadata: &Option<fs::Metadata>) -> bool {
         .as_ref()
         .map(|metadata| metadata.file_type().is_symlink())
         .unwrap_or(false)
+}
+
+/* ------------------------------------------------------------ scan cache */
+
+/// Stable fingerprint of the save-path mapping, so a changed path or primary
+/// flag invalidates the cached scan without touching the disk.
+pub fn rows_fingerprint(rows: &[SavePathRecord]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for row in rows {
+        row.path.hash(&mut hasher);
+        row.kind.hash(&mut hasher);
+        row.primary.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+struct CachedScan {
+    fingerprint: u64,
+    scanned_at: std::time::Instant,
+    state: LocalSaveState,
+}
+
+/// Bounded cache of status scans. Unit-tested directly; the process-wide
+/// instance below only wraps it in a mutex.
+#[derive(Default)]
+pub struct ScanCache {
+    entries: HashMap<i64, CachedScan>,
+}
+
+impl ScanCache {
+    pub fn get(
+        &mut self,
+        game_id: i64,
+        rows: &[SavePathRecord],
+        now: std::time::Instant,
+        ttl: Duration,
+    ) -> Option<LocalSaveState> {
+        let cached = self.entries.get(&game_id)?;
+        let fresh = now
+            .checked_duration_since(cached.scanned_at)
+            .map(|age| age <= ttl)
+            .unwrap_or(false);
+        if !fresh || cached.fingerprint != rows_fingerprint(rows) {
+            self.entries.remove(&game_id);
+            return None;
+        }
+        Some(cached.state.clone())
+    }
+
+    pub fn insert(
+        &mut self,
+        game_id: i64,
+        rows: &[SavePathRecord],
+        now: std::time::Instant,
+        state: LocalSaveState,
+    ) {
+        self.entries.insert(
+            game_id,
+            CachedScan {
+                fingerprint: rows_fingerprint(rows),
+                scanned_at: now,
+                state,
+            },
+        );
+    }
+
+    pub fn invalidate(&mut self, game_id: i64) {
+        self.entries.remove(&game_id);
+    }
+}
+
+fn scan_cache() -> &'static Mutex<ScanCache> {
+    static CACHE: OnceLock<Mutex<ScanCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(ScanCache::default()))
+}
+
+/// Drop the cached preview for one game after any write that can change the
+/// save files or the mapping (detection, sync, restore, toggle).
+pub fn invalidate_scan_cache(game_id: i64) {
+    if let Ok(mut cache) = scan_cache().lock() {
+        cache.invalidate(game_id);
+    }
+}
+
+/// Cached, bounded preview scan. Blocking: call it from `spawn_blocking`.
+pub fn preview_scan(game_id: i64, rows: &[SavePathRecord]) -> LocalSaveState {
+    let now = std::time::Instant::now();
+    if let Ok(mut cache) = scan_cache().lock() {
+        if let Some(state) = cache.get(game_id, rows, now, STATUS_CACHE_TTL) {
+            return state;
+        }
+    }
+    let state = scan_local_state_with(rows, ScanLimits::PREVIEW);
+    if let Ok(mut cache) = scan_cache().lock() {
+        cache.insert(game_id, rows, now, state.clone());
+    }
+    state
 }
 
 /* -------------------------------------------------------------- archive */
@@ -870,23 +1057,43 @@ async fn sync_game(app: &AppHandle, game_id: i64, automatic: bool) -> Result<Syn
     if rows.is_empty() {
         return Ok(SyncOutcome::NoPaths);
     }
-    let local = scan_local_state(&rows);
-    if local.files == 0 {
-        return Ok(SyncOutcome::NoFiles);
-    }
 
     let (device_id, device_label) = {
         let state = app.state::<AppState>();
         ensure_device_identity(&state)?
     };
 
+    // #159: archiving walks the save tree and hashes the zip. Both are blocking
+    // filesystem work, so they run on the blocking pool instead of stalling the
+    // async runtime (which also serves IPC).
     let temp = temp_archive_path(app, game_id);
-    let archive = match create_archive(&rows, &temp) {
-        Ok(archive) => archive,
-        Err(error) => {
-            record_failure(app, game_id, &error, false)?;
-            let _ = fs::remove_file(&temp);
-            return Ok(SyncOutcome::Failed);
+    let archive_rows = rows.clone();
+    let archive = {
+        let dest = temp.clone();
+        match tauri::async_runtime::spawn_blocking(move || {
+            let started = std::time::Instant::now();
+            let result = create_archive(&archive_rows, &dest);
+            tracing::debug!(
+                game_id,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "cloud save archive walk"
+            );
+            result
+        })
+        .await
+        {
+            Ok(Ok(archive)) => archive,
+            Ok(Err(error)) => {
+                record_failure(app, game_id, &error, false)?;
+                let _ = fs::remove_file(&temp);
+                return Ok(SyncOutcome::Failed);
+            }
+            Err(error) => {
+                let message = format!("The save archive task failed: {error}");
+                record_failure(app, game_id, &message, false)?;
+                let _ = fs::remove_file(&temp);
+                return Ok(SyncOutcome::Failed);
+            }
         }
     };
     if archive.files == 0 {
@@ -922,6 +1129,7 @@ async fn sync_game(app: &AppHandle, game_id: i64, automatic: bool) -> Result<Syn
             // Trust the server's hash: a 200 dedupe returns an older snapshot
             // whose `createdAt` is still a valid baseline for this content.
             db::record_cloud_save_upload(&connection, game_id, &snapshot.sha256, &now_rfc3339())?;
+            invalidate_scan_cache(game_id);
             Ok(SyncOutcome::Uploaded)
         }
         Err(UploadError::Retryable(error)) => {
@@ -992,7 +1200,7 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
             }
         }
     };
-    let (rows, prefs, restore) = {
+    let (rows, prefs, restore, detection) = {
         let state = app.state::<AppState>();
         let connection = state
             .db
@@ -1002,9 +1210,28 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
             db::list_save_paths(&connection, game_id)?,
             db::get_cloud_save_prefs(&connection, game_id)?,
             db::get_cloud_save_restore(&connection, game_id)?,
+            db::get_save_detection(&connection, game_id)?,
         )
     };
-    let local = scan_local_state(&rows);
+    // #159: the recursive walk runs on the blocking pool, is capped, and is
+    // reused for the next page open. It never runs on the async worker.
+    let local = {
+        let rows = rows.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let started = std::time::Instant::now();
+            let state = preview_scan(game_id, &rows);
+            tracing::debug!(
+                game_id,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                files = state.files,
+                truncated = state.truncated,
+                "cloud save preview scan"
+            );
+            state
+        })
+        .await
+        .map_err(|error| format!("The save scan task failed: {error}"))?
+    };
     let server_configured = client_context(&settings).is_ok();
     let (latest, remote_message) = if server_configured {
         match fetch_snapshots(app, &settings, game_id).await {
@@ -1033,9 +1260,19 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
             next_attempt_at: None,
             error: None,
         });
+    let snapshot: Option<crate::saves_detect::Detection> = detection
+        .as_ref()
+        .and_then(|record| serde_json::from_str(&record.result_json).ok());
     let message = if rows.is_empty() {
-        Some(crate::saves_detect::NO_SAVE_MESSAGE.to_string())
-    } else if local.files == 0 {
+        // #158: reuse the detection message, which carries the per-root reason
+        // ("Saved Games (missing), Documents (no matching folder), …").
+        snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.message.trim())
+            .filter(|message| !message.is_empty())
+            .map(str::to_string)
+            .or_else(|| Some(crate::saves_detect::NO_SAVE_MESSAGE.to_string()))
+    } else if local.files == 0 && !local.truncated {
         Some(
             "No save files exist yet. Launch the game once so it creates its saves, then sync again."
                 .to_string(),
@@ -1076,6 +1313,7 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
         conflict,
         pending,
         device_id: Some(settings.cloud_device_id).filter(|id| !id.is_empty()),
+        last_detection_at: detection.as_ref().map(|record| record.detected_at.clone()),
         message,
     })
 }
@@ -1226,14 +1464,31 @@ pub async fn restore(
                 );
             }
 
-            let local = scan_local_state(&rows);
-            let backup_path = if local.files > 0 {
-                match create_backup(app, game_id, &rows) {
-                    Ok(backup) => Some(backup.path.to_string_lossy().to_string()),
-                    Err(error) => {
+            let local = {
+                let rows = rows.clone();
+                tauri::async_runtime::spawn_blocking(move || preview_scan(game_id, &rows))
+                    .await
+                    .map_err(|error| format!("The save scan task failed: {error}"))?
+            };
+            let backup_path = if local.files > 0 || local.truncated {
+                let backup_rows = rows.clone();
+                let app = app.clone();
+                match tauri::async_runtime::spawn_blocking(move || {
+                    create_backup(&app, game_id, &backup_rows)
+                })
+                .await
+                {
+                    Ok(Ok(backup)) => Some(backup.path.to_string_lossy().to_string()),
+                    Ok(Err(error)) => {
                         let _ = fs::remove_file(&archive);
                         return Err(format!(
                             "Could not back up the local saves; nothing was restored: {error}"
+                        ));
+                    }
+                    Err(error) => {
+                        let _ = fs::remove_file(&archive);
+                        return Err(format!(
+                            "The local save backup task failed; nothing was restored: {error}"
                         ));
                     }
                 }
@@ -1241,9 +1496,22 @@ pub async fn restore(
                 None
             };
 
-            if let Err(error) = extract_archive(&archive, &rows) {
-                let _ = fs::remove_file(&archive);
-                return Err(error);
+            let extract_rows = rows.clone();
+            let extract_source = archive.clone();
+            match tauri::async_runtime::spawn_blocking(move || {
+                extract_archive(&extract_source, &extract_rows)
+            })
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    let _ = fs::remove_file(&archive);
+                    return Err(error);
+                }
+                Err(error) => {
+                    let _ = fs::remove_file(&archive);
+                    return Err(format!("The save restore task failed: {error}"));
+                }
             }
             let _ = fs::remove_file(&archive);
 
@@ -1266,6 +1534,7 @@ pub async fn restore(
                 db::record_cloud_save_restored_hash(&connection, game_id, &latest.sha256)?;
                 db::clear_cloud_save_pending(&connection, game_id)?;
             }
+            invalidate_scan_cache(game_id);
 
             Ok(RestoreOutcome {
                 restored: true,
@@ -1549,6 +1818,61 @@ fn create_backup(
 
 /* ------------------------------------------------------------ scheduling */
 
+/// Whether an automatic sync has to re-run save detection (#158):
+/// - no persisted path yet (the first sessions create the save folder);
+/// - detection never ran;
+/// - the Ludusavi manifest changed after the last detection.
+///
+/// Pure so the "don't parse the manifest on every exit" rule is testable.
+pub fn detection_is_stale(
+    has_paths: bool,
+    detected_at: Option<&str>,
+    manifest_modified: Option<std::time::SystemTime>,
+) -> bool {
+    if !has_paths {
+        return true;
+    }
+    let Some(detected_at) = detected_at else {
+        return true;
+    };
+    let Ok(detected) = DateTime::parse_from_rfc3339(detected_at) else {
+        return true;
+    };
+    let Some(modified) = manifest_modified else {
+        return false;
+    };
+    DateTime::<Utc>::from(modified) > detected.with_timezone(&Utc)
+}
+
+fn should_detect_after_exit(app: &AppHandle, game_id: i64) -> bool {
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+    let (has_paths, detected_at) = match state.db.lock() {
+        Ok(connection) => (
+            db::list_save_paths(&connection, game_id)
+                .map(|rows| !rows.is_empty())
+                .unwrap_or(false),
+            db::get_save_detection(&connection, game_id)
+                .ok()
+                .flatten()
+                .map(|record| record.detected_at),
+        ),
+        Err(_) => return false,
+    };
+    let mut stamps: Vec<std::time::SystemTime> = Vec::new();
+    let configured = settings.ludusavi_manifest_path.trim();
+    if !configured.is_empty() {
+        if let Ok(modified) = fs::metadata(configured).and_then(|meta| meta.modified()) {
+            stamps.push(modified);
+        }
+    }
+    let managed = crate::saves_manifest::ManifestPaths::for_app_data(&state.app_data).manifest;
+    if let Ok(modified) = fs::metadata(managed).and_then(|meta| meta.modified()) {
+        stamps.push(modified);
+    }
+    detection_is_stale(has_paths, detected_at.as_deref(), stamps.into_iter().max())
+}
+
 fn scheduled() -> &'static Mutex<HashSet<i64>> {
     static SCHEDULED: OnceLock<Mutex<HashSet<i64>>> = OnceLock::new();
     SCHEDULED.get_or_init(|| Mutex::new(HashSet::new()))
@@ -1556,6 +1880,12 @@ fn scheduled() -> &'static Mutex<HashSet<i64>> {
 
 /// Debounced automatic sync after a game exits (#108). Never blocks the exit
 /// path and never toasts: failures are queued and retried in the background.
+///
+/// Detection runs first (#158): a game often creates its save folder only
+/// during the first session, and the Ludusavi manifest may have been downloaded
+/// after startup. Detection re-reads the current settings and manifest path, so
+/// automatic sync archives the folders the game page shows — never a stale
+/// mapping from install time.
 pub fn schedule_after_exit(app: AppHandle, game_id: i64) {
     {
         let mut games = match scheduled().lock() {
@@ -1575,6 +1905,43 @@ pub fn schedule_after_exit(app: AppHandle, game_id: i64) {
             };
             games.remove(&game_id);
         }
+
+        // Same detection entry point as the game page and Settings → Saves, so
+        // the automatic path cannot drift to another environment.
+        if should_detect_after_exit(&app, game_id) {
+            let detect_app = app.clone();
+            let detected = tauri::async_runtime::spawn_blocking(move || {
+                let started = std::time::Instant::now();
+                let result = crate::commands::detect_and_persist(&detect_app, game_id);
+                tracing::debug!(
+                    game_id,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    ok = result.is_ok(),
+                    "save detection after game exit"
+                );
+                result
+            })
+            .await;
+            match detected {
+                Ok(Ok(_)) => {
+                    let _ = app.emit("cloud-save://detected", game_id);
+                }
+                Ok(Err(error)) => {
+                    // A detection failure must not block the upload: the persisted
+                    // mapping may still be valid.
+                    tracing::debug!(error = %error, game_id, "save detection after exit failed");
+                }
+                Err(error) => {
+                    tracing::debug!(error = %error, game_id, "save detection task failed");
+                }
+            }
+        } else {
+            tracing::debug!(
+                game_id,
+                "save detection skipped: paths and manifest are current"
+            );
+        }
+
         match sync_game(&app, game_id, true).await {
             Ok(SyncOutcome::Uploaded | SyncOutcome::Unchanged) => {
                 let _ = app.emit("cloud-save://synced", game_id);
@@ -1806,6 +2173,7 @@ mod tests {
                     .with_timezone(&Utc)
             }),
             paths: Vec::new(),
+            truncated: false,
         }
     }
 
@@ -2011,5 +2379,159 @@ mod tests {
             .unwrap();
         writer.write_all(contents).unwrap();
         writer.finish().unwrap();
+    }
+    fn bounded_save_tree(label: &str, files: usize) -> Fixture {
+        let fixture = fixture(label);
+        let saves = fixture.root.join("saves");
+        fs::create_dir_all(&saves).unwrap();
+        for index in 0..files {
+            fs::write(saves.join(format!("slot-{index:04}.sav")), b"x").unwrap();
+        }
+        fixture
+    }
+
+    #[test]
+    fn preview_scan_is_bounded_on_a_large_tree() {
+        let fixture = bounded_save_tree("bounded", 300);
+        let saves = fixture.root.join("saves");
+        let rows = vec![save_row(1, &saves, "directory", true)];
+
+        let started = std::time::Instant::now();
+        let bounded = scan_local_state_with(
+            &rows,
+            ScanLimits {
+                max_files: 40,
+                max_depth: 16,
+                budget: None,
+            },
+        );
+        assert_eq!(bounded.files, 40, "{bounded:?}");
+        assert!(bounded.truncated);
+        // A hard cap, not a wall-clock assertion: the walk must never see the
+        // whole 300-file tree.
+        assert!(started.elapsed() < Duration::from_secs(10));
+
+        let full = scan_local_state(&rows);
+        assert_eq!(full.files, 300);
+        assert!(!full.truncated);
+    }
+
+    #[test]
+    fn scan_cache_is_bounded_by_ttl_and_mapping() {
+        let fixture = bounded_save_tree("cache", 3);
+        let saves = fixture.root.join("saves");
+        let rows = vec![save_row(7, &saves, "directory", true)];
+        let state = scan_local_state_with(&rows, ScanLimits::PREVIEW);
+        assert_eq!(state.files, 3);
+
+        let mut cache = ScanCache::default();
+        let started = std::time::Instant::now();
+        cache.insert(7, &rows, started, state.clone());
+        assert!(cache
+            .get(7, &rows, started + Duration::from_secs(1), STATUS_CACHE_TTL)
+            .is_some());
+        assert!(cache
+            .get(
+                7,
+                &rows,
+                started + STATUS_CACHE_TTL + Duration::from_secs(1),
+                STATUS_CACHE_TTL
+            )
+            .is_none());
+
+        // A changed mapping (primary flag) is a different cache entry.
+        cache.insert(7, &rows, started, state.clone());
+        let mut changed = rows.clone();
+        changed[0].primary = false;
+        assert!(cache.get(7, &changed, started, STATUS_CACHE_TTL).is_none());
+
+        cache.insert(7, &rows, started, state);
+        cache.invalidate(7);
+        assert!(cache.get(7, &rows, started, STATUS_CACHE_TTL).is_none());
+    }
+
+    #[test]
+    fn detection_feeds_automatic_sync_with_the_detected_paths() {
+        let fixture = fixture("auto-detect");
+        let install = fixture.root.join("game");
+        let save_dir = install.join("saves/Hades");
+        fs::create_dir_all(&save_dir).unwrap();
+        fs::write(save_dir.join("slot1.sav"), b"12345").unwrap();
+
+        let manifest = fixture.root.join("manifest.yaml");
+        fs::write(
+            &manifest,
+            "\"Hades\":\n  files:\n    - <base>/saves/Hades\n",
+        )
+        .unwrap();
+        let settings = LocalSettings {
+            ludusavi_manifest_path: manifest.to_string_lossy().to_string(),
+            ..LocalSettings::default()
+        };
+
+        let game = db::InstalledGame {
+            game_id: 1,
+            version_id: 1,
+            title: "Hades".to_string(),
+            version: None,
+            install_path: install.to_string_lossy().to_string(),
+            executable: None,
+            size_bytes: 0,
+            installed_at: "2026-11-11T00:00:00Z".to_string(),
+            last_launched_at: None,
+            archive_hash: None,
+            install_root: None,
+            source: db::SOURCE_LUDEX.to_string(),
+            launch_uri: None,
+        };
+
+        let detection =
+            crate::saves_detect::detect_for_game(&settings, &game, &fixture.root, &[], None, None);
+        assert!(detection.detected, "{detection:?}");
+        assert!(!detection.saves.is_empty(), "{detection:?}");
+
+        let rows = crate::saves_detect::records_from_detection(
+            1,
+            &detection,
+            Some(&detection.saves[0].path),
+            "2026-11-11T00:00:00Z",
+        );
+        let local = scan_local_state(&rows);
+        assert_eq!(local.files, 1, "{local:?}");
+        assert!(local.bytes > 0);
+    }
+    #[test]
+    fn stale_detection_is_only_rerun_when_it_can_change_something() {
+        use std::time::Duration as StdDuration;
+        let detected = "2026-11-11T12:00:00Z";
+        let detected_at = DateTime::parse_from_rfc3339(detected)
+            .unwrap()
+            .with_timezone(&Utc)
+            .into();
+
+        // No path yet: always detect (first sessions create the folder).
+        assert!(detection_is_stale(false, Some(detected), None));
+        // A path but no detection record: detect.
+        assert!(detection_is_stale(true, None, Some(detected_at)));
+        // A manifest older than the last detection changes nothing.
+        assert!(!detection_is_stale(
+            true,
+            Some(detected),
+            Some(detected_at - StdDuration::from_secs(60))
+        ));
+        // A manifest downloaded after the last detection must be used.
+        assert!(detection_is_stale(
+            true,
+            Some(detected),
+            Some(detected_at + StdDuration::from_secs(60))
+        ));
+        // No managed manifest at all: the persisted mapping is authoritative.
+        assert!(!detection_is_stale(true, Some(detected), None));
+        // An unreadable timestamp: detect rather than silently keep a guess.
+        assert!(detection_is_stale(
+            true,
+            Some("not a date"),
+            Some(detected_at)
+        ));
     }
 }

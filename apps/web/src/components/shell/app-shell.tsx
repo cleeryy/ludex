@@ -1,199 +1,44 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
 import {
   ArrowUpDown,
-  Bookmark,
   ChevronDown,
   ChevronRight,
-  Clock,
   Dice5,
   Download,
-  Film,
-  HardDrive,
-  House,
-  KeyRound,
-  ListOrdered,
-  ListPlus,
-  PlugZap,
+  Gamepad2,
   LogOut,
   Moon,
-  MoreHorizontal,
-  RefreshCw,
   Search,
-  Server,
   Settings,
-  ShieldCheck,
   Sun,
-  UploadCloud,
-  Users,
-  Library as LibraryIcon,
-  Gamepad2,
 } from "lucide-react";
-import { api, USING_MOCKS } from "@/lib/api";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { installsAvailable } from "@/lib/install";
+import { navShortcutTarget, type NavContext } from "@/lib/navigation";
 import { useAuth, useIsAdmin, useIsEditor } from "@/state/auth";
 import type { ProgressState } from "@/lib/types";
 import { otherModeTheme, useSettings } from "@/state/settings";
 import { useToast } from "@/state/toasts";
 import { Wordmark } from "@/components/brand";
 import { WindowControls, useWindowChrome, type WindowChrome } from "@/components/shell/window-controls";
-import { Badge, IconButton, Kbd } from "@/components/ui/controls";
-import { Dialog } from "@/components/ui/dialog";
+import { IconButton, Kbd } from "@/components/ui/controls";
 import { DropdownMenu, useDropdown, type MenuEntry } from "@/components/ui/select";
 import { CommandPalette } from "@/components/shell/command-palette";
+import { MobileBar, MoreSheet } from "@/components/shell/nav-mobile";
+import { NavRail } from "@/components/shell/nav-rail";
 import { ServerSwitcher } from "@/components/shell/server-switcher";
 import { ShortcutsDialog } from "@/components/shell/shortcuts-dialog";
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
-import { useGenres, useInstalledGames, useNativeEvents } from "@/lib/hooks";
+import { DesktopAppPrompt } from "@/components/desktop-app-prompt";
+import { useNativeEvents } from "@/lib/hooks";
 import { OPEN_SHORTCUTS_EVENT, openFiltersPanel, requestSearchFocus } from "@/lib/ui-events";
 import { useDownloads } from "@/state/downloads";
 import { formatSpeed, sortLabel, formatPercent } from "@/lib/format";
 import { t } from "@/lib/i18n";
 
 const SORTS = ["title", "releaseDate", "rating", "addedAt", "lastPlayed", "playtime"] as const;
-
-function RailLink({
-  label,
-  icon,
-  active,
-  count,
-  highlight,
-  onClick,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  active: boolean;
-  count?: number;
-  highlight?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button type="button" className="rail-link w-full text-left" data-active={active} onClick={onClick} aria-current={active ? "page" : undefined}>
-      <span className="grid size-4 place-items-center text-current opacity-80">{icon}</span>
-      <span className="truncate">{label}</span>
-      {typeof count === "number" && count > 0 && (
-        <span className={highlight ? "rail-count text-signal-text" : "rail-count"}>{count}</span>
-      )}
-    </button>
-  );
-}
-
-function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const [params] = useSearchParams();
-  const isEditor = useIsEditor();
-  const isAdmin = useIsAdmin();
-  const { setup } = useAuth();
-  const genres = useGenres();
-  const downloads = useDownloads();
-  const { data: installedGames } = useInstalledGames();
-  const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: () => api.stats(), staleTime: 30_000 });
-
-  const path = location.pathname;
-  const genre = params.get("genre");
-  const installedOnly = params.get("installed") === "true";
-  const go = (to: string) => navigate(to);
-
-  return (
-    <div className="flex h-full flex-col">
-      <nav aria-label={t("Library")} className="flex flex-1 flex-col gap-0.5 overflow-y-auto py-5">
-        <p className="px-5 pb-2 text-[11.5px] text-ink-3">{t("Browse")}</p>
-        <RailLink label={t("Home")} icon={<House className="size-4" />} active={path === "/"} onClick={() => go("/")} />
-        <RailLink
-          label={t("Library")}
-          icon={<LibraryIcon className="size-4" />}
-          active={path === "/library" && !genre && !installedOnly}
-          count={stats?.games}
-          onClick={() => go("/library")}
-        />
-        <RailLink label={t("Recently played")} icon={<Clock className="size-4" />} active={path === "/recent"} onClick={() => go("/recent")} />
-        <RailLink label={t("Bookmarks")} icon={<Bookmark className="size-4" />} active={path === "/bookmarks"} onClick={() => go("/bookmarks")} />
-        <RailLink label={t("Index")} icon={<ListOrdered className="size-4" />} active={path === "/all"} onClick={() => go("/all")} />
-        <RailLink label={t("Collections")} icon={<ListPlus className="size-4" />} active={path.startsWith("/collections")} onClick={() => go("/collections")} />
-        <RailLink label={t("Community")} icon={<Users className="size-4" />} active={path.startsWith("/community")} onClick={() => go("/community")} />
-        {downloads.available && (
-          <RailLink
-            label={t("Installed")}
-            icon={<HardDrive className="size-4" />}
-            active={path === "/library" && installedOnly}
-            count={installedGames?.length}
-            onClick={() => go("/library?installed=true")}
-          />
-        )}
-        {downloads.available && (
-          <RailLink
-            label={t("Downloads")}
-            icon={<Download className="size-4" />}
-            active={path === "/downloads"}
-            count={downloads.activeCount}
-            highlight
-            onClick={() => go("/downloads")}
-          />
-        )}
-        <RailLink label={t("News")} icon={<Film className="size-4" />} active={path === "/news"} onClick={() => go("/news")} />
-
-        {genres.length > 0 && (
-          <>
-            <div className="mx-5 my-4 h-px bg-line" />
-            <p className="px-5 pb-2 text-[11.5px] text-ink-3">{t("Genres")}</p>
-          </>
-        )}
-        {genres.map((item) => (
-          <RailLink
-            key={item}
-            label={item}
-            icon={<span className="size-1.5 rounded-full bg-current opacity-60" />}
-            active={path === "/library" && genre === item}
-            onClick={() => go(`/library?genre=${encodeURIComponent(item)}`)}
-          />
-        ))}
-
-        {isEditor && (
-          <>
-            <div className="mx-5 my-4 h-px bg-line" />
-            <p className="px-5 pb-2 text-[11.5px] text-ink-3">{t("Admin")}</p>
-            <RailLink label={t("Ingest")} icon={<Download className="size-4" />} active={path === "/admin/ingest"} onClick={() => go("/admin/ingest")} />
-            <RailLink label={t("Upload game")} icon={<UploadCloud className="size-4" />} active={path === "/admin/upload"} onClick={() => go("/admin/upload")} />
-            <RailLink label={t("Library scan")} icon={<RefreshCw className="size-4" />} active={path === "/admin/scan"} onClick={() => go("/admin/scan")} />
-            {isAdmin && (
-              <>
-                <RailLink label={t("Users")} icon={<Users className="size-4" />} active={path === "/admin/users"} onClick={() => go("/admin/users")} />
-                <RailLink label={t("News editor")} icon={<ShieldCheck className="size-4" />} active={path === "/admin/news"} onClick={() => go("/admin/news")} />
-                <RailLink label={t("Server")} icon={<Server className="size-4" />} active={path === "/admin/server"} onClick={() => go("/admin/server")} />
-                <RailLink label={t("Authentication")} icon={<KeyRound className="size-4" />} active={path === "/admin/authentication"} onClick={() => go("/admin/authentication")} />
-                <RailLink label={t("Metadata providers")} icon={<PlugZap className="size-4" />} active={path === "/admin/metadata"} onClick={() => go("/admin/metadata")} />
-              </>
-            )}
-          </>
-        )}
-      </nav>
-
-      <div className="border-t border-line px-5 py-4">
-        <button
-          type="button"
-          onClick={onOpenPalette}
-          className="mb-4 flex w-full items-center gap-2 text-left text-[12px] text-ink-3 transition-colors hover:text-ink-2"
-        >
-          <Search className="size-3.5" aria-hidden="true" />
-          <span>{t("Search")}</span>
-          <Kbd>⌘K</Kbd>
-        </button>
-        <div className="flex items-center gap-2 text-[12px] text-ink-3">
-          <span className="size-1.5 rounded-full bg-ok" aria-hidden="true" />
-          <span className="truncate">{setup?.serverName ?? "Ludex"}</span>
-          <span className="num ml-auto shrink-0">{`v${setup?.version ?? "0.1.0"}`}</span>
-        </div>
-        {USING_MOCKS && (
-          <div className="mt-2.5">
-            <Badge tone="outline">{t("Demo data")}</Badge>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function SortMenu() {
   const [params] = useSearchParams();
@@ -314,15 +159,15 @@ function Topbar({ onOpenPalette, chrome }: { onOpenPalette: () => void; chrome: 
       className="flex h-[calc(var(--bar-h)+env(safe-area-inset-top))] shrink-0 items-stretch border-b border-line pt-[env(safe-area-inset-top)]"
     >
       <div className="hidden w-[var(--rail-w)] shrink-0 items-center border-r border-line px-5 lg:flex">
-        <button type="button" onClick={() => navigate("/")} aria-label={t("Ludex home")} className="py-2">
+        <Link to="/" aria-label={t("Ludex home")} className="py-2">
           <Wordmark height={17} />
-        </button>
+        </Link>
       </div>
 
       <div className={cn("flex min-w-0 flex-1 items-center gap-2 px-[var(--page-x)] lg:px-5", chrome.custom && "lg:pr-3")}>
-        <button type="button" onClick={() => navigate("/")} aria-label={t("Ludex home")} className="mr-1 lg:hidden">
+        <Link to="/" aria-label={t("Ludex home")} className="mr-1 lg:hidden">
           <Wordmark height={15} withDot={false} />
-        </button>
+        </Link>
 
         <button
           type="button"
@@ -356,125 +201,6 @@ function Topbar({ onOpenPalette, chrome }: { onOpenPalette: () => void; chrome: 
 
       {chrome.custom && <WindowControls chrome={chrome} height="bar" />}
     </header>
-  );
-}
-
-function MobileNav({ onMore }: { onMore: () => void }) {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const path = location.pathname;
-
-  const items = [
-    { label: t("Home"), icon: <House className="size-4" />, to: "/", active: path === "/" },
-    { label: t("Library"), icon: <LibraryIcon className="size-4" />, to: "/library", active: path === "/library" },
-    { label: t("Recent"), icon: <Clock className="size-4" />, to: "/recent", active: path === "/recent" },
-    { label: t("Saved"), icon: <Bookmark className="size-4" />, to: "/bookmarks", active: path === "/bookmarks" },
-  ];
-
-  return (
-    <nav
-      aria-label={t("Primary")}
-      className="flex h-[calc(56px+env(safe-area-inset-bottom))] shrink-0 items-stretch border-t border-line bg-bg pb-[env(safe-area-inset-bottom)] lg:hidden"
-    >
-      {items.map((item) => (
-        <button
-          key={item.label}
-          type="button"
-          onClick={() => navigate(item.to)}
-          aria-current={item.active ? "page" : undefined}
-          className={cn(
-            "relative flex flex-1 flex-col items-center justify-center gap-1 text-[10px] transition-colors",
-            item.active ? "text-ink" : "text-ink-3",
-          )}
-        >
-          {item.active && <span className="absolute inset-x-5 top-0 h-[2px] bg-signal" aria-hidden="true" />}
-          {item.icon}
-          {item.label}
-        </button>
-      ))}
-      <button
-        type="button"
-        onClick={onMore}
-        className="flex flex-1 flex-col items-center justify-center gap-1 text-[10px] text-ink-3"
-      >
-        <MoreHorizontal className="size-4" />
-        {t("More")}
-      </button>
-    </nav>
-  );
-}
-
-function MobileMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const navigate = useNavigate();
-  const genres = useGenres();
-  const isEditor = useIsEditor();
-  const isAdmin = useIsAdmin();
-  const { resolved, setTheme } = useSettings();
-  const { signOut, user } = useAuth();
-  const downloads = useDownloads();
-  const go = (to: string) => {
-    onOpenChange(false);
-    navigate(to);
-  };
-
-  const Row = ({ label, onClick, icon }: { label: string; onClick: () => void; icon?: React.ReactNode }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex h-11 w-full items-center gap-3 border-b border-line text-left text-[14px] text-ink-2 last:border-0 hover:text-ink"
-    >
-      <span className="grid size-4 place-items-center text-ink-3">{icon}</span>
-      {label}
-    </button>
-  );
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange} title={t("Menu")} description={user ? t("Signed in as {name}", { name: user.username }) : undefined} size="sm">
-      <div className="max-h-[60vh] overflow-y-auto">
-        <Row label={t("News")} icon={<Film className="size-3.5" />} onClick={() => go("/news")} />
-        {downloads.available && (
-          <Row label={t("Downloads")} icon={<Download className="size-3.5" />} onClick={() => go("/downloads")} />
-        )}
-        {downloads.available && (
-          <Row label={t("Installed games")} icon={<HardDrive className="size-3.5" />} onClick={() => go("/library?installed=true")} />
-        )}
-        <Row label={t("Collections")} icon={<ListPlus className="size-3.5" />} onClick={() => go("/collections")} />
-        <Row label={t("Community")} icon={<Users className="size-3.5" />} onClick={() => go("/community")} />
-        <Row label={t("Big Picture mode")} icon={<Gamepad2 className="size-3.5" />} onClick={() => go("/bigpicture")} />
-        <Row label={t("Servers")} icon={<Server className="size-3.5" />} onClick={() => go("/settings")} />
-        <Row label={t("Settings")} icon={<Settings className="size-3.5" />} onClick={() => go("/settings")} />
-        <div className="pb-1 pt-4 text-[11.5px] text-ink-3">{t("Genres")}</div>
-        <div className="flex flex-wrap gap-1.5 pb-4">
-          {genres.map((genre) => (
-            <button
-              key={genre}
-              type="button"
-              onClick={() => go(`/?genre=${encodeURIComponent(genre)}`)}
-              className="h-8 rounded-[2px] border border-line px-2.5 text-[12.5px] text-ink-2"
-            >
-              {genre}
-            </button>
-          ))}
-        </div>
-        {isEditor && (
-          <>
-            <div className="pb-1 text-[11.5px] text-ink-3">{t("Admin")}</div>
-            <Row label={t("Ingest")} icon={<Download className="size-3.5" />} onClick={() => go("/admin/ingest")} />
-            <Row label={t("Library scan")} icon={<RefreshCw className="size-3.5" />} onClick={() => go("/admin/scan")} />
-            {isAdmin && <Row label={t("Users")} icon={<Users className="size-3.5" />} onClick={() => go("/admin/users")} />}
-            {isAdmin && <Row label={t("Server")} icon={<Server className="size-3.5" />} onClick={() => go("/admin/server")} />}
-            {isAdmin && <Row label={t("Authentication")} icon={<KeyRound className="size-3.5" />} onClick={() => go("/admin/authentication")} />}
-            {isAdmin && <Row label={t("Metadata providers")} icon={<PlugZap className="size-3.5" />} onClick={() => go("/admin/metadata")} />}
-          </>
-        )}
-        <Row
-          label={resolved === "dark" ? t("Switch to the light theme") : t("Switch to the dark theme")}
-          icon={resolved === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
-          onClick={() => setTheme(otherModeTheme(resolved))}
-        />
-        <Row label={t("Sign out")} icon={<LogOut className="size-3.5" />} onClick={() => void signOut()} />
-      </div>
-    </Dialog>
   );
 }
 
@@ -521,9 +247,13 @@ export function AppShell() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const chrome = useWindowChrome();
+  const isEditor = useIsEditor();
+  const isAdmin = useIsAdmin();
+  const desktop = installsAvailable();
   useNativeEvents();
   const scrollRef = useRef<HTMLElement>(null);
   const positions = useRef(new Map<string, number>());
+  const context: NavContext = { editor: isEditor, admin: isAdmin, desktop };
 
   useEffect(() => {
     const onOpenHelp = () => setHelpOpen(true);
@@ -533,6 +263,7 @@ export function AppShell() {
 
   useEffect(() => {
     let gPressedAt = 0;
+    const shortcuts: NavContext = { editor: isEditor, admin: isAdmin, desktop };
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const typing = Boolean(target?.closest('input, textarea, select, [contenteditable="true"]'));
@@ -556,18 +287,11 @@ export function AppShell() {
         return;
       }
       if (gPressedAt && Date.now() - gPressedAt < 1200) {
-        const routes: Record<string, string> = {
-          h: "/",
-          l: "/library",
-          d: "/downloads",
-          s: "/settings",
-          b: "/bookmarks",
-          i: "/all",
-        };
-        if (routes[key]) {
+        const route = navShortcutTarget(key, shortcuts);
+        if (route) {
           event.preventDefault();
           gPressedAt = 0;
-          navigate(routes[key]);
+          navigate(route);
           return;
         }
         gPressedAt = 0;
@@ -590,7 +314,7 @@ export function AppShell() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [location.pathname, navigate, paletteOpen]);
+  }, [desktop, isAdmin, isEditor, location.pathname, navigate, paletteOpen]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -601,14 +325,28 @@ export function AppShell() {
   return (
     <div className="flex h-dvh flex-col bg-bg text-ink">
       <div className="grain" aria-hidden="true" />
+      <a
+        href="#main-content"
+        onClick={(event) => {
+          // HashRouter owns the hash: focus the scroller instead of letting the
+          // browser navigate to a route named after the anchor.
+          event.preventDefault();
+          scrollRef.current?.focus();
+        }}
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-3 focus:z-[100] focus:rounded-[2px] focus:border focus:border-line-2 focus:bg-surface focus:px-3 focus:py-2 focus:text-[13px] focus:text-ink"
+      >
+        {t("Skip to content")}
+      </a>
       {/* Fullscreen has no title bar: the custom controls and the bar step
           aside so Big Picture and full-screen sessions stay chrome-free. */}
       {!chrome.fullscreen && <Topbar onOpenPalette={() => setPaletteOpen(true)} chrome={chrome} />}
       <div className="flex min-h-0 flex-1">
         <aside className="hidden w-[var(--rail-w)] shrink-0 border-r border-line lg:block" aria-label={t("Sidebar")}>
-          <Rail onOpenPalette={() => setPaletteOpen(true)} />
+          <NavRail context={context} onOpenHelp={() => setHelpOpen(true)} />
         </aside>
         <main
+          id="main-content"
+          tabIndex={-1}
           ref={scrollRef}
           data-scroll-root
           className="min-w-0 flex-1 overflow-y-auto overscroll-contain pb-8"
@@ -618,8 +356,9 @@ export function AppShell() {
         </main>
       </div>
       <DownloadsStrip />
-      <MobileNav onMore={() => setMoreOpen(true)} />
-      <MobileMenu open={moreOpen} onOpenChange={setMoreOpen} />
+      <MobileBar context={context} onMore={() => setMoreOpen(true)} />
+      <MoreSheet open={moreOpen} onOpenChange={setMoreOpen} context={context} />
+      <DesktopAppPrompt />
       <OnboardingWizard />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} />

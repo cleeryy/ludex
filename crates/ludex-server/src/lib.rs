@@ -36,6 +36,7 @@ pub mod community;
 pub mod config;
 pub mod controller_profiles;
 pub mod db;
+pub mod desktop_download;
 pub mod desktop_handoff;
 pub mod emulators;
 pub mod error;

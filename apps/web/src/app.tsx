@@ -43,6 +43,7 @@ import { AuthenticationScreen } from "@/screens/admin/authentication";
 import { MetadataProvidersScreen } from "@/screens/admin/metadata";
 import { UploadScreen } from "@/screens/admin/upload";
 import { ShareScreen } from "@/screens/share";
+import { DownloadScreen } from "@/screens/download";
 import { t } from "@/lib/i18n";
 
 const queryClient = new QueryClient({
@@ -204,6 +205,8 @@ export function App() {
               <Routes>
                 {/* Public and account-free: must stay outside the Gate (#9). */}
                 <Route path="/share/:token" element={<ShareScreen />} />
+                {/* Public download page (#164): reachable logged out, never gated. */}
+                <Route path="/download" element={<DownloadScreen />} />
                 <Route
                   path="/setup"
                   element={

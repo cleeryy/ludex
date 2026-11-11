@@ -88,18 +88,39 @@ export function SectionHeader({
   description,
   actions,
   count,
+  id,
+  level = 2,
 }: {
   title: string;
   description?: string;
   actions?: ReactNode;
   count?: number;
+  /** Anchor for `aria-labelledby` on the section this header names. */
+  id?: string;
+  /**
+   * Heading depth only: an `h3` keeps the section look so nested panels do not
+   * invent a fourth heading treatment (#174).
+   */
+  level?: 2 | 3;
 }) {
+  const Heading = level === 3 ? "h3" : "h2";
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-3 pb-3">
-      <div className="flex items-baseline gap-3">
-        <h2 className="text-[17px] font-semibold tracking-[-0.015em]">{title}</h2>
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+        <Heading
+          id={id}
+          className={
+            level === 3
+              ? "text-[13px] font-medium tracking-[-0.01em]"
+              : "text-[17px] font-semibold tracking-[-0.015em]"
+          }
+        >
+          {title}
+        </Heading>
         {typeof count === "number" && <span className="num text-[12px] text-ink-3">{count}</span>}
-        {description && <span className="text-[13px] text-ink-3">{description}</span>}
+        {description && (
+          <span className={level === 3 ? "text-[11.5px] text-ink-3" : "text-[13px] text-ink-3"}>{description}</span>
+        )}
       </div>
       {actions}
     </div>

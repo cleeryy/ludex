@@ -3,6 +3,7 @@
 
 #[cfg(not(feature = "embed-web"))]
 use axum::extract::State;
+use axum::response::Redirect;
 use axum::routing::get;
 use axum::Router;
 #[cfg(not(feature = "embed-web"))]
@@ -12,7 +13,13 @@ use tower_http::services::{ServeDir, ServeFile};
 use crate::state::AppState;
 
 /// Attaches the web UI (or a small JSON banner) as the router fallback.
+///
+/// `/download` is a plain path, not a hash route: it redirects to the public
+/// SPA route `/#/download` so a link copied from the README works before the
+/// bundle has loaded (#164).
 pub fn attach(app: Router<AppState>, state: &AppState) -> Router<AppState> {
+    let app = app.route("/download", get(download_redirect));
+
     if let Some(directory) = state.config.web_dir.as_deref() {
         let index = directory.join("index.html");
         if directory.is_dir() && index.is_file() {
@@ -32,6 +39,10 @@ pub fn attach(app: Router<AppState>, state: &AppState) -> Router<AppState> {
     let app = app.fallback(get(root_info));
 
     app
+}
+
+async fn download_redirect() -> Redirect {
+    Redirect::temporary("/#/download")
 }
 
 #[cfg(not(feature = "embed-web"))]

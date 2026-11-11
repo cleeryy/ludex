@@ -133,6 +133,7 @@ interface ScanStatus {
 | POST | `/api/setup` | body `{ username, password, serverName? }` → `{ token, user }`; 409 if users exist |
 | GET | `/api/media/{name}` | cached image/file (public, immutable cache headers) |
 | GET | `/api/config` | `{ serverName, version, features: { igdb, steam, ingest, localMode, oidc }, maxUploadBytes, oidcDisplayName }` (public, used by setup/login). `features.oidc` and `oidcDisplayName` reflect the live OIDC client, so a saved admin configuration applies without a restart |
+| GET | `/api/desktop/download` | latest stable desktop installers as links (`DesktopDownload`); optional `?platform=windows\|linux\|macos`, see *Desktop download page (#164)* |
 | GET | `/api/share/{token}` | public share page (`ShareView`); see *Share links (#9)* |
 | POST | `/api/share/{token}/access` | exchange a share link for a 15-minute download ticket; see *Share links (#9)* |
 
@@ -173,6 +174,71 @@ interface HealthDetails {
 
 `/api/health/details` never returns filesystem paths, credentials or bucket
 keys. It is safe for uptime monitors and dashboards.
+
+## Desktop download page (#164)
+
+`GET /api/desktop/download` powers the public `#/download` page. It is
+unauthenticated (a visitor who cannot sign in yet still needs the client),
+returns links only, and never proxies a binary: the browser downloads straight
+from the release assets. The parsed release document is cached in-process for
+ten minutes, so a shared NAT or a busy page does not spend GitHub's
+unauthenticated rate limit. The global per-IP API limiter still applies.
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/desktop/download?platform=windows\|linux\|macos` | `platform` is optional; omitted lists every asset, an unknown value answers 400 `invalid_platform` |
+
+```ts
+interface DesktopAsset {
+  platform: "windows" | "linux" | "macos";
+  kind: "installer" | "appimage" | "deb" | "rpm" | "dmg";
+  name: string;                     // release asset file name
+  url: string;                      // https release asset, or the configured mirror
+  sizeBytes: number;
+  sha256: string | null;            // set when the release publishes SHA256SUMS
+}
+
+interface DesktopDownload {
+  channel: "stable";
+  source: "github" | "mirror" | "cache" | "fallback";
+  stale: boolean;                   // cache/fallback answer that could not be refreshed
+  version: string | null;           // "0.3.2" (no leading v)
+  tag: string | null;               // "v0.3.2"
+  releasedAt: string | null;        // RFC 3339
+  releaseUrl: string;               // always present, even offline
+  notes: string | null;             // first paragraph, plain text, bounded
+  checksumsUrl: string | null;      // SHA256SUMS asset when published
+  platform: "windows" | "linux" | "macos" | null; // echo of the query
+  recommended: DesktopAsset | null; // best installer for `platform`
+  assets: DesktopAsset[];
+}
+```
+
+- Updater artifacts (`*.sig`, `latest.json`, `*.tar.gz`, `*.nsis.zip`) are never
+  listed as installers. Windows `.exe`/`.msi`, Linux `.AppImage`/`.deb`/`.rpm`
+  and macOS `.dmg`/`.pkg` are.
+- `recommended` prefers the one-file installer: `setup.exe`, `.AppImage`, `.dmg`,
+  then `.deb`, then `.rpm`.
+- **Offline / rate-limited upstream.** The endpoint still answers `200`:
+  `source: "cache"` with `stale: true` when a previous answer exists, otherwise
+  `source: "fallback"` with no assets and the configured release page in
+  `releaseUrl`. A visitor never sees a broken button.
+- **No credentials.** The request to the releases API carries no `Authorization`
+  header and no token is read from the environment; a public GitHub quota is all
+  the feature needs.
+- **Checksums.** When the release publishes a release-wide `SHA256SUMS` (or
+  `SHA256SUMS.txt`) asset, it is fetched once per cache window and parsed;
+  matching assets get `sha256`, and `checksumsUrl` links the file. Per-asset
+  `*.sha256` files (the server tarball publishes one) are not treated as a
+  manifest.
+- **Security.** Only absolute `http(s)` URLs from the upstream are emitted;
+  `javascript:`, `data:` and malformed URLs are dropped.
+- The SPA route `#/download` lives **outside** the auth gate. It detects the
+  visitor's OS for the primary button, lists every platform, and shows a
+  "open this address on your PC" card on phones. The in-app "Get the desktop
+  app" prompt is client-side only: once per session ("Not now" is stored in
+  `sessionStorage`), permanently hidden with "Don't show again"
+  (`localStorage`), and never rendered inside Tauri or an installed PWA.
 
 ## Auth
 
@@ -1456,7 +1522,10 @@ interface CloudSaveStatus {
     remoteCreatedAt: string; remoteDeviceId: string | null;
   } | null;
   pending: { pending: boolean; attempts: number; nextAttemptAt: string | null; error: string | null };
-  deviceId: string | null; message: string | null;
+  deviceId: string | null;
+  /** ISO timestamp of the last save detection, null when it never ran (#158). */
+  lastDetectionAt: string | null;
+  message: string | null;
 }
 
 interface CloudSaveRestoreOutcome {
@@ -1737,7 +1806,7 @@ interface StreamTarget {
 | `ludusavi_manifest_status` | — | `ManifestStatus`; cached save-path manifest (`{appDataDir}/manifest/ludusavi-manifest.yaml`), version, last updated/checked, size and effective source URL. Local only (#153) |
 | `update_ludusavi_manifest` | — | `ManifestUpdate`; downloads or refreshes the manifest now, ignoring the 24 h throttle. Conditional `If-None-Match`, 64 MiB cap, 60 s timeout, optional SHA-256 check; a failure keeps the cached copy. No tests hit the network (#153) |
 | `remove_ludusavi_manifest` | — | `ManifestStatus`; deletes the cached manifest and its metadata so detection falls back to a user-installed copy or manual paths (#153) |
-| `cloud_save_status` | `{ gameId }` | `CloudSaveStatus`; detected paths, latest snapshot (remote failures go in `message`), last upload/restore, effective toggle + reason, pending retry and conflict (#108) |
+| `cloud_save_status` | `{ gameId }` | `CloudSaveStatus`; detected paths, latest snapshot (remote failures go in `message`), last upload/restore, effective toggle + reason, pending retry, conflict and `lastDetectionAt` (#108, #158). The local walk is cached and bounded (200 ms / 4 000 files) and runs on the blocking pool, so opening a game page never scans the whole disk (#159) |
 | `set_cloud_save_sync` | `{ gameId?, enabled }` | `CloudSyncToggleResponse`; `gameId` null changes the global default, a number stores a per-game override. Local only |
 | `sync_cloud_save_now` | `{ gameId }` | `CloudSaveStatus`; archives and uploads immediately. Works with automatic sync off; an unchanged hash is a no-op. Failures stay in `pending` |
 | `restore_cloud_save` | `{ gameId, strategy: "remote" \| "keep_local" }` | `CloudSaveRestoreOutcome`; verifies the SHA-256, backs up newer local files before a `remote` restore and returns `backupPath`, runs at most once per snapshot. `keep_local` records and uploads the local state (#108) |
@@ -2415,6 +2484,11 @@ interface UploadSession {
 | `LUDEX_UPLOAD_MAX_BYTES` | `107374182400` | Largest accepted archive upload |
 | `LUDEX_UPLOAD_TTL_HOURS` | `24` | Stale upload cleanup age |
 | `LUDEX_DESKTOP_HANDOFF_TTL_SECONDS` | `120` (30–600) | Lifetime of a pending desktop SSO handoff (#157) |
+| `LUDEX_DESKTOP_RELEASES_API` | `https://api.github.com/repos/cleeryy/ludex/releases/latest` | GitHub-compatible releases endpoint polled by the public download page (#164); no token |
+| `LUDEX_DESKTOP_RELEASES_PAGE` | `https://github.com/cleeryy/ludex/releases` | Releases page used as the offline fallback link (#164) |
+| `LUDEX_DESKTOP_DOWNLOAD_BASE_URL` | unset | Flat mirror replacing asset URLs (`{base}/{fileName}`), e.g. an internal artifact proxy (#164) |
+| `LUDEX_DESKTOP_DOWNLOAD_TTL_SECONDS` | `600` (10–86400) | In-process cache for release metadata (#164) |
+| `LUDEX_DESKTOP_DOWNLOAD_TIMEOUT_SECONDS` | `5` (1–30) | Upstream timeout for release metadata and checksums (#164) |
 | `LUDEX_OPENAPI_DOCS` | `false` | Serve `/api/docs` |
 
 ## Achievements (#117, #118)

@@ -395,6 +395,29 @@ the exit path. A second exit for the same game within the debounce window is
 coalesced into one upload. The same code path is reachable manually through
 `sync_cloud_save_now`, which works even when automatic sync is off.
 
+Before archiving, an automatic sync re-runs save detection through the exact
+entry point the game page and Settings → Saves use (`commands::detect_and_persist`).
+This is what makes the first session work: the game usually creates its save
+folder only while it runs, and a Ludusavi manifest downloaded after startup is
+picked up on the next exit. Detection runs on the blocking pool; a detection
+failure is logged and never blocks the upload of an already persisted mapping.
+The `cloud-save://detected` event tells an open game page to refresh its status
+(#158).
+
+### Save-scope scanning (#159)
+
+`cloud_save_status` renders one game page; it must never walk an arbitrary
+directory. Its local scan runs in `spawn_blocking`, is capped at **4 000 files,
+32 levels and 200 ms**, and marks the result `truncated` when a cap is hit (so a
+truncated scan never claims "no save files exist"). The preview is cached per
+game for **45 s**, keyed by the mapping fingerprint, and invalidated by
+detection, an upload, a restore or a candidate confirmation. Archive and restore
+walks keep their own (larger) caps and also run on the blocking pool.
+
+The game page mounts the cloud panel only when it scrolls into view; the panel
+requests the status once (no polling, no automatic retry) and shows a skeleton
+until it answers.
+
 The user can also change the global default in Settings → Desktop and the
 per-game switch on the game page. Effective state is:
 

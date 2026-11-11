@@ -5,51 +5,54 @@ import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowRight,
-  Bookmark,
-  Clock,
   Dice5,
-  Download,
-  Film,
   Gamepad2,
-  House,
   Keyboard,
-  Library,
   ListOrdered,
   Moon,
   Plus,
-  KeyRound,
-  PlugZap,
   RefreshCw,
   Search,
-  Server,
   Settings,
-  ShieldCheck,
   SlidersHorizontal,
   Sun,
   UserRound,
-  Users,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { installsAvailable } from "@/lib/install";
+import { isNative } from "@/lib/native";
 import { cn } from "@/lib/cn";
 import { formatYear, stateLabel } from "@/lib/format";
 import { scoreSearch } from "@/lib/search";
+import { availableSettingsSections, settingsSectionPath } from "@/lib/settings-sections";
+import { navGroups, systemNav, type NavContext, type NavDestination } from "@/lib/navigation";
 import { openFiltersPanel, openShortcutsHelp } from "@/lib/ui-events";
 import { useAuth, useIsAdmin, useIsEditor } from "@/state/auth";
 import { otherModeTheme, useSettings } from "@/state/settings";
 import { useToast } from "@/state/toasts";
 import { GameCover } from "@/components/art/cover";
 import { Kbd } from "@/components/ui/controls";
+import { NavIcon } from "@/components/shell/nav-icons";
+import { navGroupLabel, navLabel } from "@/components/shell/nav-copy";
+import { settingsSectionLabel } from "@/components/settings/settings-copy";
+import { SettingsIcon } from "@/components/settings/settings-icons";
 import { t } from "@/lib/i18n";
 
 interface Item {
   id: string;
-  group: string;
   label: string;
   hint?: string;
-  icon?: React.ReactNode;
+  icon: React.ReactNode;
   kbd?: string;
+  /** Extra words the fuzzy search may match, beyond the label. */
+  keywords?: string[];
   run: () => void;
+}
+
+interface Section {
+  id: string;
+  label: string;
+  items: Item[];
 }
 
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -65,6 +68,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const listId = useId();
+  const groupIdPrefix = useId();
+  const desktop = installsAvailable();
 
   const { data } = useQuery({
     queryKey: ["palette-games"],
@@ -83,186 +88,214 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
 
   const close = () => onOpenChange(false);
 
-  const items = useMemo<Item[]>(() => {
+  const sections = useMemo<Section[]>(() => {
+    const navContext: NavContext = { editor: isEditor, admin: isAdmin, desktop };
+    const q = query.trim();
     const go = (path: string) => () => {
       close();
       navigate(path);
     };
 
-    const navigation: Item[] = [
-      { id: "nav-home", group: t("Go to"), label: t("Home"), icon: <House className="size-3.5" />, kbd: "g h", run: go("/") },
-      { id: "nav-library", group: t("Go to"), label: t("Library"), icon: <Library className="size-3.5" />, kbd: "g l", run: go("/library") },
-      ...(installsAvailable()
-        ? [
-            {
-              id: "nav-downloads",
-              group: t("Go to"),
-              label: t("Downloads"),
-              icon: <Download className="size-3.5" />,
-              kbd: "g d",
-              run: go("/downloads"),
-            },
-          ]
-        : []),
-      { id: "nav-recent", group: t("Go to"), label: t("Recently played"), icon: <Clock className="size-3.5" />, run: go("/recent") },
-      { id: "nav-bookmarks", group: t("Go to"), label: t("Bookmarks"), icon: <Bookmark className="size-3.5" />, kbd: "g b", run: go("/bookmarks") },
-      { id: "nav-index", group: t("Go to"), label: t("Index"), hint: t("A\u2013Z list"), icon: <ListOrdered className="size-3.5" />, kbd: "g i", run: go("/all") },
-      { id: "nav-news", group: t("Go to"), label: t("News"), icon: <Film className="size-3.5" />, run: go("/news") },
-      { id: "nav-bigpicture", group: t("Go to"), label: t("Big Picture mode"), icon: <Gamepad2 className="size-3.5" />, run: go("/bigpicture") },
-      { id: "nav-settings", group: t("Go to"), label: t("Settings"), icon: <Settings className="size-3.5" />, kbd: "g s", run: go("/settings") },
-    ];
-
-    const library: Item[] = [
-      {
-        id: "lib-filters",
-        group: t("Library"),
-        label: t("Open the filter panel"),
-        icon: <SlidersHorizontal className="size-3.5" />,
-        kbd: "f",
-        run: () => {
-          close();
-          navigate("/library");
-          window.setTimeout(openFiltersPanel, 80);
-        },
-      },
-      ...(installsAvailable()
-        ? [
-            {
-              id: "lib-installed",
-              group: t("Library"),
-              label: t("Show installed games"),
-              icon: <Gamepad2 className="size-3.5" />,
-              run: go("/library?installed=true"),
-            },
-          ]
-        : []),
-      {
-        id: "lib-clear",
-        group: t("Library"),
-        label: t("Clear library filters"),
-        icon: <SlidersHorizontal className="size-3.5" />,
-        run: go("/library"),
-      },
-    ];
-
-    const admin: Item[] = isEditor
-      ? [
-          { id: "adm-ingest", group: t("Admin"), label: t("Ingest"), hint: t("Add a download"), icon: <Download className="size-3.5" />, run: go("/admin/ingest") },
-          { id: "adm-scan", group: t("Admin"), label: t("Library scan"), icon: <RefreshCw className="size-3.5" />, run: go("/admin/scan") },
-          ...(isAdmin
-            ? [
-                { id: "adm-users", group: t("Admin"), label: t("Users"), icon: <Users className="size-3.5" />, run: go("/admin/users") },
-                { id: "adm-news", group: t("Admin"), label: t("News editor"), icon: <ShieldCheck className="size-3.5" />, run: go("/admin/news") },
-                { id: "adm-server", group: t("Admin"), label: t("Server"), icon: <Server className="size-3.5" />, run: go("/admin/server") },
-                { id: "adm-authentication", group: t("Admin"), label: t("Authentication"), icon: <KeyRound className="size-3.5" />, run: go("/admin/authentication") },
-                { id: "adm-metadata", group: t("Admin"), label: t("Metadata providers"), icon: <PlugZap className="size-3.5" />, run: go("/admin/metadata") },
-              ]
-            : []),
-        ]
-      : [];
-
-    const actions: Item[] = [
-      {
-        id: "act-random",
-        group: t("Actions"),
-        label: t("Pick a random game"),
-        icon: <Dice5 className="size-3.5" />,
-        run: () => {
-          close();
-          void api
-            .randomGame()
-            .then((game) => navigate(`/game/${game.id}`))
-            .catch(() => push({ title: t("Nothing to pick"), description: t("The library is empty.") }));
-        },
-      },
-      ...(isEditor
-        ? [
-            {
-              id: "act-scan",
-              group: t("Actions"),
-              label: t("Scan the library now"),
-              icon: <RefreshCw className="size-3.5" />,
-              run: () => {
-                close();
-                void api
-                  .startScan()
-                  .then(() => push({ title: t("Scan started"), description: t("New files will appear as they are indexed."), tone: "success" }))
-                  .catch((error: Error) => push({ title: t("Scan did not start"), description: error.message, tone: "danger" }));
-              },
-            },
-            {
-              id: "act-add",
-              group: t("Actions"),
-              label: t("Add a game"),
-              hint: t("Paste a download URL"),
-              icon: <Plus className="size-3.5" />,
-              run: go("/admin/ingest"),
-            },
-          ]
-        : []),
-      {
-        id: "act-theme",
-        group: t("Actions"),
-        label: resolved === "dark" ? t("Switch to the light theme") : t("Switch to the dark theme"),
-        icon: resolved === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />,
-        run: () => {
-          close();
-          setTheme(otherModeTheme(resolved));
-        },
-      },
-      {
-        id: "act-shortcuts",
-        group: t("Actions"),
-        label: t("Keyboard shortcuts"),
-        hint: t("Every shortcut"),
-        icon: <Keyboard className="size-3.5" />,
-        kbd: "?",
-        run: () => {
-          close();
-          openShortcutsHelp();
-        },
-      },
-      {
-        id: "act-signout",
-        group: t("Actions"),
-        label: t("Sign out"),
-        icon: <UserRound className="size-3.5" />,
-        run: () => {
-          close();
-          void signOut();
-        },
-      },
-    ];
-
-    const q = query.trim();
-    const games: Item[] = (data?.items ?? [])
-      .map((game) => ({ game, score: q ? scoreSearch(q, game.title, game.genres) : 1 }))
-      .filter((entry) => (q ? entry.score > 0 : entry.game.lastPlayedAt !== null))
-      .sort((a, b) => (q ? b.score - a.score : 0))
-      .slice(0, q ? 7 : 4)
-      .map(({ game }) => ({
-        id: `game-${game.id}`,
-        group: q ? "Games" : "Jump back in",
-        label: game.title,
-        hint: `${formatYear(game.releaseDate)} / ${stateLabel(game.state)}`,
-        icon: (
-          <span className="block w-[30px] overflow-hidden rounded-[1px] ring-1 ring-sheen/15">
-            <GameCover title={game.title} coverUrl={game.coverUrl} showType={false} />
-          </span>
-        ),
-        run: () => {
-          close();
-          navigate(`/game/${game.id}`);
-        },
-      }));
-
-    const groups = [...games, ...navigation, ...library, ...admin, ...actions];
-    if (!q) return groups;
-    return groups.filter((item) => {
-      if (item.group === "Games") return true;
-      return scoreSearch(q, item.label, [item.group]) > 0;
+    const destinationItem = (destination: NavDestination): Item => ({
+      id: `nav-${destination.id}`,
+      label: navLabel(destination),
+      icon: <NavIcon name={destination.icon} className="size-3.5" />,
+      kbd: destination.kbd,
+      run: go(destination.to),
     });
-  }, [data, query, navigate, isEditor, isAdmin, resolved, setTheme, signOut, push]);
+
+    // The rail and the palette share one table (#174); the palette adds the
+    // settings categories, which are places inside one screen.
+    const navigation = navGroups(navContext).map((entry) => ({
+      id: entry.group.id,
+      label: navGroupLabel(entry.group.id),
+      items: entry.items.map(destinationItem),
+    }));
+
+    const settingsSections = availableSettingsSections({ desktop, native: isNative() });
+    const settings: Section = {
+      id: "settings",
+      label: t("Settings"),
+      items: [
+        {
+          id: "set-open",
+          label: t("Open settings"),
+          hint: t("Every section"),
+          icon: <Settings className="size-3.5" />,
+          kbd: systemNav(navContext)[0]?.kbd,
+          keywords: ["preferences", "options"],
+          run: go("/settings"),
+        },
+        ...settingsSections.map((section) => ({
+          id: `set-${section.id}`,
+          label: settingsSectionLabel(section.id),
+          hint: t("Settings section"),
+          icon: <SettingsIcon name={section.icon} className="size-3.5" />,
+          keywords: [...section.keywords, section.id, "settings"],
+          run: go(settingsSectionPath(section.id)),
+        })),
+      ],
+    };
+
+    const library: Section = {
+      id: "library-actions",
+      label: t("Library actions"),
+      items: [
+        {
+          id: "lib-filters",
+          label: t("Open the filter panel"),
+          icon: <SlidersHorizontal className="size-3.5" />,
+          kbd: "f",
+          run: () => {
+            close();
+            navigate("/library");
+            window.setTimeout(openFiltersPanel, 80);
+          },
+        },
+        {
+          id: "lib-index",
+          label: t("All games"),
+          hint: t("A\u2013Z list"),
+          icon: <ListOrdered className="size-3.5" />,
+          kbd: "g i",
+          run: go("/all"),
+        },
+        ...(desktop
+          ? [
+              {
+                id: "lib-installed",
+                label: t("Show installed games"),
+                icon: <Gamepad2 className="size-3.5" />,
+                run: go("/library?installed=true"),
+              },
+            ]
+          : []),
+        {
+          id: "lib-clear",
+          label: t("Clear library filters"),
+          icon: <SlidersHorizontal className="size-3.5" />,
+          run: go("/library"),
+        },
+      ],
+    };
+
+    const actions: Section = {
+      id: "actions",
+      label: t("Actions"),
+      items: [
+        {
+          id: "act-random",
+          label: t("Pick a random game"),
+          icon: <Dice5 className="size-3.5" />,
+          run: () => {
+            close();
+            void api
+              .randomGame()
+              .then((game) => navigate(`/game/${game.id}`))
+              .catch(() => push({ title: t("Nothing to pick"), description: t("The library is empty.") }));
+          },
+        },
+        ...(isEditor
+          ? [
+              {
+                id: "act-scan",
+                label: t("Scan the library now"),
+                icon: <RefreshCw className="size-3.5" />,
+                run: () => {
+                  close();
+                  void api
+                    .startScan()
+                    .then(() => push({ title: t("Scan started"), description: t("New files will appear as they are indexed."), tone: "success" as const }))
+                    .catch((error: Error) => push({ title: t("Scan did not start"), description: error.message, tone: "danger" as const }));
+                },
+              },
+              {
+                id: "act-add",
+                label: t("Add a game"),
+                hint: t("Paste a download URL"),
+                icon: <Plus className="size-3.5" />,
+                run: go("/admin/ingest"),
+              },
+            ]
+          : []),
+        {
+          id: "act-theme",
+          label: resolved === "dark" ? t("Switch to the light theme") : t("Switch to the dark theme"),
+          icon: resolved === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />,
+          run: () => {
+            close();
+            setTheme(otherModeTheme(resolved));
+          },
+        },
+        {
+          id: "act-shortcuts",
+          label: t("Keyboard shortcuts"),
+          hint: t("Every shortcut"),
+          icon: <Keyboard className="size-3.5" />,
+          kbd: "?",
+          run: () => {
+            close();
+            openShortcutsHelp();
+          },
+        },
+        {
+          id: "act-signout",
+          label: t("Sign out"),
+          icon: <UserRound className="size-3.5" />,
+          run: () => {
+            close();
+            void signOut();
+          },
+        },
+      ],
+    };
+
+    const games: Section = {
+      id: "games",
+      label: q ? t("Games") : t("Jump back in"),
+      items: (data?.items ?? [])
+        .map((game) => ({ game, score: q ? scoreSearch(q, game.title, game.genres) : 1 }))
+        .filter((entry) => (q ? entry.score > 0 : entry.game.lastPlayedAt !== null))
+        .sort((a, b) => (q ? b.score - a.score : 0))
+        .slice(0, q ? 7 : 4)
+        .map(({ game }) => ({
+          id: `game-${game.id}`,
+          label: game.title,
+          hint: `${formatYear(game.releaseDate)} / ${stateLabel(game.state)}`,
+          icon: (
+            <span className="block w-[30px] overflow-hidden rounded-[1px] ring-1 ring-sheen/15">
+              <GameCover title={game.title} coverUrl={game.coverUrl} showType={false} />
+            </span>
+          ),
+          run: () => {
+            close();
+            navigate(`/game/${game.id}`);
+          },
+        })),
+    };
+
+    const all = [games, ...navigation, settings, library, actions].filter((section) => section.items.length > 0);
+    if (!q) return all;
+
+    return all
+      .map((section) => ({
+        ...section,
+        items:
+          section.id === "games"
+            ? section.items
+            : section.items
+                .map((item) => ({
+                  item,
+                  score: scoreSearch(q, item.label, [...(item.keywords ?? []), section.label]),
+                }))
+                .filter((entry) => entry.score > 0)
+                .sort((a, b) => b.score - a.score)
+                .map((entry) => entry.item),
+      }))
+      .filter((section) => section.items.length > 0);
+  }, [data, query, navigate, isEditor, isAdmin, desktop, resolved, setTheme, signOut, push]);
+
+  const items = useMemo(() => sections.flatMap((section) => section.items), [sections]);
 
   useEffect(() => {
     setActive(0);
@@ -281,6 +314,12 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       setActive((i) => (items.length ? (i - 1 + items.length) % items.length : 0));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setActive(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setActive(Math.max(0, items.length - 1));
     } else if (event.key === "Enter") {
       event.preventDefault();
       items[active]?.run();
@@ -291,6 +330,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       event.preventDefault();
     }
   };
+
+  let index = -1;
 
   return createPortal(
     <AnimatePresence>
@@ -340,37 +381,42 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   {t("Nothing matches “{query}”. Try a title, a genre or a screen name.", { query })}
                 </div>
               )}
-              {items.map((item, index) => {
-                const showGroup = index === 0 || items[index - 1].group !== item.group;
+              {sections.map((section) => {
+                const groupId = `${groupIdPrefix}-${section.id}`;
                 return (
-                  <div key={item.id}>
-                    {showGroup && (
-                      <div className="px-4 pb-1 pt-3 text-[11px] font-medium text-ink-3" aria-hidden="true">
-                        {item.group}
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      role="option"
-                      id={item.id}
-                      data-index={index}
-                      aria-selected={index === active}
-                      onMouseMove={() => setActive(index)}
-                      onClick={item.run}
-                      className={cn(
-                        "flex h-11 w-full items-center gap-3 px-4 text-left transition-colors duration-[80ms]",
-                        index === active ? "bg-surface-2 text-ink" : "text-ink-2",
-                      )}
-                    >
-                      <span className="flex w-8 shrink-0 items-center justify-center text-ink-3">{item.icon}</span>
-                      <span className="min-w-0 flex-1 truncate text-[13.5px]">{item.label}</span>
-                      {item.hint && <span className="hidden shrink-0 text-[11.5px] text-ink-3 sm:block">{item.hint}</span>}
-                      {item.kbd && <span className="kbd hidden sm:inline-flex">{item.kbd}</span>}
-                      <ArrowRight
-                        className={cn("size-3.5 shrink-0", index === active ? "text-signal-text" : "text-transparent")}
-                        aria-hidden="true"
-                      />
-                    </button>
+                  <div key={section.id} role="group" aria-labelledby={groupId}>
+                    <div id={groupId} className="px-4 pb-1 pt-3 text-[11px] font-medium text-ink-3">
+                      {section.label}
+                    </div>
+                    {section.items.map((item) => {
+                      index += 1;
+                      const position = index;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          role="option"
+                          id={item.id}
+                          data-index={position}
+                          aria-selected={position === active}
+                          onMouseMove={() => setActive(position)}
+                          onClick={item.run}
+                          className={cn(
+                            "flex h-11 w-full items-center gap-3 px-4 text-left transition-colors duration-[80ms]",
+                            position === active ? "bg-surface-2 text-ink" : "text-ink-2",
+                          )}
+                        >
+                          <span className="flex w-8 shrink-0 items-center justify-center text-ink-3">{item.icon}</span>
+                          <span className="min-w-0 flex-1 truncate text-[13.5px]">{item.label}</span>
+                          {item.hint && <span className="hidden shrink-0 text-[11.5px] text-ink-3 sm:block">{item.hint}</span>}
+                          {item.kbd && <span className="kbd hidden sm:inline-flex">{item.kbd}</span>}
+                          <ArrowRight
+                            className={cn("size-3.5 shrink-0", position === active ? "text-signal-text" : "text-transparent")}
+                            aria-hidden="true"
+                          />
+                        </button>
+                      );
+                    })}
                   </div>
                 );
               })}
