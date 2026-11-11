@@ -35,7 +35,7 @@ async fn list(
     user: AuthUser,
 ) -> Result<Json<Vec<Webhook>>, ApiError> {
     user.require_admin_access()?;
-    let rows = sqlx::query_as::<_, WebhookRow>(&format!(
+    let rows = db::query_as::<WebhookRow>(&format!(
         "SELECT {WEBHOOK_COLUMNS} FROM webhooks ORDER BY id DESC"
     ))
     .fetch_all(&state.pool)
@@ -56,7 +56,7 @@ async fn create(
     let secret = webhooks::generate_secret();
     let now = db::db_time(db::now());
 
-    let result = sqlx::query(
+    let id = db::query(
         "INSERT INTO webhooks (url, secret, events, enabled, created_at)
          VALUES (?, ?, ?, ?, ?)",
     )
@@ -65,10 +65,9 @@ async fn create(
     .bind(webhooks::events_json(&events))
     .bind(i64::from(enabled))
     .bind(&now)
-    .execute(&state.pool)
+    .returning_id(&state.pool)
     .await
     .map_err(ApiError::from)?;
-    let id = result.last_insert_rowid();
 
     state.events.emit(
         Event::new(actions::WEBHOOK_CREATED, user.actor())
@@ -76,7 +75,7 @@ async fn create(
             .metadata(json!({ "url": url, "events": events, "enabled": enabled })),
     );
 
-    let row = sqlx::query_as::<_, WebhookRow>(&format!(
+    let row = db::query_as::<WebhookRow>(&format!(
         "SELECT {WEBHOOK_COLUMNS} FROM webhooks WHERE id = ?"
     ))
     .bind(id)
@@ -135,7 +134,7 @@ async fn update(
     if !sets.is_empty() {
         binds.push(Bind::Int(id));
         let sql = format!("UPDATE webhooks SET {} WHERE id = ?", sets.join(", "));
-        bind_query(sqlx::query(&sql), &binds)
+        bind_query(db::query(&sql), &binds)
             .execute(&state.pool)
             .await
             .map_err(ApiError::from)?;
@@ -160,7 +159,7 @@ async fn remove(
 ) -> Result<StatusCode, ApiError> {
     user.require_admin_access()?;
     let row = fetch_webhook(&state, id).await?;
-    sqlx::query("DELETE FROM webhooks WHERE id = ?")
+    db::query("DELETE FROM webhooks WHERE id = ?")
         .bind(id)
         .execute(&state.pool)
         .await
@@ -187,7 +186,7 @@ async fn test(
 }
 
 async fn fetch_webhook(state: &AppState, id: i64) -> Result<WebhookRow, ApiError> {
-    sqlx::query_as::<_, WebhookRow>(&format!(
+    db::query_as::<WebhookRow>(&format!(
         "SELECT {WEBHOOK_COLUMNS} FROM webhooks WHERE id = ?"
     ))
     .bind(id)

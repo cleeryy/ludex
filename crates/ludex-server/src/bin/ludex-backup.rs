@@ -8,6 +8,9 @@
 //!
 //! Directories come from the usual `LUDEX_*` variables and can be overridden
 //! with `--data-dir`, `--media-dir`, `--games-dir` and `--database-url`.
+//!
+//! PostgreSQL is not covered: archives hold a SQLite snapshot. Use
+//! `pg_dump`/`pg_restore` there and see `docs/POSTGRES.md`.
 //! Reports are printed as JSON on stdout; diagnostics go to stderr.
 
 use std::path::PathBuf;
@@ -58,6 +61,14 @@ fn main() -> Result<()> {
                 Ok(serde_json::to_value(report)?)
             }
             "restore" => {
+                if ludex_server::db::Backend::from_url(&config.database_url)?
+                    == ludex_server::db::Backend::Postgres
+                {
+                    bail!(
+                        "ludex-backup restore only targets SQLite: restore a PostgreSQL dump with \
+                         pg_restore (see docs/POSTGRES.md)"
+                    );
+                }
                 let archive = options
                     .archive
                     .clone()

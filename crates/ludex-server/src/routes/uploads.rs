@@ -95,7 +95,7 @@ async fn create(
         .await
         .map_err(ApiError::from)?;
     let now = db::db_time(db::now());
-    sqlx::query(
+    db::query(
         "INSERT INTO uploads
             (id, user_id, file_name, size, sha256, chunk_size, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)",
@@ -166,7 +166,7 @@ async fn receive_part(
     tokio::fs::rename(&temporary, &path)
         .await
         .map_err(ApiError::from)?;
-    sqlx::query("UPDATE uploads SET updated_at = ? WHERE id = ?")
+    db::query("UPDATE uploads SET updated_at = ? WHERE id = ?")
         .bind(db::db_time(db::now()))
         .bind(&id)
         .execute(&state.pool)
@@ -272,7 +272,7 @@ async fn complete(
     };
 
     let now = db::db_time(db::now());
-    sqlx::query(
+    db::query(
         "UPDATE uploads SET status = 'complete', game_id = ?, version_id = ?,
             error = NULL, updated_at = ? WHERE id = ?",
     )
@@ -315,7 +315,7 @@ async fn cancel(
     let row = fetch_owned(&state, &user, &id).await?;
     if row.status == "complete" {
         // Keep the indexed game; only drop the progress row.
-        sqlx::query("DELETE FROM uploads WHERE id = ?")
+        db::query("DELETE FROM uploads WHERE id = ?")
             .bind(&id)
             .execute(&state.pool)
             .await
@@ -344,7 +344,7 @@ fn completed_response(row: UploadRow) -> Result<Json<CompleteUploadResponse>, Ap
 }
 
 async fn fetch_row(state: &AppState, id: &str) -> Result<UploadRow, ApiError> {
-    sqlx::query_as::<_, UploadRow>(
+    db::query_as::<UploadRow>(
         "SELECT id, user_id, file_name, size, sha256, chunk_size, status,
                 game_id, version_id, error, created_at, updated_at
          FROM uploads WHERE id = ?",
@@ -367,7 +367,7 @@ async fn fetch_owned(state: &AppState, user: &AuthUser, id: &str) -> Result<Uplo
 }
 
 async fn mark_error(state: &AppState, id: &str, message: &str) {
-    let _ = sqlx::query("UPDATE uploads SET error = ?, updated_at = ? WHERE id = ?")
+    let _ = db::query("UPDATE uploads SET error = ?, updated_at = ? WHERE id = ?")
         .bind(message)
         .bind(db::db_time(db::now()))
         .bind(id)

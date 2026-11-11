@@ -6,10 +6,10 @@
 //! document is validated by [`ludex_core::gamepad`] before it reaches SQLite,
 //! and the same parser is used on import.
 
+use crate::db::Database;
 use chrono::{DateTime, Utc};
 use ludex_core::gamepad::ControllerProfile;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
 
 use crate::db;
 use crate::error::ApiError;
@@ -71,8 +71,8 @@ struct ProfileRow {
 }
 
 /// Lists every profile of an account.
-pub async fn list(pool: &SqlitePool, user_id: i64) -> Result<ControllerProfilesResponse, ApiError> {
-    let rows = sqlx::query_as::<_, (i64, Option<String>, String, String)>(
+pub async fn list(pool: &Database, user_id: i64) -> Result<ControllerProfilesResponse, ApiError> {
+    let rows = db::query_as::<(i64, Option<String>, String, String)>(
         "SELECT p.game_id, g.title, p.profile_json, p.updated_at
          FROM controller_profiles p
          LEFT JOIN games g ON g.id = p.game_id
@@ -137,7 +137,7 @@ impl ProfileRow {
 
 /// Validates and stores one profile, replacing the previous one for the scope.
 pub async fn save(
-    pool: &SqlitePool,
+    pool: &Database,
     user_id: i64,
     request: &SaveControllerProfileRequest,
 ) -> Result<ControllerProfileEntry, ApiError> {
@@ -153,7 +153,7 @@ pub async fn save(
         ));
     }
     if game_id > 0 {
-        let exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM games WHERE id = ?")
+        let exists = db::query_scalar::<i64>("SELECT COUNT(*) FROM games WHERE id = ?")
             .bind(game_id)
             .fetch_one(pool)
             .await
@@ -168,7 +168,7 @@ pub async fn save(
         ApiError::internal()
     })?;
     let now = db::db_time(db::now());
-    sqlx::query(
+    db::query(
         "INSERT INTO controller_profiles (user_id, game_id, name, profile_json, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(user_id, game_id) DO UPDATE SET
@@ -189,7 +189,7 @@ pub async fn save(
     let game_title = if game_id == 0 {
         None
     } else {
-        sqlx::query_scalar::<_, String>("SELECT title FROM games WHERE id = ?")
+        db::query_scalar::<String>("SELECT title FROM games WHERE id = ?")
             .bind(game_id)
             .fetch_optional(pool)
             .await
@@ -205,8 +205,8 @@ pub async fn save(
 }
 
 /// Deletes one profile scope. Returns whether a row existed.
-pub async fn delete(pool: &SqlitePool, user_id: i64, game_id: i64) -> Result<bool, ApiError> {
-    let result = sqlx::query("DELETE FROM controller_profiles WHERE user_id = ? AND game_id = ?")
+pub async fn delete(pool: &Database, user_id: i64, game_id: i64) -> Result<bool, ApiError> {
+    let result = db::query("DELETE FROM controller_profiles WHERE user_id = ? AND game_id = ?")
         .bind(user_id)
         .bind(game_id)
         .execute(pool)
@@ -222,15 +222,14 @@ mod tests {
     use ludex_core::gamepad::preset;
 
     async fn create_user(state: &AppState, username: &str) -> i64 {
-        sqlx::query(
+        db::query(
             "INSERT INTO users (username, password_hash, role, activated, created_at, updated_at)
              VALUES (?, 'x', 'admin', 1, '2026-01-01', '2026-01-01')",
         )
         .bind(username)
-        .execute(&state.pool)
+        .returning_id(&state.pool)
         .await
         .expect("insert user")
-        .last_insert_rowid()
     }
 
     async fn state() -> AppState {
@@ -248,14 +247,13 @@ mod tests {
     async fn saves_lists_and_deletes_global_and_game_profiles() {
         let state = state().await;
         let user_id = create_user(&state, "pilot").await;
-        let game_id = sqlx::query(
+        let game_id = db::query(
             "INSERT INTO games (title, sort_title, group_key, created_at, updated_at)
              VALUES ('Chrono Trigger', 'Chrono Trigger', 'rom::snes::chrono trigger', '2026-01-01', '2026-01-01')",
         )
-        .execute(&state.pool)
+        .returning_id(&state.pool)
         .await
-        .expect("insert game")
-        .last_insert_rowid();
+        .expect("insert game");
 
         let global = SaveControllerProfileRequest {
             game_id: None,

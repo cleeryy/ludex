@@ -1,5 +1,6 @@
 //! Public OIDC routes: start, callback and one-time code exchange.
 
+use crate::db;
 use axum::extract::State;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
@@ -106,7 +107,7 @@ async fn exchange(
         )
     })?;
 
-    let row = sqlx::query_as::<_, UserRow>(
+    let row = db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
                 onboarding_completed_at, onboarding_step

@@ -7,6 +7,7 @@ use axum::{Json, Router};
 
 use crate::api_keys::Scope;
 use crate::auth::AuthUser;
+use crate::db;
 use crate::emulators::{
     self, CreateEmulatorRequest, Emulator, EmulatorLaunch, PlatformDefault, PlatformView,
     SetGameEmulatorRequest, UpdateDefaultsRequest, UpdateEmulatorRequest, ValidateCommandRequest,
@@ -141,7 +142,7 @@ async fn set_game_emulator(
     JsonBody(request): JsonBody<SetGameEmulatorRequest>,
 ) -> Result<StatusCode, ApiError> {
     user.require_editor()?;
-    let kind = sqlx::query_scalar::<_, String>("SELECT kind FROM games WHERE id = ?")
+    let kind = db::query_scalar::<String>("SELECT kind FROM games WHERE id = ?")
         .bind(game_id)
         .fetch_optional(&state.pool)
         .await
@@ -154,13 +155,12 @@ async fn set_game_emulator(
         ));
     }
     if let Some(id) = request.emulator_id {
-        let exists = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM emulators WHERE id = ? AND enabled = 1",
-        )
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(ApiError::from)?;
+        let exists =
+            db::query_scalar::<i64>("SELECT COUNT(*) FROM emulators WHERE id = ? AND enabled = 1")
+                .bind(id)
+                .fetch_one(&state.pool)
+                .await
+                .map_err(ApiError::from)?;
         if exists == 0 {
             return Err(ApiError::not_found(
                 "emulator_not_found",
@@ -168,7 +168,7 @@ async fn set_game_emulator(
             ));
         }
     }
-    sqlx::query("UPDATE games SET emulator_id = ?, updated_at = ? WHERE id = ?")
+    db::query("UPDATE games SET emulator_id = ?, updated_at = ? WHERE id = ?")
         .bind(request.emulator_id)
         .bind(crate::db::db_time(crate::db::now()))
         .bind(game_id)

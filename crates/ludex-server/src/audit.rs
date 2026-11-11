@@ -4,7 +4,8 @@
 //! event worker. Secrets (passwords, tokens, webhook secrets) must never be
 //! placed in an event's metadata.
 
-use sqlx::SqlitePool;
+use crate::db;
+use crate::db::Database;
 
 use crate::events::Event;
 
@@ -93,9 +94,9 @@ pub mod actions {
 
 /// Writes one event to `audit_logs`. Failures are logged, never propagated:
 /// auditing must not turn a successful operation into an HTTP error.
-pub async fn record(pool: &SqlitePool, event: &Event) {
+pub async fn record(pool: &Database, event: &Event) {
     let metadata = serde_json::to_string(&event.metadata).unwrap_or_else(|_| "{}".to_string());
-    let result = sqlx::query(
+    let result = db::query(
         "INSERT INTO audit_logs
             (actor_id, actor_kind, action, target_type, target_id, metadata, ip, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

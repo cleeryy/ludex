@@ -15,11 +15,11 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use crate::db::Database;
 use chrono::{DateTime, Utc};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::SqlitePool;
 
 use crate::auth;
 use crate::db;
@@ -322,8 +322,8 @@ pub struct NewShare<'a> {
 }
 
 /// Inserts a share link and returns its id.
-pub async fn insert(pool: &SqlitePool, share: &NewShare<'_>) -> Result<i64, ApiError> {
-    let result = sqlx::query(
+pub async fn insert(pool: &Database, share: &NewShare<'_>) -> Result<i64, ApiError> {
+    db::query(
         "INSERT INTO share_links
             (token_hash, game_id, version_id, label, created_by, created_at, expires_at,
              password_hash, max_downloads, download_count, revoked_at, last_accessed_at)
@@ -338,25 +338,24 @@ pub async fn insert(pool: &SqlitePool, share: &NewShare<'_>) -> Result<i64, ApiE
     .bind(share.expires_at.map(db::db_time))
     .bind(share.password_hash)
     .bind(share.max_downloads)
-    .execute(pool)
+    .returning_id(pool)
     .await
-    .map_err(ApiError::from)?;
-    Ok(result.last_insert_rowid())
+    .map_err(ApiError::from)
 }
 
 /// Lists every share link, newest first, with the game title.
-pub async fn list(pool: &SqlitePool) -> Result<Vec<ShareLinkRow>, ApiError> {
+pub async fn list(pool: &Database) -> Result<Vec<ShareLinkRow>, ApiError> {
     let sql = format!("SELECT {LINK_COLUMNS}{LINK_FROM} ORDER BY s.created_at DESC, s.id DESC");
-    sqlx::query_as::<_, ShareLinkRow>(&sql)
+    db::query_as::<ShareLinkRow>(&sql)
         .fetch_all(pool)
         .await
         .map_err(ApiError::from)
 }
 
 /// Reads one share link by id.
-pub async fn get(pool: &SqlitePool, id: i64) -> Result<Option<ShareLinkRow>, ApiError> {
+pub async fn get(pool: &Database, id: i64) -> Result<Option<ShareLinkRow>, ApiError> {
     let sql = format!("SELECT {LINK_COLUMNS}{LINK_FROM} WHERE s.id = ?");
-    sqlx::query_as::<_, ShareLinkRow>(&sql)
+    db::query_as::<ShareLinkRow>(&sql)
         .bind(id)
         .fetch_optional(pool)
         .await
@@ -365,11 +364,11 @@ pub async fn get(pool: &SqlitePool, id: i64) -> Result<Option<ShareLinkRow>, Api
 
 /// Reads a share link by token hash. Revocation and expiry are not applied.
 pub async fn find_by_token(
-    pool: &SqlitePool,
+    pool: &Database,
     token_hash: &str,
 ) -> Result<Option<ShareLinkRow>, ApiError> {
     let sql = format!("SELECT {LINK_COLUMNS}{LINK_FROM} WHERE s.token_hash = ?");
-    sqlx::query_as::<_, ShareLinkRow>(&sql)
+    db::query_as::<ShareLinkRow>(&sql)
         .bind(token_hash)
         .fetch_optional(pool)
         .await
@@ -379,7 +378,7 @@ pub async fn find_by_token(
 /// Reads a share link that may still be shown publicly: unknown, revoked,
 /// expired and exhausted links all answer `None` (404 on the metadata page).
 pub async fn find_valid_by_token(
-    pool: &SqlitePool,
+    pool: &Database,
     token_hash: &str,
 ) -> Result<Option<ShareLinkRow>, ApiError> {
     let Some(row) = find_by_token(pool, token_hash).await? else {
@@ -389,8 +388,8 @@ pub async fn find_valid_by_token(
 }
 
 /// Soft-revokes a share link.
-pub async fn revoke(pool: &SqlitePool, id: i64) -> Result<(), ApiError> {
-    sqlx::query("UPDATE share_links SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
+pub async fn revoke(pool: &Database, id: i64) -> Result<(), ApiError> {
+    db::query("UPDATE share_links SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
         .bind(db::db_time(db::now()))
         .bind(id)
         .execute(pool)
@@ -455,12 +454,12 @@ pub fn verify_access(share: Option<&ShareLinkRow>, password: Option<&str>) -> bo
 /// `Ok(None)` means a rule changed since the caller loaded the row; the caller
 /// re-reads it to pick the reason.
 pub async fn claim_access(
-    pool: &SqlitePool,
+    pool: &Database,
     share: &ShareLinkRow,
     now: DateTime<Utc>,
 ) -> Result<Option<i64>, ApiError> {
     let now_text = db::db_time(now);
-    let result = sqlx::query(
+    let result = db::query(
         "UPDATE share_links
             SET download_count = download_count + 1, last_accessed_at = ?
           WHERE id = ?
@@ -512,12 +511,12 @@ impl ShareVersionRow {
 /// Resolves the shared version: the explicit one when set, otherwise the
 /// newest available version at access time. Always constrained to `game_id`.
 pub async fn resolve_version(
-    pool: &SqlitePool,
+    pool: &Database,
     game_id: i64,
     version_id: Option<i64>,
 ) -> Result<Option<ShareVersionRow>, ApiError> {
     let row = match version_id {
-        Some(version_id) => sqlx::query_as::<_, ShareVersionRow>(
+        Some(version_id) => db::query_as::<ShareVersionRow>(
             "SELECT id, version, size, release_date, early_access
                  FROM game_versions WHERE id = ? AND game_id = ? AND missing = 0",
         )
@@ -526,7 +525,7 @@ pub async fn resolve_version(
         .fetch_optional(pool)
         .await
         .map_err(ApiError::from)?,
-        None => sqlx::query_as::<_, ShareVersionRow>(
+        None => db::query_as::<ShareVersionRow>(
             "SELECT id, version, size, release_date, early_access
                  FROM game_versions WHERE game_id = ? AND missing = 0
                  ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC LIMIT 1",
@@ -542,7 +541,7 @@ pub async fn resolve_version(
 /// Public game metadata. Dedicated query: no `progress`, `bookmarks`,
 /// `play_sessions` or library-root joins, so no account data or file path can
 /// leak even if the caller is anonymous.
-pub async fn game_metadata(pool: &SqlitePool, game_id: i64) -> Result<Option<ShareGame>, ApiError> {
+pub async fn game_metadata(pool: &Database, game_id: i64) -> Result<Option<ShareGame>, ApiError> {
     #[derive(Debug, sqlx::FromRow)]
     struct ShareGameRow {
         id: i64,
@@ -559,7 +558,7 @@ pub async fn game_metadata(pool: &SqlitePool, game_id: i64) -> Result<Option<Sha
         age_rating: Option<i64>,
     }
 
-    let row = sqlx::query_as::<_, ShareGameRow>(
+    let row = db::query_as::<ShareGameRow>(
         "SELECT id, title, description, cover_path, background_path, screenshots_json,
                 release_date, rating, genres_json, developers_json, publishers_json, age_rating
          FROM games WHERE id = ?",

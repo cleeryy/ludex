@@ -44,9 +44,9 @@ pub(crate) const LIST_COLUMNS: &str = "g.id, g.title, g.sort_title, g.release_da
 g.background_path, g.rating, g.genres_json, g.early_access, g.alt_titles_json, g.max_players, \
 g.provider_slug, g.kind, g.platform, g.emulator_id, \
 COALESCE(p.state, 'unplayed') AS state, COALESCE(p.minutes_played, 0) AS minutes_played, \
-CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END AS bookmarked, p.last_played_at, \
+CAST(CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END AS BIGINT) AS bookmarked, p.last_played_at, \
 (SELECT COUNT(*) FROM game_versions v WHERE v.game_id = g.id AND v.missing = 0) AS version_count, \
-(SELECT COALESCE(SUM(v.size), 0) FROM game_versions v WHERE v.game_id = g.id AND v.missing = 0) AS total_size";
+(SELECT CAST(COALESCE(SUM(v.size), 0) AS BIGINT) FROM game_versions v WHERE v.game_id = g.id AND v.missing = 0) AS total_size";
 
 const DETAIL_COLUMNS: &str = "g.id, g.title, g.sort_title, g.description, g.release_date, \
 g.cover_path, g.background_path, g.screenshots_json, g.trailers_json, g.genres_json, \
@@ -57,9 +57,9 @@ g.installer_executable, g.installer_parameters, g.uninstaller_executable, \
 g.uninstaller_parameters, g.kind, g.platform, g.emulator_id, \
 COALESCE(p.state, 'unplayed') AS state, \
 COALESCE(p.minutes_played, 0) AS minutes_played, \
-CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END AS bookmarked, p.last_played_at, \
+CAST(CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END AS BIGINT) AS bookmarked, p.last_played_at, \
 (SELECT COUNT(*) FROM game_versions v WHERE v.game_id = g.id AND v.missing = 0) AS version_count, \
-(SELECT COALESCE(SUM(v.size), 0) FROM game_versions v WHERE v.game_id = g.id AND v.missing = 0) AS total_size";
+(SELECT CAST(COALESCE(SUM(v.size), 0) AS BIGINT) FROM game_versions v WHERE v.game_id = g.id AND v.missing = 0) AS total_size";
 
 pub(crate) const FROM_JOINS: &str = " FROM games g \
 LEFT JOIN progress p ON p.game_id = g.id AND p.user_id = ? \
@@ -106,7 +106,7 @@ struct Filters {
 }
 
 impl Filters {
-    fn from_query(query: &GameQuery) -> Result<Self, ApiError> {
+    fn from_query(query: &GameQuery, postgres: bool) -> Result<Self, ApiError> {
         let mut clauses = Vec::new();
         let mut binds = Vec::new();
 
@@ -116,9 +116,13 @@ impl Filters {
             .map(str::trim)
             .filter(|g| !g.is_empty())
         {
-            clauses.push(
-                "EXISTS (SELECT 1 FROM json_each(g.genres_json) WHERE value = ?)".to_string(),
-            );
+            clauses.push(if postgres {
+                "EXISTS (SELECT 1 FROM jsonb_array_elements_text(g.genres_json::jsonb) AS genre \
+                 WHERE genre = ?)"
+                    .to_string()
+            } else {
+                "EXISTS (SELECT 1 FROM json_each(g.genres_json) WHERE value = ?)".to_string()
+            });
             binds.push(Bind::Text(genre.to_string()));
         }
         if let Some(state) = query.state {
@@ -259,7 +263,8 @@ async fn list(
     user: AuthUser,
     ApiQuery(query): ApiQuery<GameQuery>,
 ) -> Result<Json<Paginated<GameSummary>>, ApiError> {
-    let filters = Filters::from_query(&query)?.with_age_limit(user.age_limit);
+    let filters =
+        Filters::from_query(&query, state.pool.is_postgres())?.with_age_limit(user.age_limit);
     let page = query.page.unwrap_or(1).max(1);
     let limit = query.limit.unwrap_or(48).clamp(1, 200);
     let offset = (page - 1).saturating_mul(limit);
@@ -271,7 +276,7 @@ async fn list(
         );
         let mut binds = vec![Bind::Int(user.id), Bind::Int(user.id)];
         binds.extend(filters.binds.iter().cloned());
-        let rows = bind_query_as(sqlx::query_as::<_, GameListRow>(&sql), &binds)
+        let rows = bind_query_as(db::query_as::<GameListRow>(&sql), &binds)
             .fetch_all(&state.pool)
             .await
             .map_err(ApiError::from)?;
@@ -319,7 +324,7 @@ async fn list(
     let count_sql = format!("SELECT COUNT(*){FROM_JOINS}{}", filters.where_clause());
     let mut count_binds = vec![Bind::Int(user.id), Bind::Int(user.id)];
     count_binds.extend(filters.binds.iter().cloned());
-    let total = bind_query_scalar(sqlx::query_scalar::<_, i64>(&count_sql), &count_binds)
+    let total = bind_query_scalar(db::query_scalar::<i64>(&count_sql), &count_binds)
         .fetch_one(&state.pool)
         .await
         .map_err(ApiError::from)?;
@@ -334,7 +339,7 @@ async fn list(
     binds.push(Bind::Int(limit));
     binds.push(Bind::Int(offset));
 
-    let rows = bind_query_as(sqlx::query_as::<_, GameListRow>(&sql), &binds)
+    let rows = bind_query_as(db::query_as::<GameListRow>(&sql), &binds)
         .fetch_all(&state.pool)
         .await
         .map_err(ApiError::from)?;
@@ -352,7 +357,8 @@ async fn random(
     user: AuthUser,
     ApiQuery(query): ApiQuery<GameQuery>,
 ) -> Result<Json<GameSummary>, ApiError> {
-    let filters = Filters::from_query(&query)?.with_age_limit(user.age_limit);
+    let filters =
+        Filters::from_query(&query, state.pool.is_postgres())?.with_age_limit(user.age_limit);
     let mut binds = vec![Bind::Int(user.id), Bind::Int(user.id)];
     binds.extend(filters.binds.iter().cloned());
 
@@ -361,7 +367,7 @@ async fn random(
             "SELECT {LIST_COLUMNS}{FROM_JOINS}{} LIMIT 5000",
             filters.where_clause()
         );
-        let rows = bind_query_as(sqlx::query_as::<_, GameListRow>(&sql), &binds)
+        let rows = bind_query_as(db::query_as::<GameListRow>(&sql), &binds)
             .fetch_all(&state.pool)
             .await
             .map_err(ApiError::from)?;
@@ -387,7 +393,7 @@ async fn random(
         "SELECT {LIST_COLUMNS}{FROM_JOINS}{} ORDER BY RANDOM() LIMIT 1",
         filters.where_clause()
     );
-    let row = bind_query_as(sqlx::query_as::<_, GameListRow>(&sql), &binds)
+    let row = bind_query_as(db::query_as::<GameListRow>(&sql), &binds)
         .fetch_optional(&state.pool)
         .await
         .map_err(ApiError::from)?
@@ -411,7 +417,7 @@ async fn detail(
 async fn fetch_detail(state: &AppState, user_id: i64, id: i64) -> Result<GameDetail, ApiError> {
     let sql = format!("SELECT {DETAIL_COLUMNS}{FROM_JOINS} WHERE g.id = ?");
     let row = bind_query_as(
-        sqlx::query_as::<_, GameDetailRow>(&sql),
+        db::query_as::<GameDetailRow>(&sql),
         &[Bind::Int(user_id), Bind::Int(user_id), Bind::Int(id)],
     )
     .fetch_optional(&state.pool)
@@ -419,7 +425,7 @@ async fn fetch_detail(state: &AppState, user_id: i64, id: i64) -> Result<GameDet
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("game_not_found", "Game not found"))?;
 
-    let versions = sqlx::query_as::<_, VersionRow>(
+    let versions = db::query_as::<VersionRow>(
         "SELECT id, root_id, file_path, file_name, size, version, release_date,
                 early_access, missing, root_unavailable, archive_hash, updated_at,
                 storage_backend, object_key, etag
@@ -494,7 +500,7 @@ async fn latest_version(
 ) -> Result<Json<LatestVersion>, ApiError> {
     ensure_game(&state, id).await?;
 
-    let row = sqlx::query_as::<_, VersionRow>(
+    let row = db::query_as::<VersionRow>(
         "SELECT id, root_id, file_path, file_name, size, version, release_date,
                 early_access, missing, root_unavailable, archive_hash, updated_at,
                 storage_backend, object_key, etag
@@ -638,7 +644,7 @@ async fn update_game(
         binds.push(Bind::Text(db::db_time(db::now())));
         binds.push(Bind::Int(id));
         let sql = format!("UPDATE games SET {} WHERE id = ?", sets.join(", "));
-        bind_query(sqlx::query(&sql), &binds)
+        bind_query(db::query(&sql), &binds)
             .execute(&state.pool)
             .await
             .map_err(ApiError::from)?;
@@ -674,7 +680,7 @@ async fn download_ticket(
     }
     let version_id = match request.version_id {
         Some(version_id) => {
-            let exists = sqlx::query_scalar::<_, i64>(
+            let exists = db::query_scalar::<i64>(
                 "SELECT id FROM game_versions WHERE id = ? AND game_id = ? AND missing = 0",
             )
             .bind(version_id)
@@ -721,7 +727,7 @@ fn deny_age_restricted(state: &AppState, user: &AuthUser, game_id: i64) {
 
 /// Reads a game's age rating, if any.
 async fn game_age_rating(state: &AppState, game_id: i64) -> Result<Option<u8>, ApiError> {
-    let rating = sqlx::query_scalar::<_, Option<i64>>("SELECT age_rating FROM games WHERE id = ?")
+    let rating = db::query_scalar::<Option<i64>>("SELECT age_rating FROM games WHERE id = ?")
         .bind(game_id)
         .fetch_optional(&state.pool)
         .await
@@ -731,7 +737,7 @@ async fn game_age_rating(state: &AppState, game_id: i64) -> Result<Option<u8>, A
 }
 
 async fn newest_version(state: &AppState, game_id: i64) -> Result<i64, ApiError> {
-    sqlx::query_scalar::<_, i64>(
+    db::query_scalar::<i64>(
         "SELECT id FROM game_versions WHERE game_id = ? AND missing = 0
          ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC LIMIT 1",
     )
@@ -1530,7 +1536,7 @@ async fn set_progress(
     } else {
         None
     };
-    sqlx::query(
+    db::query(
         "INSERT INTO progress (user_id, game_id, state, minutes_played, last_played_at)
          VALUES (?, ?, ?, 0, ?)
          ON CONFLICT(user_id, game_id) DO UPDATE SET
@@ -1600,7 +1606,7 @@ async fn report_playtime(
     let started_text = db::db_time(started_at);
 
     let mut transaction = state.pool.begin().await.map_err(ApiError::from)?;
-    sqlx::query(
+    db::query(
         "INSERT INTO progress (user_id, game_id, state, minutes_played, last_played_at)
          VALUES (?, ?, 'unplayed', ?, ?)
          ON CONFLICT(user_id, game_id) DO UPDATE SET
@@ -1611,10 +1617,10 @@ async fn report_playtime(
     .bind(game_id)
     .bind(minutes)
     .bind(&ended_text)
-    .execute(&mut *transaction)
+    .execute(&mut transaction)
     .await
     .map_err(ApiError::from)?;
-    sqlx::query(
+    db::query(
         "INSERT INTO play_sessions (user_id, game_id, minutes, started_at, ended_at)
          VALUES (?, ?, ?, ?, ?)",
     )
@@ -1623,7 +1629,7 @@ async fn report_playtime(
     .bind(minutes)
     .bind(&started_text)
     .bind(&ended_text)
-    .execute(&mut *transaction)
+    .execute(&mut transaction)
     .await
     .map_err(ApiError::from)?;
     transaction.commit().await.map_err(ApiError::from)?;
@@ -1661,7 +1667,7 @@ async fn set_bookmark(
     user.require_scope(Scope::Write)?;
     ensure_game(&state, game_id).await?;
     if request.bookmarked {
-        sqlx::query(
+        db::query(
             "INSERT INTO bookmarks (user_id, game_id) VALUES (?, ?)
              ON CONFLICT(user_id, game_id) DO NOTHING",
         )
@@ -1671,7 +1677,7 @@ async fn set_bookmark(
         .await
         .map_err(ApiError::from)?;
     } else {
-        sqlx::query("DELETE FROM bookmarks WHERE user_id = ? AND game_id = ?")
+        db::query("DELETE FROM bookmarks WHERE user_id = ? AND game_id = ?")
             .bind(user.id)
             .bind(game_id)
             .execute(&state.pool)
@@ -1684,22 +1690,21 @@ async fn set_bookmark(
 }
 
 async fn stats(State(state): State<AppState>, user: AuthUser) -> Result<Json<Stats>, ApiError> {
-    let games = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM games")
+    let games = db::query_scalar::<i64>("SELECT COUNT(*) FROM games")
         .fetch_one(&state.pool)
         .await
         .map_err(ApiError::from)?;
-    let versions =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM game_versions WHERE missing = 0")
-            .fetch_one(&state.pool)
-            .await
-            .map_err(ApiError::from)?;
-    let total_bytes = sqlx::query_scalar::<_, i64>(
-        "SELECT COALESCE(SUM(size), 0) FROM game_versions WHERE missing = 0",
+    let versions = db::query_scalar::<i64>("SELECT COUNT(*) FROM game_versions WHERE missing = 0")
+        .fetch_one(&state.pool)
+        .await
+        .map_err(ApiError::from)?;
+    let total_bytes = db::query_scalar::<i64>(
+        "SELECT CAST(COALESCE(SUM(size), 0) AS BIGINT) FROM game_versions WHERE missing = 0",
     )
     .fetch_one(&state.pool)
     .await
     .map_err(ApiError::from)?;
-    let users = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
+    let users = db::query_scalar::<i64>("SELECT COUNT(*) FROM users")
         .fetch_one(&state.pool)
         .await
         .map_err(ApiError::from)?;
@@ -1709,7 +1714,7 @@ async fn stats(State(state): State<AppState>, user: AuthUser) -> Result<Json<Sta
         .copied()
         .map(|state| (state, 0))
         .collect();
-    let rows = sqlx::query_as::<_, (String, i64)>(
+    let rows = db::query_as::<(String, i64)>(
         "SELECT state, COUNT(*) FROM progress WHERE user_id = ? GROUP BY state",
     )
     .bind(user.id)
@@ -1737,7 +1742,7 @@ async fn stats(State(state): State<AppState>, user: AuthUser) -> Result<Json<Sta
 }
 
 async fn ensure_game(state: &AppState, id: i64) -> Result<(), ApiError> {
-    let exists = sqlx::query_scalar::<_, i64>("SELECT id FROM games WHERE id = ?")
+    let exists = db::query_scalar::<i64>("SELECT id FROM games WHERE id = ?")
         .bind(id)
         .fetch_optional(&state.pool)
         .await
@@ -1748,7 +1753,7 @@ async fn ensure_game(state: &AppState, id: i64) -> Result<(), ApiError> {
 }
 
 async fn fetch_game_title(state: &AppState, game_id: i64) -> Result<String, ApiError> {
-    sqlx::query_scalar::<_, String>("SELECT title FROM games WHERE id = ?")
+    db::query_scalar::<String>("SELECT title FROM games WHERE id = ?")
         .bind(game_id)
         .fetch_optional(&state.pool)
         .await
@@ -1786,7 +1791,7 @@ async fn fetch_version(
     game_id: i64,
     version_id: i64,
 ) -> Result<VersionRow, ApiError> {
-    sqlx::query_as::<_, VersionRow>(
+    db::query_as::<VersionRow>(
         "SELECT id, root_id, file_path, file_name, size, version, release_date,
                 early_access, missing, root_unavailable, archive_hash, updated_at,
                 storage_backend, object_key, etag
@@ -1801,14 +1806,13 @@ async fn fetch_version(
 }
 
 async fn progress_exists(state: &AppState, user_id: i64, game_id: i64) -> Result<bool, ApiError> {
-    let count = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM progress WHERE user_id = ? AND game_id = ?",
-    )
-    .bind(user_id)
-    .bind(game_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(ApiError::from)?;
+    let count =
+        db::query_scalar::<i64>("SELECT COUNT(*) FROM progress WHERE user_id = ? AND game_id = ?")
+            .bind(user_id)
+            .bind(game_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(ApiError::from)?;
     Ok(count > 0)
 }
 
@@ -1836,7 +1840,7 @@ async fn fetch_progress(
     user_id: i64,
     game_id: i64,
 ) -> Result<ProgressUpdate, ApiError> {
-    let row = sqlx::query_as::<_, (String, i64, Option<String>)>(
+    let row = db::query_as::<(String, i64, Option<String>)>(
         "SELECT state, minutes_played, last_played_at FROM progress
          WHERE user_id = ? AND game_id = ?",
     )
@@ -2026,12 +2030,11 @@ mod tests {
         // The local fallback path resolves the file from the library root.
         let games_dir = state.config.games_dir.clone();
         std::fs::write(games_dir.join("Cat Quest II.zip"), b"local").expect("write");
-        let root_id = sqlx::query_scalar::<_, i64>(
-            "SELECT id FROM library_roots ORDER BY position, id LIMIT 1",
-        )
-        .fetch_one(&state.pool)
-        .await
-        .expect("root");
+        let root_id =
+            db::query_scalar::<i64>("SELECT id FROM library_roots ORDER BY position, id LIMIT 1")
+                .fetch_one(&state.pool)
+                .await
+                .expect("root");
         let mut fallback = version_row(Some("archives/whatever.zip".to_string()), "s3");
         fallback.root_id = Some(root_id);
         assert!(can_fall_back_to_local(&error));

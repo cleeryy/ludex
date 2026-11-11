@@ -189,8 +189,10 @@ pub struct Config {
     pub games_dir: PathBuf,
     /// Cache for covers, backgrounds and screenshots.
     pub media_dir: PathBuf,
-    /// SQLite connection string.
+    /// Connection string: `sqlite://…` (default) or `postgres://…`.
     pub database_url: String,
+    /// Maximum pooled connections (`LUDEX_DATABASE_MAX_CONNECTIONS`).
+    pub database_max_connections: u32,
     /// Explicit JWT secret. When `None`, a 32-byte secret is generated on
     /// first run and persisted as `{data_dir}/jwt.secret` (mode 0600).
     pub jwt_secret: Option<String>,
@@ -317,6 +319,20 @@ impl Config {
             .ok()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| default_database_url(&data_dir));
+        let database_backend = env_opt("LUDEX_DATABASE_BACKEND");
+        let backend = crate::db::resolve_backend(&database_url, database_backend.as_deref())
+            .context("resolve the database backend")?;
+        let database_url = crate::db::complete_database_url(&database_url, backend);
+        let database_max_connections = env_opt("LUDEX_DATABASE_MAX_CONNECTIONS")
+            .map(|value| {
+                value
+                    .trim()
+                    .parse::<u32>()
+                    .context("LUDEX_DATABASE_MAX_CONNECTIONS must be a positive integer")
+            })
+            .transpose()?
+            .unwrap_or(crate::db::DEFAULT_MAX_CONNECTIONS)
+            .max(1);
         let oidc_public_base_url = env_opt("LUDEX_OIDC_PUBLIC_BASE_URL")
             .map(|value| value.trim_end_matches('/').to_string());
         let oidc_redirect_url = env_opt("LUDEX_OIDC_REDIRECT_URL").or_else(|| {
@@ -506,6 +522,7 @@ impl Config {
             games_dir,
             media_dir,
             database_url,
+            database_max_connections,
             jwt_secret: env_opt("LUDEX_JWT_SECRET"),
             server_name: env_opt("LUDEX_SERVER_NAME").unwrap_or_else(|| "Ludex".to_string()),
             admin_username: env_opt("LUDEX_ADMIN_USERNAME"),
@@ -593,6 +610,7 @@ impl Config {
             games_dir: games_dir.clone(),
             media_dir,
             database_url,
+            database_max_connections: crate::db::DEFAULT_MAX_CONNECTIONS,
             jwt_secret: None,
             server_name: "Ludex".to_string(),
             admin_username: None,
@@ -817,6 +835,10 @@ mod tests {
         assert!(config.database_url.contains("/tmp/data/ludex.db"));
         assert!(!config.igdb_enabled());
         assert_eq!(config.saves_max_bytes, DEFAULT_SAVES_MAX_BYTES);
+        assert_eq!(
+            config.database_max_connections,
+            crate::db::DEFAULT_MAX_CONNECTIONS
+        );
     }
 
     #[test]

@@ -8,10 +8,10 @@
 
 use std::collections::BTreeMap;
 
+use crate::db::Database;
 use chrono::{DateTime, Utc};
 use ludex_core::rom::{build_launch_command, platform, LaunchCommand, PLATFORMS};
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
 
 use crate::db;
 use crate::error::ApiError;
@@ -223,10 +223,10 @@ fn normalise_platforms(platforms: &[String]) -> Result<Vec<String>, ApiError> {
 }
 
 /// Lists every emulator, enabled or not.
-pub async fn list(pool: &SqlitePool) -> Result<Vec<Emulator>, ApiError> {
-    let rows = sqlx::query_as::<_, (i64, String, String, String, i64, String, String)>(
+pub async fn list(pool: &Database) -> Result<Vec<Emulator>, ApiError> {
+    let rows = db::query_as::<(i64, String, String, String, i64, String, String)>(
         "SELECT id, name, command, platforms_json, enabled, created_at, updated_at
-         FROM emulators ORDER BY name COLLATE NOCASE",
+         FROM emulators ORDER BY lower(name)",
     )
     .fetch_all(pool)
     .await
@@ -250,7 +250,7 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<Emulator>, ApiError> {
 
 /// Creates an emulator after validating its command and platforms.
 pub async fn create(
-    pool: &SqlitePool,
+    pool: &Database,
     request: &CreateEmulatorRequest,
 ) -> Result<Emulator, ApiError> {
     let name = validate_name(&request.name)?;
@@ -259,7 +259,7 @@ pub async fn create(
     let platforms = normalise_platforms(&request.platforms)?;
     let now = db::db_time(db::now());
     let platforms_json = db::dump_json_list(&platforms);
-    let result = sqlx::query(
+    let id = db::query(
         "INSERT INTO emulators (name, command, platforms_json, enabled, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?)",
     )
@@ -269,7 +269,7 @@ pub async fn create(
     .bind(i64::from(request.enabled.unwrap_or(true)))
     .bind(&now)
     .bind(&now)
-    .execute(pool)
+    .returning_id(pool)
     .await
     .map_err(|error| {
         if is_unique_violation(&error) {
@@ -281,14 +281,12 @@ pub async fn create(
             ApiError::from(error)
         }
     })?;
-    get(pool, result.last_insert_rowid())
-        .await?
-        .ok_or_else(ApiError::internal)
+    get(pool, id).await?.ok_or_else(ApiError::internal)
 }
 
 /// Fetches one emulator.
-pub async fn get(pool: &SqlitePool, id: i64) -> Result<Option<Emulator>, ApiError> {
-    let row = sqlx::query_as::<_, (i64, String, String, String, i64, String, String)>(
+pub async fn get(pool: &Database, id: i64) -> Result<Option<Emulator>, ApiError> {
+    let row = db::query_as::<(i64, String, String, String, i64, String, String)>(
         "SELECT id, name, command, platforms_json, enabled, created_at, updated_at
          FROM emulators WHERE id = ?",
     )
@@ -312,7 +310,7 @@ pub async fn get(pool: &SqlitePool, id: i64) -> Result<Option<Emulator>, ApiErro
 
 /// Updates an emulator.
 pub async fn update(
-    pool: &SqlitePool,
+    pool: &Database,
     id: i64,
     request: &UpdateEmulatorRequest,
 ) -> Result<Emulator, ApiError> {
@@ -336,7 +334,7 @@ pub async fn update(
         None => current.platforms,
     };
     let enabled = request.enabled.unwrap_or(current.enabled);
-    sqlx::query(
+    db::query(
         "UPDATE emulators SET name = ?, command = ?, platforms_json = ?, enabled = ?,
             updated_at = ? WHERE id = ?",
     )
@@ -363,8 +361,8 @@ pub async fn update(
 
 /// Deletes an emulator. Platform defaults referencing it are removed by the
 /// foreign key; per-game assignments fall back to the platform default.
-pub async fn delete(pool: &SqlitePool, id: i64) -> Result<bool, ApiError> {
-    let result = sqlx::query("DELETE FROM emulators WHERE id = ?")
+pub async fn delete(pool: &Database, id: i64) -> Result<bool, ApiError> {
+    let result = db::query("DELETE FROM emulators WHERE id = ?")
         .bind(id)
         .execute(pool)
         .await
@@ -373,8 +371,8 @@ pub async fn delete(pool: &SqlitePool, id: i64) -> Result<bool, ApiError> {
 }
 
 /// Platform catalog enriched with ROM game counts.
-pub async fn platforms(pool: &SqlitePool) -> Result<Vec<PlatformView>, ApiError> {
-    let counts = sqlx::query_as::<_, (Option<String>, i64)>(
+pub async fn platforms(pool: &Database) -> Result<Vec<PlatformView>, ApiError> {
+    let counts = db::query_as::<(Option<String>, i64)>(
         "SELECT platform, COUNT(*) FROM games WHERE kind = 'rom' AND platform IS NOT NULL GROUP BY platform",
     )
     .fetch_all(pool)
@@ -401,8 +399,8 @@ pub async fn platforms(pool: &SqlitePool) -> Result<Vec<PlatformView>, ApiError>
 }
 
 /// Reads the configured default emulator per platform.
-pub async fn defaults(pool: &SqlitePool) -> Result<Vec<PlatformDefault>, ApiError> {
-    let rows = sqlx::query_as::<_, (String, i64)>(
+pub async fn defaults(pool: &Database) -> Result<Vec<PlatformDefault>, ApiError> {
+    let rows = db::query_as::<(String, i64)>(
         "SELECT platform, emulator_id FROM emulator_defaults ORDER BY platform",
     )
     .fetch_all(pool)
@@ -419,7 +417,7 @@ pub async fn defaults(pool: &SqlitePool) -> Result<Vec<PlatformDefault>, ApiErro
 
 /// Applies platform defaults atomically.
 pub async fn set_defaults(
-    pool: &SqlitePool,
+    pool: &Database,
     request: &UpdateDefaultsRequest,
 ) -> Result<Vec<PlatformDefault>, ApiError> {
     let mut transaction = pool.begin().await.map_err(ApiError::from)?;
@@ -433,11 +431,11 @@ pub async fn set_defaults(
         }
         match assignment.emulator_id {
             Some(id) => {
-                let exists = sqlx::query_scalar::<_, i64>(
+                let exists = db::query_scalar::<i64>(
                     "SELECT COUNT(*) FROM emulators WHERE id = ? AND enabled = 1",
                 )
                 .bind(id)
-                .fetch_one(&mut *transaction)
+                .fetch_one(&mut transaction)
                 .await
                 .map_err(ApiError::from)?;
                 if exists == 0 {
@@ -446,7 +444,7 @@ pub async fn set_defaults(
                         format!("Emulator {id} does not exist or is disabled"),
                     ));
                 }
-                sqlx::query(
+                db::query(
                     "INSERT INTO emulator_defaults (platform, emulator_id, created_at)
                      VALUES (?, ?, ?)
                      ON CONFLICT(platform) DO UPDATE SET emulator_id = excluded.emulator_id",
@@ -454,14 +452,14 @@ pub async fn set_defaults(
                 .bind(&slug)
                 .bind(id)
                 .bind(db::db_time(db::now()))
-                .execute(&mut *transaction)
+                .execute(&mut transaction)
                 .await
                 .map_err(ApiError::from)?;
             }
             None => {
-                sqlx::query("DELETE FROM emulator_defaults WHERE platform = ?")
+                db::query("DELETE FROM emulator_defaults WHERE platform = ?")
                     .bind(&slug)
-                    .execute(&mut *transaction)
+                    .execute(&mut transaction)
                     .await
                     .map_err(ApiError::from)?;
             }
@@ -474,7 +472,7 @@ pub async fn set_defaults(
 /// Picks the emulator for a ROM game: per-game assignment, then platform
 /// default, then the first enabled emulator that supports the platform.
 pub async fn emulator_for(
-    pool: &SqlitePool,
+    pool: &Database,
     platform_slug: &str,
     game_emulator_id: Option<i64>,
 ) -> Result<Option<Emulator>, ApiError> {
@@ -485,13 +483,12 @@ pub async fn emulator_for(
             }
         }
     }
-    let default_id = sqlx::query_scalar::<_, i64>(
-        "SELECT emulator_id FROM emulator_defaults WHERE platform = ?",
-    )
-    .bind(platform_slug)
-    .fetch_optional(pool)
-    .await
-    .map_err(ApiError::from)?;
+    let default_id =
+        db::query_scalar::<i64>("SELECT emulator_id FROM emulator_defaults WHERE platform = ?")
+            .bind(platform_slug)
+            .fetch_optional(pool)
+            .await
+            .map_err(ApiError::from)?;
     if let Some(id) = default_id {
         if let Some(emulator) = get(pool, id).await? {
             if emulator.enabled {
@@ -506,17 +503,14 @@ pub async fn emulator_for(
 }
 
 /// Resolves the launch command of one ROM game.
-pub async fn launch_for_game(pool: &SqlitePool, game_id: i64) -> Result<EmulatorLaunch, ApiError> {
-    let row = sqlx::query_as::<
-        _,
-        (
-            String,
-            Option<String>,
-            Option<i64>,
-            Option<String>,
-            Option<String>,
-        ),
-    >(
+pub async fn launch_for_game(pool: &Database, game_id: i64) -> Result<EmulatorLaunch, ApiError> {
+    let row = db::query_as::<(
+        String,
+        Option<String>,
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+    )>(
         "SELECT g.title, g.platform, g.emulator_id, g.kind,
                 (SELECT v.file_path FROM game_versions v
                  WHERE v.game_id = g.id AND v.missing = 0 ORDER BY v.id DESC LIMIT 1)
@@ -547,7 +541,7 @@ pub async fn launch_for_game(pool: &SqlitePool, game_id: i64) -> Result<Emulator
                 format!("No enabled emulator is configured for `{platform_slug}`"),
             )
         })?;
-    let root = sqlx::query_scalar::<_, String>(
+    let root = db::query_scalar::<String>(
         "SELECT r.path FROM game_versions v JOIN library_roots r ON r.id = v.root_id
          WHERE v.game_id = ? AND v.missing = 0 ORDER BY v.id DESC LIMIT 1",
     )
@@ -571,10 +565,12 @@ pub async fn launch_for_game(pool: &SqlitePool, game_id: i64) -> Result<Emulator
 }
 
 fn is_unique_violation(error: &sqlx::Error) -> bool {
-    error
-        .as_database_error()
-        .and_then(|error| error.code())
-        .is_some_and(|code| code == "2067" || code == "1555")
+    // SQLite uses 2067/1555, PostgreSQL uses SQLSTATE 23505; the trait method
+    // normalises both.
+    match error {
+        sqlx::Error::Database(database) => database.is_unique_violation(),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -665,15 +661,14 @@ mod tests {
         )
         .await
         .expect("create emulator");
-        let game_id = sqlx::query(
+        let game_id = db::query(
             "INSERT INTO games (title, sort_title, group_key, kind, platform, created_at, updated_at)
              VALUES ('Chrono Trigger', 'Chrono Trigger', 'rom::snes::chrono trigger', 'rom', 'snes', '2026-01-01', '2026-01-01')",
         )
-        .execute(&state.pool)
+        .returning_id(&state.pool)
         .await
-        .expect("insert game")
-        .last_insert_rowid();
-        sqlx::query(
+        .expect("insert game");
+        db::query(
             "INSERT INTO game_versions (game_id, root_id, file_path, file_name, size, missing, root_unavailable, indexed_at, updated_at)
              VALUES (?, (SELECT id FROM library_roots LIMIT 1), 'Chrono Trigger.sfc', 'Chrono Trigger.sfc', 4096, 0, 0, '2026-01-01', '2026-01-01')",
         )

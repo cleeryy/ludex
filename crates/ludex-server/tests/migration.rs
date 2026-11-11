@@ -8,9 +8,9 @@
 use std::path::{Path, PathBuf};
 
 use ludex_server::config::Config;
+use ludex_server::db::Database;
 use ludex_server::gamevault::{self, ImportOptions, MatchStatus};
 use serde_json::{json, Value};
-use sqlx::{Row, SqlitePool};
 use tempfile::TempDir;
 
 const NOW: &str = "2026-01-01T00:00:00Z";
@@ -19,7 +19,7 @@ const MIB: i64 = 1024 * 1024;
 struct Fixture {
     _temp: TempDir,
     config: Config,
-    pool: SqlitePool,
+    pool: Database,
     dump_path: PathBuf,
 }
 
@@ -64,21 +64,20 @@ impl Fixture {
     }
 
     async fn add_game(&self, title: &str) -> i64 {
-        let result = sqlx::query(
+        ludex_server::db::query(
             "INSERT INTO games (title, sort_title, created_at, updated_at) VALUES (?, ?, ?, ?)",
         )
         .bind(title)
         .bind(title.to_lowercase())
         .bind(NOW)
         .bind(NOW)
-        .execute(&self.pool)
+        .returning_id(&self.pool)
         .await
-        .expect("insert game");
-        result.last_insert_rowid()
+        .expect("insert game")
     }
 
     async fn add_version(&self, game_id: i64, path: &str, size: i64) {
-        sqlx::query(
+        ludex_server::db::query(
             "INSERT INTO game_versions (game_id, root_id, file_path, file_name, size, indexed_at)
              VALUES (?, 1, ?, ?, ?, ?)",
         )
@@ -99,22 +98,24 @@ impl Fixture {
     }
 
     async fn count(&self, table: &str) -> i64 {
-        sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM {table}"))
+        ludex_server::db::query_scalar::<i64>(&format!("SELECT COUNT(*) FROM {table}"))
             .fetch_one(&self.pool)
             .await
             .expect("count")
     }
 
     async fn game_description(&self, id: i64) -> Option<String> {
-        sqlx::query_scalar::<_, Option<String>>("SELECT description FROM games WHERE id = ?")
-            .bind(id)
-            .fetch_one(&self.pool)
-            .await
-            .expect("description")
+        ludex_server::db::query_scalar::<Option<String>>(
+            "SELECT description FROM games WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await
+        .expect("description")
     }
 
     async fn progress_row(&self) -> (String, i64) {
-        let row = sqlx::query("SELECT state, minutes_played FROM progress LIMIT 1")
+        let row = ludex_server::db::query("SELECT state, minutes_played FROM progress LIMIT 1")
             .fetch_one(&self.pool)
             .await
             .expect("progress row");
@@ -220,11 +221,12 @@ async fn import_is_idempotent_and_maps_states() {
 
     // Temporary passwords are real Argon2 credentials, never stored in clear.
     for credential in &first.credentials {
-        let hash: String = sqlx::query_scalar("SELECT password_hash FROM users WHERE username = ?")
-            .bind(&credential.username)
-            .fetch_one(&fixture.pool)
-            .await
-            .expect("hash");
+        let hash: String =
+            ludex_server::db::query_scalar("SELECT password_hash FROM users WHERE username = ?")
+                .bind(&credential.username)
+                .fetch_one(&fixture.pool)
+                .await
+                .expect("hash");
         assert!(ludex_server::auth::verify_password(
             &credential.password,
             &hash
@@ -234,7 +236,7 @@ async fn import_is_idempotent_and_maps_states() {
 
     // A disabled GameVault account stays disabled.
     let activated: i64 =
-        sqlx::query_scalar("SELECT activated FROM users WHERE username = 'gvadmin'")
+        ludex_server::db::query_scalar("SELECT activated FROM users WHERE username = 'gvadmin'")
             .fetch_one(&fixture.pool)
             .await
             .expect("activated");

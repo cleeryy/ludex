@@ -50,10 +50,10 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use crate::db::{Database, DbTransaction};
 use anyhow::{bail, Context, Result};
 use ludex_core::models::{ProgressState, Role};
 use serde::{Deserialize, Serialize};
-use sqlx::{SqliteConnection, SqlitePool};
 
 use crate::config::Config;
 use crate::db;
@@ -268,7 +268,7 @@ pub async fn run(options: ImportOptions) -> Result<ImportOutcome> {
         if options.dry_run {
             let known_bookmarks = existing_bookmarks(&pool).await?;
             let known_news = existing_news(&pool).await?;
-            let mut connection = pool.acquire().await?;
+            let mut connection = pool.begin().await.context("begin import transaction")?;
             let metadata = plan_metadata(&mut connection, &dump, &mapping, &mut warnings).await?;
             let planned_bookmarks = bookmarks
                 .iter()
@@ -539,9 +539,9 @@ struct LibraryIndex {
 }
 
 impl LibraryIndex {
-    async fn load(pool: &SqlitePool) -> Result<Self> {
+    async fn load(pool: &Database) -> Result<Self> {
         let mut index = Self::default();
-        let games = sqlx::query_as::<_, (i64, String)>("SELECT id, title FROM games")
+        let games = db::query_as::<(i64, String)>("SELECT id, title FROM games")
             .fetch_all(pool)
             .await
             .context("read games for matching")?;
@@ -553,7 +553,7 @@ impl LibraryIndex {
                 .insert(id);
             index.game_titles.insert(id, title);
         }
-        let versions = sqlx::query_as::<_, (i64, String, i64)>(
+        let versions = db::query_as::<(i64, String, i64)>(
             "SELECT game_id, file_path, size FROM game_versions",
         )
         .fetch_all(pool)
@@ -748,12 +748,12 @@ struct UserImport {
 }
 
 async fn import_users(
-    pool: &SqlitePool,
+    pool: &Database,
     dump: &Dump,
     dry_run: bool,
     warnings: &mut Vec<String>,
 ) -> Result<UserImport> {
-    let existing = sqlx::query_as::<_, (i64, String)>("SELECT id, username FROM users")
+    let existing = db::query_as::<(i64, String)>("SELECT id, username FROM users")
         .fetch_all(pool)
         .await
         .context("read existing accounts")?;
@@ -818,7 +818,7 @@ async fn import_users(
         let password_hash = crate::auth::hash_password(&password)?;
         let now = db::db_time(db::now());
         let email = non_empty(&user.email);
-        let inserted = sqlx::query(
+        let inserted = db::query(
             "INSERT INTO users
                 (username, password_hash, email, role, activated, avatar_path, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
@@ -830,10 +830,10 @@ async fn import_users(
         .bind(i64::from(user.activated))
         .bind(&now)
         .bind(&now)
-        .execute(pool)
+        .returning_id(pool)
         .await;
         let id = match inserted {
-            Ok(result) => result.last_insert_rowid(),
+            Ok(id) => id,
             Err(error) => {
                 warnings.push(format!("could not create account `{username}`: {error}"));
                 continue;
@@ -985,12 +985,15 @@ fn map_state(raw: &str) -> Option<ProgressState> {
     }
 }
 
-async fn apply_progress(connection: &mut SqliteConnection, plan: &[ProgressPlan]) -> Result<usize> {
+async fn apply_progress(
+    connection: &mut DbTransaction<'_>,
+    plan: &[ProgressPlan],
+) -> Result<usize> {
     let mut applied = 0;
     for row in plan {
         // Idempotency: an unchanged row is not an import. Compute the merged
         // values first so the report counts real changes only.
-        let current = sqlx::query_as::<_, (String, i64, Option<String>)>(
+        let current = db::query_as::<(String, i64, Option<String>)>(
             "SELECT state, minutes_played, last_played_at FROM progress
              WHERE user_id = ? AND game_id = ?",
         )
@@ -1019,12 +1022,14 @@ async fn apply_progress(connection: &mut SqliteConnection, plan: &[ProgressPlan]
                 continue;
             }
         }
-        sqlx::query(
+        db::query(
             "INSERT INTO progress (user_id, game_id, state, minutes_played, last_played_at)
              VALUES (?, ?, ?, ?, ?)
              ON CONFLICT(user_id, game_id) DO UPDATE SET
                 state = excluded.state,
-                minutes_played = MAX(progress.minutes_played, excluded.minutes_played),
+                minutes_played = CASE
+                    WHEN progress.minutes_played > excluded.minutes_played
+                    THEN progress.minutes_played ELSE excluded.minutes_played END,
                 last_played_at = excluded.last_played_at",
         )
         .bind(row.user_id)
@@ -1073,10 +1078,10 @@ fn plan_bookmarks(
     plans
 }
 
-async fn apply_bookmarks(connection: &mut SqliteConnection, plan: &[(i64, i64)]) -> Result<usize> {
+async fn apply_bookmarks(connection: &mut DbTransaction<'_>, plan: &[(i64, i64)]) -> Result<usize> {
     let mut applied = 0;
     for (user_id, game_id) in plan {
-        let result = sqlx::query(
+        let result = db::query(
             "INSERT INTO bookmarks (user_id, game_id) VALUES (?, ?)
              ON CONFLICT(user_id, game_id) DO NOTHING",
         )
@@ -1145,10 +1150,10 @@ fn plan_news(
     plans
 }
 
-async fn apply_news(connection: &mut SqliteConnection, plan: &[NewsPlan]) -> Result<usize> {
+async fn apply_news(connection: &mut DbTransaction<'_>, plan: &[NewsPlan]) -> Result<usize> {
     let mut applied = 0;
     for row in plan {
-        let result = sqlx::query(
+        let result = db::query(
             "INSERT INTO news (title, body, author_id, created_at, updated_at)
              SELECT ?, ?, ?, ?, ?
              WHERE NOT EXISTS (
@@ -1170,16 +1175,16 @@ async fn apply_news(connection: &mut SqliteConnection, plan: &[NewsPlan]) -> Res
     Ok(applied)
 }
 
-async fn existing_bookmarks(pool: &SqlitePool) -> Result<HashSet<(i64, i64)>> {
-    let rows = sqlx::query_as::<_, (i64, i64)>("SELECT user_id, game_id FROM bookmarks")
+async fn existing_bookmarks(pool: &Database) -> Result<HashSet<(i64, i64)>> {
+    let rows = db::query_as::<(i64, i64)>("SELECT user_id, game_id FROM bookmarks")
         .fetch_all(pool)
         .await
         .context("read bookmarks")?;
     Ok(rows.into_iter().collect())
 }
 
-async fn existing_news(pool: &SqlitePool) -> Result<HashSet<(String, String)>> {
-    let rows = sqlx::query_as::<_, (String, String)>("SELECT title, created_at FROM news")
+async fn existing_news(pool: &Database) -> Result<HashSet<(String, String)>> {
+    let rows = db::query_as::<(String, String)>("SELECT title, created_at FROM news")
         .fetch_all(pool)
         .await
         .context("read news")?;
@@ -1226,7 +1231,7 @@ struct MetadataRow {
 }
 
 async fn plan_metadata(
-    connection: &mut SqliteConnection,
+    connection: &mut DbTransaction<'_>,
     dump: &Dump,
     games: &HashMap<i64, i64>,
     warnings: &mut Vec<String>,
@@ -1236,7 +1241,7 @@ async fn plan_metadata(
         let Some(game_id) = games.get(&game.id).copied() else {
             continue;
         };
-        let current = sqlx::query_as::<_, MetadataRow>(
+        let current = db::query_as::<MetadataRow>(
             "SELECT title, sort_title, description, release_date, cover_path, background_path,
                     genres_json, developers_json, publishers_json, tags_json, rating,
                     early_access, provider_slug, provider_id, provider_url, launch_executable,
@@ -1337,12 +1342,12 @@ fn merge_metadata(
 }
 
 async fn apply_metadata(
-    connection: &mut SqliteConnection,
+    connection: &mut DbTransaction<'_>,
     changes: &[(i64, MetadataRow)],
 ) -> Result<usize> {
     let now = db::db_time(db::now());
     for (game_id, row) in changes {
-        sqlx::query(
+        db::query(
             "UPDATE games SET title = ?, sort_title = ?, description = ?, release_date = ?,
                     cover_path = ?, background_path = ?, genres_json = ?, developers_json = ?,
                     publishers_json = ?, tags_json = ?, rating = ?, early_access = ?,

@@ -74,7 +74,7 @@ async fn create_root(
 ) -> Result<(StatusCode, Json<LibraryRootView>), ApiError> {
     user.require_admin_access()?;
     let path = roots::validate_path(&request.path)?;
-    let exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM library_roots WHERE path = ?")
+    let exists = db::query_scalar::<i64>("SELECT COUNT(*) FROM library_roots WHERE path = ?")
         .bind(&path)
         .fetch_one(&state.pool)
         .await
@@ -121,7 +121,7 @@ async fn update_root(
         None => current.path.clone(),
     };
     if path != current.path {
-        let duplicate = sqlx::query_scalar::<_, i64>(
+        let duplicate = db::query_scalar::<i64>(
             "SELECT COUNT(*) FROM library_roots WHERE path = ? AND id != ?",
         )
         .bind(&path)
@@ -152,7 +152,7 @@ async fn update_root(
         }
     }
 
-    sqlx::query(
+    db::query(
         "UPDATE library_roots SET label = ?, path = ?, enabled = ?, position = ?, kind = ?,
             available = 1, last_error = NULL, updated_at = ? WHERE id = ?",
     )
@@ -211,12 +211,12 @@ async fn delete_root(
     // Versions stay (progress and saves are preserved) but become unreachable:
     // their files went away with the root. `root_id` becomes NULL through the
     // foreign key, so a later scan never reattributes them to another root.
-    sqlx::query("UPDATE game_versions SET missing = 1, root_unavailable = 0 WHERE root_id = ?")
+    db::query("UPDATE game_versions SET missing = 1, root_unavailable = 0 WHERE root_id = ?")
         .bind(id)
         .execute(&state.pool)
         .await
         .map_err(ApiError::from)?;
-    sqlx::query("DELETE FROM library_roots WHERE id = ?")
+    db::query("DELETE FROM library_roots WHERE id = ?")
         .bind(id)
         .execute(&state.pool)
         .await

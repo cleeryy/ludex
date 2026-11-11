@@ -72,7 +72,7 @@ impl TestServer {
         );
         let pool = ludex_server::db::connect(&url).await.expect("db");
         let now = chrono::Utc::now().to_rfc3339();
-        let result = sqlx::query(
+        let id = ludex_server::db::query(
             "INSERT INTO games (title, sort_title, age_rating, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?)",
         )
@@ -81,11 +81,10 @@ impl TestServer {
         .bind(age_rating)
         .bind(&now)
         .bind(&now)
-        .execute(&pool)
+        .returning_id(&pool)
         .await
         .expect("insert game");
-        let id = result.last_insert_rowid();
-        sqlx::query(
+        ludex_server::db::query(
             "INSERT INTO game_versions (game_id, root_id, file_path, file_name, size, indexed_at)
              VALUES (?, 1, ?, ?, ?, ?)",
         )

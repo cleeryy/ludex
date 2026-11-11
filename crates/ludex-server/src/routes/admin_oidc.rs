@@ -465,7 +465,7 @@ async fn admin_response(state: &AppState) -> Result<OidcAdminResponse, ApiError>
     let resolved = oidc::resolve_settings(stored.as_ref(), &state.config);
     let status = state.oidc_status.read().await.clone();
     let linked_accounts =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE oidc_issuer IS NOT NULL")
+        db::query_scalar::<i64>("SELECT COUNT(*) FROM users WHERE oidc_issuer IS NOT NULL")
             .fetch_one(&state.pool)
             .await
             .map_err(ApiError::from)?;

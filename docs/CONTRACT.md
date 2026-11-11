@@ -142,7 +142,14 @@ interface HealthDetails {
   version: string;
   commit: string;                  // LUDEX_GIT_COMMIT, or "unknown"
   uptimeSeconds: number;
-  database: { ok: boolean; sizeBytes: number };
+  database: {
+    ok: boolean;
+    backend: "sqlite" | "postgres";
+    sizeBytes: number;
+    connections: number;
+    idleConnections: number;
+    maxConnections: number;
+  };
   disk: { dataFreeBytes: number; gamesFreeBytes: number; mediaFreeBytes: number };
   library: {
     games: number; versions: number; rootsTotal: number; rootsAvailable: number;

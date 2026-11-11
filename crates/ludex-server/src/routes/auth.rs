@@ -57,7 +57,7 @@ async fn login(
         return Err(login_throttled(wait, locked));
     }
 
-    let row = sqlx::query_as::<_, UserRow>(
+    let row = db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
                 onboarding_completed_at, onboarding_step
@@ -151,7 +151,7 @@ fn login_throttled(wait: u64, locked: bool) -> ApiError {
 }
 
 async fn me(State(state): State<AppState>, user: AuthUser) -> Result<Json<UserResponse>, ApiError> {
-    let row = sqlx::query_as::<_, UserRow>(
+    let row = db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
                 onboarding_completed_at, onboarding_step
@@ -201,13 +201,13 @@ async fn update_onboarding(
         binds.push(Bind::Text(db::db_time(db::now())));
         binds.push(Bind::Int(user.id));
         let sql = format!("UPDATE users SET {} WHERE id = ?", sets.join(", "));
-        bind_query(sqlx::query(&sql), &binds)
+        bind_query(db::query(&sql), &binds)
             .execute(&state.pool)
             .await
             .map_err(ApiError::from)?;
     }
 
-    let row = sqlx::query_as::<_, UserRow>(
+    let row = db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
                 onboarding_completed_at, onboarding_step
@@ -239,7 +239,7 @@ async fn sessions(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> Result<Json<Vec<AuthSession>>, ApiError> {
-    let rows = sqlx::query_as::<_, AuthSessionRow>(
+    let rows = db::query_as::<AuthSessionRow>(
         "SELECT id, jti, user_agent, ip, created_at, last_seen_at, expires_at, revoked_at
          FROM auth_sessions WHERE user_id = ? ORDER BY created_at DESC, id DESC",
     )
@@ -259,7 +259,7 @@ async fn revoke_session(
     user: AuthUser,
     ApiPath(id): ApiPath<i64>,
 ) -> Result<StatusCode, ApiError> {
-    let row = sqlx::query_as::<_, (i64, i64, String, Option<String>)>(
+    let row = db::query_as::<(i64, i64, String, Option<String>)>(
         "SELECT id, user_id, jti, revoked_at FROM auth_sessions WHERE id = ?",
     )
     .bind(id)
@@ -287,7 +287,7 @@ async fn change_password(
     JsonBody(request): JsonBody<ChangePasswordRequest>,
 ) -> Result<StatusCode, ApiError> {
     user.require_scope(Scope::Write)?;
-    let row = sqlx::query_as::<_, UserRow>(
+    let row = db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
                 onboarding_completed_at, onboarding_step
@@ -307,7 +307,7 @@ async fn change_password(
     }
     super::validate_password(&request.new_password)?;
     let password_hash = hash_password(&request.new_password)?;
-    sqlx::query("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
+    db::query("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
         .bind(password_hash)
         .bind(db::db_time(db::now()))
         .bind(user.id)

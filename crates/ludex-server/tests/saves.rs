@@ -196,17 +196,16 @@ impl TestServer {
         );
         let pool = ludex_server::db::connect(&url).await.expect("db");
         let now = chrono::Utc::now().to_rfc3339();
-        let result = sqlx::query(
+        let id = ludex_server::db::query(
             "INSERT INTO games (title, sort_title, created_at, updated_at) VALUES (?, ?, ?, ?)",
         )
         .bind(title)
         .bind(title.to_ascii_lowercase())
         .bind(&now)
         .bind(&now)
-        .execute(&pool)
+        .returning_id(&pool)
         .await
         .expect("insert game");
-        let id = result.last_insert_rowid();
         pool.close().await;
         id
     }
@@ -217,12 +216,13 @@ impl TestServer {
             self.data_dir.join("ludex.db").display()
         );
         let pool = ludex_server::db::connect(&url).await.expect("db");
-        let count =
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM save_snapshots WHERE user_id = ?")
-                .bind(user_id)
-                .fetch_one(&pool)
-                .await
-                .expect("count");
+        let count = ludex_server::db::query_scalar::<i64>(
+            "SELECT COUNT(*) FROM save_snapshots WHERE user_id = ?",
+        )
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count");
         pool.close().await;
         count
     }

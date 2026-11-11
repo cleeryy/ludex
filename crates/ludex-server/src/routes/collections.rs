@@ -53,10 +53,10 @@ async fn list(
     let sql = format!(
         "SELECT {COLLECTION_COLUMNS}{COLLECTION_FROM}
          WHERE c.user_id = ? OR c.is_public = 1
-         ORDER BY (c.user_id = ?) DESC, c.name COLLATE NOCASE ASC, c.id ASC"
+         ORDER BY (c.user_id = ?) DESC, lower(c.name) ASC, c.id ASC"
     );
     let rows = bind_query_as(
-        sqlx::query_as::<_, CollectionRow>(&sql),
+        db::query_as::<CollectionRow>(&sql),
         &[Bind::Int(user.id), Bind::Int(user.id)],
     )
     .fetch_all(&state.pool)
@@ -86,7 +86,7 @@ async fn create(
     let rules_json = serde_json::to_string(&rules).map_err(ApiError::from)?;
     let now = db::db_time(db::now());
 
-    let result = sqlx::query(
+    let id = db::query(
         "INSERT INTO collections (user_id, name, description, is_public, kind, rules_json, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
@@ -98,7 +98,7 @@ async fn create(
     .bind(&rules_json)
     .bind(&now)
     .bind(&now)
-    .execute(&state.pool)
+    .returning_id(&state.pool)
     .await
     .map_err(|error| {
         if super::system::is_unique_violation(&error) {
@@ -110,7 +110,6 @@ async fn create(
             ApiError::from(error)
         }
     })?;
-    let id = result.last_insert_rowid();
 
     if kind == CollectionKind::Manual {
         if let Some(game_ids) = request.game_ids {
@@ -202,7 +201,7 @@ async fn update(
         binds.push(Bind::Text(db::db_time(db::now())));
         binds.push(Bind::Int(id));
         let sql = format!("UPDATE collections SET {} WHERE id = ?", sets.join(", "));
-        bind_query(sqlx::query(&sql), &binds)
+        bind_query(db::query(&sql), &binds)
             .execute(&state.pool)
             .await
             .map_err(ApiError::from)?;
@@ -211,7 +210,7 @@ async fn update(
     // Switching a manual shelf to smart retires its explicit membership; the
     // rules are the only source of truth from then on.
     if current_kind == CollectionKind::Manual && next_kind == CollectionKind::Smart {
-        sqlx::query("DELETE FROM collection_games WHERE collection_id = ?")
+        db::query("DELETE FROM collection_games WHERE collection_id = ?")
             .bind(id)
             .execute(&state.pool)
             .await
@@ -229,7 +228,7 @@ async fn delete(
 ) -> Result<StatusCode, ApiError> {
     user.require_scope(Scope::Write)?;
     owned_collection(&state, user.id, id).await?;
-    sqlx::query("DELETE FROM collections WHERE id = ?")
+    db::query("DELETE FROM collections WHERE id = ?")
         .bind(id)
         .execute(&state.pool)
         .await
@@ -252,7 +251,7 @@ async fn games(
         let rules: SmartRules = serde_json::from_str(&row.rules_json).unwrap_or_default();
         let sql = format!("SELECT {LIST_COLUMNS}{FROM_JOINS} ORDER BY g.sort_title ASC, g.id ASC");
         let rows = bind_query_as(
-            sqlx::query_as::<_, GameListRow>(&sql),
+            db::query_as::<GameListRow>(&sql),
             &[Bind::Int(user.id), Bind::Int(user.id)],
         )
         .fetch_all(&state.pool)
@@ -278,7 +277,7 @@ async fn games(
     }
 
     let count_sql = "SELECT COUNT(*) FROM collection_games cg WHERE cg.collection_id = ?";
-    let total = bind_query_scalar(sqlx::query_scalar::<_, i64>(count_sql), &[Bind::Int(id)])
+    let total = bind_query_scalar(db::query_scalar::<i64>(count_sql), &[Bind::Int(id)])
         .fetch_one(&state.pool)
         .await
         .map_err(ApiError::from)?;
@@ -291,7 +290,7 @@ async fn games(
          ORDER BY cg.added_at DESC, g.id DESC LIMIT ? OFFSET ?"
     );
     let rows = bind_query_as(
-        sqlx::query_as::<_, GameListRow>(&sql),
+        db::query_as::<GameListRow>(&sql),
         &[
             Bind::Int(id),
             Bind::Int(user.id),
@@ -356,13 +355,13 @@ async fn remove_game(
             "Smart collections are built from rules; edit the rules instead",
         ));
     }
-    sqlx::query("DELETE FROM collection_games WHERE collection_id = ? AND game_id = ?")
+    db::query("DELETE FROM collection_games WHERE collection_id = ? AND game_id = ?")
         .bind(id)
         .bind(game_id)
         .execute(&state.pool)
         .await
         .map_err(ApiError::from)?;
-    sqlx::query("UPDATE collections SET updated_at = ? WHERE id = ?")
+    db::query("UPDATE collections SET updated_at = ? WHERE id = ?")
         .bind(db::db_time(db::now()))
         .bind(id)
         .execute(&state.pool)
@@ -385,7 +384,7 @@ async fn insert_games(
     let placeholders = vec!["?"; unique.len()].join(", ");
     let sql = format!("SELECT id FROM games WHERE id IN ({placeholders})");
     let binds: Vec<Bind> = unique.iter().copied().map(Bind::Int).collect();
-    let existing = bind_query_scalar(sqlx::query_scalar::<_, i64>(&sql), &binds)
+    let existing = bind_query_scalar(db::query_scalar::<i64>(&sql), &binds)
         .fetch_all(&state.pool)
         .await
         .map_err(ApiError::from)?;
@@ -399,7 +398,7 @@ async fn insert_games(
     let now = db::db_time(db::now());
     let mut added = 0;
     for game_id in unique {
-        let result = sqlx::query(
+        let result = db::query(
             "INSERT INTO collection_games (collection_id, game_id, added_at) VALUES (?, ?, ?)
              ON CONFLICT(collection_id, game_id) DO NOTHING",
         )
@@ -411,7 +410,7 @@ async fn insert_games(
         .map_err(ApiError::from)?;
         added += result.rows_affected();
     }
-    sqlx::query("UPDATE collections SET updated_at = ? WHERE id = ?")
+    db::query("UPDATE collections SET updated_at = ? WHERE id = ?")
         .bind(&now)
         .bind(collection_id)
         .execute(&state.pool)
@@ -421,7 +420,7 @@ async fn insert_games(
 }
 
 async fn count_members(state: &AppState, collection_id: i64) -> Result<i64, ApiError> {
-    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM collection_games WHERE collection_id = ?")
+    db::query_scalar::<i64>("SELECT COUNT(*) FROM collection_games WHERE collection_id = ?")
         .bind(collection_id)
         .fetch_one(&state.pool)
         .await
@@ -437,10 +436,10 @@ pub(crate) async fn collections_for(
     let sql = format!(
         "SELECT {COLLECTION_COLUMNS}{COLLECTION_FROM}
          WHERE c.user_id = ? AND (c.is_public = 1 OR c.user_id = ?)
-         ORDER BY c.name COLLATE NOCASE ASC, c.id ASC"
+         ORDER BY lower(c.name) ASC, c.id ASC"
     );
     let rows = bind_query_as(
-        sqlx::query_as::<_, CollectionRow>(&sql),
+        db::query_as::<CollectionRow>(&sql),
         &[Bind::Int(owner_id), Bind::Int(viewer_id)],
     )
     .fetch_all(&state.pool)
@@ -465,7 +464,7 @@ async fn decorate_counts(
     }
     let sql = format!("SELECT {LIST_COLUMNS}{FROM_JOINS}");
     let games = bind_query_as(
-        sqlx::query_as::<_, GameListRow>(&sql),
+        db::query_as::<GameListRow>(&sql),
         &[Bind::Int(viewer_id), Bind::Int(viewer_id)],
     )
     .fetch_all(&state.pool)
@@ -488,7 +487,7 @@ async fn decorate_counts(
 
 async fn load(state: &AppState, id: i64) -> Result<CollectionRow, ApiError> {
     let sql = format!("SELECT {COLLECTION_COLUMNS}{COLLECTION_FROM} WHERE c.id = ?");
-    bind_query_as(sqlx::query_as::<_, CollectionRow>(&sql), &[Bind::Int(id)])
+    bind_query_as(db::query_as::<CollectionRow>(&sql), &[Bind::Int(id)])
         .fetch_optional(&state.pool)
         .await
         .map_err(ApiError::from)?

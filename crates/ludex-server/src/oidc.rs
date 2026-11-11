@@ -7,6 +7,7 @@
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use crate::db::Database;
 use anyhow::{Context, Result as AnyResult};
 use axum::http::{HeaderMap, StatusCode};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -19,7 +20,6 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use sqlx::SqlitePool;
 use subtle::ConstantTimeEq;
 use url::Url;
 
@@ -264,10 +264,10 @@ pub fn changed_fields(
 /// A decryption failure is not an error here: `secret_error` is set so the
 /// admin UI can ask for the secret again instead of losing the whole config.
 pub async fn load_settings(
-    pool: &SqlitePool,
+    pool: &Database,
     server_secret: &[u8],
 ) -> AnyResult<Option<StoredOidcSettings>> {
-    let row = sqlx::query_as::<_, OidcSettingsRow>(
+    let row = db::query_as::<OidcSettingsRow>(
         "SELECT enabled, issuer, client_id, redirect_url, public_base_url, scopes,
                 display_name, auto_create, default_role, groups_claim, admin_groups,
                 client_secret_enc, updated_at
@@ -317,11 +317,11 @@ pub async fn load_settings(
 /// Writes the single settings row. `encrypted_secret` is `None` when no secret
 /// is configured (public PKCE client or cleared).
 pub async fn save_settings(
-    pool: &SqlitePool,
+    pool: &Database,
     settings: &OidcSettings,
     encrypted_secret: Option<&str>,
 ) -> AnyResult<()> {
-    sqlx::query(
+    db::query(
         "INSERT INTO oidc_settings
             (id, enabled, issuer, client_id, redirect_url, public_base_url, scopes,
              display_name, auto_create, default_role, groups_claim, admin_groups,
@@ -362,8 +362,8 @@ pub async fn save_settings(
 }
 
 /// Deletes the saved row, restoring environment-only configuration.
-pub async fn delete_settings(pool: &SqlitePool) -> AnyResult<()> {
-    sqlx::query("DELETE FROM oidc_settings WHERE id = 1")
+pub async fn delete_settings(pool: &Database) -> AnyResult<()> {
+    db::query("DELETE FROM oidc_settings WHERE id = 1")
         .execute(pool)
         .await
         .context("delete OIDC settings")?;
@@ -1250,7 +1250,7 @@ pub async fn provision_user(
         ensure_active(&user)?;
         if user.email.is_none() {
             if let Some(email) = &identity.email {
-                sqlx::query("UPDATE users SET email = ?, updated_at = ? WHERE id = ?")
+                db::query("UPDATE users SET email = ?, updated_at = ? WHERE id = ?")
                     .bind(email)
                     .bind(db::db_time(db::now()))
                     .bind(user.id)
@@ -1289,7 +1289,7 @@ pub async fn provision_user(
                         "This email is already linked to another SSO identity",
                     ));
                 }
-                sqlx::query(
+                db::query(
                     "UPDATE users SET oidc_issuer = ?, oidc_subject = ?, updated_at = ?
                      WHERE id = ?",
                 )
@@ -1331,7 +1331,7 @@ pub async fn provision_user(
     let password_hash = crate::auth::hash_password(&crate::auth::generate_password())?;
     let now = db::db_time(db::now());
 
-    let result = sqlx::query(
+    let id = db::query(
         "INSERT INTO users
             (username, password_hash, email, role, activated, avatar_path,
              oidc_issuer, oidc_subject, created_at, updated_at)
@@ -1345,7 +1345,7 @@ pub async fn provision_user(
     .bind(&identity.subject)
     .bind(&now)
     .bind(&now)
-    .execute(&state.pool)
+    .returning_id(&state.pool)
     .await
     .map_err(|error| {
         if crate::routes::system::is_unique_violation(&error) {
@@ -1357,7 +1357,6 @@ pub async fn provision_user(
             ApiError::from(error)
         }
     })?;
-    let id = result.last_insert_rowid();
     state.events.emit(
         Event::new(actions::USER_CREATED, Actor::System)
             .target("user", id.to_string())
@@ -1385,7 +1384,7 @@ async fn user_by_subject(
     issuer: &str,
     subject: &str,
 ) -> Result<Option<OidcUserRow>, ApiError> {
-    sqlx::query_as::<_, OidcUserRow>(
+    db::query_as::<OidcUserRow>(
         "SELECT id, email, oidc_issuer, oidc_subject, activated
          FROM users WHERE oidc_issuer = ? AND oidc_subject = ?",
     )
@@ -1397,7 +1396,7 @@ async fn user_by_subject(
 }
 
 async fn users_by_email(state: &AppState, email: &str) -> Result<Vec<OidcUserRow>, ApiError> {
-    sqlx::query_as::<_, OidcUserRow>(
+    db::query_as::<OidcUserRow>(
         "SELECT id, email, oidc_issuer, oidc_subject, activated
          FROM users WHERE email IS NOT NULL AND lower(email) = lower(?)",
     )
@@ -1812,7 +1811,7 @@ mod tests {
         save_settings(&pool, &settings, Some(&encrypted))
             .await
             .expect("save");
-        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        db::query("PRAGMA wal_checkpoint(TRUNCATE)")
             .execute(&pool)
             .await
             .expect("checkpoint");

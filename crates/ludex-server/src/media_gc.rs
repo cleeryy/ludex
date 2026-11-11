@@ -91,13 +91,12 @@ pub async fn run(state: &AppState, dry_run: bool) -> Result<MediaGcResult, ApiEr
 async fn collect(state: &AppState, dry_run: bool) -> Result<MediaGcResult, ApiError> {
     let started_at = Utc::now();
     let started = db::db_time(started_at);
-    let run_id = sqlx::query("INSERT INTO media_gc_runs (dry_run, started_at) VALUES (?, ?)")
+    let run_id = db::query("INSERT INTO media_gc_runs (dry_run, started_at) VALUES (?, ?)")
         .bind(i64::from(dry_run))
         .bind(&started)
-        .execute(&state.pool)
+        .returning_id(&state.pool)
         .await
-        .map_err(ApiError::from)?
-        .last_insert_rowid();
+        .map_err(ApiError::from)?;
 
     let referenced = referenced_media(&state.pool)
         .await
@@ -148,7 +147,7 @@ async fn collect(state: &AppState, dry_run: bool) -> Result<MediaGcResult, ApiEr
                 Ok(()) => {
                     deleted_files += 1;
                     deleted_bytes += metadata.len();
-                    let _ = sqlx::query("DELETE FROM media_manifest WHERE name = ?")
+                    let _ = db::query("DELETE FROM media_manifest WHERE name = ?")
                         .bind(&name)
                         .execute(&state.pool)
                         .await;
@@ -161,7 +160,7 @@ async fn collect(state: &AppState, dry_run: bool) -> Result<MediaGcResult, ApiEr
     }
 
     let finished_at = Utc::now();
-    let _ = sqlx::query(
+    let _ = db::query(
         "UPDATE media_gc_runs SET scanned = ?, referenced = ?, orphan_files = ?,
             orphan_bytes = ?, deleted_files = ?, deleted_bytes = ?, finished_at = ?
          WHERE id = ?",
@@ -264,7 +263,7 @@ mod tests {
 
     async fn reference_cover(state: &AppState, name: &str) {
         let now = db::db_time(db::now());
-        sqlx::query(
+        db::query(
             "INSERT INTO games (title, sort_title, cover_path, screenshots_json,
                 created_at, updated_at)
              VALUES ('Game', 'Game', ?, '[]', ?, ?)",
@@ -310,7 +309,7 @@ mod tests {
         let shot = state.config.media_dir.join("shot.jpg");
         fs::write(&shot, vec![0_u8; 64]).expect("write");
         let now = db::db_time(db::now());
-        sqlx::query(
+        db::query(
             "INSERT INTO games (title, sort_title, screenshots_json, created_at, updated_at)
              VALUES ('Game', 'Game', '[\"shot.jpg\"]', ?, ?)",
         )

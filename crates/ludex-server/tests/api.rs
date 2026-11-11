@@ -963,7 +963,7 @@ async fn link_oidc_identity(server: &TestServer, user_id: i64, issuer: &str, sub
     let pool = ludex_server::db::connect(&url)
         .await
         .expect("connect test db");
-    sqlx::query("UPDATE users SET oidc_issuer = ?, oidc_subject = ? WHERE id = ?")
+    ludex_server::db::query("UPDATE users SET oidc_issuer = ?, oidc_subject = ? WHERE id = ?")
         .bind(issuer)
         .bind(subject)
         .bind(user_id)
@@ -2843,7 +2843,7 @@ async fn patch_share_expiry(server: &TestServer, share_id: i64, expires_at: &str
     let pool = ludex_server::db::connect(&url)
         .await
         .expect("connect test db");
-    sqlx::query("UPDATE share_links SET expires_at = ? WHERE id = ?")
+    ludex_server::db::query("UPDATE share_links SET expires_at = ? WHERE id = ?")
         .bind(expires_at)
         .bind(share_id)
         .execute(&pool)

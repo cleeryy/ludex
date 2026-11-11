@@ -75,7 +75,7 @@ async fn list(
 
     let sql =
         format!("SELECT {AUDIT_COLUMNS} FROM audit_logs {where_clause} ORDER BY id DESC LIMIT ?");
-    let mut rows = bind_query_as::<AuditLogRow>(sqlx::query_as(&sql), &binds)
+    let mut rows = bind_query_as::<AuditLogRow>(crate::db::query_as(&sql), &binds)
         .fetch_all(&state.pool)
         .await
         .map_err(ApiError::from)?;

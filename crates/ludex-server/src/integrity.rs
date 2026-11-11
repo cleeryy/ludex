@@ -12,10 +12,10 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
+use crate::db::Database;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
 use tokio::sync::watch;
 
 use crate::db;
@@ -149,17 +149,16 @@ pub async fn start(state: &AppState, scope: IntegrityScope) -> Result<i64, ApiEr
     Ok(report_id)
 }
 
-async fn insert_report(pool: &SqlitePool, scope: IntegrityScope) -> Result<i64> {
-    let result = sqlx::query(
+async fn insert_report(pool: &Database, scope: IntegrityScope) -> Result<i64> {
+    db::query(
         "INSERT INTO integrity_reports (scope, status, checked, findings_count, started_at)
          VALUES (?, 'running', 0, 0, ?)",
     )
     .bind(scope.as_str())
     .bind(db::db_time(db::now()))
-    .execute(pool)
+    .returning_id(pool)
     .await
-    .context("insert integrity report")?;
-    Ok(result.last_insert_rowid())
+    .context("insert integrity report")
 }
 
 /// Runs one report. Public so tests can exercise it without the task spawner.
@@ -190,7 +189,7 @@ pub async fn run_report(state: &AppState, report_id: i64, scope: IntegrityScope)
     } else {
         "completed"
     };
-    let result = sqlx::query(
+    let result = db::query(
         "UPDATE integrity_reports SET status = ?, checked = ?, findings_count = ?,
             error = ?, finished_at = ? WHERE id = ?",
     )
@@ -221,7 +220,7 @@ async fn check_archives(
     checked: &mut i64,
     findings: &mut i64,
 ) -> Result<()> {
-    let rows = sqlx::query_as::<_, (i64, Option<i64>, String, i64, Option<String>)>(
+    let rows = db::query_as::<(i64, Option<i64>, String, i64, Option<String>)>(
         "SELECT id, root_id, file_path, size, content_hash
          FROM game_versions WHERE missing = 0 AND root_unavailable = 0
          ORDER BY id",
@@ -314,7 +313,7 @@ async fn check_archives(
         };
         match expected_hash {
             None => {
-                sqlx::query("UPDATE game_versions SET content_hash = ? WHERE id = ?")
+                db::query("UPDATE game_versions SET content_hash = ? WHERE id = ?")
                     .bind(&digest)
                     .bind(version_id)
                     .execute(&state.pool)
@@ -404,17 +403,16 @@ async fn check_media(
             continue;
         };
 
-        let baseline = sqlx::query_as::<_, (String, i64)>(
-            "SELECT sha256, size FROM media_manifest WHERE name = ?",
-        )
-        .bind(&name)
-        .fetch_optional(&state.pool)
-        .await
-        .context("read media manifest")?;
+        let baseline =
+            db::query_as::<(String, i64)>("SELECT sha256, size FROM media_manifest WHERE name = ?")
+                .bind(&name)
+                .fetch_optional(&state.pool)
+                .await
+                .context("read media manifest")?;
         match baseline {
             None => {
                 let now = db::db_time(db::now());
-                sqlx::query(
+                db::query(
                     "INSERT INTO media_manifest (name, size, sha256, created_at, verified_at)
                      VALUES (?, ?, ?, ?, ?)
                      ON CONFLICT(name) DO UPDATE SET size = excluded.size,
@@ -445,7 +443,7 @@ async fn check_media(
                     .await?;
                     *findings += 1;
                 } else {
-                    sqlx::query("UPDATE media_manifest SET verified_at = ? WHERE name = ?")
+                    db::query("UPDATE media_manifest SET verified_at = ? WHERE name = ?")
                         .bind(db::db_time(db::now()))
                         .bind(&name)
                         .execute(&state.pool)
@@ -459,9 +457,9 @@ async fn check_media(
 }
 
 /// Media file names referenced by game rows or user avatars.
-pub async fn referenced_media(pool: &SqlitePool) -> Result<HashSet<String>> {
+pub async fn referenced_media(pool: &Database) -> Result<HashSet<String>> {
     let mut referenced: HashSet<String> = HashSet::new();
-    let games = sqlx::query_as::<_, (Option<String>, Option<String>, String)>(
+    let games = db::query_as::<(Option<String>, Option<String>, String)>(
         "SELECT cover_path, background_path, screenshots_json FROM games",
     )
     .fetch_all(pool)
@@ -480,7 +478,7 @@ pub async fn referenced_media(pool: &SqlitePool) -> Result<HashSet<String>> {
                 .filter(|name| !name.is_empty()),
         );
     }
-    let avatars = sqlx::query_scalar::<_, String>(
+    let avatars = db::query_scalar::<String>(
         "SELECT avatar_path FROM users WHERE avatar_path IS NOT NULL AND avatar_path != ''",
     )
     .fetch_all(pool)
@@ -491,7 +489,7 @@ pub async fn referenced_media(pool: &SqlitePool) -> Result<HashSet<String>> {
 }
 
 async fn record_finding(
-    pool: &SqlitePool,
+    pool: &Database,
     report_id: i64,
     kind: &str,
     target_type: &str,
@@ -499,7 +497,7 @@ async fn record_finding(
     path: Option<&str>,
     detail: Option<&str>,
 ) -> Result<()> {
-    sqlx::query(
+    db::query(
         "INSERT INTO integrity_findings
             (report_id, kind, target_type, target_id, path, detail, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -518,12 +516,12 @@ async fn record_finding(
 }
 
 async fn update_progress(
-    pool: &SqlitePool,
+    pool: &Database,
     report_id: i64,
     checked: i64,
     findings: i64,
 ) -> Result<()> {
-    sqlx::query("UPDATE integrity_reports SET checked = ?, findings_count = ? WHERE id = ?")
+    db::query("UPDATE integrity_reports SET checked = ?, findings_count = ? WHERE id = ?")
         .bind(checked)
         .bind(findings)
         .bind(report_id)
@@ -559,8 +557,8 @@ pub async fn scheduled_worker(state: AppState, mut cancel: watch::Receiver<bool>
 }
 
 /// Lists recent reports, newest first.
-pub async fn list_reports(pool: &SqlitePool, limit: i64) -> Result<Vec<IntegrityReport>> {
-    sqlx::query_as::<_, IntegrityReport>(
+pub async fn list_reports(pool: &Database, limit: i64) -> Result<Vec<IntegrityReport>> {
+    db::query_as::<IntegrityReport>(
         "SELECT id, scope, status, checked, findings_count, error, started_at, finished_at
          FROM integrity_reports ORDER BY id DESC LIMIT ?",
     )
@@ -572,10 +570,10 @@ pub async fn list_reports(pool: &SqlitePool, limit: i64) -> Result<Vec<Integrity
 
 /// Reads one report and its findings.
 pub async fn read_report(
-    pool: &SqlitePool,
+    pool: &Database,
     id: i64,
 ) -> Result<Option<(IntegrityReport, Vec<IntegrityFinding>)>> {
-    let report = sqlx::query_as::<_, IntegrityReport>(
+    let report = db::query_as::<IntegrityReport>(
         "SELECT id, scope, status, checked, findings_count, error, started_at, finished_at
          FROM integrity_reports WHERE id = ?",
     )
@@ -586,7 +584,7 @@ pub async fn read_report(
     let Some(report) = report else {
         return Ok(None);
     };
-    let findings = sqlx::query_as::<_, IntegrityFinding>(
+    let findings = db::query_as::<IntegrityFinding>(
         "SELECT id, kind, target_type, target_id, path, detail, created_at
          FROM integrity_findings WHERE report_id = ? ORDER BY id",
     )
@@ -598,8 +596,8 @@ pub async fn read_report(
 }
 
 /// Latest finished report timestamp, used by the status endpoint.
-pub async fn last_finished_at(pool: &SqlitePool) -> Option<DateTime<Utc>> {
-    sqlx::query_scalar::<_, String>(
+pub async fn last_finished_at(pool: &Database) -> Option<DateTime<Utc>> {
+    db::query_scalar::<String>(
         "SELECT finished_at FROM integrity_reports
          WHERE finished_at IS NOT NULL ORDER BY id DESC LIMIT 1",
     )
@@ -635,14 +633,13 @@ mod tests {
     }
 
     async fn seed_version(state: &AppState, name: &str, size: i64, hash: Option<&str>) -> i64 {
-        let root_id = sqlx::query_scalar::<_, i64>(
-            "SELECT id FROM library_roots ORDER BY position, id LIMIT 1",
-        )
-        .fetch_one(&state.pool)
-        .await
-        .expect("root");
+        let root_id =
+            db::query_scalar::<i64>("SELECT id FROM library_roots ORDER BY position, id LIMIT 1")
+                .fetch_one(&state.pool)
+                .await
+                .expect("root");
         let now = db::db_time(db::now());
-        let game = sqlx::query(
+        let game_id = db::query(
             "INSERT INTO games (title, sort_title, group_key, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?)",
         )
@@ -651,25 +648,24 @@ mod tests {
         .bind(name)
         .bind(&now)
         .bind(&now)
-        .execute(&state.pool)
+        .returning_id(&state.pool)
         .await
         .expect("game");
-        let result = sqlx::query(
+        db::query(
             "INSERT INTO game_versions
                 (game_id, root_id, file_path, file_name, size, missing, content_hash, indexed_at)
              VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
         )
-        .bind(game.last_insert_rowid())
+        .bind(game_id)
         .bind(root_id)
         .bind(name)
         .bind(name)
         .bind(size)
         .bind(hash)
         .bind(&now)
-        .execute(&state.pool)
+        .returning_id(&state.pool)
         .await
-        .expect("version");
-        result.last_insert_rowid()
+        .expect("version")
     }
 
     async fn run(state: &AppState) -> (IntegrityReport, Vec<IntegrityFinding>) {
@@ -698,7 +694,7 @@ mod tests {
         assert_eq!(report.checked, 1);
         assert!(findings.is_empty(), "{findings:?}");
         let stored =
-            sqlx::query_scalar::<_, String>("SELECT content_hash FROM game_versions WHERE id = ?")
+            db::query_scalar::<String>("SELECT content_hash FROM game_versions WHERE id = ?")
                 .bind(version_id)
                 .fetch_one(&state.pool)
                 .await
@@ -730,7 +726,7 @@ mod tests {
         let (report, findings) = run(&state).await;
         assert_eq!(report.findings_count, 1);
         assert_eq!(findings[0].kind, "missing");
-        let missing: i64 = sqlx::query_scalar("SELECT missing FROM game_versions WHERE id = ?")
+        let missing: i64 = db::query_scalar("SELECT missing FROM game_versions WHERE id = ?")
             .bind(version_id)
             .fetch_one(&state.pool)
             .await
@@ -756,7 +752,7 @@ mod tests {
         let state = test_state(temp.path()).await;
         let media = state.config.media_dir.join("cover.jpg");
         fs::write(&media, b"good").expect("write media");
-        sqlx::query(
+        db::query(
             "INSERT INTO media_manifest (name, size, sha256, created_at) VALUES (?, ?, ?, ?)",
         )
         .bind("cover.jpg")
@@ -767,7 +763,7 @@ mod tests {
         .await
         .expect("manifest");
         let now = db::db_time(db::now());
-        sqlx::query(
+        db::query(
             "INSERT INTO games (title, sort_title, cover_path, created_at, updated_at)
              VALUES ('Game', 'Game', 'cover.jpg', ?, ?)",
         )
@@ -795,7 +791,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let state = test_state(temp.path()).await;
         let now = db::db_time(db::now());
-        sqlx::query(
+        db::query(
             "INSERT INTO games (title, sort_title, screenshots_json, created_at, updated_at)
              VALUES ('Game', 'Game', '[\"shot.jpg\"]', ?, ?)",
         )

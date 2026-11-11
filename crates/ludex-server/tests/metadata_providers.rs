@@ -153,7 +153,7 @@ async fn admin_crud_never_returns_the_token() {
     ))
     .await
     .expect("open database");
-    let stored = sqlx::query_as::<_, (Option<String>,)>(
+    let stored = ludex_server::db::query_as::<(Option<String>,)>(
         "SELECT token_enc FROM metadata_providers WHERE id = ?",
     )
     .bind(id)
@@ -323,17 +323,16 @@ async fn enrichment_uses_a_provider_only_without_igdb_and_survives_failures() {
     .await
     .expect("open database");
     let now = ludex_server::db::db_time(ludex_server::db::now());
-    let game_id = sqlx::query(
+    let game_id = ludex_server::db::query(
         "INSERT INTO games (title, sort_title, created_at, updated_at) VALUES (?, ?, ?, ?)",
     )
     .bind("Celeste")
     .bind("celeste")
     .bind(&now)
     .bind(&now)
-    .execute(&pool)
+    .returning_id(&pool)
     .await
-    .expect("insert game")
-    .last_insert_rowid();
+    .expect("insert game");
     let (status, queued) = server
         .post(
             &format!("/api/games/{game_id}/refresh-metadata"),
@@ -364,14 +363,16 @@ async fn enrichment_uses_a_provider_only_without_igdb_and_survives_failures() {
     assert_eq!(detail["provider"]["url"], "https://example.test/celeste");
 
     // The fetch log records both attempts (one failure, one success).
-    let failures: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM provider_fetches WHERE ok = 0")
-        .fetch_one(&pool)
-        .await
-        .expect("failure count");
-    let successes: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM provider_fetches WHERE ok = 1")
-        .fetch_one(&pool)
-        .await
-        .expect("success count");
+    let failures: i64 =
+        ludex_server::db::query_scalar("SELECT COUNT(*) FROM provider_fetches WHERE ok = 0")
+            .fetch_one(&pool)
+            .await
+            .expect("failure count");
+    let successes: i64 =
+        ludex_server::db::query_scalar("SELECT COUNT(*) FROM provider_fetches WHERE ok = 1")
+            .fetch_one(&pool)
+            .await
+            .expect("success count");
     assert!(failures >= 1, "failing provider was not recorded");
     assert!(successes >= 1, "successful provider was not recorded");
 }

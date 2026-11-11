@@ -18,6 +18,8 @@ three directories (plus `/tmp`).
   image; it is built on Debian bookworm.
 - A reverse proxy for TLS if the server is reachable from the internet.
 - Optional: IGDB credentials (see below) for richer metadata.
+- Optional: PostgreSQL 14+ instead of the default SQLite file (see
+  [POSTGRES.md](POSTGRES.md)).
 
 ## Docker Compose (recommended)
 
@@ -248,7 +250,9 @@ are.
 | `LUDEX_IGDB_CLIENT_SECRET` | unset | Server-side only. |
 | `LUDEX_INGEST_ALLOW_PRIVATE` | `false` | Permit ingest URLs on private/link-local IPs. |
 | `LUDEX_SCAN_INTERVAL_SECONDS` | `300` | Automatic scan interval; `0` disables periodic scans. |
-| `LUDEX_DATABASE_URL` | `sqlite://$LUDEX_DATA_DIR/ludex.db?mode=rwc` | Advanced: custom SQLite URL. |
+| `LUDEX_DATABASE_URL` | `sqlite://$LUDEX_DATA_DIR/ludex.db?mode=rwc` | `postgres://…` runs on PostgreSQL instead of SQLite; see [POSTGRES.md](POSTGRES.md). |
+| `LUDEX_DATABASE_BACKEND` | inferred from the URL | `sqlite` or `postgres`; only needed for a scheme-less URL. A value contradicting the URL is a startup error. |
+| `LUDEX_DATABASE_MAX_CONNECTIONS` | `8` | Connection pool ceiling (both backends). |
 | `LUDEX_ADMIN_USERNAME` / `LUDEX_ADMIN_PASSWORD` | unset | Optional first-run admin bootstrap (zero users only). Prefer the UI; env values are visible to `docker inspect`. |
 | `LUDEX_WEB_DIR` | unset | Serve the UI from disk instead of the embedded build. |
 | `LUDEX_LOCAL_MODE` | `false` | Desktop embedded mode; leave unset on a server. |
@@ -270,6 +274,11 @@ never sent to clients.
 ## Backups and restore
 
 Back up `/data` (database + JWT secret) and `/games`. `/media` is a cache.
+
+PostgreSQL deployments have no database file in `/data`: dump the database with
+`pg_dump` and keep `/data` for the JWT secret, saves and uploads. `ludex-backup`
+refuses to run against PostgreSQL by design; the exact commands are in
+[POSTGRES.md](POSTGRES.md#backup-and-restore).
 
 The built-in CLI creates a consistent, checksummed snapshot of the database,
 `media/`, `saves/` and a non-secret config manifest (game archives stay on

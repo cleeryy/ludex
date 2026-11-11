@@ -180,7 +180,7 @@ pub async fn remove(state: &AppState, id: &str) -> Result<()> {
             return Err(error.into());
         }
     }
-    sqlx::query("DELETE FROM uploads WHERE id = ?")
+    db::query("DELETE FROM uploads WHERE id = ?")
         .bind(id)
         .execute(&state.pool)
         .await?;
@@ -194,7 +194,7 @@ pub async fn cleanup_stale(state: &AppState, max_age: Duration) -> Result<usize>
     let cutoff =
         db::now() - chrono::Duration::from_std(max_age).unwrap_or(chrono::Duration::zero());
     let cutoff_text = db::db_time(cutoff);
-    let stale: Vec<String> = sqlx::query_scalar(
+    let stale: Vec<String> = db::query_scalar(
         "SELECT id FROM uploads
          WHERE status != 'complete' AND updated_at < ?",
     )
@@ -224,7 +224,7 @@ pub async fn cleanup_stale(state: &AppState, max_age: Duration) -> Result<usize>
         let Some(name) = entry.file_name().to_str().map(str::to_string) else {
             continue;
         };
-        let tracked = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM uploads WHERE id = ?")
+        let tracked = db::query_scalar::<i64>("SELECT COUNT(*) FROM uploads WHERE id = ?")
             .bind(&name)
             .fetch_one(&state.pool)
             .await

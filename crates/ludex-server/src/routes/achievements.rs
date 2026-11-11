@@ -1,5 +1,6 @@
 //! Achievement routes (#117, #118): definitions, unlocks, scan and profiles.
 
+use crate::db;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, patch, post};
@@ -115,7 +116,7 @@ async fn create_definition(
     user.require_admin_access()?;
     ensure_game(&state, game_id).await?;
     let id = achievements::create_definition(&state.pool, game_id, &request).await?;
-    let key = sqlx::query_scalar::<_, String>("SELECT key FROM achievements WHERE id = ?")
+    let key = db::query_scalar::<String>("SELECT key FROM achievements WHERE id = ?")
         .bind(id)
         .fetch_one(&state.pool)
         .await
@@ -175,7 +176,7 @@ async fn unlock(
     let target = request.user_id.unwrap_or(user.id);
     if target != user.id {
         user.require_admin()?;
-        let exists = sqlx::query_scalar::<_, i64>("SELECT id FROM users WHERE id = ?")
+        let exists = db::query_scalar::<i64>("SELECT id FROM users WHERE id = ?")
             .bind(target)
             .fetch_optional(&state.pool)
             .await
@@ -200,7 +201,7 @@ async fn unlock(
 }
 
 async fn ensure_game(state: &AppState, game_id: i64) -> Result<(), ApiError> {
-    let exists = sqlx::query_scalar::<_, i64>("SELECT id FROM games WHERE id = ?")
+    let exists = db::query_scalar::<i64>("SELECT id FROM games WHERE id = ?")
         .bind(game_id)
         .fetch_optional(&state.pool)
         .await

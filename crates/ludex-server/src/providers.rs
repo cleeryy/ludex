@@ -42,6 +42,7 @@ use serde_json::Value;
 use url::Url;
 
 use crate::db;
+use crate::db::Database;
 use crate::error::ApiError;
 use crate::metadata::{score_candidate, strip_html, MatchContext, ProviderMetadata};
 
@@ -403,8 +404,8 @@ pub struct ProviderTestResponse {
 }
 
 /// Loads every provider row, enabled or not, ordered by priority.
-pub async fn load_records(pool: &sqlx::SqlitePool) -> Result<Vec<ProviderRecord>, sqlx::Error> {
-    sqlx::query_as::<_, ProviderRecord>(
+pub async fn load_records(pool: &Database) -> Result<Vec<ProviderRecord>, sqlx::Error> {
+    db::query_as::<ProviderRecord>(
         "SELECT id, name, base_url, token_enc, priority, enabled, mapping_json, created_at, updated_at
          FROM metadata_providers
          ORDER BY priority, id",
@@ -417,7 +418,7 @@ pub async fn load_records(pool: &sqlx::SqlitePool) -> Result<Vec<ProviderRecord>
 /// cannot be decrypted (server secret rotated) is skipped with a warning so it
 /// can never break enrichment.
 pub async fn load_enabled(
-    pool: &sqlx::SqlitePool,
+    pool: &Database,
     server_secret: &[u8],
     allow_private: bool,
 ) -> Vec<MetadataProviderConfig> {
@@ -942,7 +943,7 @@ pub fn best_candidate<'a>(
 
 /// Records one provider fetch for observability. Never fails the caller.
 pub async fn record_fetch(
-    pool: &sqlx::SqlitePool,
+    pool: &Database,
     provider_id: i64,
     game_id: Option<i64>,
     result: Result<usize, &ProviderError>,
@@ -956,7 +957,7 @@ pub async fn record_fetch(
         ),
     };
     let now = db::db_time(db::now());
-    let insert = sqlx::query(
+    let insert = db::query(
         "INSERT INTO provider_fetches (provider_id, game_id, ok, status_code, error, fetched_at)
          VALUES (?, ?, ?, ?, ?, ?)",
     )
@@ -973,7 +974,7 @@ pub async fn record_fetch(
         return;
     }
     let cutoff = db::db_time(db::now() - chrono::Duration::days(FETCH_RETENTION_DAYS));
-    if let Err(error) = sqlx::query("DELETE FROM provider_fetches WHERE fetched_at < ?")
+    if let Err(error) = db::query("DELETE FROM provider_fetches WHERE fetched_at < ?")
         .bind(cutoff)
         .execute(pool)
         .await
