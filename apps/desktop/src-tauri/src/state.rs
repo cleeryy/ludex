@@ -11,6 +11,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::db;
 use crate::install::{InstallJob, InstallParams};
+use crate::profiles;
+use crate::secrets::SecretStore;
 use crate::settings::{self, LocalSettings};
 
 /// Install jobs run one at a time by default to avoid disk thrash on large
@@ -154,6 +156,8 @@ pub struct AppState {
     /// Install jobs run one at a time by default to avoid disk thrash on large
     /// archives. Additional requests wait in the queued phase.
     pub install_slots: Arc<tokio::sync::Semaphore>,
+    /// Per-profile tokens (#24): OS keychain, or a local SQLite fallback.
+    pub secrets: SecretStore,
 }
 
 impl AppState {
@@ -172,10 +176,28 @@ impl AppState {
         let settings_path = app_data.join("settings.json");
         let mut loaded = settings::load(&settings_path, &app_data);
         loaded.normalize(&app_data);
+        // #24: the existing single-server configuration becomes the first
+        // saved profile, with a stable id.
+        profiles::sync_profiles(&mut loaded, &crate::util::now_rfc3339());
         settings::ensure_dirs(&loaded)?;
         settings::save(&settings_path, &loaded)?;
 
-        let database = db::open(&app_data.join("ludex-desktop.db"))?;
+        let secrets = SecretStore::new(&app_data);
+        if let Some(token) = crate::util::non_empty(loaded.token.as_deref()) {
+            if !loaded.active_server_id.is_empty() {
+                if let Err(error) =
+                    secrets.set(&profiles::secret_key(&loaded.active_server_id), token)
+                {
+                    tracing::warn!(error = %error, "could not copy the current token into the secret store");
+                }
+            }
+        }
+
+        // Each server profile has its own index; the first profile adopts the
+        // legacy database so nothing is lost on upgrade.
+        let database_path =
+            profiles::adopt_legacy_database(&app_data, &loaded.active_server_id)?;
+        let database = db::open(&database_path)?;
 
         match db::mark_interrupted_jobs(
             &database,
@@ -205,6 +227,7 @@ impl AppState {
             installers: Mutex::new(HashMap::new()),
             http,
             install_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_INSTALLS)),
+            secrets,
         })
     }
 
@@ -221,27 +244,62 @@ impl AppState {
         &self,
         change: impl FnOnce(&mut LocalSettings),
     ) -> Result<LocalSettings, String> {
+        let mut next = self.settings_snapshot();
+        change(&mut next);
+        self.persist_settings(next)
+    }
+
+    /// Validate, save and install a complete settings value.
+    ///
+    /// Profile metadata is synchronised first (#24), and the active token is
+    /// copied to the secret store; a secret store failure never blocks a
+    /// settings save (the token stays in `settings.json` as before).
+    pub fn persist_settings(&self, mut next: LocalSettings) -> Result<LocalSettings, String> {
         let mut guard = self
             .settings
             .lock()
             .map_err(|_| "The settings lock is poisoned; restart Ludex.".to_string())?;
-        let mut next = guard.clone();
-        change(&mut next);
+        let previous_active = guard.active_server_id.clone();
         next.normalize(&self.app_data);
+        profiles::sync_profiles(&mut next, &crate::util::now_rfc3339());
         settings::validate(&next)?;
         settings::ensure_dirs(&next)?;
         settings::save(&self.settings_path, &next)?;
+        if let Some(token) = crate::util::non_empty(next.token.as_deref()) {
+            if !next.active_server_id.is_empty() {
+                if let Err(error) =
+                    self.secrets
+                        .set(&profiles::secret_key(&next.active_server_id), token)
+                {
+                    tracing::warn!(error = %error, "the token was saved in settings.json but not in the secret store");
+                }
+            }
+        }
         *guard = next.clone();
+        drop(guard);
+
+        // A different server means a different index: adopt or open it now so
+        // installs made right after the switch are written to the right place.
+        // Done after releasing the settings lock to keep the lock order simple.
+        if next.active_server_id != previous_active {
+            if let Err(error) = self.open_server_database(&next.active_server_id) {
+                tracing::warn!(error = %error, "the desktop index was not switched");
+            }
+        }
         Ok(next)
     }
 
-    /// Replace settings after an external validation/save (see `save_settings`).
-    pub fn set_settings(&self, next: LocalSettings) -> Result<(), String> {
+    /// Swap the desktop index when the active server changes (#24). Refused
+    /// while a job or a game is running by the command layer.
+    pub fn open_server_database(&self, active_id: &str) -> Result<(), String> {
+        let path = profiles::adopt_legacy_database(&self.app_data, active_id)?;
+        let connection = db::open(&path)?;
         let mut guard = self
-            .settings
+            .db
             .lock()
-            .map_err(|_| "The settings lock is poisoned; restart Ludex.".to_string())?;
-        *guard = next;
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        *guard = connection;
+        tracing::info!(server = active_id, path = %path.display(), "desktop index switched");
         Ok(())
     }
 

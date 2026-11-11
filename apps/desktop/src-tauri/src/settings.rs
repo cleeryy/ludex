@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::linux_gaming::LaunchMode;
+use crate::profiles::ServerProfile;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -184,6 +185,25 @@ pub struct LocalSettings {
     /// Human-readable device name shown on snapshots (#108). `None` uses the
     /// host name, then "Desktop".
     pub cloud_device_label: Option<String>,
+    /// Saved Ludex servers (#24). Metadata only; tokens live in the OS keychain
+    /// or the SQLite fallback (`secrets.rs`).
+    #[serde(default)]
+    pub servers: Vec<ServerProfile>,
+    /// Id of the profile currently backing `serverUrl`/`token`.
+    #[serde(default)]
+    pub active_server_id: String,
+    /// `apps.json` override for the Sunshine integration (#97). Empty = detect.
+    #[serde(default)]
+    pub sunshine_apps_path: String,
+    /// `sunshine.conf` override (#97). Empty = next to `apps.json`.
+    #[serde(default)]
+    pub sunshine_conf_path: String,
+    /// Moonlight binary override (#98). Empty = detect.
+    #[serde(default)]
+    pub moonlight_binary: String,
+    /// Moonlight config override (#98). Empty = detect.
+    #[serde(default)]
+    pub moonlight_config_path: String,
 }
 
 impl Default for LocalSettings {
@@ -221,6 +241,12 @@ impl Default for LocalSettings {
             cloud_auto_sync: true,
             cloud_device_id: String::new(),
             cloud_device_label: None,
+            servers: Vec::new(),
+            active_server_id: String::new(),
+            sunshine_apps_path: String::new(),
+            sunshine_conf_path: String::new(),
+            moonlight_binary: String::new(),
+            moonlight_config_path: String::new(),
         }
     }
 }
@@ -286,6 +312,41 @@ impl LocalSettings {
         // A zero/absurd timeout would either kill every installer instantly or
         // hang an install for a day.
         self.installer_timeout_secs = self.installer_timeout_secs.clamp(30, 7200);
+        self.sunshine_apps_path = self.sunshine_apps_path.trim().to_string();
+        self.sunshine_conf_path = self.sunshine_conf_path.trim().to_string();
+        self.moonlight_binary = self.moonlight_binary.trim().to_string();
+        self.moonlight_config_path = self.moonlight_config_path.trim().to_string();
+        self.active_server_id = self.active_server_id.trim().to_string();
+        self.servers = self
+            .servers
+            .drain(..)
+            .filter_map(|mut profile| {
+                profile.id = profile.id.trim().to_string();
+                profile.url = profile.url.trim().trim_end_matches('/').to_string();
+                profile.label = profile.label.trim().chars().take(60).collect();
+                if profile.id.is_empty() || profile.url.is_empty() {
+                    return None;
+                }
+                if profile.label.is_empty() {
+                    profile.label = profile.url.clone();
+                }
+                profile.username = profile
+                    .username
+                    .take()
+                    .map(|value| value.trim().chars().take(80).collect::<String>())
+                    .filter(|value| !value.is_empty());
+                Some(profile)
+            })
+            .collect();
+        let mut seen = std::collections::HashSet::new();
+        self.servers.retain(|profile| seen.insert(profile.id.clone()));
+        if !self
+            .servers
+            .iter()
+            .any(|profile| profile.id == self.active_server_id)
+        {
+            self.active_server_id.clear();
+        }
     }
 
     /// Trim, deduplicate and migrate the named locations (#99).
@@ -719,6 +780,63 @@ mod tests {
         assert_eq!(json["cloudAutoSync"], true);
         assert_eq!(json["cloudDeviceId"], "");
         assert_eq!(json["cloudDeviceLabel"], serde_json::Value::Null);
+        assert_eq!(json["servers"], serde_json::json!([]));
+        assert_eq!(json["activeServerId"], "");
+        assert_eq!(json["sunshineAppsPath"], "");
+        assert_eq!(json["sunshineConfPath"], "");
+        assert_eq!(json["moonlightBinary"], "");
+        assert_eq!(json["moonlightConfigPath"], "");
+    }
+
+    #[test]
+    fn server_profiles_are_normalized_and_deduplicated() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.active_server_id = " srv_1 ".into();
+        settings.servers = vec![
+            ServerProfile {
+                id: "srv_1".into(),
+                label: "  Home  ".into(),
+                url: " https://home.example.com/ ".into(),
+                username: Some("  cleeryy ".into()),
+                last_used_at: None,
+                created_at: None,
+            },
+            ServerProfile {
+                id: "srv_1".into(),
+                label: "Duplicate".into(),
+                url: "https://other.example.com".into(),
+                username: None,
+                last_used_at: None,
+                created_at: None,
+            },
+            ServerProfile {
+                id: "  ".into(),
+                label: "No id".into(),
+                url: "https://skip.example.com".into(),
+                username: None,
+                last_used_at: None,
+                created_at: None,
+            },
+        ];
+        settings.sunshine_apps_path = " /opt/sunshine/apps.json ".into();
+        settings.moonlight_binary = " /usr/bin/moonlight ".into();
+        settings.normalize(Path::new("/data"));
+
+        assert_eq!(settings.servers.len(), 1);
+        assert_eq!(settings.servers[0].id, "srv_1");
+        assert_eq!(settings.servers[0].label, "Home");
+        assert_eq!(settings.servers[0].url, "https://home.example.com");
+        assert_eq!(settings.servers[0].username.as_deref(), Some("cleeryy"));
+        assert_eq!(settings.active_server_id, "srv_1");
+        assert_eq!(settings.sunshine_apps_path, "/opt/sunshine/apps.json");
+        assert_eq!(settings.moonlight_binary, "/usr/bin/moonlight");
+
+        settings.active_server_id = "srv_missing".into();
+        settings.normalize(Path::new("/data"));
+        assert!(settings.active_server_id.is_empty());
+
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["servers"].as_array().unwrap().len(), 1);
     }
 
     #[test]
