@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { useReducedMotion } from "motion/react";
-import { Download, Gamepad2, Play, X } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { motion, useReducedMotion } from "motion/react";
+import { Download, Gamepad2, Play, RefreshCw, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { downloadGame } from "@/lib/download";
 import { errorMessage } from "@/lib/http";
@@ -17,10 +17,26 @@ import { Wordmark } from "@/components/brand";
 import { ArtPlate, GameCover } from "@/components/art/cover";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { Button, Kbd, Skeleton } from "@/components/ui/controls";
+import {
+  BACKDROP_CUE,
+  CARD_CUE,
+  COPY_CUE,
+  ENTRANCE_MS,
+  HEADER_CUE,
+  HERO_CUE,
+  cardDelay,
+  reveal,
+} from "@/components/big-picture/entrance";
 import { cn } from "@/lib/cn";
 import { t , tn } from "@/lib/i18n";
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+/** Ask the server once per open; a quick round trip through the route is free. */
+const REFRESH_ON_OPEN_MS = 10_000;
+/** Regaining focus only refetches when the shelf has had time to age. */
+const REFRESH_ON_FOCUS_MS = 30_000;
+let lastRefreshAt = 0;
 
 /**
  * Big Picture: the same archive language at ten feet. Full-screen, dark, one
@@ -29,7 +45,8 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 export function BigPictureScreen() {
   const navigate = useNavigate();
   const { push } = useToast();
-  const { data, isPending } = useAllGames();
+  const queryClient = useQueryClient();
+  const { data, isPending, isFetching } = useAllGames();
   const installed = useInstalledMap();
   const downloads = useDownloads();
   const launch = useLaunchGame();
@@ -37,6 +54,7 @@ export function BigPictureScreen() {
   const [index, setIndex] = useState(0);
   const [installOpen, setInstallOpen] = useState(false);
   const [clock, setClock] = useState(() => new Date());
+  const [entranceDone, setEntranceDone] = useState(false);
   const reduceMotion = useReducedMotion();
 
   const games = data?.items ?? [];
@@ -70,6 +88,68 @@ export function BigPictureScreen() {
     const timer = setInterval(() => setClock(new Date()), 30_000);
     return () => clearInterval(timer);
   }, []);
+
+  // #142: opening Big Picture asks the server for the current library, installs
+  // and update state. The queries keep their cached data, so this happens in the
+  // background: no skeleton, no empty grid, and the shelf keeps focus.
+  const refreshingRef = useRef(false);
+  const refreshLibrary = useCallback(async () => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
+    lastRefreshAt = Date.now();
+    const results = await Promise.allSettled(
+      [["games"], ["installed"], ["game-updates"]].map((queryKey) =>
+        // cancelRefetch: false joins an in-flight mount fetch instead of
+        // starting a second request for the same data.
+        queryClient.refetchQueries({ queryKey, type: "active" }, { throwOnError: true, cancelRefetch: false }),
+      ),
+    );
+    refreshingRef.current = false;
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") {
+      // A failed refresh never replaces the cached shelf: report it and keep
+      // playing. The next open or focus retries.
+      push({
+        title: t("Could not refresh the library"),
+        description: errorMessage(failure.reason),
+        tone: "danger",
+      });
+    }
+  }, [push, queryClient]);
+
+  const refreshRef = useRef(refreshLibrary);
+  refreshRef.current = refreshLibrary;
+
+  useEffect(() => {
+    // One refresh per open, then on focus only when the data has aged and no
+    // dialog, hidden tab or offline session is in the way.
+    if (Date.now() - lastRefreshAt >= REFRESH_ON_OPEN_MS) void refreshRef.current();
+
+    const onFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!navigator.onLine) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      if (Date.now() - lastRefreshAt < REFRESH_ON_FOCUS_MS) return;
+      void refreshRef.current();
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, []);
+
+  // The cascade is for the first paint that actually shows a game: a cold
+  // skeleton never eats the entrance. Cards that arrive later (a shelf switch,
+  // or a refresh adding an entry) mount settled instead of replaying it.
+  const ready = Boolean(selected);
+  useEffect(() => {
+    if (!ready) return;
+    const timer = window.setTimeout(() => setEntranceDone(true), ENTRANCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [ready]);
 
   // Big Picture owns the OS window in the desktop app: enter real fullscreen on
   // mount and hand the window back on the way out. The browser build only gets
@@ -117,9 +197,26 @@ export function BigPictureScreen() {
     };
   }, [push]);
 
-  useEffect(() => {
-    setIndex((current) => clamp(current, 0, Math.max(0, shelfGames.length - 1)));
-  }, [shelfGames.length]);
+  const selectedIdRef = useRef<number | null>(null);
+
+  // A refresh can reorder "Recently played" or drop a title. Follow the selected
+  // game to its new slot; fall back to the first card only when it is gone.
+  // Layout effect so a stale slot never paints before the correction.
+  useLayoutEffect(() => {
+    const previous = selectedIdRef.current;
+    setIndex((current) => {
+      if (previous !== null) {
+        const position = shelfGames.findIndex((game) => game.id === previous);
+        return shelfGames[current]?.id === previous ? current : position === -1 ? 0 : position;
+      }
+      return clamp(current, 0, Math.max(0, shelfGames.length - 1));
+    });
+  }, [data]);
+
+  // Runs after the sync above: the ref always holds the game on screen.
+  useLayoutEffect(() => {
+    selectedIdRef.current = selected?.id ?? null;
+  }, [selected?.id]);
 
   const railRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -285,6 +382,15 @@ export function BigPictureScreen() {
       <header className="relative z-10 flex h-16 shrink-0 items-center gap-4 border-b border-line px-6 lg:px-8">
         <Wordmark height={17} />
         <span className="hidden font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3 sm:inline">{t("Big Picture")}</span>
+        {isFetching && (
+          <span
+            role="status"
+            className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3"
+          >
+            <RefreshCw className="size-3 animate-spin [animation-duration:1.8s] motion-reduce:animate-none" aria-hidden="true" />
+            <span className="sr-only sm:not-sr-only">{t("Refreshing")}</span>
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-3">
           {downloads.activeCount > 0 && (
             <button
@@ -308,13 +414,13 @@ export function BigPictureScreen() {
 
       <main className="relative z-10 flex min-h-0 flex-1 flex-col">
         <section className="relative flex min-h-0 flex-1 items-center overflow-hidden">
-          <div className="absolute inset-0 opacity-25">
+          <motion.div className="absolute inset-0" {...reveal(reduceMotion, BACKDROP_CUE)}>
             <ArtPlate
               title={selected.title}
               artUrl={detail.data?.backgroundUrl ?? selected.backgroundUrl}
               className="h-full w-full"
             />
-          </div>
+          </motion.div>
           <div
             className="absolute inset-0"
             style={{
@@ -324,7 +430,10 @@ export function BigPictureScreen() {
           />
 
           <div className="relative flex w-full items-center gap-6 px-6 py-6 lg:gap-10 lg:px-12">
-            <div className="w-[148px] shrink-0 sm:w-[200px] lg:w-[264px] xl:w-[296px]">
+            <motion.div
+              className="w-[148px] shrink-0 sm:w-[200px] lg:w-[264px] xl:w-[296px]"
+              {...reveal(reduceMotion, HERO_CUE)}
+            >
               <div className="shadow-[0_44px_90px_-32px_rgba(0,0,0,0.85)]">
                 <GameCover
                   title={selected.title}
@@ -334,9 +443,12 @@ export function BigPictureScreen() {
                   genre={selected.genres[0]}
                 />
               </div>
-            </div>
+            </motion.div>
 
-            <div className="flex min-w-0 flex-1 flex-col gap-3">
+            <motion.div
+              className="flex min-w-0 flex-1 flex-col gap-3"
+              {...reveal(reduceMotion, COPY_CUE)}
+            >
               <span className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-[#ffc61a]">
                 <span className="h-px w-8 bg-[#ffc61a]" aria-hidden="true" />
                 {selected.lastPlayedAt ? t("Continue playing") : t("From the library")}
@@ -368,50 +480,62 @@ export function BigPictureScreen() {
                   {t("Game page")}
                 </Button>
               </div>
-            </div>
+            </motion.div>
           </div>
         </section>
 
         <section className="relative shrink-0 border-t border-line px-4 pb-3 pt-4 lg:px-6" aria-label={t("Games")}>
-          <div className="mb-2 flex items-baseline justify-between px-2">
+          <motion.div
+            className="mb-2 flex items-baseline justify-between px-2"
+            {...reveal(reduceMotion, HEADER_CUE)}
+          >
             <span className="text-[12px] text-ink-3">{shelf?.label}</span>
             <span className="num text-[10.5px] text-ink-3">
               {index + 1} / {shelfGames.length}
             </span>
-          </div>
+          </motion.div>
           <div ref={railRef} className="nav-scroll flex gap-3 overflow-x-auto px-3 pb-3">
             {shelfGames.map((game, position) => {
               const isSelected = position === index;
               return (
-                <button
+                <motion.div
                   key={game.id}
-                  type="button"
-                  ref={(element) => {
-                    cardRefs.current[position] = element;
-                  }}
-                  onClick={() => setIndex(position)}
-                  aria-current={isSelected ? "true" : undefined}
-                  aria-label={game.title}
-                  className={cn(
-                    "relative w-[118px] shrink-0 rounded-[2px] text-left transition-[transform,opacity] duration-150 lg:w-[132px]",
-                    isSelected ? "scale-[1.03] opacity-100" : "opacity-70 hover:opacity-100",
-                  )}
+                  className="shrink-0"
+                  {...reveal(reduceMotion, {
+                    ...CARD_CUE,
+                    delay: cardDelay(position),
+                    settled: entranceDone,
+                  })}
                 >
-                  <GameCover title={game.title} coverUrl={game.coverUrl} index={game.id} showType={false} />
-                  {isSelected && (
-                    <span
-                      className="pointer-events-none absolute -inset-[4px] z-10 rounded-[2px] ring-2 ring-signal ring-offset-2 ring-offset-[#0a0a09]"
-                      aria-hidden="true"
-                    />
-                  )}
-                  <span className={cn("mt-2 block truncate text-[12px]", isSelected ? "text-ink" : "text-ink-3")}>
-                    {game.title}
-                  </span>
-                  <span className="num block text-[9.5px] text-ink-3">{formatYear(game.releaseDate)}</span>
-                  {installed.has(game.id) && (
-                    <span className="absolute left-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-ok" aria-hidden="true" />
-                  )}
-                </button>
+                  <button
+                    type="button"
+                    ref={(element) => {
+                      cardRefs.current[position] = element;
+                    }}
+                    onClick={() => setIndex(position)}
+                    aria-current={isSelected ? "true" : undefined}
+                    aria-label={game.title}
+                    className={cn(
+                      "relative w-[118px] shrink-0 rounded-[2px] text-left transition-[transform,opacity] duration-150 lg:w-[132px]",
+                      isSelected ? "scale-[1.03] opacity-100" : "opacity-70 hover:opacity-100",
+                    )}
+                  >
+                    <GameCover title={game.title} coverUrl={game.coverUrl} index={game.id} showType={false} />
+                    {isSelected && (
+                      <span
+                        className="pointer-events-none absolute -inset-[4px] z-10 rounded-[2px] ring-2 ring-signal ring-offset-2 ring-offset-[#0a0a09]"
+                        aria-hidden="true"
+                      />
+                    )}
+                    <span className={cn("mt-2 block truncate text-[12px]", isSelected ? "text-ink" : "text-ink-3")}>
+                      {game.title}
+                    </span>
+                    <span className="num block text-[9.5px] text-ink-3">{formatYear(game.releaseDate)}</span>
+                    {installed.has(game.id) && (
+                      <span className="absolute left-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-ok" aria-hidden="true" />
+                    )}
+                  </button>
+                </motion.div>
               );
             })}
           </div>
