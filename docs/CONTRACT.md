@@ -948,6 +948,12 @@ interface LocalSettings {
   cloudAutoSync: boolean;            // global automatic save backup (#108), default true
   cloudDeviceId: string;             // random UUID generated on first use, not a hardware id
   cloudDeviceLabel: string | null;   // null = host name, then "Desktop"
+  servers: ServerProfile[];          // saved servers (#24), metadata only
+  activeServerId: string;            // profile backing serverUrl/token
+  sunshineAppsPath: string;          // Sunshine apps.json override (#97), empty = detect
+  sunshineConfPath: string;          // Sunshine sunshine.conf override (#97)
+  moonlightBinary: string;           // Moonlight binary override (#98), empty = detect
+  moonlightConfigPath: string;       // Moonlight.conf override (#98), empty = detect
 }
 
 interface InstallLocation {
@@ -1332,6 +1338,88 @@ interface AdapterReport {
   }>;
   notes: string[];
 }
+
+/* -------------------- Multiple servers and accounts (#24) ----------------- */
+
+interface ServerProfile {
+  id: string;                         // "local" for the embedded server, else srv_<hash>
+  label: string; url: string;
+  username: string | null;            // a local reference, not a credential
+  lastUsedAt: string | null; createdAt: string | null;
+  active: boolean; local: boolean;
+  hasToken: boolean;                  // a token is present in the secret store
+}
+
+interface ServerList {
+  servers: ServerProfile[];
+  activeId: string | null;
+  tokenStorage: "keychain" | "database"; // where saved profile tokens live
+  keychain: string | null;            // "secret-service" | "macos-keychain"
+  warning: string | null;             // set while the SQLite fallback is used
+  message: string | null;
+}
+
+interface ServerTest {
+  ok: boolean; status: number | null; version: string | null;
+  latencyMs: number; message: string;
+}
+
+/* ------------------ Sunshine host (#97) and Moonlight (#98) --------------- */
+
+interface SunshineStatus {
+  detected: boolean; platform: string;
+  appsPath: string | null; confPath: string | null; binary: string | null;
+  source: string | null; overridden: boolean; appsFound: boolean;
+  entries: number; managedEntries: number;
+  warnings: string[]; message: string;
+}
+
+interface SunshinePreviewEntry {
+  gameId: number; title: string; name: string; cmd: string;
+  workingDir: string; imagePath: string | null;
+  action: "add" | "update" | "unchanged"; needsLudexScheme: boolean;
+}
+
+interface SunshinePreview {
+  status: SunshineStatus;
+  entries: SunshinePreviewEntry[];
+  removals: { name: string; gameId: number | null }[];
+  skipped: { gameId: number; title: string; reason: string }[];
+  canSync: boolean; message: string;
+}
+
+interface SunshineReport {
+  written: boolean; dryRun: boolean;
+  appsPath: string | null; backupPath: string | null;
+  added: number; updated: number; unchanged: number; removed: number;
+  managedEntries: number;
+  skipped: { gameId: number; title: string; reason: string }[];
+  message: string;
+}
+
+interface MoonlightHost {
+  name: string; address: string;
+  localAddress: string | null; remoteAddress: string | null;
+  manualAddress: string | null; paired: boolean;
+}
+
+interface MoonlightStatus {
+  detected: boolean; platform: string;
+  binary: string | null; configPath: string | null; configFound: boolean;
+  hosts: MoonlightHost[]; supported: boolean;
+  warnings: string[]; message: string;
+}
+
+interface StreamLaunch {
+  launched: boolean; host: string; app: string;
+  command: string[]; message: string;
+}
+
+interface StreamTarget {
+  published: boolean; appName: string | null; gameId: number;
+  hosts: MoonlightHost[]; moonlight: MoonlightStatus; sunshine: SunshineStatus;
+  message: string;
+}
 ```
 
 | Command | Args | Returns |
@@ -1408,6 +1496,19 @@ interface AdapterReport {
 | `restore_game_config` | `{ gameId, backupId }` | `{ document, diff, backup }`; backs up the current file first, then restores the history entry |
 | `list_game_config_backups` | `{ gameId }` | `ConfigBackupRecord[]`, newest first (max 100) |
 | `game_config_adapters` | `{ gameId }` | `AdapterReport`; Unreal/GOG/Godot/Unity detection plus typed fields (#106) |
+| `sunshine_status` | — | `SunshineStatus`; Sunshine install, `apps.json`/`sunshine.conf` paths, binary and managed-entry counts (#97) |
+| `sunshine_preview` | — | `SunshinePreview`; what a sync would add, update and remove. Never writes |
+| `sunshine_sync` | `{ dryRun?, removeMissing?, downloadCovers? }` | `SunshineReport`. Every real write copies `apps.json` to `apps.json.ludex-backup-<stamp>-<id>.bak` first. `removeMissing` defaults to true |
+| `sunshine_remove_managed` | — | `SunshineReport`; removes every entry carrying the Ludex marker (all servers), user apps stay, backup first |
+| `moonlight_status` | — | `MoonlightStatus`; binary, `Moonlight.conf` and parsed hosts with pairing state (#98) |
+| `stream_target` | `{ gameId }` | `StreamTarget`; whether the game is published and which hosts can stream it |
+| `stream_game` | `{ gameId, host? }` | `StreamLaunch`; runs `moonlight stream <host> <app>` for a published game. Refuses unpaired hosts and missing Moonlight |
+| `moonlight_stream` | `{ host, appName }` | `StreamLaunch`; advanced/manual start of any Sunshine app |
+| `list_servers` | — | `ServerList`; saved servers, active profile and token-storage backend (#24) |
+| `save_server` | `{ id?, label, url, username?, token? }` | `ServerList`; validates and normalises the URL, stores the token in the secret store |
+| `remove_server` | `{ id }` | `ServerList`; deletes the saved token. When the active profile is removed the first remaining one becomes active |
+| `switch_server` | `{ id }` | `ServerList`; refused while a game runs or an install is active. Swaps the per-profile desktop index |
+| `test_server` | `{ url, token? }` | `ServerTest`; `GET {url}/api/health` with an 8 s timeout. Uses the saved token when omitted |
 
 Events:
 
@@ -1435,9 +1536,11 @@ Events:
   source (`ludex`, `adopted`, or a launcher id) since #129.
 
 Native install layout: `{installDir}/{slug}/{versionLabel}/game files` plus a
-desktop SQLite index at `{appDataDir}/ludex-desktop.db` (installed games,
-sessions with exact seconds, settings, install jobs, file manifests, archive
-fingerprints, resumable stream manifests). Per-entry stream checkpoints live in
+desktop SQLite index at `{appDataDir}/servers/<profileId>/index.db` (installed
+games, sessions with exact seconds, install jobs, file manifests, archive
+fingerprints, resumable stream manifests); an installation without a saved
+server still uses `{appDataDir}/ludex-desktop.db`, which the first profile
+adopts by copy. Per-entry stream checkpoints live in
 `install_stream_manifests` (one manifest per job/version) and the
 `install_jobs.stream_completed` hex bitset (schema v9). Local archive extraction
 uses `GET /api/games/{id}/versions/{vid}/local-path` when the embedded server is
@@ -1633,6 +1736,62 @@ returned read-only with a note instead of being edited.
   place, then delete the old folder; any failure leaves the original intact.
   It refuses while the game runs or an install for it is active, and updates
   the index, the executable path and the manifest path.
+
+### Streaming and multiple servers (#97, #98, #24)
+
+**Sunshine (#97).** Detection reads `apps.json` and `sunshine.conf` from the
+usual folders: `%ProgramFiles%\Sunshine\config`, `%ProgramFiles(x86)%`,
+`%LOCALAPPDATA%\Sunshine`, `~/.config/sunshine`, the Sunshine Flatpak path and
+`/etc/sunshine`; `sunshineAppsPath`/`sunshineConfPath` override them. Publishing
+adds one entry per installed game (installed through Ludex or imported from
+Steam):
+
+```json
+{
+  "name": "Celeste",
+  "cmd": "steam://rungameid/504230" | "C:\\Games\\Celeste\\Celeste.exe" | "ludex://play/42",
+  "working-dir": "C:\\Games\\Celeste",
+  "image-path": "C:\\Users\\me\\AppData\\Roaming\\cloud.cleeryy.ludex\\streaming\\art\\42.jpg",
+  "detached": "true",
+  "ludex": { "managed": true, "version": 1, "gameId": 42, "serverId": "srv_3f2a1c4b" }
+}
+```
+
+The order is Steam URI, recorded executable, then a `ludex://play/<id>` URI (the
+preview flags that last case because it needs a registered handler). The
+`ludex` marker is what makes re-sync idempotent: only marked entries for the
+current profile are updated or removed, entries written by another server stay,
+user-created apps are never touched, and a second sync with unchanged input
+performs no write. A malformed `apps.json` is reported and left untouched.
+Covers are cached under `{appDataDir}/streaming/art/<gameId>.<ext>` (8 MiB cap,
+5 s timeout); a cover failure never blocks publishing. The first write to an
+existing file copies it to `apps.json.ludex-backup-<UTC>-<id>.bak`; a failed
+backup aborts the write. Sunshine and Moonlight are never bundled or installed
+by Ludex.
+
+**Moonlight (#98).** Hosts are parsed from the Qt `Moonlight.conf`
+(`%LOCALAPPDATA%\Moonlight Game Streaming Project` or
+`~/.config/Moonlight Game Streaming Project`), accepting `host\address`,
+`host/address` and per-host sections; `srvcert`/`servercert` or `pairstatus`
+mark a host as paired. `manualaddress` wins over `address`, then local/remote.
+`stream_game` resolves the app name from the Sunshine marker and runs
+`moonlight stream <host> <app>` detached. A missing binary, a missing host or an
+unpaired host is an explicit error; macOS host parsing is reported as
+unsupported (Moonlight uses a plist there) instead of guessing.
+
+**Servers (#24).** `servers` holds metadata only; tokens live in the OS
+keychain (`secret-tool` on Linux, `security` on macOS) or, when no keychain is
+available, in `{appDataDir}/secrets.db` (mode 0600) with a warning in the UI.
+The active connection token still lives in `settings.json` (0600) because every
+command reads it synchronously. The existing single-server install becomes the
+first profile on launch; the legacy database is copied (not moved) to
+`{appDataDir}/servers/<id>/index.db`, so each server has its own installed
+games, sessions and install jobs. Switching is refused while a game or an
+install is active. In the browser, profiles and per-server tokens live in
+`localStorage` (`ludex.servers.v1`, `ludex.activeServer.v1`,
+`ludex.token.<id>`), the library view and filters are namespaced per server, and
+the existing token is migrated into the first profile. Removing a profile never
+deletes its index or install folders.
 
 ## Embedded server Rust API (used by the desktop app)
 
