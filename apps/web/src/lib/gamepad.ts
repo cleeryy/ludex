@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import type { ControllerProfile } from "@/lib/types";
+import { actionForAxis, actionForButton, presetProfile } from "@/lib/controller-profiles";
 
 /**
  * Gamepad API navigation for the library and Big Picture.
  *
- * One polling loop per mounted screen reads the first connected pad:
+ * One polling loop per mounted screen reads the first connected pad. The
+ * logical actions come from the active [`ControllerProfile`] (#51): deadzone,
+ * sensitivity, curve, inversion, remapping and trigger threshold are applied
+ * here, so a remapped pad behaves the same everywhere. Without a stored
+ * profile the Xbox preset is used, which matches the historical behaviour:
  *
  * | Input | Action |
  * |---|---|
@@ -37,44 +43,31 @@ export interface GamepadState {
   id: string | null;
 }
 
-const AXIS_THRESHOLD = 0.55;
 const FIRST_REPEAT_MS = 380;
 const REPEAT_MS = 130;
-
-const DIRECTION_BUTTONS: Record<number, GamepadAction> = {
-  12: "up",
-  13: "down",
-  14: "left",
-  15: "right",
-};
-
-const EDGE_BUTTONS: Record<number, GamepadAction> = {
-  0: "confirm",
-  1: "back",
-  2: "menu",
-  3: "downloads",
-  4: "prevTab",
-  5: "nextTab",
-};
+const REPEATABLE = new Set<GamepadAction>(["left", "right", "up", "down"]);
+const MAX_BUTTONS = 32;
 
 export function useGamepad(
   onAction: (action: GamepadAction) => void,
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; profile?: ControllerProfile | null } = {},
 ): GamepadState {
   const enabled = options.enabled ?? true;
   const [state, setState] = useState<GamepadState>({ connected: false, id: null });
   const handlerRef = useRef(onAction);
   handlerRef.current = onAction;
+  const profileRef = useRef<ControllerProfile>(options.profile ?? presetProfile("xbox"));
+  profileRef.current = options.profile ?? presetProfile("xbox");
 
   useEffect(() => {
     if (!enabled) return;
     if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") return;
 
     let frame = 0;
-    const pressed = new Map<string, boolean>();
-    const nextRepeat = new Map<string, number>();
-    const lastAxis = new Map<"x" | "y", string>();
+    let active = new Set<GamepadAction>();
+    const nextRepeat = new Map<GamepadAction, number>();
     let connectedId: string | null = null;
+    let lastRumble = 0;
 
     const refreshConnection = () => {
       const pads = Array.from(navigator.getGamepads?.() ?? []);
@@ -98,12 +91,26 @@ export function useGamepad(
       handlerRef.current(action);
     };
 
-    const fireRepeatable = (action: GamepadAction, now: number) => {
-      const next = nextRepeat.get(action) ?? 0;
-      if (now >= next) {
-        fire(action);
-        nextRepeat.set(action, now + (next === 0 ? FIRST_REPEAT_MS : REPEAT_MS));
+    const vibrate = (pad: Gamepad) => {
+      const profile = profileRef.current;
+      if (!profile.vibration) return;
+      const now = performance.now();
+      if (now - lastRumble < 120) return;
+      const actuator = pad.vibrationActuator;
+      if (!actuator || typeof actuator.playEffect !== "function") return;
+      lastRumble = now;
+      void actuator.playEffect("dual-rumble", { duration: 70, strongMagnitude: 0.35, weakMagnitude: 0.25 }).catch(() => undefined);
+    };
+
+    const trigger = (action: GamepadAction, now: number, pad: Gamepad) => {
+      if (active.has(action) && !REPEATABLE.has(action)) return;
+      const next = nextRepeat.get(action);
+      if (REPEATABLE.has(action)) {
+        if (next !== undefined && now < next) return;
+        nextRepeat.set(action, now + (next === undefined ? FIRST_REPEAT_MS : REPEAT_MS));
       }
+      fire(action);
+      vibrate(pad);
     };
 
     const loop = () => {
@@ -113,43 +120,29 @@ export function useGamepad(
       const now = performance.now();
 
       if (pad) {
-        for (const [index, action] of Object.entries(DIRECTION_BUTTONS)) {
-          const isDown = Boolean(pad.buttons[Number(index)]?.pressed);
-          const wasDown = pressed.get(`b${index}`) ?? false;
-          if (isDown && !wasDown) fireRepeatable(action, now);
-          if (isDown) nextRepeat.set(action, nextRepeat.get(action) ?? now + FIRST_REPEAT_MS);
-          else nextRepeat.delete(action);
-          pressed.set(`b${index}`, isDown);
+        const profile = profileRef.current;
+        const pressed = new Set<GamepadAction>();
+        const buttons = Math.min(pad.buttons.length, MAX_BUTTONS);
+        for (let index = 0; index < buttons; index += 1) {
+          const button = pad.buttons[index];
+          const action = actionForButton(profile, index, button?.value ?? (button?.pressed ? 1 : 0));
+          if (action) pressed.add(action);
+        }
+        for (const axis of [0, 1, 2, 3]) {
+          const x = pad.axes[axis * 2] ?? 0;
+          const y = pad.axes[axis * 2 + 1] ?? 0;
+          const action = actionForAxis(profile, axis, x, y);
+          if (action) pressed.add(action);
         }
 
-        for (const [index, action] of Object.entries(EDGE_BUTTONS)) {
-          const isDown = Boolean(pad.buttons[Number(index)]?.pressed);
-          const wasDown = pressed.get(`b${index}`) ?? false;
-          if (isDown && !wasDown) fire(action);
-          pressed.set(`b${index}`, isDown);
+        for (const action of pressed) trigger(action, now, pad);
+        for (const action of active) {
+          if (!pressed.has(action)) nextRepeat.delete(action);
         }
-
-        const x = pad.axes[0] ?? 0;
-        const y = pad.axes[1] ?? 0;
-        const axis = (name: "x" | "y", value: number, negative: GamepadAction, positive: GamepadAction) => {
-          const key = `a${name}${value < 0 ? "-" : "+"}`;
-          const active = value < -AXIS_THRESHOLD ? negative : value > AXIS_THRESHOLD ? positive : null;
-          if (active) {
-            if (key !== lastAxis.get(name)) {
-              lastAxis.set(name, key);
-              fireRepeatable(active, now);
-              nextRepeat.set(active, now + FIRST_REPEAT_MS);
-            } else {
-              fireRepeatable(active, now);
-            }
-          } else {
-            lastAxis.delete(name);
-            nextRepeat.delete(negative);
-            nextRepeat.delete(positive);
-          }
-        };
-        axis("x", x, "left", "right");
-        axis("y", y, "up", "down");
+        active = pressed;
+      } else {
+        active = new Set();
+        nextRepeat.clear();
       }
 
       frame = requestAnimationFrame(loop);

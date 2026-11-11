@@ -40,6 +40,10 @@ import type {
   ProtonDbRating,
   RepairProgress,
   RepairReport,
+  RomCommandValidation,
+  RomEmulator,
+  RomLaunchResult,
+  RomSettings,
   ServerList,
   ServerTest,
   SteamImportReport,
@@ -115,6 +119,40 @@ export const native = {
   async localServerStatus(): Promise<{ running: boolean; url: string | null }> {
     if (!isNative()) return { running: false, url: null };
     return invoke<{ running: boolean; url: string | null }>("local_server_status");
+  },
+
+  /* emulator registry (#52) */
+  async getRomSettings(): Promise<RomSettings> {
+    return invoke<RomSettings>("get_rom_settings");
+  },
+
+  async saveRomEmulator(emulator: RomEmulator): Promise<RomSettings["registry"]> {
+    return invoke<RomSettings["registry"]>("save_rom_emulator", { emulator });
+  },
+
+  async deleteRomEmulator(id: string): Promise<RomSettings["registry"]> {
+    return invoke<RomSettings["registry"]>("delete_rom_emulator", { id });
+  },
+
+  async setRomDefault(platform: string, emulatorId: string | null): Promise<RomSettings["registry"]> {
+    return invoke<RomSettings["registry"]>("set_rom_default", { platform, emulatorId });
+  },
+
+  async validateRomCommand(command: string): Promise<RomCommandValidation> {
+    return invoke<RomCommandValidation>("validate_rom_command", { command });
+  },
+
+  async launchRomGame(args: {
+    gameId: number;
+    platform: string;
+    romPath: string;
+    emulatorId?: string | null;
+  }): Promise<RomLaunchResult> {
+    return invoke<RomLaunchResult>("launch_rom_game", args);
+  },
+
+  async stopRomGame(sessionId: string): Promise<void> {
+    await invoke<null>("stop_rom_game", { sessionId });
   },
 
   async installGame(args: InstallGameArgs): Promise<InstallJob> {

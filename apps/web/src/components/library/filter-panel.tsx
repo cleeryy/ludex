@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { FilterX } from "lucide-react";
 import { installsAvailable } from "@/lib/install";
 import {
@@ -39,6 +41,7 @@ export function FilterPanel({
   const [yearTo, setYearTo] = useState(filters.yearTo);
   const [playtimeMin, setPlaytimeMin] = useState(filters.playtimeMin);
   const [playtimeMax, setPlaytimeMax] = useState(filters.playtimeMax);
+  const platforms = useQuery({ queryKey: ["platforms"], queryFn: () => api.listPlatforms() });
 
   useEffect(() => setYearFrom(filters.yearFrom), [filters.yearFrom]);
   useEffect(() => setYearTo(filters.yearTo), [filters.yearTo]);
@@ -165,6 +168,39 @@ export function FilterPanel({
               value={filters.state || "any"}
               onChange={(value) => onChange("state", value)}
               options={stateOptions()}
+              className="h-9 text-[12.5px]"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[12.5px] text-ink-2">{t("Platform")}</span>
+            <Select
+              label={t("Filter by platform")}
+              value={filters.platform || "any"}
+              onChange={(value) => onChange("platform", value)}
+              options={[
+                { value: "any", label: t("Any platform") },
+                ...(platforms.data ?? [])
+                  .filter((platform) => platform.gameCount > 0)
+                  .map((platform) => ({
+                    value: platform.id,
+                    label: platform.label,
+                    hint: String(platform.gameCount),
+                  })),
+              ]}
+              className="h-9 text-[12.5px]"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[12.5px] text-ink-2">{t("Entry kind")}</span>
+            <Select
+              label={t("Filter by entry kind")}
+              value={filters.kind || "any"}
+              onChange={(value) => onChange("kind", value)}
+              options={[
+                { value: "any", label: t("Games and ROMs") },
+                { value: "game", label: t("Games") },
+                { value: "rom", label: t("ROMs") },
+              ]}
               className="h-9 text-[12.5px]"
             />
           </div>

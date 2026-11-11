@@ -28,6 +28,7 @@ import {
   type FilterKey,
 } from "@/lib/library-filters";
 import { focusGamepadTarget, useGamepad, type GamepadAction } from "@/lib/gamepad";
+import { useControllerProfile } from "@/lib/use-controller-profile";
 import { OPEN_FILTERS_EVENT } from "@/lib/ui-events";
 import { EmptyState, ErrorState, PageHeader } from "@/components/page";
 import { GameCard } from "@/components/game/game-card";
@@ -85,6 +86,8 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   const { user } = useAuth();
   const { view, setView } = useSettings();
   const genres = useGenres();
+  const platforms = useQuery({ queryKey: ["platforms"], queryFn: () => api.listPlatforms(), staleTime: 60_000 });
+  const shelves = (platforms.data ?? []).filter((platform) => platform.gameCount > 0).slice(0, 8);
   const installed = useInstalledMap();
   const updates = useUpdateMap();
   const updateGame = useUpdateGame();
@@ -263,7 +266,8 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
     focusGamepadTarget(elements, bounded, !reduceMotion);
   };
 
-  const gamepad = useGamepad(onGamepad, { enabled: !filterOpen });
+  const controllerProfile = useControllerProfile();
+  const gamepad = useGamepad(onGamepad, { enabled: !filterOpen, profile: controllerProfile });
 
   useEffect(() => {
     setPadIndex(0);
@@ -377,6 +381,29 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
               )}
             </div>
           </div>
+
+          {shelves.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5" aria-label={t("Platform shelves")}>
+              <span className="mr-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{t("Platforms")}</span>
+              {shelves.map((platform) => (
+                <button
+                  key={platform.id}
+                  type="button"
+                  onClick={() => update("platform", filters.platform === platform.id ? null : platform.id)}
+                  aria-pressed={filters.platform === platform.id}
+                  className={cn(
+                    "inline-flex h-6 items-center gap-1.5 rounded-[2px] border px-1.5 font-mono text-[10.5px] uppercase tracking-[0.06em] transition-colors",
+                    filters.platform === platform.id
+                      ? "border-signal/60 bg-signal/12 text-signal-text"
+                      : "border-line-2 text-ink-3 hover:border-ink-3 hover:text-ink-2",
+                  )}
+                >
+                  {platform.id}
+                  <span className="num text-[9.5px] opacity-70">{platform.gameCount}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6">
             <div className="nav-scroll -mb-0.5 flex min-w-0 flex-1 items-center gap-4 overflow-x-auto">

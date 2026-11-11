@@ -24,6 +24,8 @@ export const FILTER_KEYS = [
   "playtimeMax",
   "minRating",
   "provider",
+  "platform",
+  "kind",
   "sort",
   "order",
 ] as const;
@@ -43,6 +45,8 @@ export interface LibraryFilters {
   playtimeMax: string;
   minRating: string;
   provider: string;
+  platform: string;
+  kind: "" | "game" | "rom";
   sort: NonNullable<GameListQuery["sort"]>;
   order: NonNullable<GameListQuery["order"]>;
 }
@@ -131,6 +135,8 @@ export function readFilters(
     playtimeMax: params.get("playtimeMax") ?? "",
     minRating: params.get("minRating") ?? "",
     provider: params.get("provider") ?? "",
+    platform: params.get("platform") ?? "",
+    kind: (params.get("kind") as LibraryFilters["kind"]) ?? "",
     sort,
     order: (params.get("order") ?? (sort === "title" ? "asc" : "desc")) as LibraryFilters["order"],
   };
@@ -174,6 +180,8 @@ export function filterQuery(filters: LibraryFilters): GameListQuery {
     playtimeMax: filters.playtimeMax ? Number(filters.playtimeMax) : undefined,
     minRating: filters.minRating ? Number(filters.minRating) : undefined,
     provider: filters.provider || undefined,
+    platform: filters.platform || undefined,
+    kind: filters.kind || undefined,
     sort: filters.sort,
     order: filters.order,
   };
@@ -212,6 +220,8 @@ export function activeFilterChips(filters: LibraryFilters): FilterChip[] {
   }
   if (filters.minRating) chips.push({ key: "minRating", label: t("{count}+ rating", { count: Number(filters.minRating) }) });
   if (filters.provider) chips.push({ key: "provider", label: t("Source: {provider}", { provider: providerLabel(filters.provider) }) });
+  if (filters.platform) chips.push({ key: "platform", label: filters.platform.toUpperCase() });
+  if (filters.kind) chips.push({ key: "kind", label: filters.kind === "rom" ? t("ROMs") : t("Games") });
   return chips;
 }
 
@@ -261,6 +271,10 @@ export function removeFilterChip(key: FilterKey): Partial<LibraryFilters> {
       return { playtimeMin: "", playtimeMax: "" };
     case "minRating":
       return { minRating: "" };
+    case "platform":
+      return { platform: "" };
+    case "kind":
+      return { kind: "" };
     case "provider":
       return { provider: "" };
     default:

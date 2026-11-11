@@ -27,6 +27,8 @@ import { ServersPanel } from "@/components/shell/server-switcher";
 import { GettingStartedCard } from "@/components/onboarding/getting-started";
 import { LocationsPanel } from "@/components/settings/locations-panel";
 import { openOnboarding, restoreGettingStarted } from "@/lib/onboarding";
+import { ControllerPanel } from "@/components/settings/controller-panel";
+import { RomEmulatorsPanel } from "@/components/settings/rom-emulators";
 import { t } from "@/lib/i18n";
 
 export function SettingsScreen() {
@@ -797,6 +799,29 @@ export function SettingsScreen() {
           <GettingStartedCard className="mt-5" />
         </div>
       </section>
+
+      {desktopAvailable && (
+        <div className="mt-12 max-w-[980px]">
+          <SectionHeader
+            title={t("Emulators")}
+            description={t("Local commands used to launch ROMs. Ludex never bundles an emulator binary.")}
+          />
+          <div className="mt-4">
+            <RomEmulatorsPanel />
+          </div>
+        </div>
+      )}
+
+      <div className="mt-12 max-w-[980px]">
+        <SectionHeader
+          title={t("Controllers")}
+          description={t("Deadzone, sensitivity, remapping and vibration apply in the library and Big Picture.")}
+        />
+        <div className="mt-4">
+          <ControllerPanel />
+        </div>
+      </div>
+
     </div>
   );
 }
