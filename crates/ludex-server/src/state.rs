@@ -100,7 +100,7 @@ impl AppState {
     ///
     /// The caller owns `scan_tx`, which makes scan triggers observable.
     pub async fn for_tests(config: Config, scan_tx: mpsc::Sender<ScanRequest>) -> Self {
-        let pool = crate::db::connect(&config.database_url)
+        let pool = crate::db::connect_for_tests(&config.database_url)
             .await
             .expect("connect test database");
         crate::roots::bootstrap(&pool, &config)

@@ -90,7 +90,8 @@ async fn create_root(
         _ => default_label(&path),
     };
     let enabled = request.enabled.unwrap_or(true);
-    let id = roots::create(&state.pool, &label, &path, enabled).await?;
+    let kind = validate_root_kind(request.kind.as_deref())?;
+    let id = roots::create(&state.pool, &label, &path, enabled, &kind).await?;
     state.events.emit(
         Event::new(actions::LIBRARY_ROOT_CREATED, user.actor())
             .target("library_root", id.to_string())
@@ -137,15 +138,29 @@ async fn update_root(
     }
     let enabled = request.enabled.unwrap_or(current.enabled != 0);
     let position = request.position.unwrap_or(current.position);
+    let kind = match request.kind.as_deref() {
+        Some(kind) => validate_root_kind(Some(kind))?,
+        None => current.kind.clone(),
+    };
+    if kind != current.kind {
+        let versions = roots::version_count(&state.pool, id).await?;
+        if versions > 0 {
+            return Err(ApiError::conflict(
+                "root_kind_locked",
+                "Move or remove the indexed files before changing the root kind",
+            ));
+        }
+    }
 
     sqlx::query(
-        "UPDATE library_roots SET label = ?, path = ?, enabled = ?, position = ?,
+        "UPDATE library_roots SET label = ?, path = ?, enabled = ?, position = ?, kind = ?,
             available = 1, last_error = NULL, updated_at = ? WHERE id = ?",
     )
     .bind(&label)
     .bind(&path)
     .bind(i64::from(enabled))
     .bind(position)
+    .bind(&kind)
     .bind(db::db_time(db::now()))
     .bind(id)
     .execute(&state.pool)
@@ -245,6 +260,17 @@ async fn watcher_status(
 ) -> Result<Json<WatcherStatus>, ApiError> {
     user.require_admin_access()?;
     Ok(Json(state.watcher.read().await.clone()))
+}
+
+fn validate_root_kind(kind: Option<&str>) -> Result<String, ApiError> {
+    match kind.unwrap_or("game").trim().to_ascii_lowercase().as_str() {
+        "game" | "archive" => Ok("game".to_string()),
+        "rom" | "emulator" => Ok("rom".to_string()),
+        other => Err(ApiError::bad_request(
+            "invalid_root_kind",
+            format!("Unknown root kind `{other}`; expected `game` or `rom`"),
+        )),
+    }
 }
 
 async fn reload_watcher(state: &AppState) {

@@ -45,6 +45,8 @@ pub struct LibraryRoot {
     pub last_scan_at: Option<String>,
     /// Why the root was marked unavailable.
     pub last_error: Option<String>,
+    /// `game` for an archive library, `rom` for a ROM/emulator library.
+    pub kind: String,
 }
 
 /// Public root shape returned by `/api/library/roots`.
@@ -71,6 +73,8 @@ pub struct LibraryRootView {
     pub last_error: Option<String>,
     /// Indexed versions stored under this root.
     pub version_count: i64,
+    /// `game` for an archive library, `rom` for a ROM/emulator library.
+    pub kind: String,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -85,6 +89,7 @@ struct RootRow {
     last_scan_at: Option<String>,
     last_error: Option<String>,
     version_count: i64,
+    kind: String,
 }
 
 impl RootRow {
@@ -100,6 +105,7 @@ impl RootRow {
             last_scan_at: self.last_scan_at.as_deref().and_then(db::parse_time),
             last_error: self.last_error,
             version_count: self.version_count,
+            kind: self.kind,
         }
     }
 }
@@ -119,6 +125,7 @@ impl LibraryRoot {
             last_scan_at: self.last_scan_at.as_deref().and_then(db::parse_time),
             last_error: self.last_error.clone(),
             version_count,
+            kind: self.kind.clone(),
         }
     }
 }
@@ -128,7 +135,8 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<LibraryRootView>> {
     let rows = sqlx::query_as::<_, RootRow>(
         "SELECT r.id, r.label, r.path, r.enabled, r.available, r.position,
                 r.created_at, r.last_scan_at, r.last_error,
-                (SELECT COUNT(*) FROM game_versions v WHERE v.root_id = r.id) AS version_count
+                (SELECT COUNT(*) FROM game_versions v WHERE v.root_id = r.id) AS version_count,
+                r.kind
          FROM library_roots r
          ORDER BY r.position, r.id",
     )
@@ -142,7 +150,7 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<LibraryRootView>> {
 pub async fn enabled(pool: &SqlitePool) -> Result<Vec<LibraryRoot>> {
     sqlx::query_as::<_, LibraryRoot>(
         "SELECT id, label, path, enabled, available, position, created_at,
-                last_scan_at, last_error
+                last_scan_at, last_error, kind
          FROM library_roots WHERE enabled = 1 ORDER BY position, id",
     )
     .fetch_all(pool)
@@ -154,7 +162,7 @@ pub async fn enabled(pool: &SqlitePool) -> Result<Vec<LibraryRoot>> {
 pub async fn get(pool: &SqlitePool, id: i64) -> Result<Option<LibraryRoot>> {
     sqlx::query_as::<_, LibraryRoot>(
         "SELECT id, label, path, enabled, available, position, created_at,
-                last_scan_at, last_error
+                last_scan_at, last_error, kind
          FROM library_roots WHERE id = ?",
     )
     .bind(id)
@@ -173,7 +181,13 @@ pub async fn version_count(pool: &SqlitePool, id: i64) -> Result<i64> {
 }
 
 /// Creates a root at the end of the list.
-pub async fn create(pool: &SqlitePool, label: &str, path: &str, enabled: bool) -> Result<i64> {
+pub async fn create(
+    pool: &SqlitePool,
+    label: &str,
+    path: &str,
+    enabled: bool,
+    kind: &str,
+) -> Result<i64> {
     let position =
         sqlx::query_scalar::<_, i64>("SELECT COALESCE(MAX(position), -1) + 1 FROM library_roots")
             .fetch_one(pool)
@@ -182,8 +196,8 @@ pub async fn create(pool: &SqlitePool, label: &str, path: &str, enabled: bool) -
     let now = db::db_time(db::now());
     let result = sqlx::query(
         "INSERT INTO library_roots
-            (label, path, enabled, available, position, created_at, updated_at)
-         VALUES (?, ?, ?, 1, ?, ?, ?)",
+            (label, path, enabled, available, position, created_at, updated_at, kind)
+         VALUES (?, ?, ?, 1, ?, ?, ?, ?)",
     )
     .bind(label)
     .bind(path)
@@ -191,6 +205,7 @@ pub async fn create(pool: &SqlitePool, label: &str, path: &str, enabled: bool) -
     .bind(position)
     .bind(&now)
     .bind(&now)
+    .bind(kind)
     .execute(pool)
     .await
     .context("insert library root")?;

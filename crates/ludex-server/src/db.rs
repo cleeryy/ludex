@@ -16,11 +16,26 @@ use sqlx::SqlitePool;
 /// `C:\Users\Alice\AppData\Roaming\Ludex` (backslashes and spaces) and
 /// relative paths working. Other URL forms are still handled by sqlx.
 pub async fn connect(database_url: &str) -> Result<SqlitePool> {
+    connect_with_max_connections(database_url, 8).await
+}
+
+/// Opens a smaller pool for tests. The suite starts hundreds of databases in
+/// parallel; eight connections each exhausts file descriptors and makes
+/// unrelated tests time out on slower machines.
+#[cfg(test)]
+pub async fn connect_for_tests(database_url: &str) -> Result<SqlitePool> {
+    connect_with_max_connections(database_url, 2).await
+}
+
+async fn connect_with_max_connections(
+    database_url: &str,
+    max_connections: u32,
+) -> Result<SqlitePool> {
     let options = connect_options(database_url)
         .with_context(|| format!("invalid database URL: {database_url}"))?;
     let pool = SqlitePoolOptions::new()
-        .max_connections(8)
-        .acquire_timeout(Duration::from_secs(10))
+        .max_connections(max_connections)
+        .acquire_timeout(Duration::from_secs(30))
         .connect_with(options)
         .await
         .context("connect to SQLite database")?;

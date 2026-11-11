@@ -42,6 +42,12 @@ interface GameSummary {
   genres: string[]; earlyAccess: boolean; versionCount: number; totalSize: number;
   state: ProgressState; minutesPlayed: number; bookmarked: boolean;
   lastPlayedAt: string | null; maxPlayers: number | null;
+  /** `game` for an archive, `rom` for an emulator ROM (#52). */
+  kind: "game" | "rom";
+  /** Platform slug for a ROM entry (`snes`, `gba`, …); null otherwise. */
+  platform: string | null;
+  /** Per-game emulator override; null uses the platform default. */
+  emulatorId: number | null;
   /** Present only when the row came from a search (`q`). */
   matchedField?: "title" | "sortTitle" | "altTitle";
   matchedTitle?: string; matchScore?: number;
@@ -195,7 +201,7 @@ payload are ignored. New and existing accounts default to
 
 | Method | Route | Notes |
 |---|---|---|
-| GET | `/api/games` | query: `q`, `genre`, `state`, `bookmarked`, `earlyAccess`, `yearFrom`, `yearTo`, `players`, `playtimeMin`, `playtimeMax`, `minRating`, `provider`, `sort` (`title\|releaseDate\|rating\|addedAt\|lastPlayed\|playtime`), `order` (`asc\|desc`), `page` (1), `limit` (48, max 200) → `{ items, total, page, limit }` |
+| GET | `/api/games` | query: `q`, `genre`, `state`, `bookmarked`, `earlyAccess`, `yearFrom`, `yearTo`, `players`, `playtimeMin`, `playtimeMax`, `minRating`, `provider`, `platform`, `kind` (`game\|rom`), `sort` (`title\|releaseDate\|rating\|addedAt\|lastPlayed\|playtime`), `order` (`asc\|desc`), `page` (1), `limit` (48, max 200) → `{ items, total, page, limit }` |
 | GET | `/api/games/suggest` | query: `q`, `limit` (8, max 20) → `{ query, suggestions: [{ id, title, year, coverUrl, matchedField, matchedTitle, score }] }`; top matches, best first |
 | GET | `/api/games/{id}` | `GameDetail` |
 | GET | `/api/games/random` | same filters as list → `GameSummary`; 404 when empty |
@@ -743,8 +749,8 @@ canonical fields above and dot-separated object keys.
 | GET | `/api/library/scan` | `ScanStatus` |
 | GET | `/api/library/folders` | `{ gamesDir, mediaDir, dataDir }` (admin) |
 | GET | `/api/library/roots` | admin + `admin` scope; `LibraryRoot[]`, ordered |
-| POST | `/api/library/roots` | admin; `{ path, label?, enabled? }` → 201 `LibraryRoot`; 409 `root_exists` |
-| PATCH | `/api/library/roots/{id}` | admin; `{ label?, path?, enabled?, position? }` → `LibraryRoot` |
+| POST | `/api/library/roots` | admin; `{ path, label?, enabled?, kind? }` (`kind`: `game` default or `rom`) → 201 `LibraryRoot`; 409 `root_exists` |
+| PATCH | `/api/library/roots/{id}` | admin; `{ label?, path?, enabled?, position?, kind? }` → `LibraryRoot`; 409 `root_kind_locked` when indexed versions exist |
 | DELETE | `/api/library/roots/{id}?force=` | admin; 204; 409 `root_not_empty` unless `force=true` |
 | POST | `/api/library/roots/{id}/scan` | admin/editor; 202 `{ started, rootId }`; scans that root only |
 | GET | `/api/library/watcher` | admin; `LibraryWatcherStatus` |
@@ -755,6 +761,8 @@ interface LibraryRoot {
   enabled: boolean; available: boolean; position: number;
   createdAt: string; lastScanAt: string | null; lastError: string | null;
   versionCount: number;
+  /** `game` for game archives, `rom` for an emulator ROM library (#52). */
+  kind: "game" | "rom";
 }
 
 interface LibraryWatcherStatus {
@@ -1792,6 +1800,21 @@ install is active. In the browser, profiles and per-server tokens live in
 `ludex.token.<id>`), the library view and filters are namespaced per server, and
 the existing token is migrated into the first profile. Removing a profile never
 deletes its index or install folders.
+### Emulator registry (#52)
+
+Desktop-only JSON registry at `{appDataDir}/emulators.json`. Presets cover
+RetroArch cores and standalone emulators; commands are user-edited and are
+never bundled.
+
+| Command | Args | Response |
+|---|---|---|
+| `get_rom_settings` | — | `{ registry: { emulators, defaults }, platforms }` |
+| `save_rom_emulator` | `{ emulator }` | updated registry |
+| `delete_rom_emulator` | `{ id }` | updated registry (built-ins are disabled, not removed) |
+| `set_rom_default` | `{ platform, emulatorId \| null }` | updated registry |
+| `validate_rom_command` | `{ command }` | `{ valid, error, program, args }` |
+| `launch_rom_game` | `{ gameId, platform, romPath, emulatorId? }` | `{ sessionId, emulatorName, emulatorId }`; records a play session |
+| `stop_rom_game` | `{ sessionId }` | stops the process tree (same session map as installed games) |
 
 ## Embedded server Rust API (used by the desktop app)
 
@@ -2056,6 +2079,97 @@ Environment: `LUDEX_ACHIEVEMENT_SCAN_INTERVAL_HOURS` (0 = off),
 `LUDEX_ACHIEVEMENT_PROVIDERS`, `LUDEX_ACHIEVEMENT_SCAN_ROOTS`,
 `LUDEX_ACHIEVEMENT_LOCAL_API_URLS`, `LUDEX_ACHIEVEMENT_GALAXY_DB`,
 `LUDEX_ACHIEVEMENT_ALLOW_REMOTE_APIS`.
+
+
+
+## Controller profiles (#51)
+
+Profiles are stored per account so a player finds the same deadzone, mapping
+and vibration preference on every device. `gameId: null` is the account-wide
+profile; any game id is an override. The document is validated by
+`ludex_core::gamepad` before it reaches SQLite.
+
+```ts
+type ControllerAction =
+  | "left" | "right" | "up" | "down" | "confirm" | "back"
+  | "menu" | "downloads" | "prevTab" | "nextTab";
+
+interface ControllerProfile {
+  name: string;                 // 1-64 characters
+  deadzone: number;             // 0..0.95, radial
+  sensitivity: number;          // 0.1..3
+  curve: number;                // 0.5..4 (1 = linear)
+  invertX: boolean;
+  invertY: boolean;
+  triggerThreshold: number;     // 0..1, applied to buttons 6/7
+  vibration: boolean;
+  /** `buttonN` (0..31), `axisN-` / `axisN+` (0..7) → action. */
+  mappings: Record<string, ControllerAction>;
+}
+
+interface ControllerProfileEntry {
+  gameId: number | null; gameTitle: string | null;
+  profile: ControllerProfile; updatedAt: string;
+}
+
+interface ControllerProfilesResponse {
+  global: ControllerProfileEntry | null;
+  games: ControllerProfileEntry[];
+  presets: { id: "xbox" | "dualsense" | "steamdeck" | "generic"; label: string; profile: ControllerProfile }[];
+}
+```
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/controller-profiles` | current account + presets |
+| PUT | `/api/controller-profiles` | body `{ gameId?: number \| null, profile }`; upserts the scope; returns the entry |
+| DELETE | `/api/controller-profiles/{gameId}` | `0` deletes the account profile; 204 |
+
+Resolution is `game ?? global ?? xbox preset`. The web client applies it in
+`useGamepad`; the editor supports live pad detection, per-input remapping,
+JSON import/export and reset.
+
+## Emulators and ROMs (#52)
+
+A library root has `kind: "game" | "rom"`. ROM roots index emulator ROMs
+(`nes`, `sfc`, `gba`, `n64`, `cue`, `chd`, `iso`, `gdi`, `wbfs`, `nsp`, …),
+group region/revision variants, attach a `platform`, read an optional local
+`gamelist.xml` and never compute PC-game metadata for the entry.
+
+```ts
+interface Emulator {
+  id: number; name: string; command: string; platforms: string[];
+  enabled: boolean; createdAt: string; updatedAt: string;
+}
+
+interface PlatformInfo {
+  id: string; label: string; extensions: string[];
+  retroarchCore: string | null; gameCount: number;
+}
+
+interface EmulatorLaunch {
+  gameId: number; platform: string; emulatorId: number; emulatorName: string;
+  program: string; args: string[]; romPath: string; // server-side path
+}
+```
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/platforms` | platform catalog with ROM counts |
+| GET | `/api/emulators` | configured emulators |
+| POST | `/api/emulators` | admin; body `{ name, command, platforms[], enabled? }` |
+| PATCH | `/api/emulators/{id}` | admin; partial update |
+| DELETE | `/api/emulators/{id}` | admin; 204 |
+| POST | `/api/emulators/validate` | admin; body `{ command }` → `{ valid, error, program, args }`; never executes |
+| GET | `/api/emulators/defaults` | `[{ platform, emulatorId }]` |
+| PUT | `/api/emulators/defaults` | admin; body `{ defaults: [{ platform, emulatorId \| null }] }` |
+| PUT | `/api/games/{id}/emulator` | editor; body `{ emulatorId: number \| null }`; 204 |
+| POST | `/api/games/{id}/launch-command` | resolve the per-game emulator and substitute `%ROM%`; 404 `emulator_not_configured`, 422 `not_a_rom` |
+
+Commands are tokenised into `program` + `args` and spawned without a shell:
+`%ROM%` is required, `%ROM_DIR%`, `%ROM_NAME%` and `%ROM_STEM%` are optional,
+quotes are preserved, and `;`, `|`, `&&`, `$(`, backticks, `>` and `<` are
+rejected instead of interpreted. No emulator binary is bundled.
 
 ## Web client preferences (#23, #29)
 

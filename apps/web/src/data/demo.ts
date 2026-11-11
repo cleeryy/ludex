@@ -32,9 +32,35 @@ interface Seed {
   players?: number;
   /** Provider aliases used by fuzzy search. */
   altTitles?: string[];
+  /** Entry kind (`game` by default, `rom` for an emulator ROM). */
+  kind?: "game" | "rom";
+  /** Platform slug for a ROM entry. */
+  platform?: string;
 }
 
 const seeds: Seed[] = [
+  {
+    slug: "chrono-trigger",
+    title: "Chrono Trigger",
+    year: "1995",
+    rating: 96,
+    genres: ["Role-Playing", "Adventure"],
+    state: "completed",
+    minutes: 1420,
+    lastPlayed: "2026-10-28T20:10:00Z",
+    bookmarked: true,
+    age: 7,
+    sizeGb: 0.004,
+    version: "1.0",
+    description:
+      "A time-travel RPG that keeps every era in the same cartridge. The ROM entry shows how the library groups emulator platforms next to installed games.",
+    developers: ["Square"],
+    publishers: ["Square Soft"],
+    tags: ["SNES", "ROM", "Time travel"],
+    executable: "",
+    kind: "rom",
+    platform: "snes",
+  },
   {
     slug: "blue-prince",
     title: "Blue Prince",
@@ -471,6 +497,9 @@ export const DEMO_GAMES: GameDetail[] = seeds.map((seed, i) => {
     provider: { slug: "demo", id: `demo-${seed.slug}`, url: null },
     altTitles: seed.altTitles ?? [],
     maxPlayers: seed.players ?? 1,
+    kind: seed.kind ?? "game",
+    platform: seed.platform ?? null,
+    emulatorId: null,
     versions,
     launch: {
       executable: seed.executable,

@@ -53,6 +53,12 @@ export interface GameSummary {
   matchedTitle?: string | null;
   /** Relevance score when the row came from a search. */
   matchScore?: number | null;
+  /** Entry kind: `game` for an archive, `rom` for an emulator ROM (#52). */
+  kind?: "game" | "rom";
+  /** Platform slug for ROM entries (`snes`, `gba`, …). */
+  platform?: string | null;
+  /** Per-game emulator override; null uses the platform default. */
+  emulatorId?: number | null;
 }
 
 export interface GameVersion {
@@ -432,6 +438,10 @@ export interface GameListQuery {
   minRating?: number;
   /** Metadata provider slug (`igdb`, `steam`, `demo`). */
   provider?: string;
+  /** Platform slug for ROM entries (`snes`, `gba`, …). */
+  platform?: string;
+  /** Entry kind (`game` or `rom`). */
+  kind?: "game" | "rom";
   sort?: "title" | "releaseDate" | "rating" | "addedAt" | "lastPlayed" | "playtime";
   order?: "asc" | "desc";
   page?: number;
@@ -1611,4 +1621,116 @@ export interface AdapterReport {
   installPath: string;
   adapters: ConfigAdapter[];
   notes: string[];
+}
+
+/* ---------------------------------- Controller profiles (#51) ---------------------------------- */
+
+export type ControllerAction =
+  | "left"
+  | "right"
+  | "up"
+  | "down"
+  | "confirm"
+  | "back"
+  | "menu"
+  | "downloads"
+  | "prevTab"
+  | "nextTab";
+
+/** Per-input to logical-action mapping. Keys are `buttonN`, `axisN-`, `axisN+`. */
+export interface ControllerProfile {
+  name: string;
+  deadzone: number;
+  sensitivity: number;
+  curve: number;
+  invertX: boolean;
+  invertY: boolean;
+  triggerThreshold: number;
+  vibration: boolean;
+  mappings: Record<string, ControllerAction | string>;
+}
+
+export interface ControllerProfileEntry {
+  gameId: number | null;
+  gameTitle: string | null;
+  profile: ControllerProfile;
+  updatedAt: string;
+}
+
+export interface ControllerPreset {
+  id: string;
+  label: string;
+  profile: ControllerProfile;
+}
+
+export interface ControllerProfilesResponse {
+  global: ControllerProfileEntry | null;
+  games: ControllerProfileEntry[];
+  presets: ControllerPreset[];
+}
+
+/* ---------------------------------- Emulators and ROMs (#52) ---------------------------------- */
+
+export interface PlatformInfo {
+  id: string;
+  label: string;
+  extensions: string[];
+  retroarchCore: string | null;
+  gameCount: number;
+}
+
+export interface Emulator {
+  id: number;
+  name: string;
+  command: string;
+  platforms: string[];
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EmulatorDefault {
+  platform: string;
+  emulatorId: number | null;
+}
+
+export interface EmulatorLaunch {
+  gameId: number;
+  platform: string;
+  emulatorId: number;
+  emulatorName: string;
+  program: string;
+  args: string[];
+  romPath: string;
+}
+
+/** Desktop-local emulator registry (#52). */
+export interface RomEmulator {
+  id: string;
+  name: string;
+  command: string;
+  platforms: string[];
+  enabled: boolean;
+  builtin: boolean;
+}
+
+export interface RomSettings {
+  registry: {
+    emulators: RomEmulator[];
+    defaults: Record<string, string>;
+  };
+  platforms: { id: string; label: string }[];
+}
+
+export interface RomLaunchResult {
+  sessionId: string;
+  emulatorName: string;
+  emulatorId: string;
+}
+
+export interface RomCommandValidation {
+  valid: boolean;
+  error: string | null;
+  program: string | null;
+  args: string[];
 }

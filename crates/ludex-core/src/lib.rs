@@ -25,8 +25,10 @@
 pub mod archive;
 pub mod exe;
 pub mod fingerprint;
+pub mod gamepad;
 pub mod models;
 pub mod naming;
+pub mod rom;
 pub mod slug;
 
 pub use archive::{

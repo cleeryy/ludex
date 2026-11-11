@@ -30,6 +30,8 @@ import type { GameDetail, ProgressState } from "@/lib/types";
 import { useBookmark, useGamePlaytime, useInstalledMap, useLaunchGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
 import { useDownloads } from "@/state/downloads";
 import { AchievementsPanel } from "@/components/game/achievements";
+import { RomPanel } from "@/components/game/rom-panel";
+import { ControllerPanel } from "@/components/settings/controller-panel";
 import { CloudSaves } from "@/components/game/cloud-saves";
 import { ArtworkDialog } from "@/components/game/artwork-dialog";
 import { InstallDialog } from "@/components/game/install-dialog";
@@ -391,6 +393,7 @@ export function GameDetailScreen() {
               <span>{game.genres.join(" / ")}</span>
               <ProtonDbBadge gameId={game.id} />
               {game.earlyAccess && <Badge tone="signal">{t("Early access")}</Badge>}
+              {game.kind === "rom" && <Badge tone="outline">{t("ROM")}</Badge>}
             </div>
 
             <h1 className="mt-3 max-w-[18ch] text-[clamp(2.4rem,4.6vw,4.25rem)] font-semibold leading-[0.94] tracking-[-0.035em]">
@@ -585,6 +588,12 @@ export function GameDetailScreen() {
 
             <CloudSaves gameId={game.id} title={game.title} />
 
+            <RomPanel game={game} />
+
+            <div className="mt-10">
+              <ControllerPanel gameId={game.id} gameTitle={game.title} />
+            </div>
+
             {isEditor && (
               <section className="mt-12 scroll-mt-6" id="launch-options" aria-labelledby="launch-heading">
                 <SectionHeader
@@ -628,6 +637,7 @@ export function GameDetailScreen() {
                   [t("Publisher"), game.publishers.join(", ") || "—"],
                   [t("Released"), formatDate(game.releaseDate)],
                   [t("Genres"), game.genres.join(", ")],
+                  [t("Platform"), game.platform ?? "—"],
                   [t("Age rating"), game.ageRating ? `${game.ageRating}+` : t("Not rated")],
                 ].map(([label, value]) => (
                   <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">

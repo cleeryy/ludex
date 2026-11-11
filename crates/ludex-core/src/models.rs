@@ -219,6 +219,19 @@ pub struct GameSummary {
     /// Relevance score (0-1000) when the row came from a search.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub match_score: Option<f64>,
+    /// Entry kind: `game` for an archive, `rom` for an emulator ROM (#52).
+    #[serde(default = "default_game_kind")]
+    pub kind: String,
+    /// Platform slug for ROM entries (`snes`, `gba`, …).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
+    /// Per-game emulator override; `null` uses the platform default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emulator_id: Option<i64>,
+}
+
+fn default_game_kind() -> String {
+    "game".to_string()
 }
 
 /// One downloadable file (archive or executable) of a game.
@@ -442,6 +455,9 @@ mod tests {
             matched_field: None,
             matched_title: None,
             match_score: None,
+            kind: "game".into(),
+            platform: None,
+            emulator_id: None,
         }
     }
 

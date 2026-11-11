@@ -85,6 +85,7 @@ export function GameCard({
           </h3>
           <div className="mt-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 font-mono text-[10.5px] leading-none text-ink-3">
             <span>{formatYear(game.releaseDate)}</span>
+            {game.kind === "rom" && game.platform && <span className="text-signal-text">{game.platform.toUpperCase()}</span>}
             <span>{formatBytes(game.totalSize)}</span>
             {played && <span className="text-ink-2">{played}</span>}
             {formatRating(game.rating) && (

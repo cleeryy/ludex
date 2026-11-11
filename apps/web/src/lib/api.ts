@@ -3,6 +3,7 @@ import { USING_MOCKS } from "@/lib/flags";
 import { activeStorageScope, legacyTokenKey } from "@/lib/server-storage";
 import { mockApi } from "@/lib/mock";
 import { t } from "@/lib/i18n";
+import { CONTROLLER_PRESETS, presetProfile } from "@/lib/controller-profiles";
 import type {
   AchievementScanReport,
   ActivityPage,
@@ -12,6 +13,12 @@ import type {
   CollectionGamesResponse,
   CollectionInput,
   CompleteUploadResponse,
+  ControllerProfile,
+  ControllerProfileEntry,
+  ControllerProfilesResponse,
+  Emulator,
+  EmulatorDefault,
+  EmulatorLaunch,
   GameAchievements,
   GameDetail,
   GameList,
@@ -29,6 +36,7 @@ import type {
   OidcSettingsInput,
   OidcTestResult,
   ProfilePatch,
+  PlatformInfo,
   ProgressState,
   ProviderTestResult,
   PublicProfile,
@@ -179,6 +187,8 @@ const query = (q: GameListQuery): Record<string, string | number | boolean | und
   playtimeMax: q.playtimeMax,
   minRating: q.minRating,
   provider: q.provider,
+  platform: q.platform,
+  kind: q.kind,
   sort: q.sort,
   order: q.order,
   page: q.page,
@@ -365,6 +375,79 @@ export const api = {
   },
   folders(): Promise<{ gamesDir: string; mediaDir: string; dataDir: string }> {
     return USING_MOCKS ? mockApi.folders(tokenStore.get()) : request<{ gamesDir: string; mediaDir: string; dataDir: string }>("/library/folders");
+  },
+
+  /* controller profiles (#51) */
+  controllerProfiles(): Promise<ControllerProfilesResponse> {
+    return USING_MOCKS
+      ? Promise.resolve({
+          global: null,
+          games: [],
+          presets: CONTROLLER_PRESETS.map((id) => ({ id, label: presetProfile(id).name, profile: presetProfile(id) })),
+        })
+      : request<ControllerProfilesResponse>("/controller-profiles");
+  },
+  saveControllerProfile(gameId: number | null, profile: ControllerProfile): Promise<ControllerProfileEntry> {
+    return USING_MOCKS
+      ? Promise.resolve({ gameId, gameTitle: null, profile, updatedAt: new Date().toISOString() })
+      : request<ControllerProfileEntry>("/controller-profiles", { method: "PUT", body: { gameId, profile } });
+  },
+  deleteControllerProfile(gameId: number): Promise<void> {
+    return USING_MOCKS
+      ? Promise.resolve()
+      : request<void>(`/controller-profiles/${gameId}`, { method: "DELETE" });
+  },
+
+  /* emulators and ROMs (#52) */
+  listPlatforms(): Promise<PlatformInfo[]> {
+    return USING_MOCKS
+      ? Promise.resolve([
+          {
+            id: "snes",
+            label: "Super Nintendo",
+            extensions: ["sfc", "smc"],
+            retroarchCore: "snes9x",
+            gameCount: 1,
+          },
+        ])
+      : request<PlatformInfo[]>("/platforms");
+  },
+  listEmulators(): Promise<Emulator[]> {
+    return USING_MOCKS ? Promise.resolve([]) : request<Emulator[]>("/emulators");
+  },
+  createEmulator(body: { name: string; command: string; platforms: string[]; enabled?: boolean }): Promise<Emulator> {
+    return USING_MOCKS
+      ? Promise.resolve({ id: 1, name: body.name, command: body.command, platforms: body.platforms, enabled: true, createdAt: "", updatedAt: "" })
+      : request<Emulator>("/emulators", { method: "POST", body });
+  },
+  updateEmulator(id: number, patch: { name?: string; command?: string; platforms?: string[]; enabled?: boolean }): Promise<Emulator> {
+    return USING_MOCKS
+      ? Promise.resolve({ id, name: "", command: "", platforms: [], enabled: true, createdAt: "", updatedAt: "" })
+      : request<Emulator>(`/emulators/${id}`, { method: "PATCH", body: patch });
+  },
+  deleteEmulator(id: number): Promise<void> {
+    return USING_MOCKS ? Promise.resolve() : request<void>(`/emulators/${id}`, { method: "DELETE" });
+  },
+  validateEmulatorCommand(command: string): Promise<{ valid: boolean; error: string | null; program: string | null; args: string[] }> {
+    return USING_MOCKS
+      ? Promise.resolve({ valid: command.includes("%ROM%"), error: command.includes("%ROM%") ? null : "Missing %ROM%", program: null, args: [] })
+      : request("/emulators/validate", { method: "POST", body: { command } });
+  },
+  emulatorDefaults(): Promise<EmulatorDefault[]> {
+    return USING_MOCKS ? Promise.resolve([]) : request<EmulatorDefault[]>("/emulators/defaults");
+  },
+  setEmulatorDefaults(defaults: EmulatorDefault[]): Promise<EmulatorDefault[]> {
+    return USING_MOCKS ? Promise.resolve(defaults) : request<EmulatorDefault[]>("/emulators/defaults", { method: "PUT", body: { defaults } });
+  },
+  setGameEmulator(id: number, emulatorId: number | null): Promise<void> {
+    return USING_MOCKS
+      ? Promise.resolve()
+      : request<void>(`/games/${id}/emulator`, { method: "PUT", body: { emulatorId } });
+  },
+  launchCommand(id: number): Promise<EmulatorLaunch> {
+    return USING_MOCKS
+      ? Promise.reject(new Error("not available in demo mode"))
+      : request<EmulatorLaunch>(`/games/${id}/launch-command`, { method: "POST" });
   },
 
   /* ingest */

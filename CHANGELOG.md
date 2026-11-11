@@ -6,6 +6,23 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Controller profiles (#51): per-account and per-game deadzone, sensitivity,
+  response curve, axis inversion, button/axis remapping, analog trigger
+  threshold and vibration, with Xbox, DualSense, Steam Deck and generic
+  presets. The same document is validated in `ludex_core::gamepad`, stored in
+  SQLite (migration `0019_core_gaming.sql`), applied by the web Gamepad layer
+  in the library and Big Picture, and editable with live button detection,
+  JSON import/export and reset.
+- Emulator and ROM libraries (#52): `kind=rom` library roots, ROM extension and
+  platform detection, region/revision grouping, `.cue`/`.bin` and
+  descriptor/track deduplication, `gamelist.xml` metadata and local artwork,
+  an emulator registry with `%ROM%` command templates validated without a
+  shell, per-platform defaults, per-game emulator overrides, platform
+  shelves/filters, a ROM badge and desktop launch with recorded playtime.
+  Migration `0019_core_gaming.sql`; docs in `docs/EMULATORS.md`.
+
 ## [0.2.8] - 2026-11-11
 
 ### Added

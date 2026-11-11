@@ -82,7 +82,13 @@ removes well-known suffixes. Metadata comes from providers, then manual edits.
 - A scan is cheap (stat + extension); a manual `POST /api/library/scan` triggers
   metadata enrichment for new games.
 
-## Metadata
+## ROM libraries
+
+A library root can be a game archive root or a ROM root (`library_roots.kind`).
+ROM roots use `ludex_core::rom` for extension/platform detection, grouping,
+`gamelist.xml` parsing and command construction. The server stores the platform
+and optional emulator per game; the desktop app owns the local emulator registry
+and performs the launch. See `docs/EMULATORS.md`.
 
 Provider chain, first match wins:
 

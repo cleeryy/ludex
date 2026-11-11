@@ -10,6 +10,7 @@ import { formatBytes, formatMinutes, formatRating, formatRelative, formatYear, s
 import { isNative } from "@/lib/native";
 import { useAllGames, useInstalledMap, useLaunchGame } from "@/lib/hooks";
 import { useGamepad, type GamepadAction } from "@/lib/gamepad";
+import { useControllerProfile } from "@/lib/use-controller-profile";
 import { useDownloads } from "@/state/downloads";
 import { useToast } from "@/state/toasts";
 import { Wordmark } from "@/components/brand";
@@ -219,7 +220,8 @@ export function BigPictureScreen() {
     else if (action === "back") exit();
     else if (action === "downloads") navigate("/downloads");
   };
-  const gamepad = useGamepad(onGamepad, { enabled: !installOpen });
+  const controllerProfile = useControllerProfile(selected?.id ?? null);
+  const gamepad = useGamepad(onGamepad, { enabled: !installOpen, profile: controllerProfile });
 
   const time = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(clock);
 
