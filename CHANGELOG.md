@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-11
+
 ### Added
 
 - PostgreSQL backend option (#46): `LUDEX_DATABASE_URL=postgres://…` (or
