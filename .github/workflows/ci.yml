@@ -138,17 +138,16 @@ jobs:
 
       - name: Install Tauri system dependencies
         run: |
-          sudo apt-get update
+          for attempt in 1 2 3; do
+            sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+              libwebkit2gtk-4.1-dev librsvg2-dev patchelf libgtk-3-dev \
+              libxdo-dev libssl-dev libayatana-appindicator3-dev && break
+            echo "apt attempt $attempt failed; retrying in 15s" >&2
+            sleep 15
+          done
           sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev \
-            librsvg2-dev \
-            patchelf \
-            libgtk-3-dev \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev
-          # libayatana-appindicator3-dev is the maintained successor of
-          # libappindicator3-dev on Ubuntu 24.04.
+            libwebkit2gtk-4.1-dev librsvg2-dev patchelf libgtk-3-dev \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -233,7 +232,13 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install Playwright Chromium
-        run: pnpm --filter @ludex/e2e exec playwright install --with-deps chromium
+        run: |
+          for attempt in 1 2 3; do
+            pnpm --filter @ludex/e2e exec playwright install --with-deps chromium && break
+            echo "playwright install attempt $attempt failed; retrying in 20s" >&2
+            sleep 20
+          done
+          pnpm --filter @ludex/e2e exec playwright install --with-deps chromium
 
       - name: Run browser E2E
         run: scripts/e2e.sh
