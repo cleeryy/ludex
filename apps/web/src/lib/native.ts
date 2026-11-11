@@ -50,6 +50,7 @@ import type {
   ServerTest,
   SteamImportReport,
   SteamPreview,
+  StorageSuggestions,
   StreamLaunch,
   StreamTarget,
   SunshinePreview,
@@ -600,6 +601,19 @@ export const native = {
     return invoke<LocationStatus>("check_location", args);
   },
 
+  /**
+   * Detected install roots (#145). Null outside the desktop app or when the
+   * probe fails: the quick-add section is simply hidden.
+   */
+  async suggestStorageLocations(): Promise<StorageSuggestions | null> {
+    if (!isNative()) return null;
+    try {
+      return await invoke<StorageSuggestions>("suggest_storage_locations");
+    } catch {
+      return null;
+    }
+  },
+
   /* --------------------- window chrome (#111) --------------------------- */
 
   /* ------------------- game settings editor (#105) ---------------------- */
@@ -726,6 +740,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   token: null,
   gamesDir: null,
   installDir: "",
+  installRootConfirmed: false,
   downloadDir: "",
   locations: [],
   serverPort: 0,

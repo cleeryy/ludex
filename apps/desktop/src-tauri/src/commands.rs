@@ -36,6 +36,7 @@ use crate::server::{self, ServerInfo, ServerStatus};
 use crate::settings::{self, LocalSettings};
 use crate::state::AppState;
 use crate::steam::{self, SteamGame, SteamScan};
+use crate::storage_suggest;
 use crate::streaming;
 use crate::updater::{self, UpdateStatus};
 use crate::updates::{self, GameUpdate};
@@ -2800,6 +2801,22 @@ pub fn check_location(
         }
     }
     Ok(status)
+}
+
+/// Drive-based install roots proposed for this machine (#145).
+///
+/// Read-only: it lists detected fixed drives (or `~/Games` and the usual
+/// mounts elsewhere), probes free space and writability, and marks one as the
+/// recommended default. No folder is created and no setting is changed; the
+/// user confirms in Settings → Storage or in the install dialog.
+#[tauri::command]
+pub fn suggest_storage_locations(
+    state: State<'_, AppState>,
+) -> Result<storage_suggest::StorageSuggestions, String> {
+    Ok(storage_suggest::suggest(
+        &state.settings_snapshot(),
+        &state.app_data,
+    ))
 }
 
 /* ---------------------- per-game config editor (#105) -------------------- */

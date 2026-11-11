@@ -114,6 +114,7 @@ export function SettingsScreen() {
       await installBridge.saveSettings(draft);
       await queryClient.invalidateQueries({ queryKey: ["desktop-settings"] });
       await queryClient.invalidateQueries({ queryKey: ["desktop-locations"] });
+      await queryClient.invalidateQueries({ queryKey: ["desktop-storage-suggestions"] });
       await queryClient.invalidateQueries({ queryKey: ["title-bar-info"] });
       await queryClient.invalidateQueries({ queryKey: ["compat-scan"] });
       await queryClient.invalidateQueries({ queryKey: ["cloud-save-status"] });
@@ -406,7 +407,9 @@ export function SettingsScreen() {
                 <div className="mb-8">
                   <LocationsPanel
                     locations={draft.locations ?? []}
-                    onChange={(locations) => update({ locations })}
+                    // Any edit of the folder list is an explicit install-root
+                    // choice (#145): later installs keep their saved default.
+                    onChange={(locations) => update({ locations, installRootConfirmed: true })}
                   />
                 </div>
 

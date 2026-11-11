@@ -47,6 +47,11 @@ export interface StartInstallInput {
   executable?: string | null;
   /** Named install location (#99); omitted uses the default. */
   locationId?: string | null;
+  /**
+   * Direct install root override (#145), used when the install dialog
+   * preselects a detected drive that is not saved as a location yet.
+   */
+  installDir?: string | null;
   /** Named download location (#99); omitted uses the default or the install volume. */
   downloadLocationId?: string | null;
   /** Archive/extracted size estimate for the free-space guard (#99). */
@@ -377,7 +382,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
         ...input,
         serverUrl: getApiBase(),
         token: tokenStore.get() ?? "",
-        installDir: settings?.installDir || undefined,
+        installDir: input.installDir || settings?.installDir || undefined,
         downloadDir: settings?.downloadDir || undefined,
         locationId: input.locationId ?? undefined,
         downloadLocationId: input.downloadLocationId ?? undefined,

@@ -31,6 +31,7 @@ mod server;
 mod settings;
 mod state;
 mod steam;
+mod storage_suggest;
 mod stream_install;
 mod streaming;
 #[cfg(test)]
@@ -191,6 +192,7 @@ pub fn run() {
             commands::resolve_cloud_save_conflict,
             commands::list_locations,
             commands::check_location,
+            commands::suggest_storage_locations,
             commands::list_game_configs,
             commands::read_game_config,
             commands::write_game_config,

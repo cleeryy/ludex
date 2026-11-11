@@ -116,6 +116,13 @@ pub struct LocalSettings {
     /// Where games are installed. Kept in sync with the default install
     /// location (#99); old UI payloads may set it directly.
     pub install_dir: String,
+    /// True once the user confirmed an install root (quick-add in Settings →
+    /// Storage, or an explicit folder edit). New installs then keep the saved
+    /// default instead of preselecting the detected-drive recommendation
+    /// (#145). Old settings files default to `false` and are never migrated
+    /// silently.
+    #[serde(default)]
+    pub install_root_confirmed: bool,
     /// Where temporary archives are downloaded. Kept in sync with the default
     /// download location; empty means `{installDir}/.ludex-tmp`.
     pub download_dir: String,
@@ -234,6 +241,7 @@ impl Default for LocalSettings {
             token: None,
             games_dir: None,
             install_dir: String::new(),
+            install_root_confirmed: false,
             download_dir: String::new(),
             locations: Vec::new(),
             server_port: 0,
@@ -876,6 +884,30 @@ mod tests {
         assert_eq!(json["moonlightBinary"], "");
         assert_eq!(json["moonlightConfigPath"], "");
         assert_eq!(json["moonlightHost"], "");
+        // #145: old settings files and fresh installs are both unconfirmed.
+        assert_eq!(json["installRootConfirmed"], false);
+    }
+
+    #[test]
+    fn install_root_confirmation_roundtrips_without_touching_paths() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        assert!(!settings.install_root_confirmed);
+
+        settings.install_root_confirmed = true;
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["installRootConfirmed"], true);
+        let back: LocalSettings = serde_json::from_value(json).unwrap();
+        assert!(back.install_root_confirmed);
+        // Still the same default folder: confirming never moves an install.
+        assert_eq!(back.install_dir, settings.install_dir);
+
+        // A settings file written before #145 has no key at all.
+        let legacy: LocalSettings = serde_json::from_value(serde_json::json!({
+            "installDir": "D:\\Games",
+        }))
+        .unwrap();
+        assert!(!legacy.install_root_confirmed);
+        assert_eq!(legacy.install_dir, "D:\\Games");
     }
 
     #[test]

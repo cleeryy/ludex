@@ -10,6 +10,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Drive-based install root suggestions (#145): `suggest_storage_locations`
+  detects writable fixed drives (Windows) or common mounts/home (Linux/macOS),
+  proposes `<drive>:\Games` / `~/Games` with free space, writability and a
+  recommended default (current choice, else largest free, else app-data), and
+  never creates a directory. Settings → Storage gains a quick-add panel with
+  checkboxes, roles and nearly-full warnings; the install dialog preselects the
+  recommendation for users who never confirmed a root, while existing paths are
+  untouched.
 - Generic text config editor (#147): every INI/CFG/CONF/TOML/JSON/INFO file
   under the install folder is listed and editable — the crack/Steam-emulator
   name blacklist is gone (only hidden dirs, Wine `drive_c`, symlinks and files

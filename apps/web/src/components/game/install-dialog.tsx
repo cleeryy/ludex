@@ -15,6 +15,9 @@ import { t, tn } from "@/lib/i18n";
 /** Keep in sync with `locations::FREE_SPACE_RESERVE_BYTES` (#99). */
 const FREE_SPACE_RESERVE = 256 * 1024 * 1024;
 
+/** Sentinel id for the detected drive row (#145); never persisted. */
+const SUGGESTED_LOCATION_ID = "suggested-root";
+
 /**
  * The install dialog starts a background job and then gets out of the way: the
  * job lives in DownloadsProvider, so closing this window does not stop it.
@@ -51,6 +54,16 @@ export function InstallDialog({
     staleTime: 20_000,
   });
 
+  // #145: a user who never confirmed an install root gets the detected drive
+  // in the picker. It is only added to settings when they choose it in
+  // Settings → Storage; starting an install here just uses the path.
+  const { data: detected } = useQuery({
+    queryKey: ["desktop-storage-suggestions"],
+    queryFn: () => native.suggestStorageLocations(),
+    enabled: open && isNative(),
+    staleTime: 60_000,
+  });
+
   const installLocations = useMemo(
     () => (locations ?? []).filter((location) => location.kind === "install"),
     [locations],
@@ -60,8 +73,32 @@ export function InstallDialog({
     [locations],
   );
 
+  const suggestedRoot = useMemo(() => {
+    if (!detected?.needsChoice || !detected.recommendedPath) return null;
+    if (installLocations.some((location) => location.path === detected.recommendedPath)) return null;
+    const match = detected.suggestions.find((item) => item.path === detected.recommendedPath);
+    if (!match) return null;
+    return {
+      id: SUGGESTED_LOCATION_ID,
+      label: t("{label} (recommended)", { label: match.label }),
+      path: match.path,
+      kind: "install" as const,
+      default: false,
+      exists: match.exists,
+      writable: match.writable,
+      freeBytes: match.freeBytes,
+      totalBytes: match.totalBytes,
+      note: match.note,
+    } satisfies LocationStatus;
+  }, [detected, installLocations]);
+
+  const installOptions = useMemo(
+    () => (suggestedRoot ? [suggestedRoot, ...installLocations] : installLocations),
+    [suggestedRoot, installLocations],
+  );
+
   const defaultInstallId =
-    installLocations.find((location) => location.default)?.id ?? installLocations[0]?.id ?? "";
+    suggestedRoot?.id ?? installLocations.find((location) => location.default)?.id ?? installLocations[0]?.id ?? "";
 
   useEffect(() => {
     if (!open) {
@@ -75,7 +112,7 @@ export function InstallDialog({
     setDownloadLocationId("");
   }, [open, defaultInstallId]);
 
-  const installStatus = installLocations.find((location) => location.id === installLocationId) ?? null;
+  const installStatus = installOptions.find((location) => location.id === installLocationId) ?? null;
   const downloadStatus = downloadLocations.find((location) => location.id === downloadLocationId) ?? null;
   const sameVolume = !downloadStatus || !installStatus || downloadStatus.path === installStatus.path;
   const requiredBytes = version.size * (sameVolume ? 2 : 1) + FREE_SPACE_RESERVE;
@@ -100,7 +137,10 @@ export function InstallDialog({
         title: game.title,
         version: version.version,
         executable: game.launch.executable,
-        locationId: installLocationId || undefined,
+        // #145: the recommended drive is not a saved location yet; pass the
+        // path directly instead of an id.
+        installDir: installLocationId === SUGGESTED_LOCATION_ID ? suggestedRoot?.path : undefined,
+        locationId: installLocationId && installLocationId !== SUGGESTED_LOCATION_ID ? installLocationId : undefined,
         downloadLocationId: downloadLocationId || undefined,
         expectedBytes: version.size,
       });
@@ -236,7 +276,7 @@ export function InstallDialog({
                 label={t("Install location")}
                 value={installLocationId}
                 onChange={setInstallLocationId}
-                options={installLocations.map((location) => ({
+                options={installOptions.map((location) => ({
                   value: location.id,
                   label: location.default ? t("{label} (default)", { label: location.label }) : location.label,
                   hint: location.freeBytes != null ? t("{free} free", { free: formatBytes(location.freeBytes) }) : location.note ?? undefined,

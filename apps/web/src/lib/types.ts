@@ -648,12 +648,50 @@ export interface LocationStatus extends InstallLocation {
   freeSpaceOk?: boolean | null;
 }
 
+/** Volume kind reported by `suggest_storage_locations` (#145). */
+export type StorageVolumeKind = "fixed" | "removable" | "network" | "other";
+
+/** One detected install-root candidate (#145). Never created by the probe. */
+export interface StorageSuggestion {
+  path: string;
+  /** Short volume name: `C:`, `Home`, `games`. */
+  label: string;
+  volume: string;
+  kind: StorageVolumeKind;
+  exists: boolean;
+  writable: boolean;
+  freeBytes: number | null;
+  totalBytes: number | null;
+  recommended: boolean;
+  current: boolean;
+  fallback: boolean;
+  nearlyFull: boolean;
+  note: string | null;
+}
+
+/** Response of `suggest_storage_locations` (#145). */
+export interface StorageSuggestions {
+  suggestions: StorageSuggestion[];
+  recommendedPath: string | null;
+  currentPath: string;
+  currentIsFallback: boolean;
+  needsChoice: boolean;
+  platform: "windows" | "macos" | "linux";
+}
+
 export interface LocalSettings {
   mode: "local" | "remote";
   serverUrl: string;
   token: string | null;
   gamesDir: string | null;
+  /** Where games are installed. Mirrors the default install location (#99). */
   installDir: string;
+  /**
+   * True once the user confirmed an install root (#145). While false, a new
+   * install preselects the detected-drive recommendation instead of the
+   * app-data default.
+   */
+  installRootConfirmed: boolean;
   downloadDir: string;
   /** Named locations (#99); installDir/downloadDir mirror the defaults. */
   locations: InstallLocation[];

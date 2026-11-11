@@ -83,7 +83,7 @@ pub fn validate(label: &str, path: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn probe_writable(directory: &Path) -> bool {
+pub(crate) fn probe_writable(directory: &Path) -> bool {
     let Ok(existing) = crate::paths::nearest_existing(directory).ok_or(()) else {
         return false;
     };

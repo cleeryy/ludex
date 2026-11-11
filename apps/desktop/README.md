@@ -79,6 +79,7 @@ mode 0600 on Unix because it holds the JWT). Defaults:
 |---|---|
 | `mode` | `local` |
 | `installDir` | `{appDataDir}/Games` (mirrors the default install location) |
+| `installRootConfirmed` | `false` until the user confirms a detected root in Settings → Storage (#145); never migrated automatically |
 | `downloadDir` | empty → `{installDir}/.ludex-tmp` (same volume; mirrors the default download location) |
 | `locations` | `[]` → migrated to one install location (plus a download location when `downloadDir` was set) (#99) |
 | `serverPort` | `0` (random) |
@@ -536,6 +537,31 @@ archive is read from its own volume and unpacked directly into the install
 volume; the archive is removed afterwards unless `keepArchives`. An old
 `settings.json` with only `installDir`/`downloadDir` is migrated to locations
 on load, and an old UI patch still updates the default location.
+
+### Suggested install roots (#145)
+
+`suggest_storage_locations` lists install-root candidates without touching the
+disk: every fixed drive as `<drive>:\Games` on Windows (via `GetLogicalDrives`
+and `GetDriveTypeW`; network and removable drives are excluded), and
+`~/Games`, `/mnt/...`, `/media/...` or `/Volumes/...` plus `{appDataDir}/Games`
+on Linux and macOS. Free/total bytes and writability are probed through the
+nearest existing parent, so a folder that does not exist yet is still reported
+accurately — and is never created by the probe.
+
+The panel above the locations list shows the candidates with checkboxes, free
+space, a nearly-full warning (under 10 GiB or 10% free), the recommended and
+current badges, and install/download/scratch role checkboxes. "Add selected"
+only appends entries to the locations list (skipping duplicates); when the
+user had no confirmed root the added install folder also becomes the default.
+`installRootConfirmed` flips to `true` in the same save (any edit of the
+location list does), so later installs keep that choice. Existing `installDir`
+and locations are never rewritten, and no game is moved.
+
+While `installRootConfirmed` is `false`, the install dialog preselects the
+recommended drive; that row is virtual (id `suggested-root`) and its path is
+sent as `installDir`, not as a saved location id. The usual preflight still
+checks writability and free space before the job starts. When no candidate is
+suitable the app-data fallback is recommended.
 
 ## Game settings editor (#105) and adapters (#106)
 

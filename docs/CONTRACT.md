@@ -939,6 +939,7 @@ interface LocalSettings {
   token: string | null;         // JWT
   gamesDir: string | null;      // local library folder
   installDir: string;           // mirrors the default install location (#99)
+  installRootConfirmed: boolean; // user confirmed a drive-based install root (#145)
   downloadDir: string;          // mirrors the default download location; empty = {installDir}/.ludex-tmp
   locations: InstallLocation[]; // named install/download/temp folders (#99)
   serverPort: number;           // preferred embedded port, 0 = random
@@ -990,6 +991,34 @@ interface LocationStatus extends InstallLocation {
   note: string | null;          // missing drive, read-only, will be created…
   requiredBytes: number | null; // set by check_location
   freeSpaceOk: boolean | null;  // null when free space is unknown
+}
+
+/** #145: one detected install-root candidate; nothing is created. */
+interface StorageSuggestion {
+  path: string;                 // e.g. "C:\\Games", "~/Games"
+  label: string;                // "C:", "Home", volume name
+  volume: string;               // volume/mount root
+  kind: "fixed" | "removable" | "network" | "other";
+  exists: boolean;
+  writable: boolean;
+  freeBytes: number | null;
+  totalBytes: number | null;
+  recommended: boolean;
+  current: boolean;             // equals the current default install root
+  fallback: boolean;            // {appDataDir}/Games
+  nearlyFull: boolean;          // < 10 GiB free or < 10% of the volume
+  note: string | null;
+}
+
+/** #145. `needsChoice` is `!installRootConfirmed`; `install_game` accepts the
+ *  path directly (`installDir`) while the root is not saved as a location. */
+interface StorageSuggestions {
+  suggestions: StorageSuggestion[];
+  recommendedPath: string | null;
+  currentPath: string;
+  currentIsFallback: boolean;
+  needsChoice: boolean;
+  platform: "windows" | "macos" | "linux";
 }
 
 interface InstalledGame {
@@ -1480,7 +1509,7 @@ interface StreamTarget {
 | `local_server_start` | — | `{ url, token }` |
 | `local_server_stop` | — | `null` |
 | `local_server_status` | — | `{ running, url }` |
-| `install_game` | `{ gameId, versionId, serverUrl, token, title, version?, executable?, installDir?, downloadDir?, locationId?, downloadLocationId?, expectedBytes?, stream? }` | `InstallJob` (starts background; survives dialog close). `locationId`/`downloadLocationId` pick #99 named locations; `expectedBytes` enables the free-space guard. An unknown id or a read-only/missing location fails immediately |
+| `install_game` | `{ gameId, versionId, serverUrl, token, title, version?, executable?, installDir?, downloadDir?, locationId?, downloadLocationId?, expectedBytes?, stream? }` | `InstallJob` (starts background; survives dialog close). `locationId`/`downloadLocationId` pick #99 named locations; `installDir` is the direct-root override used while a #145 recommendation is not saved yet; `expectedBytes` enables the free-space guard. An unknown id or a read-only/missing location fails immediately |
 | `cancel_install` | `{ jobId }` | `null` |
 | `pause_install` | `{ jobId }` | `InstallJob` (`paused`; keeps the `.part`) |
 | `resume_install` | `{ jobId }` | `InstallJob` (continues with HTTP Range) |
@@ -1545,6 +1574,7 @@ interface StreamTarget {
 | `resolve_cloud_save_conflict` | `{ gameId, strategy }` | `CloudSaveRestoreOutcome`; same operation as `restore_cloud_save`, using the explicit strategy |
 | `list_locations` | — | `LocationStatus[]`; probes every named location, default first then roomiest writable. Never fails on a missing drive |
 | `check_location` | `{ id?, path?, requiredBytes? }` | `LocationStatus`; one location by id or path, with `freeSpaceOk` when `requiredBytes` is set |
+| `suggest_storage_locations` | — | `StorageSuggestions`; detected fixed drives as `<drive>:\Games` candidates on Windows (`~/Games`, `/mnt/...`, `/media/...`, `/Volumes/...` elsewhere), with free/total bytes, writability, `recommended`/`current`/`fallback` flags and `needsChoice`. Read-only: never creates a folder or changes settings (#145) |
 | `list_game_configs` | `{ gameId }` | `{ gameId, installPath, files: ConfigFileInfo[] }`; every ini/cfg/conf/godot/prefs/toml/json/info file under the install folder (depth ≤5, 200 files). No filename blacklist; read-only entries carry `editable: false` and a `note` (#147) |
 | `read_game_config` | `{ gameId, path }` | `ConfigDocument`; parsed entries with byte-preserving spans, never writes. Decodes UTF-8 (±BOM), UTF-16LE/BE (BOM) and Windows-1252 |
 | `write_game_config` | `{ gameId, path, edits: { key, value }[], origin? }` | `{ document, diff, backup }`; validates types, copies the original to `{appDataDir}/config-backups/game-<id>/`, records the diff, then replaces the file atomically in its original encoding/BOM. Refuses binary/NUL files, files over 1 MiB, values unrepresentable in the source encoding and paths outside the install folder |
@@ -1741,6 +1771,31 @@ requires the archive size there. `expectedBytes` is optional so old callers keep
 working. Extraction always stages inside the install root, so a cross-volume
 download is read from the download folder and unpacked directly into the
 install volume; the archive is deleted afterwards unless `keepArchives`.
+
+### Suggested install roots (#145)
+
+`suggest_storage_locations` proposes drive-based roots instead of only
+`{appDataDir}/Games`: every fixed drive as `<drive>:\Games` on Windows
+(`GetLogicalDrives` + `GetDriveTypeW`, so network and removable drives stay
+out by default), and `~/Games`, `/mnt/...`, `/media/...` (Linux) or
+`/Volumes/...` (macOS) plus the app-data folder elsewhere. Each suggestion
+carries free/total bytes, writability, `recommended`, `current`, `fallback`
+and `nearlyFull` (below 10 GiB free or 10% of the volume). It is read-only:
+no folder is created and `settings.json` is not touched.
+
+The recommendation is the current default install root when the user already
+has one, otherwise the writable non-fallback candidate with the most free
+space, otherwise the app-data fallback. `needsChoice` mirrors
+`installRootConfirmed`, a desktop-only settings flag that starts `false` and is
+set by any edit of the Settings → Storage folder list (including the
+detected-drive quick-add); while it is false the install dialog
+preselects the recommended drive and passes its path as the legacy
+`installDir` (the saved locations are unchanged). Settings → Storage lists the
+candidates with checkboxes and install/download/scratch roles; "Add selected"
+only appends locations and clears the stale default of that kind, so an
+existing installation is never moved. A settings file written before #145 has
+no `installRootConfirmed` key and keeps its `installDir` and locations
+untouched.
 
 ### Game settings editor (#105) and adapters (#106)
 

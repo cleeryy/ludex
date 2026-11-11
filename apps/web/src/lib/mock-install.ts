@@ -302,6 +302,7 @@ const DEFAULT_SETTINGS: LocalSettings = {
   token: null,
   gamesDir: "/home/mara/Games",
   installDir: "/home/mara/Games/Ludex",
+  installRootConfirmed: true,
   downloadDir: "/home/mara/Downloads/Ludex",
   locations: [
     { id: "games", label: "Games", path: "/home/mara/Games/Ludex", kind: "install", default: true },
