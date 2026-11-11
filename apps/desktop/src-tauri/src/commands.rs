@@ -11,12 +11,15 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::chrome;
 use crate::compat::{self, CompatScan};
+use crate::config_adapters::{self, AdapterReport};
 use crate::db::{self, GamePlaytime, InstalledGame};
+use crate::game_config::{self, ConfigDocument, ConfigEditInput};
 use crate::install::{self, InstallJob, InstallParams};
 use crate::installer::{self, AttemptReport};
 use crate::launchers::{self, DiscoveredGame, ImportEntry, Launcher, LauncherScan};
 use crate::launch::{self, LaunchResult};
 use crate::linux_gaming::{self, LaunchMode, LaunchOptions};
+use crate::locations::{self, LocationStatus};
 use crate::maintenance::{self, RepairReport};
 use crate::manifest::VerifyReport;
 use crate::paths;
@@ -58,7 +61,30 @@ pub fn save_settings(
     let current = state.settings_snapshot();
     let mut merged = serde_json::to_value(&current)
         .map_err(|e| format!("Could not read the current settings: {e}"))?;
-    merge_json(&mut merged, settings);
+
+    // An older web bundle still sends the two single folders (#99). Map them
+    // onto the default location instead of letting `normalize` discard them.
+    let mut patch = settings;
+    let has_locations = patch.get("locations").is_some();
+    let install_legacy = patch
+        .as_object_mut()
+        .and_then(|object| object.remove("installDir"))
+        .and_then(|value| value.as_str().map(str::to_string));
+    let download_legacy = patch
+        .as_object_mut()
+        .and_then(|object| object.remove("downloadDir"))
+        .and_then(|value| value.as_str().map(str::to_string));
+    if has_locations {
+        // The new list is authoritative; ignore half-updated legacy fields.
+    }
+    merge_json(&mut merged, patch);
+    if !has_locations && (install_legacy.is_some() || download_legacy.is_some()) {
+        settings::apply_legacy_folder_patch(
+            &mut merged,
+            install_legacy.as_deref(),
+            download_legacy.as_deref(),
+        );
+    }
 
     let mut next: LocalSettings =
         serde_json::from_value(merged).map_err(|e| format!("Invalid settings: {e}"))?;
@@ -146,6 +172,9 @@ pub fn install_game(
     executable: Option<String>,
     install_dir: Option<String>,
     download_dir: Option<String>,
+    location_id: Option<String>,
+    download_location_id: Option<String>,
+    expected_bytes: Option<u64>,
     stream: Option<bool>,
     token: Option<String>,
 ) -> Result<InstallJob, String> {
@@ -161,6 +190,9 @@ pub fn install_game(
             executable,
             install_dir,
             download_dir,
+            install_location_id: location_id,
+            download_location_id,
+            expected_bytes,
             stream,
             replace_path: None,
         },
@@ -2100,4 +2132,217 @@ pub async fn resolve_cloud_save_conflict(
     strategy: String,
 ) -> Result<RestoreOutcome, String> {
     saves_sync::resolve_conflict(&app, game_id, &strategy).await
+}
+
+/* ------------------------- locations (#99) ------------------------------- */
+
+/// Every named location with live probe data. Never fails: a missing drive is
+/// reported in the status, not as an error.
+#[tauri::command]
+pub fn list_locations(state: State<'_, AppState>) -> Result<Vec<LocationStatus>, String> {
+    Ok(locations::picker_order(locations::list(
+        &state.settings_snapshot(),
+    )))
+}
+
+/// Validate one location (by id or path) and optionally check a download size
+/// against its free space.
+#[tauri::command]
+pub fn check_location(
+    state: State<'_, AppState>,
+    path: Option<String>,
+    id: Option<String>,
+    required_bytes: Option<u64>,
+) -> Result<LocationStatus, String> {
+    let settings = state.settings_snapshot();
+    let mut status = match (id.as_deref(), path.as_deref()) {
+        (Some(id), _) => {
+            let location = settings.location(id).ok_or_else(|| {
+                format!("The location {id} no longer exists. Refresh Settings → Locations.")
+            })?;
+            locations::probe(location)
+        }
+        (None, Some(path)) => locations::probe_path(path)?,
+        (None, None) => return Err("Choose a location to check.".to_string()),
+    };
+    if let Some(required) = required_bytes.filter(|value| *value > 0) {
+        status.required_bytes = Some(required);
+        match status.free_bytes {
+            Some(free) => {
+                if let Err(error) = locations::guard_free_space(required, free) {
+                    status.free_space_ok = Some(false);
+                    status.note = Some(match status.note.take() {
+                        Some(note) => format!("{note} {error}"),
+                        None => error,
+                    });
+                } else {
+                    status.free_space_ok = Some(true);
+                }
+            }
+            // A missing drive has no free-space reading: report it, but do not
+            // turn "unknown" into "too small".
+            None => status.free_space_ok = None,
+        }
+    }
+    Ok(status)
+}
+
+/* ---------------------- per-game config editor (#105) -------------------- */
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameConfigListing {
+    pub game_id: i64,
+    pub install_path: String,
+    pub files: Vec<game_config::ConfigFileInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigWriteReport {
+    pub document: ConfigDocument,
+    pub diff: String,
+    pub backup: db::ConfigEditRecord,
+}
+
+/// Config files inside an install folder (ini/json/cfg/toml). Read-only: the
+/// file list includes unparseable files with `editable: false` and a reason.
+#[tauri::command]
+pub fn list_game_configs(
+    state: State<'_, AppState>,
+    game_id: i64,
+) -> Result<GameConfigListing, String> {
+    let installed = installed_or_error(&state, game_id)?;
+    let root = PathBuf::from(&installed.install_path);
+    if !root.is_dir() {
+        return Err(format!(
+            "The install folder is missing: {}. Reinstall the game to edit its settings.",
+            root.display()
+        ));
+    }
+    Ok(GameConfigListing {
+        game_id,
+        install_path: installed.install_path.clone(),
+        files: game_config::list(&root),
+    })
+}
+
+/// Parse one config file and return its editable keys. Comments are preserved
+/// on write; this command never changes anything.
+#[tauri::command]
+pub fn read_game_config(
+    state: State<'_, AppState>,
+    game_id: i64,
+    path: String,
+) -> Result<ConfigDocument, String> {
+    let installed = installed_or_error(&state, game_id)?;
+    game_config::read(Path::new(&installed.install_path), &path)
+}
+
+/// Apply key/value edits after validating types and backing up the original.
+/// `origin` is `manual` (key editor) or `adapter` (typed control).
+#[tauri::command]
+pub fn write_game_config(
+    state: State<'_, AppState>,
+    game_id: i64,
+    path: String,
+    edits: Vec<ConfigEditInput>,
+    origin: Option<String>,
+) -> Result<ConfigWriteReport, String> {
+    let installed = installed_or_error(&state, game_id)?;
+    let origin = match origin.as_deref().unwrap_or("manual") {
+        "adapter" => "adapter",
+        _ => "manual",
+    };
+    let outcome = game_config::write(
+        Path::new(&installed.install_path),
+        &state.app_data,
+        game_id,
+        &path,
+        &edits,
+        origin,
+    )?;
+    {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        if let Err(error) = db::insert_config_edit(&connection, &outcome.record) {
+            tracing::warn!(error = %error, "could not record the config edit");
+        }
+    }
+    Ok(ConfigWriteReport {
+        document: outcome.document,
+        diff: outcome.diff,
+        backup: outcome.record,
+    })
+}
+
+/// Restore a previous backup. A safety copy of the current file is taken first.
+#[tauri::command]
+pub fn restore_game_config(
+    state: State<'_, AppState>,
+    game_id: i64,
+    backup_id: String,
+) -> Result<ConfigWriteReport, String> {
+    let installed = installed_or_error(&state, game_id)?;
+    let record = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::get_config_edit(&connection, game_id, &backup_id)?
+            .ok_or_else(|| "That backup is not in this game's history.".to_string())?
+    };
+    let outcome = game_config::restore_backup(
+        Path::new(&installed.install_path),
+        &state.app_data,
+        game_id,
+        &record.file_path,
+        Path::new(&record.backup_path),
+    )?;
+    {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        if let Err(error) = db::insert_config_edit(&connection, &outcome.record) {
+            tracing::warn!(error = %error, "could not record the config restore");
+        }
+    }
+    Ok(ConfigWriteReport {
+        document: outcome.document,
+        diff: outcome.diff,
+        backup: outcome.record,
+    })
+}
+
+/// Backup history for the game's Settings tab, newest first.
+#[tauri::command]
+pub fn list_game_config_backups(
+    state: State<'_, AppState>,
+    game_id: i64,
+) -> Result<Vec<db::ConfigEditRecord>, String> {
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    db::list_config_edits(&connection, game_id, game_config::MAX_HISTORY)
+}
+
+/// Built-in engine adapters (#106): detection plus typed fields. Read-only.
+#[tauri::command]
+pub fn game_config_adapters(
+    state: State<'_, AppState>,
+    game_id: i64,
+) -> Result<AdapterReport, String> {
+    let installed = installed_or_error(&state, game_id)?;
+    let root = PathBuf::from(&installed.install_path);
+    if !root.is_dir() {
+        return Err(format!(
+            "The install folder is missing: {}. Reinstall the game to inspect its settings.",
+            root.display()
+        ));
+    }
+    Ok(config_adapters::report(game_id, &root))
 }

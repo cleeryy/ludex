@@ -78,8 +78,9 @@ mode 0600 on Unix because it holds the JWT). Defaults:
 | Key | Default |
 |---|---|
 | `mode` | `local` |
-| `installDir` | `{appDataDir}/Games` |
-| `downloadDir` | empty → `{installDir}/.ludex-tmp` (same volume) |
+| `installDir` | `{appDataDir}/Games` (mirrors the default install location) |
+| `downloadDir` | empty → `{installDir}/.ludex-tmp` (same volume; mirrors the default download location) |
+| `locations` | `[]` → migrated to one install location (plus a download location when `downloadDir` was set) (#99) |
 | `serverPort` | `0` (random) |
 | `gamesDir` | `null` until picked |
 | `serverUrl` / `token` | filled by the embedded server |
@@ -105,6 +106,14 @@ mode 0600 on Unix because it holds the JWT). Defaults:
 a time. An empty `downloadDir` is meaningful: the effective directory is
 `{installDir}/.ludex-tmp`, keeping the archive on the same volume as the
 extracted game. `install_game` can also override it per call with `downloadDir`.
+
+`locations` is the source of truth for #99. Each entry has a label, an absolute
+path, a kind (`install`, `download` or `temp`) and one default per kind. The two
+legacy folder fields mirror the defaults, so older web bundles keep working;
+`save_settings` maps a legacy `installDir`/`downloadDir` patch onto the matching
+default location instead of ignoring it. Missing folders are tolerated when
+saving (an unplugged USB drive must not block Settings): they are probed when a
+job starts, and only that job fails with an actionable message.
 
 ## Local index
 
@@ -133,11 +142,25 @@ extracted game. `install_game` can also override it per call with `downloadDir`.
   (#89, #91, #92). Deleted with the installed row.
 - `protondb_reports` — ProtonDB summaries cached by app id with their fetch
   time; stale rows are kept so an offline machine still shows the last tier.
+- `cloud_save_prefs` / `cloud_save_restore` — automatic save sync state and the
+  last restored snapshot (#108).
+- `config_edits` (#105) — one row per game-settings write: relative file path,
+  absolute backup path under `{appDataDir}/config-backups/game-<id>/`, line
+  diff, size, origin (`manual`, `adapter`, `restore`) and timestamp. Restoring
+  a row copies the current file to a new `restore` row first. Schema v11,
+  after the stream-checkpoint v10 from #115.
 
 ## Install pipeline
 
 Layout: `{installDir}/{slug}/{versionLabel}/game files` (`versionLabel` is the
 version or `default`; both components are sanitised, no separators, no `..`).
+The install root comes from the per-install location (#99), the download folder
+from the per-job download location, with the old single folders as fallbacks.
+Before queueing, `install_game` probes the chosen folders for writability and
+free space (256 MiB reserve; archive + extracted copy when they share a volume)
+and pins the resolved paths on the job. An unplugged location therefore fails
+one click immediately, and a paused job keeps its own folders even if Settings
+changes later.
 
 1. **Local library shortcut** — when the target URL is the embedded server,
    `GET /api/games/{id}/versions/{vid}/local-path` returns the archive path; it
@@ -399,6 +422,57 @@ Play action to a Ludex URL (`LaunchUrlTemplate`, default the game page). It is
 built manually with `dotnet`; see the README there. No server endpoint was added
 for it.
 
+## Locations (#99)
+
+Settings → Locations manages named folders, each with a label, absolute path,
+kind (`install`, `download`, `temp`) and one default per kind. Rows can be
+added, renamed, removed, checked (existence, writability through a probe file,
+free/total bytes, missing-drive note) and marked default; the panel edits the
+draft and `Save desktop settings` persists it. The install dialog preselects
+the default install location, offers the download/temp locations for the
+archive, shows free space and blocks a download that cannot fit.
+
+Locations are tolerant: a missing folder never blocks saving Settings, and it
+only fails the job that selects it, with an actionable error. `install_game`
+probes writability and free space (256 MiB reserve; archive + extracted copy
+when both live on the same volume) before queueing, then pins the resolved
+paths on the job. Extraction stages in the install root, so a cross-volume
+archive is read from its own volume and unpacked directly into the install
+volume; the archive is removed afterwards unless `keepArchives`. An old
+`settings.json` with only `installDir`/`downloadDir` is migrated to locations
+on load, and an old UI patch still updates the default location.
+
+## Game settings editor (#105) and adapters (#106)
+
+Installed games gain a Settings tab with three tabs:
+
+- **Game settings** — engine adapters with typed controls.
+- **Config files** — a searchable list of ini/cfg (Godot `project.godot`,
+  Unity `prefs`), TOML and JSON files found up to five folders deep, skipping
+  hidden folders and Wine `drive_c`, with a key/value editor and line numbers.
+- **Backups** — timestamped history with the line diff and a restore action.
+
+Every write is type-checked against the existing value, copies the original to
+`{appDataDir}/config-backups/game-<id>/<timestamp>-<uuid>-<name>`, records the
+diff, then replaces the file atomically (temp file + rename, Unix mode kept).
+Binary files, non-UTF-8, files over 1 MiB, paths outside the install folder
+(symlinks resolved) and line breaks in values are refused, and JSON must stay
+valid. Parsers keep the exact byte span of each value, so comments, ordering
+and quoting survive a round trip. Restoring a backup takes a safety copy first.
+
+Adapters are detection-only and point each typed field at a file + key:
+
+| Adapter | Markers | Fields |
+|---|---|---|
+| Unreal Engine | `*.uproject`, `*.pak`, `Engine/`, `Binaries/` | resolution, window mode, V-Sync, frame limit, resolution quality, language (`Engine.ini`) |
+| GOG | `goggame-*.info` | language; other metadata read-only |
+| Godot | `project.godot`, `*.pck` | resolution, window mode, V-Sync, MSAA, language |
+| Unity | `*_Data/globalgamemanagers`, `UnityPlayer.dll`, `prefs` | resolution, window mode, V-Sync, graphics quality |
+
+Several can apply at once. Values stored in the Windows registry, Unreal's
+`%LOCALAPPDATA%` or Godot's `user://` are returned read-only with a note rather
+than edited outside the install folder.
+
 ## Move, verify and repair
 
 - `move_install(gameId, targetDir)` keeps the `{slug}/{versionLabel}` layout
@@ -463,6 +537,8 @@ watchdog still reports the session.
   against the install folder; uninstall canonicalises and refuses paths outside
   the recorded install root.
 - Tokens are never logged and only stored in the 0600 settings file.
+- Game configs are only written inside the recorded install folder, after a
+  timestamped backup and a type check; a failed backup aborts the write.
 - The CSP allows `http:`/`https:`/`ws:`/`wss:` connections so LAN servers on
   plain HTTP work, plus `data:`/`blob:`/remote images.
 - Single-instance plugin: launching Ludex again focuses the existing window.
@@ -487,8 +563,14 @@ by CI; no code signing is configured.
   files; the server has no per-file endpoint yet.
 - Cross-drive moves need free space for a second copy and are untested on
   Windows in CI.
-- Reinstalling into a different `installDir` leaves the previous folder on disk
+- Reinstalling into a different location leaves the previous folder on disk
   (the row is replaced).
+- Config editing covers scalar keys in ini/cfg/TOML/JSON. Arrays, inline TOML
+  tables, comments inside JSON (invalid anyway) and multi-line values are not
+  editable; engine settings stored in the registry or outside the install folder
+  are read-only.
+- Engine detection is marker based: a repacked build without its markers falls
+  back to the generic Config files tab.
 - Extraction progress cannot be cancelled mid-archive; cancellation is applied
   between phases.
 - Process-tree tracking samples once per second: a launcher that exits in under

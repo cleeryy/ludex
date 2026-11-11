@@ -923,8 +923,9 @@ interface LocalSettings {
   serverUrl: string;            // remote URL, or the embedded server URL
   token: string | null;         // JWT
   gamesDir: string | null;      // local library folder
-  installDir: string;           // where games are installed
-  downloadDir: string;          // temp archives; empty = {installDir}/.ludex-tmp
+  installDir: string;           // mirrors the default install location (#99)
+  downloadDir: string;          // mirrors the default download location; empty = {installDir}/.ludex-tmp
+  locations: InstallLocation[]; // named install/download/temp folders (#99)
   serverPort: number;           // preferred embedded port, 0 = random
   streamInstall: boolean;       // remote ZIP/7z/RAR installs without storing the archive
   keepArchives: boolean;        // keep the downloaded archive after install
@@ -947,6 +948,24 @@ interface LocalSettings {
   cloudAutoSync: boolean;            // global automatic save backup (#108), default true
   cloudDeviceId: string;             // random UUID generated on first use, not a hardware id
   cloudDeviceLabel: string | null;   // null = host name, then "Desktop"
+}
+
+interface InstallLocation {
+  id: string;                   // stable id; "" on create, filled by the backend
+  label: string;                // 1-60 characters
+  path: string;                 // absolute folder
+  kind: "install" | "download" | "temp";
+  default: boolean;             // at most one per kind
+}
+
+interface LocationStatus extends InstallLocation {
+  exists: boolean;              // the folder itself exists right now
+  writable: boolean;            // a probe file can be created
+  freeBytes: number | null;     // null when the drive is missing
+  totalBytes: number | null;
+  note: string | null;          // missing drive, read-only, will be created…
+  requiredBytes: number | null; // set by check_location
+  freeSpaceOk: boolean | null;  // null when free space is unknown
 }
 
 interface InstalledGame {
@@ -1215,6 +1234,49 @@ interface CloudSyncToggleResponse {
   gameId: number | null; globalEnabled: boolean;
   effective: { enabled: boolean; reason: CloudSaveReason };
 }
+
+/** Game settings editor (#105). `filePath` is relative to the install folder. */
+interface ConfigFileInfo {
+  path: string; name: string;
+  format: "ini" | "cfg" | "toml" | "json";
+  sizeBytes: number; entries: number; editable: boolean; note: string | null;
+}
+interface ConfigEntry {
+  key: string;                  // Section/key (INI), section.key (TOML), a.b[0] (JSON)
+  value: string;
+  valueType: "string" | "number" | "boolean";
+  section: string | null; line: number;
+}
+interface ConfigDocument {
+  path: string; name: string; format: ConfigFileInfo["format"];
+  sizeBytes: number; entries: ConfigEntry[]; note: string | null;
+}
+interface ConfigBackupRecord {
+  id: string; gameId: number; filePath: string;
+  backupPath: string;           // local machine only
+  diff: string; bytes: number;
+  origin: "manual" | "adapter" | "restore";
+  createdAt: string;            // RFC 3339
+}
+interface AdapterField {
+  id: string; label: string;
+  control: "select" | "toggle" | "number" | "text";
+  value: string | null;
+  options: { value: string; label: string }[];
+  file: string | null; key: string | null; // null = read-only / outside the install folder
+  valueType: ConfigEntry["valueType"];
+  note: string | null;
+}
+interface AdapterReport {
+  gameId: number; installPath: string;
+  adapters: Array<{
+    id: "unreal" | "gog" | "godot" | "unity";
+    label: string; detected: boolean; evidence: string | null;
+    files: { path: string; label: string; exists: boolean }[];
+    fields: AdapterField[]; notes: string[];
+  }>;
+  notes: string[];
+}
 ```
 
 | Command | Args | Returns |
@@ -1226,7 +1288,7 @@ interface CloudSyncToggleResponse {
 | `local_server_start` | — | `{ url, token }` |
 | `local_server_stop` | — | `null` |
 | `local_server_status` | — | `{ running, url }` |
-| `install_game` | `{ gameId, versionId, serverUrl, token, title, version?, executable?, installDir?, downloadDir?, stream? }` | `InstallJob` (starts background; survives dialog close) |
+| `install_game` | `{ gameId, versionId, serverUrl, token, title, version?, executable?, installDir?, downloadDir?, locationId?, downloadLocationId?, expectedBytes?, stream? }` | `InstallJob` (starts background; survives dialog close). `locationId`/`downloadLocationId` pick #99 named locations; `expectedBytes` enables the free-space guard. An unknown id or a read-only/missing location fails immediately |
 | `cancel_install` | `{ jobId }` | `null` |
 | `pause_install` | `{ jobId }` | `InstallJob` (`paused`; keeps the `.part`) |
 | `resume_install` | `{ jobId }` | `InstallJob` (continues with HTTP Range) |
@@ -1276,6 +1338,14 @@ interface CloudSyncToggleResponse {
 | `sync_cloud_save_now` | `{ gameId }` | `CloudSaveStatus`; archives and uploads immediately. Works with automatic sync off; an unchanged hash is a no-op. Failures stay in `pending` |
 | `restore_cloud_save` | `{ gameId, strategy: "remote" \| "keep_local" }` | `CloudSaveRestoreOutcome`; verifies the SHA-256, backs up newer local files before a `remote` restore and returns `backupPath`, runs at most once per snapshot. `keep_local` records and uploads the local state (#108) |
 | `resolve_cloud_save_conflict` | `{ gameId, strategy }` | `CloudSaveRestoreOutcome`; same operation as `restore_cloud_save`, using the explicit strategy |
+| `list_locations` | — | `LocationStatus[]`; probes every named location, default first then roomiest writable. Never fails on a missing drive |
+| `check_location` | `{ id?, path?, requiredBytes? }` | `LocationStatus`; one location by id or path, with `freeSpaceOk` when `requiredBytes` is set |
+| `list_game_configs` | `{ gameId }` | `{ gameId, installPath, files: ConfigFileInfo[] }`; ini/cfg/godot/prefs/toml/json under the install folder |
+| `read_game_config` | `{ gameId, path }` | `ConfigDocument`; parsed entries with byte-preserving spans, never writes |
+| `write_game_config` | `{ gameId, path, edits: { key, value }[], origin? }` | `{ document, diff, backup }`; validates types, copies the original to `{appDataDir}/config-backups/game-<id>/`, records the diff, then replaces the file atomically. Refuses binary files, files over 1 MiB and paths outside the install folder |
+| `restore_game_config` | `{ gameId, backupId }` | `{ document, diff, backup }`; backs up the current file first, then restores the history entry |
+| `list_game_config_backups` | `{ gameId }` | `ConfigBackupRecord[]`, newest first (max 100) |
+| `game_config_adapters` | `{ gameId }` | `AdapterReport`; Unreal/GOG/Godot/Unity detection plus typed fields (#106) |
 
 Events:
 
@@ -1368,6 +1438,57 @@ archive by default (`keepArchives` setting false).
   server.
 - **Playnite.** The plugin lives in `integrations/playnite/` and is a pure API
   client; there is no dedicated endpoint.
+
+### Locations (#99)
+
+`locations` replaces the two single folders with named entries, each with a
+`kind` (`install`, `download`, `temp`), a label, an absolute path and one
+`default` flag per kind. `normalize` migrates an old `settings.json` containing
+only `installDir`/`downloadDir` into one install and (when set) one download
+location; the legacy fields then mirror the defaults for older bundles, and
+`save_settings` maps an old-style folder patch onto the default location.
+
+`list_locations` probes each folder: existence, writability (a temporary probe
+file in the folder or its nearest existing parent), free/total bytes, and a
+note for a missing drive. It never creates anything, and a missing location is
+data, not an error: Settings still opens, and `install_game` fails that one job
+with a clear message. Installs pin their resolved folders on the job, so a
+download that pauses overnight survives a renamed location.
+
+The free-space guard keeps 256 MiB in reserve. On the install volume it
+requires the extracted size (or twice that when the archive shares the volume:
+peak usage is archive + extracted copy); on a different download volume it
+requires the archive size there. `expectedBytes` is optional so old callers keep
+working. Extraction always stages inside the install root, so a cross-volume
+download is read from the download folder and unpacked directly into the
+install volume; the archive is deleted afterwards unless `keepArchives`.
+
+### Game settings editor (#105) and adapters (#106)
+
+Config files are discovered up to five folders deep inside the install folder,
+skipping hidden folders and Wine `drive_c` prefixes. Supported formats are INI,
+CFG (also Godot `project.godot` and Unity's extension-less `prefs`), TOML and
+JSON (`*.info` included). Each parser records the byte span of a value token;
+an edit replaces only that span, so comments, ordering, quoting style and
+unrelated whitespace survive. Values are validated against the existing type
+(string, number, boolean) and newlines/control characters are refused. A file
+is refused when it is over 1 MiB, not UTF-8 or contains NUL bytes, and a path
+must resolve (symlinks included) inside the install folder.
+
+Every write copies the original to
+`{appDataDir}/config-backups/game-<gameId>/<timestamp>-<uuid>-<name>` first,
+then replaces the file atomically (temp file in the same folder + rename,
+preserving the Unix mode). `config_edits` stores the relative path, absolute
+backup path, line diff, size, origin and timestamp. Restoring a backup first
+copies the current file to a new `restore` backup, so a restore is undoable too.
+
+Adapters are detection-only: `game_config_adapters` scans the install folder for
+markers (`*.uproject`, `*.pak`, `Engine/`, `goggame-*.info`, `project.godot`,
+`*.pck`, `*_Data/globalgamemanagers`, `UnityPlayer.dll`, `prefs`) and maps
+resolution, window mode, V-Sync, frame limit, quality and language to typed
+fields with the exact file and key. A field whose storage lives outside the
+install folder (Windows registry, UE `%LOCALAPPDATA%`, Godot `user://`) is
+returned read-only with a note instead of being edited.
 
 ### Install lifecycle
 

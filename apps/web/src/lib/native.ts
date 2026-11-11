@@ -1,11 +1,17 @@
 import { t } from "@/lib/i18n";
 import type {
+  AdapterReport,
   CloudSaveRestoreOutcome,
   CloudSaveStatus,
   CloudSaveStrategy,
   CloudSyncToggleResponse,
   CompatScan,
+  ConfigBackupRecord,
+  ConfigDocument,
+  ConfigEditInput,
+  ConfigWriteReport,
   DiskUsage,
+  GameConfigListing,
   GamePlaytime,
   GameUpdate,
   InstallGameArgs,
@@ -18,6 +24,7 @@ import type {
   LauncherPreview,
   LaunchOptions,
   LocalSettings,
+  LocationStatus,
   MoveProgress,
   PresenceStatus,
   PrefixInfo,
@@ -436,6 +443,59 @@ export const native = {
   async onCloudSavePending(handler: (gameId: number) => void): Promise<() => void> {
     return listen<number>("cloud-save://pending", handler);
   },
+
+  /* ----------------------- locations (#99) ----------------------------- */
+
+  async listLocations(): Promise<LocationStatus[]> {
+    if (!isNative()) return [];
+    try {
+      return await invoke<LocationStatus[]>("list_locations");
+    } catch {
+      return [];
+    }
+  },
+
+  async checkLocation(args: { id?: string; path?: string; requiredBytes?: number }): Promise<LocationStatus> {
+    return invoke<LocationStatus>("check_location", args);
+  },
+
+  /* --------------------- window chrome (#111) --------------------------- */
+
+  /* ------------------- game settings editor (#105) ---------------------- */
+
+  async listGameConfigs(gameId: number): Promise<GameConfigListing> {
+    return invoke<GameConfigListing>("list_game_configs", { gameId });
+  },
+
+  async readGameConfig(gameId: number, path: string): Promise<ConfigDocument> {
+    return invoke<ConfigDocument>("read_game_config", { gameId, path });
+  },
+
+  async writeGameConfig(
+    gameId: number,
+    path: string,
+    edits: ConfigEditInput[],
+    origin?: "manual" | "adapter",
+  ): Promise<ConfigWriteReport> {
+    return invoke<ConfigWriteReport>("write_game_config", { gameId, path, edits, origin });
+  },
+
+  async restoreGameConfig(gameId: number, backupId: string): Promise<ConfigWriteReport> {
+    return invoke<ConfigWriteReport>("restore_game_config", { gameId, backupId });
+  },
+
+  async listConfigBackups(gameId: number): Promise<ConfigBackupRecord[]> {
+    if (!isNative()) return [];
+    try {
+      return await invoke<ConfigBackupRecord[]>("list_game_config_backups", { gameId });
+    } catch {
+      return [];
+    }
+  },
+
+  async configAdapters(gameId: number): Promise<AdapterReport> {
+    return invoke<AdapterReport>("game_config_adapters", { gameId });
+  },
 };
 
 async function listen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
@@ -452,6 +512,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   gamesDir: null,
   installDir: "",
   downloadDir: "",
+  locations: [],
   serverPort: 0,
   streamInstall: true,
   keepArchives: false,

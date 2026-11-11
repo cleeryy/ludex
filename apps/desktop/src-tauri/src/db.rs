@@ -105,7 +105,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 11;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -305,6 +305,44 @@ CREATE INDEX IF NOT EXISTS install_stream_manifests_version_idx
     ON install_stream_manifests (game_id, version_id);
 "#;
 
+/// Per-game game-settings edits (#105): every write keeps the original file in
+/// `{appDataDir}/config-backups/game-<id>/` and records the line diff here, so
+/// the UI can show history and restore a previous version. `file_path` is
+/// relative to the install folder and `backup_path` is absolute on this
+/// machine; nothing is synced to the server.
+const SCHEMA_V11: &str = r#"
+CREATE TABLE IF NOT EXISTS config_edits (
+    id          TEXT    PRIMARY KEY,
+    game_id     INTEGER NOT NULL,
+    file_path   TEXT    NOT NULL,
+    backup_path TEXT    NOT NULL,
+    diff        TEXT    NOT NULL DEFAULT '',
+    bytes       INTEGER NOT NULL DEFAULT 0,
+    origin      TEXT    NOT NULL DEFAULT 'manual',
+    created_at  TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS config_edits_game_idx ON config_edits (game_id, created_at DESC);
+"#;
+
+/// One recorded config write (#105/#106), shown in the game's Settings tab.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigEditRecord {
+    pub id: String,
+    pub game_id: i64,
+    /// Path relative to the install folder (`Saved/Config/Windows/GameUserSettings.ini`).
+    pub file_path: String,
+    /// Absolute backup file on this machine. Never sent to the server.
+    pub backup_path: String,
+    pub diff: String,
+    pub bytes: i64,
+    /// `manual` for a key edit, `adapter` for a typed control, `restore` for
+    /// the safety copy taken before a restore.
+    pub origin: String,
+    pub created_at: String,
+}
+
 pub fn open(path: &Path) -> Result<Connection, String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
@@ -387,6 +425,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         connection
             .execute_batch(SCHEMA_V10)
             .map_err(|e| format!("Could not add resumable stream checkpoints: {e}"))?;
+    }
+    if version < 11 {
+        connection
+            .execute_batch(SCHEMA_V11)
+            .map_err(|e| format!("Could not add game config edits to the desktop database: {e}"))?;
     }
 
     if version < SCHEMA_VERSION {
@@ -1831,6 +1874,80 @@ pub fn record_cloud_save_restored_hash(
     Ok(())
 }
 
+/// Record one config write (#105). The backup file already exists when this is
+/// called; the row is what the Settings tab lists and what restore validates.
+pub fn insert_config_edit(
+    connection: &Connection,
+    record: &ConfigEditRecord,
+) -> Result<(), String> {
+    connection
+        .execute(
+            r#"INSERT INTO config_edits
+                   (id, game_id, file_path, backup_path, diff, bytes, origin, created_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"#,
+            params![
+                record.id,
+                record.game_id,
+                record.file_path,
+                record.backup_path,
+                record.diff,
+                record.bytes,
+                record.origin,
+                record.created_at,
+            ],
+        )
+        .map_err(|e| format!("Could not record the config edit: {e}"))?;
+    Ok(())
+}
+
+fn map_config_edit(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConfigEditRecord> {
+    Ok(ConfigEditRecord {
+        id: row.get(0)?,
+        game_id: row.get(1)?,
+        file_path: row.get(2)?,
+        backup_path: row.get(3)?,
+        diff: row.get(4)?,
+        bytes: row.get(5)?,
+        origin: row.get(6)?,
+        created_at: row.get(7)?,
+    })
+}
+
+pub fn list_config_edits(
+    connection: &Connection,
+    game_id: i64,
+    limit: usize,
+) -> Result<Vec<ConfigEditRecord>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, game_id, file_path, backup_path, diff, bytes, origin, created_at
+             FROM config_edits WHERE game_id = ?1
+             ORDER BY created_at DESC, id DESC LIMIT ?2",
+        )
+        .map_err(|e| format!("Could not read the config history: {e}"))?;
+    let rows = statement
+        .query_map(params![game_id, limit as i64], map_config_edit)
+        .map_err(|e| format!("Could not read the config history: {e}"))?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| format!("Could not read the config history: {e}"))
+}
+
+pub fn get_config_edit(
+    connection: &Connection,
+    game_id: i64,
+    id: &str,
+) -> Result<Option<ConfigEditRecord>, String> {
+    connection
+        .query_row(
+            "SELECT id, game_id, file_path, backup_path, diff, bytes, origin, created_at
+             FROM config_edits WHERE game_id = ?1 AND id = ?2",
+            params![game_id, id],
+            map_config_edit,
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the config edit: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1847,6 +1964,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V8).unwrap();
         connection.execute_batch(SCHEMA_V9).unwrap();
         connection.execute_batch(SCHEMA_V10).unwrap();
+        connection.execute_batch(SCHEMA_V11).unwrap();
         connection
     }
 
@@ -2752,6 +2870,38 @@ mod tests {
                 .unwrap()
                 .job_id,
             "stream-2"
+        );
+    }
+
+    #[test]
+    fn config_edits_are_listed_newest_first_and_scoped_to_the_game() {
+        let connection = memory_database();
+        let record = |id: &str, game_id: i64, created_at: &str| ConfigEditRecord {
+            id: id.to_string(),
+            game_id,
+            file_path: "GameUserSettings.ini".to_string(),
+            backup_path: format!("/data/config-backups/game-{game_id}/{id}.bak"),
+            diff: "-bUseVSync=False\n+bUseVSync=True".to_string(),
+            bytes: 120,
+            origin: "adapter".to_string(),
+            created_at: created_at.to_string(),
+        };
+        insert_config_edit(&connection, &record("a", 7, "2026-11-10T10:00:00Z")).unwrap();
+        insert_config_edit(&connection, &record("b", 7, "2026-11-10T11:00:00Z")).unwrap();
+        insert_config_edit(&connection, &record("c", 8, "2026-11-10T12:00:00Z")).unwrap();
+
+        let edits = list_config_edits(&connection, 7, 10).unwrap();
+        assert_eq!(edits.len(), 2);
+        assert_eq!(edits[0].id, "b");
+        assert_eq!(edits[1].id, "a");
+        assert!(get_config_edit(&connection, 7, "b").unwrap().is_some());
+        assert!(get_config_edit(&connection, 7, "c").unwrap().is_none());
+        assert_eq!(
+            get_config_edit(&connection, 7, "a")
+                .unwrap()
+                .unwrap()
+                .file_path,
+            "GameUserSettings.ini"
         );
     }
 }

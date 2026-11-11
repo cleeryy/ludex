@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, HardDrive, Monitor, Moon, Sun } from "lucide-react";
+import { FolderOpen, Monitor, Moon, Sun } from "lucide-react";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { installBridge, installsAvailable } from "@/lib/install";
 import { isNative, native } from "@/lib/native";
 import { setTitleBarPreference, supportsCustomTitleBar } from "@/lib/window-chrome";
 import { formatBytes, formatDate } from "@/lib/format";
-import type { DiskUsage, LocalSettings } from "@/lib/types";
+import type { LocalSettings } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { useAuth } from "@/state/auth";
 import { useSettings, type ThemePref } from "@/state/settings";
@@ -22,6 +22,7 @@ import { CompatibilityPanel } from "@/components/settings/compatibility-panel";
 import { LauncherImportPanel } from "@/components/settings/launcher-import";
 import { PresenceStatus } from "@/components/settings/presence-status";
 import { GettingStartedCard } from "@/components/onboarding/getting-started";
+import { LocationsPanel } from "@/components/settings/locations-panel";
 import { openOnboarding, restoreGettingStarted } from "@/lib/onboarding";
 import { t } from "@/lib/i18n";
 
@@ -68,18 +69,6 @@ export function SettingsScreen() {
 
   const dirty = Boolean(draft && settings && JSON.stringify(draft) !== JSON.stringify(settings));
 
-  const installDisk = useQuery<DiskUsage>({
-    queryKey: ["disk", draft?.installDir],
-    queryFn: () => installBridge.diskUsage(draft!.installDir),
-    enabled: desktopAvailable && Boolean(draft?.installDir),
-    staleTime: 30_000,
-  });
-  const downloadDisk = useQuery<DiskUsage>({
-    queryKey: ["disk", draft?.downloadDir],
-    queryFn: () => installBridge.diskUsage(draft!.downloadDir),
-    enabled: desktopAvailable && Boolean(draft?.downloadDir),
-    staleTime: 30_000,
-  });
 
   const update = (patch: Partial<LocalSettings>) => setDraft((current) => (current ? { ...current, ...patch } : current));
 
@@ -104,7 +93,7 @@ export function SettingsScreen() {
     }
   };
 
-  const pick = async (key: "installDir" | "downloadDir" | "steamRoot", title: string) => {
+  const pick = async (key: "steamRoot", title: string) => {
     const path = await native.pickFolder(title);
     if (path) update({ [key]: path } as Partial<LocalSettings>);
     else if (!isNative()) {
@@ -121,6 +110,8 @@ export function SettingsScreen() {
     try {
       await installBridge.saveSettings(draft);
       await queryClient.invalidateQueries({ queryKey: ["desktop-settings"] });
+      await queryClient.invalidateQueries({ queryKey: ["desktop-locations"] });
+      await queryClient.invalidateQueries({ queryKey: ["title-bar-info"] });
       await queryClient.invalidateQueries({ queryKey: ["compat-scan"] });
       await queryClient.invalidateQueries({ queryKey: ["cloud-save-status"] });
       push({ title: t("Desktop settings saved"), tone: "success" });
@@ -425,31 +416,21 @@ export function SettingsScreen() {
                   {!isNative() && <span className="text-signal-text">{t("Preview values from the demo adapter")}</span>}
                 </div>
 
+                <div className="mb-8">
+                  <LocationsPanel
+                    locations={draft.locations ?? []}
+                    onChange={(locations) => update({ locations })}
+                  />
+                </div>
+
                 <div className="grid gap-8 lg:grid-cols-2">
                   <div className="flex flex-col gap-5">
-                    <PathField
-                      label={t("Install folder")}
-                      hint={t("Each game gets its own folder and version subfolder.")}
-                      value={draft.installDir}
-                      onChange={(value) => update({ installDir: value })}
-                      onPick={() => void pick("installDir", "Choose the install folder")}
-                      disk={installDisk.data}
-                    />
-                    <PathField
-                      label={t("Download folder")}
-                      hint={t("Temporary archives. Ignored when stream installs are on.")}
-                      value={draft.downloadDir}
-                      onChange={(value) => update({ downloadDir: value })}
-                      onPick={() => void pick("downloadDir", "Choose the download folder")}
-                      disk={downloadDisk.data}
-                    />
                     <PathField
                       label={t("Steam folder")}
                       hint={t("Optional. Only used by the Steam import when auto-detection fails.")}
                       value={draft.steamRoot}
                       onChange={(value) => update({ steamRoot: value })}
                       onPick={() => void pick("steamRoot", "Choose the Steam folder")}
-                      disk={undefined}
                     />
                   </div>
 
@@ -803,14 +784,12 @@ function PathField({
   value,
   onChange,
   onPick,
-  disk,
 }: {
   label: string;
   hint: string;
   value: string;
   onChange: (value: string) => void;
   onPick: () => void;
-  disk?: DiskUsage;
 }) {
   const id = `path-${label.toLowerCase().replace(/\s+/g, "-")}`;
   return (
@@ -831,15 +810,7 @@ function PathField({
           {t("Browse")}
         </Button>
       </div>
-      <p className="flex flex-wrap items-baseline gap-x-2 text-[11.5px] leading-relaxed text-ink-3">
-        <span>{hint}</span>
-        {disk && (
-          <span className="num inline-flex items-center gap-1 text-ink-3">
-            <HardDrive className="size-3" aria-hidden="true" />
-            {t("{free} free of {total}", { free: formatBytes(disk.freeBytes), total: formatBytes(disk.totalBytes) })}
-          </span>
-        )}
-      </p>
+      <p className="text-[11.5px] leading-relaxed text-ink-3">{hint}</p>
     </div>
   );
 }

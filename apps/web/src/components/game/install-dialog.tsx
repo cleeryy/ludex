@@ -1,14 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, FolderOpen } from "lucide-react";
 import { installBridge } from "@/lib/install";
 import { errorMessage } from "@/lib/http";
 import { formatBytes, formatEta, formatSpeed, installPhaseLabel, formatPercent } from "@/lib/format";
-import type { GameDetail, GameVersion } from "@/lib/types";
+import { isNative, native } from "@/lib/native";
+import type { GameDetail, GameVersion, LocationStatus } from "@/lib/types";
 import { isStreamFailedJob, useDownloads } from "@/state/downloads";
 import { Button, Progress } from "@/components/ui/controls";
+import { Select } from "@/components/ui/select";
 import { Dialog } from "@/components/ui/dialog";
 import { t, tn } from "@/lib/i18n";
+
+/** Keep in sync with `locations::FREE_SPACE_RESERVE_BYTES` (#99). */
+const FREE_SPACE_RESERVE = 256 * 1024 * 1024;
 
 /**
  * The install dialog starts a background job and then gets out of the way: the
@@ -29,6 +34,8 @@ export function InstallDialog({
   const job = downloads.jobForGame(game.id) ?? downloads.resumableForGame(game.id);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [installLocationId, setInstallLocationId] = useState<string>("");
+  const [downloadLocationId, setDownloadLocationId] = useState<string>("");
 
   const { data: settings } = useQuery({
     queryKey: ["desktop-settings"],
@@ -37,12 +44,51 @@ export function InstallDialog({
     staleTime: 30_000,
   });
 
+  const { data: locations } = useQuery<LocationStatus[]>({
+    queryKey: ["desktop-locations"],
+    queryFn: () => native.listLocations(),
+    enabled: open && isNative(),
+    staleTime: 20_000,
+  });
+
+  const installLocations = useMemo(
+    () => (locations ?? []).filter((location) => location.kind === "install"),
+    [locations],
+  );
+  const downloadLocations = useMemo(
+    () => (locations ?? []).filter((location) => location.kind === "download" || location.kind === "temp"),
+    [locations],
+  );
+
+  const defaultInstallId =
+    installLocations.find((location) => location.default)?.id ?? installLocations[0]?.id ?? "";
+
   useEffect(() => {
     if (!open) {
       setError(null);
       setStarting(false);
+      return;
     }
-  }, [open]);
+    // Preselect the default location every time the dialog opens (and once the
+    // probe list finishes loading).
+    setInstallLocationId(defaultInstallId);
+    setDownloadLocationId("");
+  }, [open, defaultInstallId]);
+
+  const installStatus = installLocations.find((location) => location.id === installLocationId) ?? null;
+  const downloadStatus = downloadLocations.find((location) => location.id === downloadLocationId) ?? null;
+  const sameVolume = !downloadStatus || !installStatus || downloadStatus.path === installStatus.path;
+  const requiredBytes = version.size * (sameVolume ? 2 : 1) + FREE_SPACE_RESERVE;
+  const spaceError = installStatus?.freeBytes != null && installStatus.freeBytes < requiredBytes
+    ? t("Not enough free space on {label}: {free} available, about {needed} needed.", {
+        label: installStatus.label,
+        free: formatBytes(installStatus.freeBytes),
+        needed: formatBytes(requiredBytes),
+      })
+    : downloadStatus?.freeBytes != null && !sameVolume && downloadStatus.freeBytes < version.size + FREE_SPACE_RESERVE
+      ? t("The download location {label} is too small for this archive.", { label: downloadStatus.label })
+      : null;
+  const blocked = Boolean(spaceError) || Boolean(installStatus && !installStatus.writable);
 
   const start = async () => {
     setError(null);
@@ -54,6 +100,9 @@ export function InstallDialog({
         title: game.title,
         version: version.version,
         executable: game.launch.executable,
+        locationId: installLocationId || undefined,
+        downloadLocationId: downloadLocationId || undefined,
+        expectedBytes: version.size,
       });
     } catch (cause) {
       setError(errorMessage(cause));
@@ -165,7 +214,13 @@ export function InstallDialog({
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               {t("Cancel")}
             </Button>
-            <Button variant="primary" loading={starting} onClick={() => void start()} icon={<Download className="size-4" />}>
+            <Button
+              variant="primary"
+              loading={starting}
+              disabled={blocked}
+              onClick={() => void start()}
+              icon={<Download className="size-4" />}
+            >
               {t("Install")}
             </Button>
           </>
@@ -173,19 +228,57 @@ export function InstallDialog({
       }
     >
       <div className="flex flex-col gap-4">
-        <dl className="flex flex-col gap-2 text-[12.5px]">
-          <div className="flex items-baseline justify-between gap-4">
-            <dt className="text-ink-3">{t("Install folder")}</dt>
-            <dd className="truncate font-mono text-[11px] text-ink-2">{settings?.installDir || t("Set in Settings")}</dd>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[12px] text-ink-2">{t("Install location")}</span>
+            {installLocations.length > 0 ? (
+              <Select
+                label={t("Install location")}
+                value={installLocationId}
+                onChange={setInstallLocationId}
+                options={installLocations.map((location) => ({
+                  value: location.id,
+                  label: location.default ? t("{label} (default)", { label: location.label }) : location.label,
+                  hint: location.freeBytes != null ? t("{free} free", { free: formatBytes(location.freeBytes) }) : location.note ?? undefined,
+                }))}
+                className="h-10 text-[12px]"
+              />
+            ) : (
+              <p className="truncate font-mono text-[11px] text-ink-2">{settings?.installDir || t("Set in Settings")}</p>
+            )}
+            {installStatus && (
+              <p className="font-mono text-[10.5px] text-ink-3">
+                {installStatus.writable ? t("Writable") : t("Not writable")} · {installStatus.path}
+              </p>
+            )}
           </div>
-          <div className="flex items-baseline justify-between gap-4">
-            <dt className="text-ink-3">{t("Download folder")}</dt>
-            <dd className="truncate font-mono text-[11px] text-ink-2">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[12px] text-ink-2">{t("Download location")}</span>
+            <Select
+              label={t("Download location")}
+              value={downloadLocationId}
+              onChange={setDownloadLocationId}
+              options={[
+                { value: "", label: t("Same as install"), hint: t("Archive deleted after extraction") },
+                ...downloadLocations.map((location) => ({
+                  value: location.id,
+                  label: location.label,
+                  hint: location.freeBytes != null ? t("{free} free", { free: formatBytes(location.freeBytes) }) : location.note ?? undefined,
+                })),
+              ]}
+              className="h-10 text-[12px]"
+            />
+            <p className="text-[10.5px] leading-relaxed text-ink-3">
               {settings?.streamInstall
                 ? t("Streamed, not stored (resumes per file)")
-                : settings?.downloadDir || t("Set in Settings")}
-            </dd>
+                : sameVolume
+                  ? t("Peak usage is roughly twice the archive size.")
+                  : t("The archive is stored on another volume, then unpacked into the install location.")}
+            </p>
           </div>
+        </div>
+
+        <dl className="flex flex-col gap-2 border-t border-line pt-3 text-[12.5px]">
           <div className="flex items-baseline justify-between gap-4">
             <dt className="text-ink-3">{t("Archive")}</dt>
             <dd className="truncate font-mono text-[11px] text-ink-2">{version.fileName}</dd>
@@ -259,6 +352,10 @@ export function InstallDialog({
               </button>
             )}
           </div>
+        )}
+
+        {spaceError && (
+          <p className="border-l-2 border-signal pl-3 text-[12px] text-signal-text">{spaceError}</p>
         )}
 
         {error && (

@@ -6,6 +6,28 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Named install, download and temp locations (#99): a list of folders with a
+  label, path, kind and one default per kind replaces the two single folders.
+  Settings → Locations adds, renames, removes, checks (writability, free space,
+  missing drive) and marks a default; the install dialog picks an install
+  location and a download/temp location, shows free space and blocks a job that
+  cannot fit. Installs probe and pin their folders before queueing, a missing
+  drive fails only that job, the archive is unpacked straight into the install
+  volume when the download folder is elsewhere, and an old settings file is
+  migrated automatically.
+- Per-game settings editor (#105): installed games gain a Settings tab that
+  lists ini/cfg/TOML/JSON config files under the install folder, edits scalar
+  keys without losing comments or ordering, validates the existing type, backs
+  up every file under `{appDataDir}/config-backups/game-<id>/`, shows a line
+  diff history and restores a backup (itself backed up first). Binary files,
+  non-UTF-8, files over 1 MiB and paths outside the install folder are refused.
+- Built-in engine adapters (#106): Unreal Engine, GOG, Godot and Unity are
+  detected by marker files and expose resolution, window mode, V-Sync, frame
+  limit, quality and language as typed controls; settings stored in the Windows
+  registry or outside the install folder are read-only with an explanation.
+
 ## [0.2.7] - 2026-11-11
 
 ### Added
@@ -25,6 +47,7 @@ All notable changes to Ludex are documented here. The format is based on
   format, including missing and malformed files (`launcher_scan`,
   `launcher_import`). The Settings → Integrations panel now lists every
   launcher, Steam included, in one place.
+
 
 ## [0.2.6] - 2026-11-10
 

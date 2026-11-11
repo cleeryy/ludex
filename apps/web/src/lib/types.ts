@@ -614,6 +614,30 @@ export interface ProfilePatch {
 
 /* ------------------------------- desktop -------------------------------- */
 
+/** Named install/download/temp folder (#99). */
+export type LocationKind = "install" | "download" | "temp";
+
+export interface InstallLocation {
+  /** Stable id passed to `install_game`; filled by the backend. */
+  id: string;
+  label: string;
+  path: string;
+  kind: LocationKind;
+  /** At most one default per kind. */
+  default: boolean;
+}
+
+/** Live probe for a location (#99). */
+export interface LocationStatus extends InstallLocation {
+  exists: boolean;
+  writable: boolean;
+  freeBytes: number | null;
+  totalBytes: number | null;
+  note: string | null;
+  requiredBytes?: number | null;
+  freeSpaceOk?: boolean | null;
+}
+
 export interface LocalSettings {
   mode: "local" | "remote";
   serverUrl: string;
@@ -621,6 +645,8 @@ export interface LocalSettings {
   gamesDir: string | null;
   installDir: string;
   downloadDir: string;
+  /** Named locations (#99); installDir/downloadDir mirror the defaults. */
+  locations: InstallLocation[];
   serverPort: number;
   /** Remote ZIP installs stream a tar of the archive entries instead of storing it. */
   streamInstall: boolean;
@@ -963,6 +989,12 @@ export interface InstallGameArgs {
   executable?: string | null;
   installDir?: string | null;
   downloadDir?: string | null;
+  /** Named location for the install root (#99). */
+  locationId?: string | null;
+  /** Named location for the temporary archive (#99). */
+  downloadLocationId?: string | null;
+  /** Extracted size, used by the free-space guard (#99). */
+  expectedBytes?: number | null;
   stream?: boolean;
 }
 
@@ -1232,4 +1264,104 @@ export interface AchievementScanReport {
   unlocked: number;
   providers: AchievementProviderReport[];
   warnings: string[];
+}
+
+/* ------------------- game settings editor (#105, #106) ------------------- */
+
+export interface ConfigFileInfo {
+  /** Path relative to the install folder. */
+  path: string;
+  name: string;
+  format: "ini" | "cfg" | "toml" | "json";
+  sizeBytes: number;
+  entries: number;
+  editable: boolean;
+  note: string | null;
+}
+
+export interface ConfigEntry {
+  /** `Section/key`, `section.key` or `a.b[0]`. */
+  key: string;
+  value: string;
+  valueType: "string" | "number" | "boolean";
+  section: string | null;
+  line: number;
+}
+
+export interface ConfigDocument {
+  path: string;
+  name: string;
+  format: "ini" | "cfg" | "toml" | "json";
+  sizeBytes: number;
+  entries: ConfigEntry[];
+  note: string | null;
+}
+
+export interface ConfigEditInput {
+  key: string;
+  value: string;
+}
+
+/** One backup in the per-game history; `backupPath` stays on this machine. */
+export interface ConfigBackupRecord {
+  id: string;
+  gameId: number;
+  filePath: string;
+  backupPath: string;
+  diff: string;
+  bytes: number;
+  origin: "manual" | "adapter" | "restore";
+  createdAt: string;
+}
+
+export interface ConfigWriteReport {
+  document: ConfigDocument;
+  diff: string;
+  backup: ConfigBackupRecord;
+}
+
+export interface GameConfigListing {
+  gameId: number;
+  installPath: string;
+  files: ConfigFileInfo[];
+}
+
+export interface AdapterOption {
+  value: string;
+  label: string;
+}
+
+export interface AdapterField {
+  id: string;
+  label: string;
+  control: "select" | "toggle" | "number" | "text";
+  value: string | null;
+  options: AdapterOption[];
+  file: string | null;
+  key: string | null;
+  valueType: "string" | "number" | "boolean";
+  note: string | null;
+}
+
+export interface AdapterFile {
+  path: string;
+  label: string;
+  exists: boolean;
+}
+
+export interface ConfigAdapter {
+  id: "unreal" | "gog" | "godot" | "unity";
+  label: string;
+  detected: boolean;
+  evidence: string | null;
+  files: AdapterFile[];
+  fields: AdapterField[];
+  notes: string[];
+}
+
+export interface AdapterReport {
+  gameId: number;
+  installPath: string;
+  adapters: ConfigAdapter[];
+  notes: string[];
 }
