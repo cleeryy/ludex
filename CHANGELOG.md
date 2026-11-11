@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-11-11
+
 ### Added
 
 - Named install, download and temp locations (#99): a list of folders with a
