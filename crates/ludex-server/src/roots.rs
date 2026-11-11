@@ -12,10 +12,10 @@
 
 use std::path::{Component, Path, PathBuf};
 
+use crate::db::Database;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use sqlx::SqlitePool;
 
 use crate::config::Config;
 use crate::db;
@@ -131,8 +131,8 @@ impl LibraryRoot {
 }
 
 /// Lists every root in scan order with its version count.
-pub async fn list(pool: &SqlitePool) -> Result<Vec<LibraryRootView>> {
-    let rows = sqlx::query_as::<_, RootRow>(
+pub async fn list(pool: &Database) -> Result<Vec<LibraryRootView>> {
+    let rows = db::query_as::<RootRow>(
         "SELECT r.id, r.label, r.path, r.enabled, r.available, r.position,
                 r.created_at, r.last_scan_at, r.last_error,
                 (SELECT COUNT(*) FROM game_versions v WHERE v.root_id = r.id) AS version_count,
@@ -147,8 +147,8 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<LibraryRootView>> {
 }
 
 /// Enabled roots in scan order.
-pub async fn enabled(pool: &SqlitePool) -> Result<Vec<LibraryRoot>> {
-    sqlx::query_as::<_, LibraryRoot>(
+pub async fn enabled(pool: &Database) -> Result<Vec<LibraryRoot>> {
+    db::query_as::<LibraryRoot>(
         "SELECT id, label, path, enabled, available, position, created_at,
                 last_scan_at, last_error, kind
          FROM library_roots WHERE enabled = 1 ORDER BY position, id",
@@ -159,8 +159,8 @@ pub async fn enabled(pool: &SqlitePool) -> Result<Vec<LibraryRoot>> {
 }
 
 /// One root by id.
-pub async fn get(pool: &SqlitePool, id: i64) -> Result<Option<LibraryRoot>> {
-    sqlx::query_as::<_, LibraryRoot>(
+pub async fn get(pool: &Database, id: i64) -> Result<Option<LibraryRoot>> {
+    db::query_as::<LibraryRoot>(
         "SELECT id, label, path, enabled, available, position, created_at,
                 last_scan_at, last_error, kind
          FROM library_roots WHERE id = ?",
@@ -172,8 +172,8 @@ pub async fn get(pool: &SqlitePool, id: i64) -> Result<Option<LibraryRoot>> {
 }
 
 /// Number of versions stored under a root.
-pub async fn version_count(pool: &SqlitePool, id: i64) -> Result<i64> {
-    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM game_versions WHERE root_id = ?")
+pub async fn version_count(pool: &Database, id: i64) -> Result<i64> {
+    db::query_scalar::<i64>("SELECT COUNT(*) FROM game_versions WHERE root_id = ?")
         .bind(id)
         .fetch_one(pool)
         .await
@@ -182,19 +182,19 @@ pub async fn version_count(pool: &SqlitePool, id: i64) -> Result<i64> {
 
 /// Creates a root at the end of the list.
 pub async fn create(
-    pool: &SqlitePool,
+    pool: &Database,
     label: &str,
     path: &str,
     enabled: bool,
     kind: &str,
 ) -> Result<i64> {
     let position =
-        sqlx::query_scalar::<_, i64>("SELECT COALESCE(MAX(position), -1) + 1 FROM library_roots")
+        db::query_scalar::<i64>("SELECT COALESCE(MAX(position), -1) + 1 FROM library_roots")
             .fetch_one(pool)
             .await
             .context("next root position")?;
     let now = db::db_time(db::now());
-    let result = sqlx::query(
+    db::query(
         "INSERT INTO library_roots
             (label, path, enabled, available, position, created_at, updated_at, kind)
          VALUES (?, ?, ?, 1, ?, ?, ?, ?)",
@@ -206,20 +206,19 @@ pub async fn create(
     .bind(&now)
     .bind(&now)
     .bind(kind)
-    .execute(pool)
+    .returning_id(pool)
     .await
-    .context("insert library root")?;
-    Ok(result.last_insert_rowid())
+    .context("insert library root")
 }
 
 /// Records the outcome of a scan for one root.
 pub async fn record_scan(
-    pool: &SqlitePool,
+    pool: &Database,
     id: i64,
     available: bool,
     error: Option<&str>,
 ) -> Result<()> {
-    sqlx::query(
+    db::query(
         "UPDATE library_roots SET available = ?, last_error = ?, last_scan_at = ?,
             updated_at = ? WHERE id = ?",
     )
@@ -237,20 +236,20 @@ pub async fn record_scan(
 /// Fills the seeded root, inserts configured roots and assigns legacy rows.
 ///
 /// Idempotent. Called once per server start before the first scan.
-pub async fn bootstrap(pool: &SqlitePool, config: &Config) -> Result<()> {
+pub async fn bootstrap(pool: &Database, config: &Config) -> Result<()> {
     let first = config
         .library_roots
         .first()
         .cloned()
         .unwrap_or_else(|| config.games_dir.clone());
-    let placeholder = sqlx::query_as::<_, (i64, String)>(
+    let placeholder = db::query_as::<(i64, String)>(
         "SELECT id, path FROM library_roots WHERE TRIM(path) = '' ORDER BY position, id LIMIT 1",
     )
     .fetch_optional(pool)
     .await
     .context("find seeded library root")?;
     if let Some((id, _)) = placeholder {
-        sqlx::query("UPDATE library_roots SET path = ?, label = ?, updated_at = ? WHERE id = ?")
+        db::query("UPDATE library_roots SET path = ?, label = ?, updated_at = ? WHERE id = ?")
             .bind(first.display().to_string())
             .bind(DEFAULT_ROOT_LABEL)
             .bind(db::db_time(db::now()))
@@ -261,7 +260,7 @@ pub async fn bootstrap(pool: &SqlitePool, config: &Config) -> Result<()> {
         tracing::info!(root = %first.display(), "backfilled library root #1");
     }
 
-    let existing = sqlx::query_scalar::<_, String>("SELECT path FROM library_roots")
+    let existing = db::query_scalar::<String>("SELECT path FROM library_roots")
         .fetch_all(pool)
         .await
         .context("list library root paths")?;
@@ -272,7 +271,7 @@ pub async fn bootstrap(pool: &SqlitePool, config: &Config) -> Result<()> {
         }
         let position = i64::try_from(index).unwrap_or(i64::MAX);
         let now = db::db_time(db::now());
-        sqlx::query(
+        db::query(
             "INSERT INTO library_roots
                 (label, path, enabled, available, position, created_at, updated_at)
              VALUES (?, ?, 1, 1, ?, ?, ?)",
@@ -289,7 +288,7 @@ pub async fn bootstrap(pool: &SqlitePool, config: &Config) -> Result<()> {
     }
 
     let first_id =
-        sqlx::query_scalar::<_, i64>("SELECT id FROM library_roots ORDER BY position, id LIMIT 1")
+        db::query_scalar::<i64>("SELECT id FROM library_roots ORDER BY position, id LIMIT 1")
             .fetch_optional(pool)
             .await
             .context("find primary library root")?;
@@ -303,7 +302,7 @@ pub async fn bootstrap(pool: &SqlitePool, config: &Config) -> Result<()> {
         .as_deref()
         == Some("1");
     if let (Some(root_id), false) = (first_id, backfilled) {
-        let updated = sqlx::query("UPDATE game_versions SET root_id = ? WHERE root_id IS NULL")
+        let updated = db::query("UPDATE game_versions SET root_id = ? WHERE root_id IS NULL")
             .bind(root_id)
             .execute(pool)
             .await
@@ -314,7 +313,7 @@ pub async fn bootstrap(pool: &SqlitePool, config: &Config) -> Result<()> {
                 "assigned legacy versions to library root #1"
             );
         }
-        sqlx::query("UPDATE games SET root_id = ? WHERE root_id IS NULL")
+        db::query("UPDATE games SET root_id = ? WHERE root_id IS NULL")
             .bind(root_id)
             .execute(pool)
             .await
@@ -373,10 +372,10 @@ pub fn validate_path(raw: &str) -> Result<String, ApiError> {
 /// `root_id = NULL` means the row predates multiple roots or its root was
 /// deleted; it falls back to `LUDEX_GAMES_DIR`, which is what those rows were
 /// relative to.
-pub async fn base_dir(pool: &SqlitePool, config: &Config, root_id: Option<i64>) -> Result<PathBuf> {
+pub async fn base_dir(pool: &Database, config: &Config, root_id: Option<i64>) -> Result<PathBuf> {
     if let Some(id) = root_id {
         if let Some(path) =
-            sqlx::query_scalar::<_, String>("SELECT path FROM library_roots WHERE id = ?")
+            db::query_scalar::<String>("SELECT path FROM library_roots WHERE id = ?")
                 .bind(id)
                 .fetch_optional(pool)
                 .await
@@ -392,7 +391,7 @@ pub async fn base_dir(pool: &SqlitePool, config: &Config, root_id: Option<i64>) 
 
 /// Resolves a version's `file_path` to an absolute path, rejecting traversal.
 pub async fn resolve_version_path(
-    pool: &SqlitePool,
+    pool: &Database,
     config: &Config,
     root_id: Option<i64>,
     relative: &str,

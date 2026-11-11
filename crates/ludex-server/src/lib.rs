@@ -167,7 +167,13 @@ async fn prepare(config: Config) -> Result<Prepared> {
         .with_context(|| format!("create media directory {}", config.media_dir.display()))?;
 
     let secret = load_or_create_secret(&config).await?;
-    let pool = db::connect(&config.database_url).await?;
+    let pool = db::connect_with(&config.database_url, config.database_max_connections).await?;
+    tracing::info!(
+        backend = pool.backend().as_str(),
+        url = %db::redact_database_url(&config.database_url),
+        max_connections = config.database_max_connections,
+        "database ready"
+    );
     // Registers `LUDEX_LIBRARY_ROOTS` and backfills the seeded root. Extra
     // roots are never created on disk: a missing path means "not mounted" and
     // must stay detectable by the scanner.
@@ -467,7 +473,7 @@ async fn set_private_permissions(path: &std::path::Path) -> Result<()> {
 
 async fn bootstrap_admin(state: &AppState) -> Result<String> {
     if state.config.local_mode {
-        if let Some((id, role)) = sqlx::query_as::<_, (i64, String)>(
+        if let Some((id, role)) = db::query_as::<(i64, String)>(
             "SELECT id, role FROM users WHERE role = 'admin' AND activated = 1
              ORDER BY id LIMIT 1",
         )
@@ -533,7 +539,7 @@ pub(crate) async fn unique_username(state: &AppState, base: &str) -> Result<Stri
         } else {
             format!("{base}-{}", attempt + 1)
         };
-        let exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE username = ?")
+        let exists = db::query_scalar::<i64>("SELECT COUNT(*) FROM users WHERE username = ?")
             .bind(&candidate)
             .fetch_one(&state.pool)
             .await
@@ -548,7 +554,7 @@ pub(crate) async fn unique_username(state: &AppState, base: &str) -> Result<Stri
 async fn create_user(state: &AppState, username: &str, password: &str, role: Role) -> Result<i64> {
     let password_hash = auth::hash_password(password)?;
     let now = db::db_time(db::now());
-    let result = sqlx::query(
+    db::query(
         "INSERT INTO users
             (username, password_hash, email, role, activated, avatar_path, created_at, updated_at)
          VALUES (?, ?, NULL, ?, 1, NULL, ?, ?)",
@@ -558,10 +564,9 @@ async fn create_user(state: &AppState, username: &str, password: &str, role: Rol
     .bind(role.as_str())
     .bind(&now)
     .bind(&now)
-    .execute(&state.pool)
+    .returning_id(&state.pool)
     .await
-    .context("create administrator")?;
-    Ok(result.last_insert_rowid())
+    .context("create administrator")
 }
 
 async fn shutdown_signal() {

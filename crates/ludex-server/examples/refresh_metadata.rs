@@ -87,7 +87,7 @@ async fn main() -> Result<()> {
         session_touch: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     };
 
-    let ids = sqlx::query_scalar::<_, i64>("SELECT id FROM games ORDER BY id")
+    let ids = ludex_server::db::query_scalar::<i64>("SELECT id FROM games ORDER BY id")
         .fetch_all(&state.pool)
         .await
         .context("list games")?;

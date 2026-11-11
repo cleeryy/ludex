@@ -149,7 +149,7 @@ pub async fn authenticate(state: &AppState, token: &str) -> Result<Option<ApiKey
     let Some(prefix) = token.get(..PREFIX_LEN) else {
         return Ok(None);
     };
-    let row = sqlx::query_as::<_, (i64, i64, String, String, Option<String>)>(
+    let row = db::query_as::<(i64, i64, String, String, Option<String>)>(
         "SELECT id, user_id, secret_hash, scopes, revoked_at FROM api_keys WHERE prefix = ?",
     )
     .bind(prefix)
@@ -167,7 +167,7 @@ pub async fn authenticate(state: &AppState, token: &str) -> Result<Option<ApiKey
     // Usage tracking is best effort: a failed timestamp update must not reject
     // an otherwise valid request.
     let now = db::db_time(db::now());
-    if let Err(error) = sqlx::query("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
+    if let Err(error) = db::query("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
         .bind(&now)
         .bind(key_id)
         .execute(&state.pool)

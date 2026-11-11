@@ -143,18 +143,17 @@ pub fn payload_for(event: &Event) -> String {
 
 /// Queues a delivery for every enabled webhook subscribed to the event.
 pub async fn dispatch(state: &AppState, event: &Event) {
-    let hooks = match sqlx::query_as::<_, (i64, String)>(
-        "SELECT id, events FROM webhooks WHERE enabled = 1",
-    )
-    .fetch_all(&state.pool)
-    .await
-    {
-        Ok(hooks) => hooks,
-        Err(error) => {
-            tracing::error!(error = %error, event = %event.action, "could not load webhooks");
-            return;
-        }
-    };
+    let hooks =
+        match db::query_as::<(i64, String)>("SELECT id, events FROM webhooks WHERE enabled = 1")
+            .fetch_all(&state.pool)
+            .await
+        {
+            Ok(hooks) => hooks,
+            Err(error) => {
+                tracing::error!(error = %error, event = %event.action, "could not load webhooks");
+                return;
+            }
+        };
     if hooks.is_empty() {
         return;
     }
@@ -167,7 +166,7 @@ pub async fn dispatch(state: &AppState, event: &Event) {
         if !subscribed.iter().any(|name| name == &event.action) {
             continue;
         }
-        let result = sqlx::query(
+        let result = db::query(
             "INSERT INTO webhook_deliveries
                 (webhook_id, event, payload, status_code, attempts, next_attempt_at, delivered_at, last_error)
              VALUES (?, ?, ?, NULL, 0, ?, NULL, NULL)",
@@ -198,7 +197,7 @@ pub async fn dispatch(state: &AppState, event: &Event) {
 /// Queues a one-off test delivery for a webhook.
 pub async fn queue_test(state: &AppState, webhook_id: i64) -> Result<i64, ApiError> {
     let exists =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM webhooks WHERE id = ? AND enabled = 1")
+        db::query_scalar::<i64>("SELECT COUNT(*) FROM webhooks WHERE id = ? AND enabled = 1")
             .bind(webhook_id)
             .fetch_one(&state.pool)
             .await
@@ -215,7 +214,7 @@ pub async fn queue_test(state: &AppState, webhook_id: i64) -> Result<i64, ApiErr
         "data": { "message": "Ludex webhook test delivery" },
     })
     .to_string();
-    let result = sqlx::query(
+    let delivery_id = db::query(
         "INSERT INTO webhook_deliveries
             (webhook_id, event, payload, status_code, attempts, next_attempt_at, delivered_at, last_error)
          VALUES (?, ?, ?, NULL, 0, ?, NULL, NULL)",
@@ -224,11 +223,11 @@ pub async fn queue_test(state: &AppState, webhook_id: i64) -> Result<i64, ApiErr
     .bind(TEST_EVENT)
     .bind(&payload)
     .bind(db::db_time(db::now()))
-    .execute(&state.pool)
+    .returning_id(&state.pool)
     .await
     .map_err(ApiError::from)?;
     state.webhooks_notify.notify_one();
-    Ok(result.last_insert_rowid())
+    Ok(delivery_id)
 }
 
 /// Background delivery worker: waits for a wake-up, then drains due rows.
@@ -255,7 +254,7 @@ struct DueDelivery {
 
 async fn process_due(state: &AppState) {
     loop {
-        let rows = match sqlx::query_as::<_, DueDelivery>(
+        let rows = match db::query_as::<DueDelivery>(
             "SELECT d.id, d.webhook_id, d.event, d.payload, d.attempts, w.url, w.secret
              FROM webhook_deliveries d
              JOIN webhooks w ON w.id = d.webhook_id
@@ -314,7 +313,7 @@ async fn deliver_one(state: &AppState, delivery: DueDelivery) {
     } else {
         None
     };
-    let result = sqlx::query(
+    let result = db::query(
         "UPDATE webhook_deliveries SET
             status_code = ?, attempts = ?, next_attempt_at = ?, delivered_at = ?, last_error = ?
          WHERE id = ?",

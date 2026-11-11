@@ -56,7 +56,7 @@ async fn create(
 ) -> Result<(StatusCode, Json<ShareLink>), ApiError> {
     user.require_editor()?;
 
-    let exists = sqlx::query_scalar::<_, i64>("SELECT id FROM games WHERE id = ?")
+    let exists = db::query_scalar::<i64>("SELECT id FROM games WHERE id = ?")
         .bind(game_id)
         .fetch_optional(&state.pool)
         .await
@@ -111,7 +111,7 @@ async fn create(
 
     let version_id = match request.version_id {
         Some(version_id) => {
-            let found = sqlx::query_scalar::<_, i64>(
+            let found = db::query_scalar::<i64>(
                 "SELECT id FROM game_versions WHERE id = ? AND game_id = ? AND missing = 0",
             )
             .bind(version_id)

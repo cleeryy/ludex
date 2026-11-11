@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use sqlx::SqlitePool;
+use crate::db::Database;
 use tokio::sync::{mpsc, RwLock};
 
 use crate::config::Config;
@@ -24,8 +24,8 @@ use crate::watcher::{WatcherHandle, WatcherStatus};
 pub struct AppState {
     /// Immutable startup configuration.
     pub config: Arc<Config>,
-    /// SQLite pool.
-    pub pool: SqlitePool,
+    /// Database pool (SQLite or PostgreSQL).
+    pub pool: Database,
     /// JWT signing secret.
     pub jwt_secret: Arc<Vec<u8>>,
     /// Process start, used by the health endpoint.

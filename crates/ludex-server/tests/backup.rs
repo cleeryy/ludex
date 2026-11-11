@@ -59,9 +59,9 @@ fn config(fixture: &Fixture) -> Config {
     )
 }
 
-async fn seed(pool: &SqlitePool, title: &str) {
+async fn seed(pool: &ludex_server::db::Database, title: &str) {
     let now = db::db_time(db::now());
-    let result = sqlx::query(
+    let game_id = ludex_server::db::query(
         "INSERT INTO games (title, sort_title, group_key, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?)",
     )
@@ -70,15 +70,15 @@ async fn seed(pool: &SqlitePool, title: &str) {
     .bind(title.to_ascii_lowercase())
     .bind(&now)
     .bind(&now)
-    .execute(pool)
+    .returning_id(pool)
     .await
     .expect("insert game");
-    sqlx::query(
+    ludex_server::db::query(
         "INSERT INTO game_versions
             (game_id, root_id, file_path, file_name, size, indexed_at)
          VALUES (?, NULL, ?, ?, 1024, ?)",
     )
-    .bind(result.last_insert_rowid())
+    .bind(game_id)
     .bind(format!("{title}.zip"))
     .bind(format!("{title}.zip"))
     .bind(&now)
@@ -299,7 +299,7 @@ async fn backup_is_consistent_under_concurrent_writes() {
         }
     }
     let pool = snapshot_pool(&snapshot).await;
-    let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
+    let integrity: String = sqlx::query_scalar::<_, String>("PRAGMA integrity_check")
         .fetch_one(&pool)
         .await
         .expect("integrity");

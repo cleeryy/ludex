@@ -4,6 +4,7 @@
 //! media cache and the game row points at it. Removing custom art clears the
 //! column so provider artwork (or the placeholder) is used again.
 
+use crate::db;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, post};
@@ -140,13 +141,13 @@ async fn upload(
         })?;
 
     let previous: Option<String> =
-        sqlx::query_scalar(&format!("SELECT {} FROM games WHERE id = ?", kind.column()))
+        db::query_scalar(format!("SELECT {} FROM games WHERE id = ?", kind.column()))
             .bind(game_id)
             .fetch_one(&state.pool)
             .await
             .map_err(ApiError::from)?;
 
-    sqlx::query(&format!(
+    db::query(format!(
         "UPDATE games SET {} = ?, updated_at = ? WHERE id = ?",
         kind.column()
     ))
@@ -200,13 +201,13 @@ async fn reset(
     })?;
 
     let previous: Option<String> =
-        sqlx::query_scalar(&format!("SELECT {} FROM games WHERE id = ?", kind.column()))
+        db::query_scalar(format!("SELECT {} FROM games WHERE id = ?", kind.column()))
             .bind(game_id)
             .fetch_one(&state.pool)
             .await
             .map_err(ApiError::from)?;
 
-    sqlx::query(&format!(
+    db::query(format!(
         "UPDATE games SET {} = NULL, updated_at = ? WHERE id = ?",
         kind.column()
     ))
@@ -234,7 +235,7 @@ async fn reset(
 }
 
 async fn ensure_game(state: &AppState, game_id: i64) -> Result<(), ApiError> {
-    let exists = sqlx::query_scalar::<_, i64>("SELECT id FROM games WHERE id = ?")
+    let exists = db::query_scalar::<i64>("SELECT id FROM games WHERE id = ?")
         .bind(game_id)
         .fetch_optional(&state.pool)
         .await

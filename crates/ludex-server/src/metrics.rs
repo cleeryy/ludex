@@ -18,6 +18,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::db;
+use crate::db::Database;
 use crate::state::AppState;
 
 /// Histogram upper bounds, in seconds.
@@ -289,10 +290,7 @@ pub struct Snapshot {
 /// Collects the snapshot. Database failures degrade the snapshot instead of
 /// failing the endpoint.
 pub async fn snapshot(state: &AppState) -> Snapshot {
-    let db_ok = sqlx::query_scalar::<_, i64>("SELECT 1")
-        .fetch_one(&state.pool)
-        .await
-        .is_ok();
+    let db_ok = state.pool.ping().await;
 
     let games = scalar(&state.pool, "SELECT COUNT(*) FROM games").await;
     let versions_available = scalar(
@@ -316,7 +314,10 @@ pub async fn snapshot(state: &AppState) -> Snapshot {
         webhook_counts(state).await;
 
     let (media_files, media_bytes) = media_usage(&state.config.media_dir).await;
-    let db_bytes = database_size(&state.config.database_url).await;
+    let db_bytes = match state.pool.backend() {
+        crate::db::Backend::Sqlite => database_size(&state.config.database_url).await,
+        crate::db::Backend::Postgres => state.pool.size_bytes().await,
+    };
 
     let scan = state.scan.read().await.clone();
     let scan_duration_seconds = match (scan.started_at, scan.finished_at) {
@@ -397,7 +398,7 @@ pub fn render_snapshot(state: &AppState, snapshot: &Snapshot) -> String {
         "ludex_process_uptime_seconds {}\n",
         state.uptime_seconds()
     ));
-    output.push_str("# HELP ludex_database_size_bytes SQLite database size, including WAL.\n");
+    output.push_str("# HELP ludex_database_size_bytes Database size in bytes (SQLite file + WAL, or PostgreSQL database).\n");
     output.push_str("# TYPE ludex_database_size_bytes gauge\n");
     output.push_str(&format!(
         "ludex_database_size_bytes {}\n",
@@ -555,20 +556,20 @@ pub fn commit() -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-async fn scalar(pool: &sqlx::SqlitePool, sql: &str) -> i64 {
-    sqlx::query_scalar::<_, i64>(sql)
+async fn scalar(pool: &Database, sql: &str) -> i64 {
+    db::query_scalar::<i64>(sql)
         .fetch_one(pool)
         .await
         .unwrap_or(0)
 }
 
 async fn webhook_counts(state: &AppState) -> (i64, i64, i64, i64) {
-    let row = sqlx::query_as::<_, (i64, i64, i64, i64)>(
+    let row = db::query_as::<(i64, i64, i64, i64)>(
         "SELECT
-            COALESCE(SUM(CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN delivered_at IS NULL AND next_attempt_at IS NOT NULL THEN 1 ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN delivered_at IS NULL AND next_attempt_at IS NULL THEN 1 ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN attempts > 1 THEN attempts - 1 ELSE 0 END), 0)
+            CAST(COALESCE(SUM(CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS BIGINT),
+            CAST(COALESCE(SUM(CASE WHEN delivered_at IS NULL AND next_attempt_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS BIGINT),
+            CAST(COALESCE(SUM(CASE WHEN delivered_at IS NULL AND next_attempt_at IS NULL THEN 1 ELSE 0 END), 0) AS BIGINT),
+            CAST(COALESCE(SUM(CASE WHEN attempts > 1 THEN attempts - 1 ELSE 0 END), 0) AS BIGINT)
          FROM webhook_deliveries",
     )
     .fetch_one(&state.pool)
@@ -626,7 +627,7 @@ fn free_space(path: &std::path::Path) -> u64 {
 }
 
 async fn last_integrity(state: &AppState) -> Option<IntegritySummary> {
-    let row = sqlx::query_as::<_, (i64, String, String, Option<String>, i64)>(
+    let row = db::query_as::<(i64, String, String, Option<String>, i64)>(
         "SELECT r.id, r.status, r.started_at, r.finished_at,
                 (SELECT COUNT(*) FROM integrity_findings f WHERE f.report_id = r.id)
          FROM integrity_reports r

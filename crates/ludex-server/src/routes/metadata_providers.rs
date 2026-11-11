@@ -142,7 +142,7 @@ async fn create(
     };
     let now = db::db_time(db::now());
 
-    let result = sqlx::query(
+    let id = db::query(
         "INSERT INTO metadata_providers
             (name, base_url, token_enc, priority, enabled, mapping_json, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -155,10 +155,9 @@ async fn create(
     .bind(&mapping_json)
     .bind(&now)
     .bind(&now)
-    .execute(&state.pool)
+    .returning_id(&state.pool)
     .await
     .map_err(map_unique_error)?;
-    let id = result.last_insert_rowid();
 
     state.events.emit(
         Event::new(actions::METADATA_PROVIDER_UPDATED, user.actor())
@@ -247,7 +246,7 @@ async fn update(
             "UPDATE metadata_providers SET {} WHERE id = ?",
             sets.join(", ")
         );
-        crate::sql::bind_query(sqlx::query(&sql), &binds)
+        crate::sql::bind_query(db::query(&sql), &binds)
             .execute(&state.pool)
             .await
             .map_err(map_unique_error)?;
@@ -277,12 +276,12 @@ async fn remove(
     let row = fetch_record(&state, id).await?;
     // SQLite may run without `foreign_keys`; delete history explicitly so a
     // removed provider never leaves rows behind.
-    sqlx::query("DELETE FROM provider_fetches WHERE provider_id = ?")
+    db::query("DELETE FROM provider_fetches WHERE provider_id = ?")
         .bind(id)
         .execute(&state.pool)
         .await
         .map_err(ApiError::from)?;
-    sqlx::query("DELETE FROM metadata_providers WHERE id = ?")
+    db::query("DELETE FROM metadata_providers WHERE id = ?")
         .bind(id)
         .execute(&state.pool)
         .await
@@ -329,11 +328,11 @@ async fn reorder(
     let mut transaction = state.pool.begin().await.map_err(ApiError::from)?;
     for (index, id) in request.ids.iter().enumerate() {
         let priority = i64::try_from(index + 1).unwrap_or(1) * 10;
-        sqlx::query("UPDATE metadata_providers SET priority = ?, updated_at = ? WHERE id = ?")
+        db::query("UPDATE metadata_providers SET priority = ?, updated_at = ? WHERE id = ?")
             .bind(priority)
             .bind(db::db_time(db::now()))
             .bind(id)
-            .execute(&mut *transaction)
+            .execute(&mut transaction)
             .await
             .map_err(ApiError::from)?;
     }
@@ -417,7 +416,7 @@ async fn ensure_name_available(
     name: &str,
     exclude: Option<i64>,
 ) -> Result<(), ApiError> {
-    let count = sqlx::query_scalar::<_, i64>(
+    let count = db::query_scalar::<i64>(
         "SELECT COUNT(*) FROM metadata_providers WHERE name = ? AND id != ?",
     )
     .bind(name)
@@ -444,7 +443,7 @@ fn map_unique_error(error: sqlx::Error) -> ApiError {
 }
 
 async fn fetch_record(state: &AppState, id: i64) -> Result<ProviderRecord, ApiError> {
-    sqlx::query_as::<_, ProviderRecord>(&format!(
+    db::query_as::<ProviderRecord>(&format!(
         "SELECT {PROVIDER_COLUMNS} FROM metadata_providers WHERE id = ?"
     ))
     .bind(id)

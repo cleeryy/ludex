@@ -27,7 +27,7 @@ async fn list(
     State(state): State<AppState>,
     _user: AuthUser,
 ) -> Result<Json<Vec<NewsPost>>, ApiError> {
-    let rows = sqlx::query_as::<_, NewsRow>(
+    let rows = db::query_as::<NewsRow>(
         "SELECT n.id, n.title, n.body, u.username AS author, n.created_at, n.updated_at
          FROM news n LEFT JOIN users u ON u.id = n.author_id
          ORDER BY n.created_at DESC, n.id DESC",
@@ -47,7 +47,7 @@ async fn create(
     let title = validate_text(&request.title, "title")?;
     let body = validate_text(&request.body, "body")?;
     let now = db::db_time(db::now());
-    let result = sqlx::query(
+    let id = db::query(
         "INSERT INTO news (title, body, author_id, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?)",
     )
@@ -56,11 +56,11 @@ async fn create(
     .bind(user.id)
     .bind(&now)
     .bind(&now)
-    .execute(&state.pool)
+    .returning_id(&state.pool)
     .await
     .map_err(ApiError::from)?;
 
-    let row = fetch(&state, result.last_insert_rowid()).await?;
+    let row = fetch(&state, id).await?;
     Ok((StatusCode::CREATED, Json(to_post(&row))))
 }
 
@@ -88,7 +88,7 @@ async fn update(
         binds.push(Bind::Text(db::db_time(db::now())));
         binds.push(Bind::Int(id));
         let sql = format!("UPDATE news SET {} WHERE id = ?", sets.join(", "));
-        bind_query(sqlx::query(&sql), &binds)
+        bind_query(db::query(&sql), &binds)
             .execute(&state.pool)
             .await
             .map_err(ApiError::from)?;
@@ -104,7 +104,7 @@ async fn delete_post(
     ApiPath(id): ApiPath<i64>,
 ) -> Result<StatusCode, ApiError> {
     user.require_admin_access()?;
-    let result = sqlx::query("DELETE FROM news WHERE id = ?")
+    let result = db::query("DELETE FROM news WHERE id = ?")
         .bind(id)
         .execute(&state.pool)
         .await
@@ -116,7 +116,7 @@ async fn delete_post(
 }
 
 async fn fetch(state: &AppState, id: i64) -> Result<NewsRow, ApiError> {
-    sqlx::query_as::<_, NewsRow>(
+    db::query_as::<NewsRow>(
         "SELECT n.id, n.title, n.body, u.username AS author, n.created_at, n.updated_at
          FROM news n LEFT JOIN users u ON u.id = n.author_id WHERE n.id = ?",
     )

@@ -299,8 +299,14 @@ pub async fn create_backup(request: &BackupRequest) -> Result<BackupReport> {
         .context("create backup staging directory")?;
     let staging_path = staging.path().to_path_buf();
 
-    let database = crate::db::sqlite_path_from_url(&request.database_url)
-        .context("LUDEX_DATABASE_URL must point to a SQLite file")?;
+    let database = match crate::db::Backend::from_url(&request.database_url)? {
+        crate::db::Backend::Sqlite => crate::db::sqlite_path_from_url(&request.database_url)
+            .context("LUDEX_DATABASE_URL must point to a SQLite file")?,
+        crate::db::Backend::Postgres => bail!(
+            "PostgreSQL backups are not handled by ludex-backup: use pg_dump/pg_restore \
+             (see docs/POSTGRES.md). The archive format below only stores a SQLite snapshot."
+        ),
+    };
     if !database.is_file() {
         bail!(
             "database {} does not exist; run the server once before backing up",

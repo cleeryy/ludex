@@ -52,7 +52,7 @@ async fn list(
     ApiPath(game_id): ApiPath<i64>,
 ) -> Result<Json<Vec<SaveSnapshot>>, ApiError> {
     ensure_game(&state, game_id).await?;
-    let rows = sqlx::query_as::<_, SaveSnapshotRow>(
+    let rows = db::query_as::<SaveSnapshotRow>(
         "SELECT id, user_id, game_id, version_id, label, file_name, size, sha256, created_at,
                 source, device_id
          FROM save_snapshots
@@ -162,7 +162,7 @@ async fn upload(
     // Automatic uploads are idempotent by content hash: an unchanged save
     // returns the snapshot that already holds those bytes (#108).
     if source == "auto" {
-        let existing = sqlx::query_as::<_, SaveSnapshotRow>(
+        let existing = db::query_as::<SaveSnapshotRow>(
             "SELECT id, user_id, game_id, version_id, label, file_name, size, sha256, created_at,
                     source, device_id
              FROM save_snapshots
@@ -181,7 +181,7 @@ async fn upload(
         }
     }
 
-    let inserted = sqlx::query(
+    let inserted = db::query(
         "INSERT INTO save_snapshots
             (user_id, game_id, version_id, label, file_name, size, sha256, created_at,
              source, device_id)
@@ -196,11 +196,11 @@ async fn upload(
     .bind(&now)
     .bind(&source)
     .bind(device_id.as_deref())
-    .execute(&state.pool)
+    .returning_id(&state.pool)
     .await;
 
     let snapshot_id = match inserted {
-        Ok(result) => result.last_insert_rowid(),
+        Ok(id) => id,
         Err(error) => {
             pending.discard().await;
             return Err(ApiError::from(error));
@@ -210,7 +210,7 @@ async fn upload(
     let dir = saves::game_dir(&state.config.data_dir, user.id, game_id);
     if let Err(error) = pending.commit(&dir, snapshot_id).await {
         tracing::error!(error = %error, "could not publish save archive");
-        let _ = sqlx::query("DELETE FROM save_snapshots WHERE id = ?")
+        let _ = db::query("DELETE FROM save_snapshots WHERE id = ?")
             .bind(snapshot_id)
             .execute(&state.pool)
             .await;
@@ -301,7 +301,7 @@ async fn delete_snapshot(
     let row = fetch_snapshot(&state, id).await?;
     ensure_access(&user, &row)?;
 
-    let deleted = sqlx::query("DELETE FROM save_snapshots WHERE id = ?")
+    let deleted = db::query("DELETE FROM save_snapshots WHERE id = ?")
         .bind(id)
         .execute(&state.pool)
         .await
@@ -340,7 +340,7 @@ async fn delete_snapshot(
 /// deletions so a crash leaves an orphaned file (removed by the media GC
 /// rules) instead of a row pointing at a missing archive.
 async fn prune_auto_snapshots(state: &AppState, user_id: i64, game_id: i64, keep: i64) {
-    let stale = sqlx::query_as::<_, (i64, String)>(
+    let stale = db::query_as::<(i64, String)>(
         "SELECT id, file_name FROM save_snapshots
          WHERE user_id = ? AND game_id = ? AND source = 'auto'
            AND id NOT IN (
@@ -365,7 +365,7 @@ async fn prune_auto_snapshots(state: &AppState, user_id: i64, game_id: i64, keep
         }
     };
     for (id, file_name) in stale {
-        if let Err(error) = sqlx::query("DELETE FROM save_snapshots WHERE id = ?")
+        if let Err(error) = db::query("DELETE FROM save_snapshots WHERE id = ?")
             .bind(id)
             .execute(&state.pool)
             .await
@@ -378,7 +378,7 @@ async fn prune_auto_snapshots(state: &AppState, user_id: i64, game_id: i64, keep
 }
 
 async fn ensure_game(state: &AppState, game_id: i64) -> Result<(), ApiError> {
-    let exists = sqlx::query_scalar::<_, i64>("SELECT id FROM games WHERE id = ?")
+    let exists = db::query_scalar::<i64>("SELECT id FROM games WHERE id = ?")
         .bind(game_id)
         .fetch_optional(&state.pool)
         .await
@@ -389,7 +389,7 @@ async fn ensure_game(state: &AppState, game_id: i64) -> Result<(), ApiError> {
 }
 
 async fn fetch_snapshot(state: &AppState, id: i64) -> Result<SaveSnapshotRow, ApiError> {
-    sqlx::query_as::<_, SaveSnapshotRow>(
+    db::query_as::<SaveSnapshotRow>(
         "SELECT id, user_id, game_id, version_id, label, file_name, size, sha256, created_at,
                 source, device_id
          FROM save_snapshots WHERE id = ?",

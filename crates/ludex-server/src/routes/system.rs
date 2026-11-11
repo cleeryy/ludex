@@ -53,7 +53,11 @@ async fn health_details(State(state): State<AppState>) -> Json<HealthDetails> {
         uptime_seconds: state.uptime_seconds(),
         database: HealthDatabase {
             ok: snapshot.db_ok,
+            backend: state.pool.backend().as_str().to_string(),
             size_bytes: snapshot.db_bytes,
+            connections: state.pool.pool_stats().size,
+            idle_connections: state.pool.pool_stats().idle,
+            max_connections: state.pool.pool_stats().max_connections,
         },
         disk: HealthDisk {
             data_free_bytes: snapshot.disk.data_free,
@@ -118,7 +122,7 @@ async fn setup(
     // The `WHERE NOT EXISTS` clause closes the race between the count check
     // above and this insert: two concurrent setup requests can never both win.
     let mut transaction = state.pool.begin().await.map_err(ApiError::from)?;
-    let result = sqlx::query(
+    let created = db::query(
         "INSERT INTO users
             (username, password_hash, email, role, activated, avatar_path, created_at, updated_at)
          SELECT ?, ?, NULL, ?, 1, NULL, ?, ?
@@ -129,7 +133,7 @@ async fn setup(
     .bind(Role::Admin.as_str())
     .bind(&now)
     .bind(&now)
-    .execute(&mut *transaction)
+    .returning_id_optional(&mut transaction)
     .await
     .map_err(|error| {
         if is_unique_violation(&error) {
@@ -138,31 +142,31 @@ async fn setup(
             ApiError::from(error)
         }
     })?;
-    if result.rows_affected() == 0 {
+    let Some(user_id) = created else {
         return Err(ApiError::conflict(
             "setup_complete",
             "This server has already been set up",
         ));
-    }
+    };
 
     let server_name = request
         .server_name
         .map(|name| name.trim().to_string())
         .filter(|name| !name.is_empty());
     if let Some(server_name) = &server_name {
-        sqlx::query(
+        db::query(
             "INSERT INTO settings (key, value) VALUES ('server_name', ?)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         )
         .bind(server_name)
-        .execute(&mut *transaction)
+        .execute(&mut transaction)
         .await
         .map_err(ApiError::from)?;
     }
     transaction.commit().await.map_err(ApiError::from)?;
 
     let user = crate::models::User {
-        id: result.last_insert_rowid(),
+        id: user_id,
         username,
         email: None,
         role: Role::Admin,

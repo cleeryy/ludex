@@ -351,7 +351,7 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
 
     if !new_games.is_empty() {
         for game_id in &new_games {
-            let title = sqlx::query_scalar::<_, String>("SELECT title FROM games WHERE id = ?")
+            let title = db::query_scalar::<String>("SELECT title FROM games WHERE id = ?")
                 .bind(game_id)
                 .fetch_optional(&state.pool)
                 .await
@@ -377,7 +377,7 @@ async fn selected_roots(state: &AppState, root_id: Option<i64>) -> Result<Vec<Li
 
 async fn mark_root_availability(state: &AppState, available: &[i64], unavailable: &[i64]) {
     for id in available {
-        let _ = sqlx::query(
+        let _ = db::query(
             "UPDATE game_versions SET root_unavailable = 0
              WHERE root_id = ? AND root_unavailable = 1",
         )
@@ -386,7 +386,7 @@ async fn mark_root_availability(state: &AppState, available: &[i64], unavailable
         .await;
     }
     for id in unavailable {
-        let _ = sqlx::query(
+        let _ = db::query(
             "UPDATE game_versions SET root_unavailable = 1, missing = 0 WHERE root_id = ?",
         )
         .bind(id)
@@ -430,7 +430,7 @@ async fn process_candidate(state: &AppState, candidate: &Candidate) -> Result<Pr
 }
 
 async fn ensure_game(state: &AppState, candidate: &Candidate, key: &str) -> Result<(i64, bool)> {
-    let existing = sqlx::query_as::<_, (i64, Option<String>)>(
+    let existing = db::query_as::<(i64, Option<String>)>(
         "SELECT id, platform FROM games WHERE group_key = ? ORDER BY id LIMIT 1",
     )
     .bind(key)
@@ -441,7 +441,7 @@ async fn ensure_game(state: &AppState, candidate: &Candidate, key: &str) -> Resu
         // A ROM indexed before platform detection existed gets backfilled.
         if candidate.kind == "rom" && platform.is_none() {
             if let Some(platform) = candidate.platform.as_deref() {
-                sqlx::query("UPDATE games SET platform = ?, updated_at = ? WHERE id = ?")
+                db::query("UPDATE games SET platform = ?, updated_at = ? WHERE id = ?")
                     .bind(platform)
                     .bind(db::db_time(db::now()))
                     .bind(id)
@@ -486,7 +486,7 @@ async fn ensure_game(state: &AppState, candidate: &Candidate, key: &str) -> Resu
     let early_access = i64::from(!rom && looks_early_access(&candidate.file_name));
     let now = db::db_time(db::now());
 
-    let result = sqlx::query(
+    let game_id = db::query(
         "INSERT INTO games
             (title, sort_title, group_key, release_date, tags_json, early_access,
              root_id, kind, platform, created_at, updated_at)
@@ -503,11 +503,11 @@ async fn ensure_game(state: &AppState, candidate: &Candidate, key: &str) -> Resu
     .bind(candidate.platform.as_deref())
     .bind(&now)
     .bind(&now)
-    .execute(&state.pool)
+    .returning_id(&state.pool)
     .await
     .context("insert game")?;
 
-    Ok((result.last_insert_rowid(), true))
+    Ok((game_id, true))
 }
 
 /// Parses `YYYYMMDDT000000`, `YYYY-MM-DD` and `YYYY` gamelist dates.
@@ -559,7 +559,7 @@ async fn apply_gamelist_metadata(state: &AppState, game_id: i64, candidate: &Can
     let has_publishers = publishers != "[]";
     let has_genres = genres != "[]";
     if description.is_some() || has_developers || has_publishers || has_genres {
-        let _ = sqlx::query(
+        let _ = db::query(
             "UPDATE games SET
                 description = COALESCE(description, ?),
                 developers_json = CASE WHEN developers_json = '[]' THEN ? ELSE developers_json END,
@@ -594,7 +594,7 @@ async fn apply_gamelist_metadata(state: &AppState, game_id: i64, candidate: &Can
         copy_gamelist_image(state, candidate, image).await
     };
     if let Some(cover) = cover {
-        let _ = sqlx::query(
+        let _ = db::query(
             "UPDATE games SET cover_path = COALESCE(cover_path, ?), updated_at = ? WHERE id = ?",
         )
         .bind(cover)
@@ -660,17 +660,14 @@ async fn upsert_version(
     let version = candidate.parsed.version.clone();
     let early_access = i64::from(looks_early_access(&candidate.file_name));
 
-    let existing = sqlx::query_as::<
-        _,
-        (
-            i64,
-            i64,
-            Option<String>,
-            Option<i64>,
-            String,
-            Option<String>,
-        ),
-    >(
+    let existing = db::query_as::<(
+        i64,
+        i64,
+        Option<String>,
+        Option<i64>,
+        String,
+        Option<String>,
+    )>(
         "SELECT id, size, archive_hash, file_modified, storage_backend, object_key
          FROM game_versions WHERE root_id = ? AND file_path = ? LIMIT 1",
     )
@@ -692,7 +689,7 @@ async fn upsert_version(
         } else {
             previous_hash
         };
-        sqlx::query(
+        db::query(
             "UPDATE game_versions SET
                 game_id = ?, file_name = ?, size = ?, version = ?,
                 release_date = COALESCE(?, release_date), early_access = ?,
@@ -730,7 +727,7 @@ async fn upsert_version(
     } else {
         // Index the row first so the version is downloadable immediately; the
         // fingerprint is filled in right after (it reads up to 2 MiB).
-        let inserted = sqlx::query(
+        let version_id = db::query(
             "INSERT INTO game_versions
                 (game_id, root_id, file_path, file_name, size, version, release_date,
                  early_access, missing, root_unavailable, content_hash, indexed_at,
@@ -749,13 +746,12 @@ async fn upsert_version(
         .bind(&now)
         .bind(candidate.modified)
         .bind(&now)
-        .execute(&state.pool)
+        .returning_id(&state.pool)
         .await
         .context("insert game version")?;
-        let version_id = inserted.last_insert_rowid();
 
         if let Some(fingerprint) = fingerprint_for(candidate).await {
-            sqlx::query(
+            db::query(
                 "UPDATE game_versions SET archive_hash = ?, updated_at = ?
                  WHERE root_id = ? AND file_path = ?",
             )
@@ -790,7 +786,7 @@ async fn publish_archive(state: &AppState, candidate: &Candidate, version_id: i6
         .await
     {
         Ok(Some(stored)) => {
-            if let Err(error) = sqlx::query(
+            if let Err(error) = db::query(
                 "UPDATE game_versions SET storage_backend = ?, object_key = ?, etag = ?,
                     updated_at = ? WHERE id = ?",
             )
@@ -843,7 +839,7 @@ async fn fingerprint_for(candidate: &Candidate) -> Option<String> {
 /// archive was unreadable during a previous scan). Bounded per scan so a huge
 /// library does not turn every scan into a full read pass.
 async fn backfill_fingerprints(state: &AppState) -> i64 {
-    let rows = sqlx::query_as::<_, (i64, String, String)>(
+    let rows = db::query_as::<(i64, String, String)>(
         "SELECT v.id, v.file_path, r.path
          FROM game_versions v
          JOIN library_roots r ON r.id = v.root_id
@@ -874,7 +870,7 @@ async fn backfill_fingerprints(state: &AppState) -> i64 {
                 continue;
             }
         };
-        let result = sqlx::query(
+        let result = db::query(
             "UPDATE game_versions SET archive_hash = ?, updated_at = COALESCE(updated_at, indexed_at) WHERE id = ?",
         )
         .bind(fingerprint)
@@ -911,7 +907,7 @@ async fn mark_missing(
          WHERE v.missing = 0 AND v.root_unavailable = 0 AND r.available = 1
            AND v.root_id IN ({placeholders})"
     );
-    let mut request = sqlx::query_as::<_, (i64, i64, String, Option<i64>)>(&query);
+    let mut request = db::query_as::<(i64, i64, String, Option<i64>)>(&query);
     for id in scanned_roots {
         request = request.bind(id);
     }
@@ -928,7 +924,7 @@ async fn mark_missing(
         if seen.contains(&(root_id, file_path.clone())) {
             continue;
         }
-        sqlx::query("UPDATE game_versions SET missing = 1 WHERE id = ?")
+        db::query("UPDATE game_versions SET missing = 1 WHERE id = ?")
             .bind(id)
             .execute(&state.pool)
             .await
@@ -1278,7 +1274,7 @@ pub async fn index_uploaded_archive(state: &AppState, path: &Path) -> Result<(i6
     candidate.root_id = root.id;
     let outcome = process_candidate(state, &candidate).await?;
     if outcome.game_created {
-        let title = sqlx::query_scalar::<_, String>("SELECT title FROM games WHERE id = ?")
+        let title = db::query_scalar::<String>("SELECT title FROM games WHERE id = ?")
             .bind(outcome.game_id)
             .fetch_optional(&state.pool)
             .await
@@ -1489,7 +1485,7 @@ mod tests {
 
         run_scan(&state, ScanRequest::all()).await;
         let (game_id, backend, key, etag): (i64, String, Option<String>, Option<String>) =
-            sqlx::query_as(
+            db::query_as(
                 "SELECT game_id, storage_backend, object_key, etag FROM game_versions LIMIT 1",
             )
             .fetch_one(&state.pool)
@@ -1503,7 +1499,7 @@ mod tests {
         // A second scan is a no-op: the row keeps pointing at the same object.
         run_scan(&state, ScanRequest::all()).await;
         let after: Option<String> =
-            sqlx::query_scalar("SELECT object_key FROM game_versions WHERE game_id = ? LIMIT 1")
+            db::query_scalar("SELECT object_key FROM game_versions WHERE game_id = ? LIMIT 1")
                 .bind(game_id)
                 .fetch_one(&state.pool)
                 .await
@@ -1574,7 +1570,7 @@ mod tests {
         let config = crate::config::Config::for_local(games, data, media);
         let (scan_tx, _scan_rx) = mpsc::channel(1);
         let state = crate::state::AppState::for_tests(config, scan_tx).await;
-        sqlx::query("UPDATE library_roots SET kind = 'rom'")
+        db::query("UPDATE library_roots SET kind = 'rom'")
             .execute(&state.pool)
             .await
             .expect("mark rom root");
@@ -1586,7 +1582,7 @@ mod tests {
             Option<String>,
             Option<String>,
             String,
-        ) = sqlx::query_as(
+        ) = db::query_as(
             "SELECT title, kind, platform, description, genres_json FROM games LIMIT 1",
         )
         .fetch_one(&state.pool)
@@ -1600,7 +1596,7 @@ mod tests {
 
         // A second scan does not duplicate the game.
         run_scan(&state, ScanRequest::all()).await;
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM games")
+        let count: i64 = db::query_scalar("SELECT COUNT(*) FROM games")
             .fetch_one(&state.pool)
             .await
             .expect("count");

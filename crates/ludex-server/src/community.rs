@@ -5,6 +5,7 @@
 //! (progress, playtime, install report, collection creation) and are deduped so
 //! a chatty client cannot flood the feed.
 
+use crate::db;
 use serde_json::Value;
 
 use crate::error::ApiError;
@@ -38,7 +39,7 @@ pub async fn record(
     collection_id: Option<i64>,
     metadata: Value,
 ) {
-    let result = sqlx::query(
+    let result = db::query(
         "INSERT INTO activities (user_id, kind, game_id, collection_id, metadata, created_at)
          VALUES (?, ?, ?, ?, ?, ?)",
     )
@@ -66,7 +67,7 @@ pub async fn record_deduped(
     window_minutes: i64,
 ) -> bool {
     let since = crate::db::db_time(crate::db::now() - chrono::Duration::minutes(window_minutes));
-    let recent = sqlx::query_scalar::<_, i64>(
+    let recent = db::query_scalar::<i64>(
         "SELECT COUNT(*) FROM activities
          WHERE user_id = ? AND kind = ? AND COALESCE(game_id, -1) = COALESCE(?, -1)
            AND created_at >= ?",
@@ -126,7 +127,7 @@ pub async fn feed(
         "SELECT {FEED_COLUMNS}{FEED_JOINS} WHERE {} ORDER BY a.id DESC LIMIT ?",
         clauses.join(" AND ")
     );
-    let mut rows = bind_query_as(sqlx::query_as::<_, ActivityRow>(&sql), &binds)
+    let mut rows = bind_query_as(db::query_as::<ActivityRow>(&sql), &binds)
         .fetch_all(&state.pool)
         .await
         .map_err(ApiError::from)?;

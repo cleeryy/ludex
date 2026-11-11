@@ -107,7 +107,7 @@ async fn update_profile(
         binds.push(Bind::Text(db::db_time(db::now())));
         binds.push(Bind::Int(user.id));
         let sql = format!("UPDATE users SET {} WHERE id = ?", sets.join(", "));
-        bind_query(sqlx::query(&sql), &binds)
+        bind_query(db::query(&sql), &binds)
             .execute(&state.pool)
             .await
             .map_err(ApiError::from)?;
@@ -122,8 +122,8 @@ async fn directory(
     user: AuthUser,
 ) -> Result<Json<Vec<PublicProfile>>, ApiError> {
     user.require_scope(Scope::Read)?;
-    let rows = sqlx::query_as::<_, ProfileRow>(&format!(
-        "SELECT {PROFILE_COLUMNS} FROM users WHERE public_profile = 1 ORDER BY username COLLATE NOCASE ASC"
+    let rows = db::query_as::<ProfileRow>(&format!(
+        "SELECT {PROFILE_COLUMNS} FROM users WHERE public_profile = 1 ORDER BY lower(username) ASC"
     ))
     .fetch_all(&state.pool)
     .await
@@ -154,10 +154,10 @@ async fn profile(
         ));
     }
 
-    let (games, completed, minutes_played) = sqlx::query_as::<_, (i64, i64, i64)>(
+    let (games, completed, minutes_played) = db::query_as::<(i64, i64, i64)>(
         "SELECT COUNT(*),
-                COALESCE(SUM(CASE WHEN state = 'completed' THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(minutes_played), 0)
+                CAST(COALESCE(SUM(CASE WHEN state = 'completed' THEN 1 ELSE 0 END), 0) AS BIGINT),
+                CAST(COALESCE(SUM(minutes_played), 0) AS BIGINT)
          FROM progress WHERE user_id = ?",
     )
     .bind(id)
@@ -165,12 +165,11 @@ async fn profile(
     .await
     .map_err(ApiError::from)?;
 
-    let bookmarked =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM bookmarks WHERE user_id = ?")
-            .bind(id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(ApiError::from)?;
+    let bookmarked = db::query_scalar::<i64>("SELECT COUNT(*) FROM bookmarks WHERE user_id = ?")
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(ApiError::from)?;
 
     let collections = super::collections::collections_for(&state, viewer.id, id).await?;
 
@@ -183,7 +182,7 @@ async fn profile(
          LIMIT 60"
     );
     let library: Vec<GameSummary> = bind_query_as(
-        sqlx::query_as::<_, crate::models::GameListRow>(&sql),
+        db::query_as::<crate::models::GameListRow>(&sql),
         &[Bind::Int(id), Bind::Int(id)],
     )
     .fetch_all(&state.pool)
@@ -225,7 +224,7 @@ async fn profile_activity(
 }
 
 async fn load_profile(state: &AppState, id: i64) -> Result<ProfileRow, ApiError> {
-    sqlx::query_as::<_, ProfileRow>(&format!("SELECT {PROFILE_COLUMNS} FROM users WHERE id = ?"))
+    db::query_as::<ProfileRow>(&format!("SELECT {PROFILE_COLUMNS} FROM users WHERE id = ?"))
         .bind(id)
         .fetch_optional(&state.pool)
         .await

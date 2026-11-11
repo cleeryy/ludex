@@ -22,6 +22,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::db::Database;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -737,7 +738,7 @@ pub async fn scan(
     game_id: i64,
     request: ScanRequest,
 ) -> Result<ScanReport, ApiError> {
-    let game = sqlx::query_scalar::<_, i64>("SELECT id FROM games WHERE id = ?")
+    let game = db::query_scalar::<i64>("SELECT id FROM games WHERE id = ?")
         .bind(game_id)
         .fetch_optional(&state.pool)
         .await
@@ -746,7 +747,7 @@ pub async fn scan(
         return Err(ApiError::not_found("game_not_found", "Game not found"));
     }
 
-    let stored = sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>)>(
+    let stored = db::query_as::<(Option<String>, Option<String>, Option<String>)>(
         "SELECT install_path, app_id, providers FROM achievement_sources
          WHERE game_id = ? AND user_id = ?",
     )
@@ -867,7 +868,7 @@ pub async fn scan(
     }
 
     let now = db::db_time(scanned_at);
-    sqlx::query(
+    db::query(
         "INSERT INTO achievement_sources (game_id, user_id, install_path, app_id, providers, updated_at)
          VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(game_id, user_id) DO UPDATE SET
@@ -892,7 +893,7 @@ pub async fn scan(
     .map_err(ApiError::from)?;
 
     for provider in &report.providers {
-        sqlx::query(
+        db::query(
             "INSERT INTO achievement_scans
                 (game_id, user_id, provider, status, found, unlocked, error, scanned_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -957,7 +958,7 @@ async fn upsert(
     let now = db::db_time(db::now());
 
     let existing =
-        sqlx::query_scalar::<_, i64>("SELECT id FROM achievements WHERE game_id = ? AND key = ?")
+        db::query_scalar::<i64>("SELECT id FROM achievements WHERE game_id = ? AND key = ?")
             .bind(game_id)
             .bind(&key)
             .fetch_optional(&state.pool)
@@ -966,7 +967,7 @@ async fn upsert(
 
     let achievement_id = match existing {
         Some(id) => {
-            sqlx::query(
+            db::query(
                 "UPDATE achievements SET
                     name = ?, description = ?, icon_path = ?, points = ?, hidden = ?,
                     provider = ?, source_json = ?, updated_at = ?
@@ -987,7 +988,7 @@ async fn upsert(
             id
         }
         None => {
-            let result = sqlx::query(
+            let id = db::query(
                 "INSERT INTO achievements
                     (game_id, key, name, description, icon_path, points, hidden, provider,
                      source_json, created_at, updated_at)
@@ -1004,10 +1005,10 @@ async fn upsert(
             .bind(achievement.raw.to_string())
             .bind(&now)
             .bind(&now)
-            .execute(&state.pool)
+            .returning_id(&state.pool)
             .await
             .map_err(ApiError::from)?;
-            result.last_insert_rowid()
+            id
         }
     };
 
@@ -1017,7 +1018,7 @@ async fn upsert(
             .unlocked_at
             .map(db::db_time)
             .unwrap_or_else(|| db::db_time(db::now()));
-        let result = sqlx::query(
+        let result = db::query(
             "INSERT INTO user_achievements
                 (user_id, achievement_id, unlocked_at, progress, source, raw_json, created_at)
              VALUES (?, ?, ?, 1.0, ?, ?, ?)
@@ -1239,7 +1240,7 @@ pub struct AchievementUser {
 
 /// Loads one game's definitions with the caller's unlock state.
 pub async fn for_game(
-    pool: &SqlitePool,
+    pool: &Database,
     viewer_id: i64,
     game_id: i64,
 ) -> Result<GameAchievements, ApiError> {
@@ -1249,10 +1250,10 @@ pub async fn for_game(
          JOIN games g ON g.id = a.game_id
          LEFT JOIN user_achievements ua ON ua.achievement_id = a.id AND ua.user_id = ?
          WHERE a.game_id = ?
-         ORDER BY a.points DESC, a.name COLLATE NOCASE ASC, a.id ASC
+         ORDER BY a.points DESC, lower(a.name) ASC, a.id ASC
          LIMIT ?"
     );
-    let rows = sqlx::query_as::<_, AchievementRow>(&sql)
+    let rows = db::query_as::<AchievementRow>(&sql)
         .bind(viewer_id)
         .bind(game_id)
         .bind(i64::try_from(MAX_DEFINITIONS).unwrap_or(i64::MAX))
@@ -1276,7 +1277,7 @@ pub async fn for_game(
         0.0
     };
 
-    let scans = sqlx::query_as::<_, (String, String, i64, i64)>(
+    let scans = db::query_as::<(String, String, i64, i64)>(
         "SELECT scanned_at, provider, found, unlocked FROM achievement_scans
          WHERE game_id = ? AND user_id = ? ORDER BY id DESC LIMIT 20",
     )
@@ -1318,10 +1319,10 @@ pub async fn for_game(
 
 /// Loads the unlocked achievements of one account, newest first.
 pub async fn for_user(
-    pool: &SqlitePool,
+    pool: &Database,
     user_id: i64,
 ) -> Result<(AchievementUser, UserAchievements), ApiError> {
-    let user = sqlx::query_as::<_, (i64, String, Option<String>, i64)>(
+    let user = db::query_as::<(i64, String, Option<String>, i64)>(
         "SELECT id, username, display_name, public_profile FROM users WHERE id = ?",
     )
     .bind(user_id)
@@ -1339,7 +1340,7 @@ pub async fn for_user(
          ORDER BY ua.unlocked_at DESC, ua.id DESC
          LIMIT ?"
     );
-    let rows = sqlx::query_as::<_, AchievementRow>(&sql)
+    let rows = db::query_as::<AchievementRow>(&sql)
         .bind(user_id)
         .bind(i64::try_from(MAX_DEFINITIONS).unwrap_or(i64::MAX))
         .fetch_all(pool)
@@ -1380,7 +1381,7 @@ pub async fn for_user(
 /// 400 `invalid_achievement` for bad input, 409 `achievement_exists` on a
 /// duplicate key.
 pub async fn create_definition(
-    pool: &SqlitePool,
+    pool: &Database,
     game_id: i64,
     request: &DefinitionInput,
 ) -> Result<i64, ApiError> {
@@ -1396,7 +1397,7 @@ pub async fn create_definition(
         .and_then(sanitize_icon)
         .map(|value| clamp_text(&value, MAX_ICON_CHARS).unwrap_or(value));
     let now = db::db_time(db::now());
-    let result = sqlx::query(
+    let created = db::query(
         "INSERT INTO achievements
             (game_id, key, name, description, icon_path, points, hidden, provider,
              source_json, created_at, updated_at)
@@ -1412,17 +1413,16 @@ pub async fn create_definition(
     .bind(i64::from(request.hidden.unwrap_or(false)))
     .bind(&now)
     .bind(&now)
-    .execute(pool)
+    .returning_id_optional(pool)
     .await
     .map_err(ApiError::from)?;
-    if result.rows_affected() == 0 {
-        return Err(ApiError::new(
+    created.ok_or_else(|| {
+        ApiError::new(
             axum::http::StatusCode::CONFLICT,
             "achievement_exists",
             "An achievement with this key already exists for the game",
-        ));
-    }
-    Ok(result.last_insert_rowid())
+        )
+    })
 }
 
 /// Updates a manual definition.
@@ -1431,7 +1431,7 @@ pub async fn create_definition(
 ///
 /// 404 `achievement_not_found` when the key is unknown for the game.
 pub async fn update_definition(
-    pool: &SqlitePool,
+    pool: &Database,
     game_id: i64,
     key: &str,
     request: &DefinitionPatch,
@@ -1475,7 +1475,7 @@ pub async fn update_definition(
         "UPDATE achievements SET {} WHERE game_id = ? AND key = ?",
         sets.join(", ")
     );
-    let result = crate::sql::bind_query(sqlx::query(&sql), &binds)
+    let result = crate::sql::bind_query(db::query(&sql), &binds)
         .execute(pool)
         .await
         .map_err(ApiError::from)?;
@@ -1493,8 +1493,8 @@ pub async fn update_definition(
 /// # Errors
 ///
 /// 404 `achievement_not_found` when the key is unknown for the game.
-pub async fn delete_definition(pool: &SqlitePool, game_id: i64, key: &str) -> Result<(), ApiError> {
-    let result = sqlx::query("DELETE FROM achievements WHERE game_id = ? AND key = ?")
+pub async fn delete_definition(pool: &Database, game_id: i64, key: &str) -> Result<(), ApiError> {
+    let result = db::query("DELETE FROM achievements WHERE game_id = ? AND key = ?")
         .bind(game_id)
         .bind(normalize_key(key))
         .execute(pool)
@@ -1524,7 +1524,7 @@ pub async fn unlock(
 ) -> Result<(Achievement, bool), ApiError> {
     let key = normalize_key(key);
     let achievement_id =
-        sqlx::query_scalar::<_, i64>("SELECT id FROM achievements WHERE game_id = ? AND key = ?")
+        db::query_scalar::<i64>("SELECT id FROM achievements WHERE game_id = ? AND key = ?")
             .bind(game_id)
             .bind(&key)
             .fetch_optional(&state.pool)
@@ -1533,7 +1533,7 @@ pub async fn unlock(
             .ok_or_else(|| ApiError::not_found("achievement_not_found", "Achievement not found"))?;
 
     let now = db::now();
-    let result = sqlx::query(
+    let result = db::query(
         "INSERT INTO user_achievements
             (user_id, achievement_id, unlocked_at, progress, source, raw_json, created_at)
          VALUES (?, ?, ?, 1.0, ?, '{\"source\":\"manual\"}', ?)
@@ -1550,13 +1550,12 @@ pub async fn unlock(
     let created = result.rows_affected() > 0;
 
     if created {
-        let (name, hidden) = sqlx::query_as::<_, (String, i64)>(
-            "SELECT name, hidden FROM achievements WHERE id = ?",
-        )
-        .bind(achievement_id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(ApiError::from)?;
+        let (name, hidden) =
+            db::query_as::<(String, i64)>("SELECT name, hidden FROM achievements WHERE id = ?")
+                .bind(achievement_id)
+                .fetch_one(&state.pool)
+                .await
+                .map_err(ApiError::from)?;
         if hidden == 0 {
             crate::community::record(
                 state,
@@ -1592,7 +1591,7 @@ pub async fn unlock(
          LEFT JOIN user_achievements ua ON ua.achievement_id = a.id AND ua.user_id = ?
          WHERE a.id = ?"
     );
-    let row = sqlx::query_as::<_, AchievementRow>(&sql)
+    let row = db::query_as::<AchievementRow>(&sql)
         .bind(user_id)
         .bind(achievement_id)
         .fetch_optional(&state.pool)
@@ -1986,7 +1985,7 @@ pub async fn scheduled_worker(state: AppState, mut cancel: tokio::sync::watch::R
 }
 
 async fn rescan_sources(state: &AppState) -> Result<usize> {
-    let sources = sqlx::query_as::<_, (i64, i64, Option<String>, Option<String>, Option<String>)>(
+    let sources = db::query_as::<(i64, i64, Option<String>, Option<String>, Option<String>)>(
         "SELECT game_id, user_id, install_path, app_id, providers FROM achievement_sources",
     )
     .fetch_all(&state.pool)

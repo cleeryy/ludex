@@ -247,7 +247,7 @@ pub async fn start_session(
         .user_agent
         .as_deref()
         .map(|value| value.chars().take(400).collect::<String>());
-    let result = sqlx::query(
+    let session_id = db::query(
         "INSERT INTO auth_sessions
             (user_id, jti, user_agent, ip, created_at, last_seen_at, expires_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -259,10 +259,10 @@ pub async fn start_session(
     .bind(&now)
     .bind(&now)
     .bind(&expires_at)
-    .execute(&state.pool)
+    .returning_id(&state.pool)
     .await
     .map_err(ApiError::from)?;
-    Ok((issued, result.last_insert_rowid()))
+    Ok((issued, session_id))
 }
 
 /// Revokes one token id. Idempotent.
@@ -272,7 +272,7 @@ pub async fn revoke_token(
     user_id: i64,
     reason: &str,
 ) -> Result<(), ApiError> {
-    sqlx::query(
+    db::query(
         "INSERT INTO token_revocations (jti, user_id, reason, revoked_at)
          VALUES (?, ?, ?, ?)
          ON CONFLICT(jti) DO UPDATE SET reason = excluded.reason",
@@ -284,7 +284,7 @@ pub async fn revoke_token(
     .execute(&state.pool)
     .await
     .map_err(ApiError::from)?;
-    sqlx::query("UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, ?) WHERE jti = ?")
+    db::query("UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, ?) WHERE jti = ?")
         .bind(db::db_time(db::now()))
         .bind(jti)
         .execute(&state.pool)
@@ -304,7 +304,7 @@ pub async fn revoke_other_sessions(
     reason: &str,
 ) -> Result<u64, ApiError> {
     let now_text = db::db_time(db::now());
-    let active = sqlx::query_scalar::<_, i64>(
+    let active = db::query_scalar::<i64>(
         "SELECT COUNT(*) FROM auth_sessions
          WHERE user_id = ? AND jti != ? AND revoked_at IS NULL AND expires_at > ?",
     )
@@ -314,7 +314,7 @@ pub async fn revoke_other_sessions(
     .fetch_one(&state.pool)
     .await
     .map_err(ApiError::from)?;
-    sqlx::query(
+    db::query(
         "INSERT INTO token_revocations (jti, user_id, reason, revoked_at)
          SELECT jti, user_id, ?, ? FROM auth_sessions
          WHERE user_id = ? AND jti != ? AND revoked_at IS NULL
@@ -327,7 +327,7 @@ pub async fn revoke_other_sessions(
     .execute(&state.pool)
     .await
     .map_err(ApiError::from)?;
-    sqlx::query(
+    db::query(
         "UPDATE auth_sessions SET revoked_at = ?
          WHERE user_id = ? AND jti != ? AND revoked_at IS NULL",
     )
@@ -350,7 +350,7 @@ pub async fn revoke_all_sessions(
 ) -> Result<u64, ApiError> {
     let now = db::now();
     let now_text = db::db_time(now);
-    let active = sqlx::query_scalar::<_, i64>(
+    let active = db::query_scalar::<i64>(
         "SELECT COUNT(*) FROM auth_sessions
          WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ?",
     )
@@ -359,7 +359,7 @@ pub async fn revoke_all_sessions(
     .fetch_one(&state.pool)
     .await
     .map_err(ApiError::from)?;
-    sqlx::query(
+    db::query(
         "INSERT INTO token_revocations (jti, user_id, reason, revoked_at)
          SELECT jti, user_id, ?, ? FROM auth_sessions
          WHERE user_id = ? AND revoked_at IS NULL
@@ -371,7 +371,7 @@ pub async fn revoke_all_sessions(
     .execute(&state.pool)
     .await
     .map_err(ApiError::from)?;
-    sqlx::query("UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL")
+    db::query("UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL")
         .bind(&now_text)
         .bind(user_id)
         .execute(&state.pool)
@@ -379,7 +379,7 @@ pub async fn revoke_all_sessions(
         .map_err(ApiError::from)?;
     // Invalidates every JWT issued before this instant, including tokens
     // without a `jti` (issued before the sessions table existed).
-    sqlx::query("UPDATE users SET tokens_valid_after = ?, updated_at = ? WHERE id = ?")
+    db::query("UPDATE users SET tokens_valid_after = ?, updated_at = ? WHERE id = ?")
         .bind(&now_text)
         .bind(&now_text)
         .bind(user_id)
@@ -478,10 +478,11 @@ pub async fn authenticate_token(state: &AppState, token: &str) -> Result<AuthUse
     let jti = claims.jti.clone();
     let issued_at = DateTime::from_timestamp(claims.iat, 0).unwrap_or_else(Utc::now);
 
-    let row = sqlx::query_as::<_, RevocationRow>(
+    let row = db::query_as::<RevocationRow>(
         "SELECT u.id, u.username, u.role, u.activated, u.age_limit, u.tokens_valid_after,
                 s.revoked_at AS session_revoked,
-                (SELECT 1 FROM token_revocations r WHERE r.jti = ?) AS token_revoked
+                CAST(COALESCE((SELECT 1 FROM token_revocations r WHERE r.jti = ?), 0) AS BIGINT)
+                    AS token_revoked
          FROM users u
          LEFT JOIN auth_sessions s ON s.jti = ? AND s.user_id = u.id
          WHERE u.id = ?",
@@ -563,7 +564,7 @@ async fn touch_session(state: &AppState, jti: &str) {
         }
         seen.insert(jti.to_string(), now);
     }
-    let _ = sqlx::query("UPDATE auth_sessions SET last_seen_at = ? WHERE jti = ?")
+    let _ = db::query("UPDATE auth_sessions SET last_seen_at = ? WHERE jti = ?")
         .bind(db::db_time(db::now()))
         .bind(jti)
         .execute(&state.pool)
@@ -576,7 +577,7 @@ async fn load_auth_user(
     api_key_id: Option<i64>,
     scopes: Option<Vec<Scope>>,
 ) -> Result<AuthUser, ApiError> {
-    let row = sqlx::query_as::<_, crate::models::UserRow>(
+    let row = db::query_as::<crate::models::UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
                 onboarding_completed_at, onboarding_step

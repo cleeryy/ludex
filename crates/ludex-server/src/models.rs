@@ -408,8 +408,16 @@ pub struct HealthDetails {
 pub struct HealthDatabase {
     /// Whether `SELECT 1` succeeded.
     pub ok: bool,
-    /// Database size including WAL, in bytes.
+    /// Active backend: `sqlite` or `postgres`.
+    pub backend: String,
+    /// Database size in bytes (SQLite file + WAL, or `pg_database_size`).
     pub size_bytes: u64,
+    /// Live pooled connections.
+    pub connections: u32,
+    /// Idle pooled connections.
+    pub idle_connections: u32,
+    /// Configured pool ceiling.
+    pub max_connections: u32,
 }
 
 /// Disk section of the health details.

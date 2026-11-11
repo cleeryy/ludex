@@ -580,7 +580,7 @@ async fn provider_lookup(
 /// Enriches one game and caches its artwork. Safe to call concurrently for
 /// different games; provider failures are logged and leave the row untouched.
 pub async fn enrich_game(state: &AppState, game_id: i64) {
-    let game = sqlx::query_as::<_, (String, Option<String>, String)>(
+    let game = db::query_as::<(String, Option<String>, String)>(
         "SELECT title, release_date, kind FROM games WHERE id = ?",
     )
     .bind(game_id)
@@ -635,7 +635,7 @@ pub async fn enrich_game(state: &AppState, game_id: i64) {
     let release_date = metadata.release_date.map(db::db_time);
     let now = db::db_time(db::now());
 
-    let result = sqlx::query(
+    let result = db::query(
         "UPDATE games SET
             description = COALESCE(?, description),
             release_date = COALESCE(?, release_date),

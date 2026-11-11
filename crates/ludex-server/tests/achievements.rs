@@ -6,8 +6,6 @@ use std::time::Duration;
 use ludex_server::{start, Config, ServerHandle};
 use reqwest::{Client, Method, StatusCode};
 use serde_json::{json, Value};
-use sqlx::sqlite::SqliteConnectOptions;
-use sqlx::SqlitePool;
 use tempfile::TempDir;
 
 const PASSWORD: &str = "password123";
@@ -152,38 +150,39 @@ impl TestServer {
     async fn insert_game(&self, title: &str) -> i64 {
         let pool = self.pool().await;
         let now = "2026-01-01T00:00:00Z";
-        let result = sqlx::query(
+        let id = ludex_server::db::query(
             "INSERT INTO games (title, sort_title, created_at, updated_at) VALUES (?, ?, ?, ?)",
         )
         .bind(title)
         .bind(title.to_lowercase())
         .bind(now)
         .bind(now)
-        .execute(&pool)
+        .returning_id(&pool)
         .await
         .expect("insert game");
         pool.close().await;
-        result.last_insert_rowid()
+        id
     }
 
     async fn count_definitions(&self, game_id: i64) -> i64 {
         let pool = self.pool().await;
-        let count =
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM achievements WHERE game_id = ?")
-                .bind(game_id)
-                .fetch_one(&pool)
-                .await
-                .expect("count");
+        let count = ludex_server::db::query_scalar::<i64>(
+            "SELECT COUNT(*) FROM achievements WHERE game_id = ?",
+        )
+        .bind(game_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count");
         pool.close().await;
         count
     }
 
-    async fn pool(&self) -> SqlitePool {
-        let options = SqliteConnectOptions::new()
-            .filename(self.data_dir.join("ludex.db"))
-            .create_if_missing(false)
-            .busy_timeout(Duration::from_secs(5));
-        SqlitePool::connect_with(options).await.expect("db")
+    async fn pool(&self) -> ludex_server::db::Database {
+        let url = format!(
+            "sqlite://{}?mode=rwc",
+            self.data_dir.join("ludex.db").display()
+        );
+        ludex_server::db::connect(&url).await.expect("db")
     }
 }
 

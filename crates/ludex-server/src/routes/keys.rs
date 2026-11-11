@@ -46,14 +46,14 @@ async fn list(
     let all = query.all.unwrap_or(false);
     let rows = if all {
         user.require_admin_access()?;
-        sqlx::query_as::<_, ApiKeyRow>(&format!(
+        db::query_as::<ApiKeyRow>(&format!(
             "SELECT {KEY_COLUMNS} FROM api_keys ORDER BY id DESC"
         ))
         .fetch_all(&state.pool)
         .await
         .map_err(ApiError::from)?
     } else {
-        sqlx::query_as::<_, ApiKeyRow>(&format!(
+        db::query_as::<ApiKeyRow>(&format!(
             "SELECT {KEY_COLUMNS} FROM api_keys WHERE user_id = ? ORDER BY id DESC"
         ))
         .bind(user.id)
@@ -78,7 +78,7 @@ async fn create(
         user.require_admin_access()?;
     }
 
-    let target = sqlx::query_as::<_, UserRow>(
+    let target = db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
                 onboarding_completed_at, onboarding_step
@@ -108,7 +108,7 @@ async fn create(
         }
     }
 
-    let active = sqlx::query_scalar::<_, i64>(
+    let active = db::query_scalar::<i64>(
         "SELECT COUNT(*) FROM api_keys WHERE user_id = ? AND revoked_at IS NULL",
     )
     .bind(target_id)
@@ -124,7 +124,7 @@ async fn create(
 
     let generated = api_keys::generate();
     let now = db::db_time(db::now());
-    let result = sqlx::query(
+    let key_id = db::query(
         "INSERT INTO api_keys
             (user_id, name, prefix, secret_hash, scopes, created_at, last_used_at, revoked_at)
          VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)",
@@ -135,10 +135,9 @@ async fn create(
     .bind(&generated.secret_hash)
     .bind(api_keys::scopes_json(&scopes))
     .bind(&now)
-    .execute(&state.pool)
+    .returning_id(&state.pool)
     .await
     .map_err(ApiError::from)?;
-    let key_id = result.last_insert_rowid();
 
     state.events.emit(
         Event::new(actions::API_KEY_CREATED, user.actor())
@@ -152,7 +151,7 @@ async fn create(
     );
 
     let row =
-        sqlx::query_as::<_, ApiKeyRow>(&format!("SELECT {KEY_COLUMNS} FROM api_keys WHERE id = ?"))
+        db::query_as::<ApiKeyRow>(&format!("SELECT {KEY_COLUMNS} FROM api_keys WHERE id = ?"))
             .bind(key_id)
             .fetch_one(&state.pool)
             .await
@@ -174,7 +173,7 @@ async fn revoke(
 ) -> Result<StatusCode, ApiError> {
     user.require_scope(Scope::Write)?;
     let row =
-        sqlx::query_as::<_, ApiKeyRow>(&format!("SELECT {KEY_COLUMNS} FROM api_keys WHERE id = ?"))
+        db::query_as::<ApiKeyRow>(&format!("SELECT {KEY_COLUMNS} FROM api_keys WHERE id = ?"))
             .bind(id)
             .fetch_optional(&state.pool)
             .await
@@ -189,7 +188,7 @@ async fn revoke(
     }
 
     let now = db::db_time(db::now());
-    sqlx::query("UPDATE api_keys SET revoked_at = ? WHERE id = ?")
+    db::query("UPDATE api_keys SET revoked_at = ? WHERE id = ?")
         .bind(&now)
         .bind(id)
         .execute(&state.pool)

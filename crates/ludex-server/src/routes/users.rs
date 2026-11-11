@@ -32,7 +32,7 @@ async fn revoke_sessions(
     ApiPath(id): ApiPath<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     user.require_admin_access()?;
-    let exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE id = ?")
+    let exists = db::query_scalar::<i64>("SELECT COUNT(*) FROM users WHERE id = ?")
         .bind(id)
         .fetch_one(&state.pool)
         .await
@@ -51,7 +51,7 @@ async fn revoke_sessions(
 
 async fn list(State(state): State<AppState>, user: AuthUser) -> Result<Json<Vec<User>>, ApiError> {
     user.require_admin_access()?;
-    let rows = sqlx::query_as::<_, UserRow>(
+    let rows = db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
                 onboarding_completed_at, onboarding_step
@@ -76,7 +76,7 @@ async fn create(
     let password_hash = hash_password(&request.password)?;
     let now = db::db_time(db::now());
 
-    let result = sqlx::query(
+    let user_id = db::query(
         "INSERT INTO users
             (username, password_hash, email, role, activated, avatar_path, created_at, updated_at)
          VALUES (?, ?, ?, ?, 1, NULL, ?, ?)",
@@ -87,7 +87,7 @@ async fn create(
     .bind(role.as_str())
     .bind(&now)
     .bind(&now)
-    .execute(&state.pool)
+    .returning_id(&state.pool)
     .await
     .map_err(|error| {
         if super::system::is_unique_violation(&error) {
@@ -97,13 +97,13 @@ async fn create(
         }
     })?;
 
-    let created = sqlx::query_as::<_, UserRow>(
+    let created = db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
                 onboarding_completed_at, onboarding_step
          FROM users WHERE id = ?",
     )
-    .bind(result.last_insert_rowid())
+    .bind(user_id)
     .fetch_one(&state.pool)
     .await
     .map_err(ApiError::from)?;
@@ -234,7 +234,7 @@ async fn update(
     binds.push(Bind::Int(id));
 
     let sql = format!("UPDATE users SET {} WHERE id = ?", sets.join(", "));
-    bind_query(sqlx::query(&sql), &binds)
+    bind_query(db::query(&sql), &binds)
         .execute(&state.pool)
         .await
         .map_err(|error| {
@@ -284,7 +284,7 @@ async fn delete_user(
     if target.role == Role::Admin.as_str() && target.activated != 0 {
         ensure_other_active_admin(&state, id).await?;
     }
-    sqlx::query("DELETE FROM users WHERE id = ?")
+    db::query("DELETE FROM users WHERE id = ?")
         .bind(id)
         .execute(&state.pool)
         .await
@@ -301,7 +301,7 @@ async fn delete_user(
 }
 
 async fn fetch_user(state: &AppState, id: i64) -> Result<UserRow, ApiError> {
-    sqlx::query_as::<_, UserRow>(
+    db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
                 onboarding_completed_at, onboarding_step
@@ -315,7 +315,7 @@ async fn fetch_user(state: &AppState, id: i64) -> Result<UserRow, ApiError> {
 }
 
 async fn ensure_other_active_admin(state: &AppState, excluded_id: i64) -> Result<(), ApiError> {
-    let others = sqlx::query_scalar::<_, i64>(
+    let others = db::query_scalar::<i64>(
         "SELECT COUNT(*) FROM users WHERE role = 'admin' AND activated = 1 AND id != ?",
     )
     .bind(excluded_id)

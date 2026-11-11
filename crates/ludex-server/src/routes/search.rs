@@ -64,7 +64,7 @@ async fn suggest(
     // Parental controls (#39): never suggest a game above the account limit.
     let rows = match user.age_limit {
         Some(limit) => {
-            sqlx::query_as::<_, SuggestRow>(
+            db::query_as::<SuggestRow>(
                 "SELECT id, title, sort_title, release_date, cover_path, alt_titles_json
                  FROM games WHERE age_rating IS NULL OR age_rating <= ?
                  ORDER BY sort_title ASC LIMIT 5000",
@@ -74,7 +74,7 @@ async fn suggest(
             .await
         }
         None => {
-            sqlx::query_as::<_, SuggestRow>(
+            db::query_as::<SuggestRow>(
                 "SELECT id, title, sort_title, release_date, cover_path, alt_titles_json
                  FROM games ORDER BY sort_title ASC LIMIT 5000",
             )
