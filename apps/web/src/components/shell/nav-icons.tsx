@@ -1,4 +1,5 @@
 import {
+  Archive,
   Bookmark,
   Clock,
   Download,
@@ -39,6 +40,7 @@ const ICONS: Record<NavIconName, LucideIcon> = {
   metadata: PlugZap,
   authentication: KeyRound,
   server: Server,
+  backup: Archive,
   settings: Settings,
 };
 

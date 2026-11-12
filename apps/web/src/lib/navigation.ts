@@ -28,6 +28,7 @@ export type NavIconName =
   | "metadata"
   | "authentication"
   | "server"
+  | "backup"
   | "settings";
 
 export type NavGroupId = "library" | "play" | "community" | "admin" | "system";
@@ -228,6 +229,14 @@ export const NAV_DESTINATIONS = [
     labelKey: "Server",
     group: "admin",
     icon: "server",
+    visibility: "admin",
+  },
+  {
+    id: "backups",
+    to: "/admin/backups",
+    labelKey: "Backups",
+    group: "admin",
+    icon: "backup",
     visibility: "admin",
   },
   {

@@ -20,6 +20,13 @@ import type {
   ActivityPage,
   AuthResult,
   AuthSession,
+  BackupCreated,
+  BackupCreateInput,
+  BackupEntry,
+  BackupList,
+  BackupRestoreInput,
+  BackupRestoreResult,
+  BackupVerification,
   Collection,
   CollectionGamesResponse,
   CollectionInput,
@@ -674,6 +681,29 @@ function requireDemoAdmin(token: string | null): User {
   if (user.role !== "admin") fail(403, "forbidden", "Administrator role required");
   return user;
 }
+
+/** Demo backup archives (#169); verification state survives a session. */
+let demoBackups: BackupEntry[] = [
+  {
+    name: "ludex-backup-20261111-020000.tar.gz",
+    path: "/srv/ludex/data/backups/ludex-backup-20261111-020000.tar.gz",
+    size: 184_320_512,
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 30).toISOString(),
+    kind: "manual",
+    verification: {
+      state: "verified",
+      checkedAt: new Date(Date.now() - 1000 * 60 * 60 * 29).toISOString(),
+      message: null,
+      games: DEMO_GAMES.length,
+      versions: DEMO_GAMES.length,
+      users: DEMO_USERS.length,
+      saves: 12,
+      files: 412,
+      bytes: 184_320_512,
+      serverVersion: "0.3.2",
+    },
+  },
+];
 
 /* ---------------------------------- api ---------------------------------- */
 
@@ -1963,6 +1993,121 @@ export const mockApi = {
       return { ok: false, candidates: [], error: "The demo provider is disabled; enable it to test it.", elapsedMs: 42 };
     }
     return { ok: true, candidates: demoProviderCandidates(title), statusCode: 200, elapsedMs: 128 };
+  },
+
+  /* admin backups (#169) */
+  async adminBackups(token: string | null): Promise<BackupList> {
+    await latency();
+    requireDemoAdmin(token);
+    return { directory: "/srv/ludex/data/backups", backups: clone(demoBackups) };
+  },
+
+  async createAdminBackup(token: string | null, body: BackupCreateInput): Promise<BackupCreated> {
+    await sleep(900);
+    requireDemoAdmin(token);
+    const createdAt = nowIso();
+    const stamp = createdAt.replace(/\D/g, "").slice(0, 14);
+    const name = `ludex-backup-${stamp.slice(0, 8)}-${stamp.slice(8, 14)}.tar.gz`;
+    const created: BackupCreated = {
+      name,
+      path: `/srv/ludex/data/backups/${name}`,
+      bytes: body.dryRun ? 184_320_512 : 184_336_128,
+      files: 412,
+      dryRun: Boolean(body.dryRun),
+      uploadedKey: body.uploadS3 && !body.dryRun ? `backups/${name}` : null,
+      createdAt,
+    };
+    if (!body.dryRun) {
+      demoBackups = [
+        {
+          name,
+          path: created.path,
+          size: created.bytes,
+          createdAt,
+          kind: "manual",
+          verification: {
+            state: "unverified",
+            checkedAt: null,
+            message: null,
+            games: null,
+            versions: null,
+            users: null,
+            saves: null,
+            files: null,
+            bytes: null,
+            serverVersion: null,
+          },
+        },
+        ...demoBackups,
+      ];
+    }
+    return created;
+  },
+
+  async verifyAdminBackup(token: string | null, name: string): Promise<BackupVerification> {
+    await sleep(700);
+    requireDemoAdmin(token);
+    const entry = demoBackups.find((backup) => backup.name === name);
+    if (!entry) fail(404, "backup_not_found", "Backup archive not found");
+    const verification: BackupVerification = {
+      state: "verified",
+      checkedAt: nowIso(),
+      message: null,
+      games: DEMO_GAMES.length,
+      versions: DEMO_GAMES.length,
+      users: DEMO_USERS.length,
+      saves: 12,
+      files: 412,
+      bytes: entry.size,
+      serverVersion: "0.3.2",
+    };
+    entry.verification = verification;
+    return clone(verification);
+  },
+
+  async restoreAdminBackup(
+    token: string | null,
+    name: string,
+    body: BackupRestoreInput,
+  ): Promise<BackupRestoreResult> {
+    await sleep(1200);
+    requireDemoAdmin(token);
+    const entry = demoBackups.find((backup) => backup.name === name);
+    if (!entry) fail(404, "backup_not_found", "Backup archive not found");
+    if (!body.dryRun && body.confirmation !== name) {
+      fail(400, "confirmation_required", "Type the archive file name to confirm a destructive restore");
+    }
+    const stamp = nowIso().replace(/\D/g, "").slice(0, 14);
+    return {
+      dryRun: Boolean(body.dryRun),
+      overwrote: true,
+      files: 412,
+      bytes: entry.size,
+      games: DEMO_GAMES.length,
+      versions: DEMO_GAMES.length,
+      users: DEMO_USERS.length,
+      createdAt: entry.createdAt,
+      safetyBackup: body.dryRun ? null : `ludex-pre-restore-${stamp}.tar.gz`,
+      restartRequired: !body.dryRun,
+    };
+  },
+
+  async deleteAdminBackup(token: string | null, name: string, confirm: string): Promise<void> {
+    await latency();
+    requireDemoAdmin(token);
+    if (confirm !== name) fail(400, "confirmation_required", "Pass ?confirm=<file name> to delete a backup archive");
+    if (!demoBackups.some((backup) => backup.name === name)) {
+      fail(404, "backup_not_found", "Backup archive not found");
+    }
+    demoBackups = demoBackups.filter((backup) => backup.name !== name);
+  },
+
+  async downloadAdminBackup(token: string | null, name: string): Promise<void> {
+    await sleep(300);
+    requireDemoAdmin(token);
+    if (!demoBackups.some((backup) => backup.name === name)) {
+      fail(404, "backup_not_found", "Backup archive not found");
+    }
   },
 
   async health() {

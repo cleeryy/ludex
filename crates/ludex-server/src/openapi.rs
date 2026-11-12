@@ -874,6 +874,73 @@ pub const ROUTES: &[RouteDoc] = &[
         Auth::Session,
         Payload::Schema("IntegrityReportDetail"),
     ),
+    // Backups (#169)
+    route(
+        HttpMethod::Get,
+        "/admin/backups",
+        "Backups",
+        "List backup archives and their verification state",
+        Auth::Admin,
+        Payload::Schema("BackupList"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/admin/backups",
+            "Backups",
+            "Create a backup archive, or plan one with a dry run",
+            Auth::Admin,
+            Payload::Schema("BackupCreated"),
+        ),
+        "CreateBackupRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/admin/backups/{name}/verify",
+            "Backups",
+            "Verify every checksum in an archive",
+            Auth::Admin,
+            Payload::Schema("BackupVerification"),
+        ),
+        200,
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/admin/backups/{name}/restore",
+                "Backups",
+                "Preview or restore an archive after a safety copy",
+                Auth::Admin,
+                Payload::Schema("RestoreBackupResponse"),
+            ),
+            200,
+        ),
+        "RestoreBackupRequest",
+    ),
+    query(
+        ok(
+            route(
+                HttpMethod::Delete,
+                "/admin/backups/{name}",
+                "Backups",
+                "Delete an archive after a typed confirmation",
+                Auth::Admin,
+                Payload::None,
+            ),
+            204,
+        ),
+        &[("confirm", "Archive file name; must match the path")],
+    ),
+    route(
+        HttpMethod::Get,
+        "/admin/backups/{name}/download",
+        "Backups",
+        "Stream an archive for an offsite copy",
+        Auth::Admin,
+        Payload::Binary,
+    ),
     // Media
     query(
         route(
@@ -2045,6 +2112,13 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::routes::achievements::DefinitionResponse>()
         .schema_from::<crate::routes::achievements::UnlockResponse>()
         .schema_from::<crate::routes::admin_oidc::OidcSettingsRequest>()
+        .schema_from::<crate::routes::backups::BackupEntry>()
+        .schema_from::<crate::routes::backups::BackupList>()
+        .schema_from::<crate::routes::backups::BackupVerification>()
+        .schema_from::<crate::routes::backups::CreateBackupRequest>()
+        .schema_from::<crate::routes::backups::BackupCreated>()
+        .schema_from::<crate::routes::backups::RestoreBackupRequest>()
+        .schema_from::<crate::routes::backups::RestoreBackupResponse>()
         .schema_from::<crate::routes::artwork::ArtworkResponse>()
         .security_scheme(
             "bearerAuth",
@@ -2068,6 +2142,10 @@ pub fn document() -> OpenApi {
         ("Search", "Fuzzy title search"),
         ("Library", "Scanning, roots and the folder watcher"),
         ("Integrity", "Archive verification reports"),
+        (
+            "Backups",
+            "Backup archives, verification, download and restore",
+        ),
         ("Media", "Cover, background and screenshot cache"),
         ("News", "Server news posts"),
         ("Cloud saves", "Per-user save snapshots"),

@@ -43,6 +43,7 @@ import { AdminNewsScreen } from "@/screens/admin/news";
 import { ServerScreen } from "@/screens/admin/server";
 import { AuthenticationScreen } from "@/screens/admin/authentication";
 import { MetadataProvidersScreen } from "@/screens/admin/metadata";
+import { BackupsScreen } from "@/screens/admin/backups";
 import { UploadScreen } from "@/screens/admin/upload";
 import { ShareScreen } from "@/screens/share";
 import { DownloadScreen } from "@/screens/download";
@@ -314,6 +315,14 @@ export function App() {
                     element={
                       <RequireAdmin>
                         <ServerScreen />
+                      </RequireAdmin>
+                    }
+                  />
+                  <Route
+                    path="admin/backups"
+                    element={
+                      <RequireAdmin>
+                        <BackupsScreen />
                       </RequireAdmin>
                     }
                   />

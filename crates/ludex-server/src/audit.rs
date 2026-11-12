@@ -102,6 +102,12 @@ pub mod actions {
     pub const GAME_VERSION_DEFAULT_CHANGED: &str = "game.version_default_changed";
     /// An editor deleted one version's archive while keeping the game (#168).
     pub const GAME_VERSION_DELETED: &str = "game.version_deleted";
+    /// An administrator created a backup archive (#169).
+    pub const BACKUP_CREATED: &str = "backup.created";
+    /// An administrator restored an archive (#169).
+    pub const BACKUP_RESTORED: &str = "backup.restored";
+    /// An administrator deleted a backup archive (#169).
+    pub const BACKUP_DELETED: &str = "backup.deleted";
 }
 
 /// Writes one event to `audit_logs`. Failures are logged, never propagated:

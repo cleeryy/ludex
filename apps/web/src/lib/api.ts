@@ -9,6 +9,12 @@ import type {
   ActivityPage,
   AuthResult,
   AuthSession,
+  BackupCreated,
+  BackupCreateInput,
+  BackupList,
+  BackupRestoreInput,
+  BackupRestoreResult,
+  BackupVerification,
   Collection,
   CollectionGamesResponse,
   CollectionInput,
@@ -315,6 +321,64 @@ export const api = {
     return USING_MOCKS
       ? mockApi.testMetadataProvider(tokenStore.get(), id, body)
       : request<ProviderTestResult>(`/admin/metadata-providers/${id}/test`, { method: "POST", body });
+  },
+
+  /* admin backups (#169) */
+  adminBackups(): Promise<BackupList> {
+    return USING_MOCKS ? mockApi.adminBackups(tokenStore.get()) : request<BackupList>("/admin/backups");
+  },
+  createAdminBackup(body: BackupCreateInput): Promise<BackupCreated> {
+    return USING_MOCKS
+      ? mockApi.createAdminBackup(tokenStore.get(), body)
+      : request<BackupCreated>("/admin/backups", { method: "POST", body });
+  },
+  verifyAdminBackup(name: string): Promise<BackupVerification> {
+    return USING_MOCKS
+      ? mockApi.verifyAdminBackup(tokenStore.get(), name)
+      : request<BackupVerification>(`/admin/backups/${encodeURIComponent(name)}/verify`, { method: "POST" });
+  },
+  restoreAdminBackup(name: string, body: BackupRestoreInput): Promise<BackupRestoreResult> {
+    return USING_MOCKS
+      ? mockApi.restoreAdminBackup(tokenStore.get(), name, body)
+      : request<BackupRestoreResult>(`/admin/backups/${encodeURIComponent(name)}/restore`, { method: "POST", body });
+  },
+  deleteAdminBackup(name: string, confirm: string): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.deleteAdminBackup(tokenStore.get(), name, confirm)
+      : request(`/admin/backups/${encodeURIComponent(name)}`, { method: "DELETE", query: { confirm } });
+  },
+  /** Streams the archive through an authenticated fetch, then saves it. */
+  async downloadAdminBackup(name: string): Promise<void> {
+    if (USING_MOCKS) {
+      await mockApi.downloadAdminBackup(tokenStore.get(), name);
+      return;
+    }
+    const token = tokenStore.get();
+    let response: Response;
+    try {
+      response = await fetch(buildUrl(`/admin/backups/${encodeURIComponent(name)}/download`), {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+    } catch {
+      throw new ApiError(0, "network_error", t("Cannot reach the server. Check that it is running."));
+    }
+    if (response.status === 401) {
+      tokenStore.clear();
+      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+    }
+    if (!response.ok) {
+      throw new ApiError(response.status, "download_failed", saveErrorMessage(response.status));
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition") ?? "";
+    const filename = filenameFromDisposition(disposition) ?? name;
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.rel = "noopener";
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
   },
 
   /* games */

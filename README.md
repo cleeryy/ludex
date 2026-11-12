@@ -218,6 +218,7 @@ binary defaults to the current directory for the three paths.
 | `LUDEX_DATA_DIR` | `/data` | SQLite database and generated JWT secret. **Back this up.** |
 | `LUDEX_GAMES_DIR` | `/games` | Archive library. Scanned recursively (depth 3). |
 | `LUDEX_MEDIA_DIR` | `/media` | Cached covers, backgrounds and screenshots. Rebuildable. |
+| `LUDEX_BACKUP_DIR` | `{DATA}/backups` | Backup archives read and written by the admin UI and `ludex-backup`. |
 | `LUDEX_SERVER_NAME` | `Ludex` | Display name in the UI and API. |
 | `LUDEX_JWT_SECRET` | generated | HS256 signing secret. Set only to survive a wiped data dir. 32+ random bytes. |
 | `LUDEX_IGDB_CLIENT_ID` | unset | Twitch application client ID for IGDB metadata. |

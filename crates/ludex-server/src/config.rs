@@ -205,6 +205,9 @@ pub struct Config {
     pub games_dir: PathBuf,
     /// Cache for covers, backgrounds and screenshots.
     pub media_dir: PathBuf,
+    /// Directory holding backup archives (#169). Defaults to
+    /// `{data_dir}/backups`; `LUDEX_BACKUP_DIR` overrides it.
+    pub backup_dir: PathBuf,
     /// Connection string: `sqlite://…` (default) or `postgres://…`.
     pub database_url: String,
     /// Maximum pooled connections (`LUDEX_DATABASE_MAX_CONNECTIONS`).
@@ -342,6 +345,9 @@ impl Config {
         let data_dir = env_path("LUDEX_DATA_DIR", "./data");
         let games_dir = env_path("LUDEX_GAMES_DIR", "./games");
         let media_dir = env_path("LUDEX_MEDIA_DIR", "./media");
+        let backup_dir = env_opt("LUDEX_BACKUP_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| data_dir.join("backups"));
         let bind = env::var("LUDEX_BIND")
             .ok()
             .filter(|value| !value.trim().is_empty())
@@ -578,6 +584,7 @@ impl Config {
             data_dir,
             games_dir,
             media_dir,
+            backup_dir,
             database_url,
             database_max_connections,
             jwt_secret: env_opt("LUDEX_JWT_SECRET"),
@@ -671,11 +678,13 @@ impl Config {
     pub fn for_local(games_dir: PathBuf, data_dir: PathBuf, media_dir: PathBuf) -> Self {
         let database_url = default_database_url(&data_dir);
         let library_roots = vec![games_dir.clone()];
+        let backup_dir = data_dir.join("backups");
         Self {
             bind: SocketAddr::from(([127, 0, 0, 1], 0)),
             data_dir,
             games_dir: games_dir.clone(),
             media_dir,
+            backup_dir,
             database_url,
             database_max_connections: crate::db::DEFAULT_MAX_CONNECTIONS,
             jwt_secret: None,

@@ -62,7 +62,9 @@ ludex-backup backup --upload-s3
 ```
 
 The default destination is
-`{LUDEX_DATA_DIR}/backups/ludex-backup-<YYYYmmdd-HHMMSS>.tar.gz`. The report is
+`{LUDEX_DATA_DIR}/backups/ludex-backup-<YYYYmmdd-HHMMSS>.tar.gz`. Set
+`LUDEX_BACKUP_DIR` to keep archives on a separate volume; the admin UI
+(Admin → Backups) reads and writes the same directory. The report is
 printed as JSON on stdout: path, bytes, file count, creation time and the
 uploaded key when `--upload-s3` succeeded.
 

@@ -60,6 +60,8 @@ pub struct AppState {
     pub media_gc_busy: Arc<AtomicBool>,
     /// Guards against two concurrent achievement scans.
     pub achievement_busy: Arc<AtomicBool>,
+    /// Guards against two concurrent backup, verify or restore runs (#169).
+    pub backup_busy: Arc<AtomicBool>,
     /// Game archive storage (local disk or S3-compatible bucket).
     pub storage: ArchiveStorage,
     /// In-process Prometheus registry.
@@ -205,6 +207,7 @@ impl AppState {
             integrity_busy: Arc::new(AtomicBool::new(false)),
             media_gc_busy: Arc::new(AtomicBool::new(false)),
             achievement_busy: Arc::new(AtomicBool::new(false)),
+            backup_busy: Arc::new(AtomicBool::new(false)),
             storage,
             metrics: Arc::new(Metrics::default()),
             ingest: None,
