@@ -101,7 +101,10 @@
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    overflow: hidden;
+    /* The authenticated shell scrolls inside AppShell; public pages (download,
+       share, register) are normal documents and need the body to scroll. */
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   ::selection {
