@@ -117,7 +117,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 13;
+const SCHEMA_VERSION: i64 = 14;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -394,6 +394,29 @@ CREATE INDEX IF NOT EXISTS save_candidates_game_idx
     ON save_candidates (game_id, ignored);
 "#;
 
+/// Automatic promotion of save folders (#180). `save_candidates.auto_status`
+/// records the last automatic decision for a candidate (`saving`, `waiting` or
+/// `skipped`); `auto_reason` carries the readable reason for a skip.
+///
+/// `save_candidate_snapshots` is the pre-launch measurement used to prove which
+/// guessed folder a session actually wrote to. It is replaced on every launch,
+/// so an exit hook never compares against a stale session.
+const SCHEMA_V14: &str = r#"
+ALTER TABLE save_candidates ADD COLUMN auto_status TEXT NOT NULL DEFAULT '';
+ALTER TABLE save_candidates ADD COLUMN auto_reason TEXT;
+
+CREATE TABLE IF NOT EXISTS save_candidate_snapshots (
+    game_id     INTEGER NOT NULL,
+    path        TEXT    NOT NULL,
+    existed     INTEGER NOT NULL DEFAULT 0,
+    files       INTEGER NOT NULL DEFAULT 0,
+    bytes       INTEGER NOT NULL DEFAULT 0,
+    newest      TEXT,
+    captured_at TEXT    NOT NULL,
+    PRIMARY KEY (game_id, path)
+);
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -509,6 +532,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         connection
             .execute_batch(SCHEMA_V13)
             .map_err(|e| format!("Could not add save candidates to the desktop database: {e}"))?;
+    }
+    if version < 14 {
+        connection.execute_batch(SCHEMA_V14).map_err(|e| {
+            format!("Could not add automatic save-folder promotion to the desktop database: {e}")
+        })?;
     }
 
     if version < SCHEMA_VERSION {
@@ -1768,7 +1796,7 @@ pub fn delete_save_detection(connection: &Connection, game_id: i64) -> Result<bo
 /* ------------------------------------------------------- save candidates */
 
 const SAVE_CANDIDATE_COLUMNS: &str = "path, kind, root_id, subpath, source, confidence, evidence,
-     size_bytes, last_modified, first_seen, last_verified, confirmed, ignored";
+     size_bytes, last_modified, first_seen, last_verified, confirmed, ignored, auto_status, auto_reason";
 
 fn map_save_candidate(row: &rusqlite::Row<'_>) -> rusqlite::Result<SaveCandidate> {
     Ok(SaveCandidate {
@@ -1785,6 +1813,8 @@ fn map_save_candidate(row: &rusqlite::Row<'_>) -> rusqlite::Result<SaveCandidate
         last_verified: row.get(10)?,
         confirmed: row.get::<_, i64>(11)? != 0,
         ignored: row.get::<_, i64>(12)? != 0,
+        auto_status: row.get(13)?,
+        auto_reason: row.get(14)?,
     })
 }
 
@@ -1820,7 +1850,8 @@ pub fn list_save_candidate_groups(
         .prepare(
             "SELECT c.game_id, g.title, c.path, c.kind, c.root_id, c.subpath, c.source,
                     c.confidence, c.evidence, c.size_bytes, c.last_modified,
-                    c.first_seen, c.last_verified, c.confirmed, c.ignored
+                    c.first_seen, c.last_verified, c.confirmed, c.ignored,
+                    c.auto_status, c.auto_reason
              FROM save_candidates c
              JOIN installed_games g ON g.game_id = c.game_id
              WHERE c.ignored = 0
@@ -1848,6 +1879,8 @@ pub fn list_save_candidate_groups(
                     last_verified: row.get(12)?,
                     confirmed: row.get::<_, i64>(13)? != 0,
                     ignored: row.get::<_, i64>(14)? != 0,
+                    auto_status: row.get(15)?,
+                    auto_reason: row.get(16)?,
                 },
             ))
         })
@@ -1911,8 +1944,9 @@ pub fn upsert_save_candidates(
             .execute(
                 r#"INSERT INTO save_candidates
                        (game_id, path, kind, root_id, subpath, source, confidence, evidence,
-                        size_bytes, last_modified, first_seen, last_verified, confirmed, ignored)
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                        size_bytes, last_modified, first_seen, last_verified, confirmed, ignored,
+                        auto_status, auto_reason)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
                    ON CONFLICT(game_id, path) DO UPDATE SET
                        kind          = excluded.kind,
                        root_id       = excluded.root_id,
@@ -1922,7 +1956,15 @@ pub fn upsert_save_candidates(
                        evidence      = excluded.evidence,
                        size_bytes    = excluded.size_bytes,
                        last_modified = excluded.last_modified,
-                       last_verified = excluded.last_verified"#,
+                       last_verified = excluded.last_verified,
+                       confirmed     = CASE WHEN excluded.confirmed = 1
+                                            THEN 1 ELSE save_candidates.confirmed END,
+                       auto_status   = CASE WHEN excluded.auto_status <> ''
+                                            THEN excluded.auto_status
+                                            ELSE save_candidates.auto_status END,
+                       auto_reason   = CASE WHEN excluded.auto_status <> ''
+                                            THEN excluded.auto_reason
+                                            ELSE save_candidates.auto_reason END"#,
                 params![
                     game_id,
                     candidate.path,
@@ -1938,6 +1980,8 @@ pub fn upsert_save_candidates(
                     last_verified,
                     i64::from(candidate.confirmed),
                     i64::from(candidate.ignored),
+                    candidate.auto_status,
+                    candidate.auto_reason,
                 ],
             )
             .map_err(|e| format!("Could not record the save candidate: {e}"))?;
@@ -2003,6 +2047,143 @@ pub fn set_save_candidate_ignored(
         )
         .map_err(|e| format!("Could not update the save candidate: {e}"))?;
     Ok(affected > 0)
+}
+
+/// Paths the user dismissed for one game (#180). They are invisible in the
+/// normal list but still guard automatic promotion.
+pub fn list_ignored_save_candidate_paths(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<Vec<String>, String> {
+    let mut statement = connection
+        .prepare("SELECT path FROM save_candidates WHERE game_id = ?1 AND ignored = 1")
+        .map_err(|e| format!("Could not read save candidates: {e}"))?;
+    let rows = statement
+        .query_map(params![game_id], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("Could not read save candidates: {e}"))?;
+    let mut paths = Vec::new();
+    for row in rows {
+        paths.push(row.map_err(|e| format!("Could not read save candidates: {e}"))?);
+    }
+    Ok(paths)
+}
+
+/// Record the last automatic promotion decision for one candidate (#180).
+pub fn set_save_candidate_status(
+    connection: &Connection,
+    game_id: i64,
+    path: &str,
+    status: &str,
+    reason: Option<&str>,
+) -> Result<bool, String> {
+    let affected = connection
+        .execute(
+            "UPDATE save_candidates SET auto_status = ?1, auto_reason = ?2
+             WHERE game_id = ?3 AND path = ?4",
+            params![status, reason, game_id, path],
+        )
+        .map_err(|e| format!("Could not update the save candidate status: {e}"))?;
+    Ok(affected > 0)
+}
+
+/* ------------------------------------------------ save candidate snapshots */
+
+/// Pre-launch measurement of one candidate (#180). Compared with the post-exit
+/// scan to prove which guessed folder a session wrote to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CandidateSnapshotRecord {
+    pub game_id: i64,
+    pub path: String,
+    /// The path existed when the session started. A folder created during the
+    /// session is not promoted from that same session.
+    pub existed: bool,
+    pub files: u64,
+    pub bytes: u64,
+    pub newest: Option<String>,
+    pub captured_at: String,
+}
+
+pub fn replace_candidate_snapshots(
+    connection: &Connection,
+    game_id: i64,
+    records: &[CandidateSnapshotRecord],
+) -> Result<(), String> {
+    let transaction = connection
+        .unchecked_transaction()
+        .map_err(|e| format!("Could not update the save candidate snapshots: {e}"))?;
+    transaction
+        .execute(
+            "DELETE FROM save_candidate_snapshots WHERE game_id = ?1",
+            params![game_id],
+        )
+        .map_err(|e| format!("Could not update the save candidate snapshots: {e}"))?;
+    for record in records {
+        transaction
+            .execute(
+                r#"INSERT INTO save_candidate_snapshots
+                       (game_id, path, existed, files, bytes, newest, captured_at)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                   ON CONFLICT(game_id, path) DO UPDATE SET
+                       existed     = excluded.existed,
+                       files       = excluded.files,
+                       bytes       = excluded.bytes,
+                       newest      = excluded.newest,
+                       captured_at = excluded.captured_at"#,
+                params![
+                    game_id,
+                    record.path,
+                    i64::from(record.existed),
+                    i64::try_from(record.files).unwrap_or(i64::MAX),
+                    i64::try_from(record.bytes).unwrap_or(i64::MAX),
+                    record.newest,
+                    record.captured_at,
+                ],
+            )
+            .map_err(|e| format!("Could not record a save candidate snapshot: {e}"))?;
+    }
+    transaction
+        .commit()
+        .map_err(|e| format!("Could not update the save candidate snapshots: {e}"))
+}
+
+pub fn list_candidate_snapshots(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<Vec<CandidateSnapshotRecord>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT game_id, path, existed, files, bytes, newest, captured_at
+             FROM save_candidate_snapshots WHERE game_id = ?1 ORDER BY path",
+        )
+        .map_err(|e| format!("Could not read the save candidate snapshots: {e}"))?;
+    let rows = statement
+        .query_map(params![game_id], |row| {
+            Ok(CandidateSnapshotRecord {
+                game_id: row.get(0)?,
+                path: row.get(1)?,
+                existed: row.get::<_, i64>(2)? != 0,
+                files: row.get::<_, i64>(3)?.max(0) as u64,
+                bytes: row.get::<_, i64>(4)?.max(0) as u64,
+                newest: row.get(5)?,
+                captured_at: row.get(6)?,
+            })
+        })
+        .map_err(|e| format!("Could not read the save candidate snapshots: {e}"))?;
+    let mut records = Vec::new();
+    for row in rows {
+        records.push(row.map_err(|e| format!("Could not read the save candidate snapshots: {e}"))?);
+    }
+    Ok(records)
+}
+
+pub fn clear_candidate_snapshots(connection: &Connection, game_id: i64) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM save_candidate_snapshots WHERE game_id = ?1",
+            params![game_id],
+        )
+        .map_err(|e| format!("Could not clear the save candidate snapshots: {e}"))?;
+    Ok(())
 }
 
 /// Per-game cloud save state (#108).
@@ -2548,6 +2729,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V11).unwrap();
         connection.execute_batch(SCHEMA_V12).unwrap();
         connection.execute_batch(SCHEMA_V13).unwrap();
+        connection.execute_batch(SCHEMA_V14).unwrap();
         connection
     }
 
@@ -3753,6 +3935,8 @@ mod tests {
             last_verified: Some("2026-11-11T00:00:00Z".to_string()),
             confirmed: false,
             ignored: false,
+            auto_status: String::new(),
+            auto_reason: None,
         }
     }
 
@@ -3860,5 +4044,58 @@ mod tests {
         assert_eq!(groups[0].2.len(), 2);
         assert_eq!(groups[0].2[0].confidence, "likely");
         assert_eq!(groups[0].2[1].confidence, "guess");
+    }
+
+    #[test]
+    fn candidate_auto_status_survives_a_rescan_and_is_cleared_by_saving() {
+        let connection = memory_database();
+        let mut candidate = save_candidate("/home/player/Documents/Hades", "guess");
+        candidate.auto_status = "skipped".to_string();
+        candidate.auto_reason = Some("too broad".to_string());
+        upsert_save_candidates(&connection, 7, &[candidate.clone()], "2026-11-11T00:00:00Z")
+            .unwrap();
+
+        // A plain discovery run has an empty status and must not erase the
+        // stored decision.
+        let mut rediscovered = candidate.clone();
+        rediscovered.auto_status = String::new();
+        rediscovered.auto_reason = None;
+        upsert_save_candidates(&connection, 7, &[rediscovered], "2026-11-12T00:00:00Z").unwrap();
+        let listed = list_save_candidates(&connection, 7).unwrap();
+        assert_eq!(listed[0].auto_status, "skipped");
+        assert_eq!(listed[0].auto_reason.as_deref(), Some("too broad"));
+
+        set_save_candidate_status(&connection, 7, &candidate.path, "saving", None).unwrap();
+        let listed = list_save_candidates(&connection, 7).unwrap();
+        assert_eq!(listed[0].auto_status, "saving");
+        assert_eq!(listed[0].auto_reason, None);
+    }
+
+    #[test]
+    fn candidate_snapshots_are_replaced_per_game() {
+        let connection = memory_database();
+        let before = CandidateSnapshotRecord {
+            game_id: 7,
+            path: "/home/player/Documents/Hades".to_string(),
+            existed: true,
+            files: 2,
+            bytes: 120,
+            newest: Some("2026-11-11T10:00:00Z".to_string()),
+            captured_at: "2026-11-11T10:00:00Z".to_string(),
+        };
+        replace_candidate_snapshots(&connection, 7, std::slice::from_ref(&before)).unwrap();
+        let listed = list_candidate_snapshots(&connection, 7).unwrap();
+        assert_eq!(listed, vec![before.clone()]);
+
+        let next = CandidateSnapshotRecord {
+            bytes: 240,
+            captured_at: "2026-11-12T10:00:00Z".to_string(),
+            ..before
+        };
+        replace_candidate_snapshots(&connection, 7, std::slice::from_ref(&next)).unwrap();
+        assert_eq!(list_candidate_snapshots(&connection, 7).unwrap(), vec![next]);
+
+        clear_candidate_snapshots(&connection, 7).unwrap();
+        assert!(list_candidate_snapshots(&connection, 7).unwrap().is_empty());
     }
 }

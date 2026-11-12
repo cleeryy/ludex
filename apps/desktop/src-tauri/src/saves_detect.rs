@@ -283,8 +283,8 @@ pub struct Detection {
     pub manifest_version: Option<String>,
     pub message: String,
     pub warnings: Vec<String>,
-    /// Resolver candidates (#146). They are never archived automatically: a
-    /// guess, and every other registry candidate, waits for a confirmation.
+    /// Resolver candidates (#146). High-confidence ones are promoted
+    /// automatically; a guess waits for a session that writes to it (#180).
     #[serde(default)]
     pub candidates: Vec<SaveCandidate>,
     /// Version of `data/save-roots.yaml` used for this run.
@@ -341,21 +341,34 @@ pub struct SavePath {
     pub notes: Option<String>,
 }
 
-/// Run detection for an installed game, merging persisted manual paths.
-pub fn detect_for_game(
+/// Run detection for an installed game and promote its high-confidence
+/// candidates (#180). `ignored` holds the paths the user dismissed: a dismissed
+/// high-confidence candidate is never promoted automatically.
+#[allow(clippy::too_many_arguments)]
+pub fn detect_for_game_with_ignored(
     settings: &LocalSettings,
     game: &InstalledGame,
     app_data: &Path,
     manual: &[SavePathRecord],
     prefix_override: Option<&str>,
     app_id_override: Option<u32>,
+    ignored: &[String],
 ) -> Detection {
     let env = DetectEnv::for_game(settings, game, app_data, prefix_override, app_id_override);
     let mut context = GameContext::from_installed(game);
     if context.steam_app_id.is_none() {
         context.steam_app_id = app_id_override;
     }
-    detect(&env, &context, manual)
+    let mut detection = detect(&env, &context, manual);
+    let guard = PromotionGuard::for_game(settings, game);
+    let auto_promoted = auto_promote_detected(&mut detection, &guard, ignored);
+    if auto_promoted > 0 {
+        detection.message = format!(
+            "{auto_promoted} save path(s) synced automatically ({} total).",
+            detection.saves.len()
+        );
+    }
+    detection
 }
 
 /// Run detection with an explicit environment. This is the testable core.
@@ -363,8 +376,9 @@ pub fn detect(env: &DetectEnv, game: &GameContext, manual: &[SavePathRecord]) ->
     detect_at(env, game, manual, &crate::util::now_rfc3339())
 }
 
-/// Run detection with an explicit clock, so candidates and confirmations carry
-/// stable first-seen/last-verified timestamps in tests.
+/// Run detection with an explicit clock, so candidates and first-seen
+/// timestamps are stable in tests. Promotion is applied by
+/// `detect_for_game_with_ignored`, not here.
 pub fn detect_at(
     env: &DetectEnv,
     game: &GameContext,
@@ -506,10 +520,11 @@ pub fn detect_at(
     let combined: Vec<DetectedSave> = manual_saves.into_iter().chain(provider_saves).collect();
     detection.saves = aggregate(combined);
 
-    // 3. Known roots and engine defaults (#146). These are candidates only:
-    //    they are shown with their root, provenance and confidence, and are
-    //    never archived until the user confirms them. Manifest results above
-    //    stay the trusted per-game layer and are de-duplicated here.
+    // 3. Known roots and engine defaults (#146). These are candidates: they
+    //    are shown with their root, provenance and confidence, and the
+    //    high-confidence ones are promoted automatically (#180). Manifest
+    //    results above stay the trusted per-game layer and are de-duplicated
+    //    here.
     let discovery = saves_registry::discover(&saves_registry::DiscoveryInputs {
         platform: env.platform,
         user_name: &env.os_user_name,
@@ -579,20 +594,28 @@ pub fn detect_at(
             "The configured save path is missing right now. Launch the game once, then re-detect."
                 .to_string()
         }
-    } else if !detection.candidates.is_empty() {
-        let guesses = detection
+    } else if detection
+        .candidates
+        .iter()
+        .any(|candidate| candidate.auto_status != CANDIDATE_STATUS_SAVING)
+    {
+        let waiting: Vec<_> = detection
             .candidates
+            .iter()
+            .filter(|candidate| candidate.auto_status != CANDIDATE_STATUS_SAVING)
+            .collect();
+        let guesses = waiting
             .iter()
             .filter(|candidate| candidate.is_guess())
             .count();
-        if guesses == detection.candidates.len() {
+        if guesses == waiting.len() {
             format!(
-                "{guesses} guessed save location(s) were found from engine defaults; confirm the right one in Settings → Saves before it is archived."
+                "{guesses} guessed save location(s) were found from engine defaults; the folder that changes during a session is synced automatically."
             )
         } else {
             format!(
-                "{} possible save location(s) found; confirm the right one in Settings → Saves before it is archived.",
-                detection.candidates.len()
+                "{} possible save location(s) found; the folder that changes during a session is synced automatically.",
+                waiting.len()
             )
         }
     } else {
@@ -688,6 +711,370 @@ pub fn measured_save(path: &Path, source: &str) -> DetectedSave {
         last_modified: measured.last_modified,
         notes: join_notes(measured.notes),
     }
+}
+
+/* -------------------------------------------------- automatic promotion (#180) */
+
+/// Automatic status stored on a candidate: it is a save path and is archived.
+pub const CANDIDATE_STATUS_SAVING: &str = "saving";
+/// A guess that no session has proven yet.
+pub const CANDIDATE_STATUS_WAITING: &str = "waiting";
+/// A candidate rejected by the safety rules, with a readable reason.
+pub const CANDIDATE_STATUS_SKIPPED: &str = "skipped";
+
+/// Snapshot/measurement walk caps: a candidate is one save folder, not a disk.
+const MAX_SNAPSHOT_FILES: u64 = 20_000;
+const MAX_SNAPSHOT_DEPTH: usize = 32;
+/// Per-path budget for the measurements taken around a launch (#180).
+pub const SNAPSHOT_BUDGET: Duration = Duration::from_millis(250);
+
+/// Bounded measurement of one candidate path. `truncated` means the walk hit a
+/// cap/deadline before seeing everything, so the caller must not treat the
+/// numbers as a complete save folder.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PathMeasurement {
+    pub exists: bool,
+    pub is_dir: bool,
+    pub files: u64,
+    pub bytes: u64,
+    pub newest: Option<String>,
+    pub truncated: bool,
+}
+
+/// Walk one path without following symlinks and with a hard file/depth/deadline
+/// cap. Used before and after a session to prove which folder the game wrote.
+pub fn measure_path(path: &Path, budget: Duration) -> PathMeasurement {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(_) => return PathMeasurement::default(),
+    };
+    if metadata.file_type().is_symlink() {
+        return PathMeasurement::default();
+    }
+    if metadata.is_file() {
+        return PathMeasurement {
+            exists: true,
+            is_dir: false,
+            files: 1,
+            bytes: metadata.len(),
+            newest: metadata.modified().ok().map(rfc3339),
+            truncated: false,
+        };
+    }
+    if !metadata.is_dir() {
+        return PathMeasurement::default();
+    }
+
+    let deadline = std::time::Instant::now() + budget;
+    let mut measurement = PathMeasurement {
+        exists: true,
+        is_dir: true,
+        ..PathMeasurement::default()
+    };
+    let mut newest: Option<SystemTime> = None;
+    let mut seen = 0u64;
+    let mut stack: Vec<(PathBuf, usize)> = vec![(path.to_path_buf(), 0)];
+
+    while let Some((current, depth)) = stack.pop() {
+        seen += 1;
+        if seen > MAX_SNAPSHOT_FILES.saturating_mul(2)
+            || measurement.files >= MAX_SNAPSHOT_FILES
+            || depth > MAX_SNAPSHOT_DEPTH
+        {
+            measurement.truncated = true;
+            break;
+        }
+        if seen.is_multiple_of(256) && std::time::Instant::now() >= deadline {
+            measurement.truncated = true;
+            break;
+        }
+        let Ok(metadata) = fs::symlink_metadata(&current) else {
+            continue;
+        };
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+        if metadata.is_dir() {
+            if let Ok(entries) = fs::read_dir(&current) {
+                for entry in entries.flatten() {
+                    stack.push((entry.path(), depth + 1));
+                    // A directory with an absurd number of children must not
+                    // grow the stack without bound before the file cap hits.
+                    if stack.len() > MAX_SNAPSHOT_FILES.saturating_mul(2) as usize {
+                        measurement.truncated = true;
+                        break;
+                    }
+                }
+                if measurement.truncated {
+                    break;
+                }
+            }
+            continue;
+        }
+        if metadata.is_file() {
+            measurement.files = measurement.files.saturating_add(1);
+            measurement.bytes = measurement.bytes.saturating_add(metadata.len());
+            if let Ok(modified) = metadata.modified() {
+                newest = Some(newest.map_or(modified, |current| current.max(modified)));
+            }
+        }
+    }
+
+    measurement.newest = newest.map(rfc3339);
+    measurement
+}
+
+/// Safety rules for automatic promotion (#180). Manual confirmation bypasses
+/// this guard: the user is allowed to pick a broad folder on purpose.
+#[derive(Debug, Clone)]
+pub struct PromotionGuard {
+    home: Option<PathBuf>,
+    broad_roots: Vec<PathBuf>,
+    install_dir: Option<PathBuf>,
+    max_bytes: u64,
+}
+
+impl PromotionGuard {
+    pub fn for_game(settings: &LocalSettings, game: &InstalledGame) -> Self {
+        let known = saves_registry::system_known_folders(Platform::current());
+        let home = known
+            .get("home")
+            .or_else(|| known.get("profile"))
+            .unwrap_or_else(home_dir);
+        Self::from_parts(
+            home,
+            known.values().cloned().collect(),
+            Some(PathBuf::from(&game.install_path)).filter(|path| path.is_dir()),
+            settings
+                .cloud_save_folder_cap_mb
+                .saturating_mul(1024 * 1024),
+        )
+    }
+
+    fn from_parts(
+        home: PathBuf,
+        broad_roots: Vec<PathBuf>,
+        install_dir: Option<PathBuf>,
+        max_bytes: u64,
+    ) -> Self {
+        let mut broad_roots = broad_roots;
+        broad_roots.sort();
+        broad_roots.dedup();
+        Self {
+            home: Some(home),
+            broad_roots,
+            install_dir,
+            max_bytes,
+        }
+    }
+
+    /// `Ok` when the candidate may be archived automatically; `Err` carries a
+    /// sentence the panel can show as "Skipped: …".
+    pub fn check(
+        &self,
+        path: &Path,
+        kind: &str,
+        measured: &PathMeasurement,
+    ) -> Result<(), String> {
+        if has_symlink_component(path) {
+            return Err("The path goes through a symlink.".to_string());
+        }
+        if !measured.exists {
+            return Err("The folder does not exist.".to_string());
+        }
+        if measured.truncated {
+            return Err(format!(
+                "The folder is too large or too slow to inspect safely (over {MAX_SNAPSHOT_FILES} files)."
+            ));
+        }
+        let canonical = path
+            .canonicalize()
+            .map_err(|_| "The folder cannot be resolved.".to_string())?;
+        if canonical.parent().is_none() {
+            return Err("This is a drive root, not a save folder.".to_string());
+        }
+        if let Some(home) = &self.home {
+            if same_path(&canonical, home) {
+                return Err("This is your home folder, not a save folder.".to_string());
+            }
+        }
+        for root in &self.broad_roots {
+            if same_path(&canonical, root) {
+                let name = root
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_else(|| root.to_string_lossy().to_string());
+                return Err(format!(
+                    "This is the known {name} folder root, not a game save folder."
+                ));
+            }
+        }
+        if let Some(install_dir) = &self.install_dir {
+            if same_path(&canonical, install_dir) {
+                return Err("This is the game install folder, not a save folder.".to_string());
+            }
+        }
+        if self.max_bytes > 0 && measured.bytes > self.max_bytes {
+            return Err(format!(
+                "The folder is larger than the {} automatic limit.",
+                crate::util::human_bytes(self.max_bytes)
+            ));
+        }
+        if kind != "directory" && kind != "file" {
+            return Err("The path is not a file or a folder.".to_string());
+        }
+        Ok(())
+    }
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    let left = left.canonicalize().unwrap_or_else(|_| left.to_path_buf());
+    let right = right.canonicalize().unwrap_or_else(|_| right.to_path_buf());
+    left == right
+}
+
+/// True when any component of `path` is a symlink, including its parents. A
+/// guessed folder reached through a link can escape the allowlisted roots.
+fn has_symlink_component(path: &Path) -> bool {
+    let mut current = Some(path);
+    while let Some(candidate) = current {
+        if let Ok(metadata) = fs::symlink_metadata(candidate) {
+            if metadata.file_type().is_symlink() {
+                return true;
+            }
+        }
+        current = candidate.parent();
+    }
+    false
+}
+
+fn detected_from_measurement(path: &Path, source: &str, measured: &PathMeasurement) -> DetectedSave {
+    DetectedSave {
+        path: path.to_string_lossy().to_string(),
+        kind: if measured.is_dir { "directory" } else { "file" }.to_string(),
+        source: source.to_string(),
+        size_bytes: i64::try_from(measured.bytes).unwrap_or(i64::MAX),
+        last_modified: measured.newest.clone(),
+        notes: if measured.truncated {
+            Some(format!("Scan capped at {MAX_SNAPSHOT_FILES} files."))
+        } else {
+            None
+        },
+    }
+}
+
+/// Promote the high-confidence candidates of one detection run (#180): Steam
+/// ground truth and paths the user already confirmed become save paths without
+/// a prompt. Guesses stay candidates and wait for a session.
+///
+/// Returns the number of promoted paths. Skipped candidates keep a readable
+/// `auto_reason` so Settings can explain the decision. `ignored` paths are
+/// never promoted: a dismissal wins over the automatic guess.
+pub fn auto_promote_detected(
+    detection: &mut Detection,
+    guard: &PromotionGuard,
+    ignored: &[String],
+) -> usize {
+    let mut promoted: Vec<DetectedSave> = Vec::new();
+    for candidate in detection.candidates.iter_mut() {
+        if !saves_registry::is_high_confidence(candidate) {
+            continue;
+        }
+        if ignored.iter().any(|path| path == &candidate.path) {
+            candidate.auto_status = CANDIDATE_STATUS_SKIPPED.to_string();
+            candidate.auto_reason = Some("You ignored this folder.".to_string());
+            continue;
+        }
+        let path = PathBuf::from(&candidate.path);
+        let measured = measure_path(&path, SNAPSHOT_BUDGET);
+        match guard.check(&path, &candidate.kind, &measured) {
+            Ok(()) => {
+                candidate.auto_status = CANDIDATE_STATUS_SAVING.to_string();
+                candidate.auto_reason = None;
+                candidate.confirmed = true;
+                promoted.push(detected_from_measurement(
+                    &path,
+                    &candidate.source,
+                    &measured,
+                ));
+            }
+            Err(reason) => {
+                candidate.auto_status = CANDIDATE_STATUS_SKIPPED.to_string();
+                candidate.auto_reason = Some(reason);
+            }
+        }
+    }
+    if promoted.is_empty() {
+        return 0;
+    }
+    let count = promoted.len();
+    detection.saves.extend(promoted);
+    detection.saves = aggregate(std::mem::take(&mut detection.saves));
+    detection.detected = detection
+        .saves
+        .iter()
+        .any(|save| !is_missing(save));
+    detection.total_bytes = detection
+        .saves
+        .iter()
+        .map(|save| save.size_bytes.max(0))
+        .sum();
+    count
+}
+
+/// True when a session changed a candidate: it existed before the session,
+/// still exists, and its bytes or newest file timestamp moved.
+pub fn session_changed(before: &crate::db::CandidateSnapshotRecord, after: &PathMeasurement) -> bool {
+    if !before.existed || !after.exists || after.files == 0 {
+        return false;
+    }
+    if after.bytes != before.bytes {
+        return true;
+    }
+    match (
+        before
+            .newest
+            .as_deref()
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok()),
+        after
+            .newest
+            .as_deref()
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok()),
+    ) {
+        (Some(before), Some(after)) => after > before,
+        (None, Some(_)) => true,
+        _ => false,
+    }
+}
+
+/// Bytes added by the session (never negative). Used to rank changed paths.
+pub fn session_changed_bytes(
+    before: &crate::db::CandidateSnapshotRecord,
+    after: &PathMeasurement,
+) -> u64 {
+    after.bytes.saturating_sub(before.bytes)
+}
+
+/// One changed candidate considered for promotion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromotionTarget {
+    pub path: String,
+    pub changed_bytes: u64,
+    pub total_bytes: u64,
+}
+
+/// Deterministic primary: largest changed byte count, then largest total, then
+/// the lexicographically smallest path.
+pub fn choose_promotion_primary(targets: &[PromotionTarget]) -> Option<String> {
+    targets
+        .iter()
+        .max_by(|left, right| {
+            left.changed_bytes
+                .cmp(&right.changed_bytes)
+                .then(left.total_bytes.cmp(&right.total_bytes))
+                .then_with(|| right.path.cmp(&left.path))
+        })
+        .map(|target| target.path.clone())
 }
 
 /// Validate and persist a manual override list. The whole list replaces the
@@ -1197,6 +1584,7 @@ fn canonical_roots(env: &DetectEnv, game: &GameContext) -> Vec<PathBuf> {
     if let Some(prefix) = &env.prefix {
         roots.push(prefix_drive_c(prefix));
     }
+    roots.extend(env.steam_roots.iter().cloned());
     roots.extend(env.known.values().cloned());
     roots.extend(env.windows.roots());
 
@@ -3049,7 +3437,7 @@ mod tests {
     }
 
     #[test]
-    fn discovery_candidates_are_listed_but_never_become_save_paths() {
+    fn discovery_candidates_wait_for_a_session_instead_of_a_confirmation() {
         let fixture = fixture("saves-candidates");
         fs::create_dir_all(fixture.home.join(".local/share/Hades")).unwrap();
 
@@ -3065,7 +3453,7 @@ mod tests {
         assert!(candidate.confidence == saves_registry::CONFIDENCE_LIKELY);
         assert!(!candidate.confirmed);
         assert!(
-            detection.message.contains("confirm"),
+            detection.message.contains("synced automatically"),
             "{}",
             detection.message
         );
@@ -3073,7 +3461,7 @@ mod tests {
             detection.registry_version,
             Some(fixture.env.registry.version)
         );
-        // Nothing is archived until the user confirms the candidate.
+        // A guess waits for a session that writes to it (#180).
         assert!(records_from_detection(1, &detection, None, "t").is_empty());
     }
 
@@ -3232,7 +3620,7 @@ mod tests {
             .expect("Saved Games is reported");
         assert!(report.exists, "{report:?}");
         assert_eq!(report.candidates, 1, "{report:?}");
-        assert!(detection.message.contains("confirm"));
+        assert!(detection.message.contains("synced automatically"));
     }
 
     #[test]
@@ -3360,5 +3748,246 @@ mod tests {
             .roots
             .iter()
             .any(|root| root.id == "local_app_data_low"));
+    }
+
+    /* ------------------------------------------ automatic promotion (#180) */
+
+    fn guard_for(root: &Path, cap_bytes: u64) -> PromotionGuard {
+        let home = root.join("home");
+        let documents = root.join("documents");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&documents).unwrap();
+        PromotionGuard::from_parts(
+            home,
+            vec![documents, root.join("games")],
+            Some(root.join("games")),
+            cap_bytes,
+        )
+    }
+
+    #[test]
+    fn promotion_rejects_broad_roots_symlinks_and_oversized_folders() {
+        let root = temp_root("promote-guard");
+        let guard = guard_for(&root, 16);
+        fs::create_dir_all(root.join("home")).unwrap();
+        fs::create_dir_all(root.join("documents")).unwrap();
+
+        let empty = PathMeasurement {
+            exists: true,
+            is_dir: true,
+            ..PathMeasurement::default()
+        };
+        assert!(guard
+            .check(&root.join("home"), "directory", &empty)
+            .unwrap_err()
+            .contains("home folder"));
+        let documents_error = guard
+            .check(&root.join("documents"), "directory", &empty)
+            .unwrap_err()
+            .to_lowercase();
+        assert!(
+            documents_error.contains("documents") || documents_error.contains("known"),
+            "{documents_error}"
+        );
+
+        let save = root.join("home/.local/share/Hades");
+        fs::create_dir_all(&save).unwrap();
+        let measured = measure_path(&save, SNAPSHOT_BUDGET);
+        assert!(guard.check(&save, "directory", &measured).is_ok());
+
+        // A missing folder is never promoted.
+        assert!(guard
+            .check(&save.join("missing"), "directory", &PathMeasurement::default())
+            .unwrap_err()
+            .contains("does not exist"));
+
+        // The size cap rejects a save folder that is too wide.
+        let large = PathMeasurement {
+            exists: true,
+            is_dir: true,
+            bytes: 4096,
+            ..PathMeasurement::default()
+        };
+        assert!(guard
+            .check(&save, "directory", &large)
+            .unwrap_err()
+            .contains("larger than"));
+
+        #[cfg(unix)]
+        {
+            let link = root.join("save-link");
+            std::os::unix::fs::symlink(&save, &link).unwrap();
+            let link_measure = measure_path(&link, SNAPSHOT_BUDGET);
+            assert!(guard
+                .check(&link, "directory", &link_measure)
+                .unwrap_err()
+                .contains("symlink"));
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_session_change_needs_an_existing_folder_and_moving_bytes_or_time() {
+        use crate::db::CandidateSnapshotRecord;
+        let before = CandidateSnapshotRecord {
+            game_id: 1,
+            path: "/saves/Hades".to_string(),
+            existed: true,
+            files: 1,
+            bytes: 10,
+            newest: Some("2026-11-10T10:00:00Z".to_string()),
+            captured_at: "2026-11-10T10:00:00Z".to_string(),
+        };
+        let unchanged = PathMeasurement {
+            exists: true,
+            is_dir: true,
+            files: 1,
+            bytes: 10,
+            newest: Some("2026-11-10T10:00:00Z".to_string()),
+            truncated: false,
+        };
+        assert!(!session_changed(&before, &unchanged));
+        assert_eq!(session_changed_bytes(&before, &unchanged), 0);
+
+        let grown = PathMeasurement {
+            bytes: 42,
+            ..unchanged.clone()
+        };
+        assert!(session_changed(&before, &grown));
+        assert_eq!(session_changed_bytes(&before, &grown), 32);
+
+        let touched = PathMeasurement {
+            newest: Some("2026-11-10T10:01:00Z".to_string()),
+            ..unchanged.clone()
+        };
+        assert!(session_changed(&before, &touched));
+
+        let absent = CandidateSnapshotRecord {
+            existed: false,
+            ..before.clone()
+        };
+        assert!(!session_changed(&absent, &grown));
+
+        let empty = PathMeasurement {
+            files: 0,
+            bytes: 0,
+            ..unchanged
+        };
+        assert!(!session_changed(&before, &empty));
+    }
+
+    #[test]
+    fn promotion_picks_the_largest_changed_folder_as_primary() {
+        let targets = vec![
+            PromotionTarget {
+                path: "/saves/alpha".to_string(),
+                changed_bytes: 10,
+                total_bytes: 100,
+            },
+            PromotionTarget {
+                path: "/saves/beta".to_string(),
+                changed_bytes: 40,
+                total_bytes: 80,
+            },
+            PromotionTarget {
+                path: "/saves/gamma".to_string(),
+                changed_bytes: 40,
+                total_bytes: 80,
+            },
+        ];
+        assert_eq!(
+            choose_promotion_primary(&targets).as_deref(),
+            Some("/saves/beta")
+        );
+        assert_eq!(choose_promotion_primary(&[]), None);
+    }
+
+    #[test]
+    fn high_confidence_candidates_are_promoted_and_guesses_wait() {
+        let root = temp_root("promote-detect");
+        let guard = guard_for(&root, 0);
+        let store = root.join("home/.local/share/Steam/userdata/1/Hades");
+        fs::create_dir_all(&store).unwrap();
+        fs::write(store.join("slot.sav"), b"1234").unwrap();
+        let guess = root.join("home/.config/unity3d/Hades");
+        fs::create_dir_all(&guess).unwrap();
+        fs::write(guess.join("save"), b"12").unwrap();
+
+        let mut detection = Detection {
+            candidates: vec![
+                SaveCandidate {
+                    path: store.to_string_lossy().to_string(),
+                    kind: "directory".to_string(),
+                    root_id: "steam_userdata".to_string(),
+                    subpath: "Hades".to_string(),
+                    source: saves_registry::SOURCE_STORE.to_string(),
+                    confidence: saves_registry::CONFIDENCE_CERTAIN.to_string(),
+                    evidence: "Steam Cloud".to_string(),
+                    ..SaveCandidate::default()
+                },
+                SaveCandidate {
+                    path: guess.to_string_lossy().to_string(),
+                    kind: "directory".to_string(),
+                    root_id: "xdg_config".to_string(),
+                    subpath: "unity3d/Hades".to_string(),
+                    source: saves_registry::SOURCE_ENGINE.to_string(),
+                    confidence: saves_registry::CONFIDENCE_GUESS.to_string(),
+                    evidence: "Unity default".to_string(),
+                    ..SaveCandidate::default()
+                },
+            ],
+            ..Detection::default()
+        };
+
+        let promoted = auto_promote_detected(&mut detection, &guard, &[]);
+        assert_eq!(promoted, 1);
+        assert_eq!(detection.saves.len(), 1);
+        assert!(detection.saves[0].path.contains("Steam"));
+        assert_eq!(detection.candidates.len(), 2);
+        let store_candidate = detection
+            .candidates
+            .iter()
+            .find(|candidate| candidate.source == saves_registry::SOURCE_STORE)
+            .unwrap();
+        assert_eq!(store_candidate.auto_status, CANDIDATE_STATUS_SAVING);
+        let guess_candidate = detection
+            .candidates
+            .iter()
+            .find(|candidate| candidate.source == saves_registry::SOURCE_ENGINE)
+            .unwrap();
+        assert_eq!(guess_candidate.auto_status, "");
+
+        // A dismissed high-confidence path is never revived automatically.
+        let mut dismissed = Detection {
+            candidates: detection.candidates.clone(),
+            ..Detection::default()
+        };
+        let ignored = vec![store.to_string_lossy().to_string()];
+        assert_eq!(auto_promote_detected(&mut dismissed, &guard, &ignored), 0);
+        assert!(dismissed.saves.is_empty());
+        let dismissed_store = dismissed
+            .candidates
+            .iter()
+            .find(|candidate| candidate.source == saves_registry::SOURCE_STORE)
+            .unwrap();
+        assert_eq!(dismissed_store.auto_status, CANDIDATE_STATUS_SKIPPED);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn bounded_measurement_stops_on_a_huge_tree() {
+        let root = temp_root("promote-measure");
+        let saves = root.join("saves");
+        fs::create_dir_all(&saves).unwrap();
+        for index in 0..600 {
+            fs::write(saves.join(format!("slot-{index:04}.sav")), b"x").unwrap();
+        }
+        let started = std::time::Instant::now();
+        let measured = measure_path(&saves, Duration::from_millis(0));
+        assert!(measured.exists);
+        assert!(measured.truncated);
+        assert!(measured.files < 600, "{measured:?}");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        let _ = fs::remove_dir_all(&root);
     }
 }

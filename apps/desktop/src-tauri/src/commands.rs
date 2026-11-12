@@ -2586,13 +2586,24 @@ pub(crate) fn detect_and_persist(app: &AppHandle, game_id: i64) -> Result<SavePa
     };
 
     let prefix_override = crate::util::non_empty(Some(launch_options.prefix_path.as_str()));
-    let detection = saves_detect::detect_for_game(
+    // #180: Steam ground truth and already-confirmed paths become save paths
+    // without a prompt. The promotion receives the persisted dismissals, so an
+    // ignored folder is never revived.
+    let ignored = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::list_ignored_save_candidate_paths(&connection, game_id)?
+    };
+    let detection = saves_detect::detect_for_game_with_ignored(
         &settings,
         &game,
         &state.app_data,
         &manual,
         prefix_override,
         launch_options.steam_app_id,
+        &ignored,
     );
     let primary = saves_detect::choose_primary(&detection.saves, previous_primary.as_deref());
     let now = now_rfc3339();
@@ -2783,6 +2794,249 @@ fn scan_and_persist_candidates(app: &AppHandle) -> Result<SaveCandidateOverview,
     candidate_overview(&connection, warnings)
 }
 
+/// Outcome of the automatic promotion pass run after a game exits (#180).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct PromotionReport {
+    /// Paths added to `save_paths` because the session changed them.
+    pub promoted: Vec<String>,
+    pub primary: Option<String>,
+    /// Rejected candidates with the readable reason.
+    pub skipped: Vec<(String, String)>,
+    /// Guesses that did not change (or did not exist) and stay candidates.
+    pub waiting: usize,
+    /// False when the launch never recorded a snapshot (older session, crash).
+    pub had_snapshot: bool,
+}
+
+/// Record the pre-launch state of every guessed save folder (#180). The exit
+/// hook compares against it to prove which folder the game wrote. Bounded and
+/// called from `spawn_blocking`; a missing snapshot only means "no proof yet".
+pub(crate) fn capture_save_candidates_snapshot(
+    app: &AppHandle,
+    game_id: i64,
+) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let (candidates, saved) = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        (
+            db::list_save_candidates(&connection, game_id)?,
+            db::list_save_paths(&connection, game_id)?,
+        )
+    };
+    // Only unproven folders need a snapshot: a path that already syncs is not
+    // waiting for proof, and re-measuring it would delay the launch for nothing.
+    let candidates: Vec<_> = candidates
+        .into_iter()
+        .filter(|candidate| !saved.iter().any(|row| row.path == candidate.path))
+        .collect();
+    if candidates.is_empty() {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::clear_candidate_snapshots(&connection, game_id)?;
+        return Ok(());
+    }
+    let captured_at = now_rfc3339();
+    // One launch must not wait several seconds on a slow disk: after the total
+    // budget the remaining candidates simply have no snapshot this session.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(750);
+    let mut records: Vec<db::CandidateSnapshotRecord> = Vec::new();
+    for candidate in &candidates {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            tracing::debug!(
+                game_id,
+                skipped = candidates.len() - records.len(),
+                "save candidate snapshot budget exhausted"
+            );
+            break;
+        }
+        let budget = saves_detect::SNAPSHOT_BUDGET.min(remaining);
+        let measured = saves_detect::measure_path(Path::new(&candidate.path), budget);
+        records.push(db::CandidateSnapshotRecord {
+            game_id,
+            path: candidate.path.clone(),
+            existed: measured.exists,
+            files: measured.files,
+            bytes: measured.bytes,
+            newest: measured.newest,
+            captured_at: captured_at.clone(),
+        });
+    }
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    db::replace_candidate_snapshots(&connection, game_id, &records)
+}
+
+/// Promote the guessed folders the session actually wrote to (#180):
+/// one changed folder becomes the save path, several are all promoted with the
+/// largest changed byte count as primary, none keeps the high-confidence paths
+/// and waits. Broad roots, symlinks, oversized folders and folders that did not
+/// exist before the launch are rejected with a readable reason.
+pub(crate) fn promote_save_candidates(
+    app: &AppHandle,
+    game_id: i64,
+) -> Result<PromotionReport, String> {
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+    let (game, mut rows, candidates, snapshots) = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        let game = db::get_installed(&connection, game_id)?
+            .ok_or_else(|| format!("Game {game_id} is not installed on this machine."))?;
+        (
+            game,
+            db::list_save_paths(&connection, game_id)?,
+            db::list_save_candidates(&connection, game_id)?,
+            db::list_candidate_snapshots(&connection, game_id)?,
+        )
+    };
+    let mut report = PromotionReport::default();
+    if snapshots.is_empty() {
+        return Ok(report);
+    }
+    report.had_snapshot = true;
+
+    let guard = saves_detect::PromotionGuard::for_game(&settings, &game);
+    let now = now_rfc3339();
+    let mut targets: Vec<saves_detect::PromotionTarget> = Vec::new();
+    let mut promoted_source: Vec<(String, String, String)> = Vec::new();
+    let mut statuses: Vec<(String, &'static str, Option<String>)> = Vec::new();
+
+    for snapshot in &snapshots {
+        let Some(candidate) = candidates
+            .iter()
+            .find(|candidate| candidate.path == snapshot.path)
+        else {
+            continue;
+        };
+        let path = PathBuf::from(&snapshot.path);
+        let measured = saves_detect::measure_path(&path, saves_detect::SNAPSHOT_BUDGET);
+        if !snapshot.existed {
+            report.waiting += 1;
+            statuses.push((
+                snapshot.path.clone(),
+                saves_detect::CANDIDATE_STATUS_WAITING,
+                Some("Waiting for the first session: the folder did not exist before this launch.".to_string()),
+            ));
+            continue;
+        }
+        if !saves_detect::session_changed(snapshot, &measured) {
+            report.waiting += 1;
+            statuses.push((
+                snapshot.path.clone(),
+                saves_detect::CANDIDATE_STATUS_WAITING,
+                None,
+            ));
+            continue;
+        }
+        match guard.check(&path, &candidate.kind, &measured) {
+            Ok(()) => {
+                let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+                let canonical = canonical.to_string_lossy().to_string();
+                tracing::info!(
+                    game_id,
+                    path = %canonical,
+                    changed_bytes = saves_detect::session_changed_bytes(snapshot, &measured),
+                    "save candidate changed during the session; promoting"
+                );
+                promoted_source.push((
+                    canonical.clone(),
+                    candidate.source.clone(),
+                    candidate.kind.clone(),
+                ));
+                targets.push(saves_detect::PromotionTarget {
+                    path: canonical,
+                    changed_bytes: saves_detect::session_changed_bytes(snapshot, &measured),
+                    total_bytes: measured.bytes,
+                });
+            }
+            Err(reason) => {
+                tracing::info!(game_id, path = %path.display(), reason = %reason, "save candidate rejected");
+                report.skipped.push((snapshot.path.clone(), reason.clone()));
+                statuses.push((
+                    snapshot.path.clone(),
+                    saves_detect::CANDIDATE_STATUS_SKIPPED,
+                    Some(reason),
+                ));
+            }
+        }
+    }
+
+    report.primary = saves_detect::choose_promotion_primary(&targets);
+    for target in &targets {
+        let (source, kind) = promoted_source
+            .iter()
+            .find(|(path, _, _)| path == &target.path)
+            .map(|(_, source, kind)| (source.clone(), kind.clone()))
+            .unwrap_or_else(|| {
+                (
+                    saves_detect::SOURCE_MANUAL.to_string(),
+                    "directory".to_string(),
+                )
+            });
+        if let Some(row) = rows.iter_mut().find(|row| row.path == target.path) {
+            row.source = source;
+        } else {
+            rows.push(db::SavePathRecord {
+                game_id,
+                path: target.path.clone(),
+                kind,
+                source,
+                primary: false,
+                created_at: now.clone(),
+            });
+        }
+        report.promoted.push(target.path.clone());
+        statuses.push((
+            target.path.clone(),
+            saves_detect::CANDIDATE_STATUS_SAVING,
+            None,
+        ));
+    }
+    if let Some(primary) = &report.primary {
+        for row in rows.iter_mut() {
+            row.primary = row.path == *primary;
+        }
+    }
+
+    {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        if !report.promoted.is_empty() {
+            db::replace_save_paths(&connection, game_id, &rows)?;
+        }
+        for (path, status, reason) in &statuses {
+            db::set_save_candidate_status(
+                &connection,
+                game_id,
+                path,
+                status,
+                reason.as_deref(),
+            )?;
+            if *status == saves_detect::CANDIDATE_STATUS_SAVING {
+                db::set_save_candidate_confirmed(&connection, game_id, path, true)?;
+            }
+        }
+    }
+    if !report.promoted.is_empty() {
+        saves_sync::invalidate_scan_cache(game_id);
+        // The game page refreshes its status; no polling loop is involved.
+        let _ = app.emit("cloud-save://detected", game_id);
+    }
+    Ok(report)
+}
+
 /// Confirm a discovered candidate so it becomes a save path (#146). The user
 /// may correct the path first (`editedPath`); the original is then ignored.
 /// Nothing is uploaded here: the next snapshot is still an explicit action.
@@ -2864,6 +3118,13 @@ fn confirm_candidate(
     }
     db::replace_save_paths(&connection, game_id, &rows)?;
     db::set_save_candidate_confirmed(&connection, game_id, path, true)?;
+    db::set_save_candidate_status(
+        &connection,
+        game_id,
+        path,
+        saves_detect::CANDIDATE_STATUS_SAVING,
+        None,
+    )?;
     saves_sync::invalidate_scan_cache(game_id);
     if edited.is_some() {
         db::set_save_candidate_ignored(&connection, game_id, path, true)?;

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   candidateCount,
   candidateNeedsConfirmation,
+  candidateStatus,
   confidenceLabel,
   confidenceTone,
   isGuess,
@@ -54,6 +55,17 @@ describe("save discovery helpers", () => {
     expect(sourceLabel("engine")).toBe("Engine default");
     expect(sourceLabel("manifest")).toBe("Save database");
     expect(sourceLabel("manual")).toBe("Added manually");
+  });
+
+  it("derives the automatic decision instead of asking for a confirmation (#180)", () => {
+    expect(candidateStatus(candidate())).toBe("waiting");
+    expect(candidateStatus(candidate({ autoStatus: "skipped" }))).toBe("skipped");
+    expect(candidateStatus(candidate({ autoStatus: "saving" }))).toBe("saving");
+    expect(candidateStatus(candidate({ confirmed: true }))).toBe("saving");
+    // A skipped candidate is still visible and can be overridden manually.
+    expect(candidateStatus(candidate({ autoStatus: "skipped", ignored: true }))).toBe(
+      "skipped",
+    );
   });
 
   it("counts and merges per-game groups", () => {

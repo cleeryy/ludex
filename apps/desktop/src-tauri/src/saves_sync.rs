@@ -96,6 +96,21 @@ pub struct CloudSavePath {
     pub last_modified: Option<String>,
 }
 
+/// One detected save folder the game page reports automatically (#180).
+/// `status` is `saving` (archived), `waiting` (no session proved it yet) or
+/// `skipped` (rejected by the safety rules, with a readable `reason`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudSaveCandidate {
+    pub path: String,
+    pub source: String,
+    pub confidence: String,
+    pub status: String,
+    pub reason: Option<String>,
+    pub primary: bool,
+    pub size_bytes: u64,
+}
+
 /// Latest snapshot, as returned by the server (`SaveSnapshot`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -143,6 +158,8 @@ pub struct CloudSaveStatus {
     /// A server URL and token are configured.
     pub server_configured: bool,
     pub paths: Vec<CloudSavePath>,
+    /// Guessed folders and their automatic decision (#180).
+    pub candidates: Vec<CloudSaveCandidate>,
     pub local_files: u64,
     pub local_bytes: u64,
     pub local_newest_mtime: Option<String>,
@@ -1200,7 +1217,7 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
             }
         }
     };
-    let (rows, prefs, restore, detection) = {
+    let (rows, candidates, prefs, restore, detection) = {
         let state = app.state::<AppState>();
         let connection = state
             .db
@@ -1208,6 +1225,7 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
             .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
         (
             db::list_save_paths(&connection, game_id)?,
+            db::list_save_candidates(&connection, game_id)?,
             db::get_cloud_save_prefs(&connection, game_id)?,
             db::get_cloud_save_restore(&connection, game_id)?,
             db::get_save_detection(&connection, game_id)?,
@@ -1234,10 +1252,18 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
     };
     let server_configured = client_context(&settings).is_ok();
     let (latest, remote_message) = if server_configured {
-        match fetch_snapshots(app, &settings, game_id).await {
+        let started = std::time::Instant::now();
+        let result = match fetch_snapshots(app, &settings, game_id).await {
             Ok(snapshots) => (snapshots.into_iter().next(), None),
             Err(error) => (None, Some(error)),
-        }
+        };
+        tracing::debug!(
+            game_id,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            ok = result.1.is_none(),
+            "cloud save snapshot query"
+        );
+        result
     } else {
         (None, None)
     };
@@ -1281,9 +1307,37 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
         remote_message
     };
 
+    let cloud_candidates: Vec<CloudSaveCandidate> = candidates
+        .iter()
+        .map(|candidate| {
+            let saved = rows.iter().find(|row| row.path == candidate.path);
+            let status = if saved.is_some() {
+                crate::saves_detect::CANDIDATE_STATUS_SAVING
+            } else if candidate.auto_status == crate::saves_detect::CANDIDATE_STATUS_SKIPPED {
+                crate::saves_detect::CANDIDATE_STATUS_SKIPPED
+            } else {
+                crate::saves_detect::CANDIDATE_STATUS_WAITING
+            };
+            CloudSaveCandidate {
+                path: candidate.path.clone(),
+                source: candidate.source.clone(),
+                confidence: candidate.confidence.clone(),
+                status: status.to_string(),
+                reason: if status == crate::saves_detect::CANDIDATE_STATUS_SKIPPED {
+                    candidate.auto_reason.clone()
+                } else {
+                    None
+                },
+                primary: saved.map(|row| row.primary).unwrap_or(false),
+                size_bytes: candidate.size_bytes.max(0) as u64,
+            }
+        })
+        .collect();
+
     Ok(CloudSaveStatus {
         game_id,
         server_configured,
+        candidates: cloud_candidates,
         paths: local
             .paths
             .iter()
@@ -1906,6 +1960,45 @@ pub fn schedule_after_exit(app: AppHandle, game_id: i64) {
             games.remove(&game_id);
         }
 
+        // The save files may have changed even when automatic sync is off; the
+        // next game page must not reuse a pre-session preview (#159, #180).
+        invalidate_scan_cache(game_id);
+
+        // #180: first promote the guessed folder the session actually wrote
+        // to. It runs on the blocking pool and only touches candidates that
+        // have a pre-launch snapshot; a failure leaves the mapping untouched.
+        let promote_app = app.clone();
+        match tauri::async_runtime::spawn_blocking(move || {
+            let started = std::time::Instant::now();
+            let report = crate::commands::promote_save_candidates(&promote_app, game_id);
+            tracing::debug!(
+                game_id,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                promoted = report.as_ref().map(|report| report.promoted.len()).unwrap_or(0),
+                skipped = report.as_ref().map(|report| report.skipped.len()).unwrap_or(0),
+                "save candidate promotion after exit"
+            );
+            report
+        })
+        .await
+        {
+            Ok(Ok(report)) if !report.promoted.is_empty() => {
+                tracing::info!(
+                    game_id,
+                    paths = report.promoted.len(),
+                    primary = report.primary.as_deref().unwrap_or(""),
+                    "promoted changed save folders"
+                );
+            }
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => {
+                tracing::debug!(error = %error, game_id, "save candidate promotion failed");
+            }
+            Err(error) => {
+                tracing::debug!(error = %error, game_id, "save candidate promotion task failed");
+            }
+        }
+
         // Same detection entry point as the game page and Settings → Saves, so
         // the automatic path cannot drift to another environment.
         if should_detect_after_exit(&app, game_id) {
@@ -2486,7 +2579,7 @@ mod tests {
         };
 
         let detection =
-            crate::saves_detect::detect_for_game(&settings, &game, &fixture.root, &[], None, None);
+            crate::saves_detect::detect_for_game_with_ignored(&settings, &game, &fixture.root, &[], None, None, &[]);
         assert!(detection.detected, "{detection:?}");
         assert!(!detection.saves.is_empty(), "{detection:?}");
 

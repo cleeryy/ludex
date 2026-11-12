@@ -32,6 +32,9 @@ export interface SaveCandidate {
   lastVerified: string | null;
   confirmed: boolean;
   ignored: boolean;
+  /** `saving`, `waiting` or `skipped`; empty reads as waiting (#180). */
+  autoStatus?: string;
+  autoReason?: string | null;
 }
 
 export interface SaveCandidateGroup {
@@ -48,9 +51,24 @@ export interface SaveCandidateOverview {
   warnings: string[];
 }
 
-/** A candidate still needs an explicit confirmation before it can be archived. */
+/** A candidate that has not been promoted or dismissed yet. Confirmation is an
+ *  optional manual override since #180; the panel uses `candidateStatus`. */
 export function candidateNeedsConfirmation(candidate: SaveCandidate): boolean {
   return !candidate.confirmed && !candidate.ignored;
+}
+
+/** Automatic decision for one candidate (#180). */
+export type SaveCandidateStatus = "saving" | "waiting" | "skipped";
+
+/**
+ * The automatic state shown instead of a confirmation prompt. A confirmed (or
+ * high-confidence) candidate is already a save path; a skipped one was rejected
+ * by the safety rules; everything else waits for a session to prove it.
+ */
+export function candidateStatus(candidate: SaveCandidate): SaveCandidateStatus {
+  if (candidate.confirmed || candidate.autoStatus === "saving") return "saving";
+  if (candidate.autoStatus === "skipped") return "skipped";
+  return "waiting";
 }
 
 /** Guesses are styled differently and are never enabled automatically. */

@@ -215,6 +215,11 @@ pub struct LocalSettings {
     /// Back up detected save files after each game session (#108). Per-game
     /// overrides live in SQLite; this is the global default.
     pub cloud_auto_sync: bool,
+    /// Largest folder Ludex may promote automatically from a guessed save
+    /// location (#180), in MiB. A broader folder is skipped with a reason and
+    /// stays visible for a manual override. 0 disables the cap.
+    #[serde(default = "default_cloud_save_folder_cap_mb")]
+    pub cloud_save_folder_cap_mb: u64,
     /// Stable opaque identifier generated once per install and sent with every
     /// automatic snapshot (#108). Not a hardware fingerprint.
     pub cloud_device_id: String,
@@ -398,6 +403,12 @@ pub const fn default_ludusavi_manifest_auto_update() -> bool {
     true
 }
 
+/// A guessed save folder above 2 GiB is almost certainly a broad folder
+/// (Documents, a whole library); it is skipped instead of archived (#180).
+pub const fn default_cloud_save_folder_cap_mb() -> u64 {
+    2048
+}
+
 /// A console session is meant for a TV: fullscreen by default (#172).
 pub const fn default_console_fullscreen() -> bool {
     true
@@ -445,6 +456,7 @@ impl Default for LocalSettings {
             ludusavi_manifest_url: String::new(),
             wine_prefix: String::new(),
             cloud_auto_sync: true,
+            cloud_save_folder_cap_mb: default_cloud_save_folder_cap_mb(),
             cloud_device_id: String::new(),
             cloud_device_label: None,
             servers: Vec::new(),

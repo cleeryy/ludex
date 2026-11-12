@@ -6,6 +6,7 @@ import { installBridge } from "@/lib/install";
 import { formatDate } from "@/lib/format";
 import {
   candidateCount,
+  candidateStatus,
   confidenceTone,
   isGuess,
   mergeGroup,
@@ -48,12 +49,13 @@ const sourceText = (source: SaveCandidateSource): string => {
 };
 
 /**
- * Settings → Saves → Save locations (#146).
+ * Settings → Saves → Save locations (#146, #180).
  *
  * The versioned OS/engine registry lists candidates with their root, provenance
- * and confidence. Nothing here is archived or uploaded: a guess is explicitly
- * marked, and every candidate waits for a confirmation. Confirming only adds a
- * save path; automatic sync stays a separate opt-in on the game page.
+ * and confidence. The decision is automatic: Steam ground truth and confirmed
+ * paths are saved immediately, a guess is promoted after a session writes to
+ * it, and a folder that is too broad is skipped with a reason. Confirm is only
+ * a manual override, never a required step.
  */
 export function SaveDiscoveryPanel() {
   const { push } = useToast();
@@ -152,7 +154,7 @@ export function SaveDiscoveryPanel() {
         level={3}
         title={t("Save locations")}
         description={t(
-          "Candidates found by the OS and engine registry, with their root, provenance and confidence. Nothing is archived until you confirm it.",
+          "Detected save folders and what Ludex does automatically. A guessed folder is synced once a session writes to it; broad folders are skipped and stay editable.",
         )}
         actions={
           <Button
@@ -176,7 +178,7 @@ export function SaveDiscoveryPanel() {
               entries: overview.maxEntries,
             })}{" "}
             {t(
-              "Paths stay on this machine. A guess is never archived or uploaded automatically.",
+              "Paths stay on this machine. Automatic promotion never archives a drive root, your home folder, a symlink or a folder above the size limit.",
             )}
           </p>
         )}
@@ -273,6 +275,14 @@ function CandidateRow({
   onIgnore: () => void;
 }) {
   const guess = isGuess(candidate);
+  const status = candidateStatus(candidate);
+  const statusText =
+    status === "saving"
+      ? t("Saving")
+      : status === "skipped"
+        ? t("Skipped")
+        : t("Waiting for the first session");
+  const statusTone = status === "saving" ? "ok" : status === "skipped" ? "outline" : "signal";
   return (
     <li
       className={`border-b border-line py-3 ${
@@ -280,15 +290,16 @@ function CandidateRow({
       }`}
     >
       <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={statusTone}>{statusText}</Badge>
         <Badge tone={confidenceTone(candidate.confidence)}>
           {confidenceText(candidate.confidence)}
         </Badge>
         <Badge tone="outline">{sourceText(candidate.source)}</Badge>
         <span className="font-mono text-[10px] text-ink-3">{candidate.rootId}</span>
         {candidate.confirmed && <Badge tone="ok">{t("Confirmed")}</Badge>}
-        {guess && (
+        {guess && status === "waiting" && (
           <span className="text-[10.5px] text-ink-3">
-            {t("Guessed from an engine default; check the path before confirming.")}
+            {t("Guessed from an engine default; it starts saving after a session writes to it.")}
           </span>
         )}
       </div>
@@ -313,6 +324,9 @@ function CandidateRow({
       )}
 
       <p className="mt-1 text-[11px] leading-relaxed text-ink-3">{candidate.evidence}</p>
+      {candidate.autoReason && status === "skipped" && (
+        <p className="mt-1 text-[11px] leading-relaxed text-warning">{candidate.autoReason}</p>
+      )}
       <p className="mt-1 text-[10.5px] text-ink-3">
         {candidate.subpath ? `${candidate.subpath} · ` : ""}
         {candidate.firstSeen
@@ -320,20 +334,27 @@ function CandidateRow({
           : t("First seen unknown")}
       </p>
 
-      {!candidate.confirmed && editing === undefined && (
+      {editing === undefined && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Button
-            variant="default"
+            variant="ghost"
             size="sm"
-            icon={<Check className="size-3.5" />}
-            loading={busy}
-            onClick={() => onConfirm()}
+            icon={<Pencil className="size-3.5" />}
+            onClick={onEdit}
           >
-            {guess ? t("Confirm guess") : t("Confirm")}
+            {t("Choose another folder")}
           </Button>
-          <Button variant="ghost" size="sm" icon={<Pencil className="size-3.5" />} onClick={onEdit}>
-            {t("Edit path")}
-          </Button>
+          {status !== "saving" && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Check className="size-3.5" />}
+              loading={busy}
+              onClick={() => onConfirm()}
+            >
+              {t("Use this folder")}
+            </Button>
+          )}
           <Button variant="ghost" size="sm" icon={<X className="size-3.5" />} onClick={onIgnore}>
             {t("Ignore")}
           </Button>

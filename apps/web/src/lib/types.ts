@@ -193,10 +193,25 @@ export interface CloudSaveConflict {
   remoteDeviceId: string | null;
 }
 
+export type CloudSaveCandidateStatus = "saving" | "waiting" | "skipped";
+
+/** One detected folder on the game page, with its automatic decision (#180). */
+export interface CloudSaveCandidate {
+  path: string;
+  source: string;
+  confidence: string;
+  status: CloudSaveCandidateStatus;
+  reason: string | null;
+  primary: boolean;
+  sizeBytes: number;
+}
+
 export interface CloudSaveStatus {
   gameId: number;
   serverConfigured: boolean;
   paths: CloudSavePath[];
+  /** Guessed folders and the automatic decision for each (#180). */
+  candidates: CloudSaveCandidate[];
   localFiles: number;
   localBytes: number;
   localNewestMtime: string | null;

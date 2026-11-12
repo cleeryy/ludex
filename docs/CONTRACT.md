@@ -2035,6 +2035,13 @@ type CloudSaveStrategy = "remote" | "keep_local";
 interface CloudSaveStatus {
   gameId: number; serverConfigured: boolean;
   paths: { path, kind, primary, exists, files, sizeBytes, lastModified }[];
+  /** Guessed folders and the automatic decision for each (#180). `status` is
+   *  `saving`, `waiting` or `skipped`; `reason` explains a skip. */
+  candidates: {
+    path: string; source: string; confidence: string;
+    status: "saving" | "waiting" | "skipped";
+    reason: string | null; primary: boolean; sizeBytes: number;
+  }[];
   localFiles: number; localBytes: number; localNewestMtime: string | null;
   latest: SaveSnapshot | null;
   lastHash: string | null; lastUploadAt: string | null; lastRestoreAt: string | null;
@@ -2346,7 +2353,7 @@ interface StreamTarget {
 | `ludusavi_manifest_status` | — | `ManifestStatus`; cached save-path manifest (`{appDataDir}/manifest/ludusavi-manifest.yaml`), version, last updated/checked, size and effective source URL. Local only (#153) |
 | `update_ludusavi_manifest` | — | `ManifestUpdate`; downloads or refreshes the manifest now, ignoring the 24 h throttle. Conditional `If-None-Match`, 64 MiB cap, 60 s timeout, optional SHA-256 check; a failure keeps the cached copy. No tests hit the network (#153) |
 | `remove_ludusavi_manifest` | — | `ManifestStatus`; deletes the cached manifest and its metadata so detection falls back to a user-installed copy or manual paths (#153) |
-| `cloud_save_status` | `{ gameId }` | `CloudSaveStatus`; detected paths, latest snapshot (remote failures go in `message`), last upload/restore, effective toggle + reason, pending retry, conflict and `lastDetectionAt` (#108, #158). The local walk is cached and bounded (200 ms / 4 000 files) and runs on the blocking pool, so opening a game page never scans the whole disk (#159) |
+| `cloud_save_status` | `{ gameId }` | `CloudSaveStatus`; detected paths, latest snapshot (remote failures go in `message`), last upload/restore, effective toggle + reason, pending retry, conflict, `lastDetectionAt` and the automatic candidate decisions (#108, #158, #180). The local walk is cached and bounded (200 ms / 4 000 files) and runs on the blocking pool, so opening a game page never scans the whole disk (#159) |
 | `set_cloud_save_sync` | `{ gameId?, enabled }` | `CloudSyncToggleResponse`; `gameId` null changes the global default, a number stores a per-game override. Local only |
 | `sync_cloud_save_now` | `{ gameId }` | `CloudSaveStatus`; archives and uploads immediately. Works with automatic sync off; an unchanged hash is a no-op. Failures stay in `pending` |
 | `restore_cloud_save` | `{ gameId, strategy: "remote" \| "keep_local" }` | `CloudSaveRestoreOutcome`; verifies the SHA-256, backs up newer local files before a `remote` restore and returns `backupPath`, runs at most once per snapshot. `keep_local` records and uploads the local state (#108) |
