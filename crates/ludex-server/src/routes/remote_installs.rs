@@ -38,6 +38,10 @@ struct ListQuery {
     status: Option<String>,
     #[serde(default)]
     limit: Option<i64>,
+    /// Optional device registry id. When set, targeted requests for another PC
+    /// are hidden; untargeted requests remain visible to every desktop.
+    #[serde(default, rename = "deviceId")]
+    device_id: Option<String>,
 }
 
 fn parse_statuses(raw: Option<&str>) -> Result<Vec<RemoteInstallStatus>, ApiError> {
@@ -63,8 +67,19 @@ async fn list(
 ) -> Result<Json<Vec<RemoteInstall>>, ApiError> {
     user.require_scope(Scope::Read)?;
     let statuses = parse_statuses(query.status.as_deref())?;
-    let installs =
-        remote_installs::list(&state.pool, user.id, &statuses, query.limit.unwrap_or(100)).await?;
+    let device_id = query
+        .device_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let installs = remote_installs::list(
+        &state.pool,
+        user.id,
+        &statuses,
+        device_id,
+        query.limit.unwrap_or(100),
+    )
+    .await?;
     Ok(Json(installs))
 }
 
@@ -96,6 +111,7 @@ async fn create(
                     "gameId": queued.install.game_id,
                     "versionId": queued.install.version_id,
                     "device": queued.install.device,
+                    "targetDeviceId": queued.install.target_device_id,
                 }))
                 .ip(Some(peer.ip())),
         );
@@ -133,6 +149,8 @@ async fn update_status(
                     "gameId": install.game_id,
                     "status": install.status.as_str(),
                     "progress": install.progress,
+                    "targetDeviceId": install.target_device_id,
+                    "deviceId": install.claimed_by_device_id,
                 }))
                 .ip(Some(peer.ip())),
         );

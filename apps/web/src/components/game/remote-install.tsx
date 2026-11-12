@@ -1,4 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -10,6 +11,7 @@ import type { RemoteInstall } from "@/lib/types";
 import { useAuth } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { Badge, Button } from "@/components/ui/controls";
+import { DevicePicker, preferredDeviceId, rememberPreferredDevice, useDevices } from "@/components/game/device-picker";
 
 /**
  * "Install on the desktop" action for the browser/mobile client (#167).
@@ -32,6 +34,13 @@ export function RemoteInstallAction({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const enabled = !isNative() && Boolean(user);
+  const [targetDeviceId, setTargetDeviceId] = useState<string | null>(() => preferredDeviceId());
+  const devices = useDevices(enabled);
+  const target = devices.data?.find((device) => device.id === targetDeviceId);
+  const chooseTarget = (id: string | null) => {
+    setTargetDeviceId(id);
+    rememberPreferredDevice(id);
+  };
 
   const { data } = useQuery({
     queryKey: ["remote-installs"],
@@ -48,12 +57,15 @@ export function RemoteInstallAction({
         gameId,
         versionId: versionId ?? null,
         device: typeof navigator === "undefined" ? null : deviceLabel(navigator.userAgent),
+        targetDeviceId,
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["remote-installs"] });
       push({
         title: t("Install queued"),
-        description: t("{title} will install on the desktop when the app opens.", { title }),
+        description: target
+          ? t("{title} will install on {device} when it is online.", { title, device: target.name })
+          : t("{title} will install on the desktop when the app opens.", { title }),
         tone: "success",
       });
       navigate("/remote");
@@ -66,15 +78,25 @@ export function RemoteInstallAction({
 
   if (!install) {
     return (
-      <Button
-        variant="default"
-        size="lg"
-        icon={<Download className="size-4" />}
-        loading={queue.isPending}
-        onClick={() => queue.mutate()}
-      >
-        {t("Install on the desktop")}
-      </Button>
+      <div className="flex flex-col gap-2">
+        <DevicePicker
+          devices={devices.data ?? []}
+          value={targetDeviceId}
+          onChange={chooseTarget}
+          disabled={queue.isPending}
+        />
+        <Button
+          variant="default"
+          size="lg"
+          icon={<Download className="size-4" />}
+          loading={queue.isPending}
+          onClick={() => queue.mutate()}
+        >
+          {target
+            ? t("Install on {device}", { device: target.name })
+            : t("Install on the desktop")}
+        </Button>
+      </div>
     );
   }
 

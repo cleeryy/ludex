@@ -96,6 +96,7 @@ import type {
   PublicProfileResponse,
   PresenceHeartbeat,
   PresenceStateResponse,
+  Device,
   RemoteInstall,
   RecoveryCodes,
   ResetPasswordResult,
@@ -245,6 +246,30 @@ let nextSaveId = 4;
 
 /* --------------------------- remote installs ----------------------------- */
 
+// Demo registry: one online PC so the phone UI can be reviewed without a
+// paired desktop.
+let demoDevices: Device[] = [
+  {
+    id: "dev_demo_pc",
+    name: "Demo gaming PC",
+    platform: "linux",
+    appVersion: "0.4.0",
+    online: true,
+    lastSeenAt: new Date(Date.now() - 1000 * 20).toISOString(),
+    installedCount: 12,
+    freeDiskBytes: 412 * 1024 * 1024 * 1024,
+    streamingAvailable: true,
+    capabilities: {
+      installedGameIds: [],
+      installedCount: 12,
+      freeDiskBytes: 412 * 1024 * 1024 * 1024,
+      streamingAvailable: true,
+    },
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 6).toISOString(),
+    revokedAt: null,
+  },
+];
+
 const demoRemoteQueued = DEMO_GAMES[0];
 const demoRemoteReady = DEMO_GAMES[1];
 let remoteInstalls: RemoteInstall[] = [
@@ -259,6 +284,9 @@ let remoteInstalls: RemoteInstall[] = [
           version: demoRemoteQueued.versions[0]?.version ?? null,
           sizeBytes: demoRemoteQueued.versions[0]?.size ?? null,
           device: "Pixel 8",
+          targetDeviceId: null,
+          targetDeviceName: null,
+          claimedByDeviceId: null,
           status: "queued" as const,
           progress: 0,
           message: null,
@@ -280,6 +308,9 @@ let remoteInstalls: RemoteInstall[] = [
           version: demoRemoteReady.versions[0]?.version ?? null,
           sizeBytes: demoRemoteReady.versions[0]?.size ?? null,
           device: "Pixel 8",
+          targetDeviceId: null,
+          targetDeviceName: null,
+          claimedByDeviceId: null,
           status: "ready" as const,
           progress: 100,
           message: null,
@@ -1783,12 +1814,21 @@ export const mockApi = {
 
   async createRemoteInstall(
     token: string | null,
-    body: { gameId: number; versionId?: number | null; device?: string | null },
+    body: {
+      gameId: number;
+      versionId?: number | null;
+      device?: string | null;
+      targetDeviceId?: string | null;
+    },
   ): Promise<RemoteInstall> {
     await latency();
     const user = currentUser(token);
     const game = games.find((entry) => entry.id === body.gameId);
     if (!game) fail(404, "game_not_found", "Game not found");
+    const target = body.targetDeviceId
+      ? demoDevices.find((entry) => entry.id === body.targetDeviceId && entry.revokedAt === null)
+      : undefined;
+    if (body.targetDeviceId && !target) fail(404, "device_not_found", "Device not found");
     const existing = remoteInstalls.find((row) => row.gameId === body.gameId);
     if (existing && existing.status !== "failed" && existing.status !== "cancelled") {
       return clone(existing);
@@ -1804,6 +1844,9 @@ export const mockApi = {
       version: version?.version ?? null,
       sizeBytes: version?.size ?? null,
       device: body.device?.trim() || `${user.username}'s phone`,
+      targetDeviceId: target?.id ?? null,
+      targetDeviceName: target?.name ?? null,
+      claimedByDeviceId: null,
       status: "queued",
       progress: 0,
       message: null,
@@ -1829,6 +1872,22 @@ export const mockApi = {
     } else {
       remoteInstalls = remoteInstalls.filter((entry) => entry.id !== id);
     }
+  },
+
+  /* Device registry (#184). Demo mode exposes one synthetic PC. */
+  async listDevices(token: string | null): Promise<Device[]> {
+    await latency();
+    currentUser(token);
+    return clone(demoDevices.filter((device) => device.revokedAt === null));
+  },
+
+  async revokeDevice(token: string | null, id: string): Promise<void> {
+    await latency();
+    currentUser(token);
+    const device = demoDevices.find((entry) => entry.id === id);
+    if (!device) fail(404, "device_not_found", "Device not found");
+    device.revokedAt = nowIso();
+    device.online = false;
   },
 
   async listJobs(token: string | null): Promise<IngestJob[]> {

@@ -57,6 +57,7 @@ import type {
   LibraryHealthResponse,
   LibraryHealthStartResponse,
   LibraryStats,
+  Device,
   MetadataApplyInput,
   MetadataCandidates,
   MetadataProvider,
@@ -678,6 +679,7 @@ export const api = {
     gameId: number;
     versionId?: number | null;
     device?: string | null;
+    targetDeviceId?: string | null;
   }): Promise<RemoteInstall> {
     return USING_MOCKS
       ? mockApi.createRemoteInstall(tokenStore.get(), body)
@@ -687,6 +689,16 @@ export const api = {
     return USING_MOCKS
       ? mockApi.cancelRemoteInstall(tokenStore.get(), id)
       : request<void>(`/remote-installs/${id}`, { method: "DELETE" });
+  },
+
+  /* device registry (#184) */
+  listDevices(): Promise<Device[]> {
+    return USING_MOCKS ? mockApi.listDevices(tokenStore.get()) : request<Device[]>("/devices");
+  },
+  revokeDevice(id: string): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.revokeDevice(tokenStore.get(), id)
+      : request<void>(`/devices/${id}`, { method: "DELETE" });
   },
 
   /* ingest */

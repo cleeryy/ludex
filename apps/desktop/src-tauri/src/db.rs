@@ -590,6 +590,20 @@ fn map_installed(row: &rusqlite::Row<'_>) -> rusqlite::Result<InstalledGame> {
     })
 }
 
+pub fn installed_game_ids(connection: &Connection) -> Result<Vec<i64>, String> {
+    let mut statement = connection
+        .prepare("SELECT game_id FROM installed_games ORDER BY game_id ASC")
+        .map_err(|error| format!("Could not read installed games: {error}"))?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, i64>(0))
+        .map_err(|error| format!("Could not read installed games: {error}"))?;
+    let mut ids = Vec::new();
+    for row in rows {
+        ids.push(row.map_err(|error| format!("Could not read installed games: {error}"))?);
+    }
+    Ok(ids)
+}
+
 pub fn list_installed(connection: &Connection) -> Result<Vec<InstalledGame>, String> {
     let mut statement = connection
         .prepare(

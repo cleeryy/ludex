@@ -132,6 +132,12 @@ pub struct RemoteInstall {
     pub size_bytes: Option<i64>,
     /// Free-form device label supplied by the phone.
     pub device: Option<String>,
+    /// PC the phone targeted, or `null` for the account-wide queue.
+    pub target_device_id: Option<String>,
+    /// Display name of the target PC, resolved from the device registry.
+    pub target_device_name: Option<String>,
+    /// Device that actually claimed the request, when known.
+    pub claimed_by_device_id: Option<String>,
     /// Current lifecycle status.
     pub status: RemoteInstallStatus,
     /// Download/extraction progress, 0..=100.
@@ -168,6 +174,10 @@ pub struct CreateRemoteInstallRequest {
     /// Human-readable device label, e.g. "Pixel 8". Never used for auth.
     #[serde(default)]
     pub device: Option<String>,
+    /// Device registry id to target. Omit to keep the account-wide queue
+    /// (any signed-in desktop may claim).
+    #[serde(default)]
+    pub target_device_id: Option<String>,
 }
 
 /// Body of `POST /api/remote-installs/{id}/status`.
@@ -182,6 +192,11 @@ pub struct RemoteInstallStatusRequest {
     /// Short status line shown on the phone.
     #[serde(default)]
     pub message: Option<String>,
+    /// Stable client id of the claiming desktop (#184). Required when the
+    /// request is targeted, optional for the account-wide queue; the server
+    /// resolves it to the registered device.
+    #[serde(default)]
+    pub client_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -310,47 +325,55 @@ async fn load_version(
 
 /// Flat row selected by [`list`] and [`get`]: request + game + version
 /// snapshot, in column order.
-type RemoteInstallRow = (
-    String,
-    i64,
-    String,
-    Option<String>,
-    Option<i64>,
-    Option<String>,
-    Option<i64>,
-    Option<String>,
-    String,
-    i64,
-    Option<String>,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-);
+#[derive(sqlx::FromRow)]
+struct RemoteInstallRow {
+    id: String,
+    game_id: i64,
+    game_title: String,
+    cover_path: Option<String>,
+    version_id: Option<i64>,
+    version_label: Option<String>,
+    size_bytes: Option<i64>,
+    device: Option<String>,
+    target_device_id: Option<String>,
+    target_device_name: Option<String>,
+    device_id: Option<String>,
+    status: String,
+    progress: i64,
+    message: Option<String>,
+    requested_at: String,
+    updated_at: String,
+    claimed_at: Option<String>,
+    completed_at: Option<String>,
+}
 
 /// Lists a founder's requests, newest first.
 ///
 /// `statuses` may hold several values (`queued,claimed`); an empty list means
-/// every status. The desktop uses `queued` to pick up work, the phone reads
-/// everything.
+/// every status. When `device_id` is set, only requests targeted at that device
+/// plus the account-wide fallback are returned — that is what the desktop
+/// polls, so a second PC never sees work meant for another one.
 pub async fn list(
     pool: &Database,
     user_id: i64,
     statuses: &[RemoteInstallStatus],
+    device_id: Option<&str>,
     limit: i64,
 ) -> Result<Vec<RemoteInstall>, ApiError> {
     let limit = limit.clamp(1, 200);
     let mut sql = String::from(
         "SELECT id, game_id, game_title, cover_path, version_id, version_label, size_bytes,
-                device, status, progress, message, requested_at, updated_at, claimed_at,
-                completed_at
+                device, target_device_id, target_device_name, device_id, status, progress,
+                message, requested_at, updated_at, claimed_at, completed_at
          FROM (
              SELECT r.id, r.game_id, g.title AS game_title, g.cover_path, r.version_id,
-                    r.version_label, r.size_bytes, r.device, r.status, r.progress,
+                    r.version_label, r.size_bytes, r.device, r.target_device_id,
+                    d.name AS target_device_name, r.device_id, r.status, r.progress,
                     r.message, r.requested_at, r.updated_at, r.claimed_at, r.completed_at,
                     r.user_id
              FROM remote_installs r
              JOIN games g ON g.id = r.game_id
+             LEFT JOIN devices d ON d.id = r.target_device_id
          ) rows
          WHERE user_id = ?",
     );
@@ -358,11 +381,17 @@ pub async fn list(
         let placeholders = vec!["?"; statuses.len()].join(", ");
         sql.push_str(&format!(" AND status IN ({placeholders})"));
     }
+    if device_id.is_some() {
+        sql.push_str(" AND (target_device_id IS NULL OR target_device_id = ?)");
+    }
     sql.push_str(" ORDER BY requested_at DESC, id DESC LIMIT ?");
 
     let mut query = db::query_as::<RemoteInstallRow>(&sql).bind(user_id);
     for status in statuses {
         query = query.bind(status.as_str());
+    }
+    if let Some(device_id) = device_id {
+        query = query.bind(device_id);
     }
     let rows = query
         .bind(limit)
@@ -376,11 +405,14 @@ pub async fn list(
 /// Reads one request owned by `user_id`.
 pub async fn get(pool: &Database, user_id: i64, id: &str) -> Result<RemoteInstall, ApiError> {
     let row = db::query_as::<RemoteInstallRow>(
-        "SELECT r.id, r.game_id, g.title, g.cover_path, r.version_id, r.version_label,
-                r.size_bytes, r.device, r.status, r.progress, r.message, r.requested_at,
-                r.updated_at, r.claimed_at, r.completed_at
+        "SELECT r.id, r.game_id, g.title AS game_title, g.cover_path, r.version_id,
+                r.version_label, r.size_bytes, r.device, r.target_device_id,
+                d.name AS target_device_name, r.device_id, r.status,
+                r.progress, r.message, r.requested_at, r.updated_at, r.claimed_at,
+                r.completed_at
          FROM remote_installs r
          JOIN games g ON g.id = r.game_id
+         LEFT JOIN devices d ON d.id = r.target_device_id
          WHERE r.id = ? AND r.user_id = ?",
     )
     .bind(id)
@@ -393,39 +425,25 @@ pub async fn get(pool: &Database, user_id: i64, id: &str) -> Result<RemoteInstal
 }
 
 fn row_to_install(row: RemoteInstallRow) -> RemoteInstall {
-    let (
-        id,
-        game_id,
-        game_title,
-        cover_path,
-        version_id,
-        version_label,
-        size_bytes,
-        device,
-        status,
-        progress,
-        message,
-        requested_at,
-        updated_at,
-        claimed_at,
-        completed_at,
-    ) = row;
     RemoteInstall {
-        id,
-        game_id,
-        game_title,
-        cover_url: cover_path.as_deref().map(media_url),
-        version_id,
-        version: version_label,
-        size_bytes,
-        device,
-        status: RemoteInstallStatus::parse(&status).unwrap_or(RemoteInstallStatus::Queued),
-        progress,
-        message,
-        requested_at,
-        updated_at,
-        claimed_at,
-        completed_at,
+        id: row.id,
+        game_id: row.game_id,
+        game_title: row.game_title,
+        cover_url: row.cover_path.as_deref().map(media_url),
+        version_id: row.version_id,
+        version: row.version_label,
+        size_bytes: row.size_bytes,
+        device: row.device,
+        target_device_id: row.target_device_id,
+        target_device_name: row.target_device_name,
+        claimed_by_device_id: row.device_id,
+        status: RemoteInstallStatus::parse(&row.status).unwrap_or(RemoteInstallStatus::Queued),
+        progress: row.progress,
+        message: row.message,
+        requested_at: row.requested_at,
+        updated_at: row.updated_at,
+        claimed_at: row.claimed_at,
+        completed_at: row.completed_at,
     }
 }
 
@@ -469,14 +487,23 @@ pub async fn queue(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| value.chars().take(80).collect::<String>());
+    let target_device_id = request
+        .target_device_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if let Some(target) = &target_device_id {
+        crate::devices::require_target(pool, user_id, target).await?;
+    }
     let now = db::db_time(db::now());
     let id = uuid::Uuid::new_v4().to_string();
 
     let inserted = db::query(
         "INSERT INTO remote_installs
             (id, user_id, game_id, version_id, version_label, size_bytes, device,
-             status, progress, requested_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?)
+             target_device_id, status, progress, requested_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?)
          ON CONFLICT(user_id, game_id) DO NOTHING",
     )
     .bind(&id)
@@ -486,6 +513,7 @@ pub async fn queue(
     .bind(&version.label)
     .bind(version.size)
     .bind(&device)
+    .bind(&target_device_id)
     .bind(&now)
     .bind(&now)
     .execute(pool)
@@ -515,7 +543,8 @@ pub async fn queue(
         db::query(
             "UPDATE remote_installs
              SET status = 'queued', progress = 0, message = NULL, version_id = ?,
-                 version_label = ?, size_bytes = ?, device = ?, updated_at = ?,
+                 version_label = ?, size_bytes = ?, device = ?, target_device_id = ?,
+                 device_id = NULL, updated_at = ?,
                  claimed_at = NULL, completed_at = NULL
              WHERE id = ? AND user_id = ?",
         )
@@ -523,6 +552,7 @@ pub async fn queue(
         .bind(&version.label)
         .bind(version.size)
         .bind(&device)
+        .bind(&target_device_id)
         .bind(&now)
         .bind(&row.0)
         .bind(user_id)
@@ -557,6 +587,9 @@ pub async fn update_status(
             ),
         ));
     }
+    if request.status == RemoteInstallStatus::Claimed {
+        check_claim_device(pool, user_id, &current, request.client_id.as_deref()).await?;
+    }
     let progress = request
         .progress
         .map(|value| value.clamp(0, 100))
@@ -583,11 +616,22 @@ pub async fn update_status(
             RemoteInstallStatus::Ready => None,
             _ => current.message.clone(),
         });
+    let claimed_by_device_id = match request.status {
+        RemoteInstallStatus::Claimed => match request.client_id.as_deref() {
+            Some(client_id) if !client_id.trim().is_empty() => Some(
+                crate::devices::resolve_client(pool, user_id, client_id)
+                    .await?
+                    .id,
+            ),
+            _ => current.claimed_by_device_id.clone(),
+        },
+        _ => current.claimed_by_device_id.clone(),
+    };
 
     db::query(
         "UPDATE remote_installs
          SET status = ?, progress = ?, message = ?, updated_at = ?,
-             claimed_at = ?, completed_at = ?
+             claimed_at = ?, completed_at = ?, device_id = ?
          WHERE id = ? AND user_id = ?",
     )
     .bind(request.status.as_str())
@@ -596,6 +640,7 @@ pub async fn update_status(
     .bind(&now)
     .bind(&claimed_at)
     .bind(&completed_at)
+    .bind(&claimed_by_device_id)
     .bind(id)
     .bind(user_id)
     .execute(pool)
@@ -603,6 +648,42 @@ pub async fn update_status(
     .map_err(ApiError::from)?;
 
     get(pool, user_id, id).await
+}
+
+/// Rejects a claim when the request is targeted at another PC or the claiming
+/// device is unknown/revoked.
+///
+/// Untargeted requests keep the historical any-desktop behaviour; a client id
+/// is optional there but, when supplied, must still be an active device of the
+/// account so a revoked client cannot claim work.
+async fn check_claim_device(
+    pool: &Database,
+    user_id: i64,
+    current: &RemoteInstall,
+    client_id: Option<&str>,
+) -> Result<(), ApiError> {
+    let client_id = client_id.map(str::trim).filter(|value| !value.is_empty());
+    if let Some(target) = current.target_device_id.as_deref() {
+        let Some(client_id) = client_id else {
+            return Err(ApiError::conflict(
+                "wrong_device",
+                "This install is reserved for another PC",
+            ));
+        };
+        let device = crate::devices::resolve_client(pool, user_id, client_id).await?;
+        if device.id != target {
+            return Err(ApiError::conflict(
+                "wrong_device",
+                "This install is reserved for another PC",
+            ));
+        }
+        crate::devices::require_target(pool, user_id, target).await?;
+        return Ok(());
+    }
+    if let Some(client_id) = client_id {
+        crate::devices::resolve_client(pool, user_id, client_id).await?;
+    }
+    Ok(())
 }
 
 /// Cancels or forgets a request.

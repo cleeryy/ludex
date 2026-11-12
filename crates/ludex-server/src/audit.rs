@@ -128,6 +128,11 @@ pub mod actions {
     pub const REMOTE_INSTALL_UPDATED: &str = "remote_install.updated";
     /// A remote install was cancelled or cleared (#167).
     pub const REMOTE_INSTALL_CANCELLED: &str = "remote_install.cancelled";
+    /// A device registered for the first time or came back after a revoke
+    /// attempt (#184). Heartbeats are throttled, so only the first one audits.
+    pub const DEVICE_REGISTERED: &str = "device.registered";
+    /// A device was revoked and can no longer heartbeat or claim (#184).
+    pub const DEVICE_REVOKED: &str = "device.revoked";
     /// An invitation link was created (#166).
     pub const INVITATION_CREATED: &str = "invitation.created";
     /// An invitation link was revoked (#166).

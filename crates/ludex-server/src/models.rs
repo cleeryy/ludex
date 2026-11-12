@@ -2569,3 +2569,73 @@ pub struct ResetPasswordResult {
     /// Whether the account is asked to choose a new password.
     pub must_change_password: bool,
 }
+
+/* --------------------- device registry (#184) ----------------------------- */
+
+/// Capabilities a desktop reports with its heartbeat (#184).
+///
+/// Every field is optional on the wire so an older client can send a partial
+/// object; the server stores the sanitised copy and mirrors the three values
+/// the phone lists today into their own columns.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DeviceCapabilities {
+    /// Installed game ids on that PC. Capped at 500 entries.
+    pub installed_game_ids: Vec<i64>,
+    /// Count when the client does not send the id list.
+    pub installed_count: Option<i64>,
+    /// Free bytes on the install volume, `null` when unknown.
+    pub free_disk_bytes: Option<i64>,
+    /// A supported streaming host (Sunshine) is installed on that PC.
+    pub streaming_available: bool,
+}
+
+/// Body of `POST /api/devices/heartbeat`.
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceHeartbeatRequest {
+    /// Stable, client-generated id stored in the desktop settings. Not a token.
+    pub client_id: String,
+    /// Display name ("Gaming PC"). Omitted keeps the current name.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// `windows`, `linux`, `macos`, ...
+    #[serde(default)]
+    pub platform: Option<String>,
+    /// Desktop app version, e.g. `0.4.0`.
+    #[serde(default)]
+    pub app_version: Option<String>,
+    /// What this PC can do; drives the phone's cards and a future launch.
+    #[serde(default)]
+    pub capabilities: DeviceCapabilities,
+}
+
+/// One registered device, as returned by `GET /api/devices` (#184).
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Device {
+    /// Server-side device id (UUID). Only this id is used to target installs.
+    pub id: String,
+    /// Display name chosen by the user, or the platform fallback.
+    pub name: String,
+    /// Operating system reported by the app.
+    pub platform: Option<String>,
+    /// Desktop app version at the last heartbeat.
+    pub app_version: Option<String>,
+    /// Last heartbeat is newer than 60 s and the device is not revoked.
+    pub online: bool,
+    /// Last heartbeat, RFC 3339.
+    pub last_seen_at: String,
+    /// Installed games on that PC at the last heartbeat.
+    pub installed_count: i64,
+    /// Free bytes on the install volume, `null` when unknown.
+    pub free_disk_bytes: Option<i64>,
+    /// Sunshine (streaming) is installed on that PC.
+    pub streaming_available: bool,
+    /// Raw capabilities, echoed for future features.
+    pub capabilities: DeviceCapabilities,
+    /// First registration.
+    pub created_at: String,
+    /// Set when the user revoked the device; revoked devices cannot heartbeat.
+    pub revoked_at: Option<String>,
+}

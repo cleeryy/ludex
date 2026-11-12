@@ -292,6 +292,12 @@ export interface RemoteInstall {
   sizeBytes: number | null;
   /** Free-form label supplied by the phone; never used for authorization. */
   device: string | null;
+  /** PC the phone targeted, or `null` for the account-wide queue (#184). */
+  targetDeviceId: string | null;
+  /** Display name of the target PC, resolved by the server. */
+  targetDeviceName: string | null;
+  /** PC that actually claimed the request, when known. */
+  claimedByDeviceId: string | null;
   status: RemoteInstallStatus;
   /** 0-100. */
   progress: number;
@@ -300,6 +306,36 @@ export interface RemoteInstall {
   updatedAt: string;
   claimedAt: string | null;
   completedAt: string | null;
+}
+
+/* ------------------------- device registry (#184) ------------------------- */
+
+/** Capabilities a desktop reports with its heartbeat. */
+export interface DeviceCapabilities {
+  installedGameIds: number[];
+  installedCount: number | null;
+  freeDiskBytes: number | null;
+  streamingAvailable: boolean;
+}
+
+/**
+ * A PC registered through `POST /api/devices/heartbeat`. The phone lists these
+ * to answer "which of my PCs can install this?".
+ */
+export interface Device {
+  id: string;
+  name: string;
+  platform: string | null;
+  appVersion: string | null;
+  /** Last heartbeat newer than 60 s. */
+  online: boolean;
+  lastSeenAt: string;
+  installedCount: number;
+  freeDiskBytes: number | null;
+  streamingAvailable: boolean;
+  capabilities: DeviceCapabilities;
+  createdAt: string;
+  revokedAt: string | null;
 }
 
 /* ------------------------- library health (#165) -------------------------- */
@@ -1243,6 +1279,10 @@ export interface LocalSettings {
   diagnosticsEnabled: boolean;
   /** Random install id used only with the diagnostics opt-in. */
   diagnosticsInstallId: string | null;
+  /** Stable device-registry id (#184); generated on the first heartbeat. */
+  deviceId: string;
+  /** Display name shown on the phone's remote-install screen; null = host name. */
+  deviceName: string | null;
   serverUrl: string;
   token: string | null;
   gamesDir: string | null;

@@ -2198,6 +2198,40 @@ pub const ROUTES: &[RouteDoc] = &[
         ),
         204,
     ),
+    // Device registry (#184)
+    route(
+        HttpMethod::Get,
+        "/devices",
+        "Devices",
+        "List the caller's registered devices with their online state",
+        Auth::Session,
+        Payload::Array("Device"),
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/devices/heartbeat",
+                "Devices",
+                "Register this device or refresh its presence and capabilities",
+                Auth::Session,
+                Payload::Schema("Device"),
+            ),
+            "DeviceHeartbeatRequest",
+        ),
+        200,
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/devices/{id}",
+            "Devices",
+            "Revoke a device; it can no longer heartbeat or claim installs",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
     // Mobile companion (#167)
     query(
         route(
@@ -2714,6 +2748,9 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::models::UploadSession>()
         .schema_from::<crate::models::UploadPartResponse>()
         .schema_from::<crate::models::CompleteUploadResponse>()
+        .schema_from::<crate::models::Device>()
+        .schema_from::<crate::models::DeviceCapabilities>()
+        .schema_from::<crate::models::DeviceHeartbeatRequest>()
         .schema_from::<crate::remote_installs::RemoteInstall>()
         .schema_from::<crate::remote_installs::RemoteInstallStatus>()
         .schema_from::<crate::remote_installs::CreateRemoteInstallRequest>()
