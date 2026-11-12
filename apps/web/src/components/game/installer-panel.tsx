@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { FileTerminal, Square, TerminalSquare } from "lucide-react";
+import { Square, TerminalSquare } from "lucide-react";
 import { native } from "@/lib/native";
 import { errorMessage } from "@/lib/http";
 import type { InstallerPlan, InstallerReport } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Badge, Button } from "@/components/ui/controls";
-import { SectionHeader } from "@/components/page";
+import { EmptyState, SectionHeader } from "@/components/page";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/format";
 import { t } from "@/lib/i18n";
@@ -107,9 +107,10 @@ export function InstallerPanel({
   const installers = plan?.detected ?? [];
 
   return (
-    <section className="mt-12" aria-labelledby="installer-heading">
+    <div className="min-w-0">
       <SectionHeader
-        title={t("Installer")}
+        level={3}
+        title={t("Setup program")}
         description={t("Run the shipped setup program, then record the game executable")}
         actions={
           <Button variant="ghost" size="sm" className="text-ink-2" onClick={() => void pickExecutable()}>
@@ -117,7 +118,7 @@ export function InstallerPanel({
           </Button>
         }
       />
-      <div id="installer-heading" className="border-t border-line pt-4">
+      <div className="border-t border-line pt-4">
         <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-ink-3">
           {t("Some releases are an archive of a setup program. Silent switches are tried in order and the exit code is checked; if every attempt fails you can run the installer interactively.")}{" "}
           {linux
@@ -133,10 +134,14 @@ export function InstallerPanel({
         )}
 
         {installers.length === 0 ? (
-          <p className="mt-3 flex items-start gap-2 text-[12.5px] text-ink-3">
-            <FileTerminal className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-            {t("No installer was found in this install folder. Use “Choose executable” to point at the game binary.")}
-          </p>
+          <div className="mt-3">
+            <EmptyState
+              compact
+              level={3}
+              title={t("No setup program found")}
+              description={t("This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.")}
+            />
+          </div>
         ) : (
           <div className="mt-4 flex flex-col gap-3">
             <ul className="border-t border-line">
@@ -257,6 +262,6 @@ export function InstallerPanel({
           </p>
         )}
       </div>
-    </section>
+    </div>
   );
 }

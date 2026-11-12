@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Gamepad2, Play } from "lucide-react";
+import { Play } from "lucide-react";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { isNative, native } from "@/lib/native";
@@ -8,6 +8,7 @@ import type { GameDetail } from "@/lib/types";
 import { useIsEditor } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { Badge, Button } from "@/components/ui/controls";
+import { SectionHeader } from "@/components/page";
 import { Select } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
 
@@ -69,30 +70,25 @@ export function RomPanel({ game }: { game: GameDetail }) {
   };
 
   return (
-    <section className="mt-12" aria-labelledby="rom-heading">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 id="rom-heading" className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
-            <Gamepad2 className="size-3.5" /> {t("ROM and emulator")}
-          </h2>
-          <p className="mt-1 text-[12.5px] text-ink-2">
-            {platform?.label ?? game.platform ?? t("Unrecognised platform")}
-            {platform?.retroarchCore && (
-              <span className="ml-2 font-mono text-[10.5px] text-ink-3">core {platform.retroarchCore}</span>
+    <div className="min-w-0">
+      <SectionHeader
+        title={t("ROM and emulator")}
+        description={`${platform?.label ?? game.platform ?? t("Unrecognised platform")}${
+          platform?.retroarchCore ? ` · ${platform.retroarchCore}` : ""
+        }`}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone="outline">{t("ROM")}</Badge>
+            {isNative() && game.platform && (
+              <Button variant="primary" icon={<Play className="size-3.5" />} loading={launching} onClick={() => void launch()}>
+                {t("Launch on this device")}
+              </Button>
             )}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone="outline">{t("ROM")}</Badge>
-          {isNative() && game.platform && (
-            <Button variant="primary" icon={<Play className="size-3.5" />} loading={launching} onClick={() => void launch()}>
-              {t("Launch on this device")}
-            </Button>
-          )}
-        </div>
-      </div>
+          </div>
+        }
+      />
 
-      <div className="mt-3 border-t border-line pt-3">
+      <div className="border-t border-line pt-4">
         {isEditor ? (
           <div className="max-w-[360px]">
             <Select
@@ -122,6 +118,6 @@ export function RomPanel({ game }: { game: GameDetail }) {
           </p>
         )}
       </div>
-    </section>
+    </div>
   );
 }

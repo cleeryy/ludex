@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, HardDriveDownload, Play, RotateCcw, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -22,7 +22,7 @@ import {
 import { useToast } from "@/state/toasts";
 import { Badge, Button } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
-import { SectionHeader } from "@/components/page";
+import { EmptyState, SectionHeader } from "@/components/page";
 
 /** A row from the server manager, or the public detail shape for readers. */
 function asInfo(version: GameVersion): GameVersionInfo {
@@ -49,12 +49,15 @@ export function VersionManager({
   isEditor,
   onInstall,
   onDownload,
+  selection,
 }: {
   game: GameDetail;
   installed?: InstalledGame;
   isEditor: boolean;
   onInstall: (version: GameVersion) => void;
   onDownload: (version: GameVersion) => void;
+  /** The archive picker, rendered as the first row of the table. */
+  selection?: ReactNode;
 }) {
   const { push } = useToast();
   const queryClient = useQueryClient();
@@ -128,8 +131,9 @@ export function VersionManager({
   };
 
   return (
-    <section aria-labelledby="versions-heading">
+    <div className="min-w-0">
       <SectionHeader
+        level={3}
         title={t("Versions")}
         count={versions.length}
         description={t("Archives on the server, newest first")}
@@ -141,7 +145,8 @@ export function VersionManager({
           ) : undefined
         }
       />
-      <div className="border-t border-line" id="versions-heading">
+      <div className="border-t border-line">
+        {selection && <div className="border-b border-line py-3">{selection}</div>}
         {defaultVersionId != null && preferred && preferred.id !== defaultVersionId && (
           <p className="border-b border-line py-2.5 text-[12px] leading-relaxed text-signal-text">
             {t(
@@ -280,7 +285,14 @@ export function VersionManager({
           );
         })}
         {versions.length === 0 && (
-          <p className="py-4 text-[12.5px] text-ink-3">{t("No archive is indexed for this game yet.")}</p>
+          <div className="py-4">
+            <EmptyState
+              compact
+              level={3}
+              title={t("No archive yet")}
+              description={t("No archive is indexed for this game yet.")}
+            />
+          </div>
         )}
       </div>
 
@@ -331,6 +343,6 @@ export function VersionManager({
           )}
         </div>
       </Dialog>
-    </section>
+    </div>
   );
 }

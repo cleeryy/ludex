@@ -365,11 +365,12 @@ export function MediaGallery({ game, spec, seed }: { game: GameDetail; spec: Art
       {activeVideo && (
         <section aria-labelledby="trailer-heading" className="mb-12">
           <SectionHeader
+            id="trailer-heading"
             title={t("Trailer")}
             count={videos.length}
             description={videos.length > 1 ? t("Choose a video, then press play") : undefined}
           />
-          <div id="trailer-heading" className="grid gap-3 lg:grid-cols-[1fr_220px]">
+          <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
             <TrailerPlayer video={activeVideo} title={game.title} />
             {videos.length > 1 && (
               <div className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
@@ -417,8 +418,8 @@ export function MediaGallery({ game, spec, seed }: { game: GameDetail; spec: Art
       )}
 
       <section aria-labelledby="media-heading">
-        <SectionHeader title={t("Media")} count={items.length} description={t("Stills and videos")} />
-        <div id="media-heading" className="nav-scroll -mx-[var(--page-x)] flex gap-3 overflow-x-auto px-[var(--page-x)] pb-2">
+        <SectionHeader id="media-heading" title={t("Media")} count={items.length} description={t("Stills and videos")} />
+        <div className="nav-scroll -mx-[var(--page-x)] flex gap-3 overflow-x-auto px-[var(--page-x)] pb-2">
           {items.slice(0, shown).map((item, index) => (
             <button
               key={item.kind === "video" ? `video-${index}-${item.video.url}` : `still-${index}`}

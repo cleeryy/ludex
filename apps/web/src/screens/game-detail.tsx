@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -25,11 +25,19 @@ import {
 import { api, assetUrl, USING_MOCKS } from "@/lib/api";
 import { ApiError, errorMessage } from "@/lib/http";
 import { parseServerGameId } from "@/lib/game-route";
+import {
+  availableGameSections,
+  gameSectionDescription,
+  gameSectionLabel,
+  gameSectionPath,
+  resolveGameSection,
+  type GameSectionId,
+} from "@/lib/game-sections";
 import { cn } from "@/lib/cn";
-import { formatBytes, formatDate, formatEta, formatMinutes, formatRating, formatRelative, formatSeconds, formatSpeed, formatYear, stateLabel, formatPercent } from "@/lib/format";
+import { formatBytes, formatEta, formatMinutes, formatPercent, formatRating, formatRelative, formatSpeed, formatYear, stateLabel } from "@/lib/format";
 import { isNative, native } from "@/lib/native";
-import type { GameDetail, GameVersion, InstalledGame, ProgressState } from "@/lib/types";
-import { useBookmark, useGamePlaytime, useInstalledMap, useLaunchGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
+import type { GameVersion, ProgressState } from "@/lib/types";
+import { useBookmark, useGamePlaytime, useInstalledGames, useLaunchGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
 import { isRollbackInstall } from "@/lib/game-versions";
 import { useDownloads } from "@/state/downloads";
 import { AchievementsPanel } from "@/components/game/achievements";
@@ -46,28 +54,50 @@ import { VersionManager } from "@/components/game/version-manager";
 import { AdoptInstallDialog } from "@/components/game/adopt-install";
 import { DeleteAdoptedDialog } from "@/components/game/delete-adopted";
 import { InstallerPanel } from "@/components/game/installer-panel";
-import { ExecutableField } from "@/components/game/executable-picker";
 import { LaunchOptionsPanel } from "@/components/game/launch-options";
 import { MakeItRunPanel } from "@/components/game/make-it-run";
 import { ProtonDbBadge } from "@/components/game/protondb-badge";
 import { MoveInstallDialog } from "@/components/game/move-install";
 import { MediaGallery } from "@/components/game/media-gallery";
+import { GameNav } from "@/components/game/game-nav";
+import { GameOverview } from "@/components/game/game-overview";
+import { StartupCommandPanel } from "@/components/game/startup-command";
 import { AddToCollectionDialog } from "@/components/collections/add-to-collection";
 import { ShareDialog } from "@/components/share/share-dialog";
 import { StreamDialog } from "@/components/game/stream-dialog";
+import { SettingsSection } from "@/components/settings/settings-section";
 import { useAuth, useIsEditor } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { ThemeScope } from "@/components/theme/theme-scope";
 import { GameBackdrop, GameCover } from "@/components/art/cover";
 import { artFromUrl, hashString } from "@/lib/art";
 import { STATE_TONE } from "@/components/game/state";
-import { ErrorState, SectionHeader } from "@/components/page";
+import { ErrorState } from "@/components/page";
 import { NotFoundScreen } from "@/screens/not-found";
-import { Badge, Button, IconButton, Input, Progress, Skeleton } from "@/components/ui/controls";
+import { Badge, Button, IconButton, Progress, Skeleton } from "@/components/ui/controls";
 import { DropdownMenu, Select, useDropdown } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
 
 const STATES: ProgressState[] = ["unplayed", "playing", "completed", "onHold", "abandoned", "planToPlay"];
+
+/** Groups whose body is several panels; the group keeps the `h2`. */
+const MULTI_PANEL: ReadonlySet<GameSectionId> = new Set(["overview", "files", "launch"]);
+
+/** The visible panel heading for a single-panel group. */
+function panelTitle(id: GameSectionId): string {
+  switch (id) {
+    case "rom":
+      return t("ROM and emulator");
+    case "settings":
+      return t("Game settings");
+    case "saves":
+      return t("Cloud saves");
+    case "achievements":
+      return t("Achievements");
+    default:
+      return gameSectionLabel(id);
+  }
+}
 
 export function GameDetailRoute() {
   const { id } = useParams();
@@ -81,11 +111,16 @@ export function GameDetailScreen() {
   const gameId = Number(id);
   const navigate = useNavigate();
   const location = useLocation();
+  const [params] = useSearchParams();
   const isEditor = useIsEditor();
   const { user } = useAuth();
   const { push } = useToast();
   const queryClient = useQueryClient();
-  const installed = useInstalledMap();
+  const installedQuery = useInstalledGames();
+  const installed = useMemo(
+    () => new Map((installedQuery.data ?? []).map((entry) => [entry.gameId, entry])),
+    [installedQuery.data],
+  );
   const bookmark = useBookmark();
   const launch = useLaunchGame();
   const downloads = useDownloads();
@@ -100,7 +135,6 @@ export function GameDetailScreen() {
   const [shareOpen, setShareOpen] = useState(false);
   const [artworkOpen, setArtworkOpen] = useState(false);
   const [matchOpen, setMatchOpen] = useState(false);
-  const [launchOpen, setLaunchOpen] = useState(false);
   const [streamOpen, setStreamOpen] = useState(false);
 
   const { data: game, isPending, isError, error, refetch } = useQuery({
@@ -125,7 +159,7 @@ export function GameDetailScreen() {
   const version = useMemo(() => {
     if (!game) return null;
     // The pinned version is the default for downloads, installs and updates
-    // (#168); the picker above the fold can override it for this page.
+    // (#168); the archive picker in Files can override it for this page.
     return (
       game.versions.find((v) => v.id === versionId) ??
       game.versions.find((v) => v.id === game.defaultVersionId) ??
@@ -133,6 +167,37 @@ export function GameDetailScreen() {
       null
     );
   }, [game, versionId]);
+
+  const desktop = isNative();
+  const isInstalled = game ? installed.get(game.id) : undefined;
+  const sections = useMemo(
+    () =>
+      availableGameSections({
+        kind: game?.kind === "rom" ? "rom" : "game",
+        native: desktop,
+        installed: Boolean(installed.get(gameId)),
+      }),
+    [game?.kind, desktop, installed, gameId],
+  );
+  const availableIds = useMemo(() => sections.map((section) => section.id), [sections]);
+  const requested = resolveGameSection(params.get("tab"), availableIds);
+  const section = sections.find((entry) => entry.id === requested) ?? sections[0];
+  // A deep link opens with the group heading in focus; a plain load does not
+  // move the page at all.
+  const [focusToken, setFocusToken] = useState(() => (params.get("tab") ? 1 : 0));
+
+  // Normalise the address bar: an unknown group, a group this game/device does
+  // not have (or one lost after an uninstall) lands on the group actually drawn.
+  // Wait for the install list first: `?tab=settings` is valid as soon as the
+  // desktop app has answered, not on the first paint.
+  const installsSettled = !desktop || installedQuery.isSuccess || installedQuery.isError;
+  useEffect(() => {
+    if (!game || !section || !installsSettled) return;
+    const expected = section.id === "overview" ? null : section.id;
+    if (params.get("tab") !== expected) {
+      navigate(gameSectionPath(game.id, section.id), { replace: true });
+    }
+  }, [game, installsSettled, navigate, params, section]);
 
   const back = () => {
     if (location.key === "default") navigate("/library");
@@ -159,22 +224,20 @@ export function GameDetailScreen() {
     );
   }
 
-  if (!game) return null;
+  if (!game || !section) return null;
 
-  const isInstalled = installed.get(game.id);
   const isAdopted = isInstalled?.source === "adopted";
   const update = updates.get(game.id);
   const activeJob = downloads.jobForGame(game.id);
   const resumableJob = downloads.resumableForGame(game.id);
   const installPct = activeJob?.bytesTotal ? Math.min(100, (activeJob.bytesDone / activeJob.bytesTotal) * 100) : null;
-  const canPlay = isNative() && Boolean(isInstalled);
+  const canPlay = desktop && Boolean(isInstalled);
   const spec = artFromUrl(game.backgroundUrl, game.title);
   const dialogVersion = installTarget ?? version;
   const dialogRollback =
     dialogVersion && isInstalled
       ? isRollbackInstall(dialogVersion.id, isInstalled.versionId, game.versions)
       : false;
-  const totalPlayed = formatSeconds(playtime.data?.totalSeconds) ?? formatMinutes(game.minutesPlayed);
 
   const setProgress = async (state: ProgressState) => {
     try {
@@ -203,6 +266,11 @@ export function GameDetailScreen() {
     } catch (cause) {
       push({ title: t("Download did not start"), description: errorMessage(cause), tone: "danger" });
     }
+  };
+
+  const requestInstall = () => {
+    setInstallTarget(null);
+    setInstallOpen(true);
   };
 
   const primary = canPlay ? (
@@ -248,16 +316,8 @@ export function GameDetailScreen() {
     >
       {t("Resume install")}
     </Button>
-  ) : isNative() ? (
-    <Button
-      variant="primary"
-      size="lg"
-      icon={<Download className="size-4" />}
-      onClick={() => {
-        setInstallTarget(null);
-        setInstallOpen(true);
-      }}
-    >
+  ) : desktop ? (
+    <Button variant="primary" size="lg" icon={<Download className="size-4" />} onClick={requestInstall}>
       {t("Install")}
     </Button>
   ) : (
@@ -265,24 +325,6 @@ export function GameDetailScreen() {
       {t("Download")}
     </Button>
   );
-
-  const buildManifest = () => {
-    void native
-      .buildInstallManifest(game.id)
-      .then((report) =>
-        push({
-          title: t("Manifest built for {title}", { title: game.title }),
-          description: t("{files} hashed ({size}). Verify can now compare the folder with it.", {
-            files: report.files === 1 ? t("1 file") : t("{count} files", { count: report.files }),
-            size: formatBytes(report.bytes),
-          }),
-          tone: "success",
-        }),
-      )
-      .catch((cause: Error) =>
-        push({ title: t("Could not build the manifest"), description: cause.message, tone: "danger" }),
-      );
-  };
 
   const removeFromLudex = () => {
     void native
@@ -299,7 +341,7 @@ export function GameDetailScreen() {
       .catch((cause: Error) => push({ title: t("Could not remove the game"), description: cause.message, tone: "danger" }));
   };
 
-  const menu = [
+  const menu: { label: string; icon?: React.ReactNode; danger?: boolean; onSelect: () => void }[] = [
     ...(isEditor
       ? [
           {
@@ -317,13 +359,42 @@ export function GameDetailScreen() {
                 .catch((cause: Error) => push({ title: t("Could not queue metadata"), description: cause.message, tone: "danger" }));
             },
           },
+          ...(game.kind !== "rom"
+            ? [
+                {
+                  label: t("Edit startup command"),
+                  icon: <Pencil className="size-3.5" />,
+                  onSelect: () => navigate(gameSectionPath(game.id, "launch")),
+                },
+              ]
+            : []),
+        ]
+      : []),
+    {
+      label: t("Add to collection"),
+      icon: <ListPlus className="size-3.5" />,
+      onSelect: () => setCollectionOpen(true),
+    },
+    ...(isEditor
+      ? [
           {
-            label: t("Edit launch options"),
-            icon: <Pencil className="size-3.5" />,
-            onSelect: () => {
-              setLaunchOpen(true);
-              requestAnimationFrame(() => document.getElementById("launch-options")?.scrollIntoView({ behavior: "smooth", block: "start" }));
-            },
+            label: t("Artwork"),
+            icon: <Palette className="size-3.5" />,
+            onSelect: () => setArtworkOpen(true),
+          },
+          {
+            label: t("Share"),
+            icon: <Share2 className="size-3.5" />,
+            onSelect: () => setShareOpen(true),
+          },
+        ]
+      : []),
+    ...(desktop && !isInstalled && !activeJob
+      ? [
+          {
+            label: t("Link existing installation"),
+            icon: <Link2 className="size-3.5" />,
+            onSelect: () => setAdoptOpen(true),
           },
         ]
       : []),
@@ -345,12 +416,14 @@ export function GameDetailScreen() {
                   onSelect: () => setMoveOpen(true),
                 },
               ]),
-          ...(isNative()
+          ...(desktop
             ? [
                 {
-                  label: t("Build manifest"),
+                  // The only Build manifest lives in Installed files; the menu
+                  // points there instead of repeating the action (#189).
+                  label: t("Installed files"),
                   icon: <FileSignature className="size-3.5" />,
-                  onSelect: buildManifest,
+                  onSelect: () => navigate(gameSectionPath(game.id, "files")),
                 },
               ]
             : []),
@@ -395,6 +468,86 @@ export function GameDetailScreen() {
       : []),
   ];
 
+  const versionPicker =
+    game.versions.length > 1 && version ? (
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-[12px] text-ink-3">{t("Game version")}</span>
+        <div className="w-full sm:w-[240px]">
+          <Select
+            label={t("Game version")}
+            value={version.id}
+            onChange={setVersionId}
+            options={game.versions.map((entry) => ({
+              value: entry.id,
+              label: entry.version ? `v${entry.version}` : entry.fileName,
+              hint: formatBytes(entry.size),
+            }))}
+            className="h-10 text-[13px]"
+          />
+        </div>
+      </div>
+    ) : undefined;
+
+  const body = (id: GameSectionId) => {
+    switch (id) {
+      case "overview":
+        return (
+          <GameOverview
+            game={game}
+            installed={isInstalled}
+            update={update}
+            preferredVersion={version}
+            playtime={playtime.data ?? undefined}
+            onInstall={requestInstall}
+            onDownload={() => void download()}
+            onLinkExisting={() => setAdoptOpen(true)}
+            remoteInstall={
+              !desktop && user && !isInstalled ? (
+                <RemoteInstallAction gameId={game.id} versionId={version?.id} title={game.title} />
+              ) : undefined
+            }
+          />
+        );
+      case "rom":
+        return <RomPanel game={game} />;
+      case "files":
+        return (
+          <div className="flex flex-col gap-8">
+            <VersionManager
+              game={game}
+              installed={isInstalled}
+              isEditor={isEditor}
+              onDownload={(entry) => void download(entry)}
+              onInstall={(entry) => {
+                setInstallTarget(entry);
+                setInstallOpen(true);
+              }}
+              selection={versionPicker}
+            />
+            {isInstalled && desktop && <InstallFiles gameId={game.id} title={game.title} />}
+            {isInstalled && desktop && (
+              <InstallerPanel gameId={game.id} title={game.title} executable={isInstalled.executable} />
+            )}
+          </div>
+        );
+      case "launch":
+        return (
+          <div className="flex flex-col gap-8">
+            {isEditor && game.kind !== "rom" && <StartupCommandPanel game={game} installed={isInstalled} />}
+            {isInstalled && desktop && game.kind !== "rom" && <MakeItRunPanel gameId={game.id} />}
+            {isInstalled && desktop && game.kind !== "rom" && <LaunchOptionsPanel gameId={game.id} title={game.title} />}
+            <ControllerPanel gameId={game.id} gameTitle={game.title} plain />
+          </div>
+        );
+      case "settings":
+        return <GameSettingsPanel gameId={game.id} title={game.title} />;
+      case "saves":
+        return <CloudSaves gameId={game.id} title={game.title} installed={Boolean(isInstalled)} />;
+      case "achievements":
+        return <AchievementsPanel gameId={game.id} isEditor={isEditor} installPath={isInstalled?.installPath} />;
+    }
+  };
+
   return (
     <div className="relative">
       <ThemeScope as="section" className="relative isolate overflow-hidden bg-stage">
@@ -415,13 +568,6 @@ export function GameDetailScreen() {
             <div className="shadow-plate">
               <GameCover title={game.title} coverUrl={game.coverUrl} index={game.id} year={formatYear(game.releaseDate)} genre={game.genres[0]} />
             </div>
-            {isInstalled && (
-              <p className="mt-3 flex flex-wrap items-center gap-2 text-[11.5px] text-ink-3">
-                <span className={cn("size-1.5 rounded-full", isAdopted ? "bg-signal" : "bg-ok")} aria-hidden="true" />
-                {t("Installed")} {formatBytes(isInstalled.sizeBytes)}
-                {isAdopted && <Badge tone="signal">{t("Adopted")}</Badge>}
-              </p>
-            )}
           </div>
 
           <div className="min-w-0">
@@ -466,22 +612,6 @@ export function GameDetailScreen() {
 
             <div className="mt-7 flex flex-wrap items-center gap-2">
               {primary}
-              <RemoteInstallAction gameId={game.id} versionId={version?.id} title={game.title} />
-              {isNative() && !isInstalled && !activeJob && (
-                <Button
-                  variant="default"
-                  size="lg"
-                  icon={<Link2 className="size-4" />}
-                  onClick={() => setAdoptOpen(true)}
-                >
-                  {t("Link existing installation")}
-                </Button>
-              )}
-              {streamTarget.data?.published && (
-                <Button variant="default" size="lg" icon={<Cast className="size-4" />} onClick={() => setStreamOpen(true)}>
-                  {t("Stream")}
-                </Button>
-              )}
               {update && isInstalled && !activeJob && (
                 <Button
                   variant="default"
@@ -493,48 +623,10 @@ export function GameDetailScreen() {
                   {update.latestVersionLabel ? `Update to v${update.latestVersionLabel}` : t("Update")}
                 </Button>
               )}
-              {game.versions.length > 1 && version && (
-                <div className="w-[190px]">
-                  <Select
-                    label={t("Game version")}
-                    value={version.id}
-                    onChange={setVersionId}
-                    options={game.versions.map((v) => ({
-                      value: v.id,
-                      label: v.version ? `v${v.version}` : v.fileName,
-                      hint: formatBytes(v.size),
-                    }))}
-                    className="h-12 text-[13px]"
-                  />
-                </div>
-              )}
-              <Button
-                variant="default"
-                icon={<ListPlus className="size-4" />}
-                onClick={() => setCollectionOpen(true)}
-                className="h-12"
-              >
-                {t("Add to collection")}
-              </Button>
-              {isEditor && (
-                <>
-                  <Button
-                    variant="default"
-                    icon={<Palette className="size-4" />}
-                    onClick={() => setArtworkOpen(true)}
-                    className="h-12"
-                  >
-                    Artwork
-                  </Button>
-                  <Button
-                    variant="default"
-                    icon={<Share2 className="size-4" />}
-                    onClick={() => setShareOpen(true)}
-                    className="h-12"
-                  >
-                    {t("Share")}
-                  </Button>
-                </>
+              {streamTarget.data?.published && (
+                <Button variant="default" size="lg" icon={<Cast className="size-4" />} onClick={() => setStreamOpen(true)}>
+                  {t("Stream")}
+                </Button>
               )}
               <IconButton
                 label={game.bookmarked ? t("Remove bookmark") : t("Bookmark")}
@@ -545,7 +637,7 @@ export function GameDetailScreen() {
               >
                 {game.bookmarked ? <BookmarkCheck className="size-4" /> : <Bookmark className="size-4" />}
               </IconButton>
-              {menu.length > 0 && <DetailMenu items={menu} />}
+              <DetailMenu items={menu} />
             </div>
 
             {activeJob && (
@@ -566,15 +658,6 @@ export function GameDetailScreen() {
 
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <StatePicker state={game.state} onChange={setProgress} />
-              {isInstalled && (
-                <button
-                  type="button"
-                  onClick={() => void native.openPath(isInstalled.installPath).catch((cause: Error) => push({ title: t("Could not open the folder"), description: cause.message, tone: "danger" }))}
-                  className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
-                >
-                  {t("Open folder")}
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -585,149 +668,27 @@ export function GameDetailScreen() {
       <div className="page pt-8">
         <MediaGallery game={game} spec={spec} seed={hashString(game.title)} />
 
-        <AchievementsPanel gameId={game.id} isEditor={isEditor} installPath={isInstalled?.installPath} />
-
-        <div className="mt-14 grid gap-12 lg:grid-cols-[1fr_320px]">
-          <div>
-            <VersionManager
-              game={game}
-              installed={isInstalled}
-              isEditor={isEditor}
-              onDownload={(entry) => void download(entry)}
-              onInstall={(entry) => {
-                setInstallTarget(entry);
-                setInstallOpen(true);
-              }}
-            />
-
-            {isInstalled && isNative() && <InstallFiles gameId={game.id} title={game.title} />}
-
-            {isInstalled && isNative() && (
-              <InstallerPanel gameId={game.id} title={game.title} executable={isInstalled.executable} />
-            )}
-
-            {isInstalled && isNative() && <MakeItRunPanel gameId={game.id} />}
-
-            {isInstalled && isNative() && (
-              <LaunchOptionsPanel gameId={game.id} title={game.title} />
-            )}
-
-            {isInstalled && isNative() && (
-              <GameSettingsPanel gameId={game.id} title={game.title} />
-            )}
-
-            <CloudSaves gameId={game.id} title={game.title} installed={Boolean(isInstalled)} />
-
-            <RomPanel game={game} />
-
-            <div className="mt-10">
-              <ControllerPanel gameId={game.id} gameTitle={game.title} />
-            </div>
-
-            {isEditor && (
-              <section className="mt-12 scroll-mt-6" id="launch-options" aria-labelledby="launch-heading">
-                <SectionHeader
-                  title={t("Launch options")}
-                  description={t("Used by the desktop app when it starts the game")}
-                  actions={
-                    <Button variant="ghost" size="sm" onClick={() => setLaunchOpen((open) => !open)}>
-                      {launchOpen ? t("Hide") : t("Edit")}
-                    </Button>
-                  }
-                />
-                <div id="launch-heading" className="border-t border-line pt-4">
-                  {launchOpen ? (
-                    <LaunchForm game={game} installed={isInstalled} onSaved={() => void queryClient.invalidateQueries({ queryKey: ["game", game.id] })} />
-                  ) : (
-                    <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
-                      {[
-                        [t("Executable"), game.launch.executable ?? t("Not set")],
-                        [t("Parameters"), game.launch.parameters ?? t("None")],
-                        [t("Installer"), game.launch.installerExecutable ?? t("None")],
-                        [t("Uninstaller"), game.launch.uninstallerExecutable ?? t("None")],
-                      ].map(([label, value]) => (
-                        <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2">
-                          <dt className="text-[12px] text-ink-3">{label}</dt>
-                          <dd className="truncate font-mono text-[11px] text-ink-2">{value}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  )}
-                </div>
-              </section>
-            )}
+        <div className="mx-auto mt-10 flex w-full max-w-[1240px] flex-col gap-8 lg:flex-row lg:items-start lg:gap-12">
+          <GameNav
+            gameId={game.id}
+            sections={sections}
+            active={section.id}
+            onSelect={() => setFocusToken((token) => token + 1)}
+          />
+          <div className="min-w-0 flex-1">
+            <SettingsSection
+              id={section.id}
+              title={MULTI_PANEL.has(section.id) ? gameSectionLabel(section.id) : panelTitle(section.id)}
+              description={gameSectionDescription(section.id)}
+              heading={MULTI_PANEL.has(section.id) ? "section" : "panel"}
+              focusToken={focusToken}
+              scroll="self"
+              headingPrefix="game"
+              className="scroll-mt-16 lg:scroll-mt-0"
+            >
+              {body(section.id)}
+            </SettingsSection>
           </div>
-
-          <aside className="flex flex-col gap-10">
-            <section aria-labelledby="details-heading">
-              <SectionHeader title={t("Details")} />
-              <dl id="details-heading" className="border-t border-line">
-                {[
-                  [t("Developer"), game.developers.join(", ") || "—"],
-                  [t("Publisher"), game.publishers.join(", ") || "—"],
-                  [t("Released"), formatDate(game.releaseDate)],
-                  [t("Genres"), game.genres.join(", ")],
-                  [t("Platform"), game.platform ?? "—"],
-                  [t("Age rating"), game.ageRating ? `${game.ageRating}+` : t("Not rated")],
-                ].map(([label, value]) => (
-                  <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-                    <dt className="shrink-0 text-[12px] text-ink-3">{label}</dt>
-                    <dd className="text-right text-[12.5px] text-ink-2">{value}</dd>
-                  </div>
-                ))}
-              </dl>
-              {game.tags.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {game.tags.map((tag) => (
-                    <span key={tag} className="border border-line px-2 py-1 text-[11px] text-ink-3">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section aria-labelledby="progress-heading">
-              <SectionHeader title={t("Your progress")} />
-              <div id="progress-heading" className="flex flex-col gap-3 border-t border-line pt-4">
-                <div className="flex items-baseline justify-between gap-4">
-                  <span className="text-[12px] text-ink-3">{t("State")}</span>
-                  <span className={cn("flex items-center gap-1.5 text-[12.5px]", STATE_TONE[game.state].text)}>
-                    <span className={cn("size-1.5 rounded-full", STATE_TONE[game.state].dot)} aria-hidden="true" />
-                    {stateLabel(game.state)}
-                  </span>
-                </div>
-                <div className="flex items-baseline justify-between gap-4">
-                  <span className="text-[12px] text-ink-3">{t("Playtime")}</span>
-                  <span className="num text-[12.5px] text-ink-2">{totalPlayed ?? t("Not played")}</span>
-                </div>
-                <div className="flex items-baseline justify-between gap-4">
-                  <span className="text-[12px] text-ink-3">{t("Last session")}</span>
-                  <span className="text-[12.5px] text-ink-2">{formatRelative(game.lastPlayedAt)}</span>
-                </div>
-                {isNative() && playtime.data && playtime.data.sessions > 0 && (
-                  <div className="pt-2">
-                    <div className="flex items-baseline justify-between gap-4">
-                      <span className="text-[12px] text-ink-3">{t("Sessions on this device")}</span>
-                      <span className="num text-[12.5px] text-ink-2">{playtime.data.sessions}</span>
-                    </div>
-                    <ul className="mt-2 border-t border-line">
-                      {playtime.data.recentSessions.slice(0, 5).map((session) => (
-                        <li
-                          key={session.id}
-                          className="flex items-baseline justify-between gap-3 border-b border-line py-1.5 font-mono text-[10.5px] text-ink-3"
-                        >
-                          <span>{formatDate(session.startedAt)}</span>
-                          <span className="text-ink-2">{formatSeconds(session.seconds) ?? `${session.minutes}m`}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {user && <p className="pt-1 text-[11.5px] leading-relaxed text-ink-3">{t("Progress is stored per account on the server.")}</p>}
-              </div>
-            </section>
-          </aside>
         </div>
       </div>
 
@@ -827,146 +788,6 @@ function StatePicker({ state, onChange }: { state: ProgressState; onChange: (sta
         }))}
       />
     </>
-  );
-}
-
-function LaunchForm({ game, installed, onSaved }: { game: GameDetail; installed?: InstalledGame; onSaved: () => void }) {
-  const { push } = useToast();
-  const queryClient = useQueryClient();
-  const [executable, setExecutable] = useState(game.launch.executable ?? "");
-  const [parameters, setParameters] = useState(game.launch.parameters ?? "");
-  const [installer, setInstaller] = useState(game.launch.installerExecutable ?? "");
-  const [uninstaller, setUninstaller] = useState(game.launch.uninstallerExecutable ?? "");
-  const [busy, setBusy] = useState(false);
-
-  // The picker needs a folder on this device; a game installed elsewhere (or
-  // not installed yet) keeps the manual fields (#143).
-  const canPick = Boolean(installed && isNative());
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      let nextExecutable = executable.trim();
-      let nextInstaller = installer.trim();
-      let nextUninstaller = uninstaller.trim();
-      if (canPick) {
-        // Validate against the install folder before writing the server
-        // config: a path that escapes it is refused here, not at launch.
-        // An imported row without a folder on this device has nothing to
-        // validate against, so its manual values are kept as typed.
-        const listing = await native.listGameExecutables(game.id).catch((cause: unknown) => {
-          const message = errorMessage(cause);
-          if (message.includes("install folder is missing") || message.includes("has no folder")) return null;
-          throw cause;
-        });
-        if (listing) {
-          if (nextExecutable) nextExecutable = await native.checkGameExecutable(game.id, nextExecutable);
-          if (nextInstaller) nextInstaller = await native.checkGameExecutable(game.id, nextInstaller);
-          if (nextUninstaller) nextUninstaller = await native.checkGameExecutable(game.id, nextUninstaller);
-          setExecutable(nextExecutable);
-          setInstaller(nextInstaller);
-          setUninstaller(nextUninstaller);
-        }
-      }
-      await api.patchGame(game.id, {
-        launch: {
-          executable: nextExecutable || null,
-          parameters: parameters || null,
-          installerExecutable: nextInstaller || null,
-          uninstallerExecutable: nextUninstaller || null,
-        },
-      });
-      // The desktop app launches `installed.executable` when one is recorded,
-      // so the picker must update that row too; otherwise the saved choice
-      // would never be used (#143).
-      let localExecutableSaved = true;
-      if (canPick && nextExecutable) {
-        try {
-          await native.setExecutable(game.id, nextExecutable);
-          await queryClient.invalidateQueries({ queryKey: ["installed"] });
-        } catch (cause) {
-          localExecutableSaved = false;
-          push({
-            title: t("Launch options saved"),
-            description: errorMessage(cause),
-            tone: "default",
-          });
-        }
-      }
-      if (localExecutableSaved) push({ title: t("Launch options saved"), tone: "success" });
-      onSaved();
-    } catch (cause) {
-      push({ title: t("Could not save"), description: errorMessage(cause), tone: "danger" });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      {canPick ? (
-        <div className="sm:col-span-2">
-          <ExecutableField
-            gameId={game.id}
-            kind="launch"
-            label={t("Executable")}
-            value={executable}
-            onChange={setExecutable}
-            autoSelectRecommended
-            hint={t("Programs found in the install folder. The detected one is marked.")}
-          />
-        </div>
-      ) : (
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[12px] text-ink-2">{t("Executable")}</span>
-          <Input value={executable} onChange={(event) => setExecutable(event.target.value)} placeholder="Game.exe" className="h-10 font-mono text-[12px]" />
-        </label>
-      )}
-      <label className={cn("flex flex-col gap-1.5", canPick && "sm:col-span-2")}>
-        <span className="text-[12px] text-ink-2">{t("Parameters")}</span>
-        <Input value={parameters} onChange={(event) => setParameters(event.target.value)} placeholder="-windowed" className="h-10 font-mono text-[12px]" />
-      </label>
-      {canPick ? (
-        <>
-          <div className="sm:col-span-2">
-            <ExecutableField
-              gameId={game.id}
-              kind="installer"
-              label={t("Installer")}
-              value={installer}
-              onChange={setInstaller}
-              hint={t("setup, install and gog programs found in the install folder.")}
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <ExecutableField
-              gameId={game.id}
-              kind="uninstaller"
-              label={t("Uninstaller")}
-              value={uninstaller}
-              onChange={setUninstaller}
-              hint={t("unins and uninstall programs found in the install folder.")}
-            />
-          </div>
-        </>
-      ) : (
-        <>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-2">{t("Installer")}</span>
-            <Input value={installer} onChange={(event) => setInstaller(event.target.value)} placeholder="setup.exe" className="h-10 font-mono text-[12px]" />
-          </label>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-2">{t("Uninstaller")}</span>
-            <Input value={uninstaller} onChange={(event) => setUninstaller(event.target.value)} placeholder="unins000.exe" className="h-10 font-mono text-[12px]" />
-          </label>
-        </>
-      )}
-      <div className="sm:col-span-2">
-        <Button variant="default" loading={busy} onClick={() => void save()}>
-          {t("Save launch options")}
-        </Button>
-      </div>
-    </div>
   );
 }
 

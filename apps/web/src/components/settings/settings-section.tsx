@@ -17,6 +17,9 @@ export function SettingsSection({
   description,
   heading = "section",
   focusToken = 0,
+  scroll = "root",
+  headingPrefix = "settings",
+  className,
   children,
 }: {
   id: string;
@@ -26,16 +29,24 @@ export function SettingsSection({
   heading?: "section" | "panel";
   /** Grew since mount? Then the heading takes focus. 0 keeps the page as is. */
   focusToken?: number;
+  /**
+   * Where a category change scrolls. `root` is the settings page (top of the
+   * app scroller); `self` brings this section to the top of the viewport, for
+   * a page whose own hero must stay above; `none` leaves the scroll alone.
+   */
+  scroll?: "root" | "self" | "none";
+  /** Heading element id prefix; the game page namespaces its own groups. */
+  headingPrefix?: string;
+  className?: string;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLElement>(null);
   const mounted = useRef(false);
-  const headingId = `settings-${id}-heading`;
+  const headingId = `${headingPrefix}-${id}-heading`;
 
   useEffect(() => {
     const section = ref.current;
     if (!section) return;
-    section.closest<HTMLElement>("[data-scroll-root]")?.scrollTo({ top: 0, behavior: "auto" });
     // The first render keeps the page as the browser left it (no focus theft);
     // every later category change — click, deep link, history, palette — moves
     // focus to the heading so a screen reader starts at the new section.
@@ -49,15 +60,32 @@ export function SettingsSection({
     // a selection box around the title; keep the movement, drop the paint.
     heading.tabIndex = -1;
     heading.style.outline = "none";
-    heading.focus({ preventScroll: true });
-  }, [focusToken, id]);
+    const apply = () => {
+      if (scroll === "root") {
+        section.closest<HTMLElement>("[data-scroll-root]")?.scrollTo({ top: 0, behavior: "auto" });
+      } else if (scroll === "self") {
+        // `scroll-mt-*` on the section keeps the mobile chips from covering the
+        // heading; the focus below must not scroll a second time.
+        section.scrollIntoView({ block: "start", behavior: "auto" });
+      }
+      heading.focus({ preventScroll: true });
+    };
+    if (scroll === "self") {
+      // The shell restores the scroll position of the new history entry (top)
+      // from its own effect, which runs after this one. Defer the move so the
+      // group wins, and cancel it if the user moved on before the frame.
+      const frame = requestAnimationFrame(apply);
+      return () => cancelAnimationFrame(frame);
+    }
+    apply();
+  }, [focusToken, id, scroll]);
 
   return (
     <section
       ref={ref}
       aria-labelledby={heading === "section" ? headingId : undefined}
       aria-label={heading === "panel" ? title : undefined}
-      className="min-w-0"
+      className={cn("min-w-0", className)}
     >
       {heading === "section" && <SectionHeader id={headingId} title={title} description={description} />}
       {children}

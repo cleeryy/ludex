@@ -519,11 +519,11 @@ export function MakeItRunPanel({
         });
 
   return (
-    <section className="mt-12 scroll-mt-6" id="make-it-run" aria-labelledby="make-it-run-heading">
+    <div className="min-w-0" id="make-it-run">
       <SectionHeader
+        level={3}
         title={t("Make it run")}
         description={description}
-        id="make-it-run-heading"
         actions={
           <>
             {data?.ready && action === "launch" && (
@@ -995,6 +995,6 @@ export function MakeItRunPanel({
         onConfirm={() => void remove()}
         loading={busy !== null}
       />
-    </section>
+    </div>
   );
 }

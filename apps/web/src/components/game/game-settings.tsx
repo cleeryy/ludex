@@ -36,6 +36,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { useAuth } from "@/state/auth";
 import { useToast } from "@/state/toasts";
+import { SectionHeader } from "@/components/page";
 import { t, useI18n } from "@/lib/i18n";
 
 type Tab = "adapters" | "files" | "backups";
@@ -79,17 +80,11 @@ export function GameSettingsPanel({ gameId, title }: { gameId: number; title: st
   ];
 
   return (
-    <section className="mt-12" aria-labelledby="game-settings-heading">
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <div>
-          <h2 id="game-settings-heading" className="text-[16px] font-medium tracking-[-0.01em]">
-            {t("Game settings")}
-          </h2>
-          <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
-            {t("Edit {title}'s own config files. Every change is backed up first and can be restored from the Backups tab.", { title })}
-          </p>
-        </div>
-      </div>
+    <div className="min-w-0">
+      <SectionHeader
+        title={t("Game settings")}
+        description={t("Edit {title}'s own config files. Every change is backed up first and can be restored from the Backups tab.", { title })}
+      />
 
       <div role="tablist" aria-label={t("Game settings")} className="mt-4 flex flex-wrap items-center gap-1 border-b border-line">
         {tabs.map((item) => (
@@ -146,7 +141,7 @@ export function GameSettingsPanel({ gameId, title }: { gameId: number; title: st
           />
         )}
       </div>
-    </section>
+    </div>
   );
 }
 

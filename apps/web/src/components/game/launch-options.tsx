@@ -125,7 +125,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
       await queryClient.invalidateQueries({ queryKey: ["prefix-info", gameId] });
       await queryClient.invalidateQueries({ queryKey: ["protondb", gameId] });
       push({
-        title: t("Launch options saved"),
+        title: t("Linux options saved"),
         description: t("{title} will start with the {profile} profile.", { title, profile: modeOptions().find((option) => option.value === next.mode)?.label ?? next.mode }),
         tone: "success",
       });
@@ -208,9 +208,10 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
         : `${compatibleTools.length} available`;
 
   return (
-    <section className="mt-12" aria-labelledby="linux-launch-heading">
+    <div className="min-w-0">
       <SectionHeader
-        title={t("Linux launch options")}
+        level={3}
+        title={t("Linux compatibility")}
         description={t("Proton/UMU tool, Wine prefix and environment")}
         actions={
           draft.steamAppId !== null ? (
@@ -225,7 +226,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
           ) : undefined
         }
       />
-      <div id="linux-launch-heading" className="border-t border-line pt-4">
+      <div className="border-t border-line pt-4">
         {scan.data && scan.data.tools.length === 0 && (
           <p className="mb-4 border-l-2 border-signal/60 pl-3 text-[12.5px] leading-relaxed text-ink-2">
             {tr("No compatibility tool is installed. A Windows game cannot start until UMU, GE-Proton/Proton or Wine is available. Install one, then rescan in {settings}.", {
@@ -444,7 +445,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
 
         <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-4">
           <Button variant="primary" size="sm" loading={saving} disabled={!dirty} onClick={() => void save()}>
-            {t("Save launch options")}
+            {t("Save Linux options")}
           </Button>
           {dirty && <span className="text-[11.5px] text-ink-3">{t("Unsaved changes")}</span>}
           <span className="font-mono text-[10.5px] text-ink-3">
@@ -463,6 +464,6 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
           </ul>
         )}
       </div>
-    </section>
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Gamepad2, Plus, RotateCcw, Trash2, Upload } from "lucide-react";
 import { api } from "@/lib/api";
@@ -16,6 +16,7 @@ import {
 import type { ControllerAction, ControllerProfile } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Field, Input, Switch } from "@/components/ui/controls";
+import { SectionHeader } from "@/components/page";
 import { Select } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
 
@@ -25,7 +26,16 @@ import { t } from "@/lib/i18n";
  * the first connected pad so a player can find the button they want to remap
  * without guessing indices.
  */
-export function ControllerPanel({ gameId = null, gameTitle }: { gameId?: number | null; gameTitle?: string }) {
+export function ControllerPanel({
+  gameId = null,
+  gameTitle,
+  plain = false,
+}: {
+  gameId?: number | null;
+  gameTitle?: string;
+  /** Full-width group body on the game page: no card chrome, `h3` heading. */
+  plain?: boolean;
+}) {
   const queryClient = useQueryClient();
   const { push } = useToast();
   const profiles = useQuery({ queryKey: ["controller-profiles"], queryFn: () => api.controllerProfiles() });
@@ -136,24 +146,35 @@ export function ControllerPanel({ gameId = null, gameTitle }: { gameId?: number 
   };
 
   const mappings = Object.entries(draft.mappings).sort(([left], [right]) => left.localeCompare(right));
+  const headingId = useId();
+  const status = (
+    <Badge tone={pad.id ? "signal" : "outline"}>
+      {pad.id ? t("Pad detected") : t("No gamepad detected")}
+    </Badge>
+  );
+  const description =
+    gameId === null
+      ? t("Applies to every game unless that game has its own profile.")
+      : t("Overrides your account profile while playing {title}.", { title: gameTitle ?? t("this game") });
 
   return (
-    <section className="rounded-[3px] border border-line bg-bg-2/40 p-4 sm:p-5">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.12em] text-ink-2">
-            <Gamepad2 className="size-3.5" /> {t("Controller profile")}
-          </h3>
-          <p className="mt-1 text-[12.5px] text-ink-3">
-            {gameId === null
-              ? t("Applies to every game unless that game has its own profile.")
-              : t("Overrides your account profile while playing {title}.", { title: gameTitle ?? t("this game") })}
-          </p>
-        </div>
-        <Badge tone={pad.id ? "signal" : "outline"}>
-          {pad.id ? t("Pad detected") : t("No gamepad detected")}
-        </Badge>
-      </header>
+    <section
+      aria-labelledby={headingId}
+      className={cn(!plain && "rounded-[3px] border border-line bg-bg-2/40 p-4 sm:p-5")}
+    >
+      {plain ? (
+        <SectionHeader level={3} id={headingId} title={t("Controller profile")} description={description} actions={status} />
+      ) : (
+        <header className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 id={headingId} className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.12em] text-ink-2">
+              <Gamepad2 className="size-3.5" /> {t("Controller profile")}
+            </h3>
+            <p className="mt-1 text-[12.5px] text-ink-3">{description}</p>
+          </div>
+          {status}
+        </header>
+      )}
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <Field label={t("Name")}>

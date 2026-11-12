@@ -57,7 +57,7 @@ export function AchievementsPanel({
   };
 
   return (
-    <section className="mt-14" aria-labelledby="achievements-heading">
+    <div className="min-w-0">
       <SectionHeader
         title={t("Achievements")}
         count={data?.total}
@@ -77,7 +77,7 @@ export function AchievementsPanel({
         }
       />
 
-      <div id="achievements-heading" className="border-t border-line pt-4">
+      <div className="border-t border-line pt-4">
         {isPending ? (
           <div className="flex flex-col gap-2">
             <Skeleton className="h-3 w-full" />
@@ -118,7 +118,7 @@ export function AchievementsPanel({
           </div>
         )}
       </div>
-    </section>
+    </div>
   );
 }
 
