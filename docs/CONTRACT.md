@@ -266,6 +266,10 @@ interface DesktopDownload {
 | POST | `/api/account/avatar` | authenticated, `write` scope; multipart field `file` (PNG/JPEG/WebP, ≤2 MiB, ≤4096×4096) → updated `User`; see *Account avatars (#183)* |
 | DELETE | `/api/account/avatar` | clears `users.avatar_path`, deletes the managed file → updated `User` |
 | PATCH | `/api/account/profile` | authenticated, `write` scope; `{ locale?: string \| null }` → updated `User`; see *Interface language (#188)* |
+| GET | `/api/account/preferences` | authenticated, `read` scope; → `{ document, revision, schemaVersion, updatedAt }`; `document` is `null` and `revision` 0 until the account syncs; `Cache-Control: private, no-store` and `ETag: "<revision>"`; see *Account preference sync (#201)* |
+| PUT | `/api/account/preferences` | authenticated, `write` scope; `If-Match: "<revision>"` (or `*`) required; `{ document, schemaVersion? }` → the stored document; 409 `revision_conflict` with the current `revision` on a stale write |
+| PATCH | `/api/account/preferences` | authenticated, `write` scope; `If-Match` required; `{ patch, schemaVersion? }` deep-merges the fragment, validates the result and bumps the revision |
+| DELETE | `/api/account/preferences` | authenticated, `write` scope; deletes the account document (reset). An `If-Match` revision is honoured when present, so a stale device cannot wipe a newer document |
 
 ### Account avatars (#183)
 
@@ -316,6 +320,63 @@ The language follows the account, with an explicit per-device escape hatch.
   sign-in (`set_config_sync_defaults`), so a game launch uses the same language
   as the interface; the web caches the account/server values in `localStorage`
   for offline boots.
+
+### Account preference sync (#201)
+
+Account-level settings follow the user across browsers and devices through one
+validated JSON document; genuinely device-specific settings never enter it.
+
+- **Model.** `user_preferences` is one row per account: `document_json`,
+  `schema_version` (currently `1`), `revision` and `updated_at`. The row is
+  created on the first write and deleted by a reset. `ON DELETE CASCADE` ties it
+  to the account.
+- **Allowlist.** Only `theme` (`selection`, `accent`, `tint`), `bigPicture`
+  (`layout`, `sound`, `haptics`), `library` (`view`) and `updates` (`prompt`)
+  are accepted; any other key, at any depth, is 400 `unknown_preference_key`.
+  Values are typed and canonicalised (hex colours lowercased, enums checked);
+  `theme.selection` is a built-in id, `system` or `custom:<hash>`, which keeps
+  URLs, paths and token-shaped strings out by construction. An unknown
+  `schemaVersion` is 400 `unsupported_schema_version`.
+- **Limits.** The canonical document is capped at 64 KiB (413
+  `preferences_too_large`); a declared `Content-Length` above that plus framing
+  is rejected before parsing.
+- **Concurrency.** `GET` returns the current `revision` (0 when absent) and an
+  `ETag: "<revision>"`. `PUT`/`PATCH` require `If-Match` (428
+  `precondition_required` otherwise) and answer 409 `revision_conflict` with the
+  current `revision` in the body when another device wrote first; `If-Match: *`
+  is the explicit "overwrite anyway" escape hatch. The conditional `UPDATE ...
+  WHERE revision = ?` and the unique row per account close the read/write race
+  on both backends.
+- **Reset.** `DELETE` removes the row; clients fall back to their defaults and
+  the next write starts at revision 1. Local device files and caches are not
+  touched.
+- **Caching and audit.** Every response carries `Cache-Control: private,
+  no-store`. A write or reset emits `user.preferences_updated` with the
+  revision, schema version, key names and byte size — never the values.
+- **Client.** `PreferencesProvider` sits above the router. It boots from a
+  per-account, per-server cache, fetches the document and applies it; a first
+  sign-in with no server document uploads the device's account-scoped values
+  instead of resetting the theme. Writes are optimistic and debounced (~700 ms),
+  carry the revision and retry after a network failure (queued offline and
+  flushed on `online`/visibility). A 409 stops the automatic retry and shows
+  "Keep this device" / "Use the server". Signing out stops syncing and keeps the
+  cache; another account uses a different cache key. The panel in Settings →
+  Account shows the status, last sync, source and the reset action.
+- **Device-scoped, never synced.** Install, download and temp roots, bandwidth,
+  Sunshine/Moonlight paths and credentials, the controller hardware mapping
+  (`profileId`), overlay settings, window chrome (native title bar, close to
+  tray), server profiles and tokens, the update channel, skipped versions and
+  the remind-later window. Notification kinds already live in
+  `notification_prefs` and keep their own account-scoped endpoint; the
+  preference document does not duplicate them.
+- **Desktop mirror.** The Tauri app calls `apply_account_preferences` after a
+  successful sync. It copies only the account-owned fields into
+  `settings.json` (`accountTheme`, `accountBigPictureLayout`,
+  `accountLibraryView`, `accountSound`, `accountHaptics`,
+  `accountUpdatePrompt`), rejects unknown keys and never overwrites device
+  paths, bandwidth, overlay settings or tokens. When the webview profile is
+  reset but the app data survives, the web app falls back to this mirror before
+  the first server read.
 
 
 
@@ -1095,6 +1156,7 @@ Every security-relevant event is written to `audit_logs` with an actor
 (`user`, `api_key` or `system`), action, optional target, secret-free JSON
 metadata, IP when known, and timestamp. Recorded actions: `login.succeeded`,
 `login.failed`, `user.created|updated|deleted|password_changed|password_reset`,
+`user.preferences_updated` (revision, key names and size; never the values),
 `api_key.created|revoked`,
 `game.ingested|deleted`, `game.metadata_matched`, `download.completed`, `settings.updated`,
 `settings.oidc_updated`, `settings.metadata_provider_updated`,
@@ -2488,6 +2550,7 @@ interface RemotePlayCleanup {
 | `get_settings` | — | `LocalSettings` |
 | `save_settings` | `{ settings }` | `LocalSettings`; also re-applies the window decorations when `nativeTitleBar` changed (#111) |
 | `set_native_title_bar` | `{ enabled }` | `LocalSettings`; shows the OS title bar (`true`) or Ludex's own (`false`) on the live window and persists it, no restart. No-op decoration change on macOS (#111) |
+| `apply_account_preferences` | `{ document }` | `LocalSettings`; mirrors the synced account document into `settings.json` (`accountTheme`, `accountBigPictureLayout`, `accountLibraryView`, `accountSound`, `accountHaptics`, `accountUpdatePrompt`). Rejects unknown keys and never touches device paths, bandwidth, overlay settings, tokens or server profiles (#201) |
 | `overlay_status` | — | `OverlayStatus`; overlay feature switch/opacity/scale/tabs, running game with pid, presentation (`closed`, `window`, `inApp`), native listener status (backend, available, running, controllers, battery), capabilities, trigger deliverability, the "why it does not open" checklist, the foreground fullscreen hint, the last trigger verdict and the platform limitation note (#144, #190). Also re-arms a listener thread that failed to spawn. Local only |
 | `set_overlay_settings` | `{ settings: OverlaySettingsPatch }` | `OverlayStatus`; merges any subset of `enabled`, `trigger`, `opacity`, `scale`, `tabs`, `disabledGames`, validates/clamps it, persists it and applies it live (an open overlay picks up opacity/scale/tabs; disabling closes it) (#144) |
 | `open_overlay` | — | `OverlayStatus`; opens the overlay. When the main window is focused it is drawn in-app (`presentation: "inApp"`); otherwise a transparent always-on-top `overlay` window is created on demand on the current monitor, shown, unminimized and focused with one retry (`presentation: "window"`). Refused when the overlay or the running game is opted out; the refusal and its reason are logged and returned in `lastTrigger` (#144, #190) |
@@ -3950,6 +4013,9 @@ shape changes.
 | `localStorage` | `ludex.locale` | explicit per-device language override (#188), from `apps/web/src/locales/manifest.json`; absent = follow the account/server |
 | `localStorage` | `ludex.locale.account` | cache of the account preference from the last `/api/me` or login, read before the first render |
 | `localStorage` | `ludex.locale.server` | cache of `defaultLocale` from the last `/api/config`, read before the first render |
+| `localStorage` | `ludex.preferences.v1.<userId>` | cached account preference document, revision and pending flag, scoped per server by `scopedStorageKey` (#201) |
+| `localStorage` | `ludex.update.pref` | account update reminder choice (`always`, `notify`, `off`); the channel, skipped version and remind-later window stay device-local (#201) |
+| `localStorage` | `ludex.bigPicture.sound` | Big Picture sound cue preference (`on`/`off`, absent = on), synced through the account document (#201) |
 | `localStorage` | `ludex.pwa.installDismissedAt` | epoch ms; the install prompt is hidden for 30 days |
 
 The web client applies `theme` and `locale` before the first paint

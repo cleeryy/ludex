@@ -1420,6 +1420,17 @@ export interface LocalSettings {
   uiLanguage?: string;
   /** Ludex profile display name mirrored from the web profile (#148). */
   playerName?: string;
+  /**
+   * Account preference mirror (#201). The web app writes the account document
+   * here so a native launch, or a webview whose profile was reset, still sees
+   * the user's theme, layout and update choice. Device paths stay separate.
+   */
+  accountTheme?: string;
+  accountBigPictureLayout?: string;
+  accountLibraryView?: string;
+  accountSound?: boolean;
+  accountHaptics?: boolean;
+  accountUpdatePrompt?: string;
   /** In-game controller overlay (#144). On by default. */
   overlayEnabled?: boolean;
   /** Gesture recognised by the native listener (#144). */

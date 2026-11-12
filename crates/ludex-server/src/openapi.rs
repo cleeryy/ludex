@@ -404,6 +404,44 @@ pub const ROUTES: &[RouteDoc] = &[
         ),
         "AccountProfileRequest",
     ),
+    route(
+        HttpMethod::Get,
+        "/account/preferences",
+        "Authentication",
+        "Read the synced preference document and its revision",
+        Auth::Session,
+        Payload::Schema("PreferencesResponse"),
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/account/preferences",
+            "Authentication",
+            "Replace the preference document (If-Match revision, 409 on conflict)",
+            Auth::Session,
+            Payload::Schema("PreferencesResponse"),
+        ),
+        "ReplacePreferencesRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/account/preferences",
+            "Authentication",
+            "Deep-merge a preference fragment (If-Match revision, 409 on conflict)",
+            Auth::Session,
+            Payload::Schema("PreferencesResponse"),
+        ),
+        "PatchPreferencesRequest",
+    ),
+    route(
+        HttpMethod::Delete,
+        "/account/preferences",
+        "Authentication",
+        "Reset the synced preference document to defaults",
+        Auth::Session,
+        Payload::Schema("PreferencesResponse"),
+    ),
     body(
         route(
             HttpMethod::Put,
@@ -2585,6 +2623,9 @@ pub fn document() -> OpenApi {
         .schema_from::<ludex_core::models::ProgressState>()
         .schema_from::<crate::models::User>()
         .schema_from::<crate::routes::account::AccountProfileRequest>()
+        .schema_from::<crate::routes::preferences::PreferencesResponse>()
+        .schema_from::<crate::routes::preferences::ReplacePreferencesRequest>()
+        .schema_from::<crate::routes::preferences::PatchPreferencesRequest>()
         .schema_from::<crate::routes::admin_server::ServerSettings>()
         .schema_from::<crate::routes::admin_server::UpdateServerSettingsRequest>()
         .schema_from::<crate::models::UserSource>()

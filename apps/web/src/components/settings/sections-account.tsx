@@ -21,6 +21,7 @@ import { AdminDiagnosticsPanel, DiagnosticsPrivacyPanel } from "@/components/set
 import { RomEmulatorsPanel } from "@/components/settings/rom-emulators";
 import { SettingsGroup, SettingsSwitchRow } from "@/components/settings/settings-section";
 import { AvatarPanel } from "@/components/settings/avatar-panel";
+import { PreferencesSyncPanel } from "@/components/settings/preferences-sync";
 import { SecurityBody } from "@/components/settings/security-panel";
 import type { DesktopSettingsController } from "@/components/settings/use-desktop-settings";
 import { GettingStartedCard } from "@/components/onboarding/getting-started";
@@ -127,6 +128,8 @@ export function AccountBody() {
           </div>
         ))}
       </dl>
+
+      <PreferencesSyncPanel />
 
       <AvatarPanel displayName={profileQuery.data?.displayName ?? user?.username ?? ""} />
 

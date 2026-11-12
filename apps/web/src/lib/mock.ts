@@ -12,6 +12,11 @@ import {
 import { hashString } from "@/lib/art";
 import { ApiError, sleep } from "@/lib/http";
 import { normalizeSearch, scoreSearch } from "@/lib/search";
+import {
+  PREFERENCES_SCHEMA_VERSION,
+  type AccountPreferences,
+  type PreferencesResponse,
+} from "@/lib/preferences";
 import type {
   Achievement,
   AchievementScanReport,
@@ -452,6 +457,9 @@ let notifications: MockNotification[] = [
 ];
 let nextNotificationId = 5;
 let notificationPreferences: Record<number, NotificationPrefs> = {};
+
+/** Account preference documents (#201), per account. */
+let preferenceDocuments: Record<number, { document: AccountPreferences; revision: number; updatedAt: string }> = {};
 
 const PRESENCE_TTL_MS = 120_000;
 const PRESENCE_POLL_SECONDS = 30;
@@ -2796,6 +2804,62 @@ export const mockApi = {
     const next = { ...(notificationPreferences[viewer.id] ?? defaultNotificationPrefs()), ...patch };
     notificationPreferences = { ...notificationPreferences, [viewer.id]: next };
     return clone(next);
+  },
+
+  async accountPreferences(token: string | null): Promise<PreferencesResponse> {
+    await latency();
+    const viewer = currentUser(token);
+    const stored = preferenceDocuments[viewer.id];
+    return clone(
+      stored
+        ? {
+            document: stored.document,
+            revision: stored.revision,
+            schemaVersion: PREFERENCES_SCHEMA_VERSION,
+            updatedAt: stored.updatedAt,
+          }
+        : {
+            document: null,
+            revision: 0,
+            schemaVersion: PREFERENCES_SCHEMA_VERSION,
+            updatedAt: null,
+          },
+    );
+  },
+
+  async putAccountPreferences(
+    token: string | null,
+    document: AccountPreferences,
+    revision: number | "*",
+  ): Promise<PreferencesResponse> {
+    await latency();
+    const viewer = currentUser(token);
+    const stored = preferenceDocuments[viewer.id];
+    const currentRevision = stored?.revision ?? 0;
+    if (revision !== "*" && revision !== currentRevision) {
+      throw new ApiError(409, "revision_conflict", "The preference document changed on another device");
+    }
+    const next = {
+      document: clone(document),
+      revision: currentRevision + 1,
+      updatedAt: nowIso(),
+    };
+    preferenceDocuments = { ...preferenceDocuments, [viewer.id]: next };
+    return clone({ ...next, schemaVersion: PREFERENCES_SCHEMA_VERSION });
+  },
+
+  async resetAccountPreferences(token: string | null): Promise<PreferencesResponse> {
+    await latency();
+    const viewer = currentUser(token);
+    const rest = { ...preferenceDocuments };
+    delete rest[viewer.id];
+    preferenceDocuments = rest;
+    return {
+      document: null,
+      revision: 0,
+      schemaVersion: PREFERENCES_SCHEMA_VERSION,
+      updatedAt: null,
+    };
   },
 
   /* achievements */

@@ -1052,6 +1052,16 @@ export const native = {
     return invoke<ConfigSyncPrefs>("set_game_config_sync_prefs", { gameId, prefs });
   },
 
+  /**
+   * Mirror the account preference document into `settings.json` (#201). Only
+   * the account-owned fields are written; device paths, bandwidth, overlay
+   * settings and server profiles are untouched.
+   */
+  async applyAccountPreferences(document: unknown): Promise<LocalSettings | null> {
+    if (!isNative()) return null;
+    return invoke<LocalSettings>("apply_account_preferences", { document });
+  },
+
   /** Mirror the app locale/profile name for launch-time sync (#148). */
   async setConfigSyncDefaults(
     language: string,

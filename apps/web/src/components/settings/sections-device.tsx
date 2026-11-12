@@ -7,6 +7,7 @@ import { formatBytes } from "@/lib/format";
 import type { LocalSettings } from "@/lib/types";
 import { t, tn, tr } from "@/lib/i18n";
 import { useAuth } from "@/state/auth";
+import { usePreferences } from "@/state/preferences";
 import { Button, Input, Textarea } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { CompatibilityPanel } from "@/components/settings/compatibility-panel";
@@ -430,6 +431,7 @@ export function IntegrationsBody({ desktop }: { desktop: DesktopSettingsControll
 /** Updates: the build, its channel, and when it looks for a new one. */
 export function UpdatesBody({ desktop }: { desktop: DesktopSettingsController }) {
   const { setup } = useAuth();
+  const { preferences, update } = usePreferences();
   return (
     <>
       <div className="border-t border-line pt-5">
@@ -445,6 +447,24 @@ export function UpdatesBody({ desktop }: { desktop: DesktopSettingsController })
           ))}
         </dl>
       </div>
+
+      <SettingsGroup
+        title={t("Update reminders")}
+        description={t("Follows your account. The update channel and the versions you skipped stay on this device.")}
+      >
+        <div className="w-[260px]">
+          <Select
+            label={t("Update reminders")}
+            value={preferences.updates.prompt}
+            onChange={(prompt) => update({ updates: { prompt } })}
+            options={[
+              { value: "always", label: t("Always") },
+              { value: "notify", label: t("Badge only") },
+              { value: "off", label: t("Off") },
+            ]}
+          />
+        </div>
+      </SettingsGroup>
 
       <DesktopBody
         desktop={desktop}

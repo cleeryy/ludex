@@ -1,4 +1,5 @@
 import { CONTROLLER_PRESETS, presetProfile } from "@/lib/controller-profiles";
+import { notifyPreferencesChanged } from "@/lib/preferences-events";
 import type { ActionSource } from "@/lib/gamepad-core";
 import { t } from "@/lib/i18n";
 import type { ControllerAction, ControllerProfile, ControllerProfilesResponse } from "@/lib/types";
@@ -399,6 +400,7 @@ export function writeControllerPrefs(
   const next = sanitizeControllerPrefs(prefs);
   try {
     storage?.setItem(key, JSON.stringify(next));
+    notifyPreferencesChanged();
   } catch {
     /* the preference is session-only when storage is unavailable */
   }
