@@ -6,6 +6,12 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows desktop updates now show the new web UI immediately: Tauri no longer
+  registers the PWA service worker, and the WebView2 `Service Worker`/`Cache`
+  directories are reset once per app version before the window opens (#177).
+
 ## [0.4.0] - 2026-11-12
 
 ### Added

@@ -1,10 +1,15 @@
 import { useSyncExternalStore } from "react";
+import { isNative } from "@/lib/native";
 
 /**
  * PWA glue: install prompt, update prompt and service-worker registration.
  * The service worker is production-only so `vite dev` never serves a stale
  * shell. All state is exposed through a tiny external store so the shell can
  * render the prompts with `useSyncExternalStore`.
+ *
+ * Inside the desktop app the service worker is never registered: WebView2
+ * persists the profile across Windows updates, so an old worker would keep
+ * serving the previous frontend (#177).
  */
 
 interface BeforeInstallPromptEvent extends Event {
@@ -70,6 +75,14 @@ export function initPwa(): void {
   if (initialized || typeof window === "undefined") return;
   initialized = true;
 
+  // Desktop (#177): drop anything an older build left in the WebView2 profile
+  // and never register a worker there. Tauri serves its own assets, so the
+  // install/update prompts do not apply either.
+  if (isNative()) {
+    void clearNativeWorker();
+    return;
+  }
+
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
     deferredPrompt = event as BeforeInstallPromptEvent;
@@ -88,6 +101,29 @@ export function initPwa(): void {
   if (!("serviceWorker" in navigator) || !import.meta.env.PROD) return;
 
   void registerWorker();
+}
+
+/**
+ * Remove the worker and shell caches a previous desktop build left in the
+ * WebView2 profile (#177). Only `ludex-*` caches are deleted: other caches in
+ * that profile are not ours. Failures are swallowed — cleanup must never break
+ * startup.
+ */
+async function clearNativeWorker(): Promise<void> {
+  try {
+    if ("serviceWorker" in navigator) {
+      for (const registration of await navigator.serviceWorker.getRegistrations()) {
+        await registration.unregister();
+      }
+    }
+    if ("caches" in window) {
+      for (const key of await caches.keys()) {
+        if (key.startsWith("ludex-")) await caches.delete(key);
+      }
+    }
+  } catch {
+    // A stale worker must never break the app.
+  }
 }
 
 async function registerWorker(): Promise<void> {

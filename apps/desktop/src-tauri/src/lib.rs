@@ -48,6 +48,7 @@ mod tray;
 mod updater;
 mod updates;
 mod util;
+mod webview_profile;
 
 use tauri::{Manager, RunEvent, WindowEvent};
 use tracing_subscriber::EnvFilter;
@@ -60,6 +61,12 @@ pub fn run() {
         )
         .with_writer(std::io::stderr)
         .init();
+
+    // #177: a Windows update must show the new web UI. The WebView2 profile
+    // survives the NSIS update, so drop the caches that can hold the previous
+    // shell before any window opens. A no-op outside Windows, and never fatal.
+    let context = tauri::generate_context!();
+    webview_profile::maybe_reset(&context);
 
     let app = tauri::Builder::default()
         // The single-instance plugin must be registered first.
@@ -287,7 +294,7 @@ pub fn run() {
             commands::diagnostics_delete_reports,
             commands::diagnostics_record_error,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("failed to build the Ludex application");
 
     app.run(|app_handle, event| {

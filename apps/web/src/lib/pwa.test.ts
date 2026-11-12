@@ -1,5 +1,8 @@
 import fs from "node:fs";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { initPwa } from "@/lib/pwa";
+
+vi.mock("@/lib/native", () => ({ isNative: () => true }));
 
 const publicDir = new URL("../../public/", import.meta.url);
 
@@ -59,5 +62,36 @@ describe("PWA assets", () => {
     const offline = fs.readFileSync(new URL("offline.html", publicDir), "utf8");
     expect(offline).toContain("Offline");
     expect(offline).toContain('onclick="location.reload()"');
+  });
+});
+
+describe("desktop webview (#177)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("drops an old worker and the ludex caches, and registers nothing", async () => {
+    const unregister = vi.fn().mockResolvedValue(true);
+    const register = vi.fn();
+    const addEventListener = vi.fn();
+    const dropCache = vi.fn().mockResolvedValue(true);
+    const cachesApi = {
+      keys: async () => ["ludex-shell-abc123", "ludex-media-v1", "another-app"],
+      delete: dropCache,
+    };
+    vi.stubGlobal("window", { addEventListener, caches: cachesApi });
+    vi.stubGlobal("caches", cachesApi);
+    vi.stubGlobal("navigator", {
+      serviceWorker: { getRegistrations: async () => [{ unregister }], register },
+    });
+
+    initPwa();
+
+    await vi.waitFor(() => expect(unregister).toHaveBeenCalled());
+    await vi.waitFor(() => expect(dropCache).toHaveBeenCalledWith("ludex-media-v1"));
+    expect(dropCache).toHaveBeenCalledWith("ludex-shell-abc123");
+    expect(dropCache).not.toHaveBeenCalledWith("another-app");
+    expect(register).not.toHaveBeenCalled();
+    expect(addEventListener).not.toHaveBeenCalled();
   });
 });
