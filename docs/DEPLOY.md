@@ -133,6 +133,32 @@ Notes:
 - Do not add HTTP Basic auth in front of the API: the desktop app and download
   tickets use the API directly. Use Ludex accounts.
 
+### Network architecture and HTTP/3
+
+The full decision record is
+[NETWORK-ARCHITECTURE.md](NETWORK-ARCHITECTURE.md). The deployment rules that
+matter here:
+
+- **Caddy on 443 is the only public ingress.** Keep the server on
+  loopback/private/VPN. With Compose that means publishing
+  `127.0.0.1:8081:8080` (the container itself listens on `0.0.0.0`); with the
+  binary, set `LUDEX_BIND=127.0.0.1:8080` or a private/VPN address. Do not
+  publish 8080 to the internet, and do not add STUN/TURN/UPnP for downloads:
+  they solve peer-to-peer connectivity, which Ludex does not use.
+- **HTTP/3 is opportunistic.** Caddy serves it automatically when it
+  terminates TLS and advertises it with `Alt-Svc`. Publish UDP 443 as well as
+  TCP 443 (`443:443/tcp` and `443:443/udp` in Compose, and allow UDP 443 in
+  the host firewall). If UDP is blocked, clients fall back to HTTP/2
+  automatically; do not disable HTTP/2.
+- **Measure before tuning.** `scripts/bench-download.sh` compares direct vs
+  Caddy, HTTP/2 vs HTTP/1.1 vs HTTP/3, `aria2c` and `iperf3`; the thresholds
+  are in the ADR. Do not bypass Caddy or enable BBR without those numbers.
+- **Remote play is VPN-first.** Use WireGuard/Tailscale; the #179 UPnP wizard
+  is the convenience fallback. Never expose Sunshine's web UI (TCP 47990) or
+  use an HTTP tunnel for Moonlight. See
+  [REMOTE-ACCESS.md](REMOTE-ACCESS.md) and `docs/CONTRACT.md` ("Remote play
+  safety (#179)").
+
 ## Binary deployment (Linux)
 
 Download the release archive and checksum, verify, and install:
