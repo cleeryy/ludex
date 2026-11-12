@@ -1,0 +1,56 @@
+[  631827ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:22164
+[  640396ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5173/#/bigpicture:0
+[  764533ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:22164
+[  764686ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5173/#/bigpicture:0
+[  771069ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:22164
+[  771212ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5173/#/bigpicture:0
+[  772483ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:22164
+[  772679ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5173/#/bigpicture:0
+[  856238ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:22164
+[  856419ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5173/#/bigpicture?app=power:0
+[  856949ms] [ERROR] %o
+
+%s
+
+%s
+ Error: useI18n must be used inside I18nProvider
+    at useI18n (http://127.0.0.1:5173/src/lib/i18n.tsx?t=1794515369255:429:21)
+    at SystemBar (http://127.0.0.1:5173/src/components/big-picture/system-bar.tsx?t=1794515364450:107:20)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:20259:20)
+    at renderWithHooks (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:5918:24)
+    at updateFunctionComponent (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:7763:21)
+    at beginWork (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:8843:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:1133:72)
+    at performUnitOfWork (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:13598:98)
+    at workLoopSync (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:13461:43)
+    at renderRootSync (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:13445:13) The above error occurred in the <SystemBar> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:7275
+[  860848ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:22164
+[  861155ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5173/#/bigpicture?app=power:0
+[  909119ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:22164
+[  909335ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5173/#/bigpicture?app=power:0
+[  938319ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:22164
+[  938431ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5173/#/bigpicture:0
+[  951830ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:22164
+[  951945ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5173/#/bigpicture:0
+[ 1033041ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:22164
+[ 1033355ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5173/#/bigpicture:0
+[ 1043418ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:22164
+[ 1043626ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5173/#/bigpicture:0
+[ 1044109ms] [ERROR] %o
+
+%s
+
+%s
+ Error: useAuth must be used inside AuthProvider
+    at useAuth (http://127.0.0.1:5173/src/state/auth.tsx?t=1794515552866:233:21)
+    at BigPictureScreen (http://127.0.0.1:5173/src/screens/big-picture.tsx?t=1794515550375:137:34)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:20259:20)
+    at renderWithHooks (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:5918:24)
+    at updateFunctionComponent (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:7763:21)
+    at beginWork (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:8843:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:1133:72)
+    at performUnitOfWork (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:13598:98)
+    at workLoopSync (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:13461:43)
+    at renderRootSync (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:13445:13) The above error occurred in the <BigPictureScreen> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:7275
+[ 1074101ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=9980b22c:22164
+[ 1074394ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:5173/#/bigpicture:0

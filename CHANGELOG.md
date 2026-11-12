@@ -67,6 +67,12 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- PowerShell/console windows are gone for good (#193): every internal helper,
+  silent installer and runtime setup now goes through the no-window helper, the
+  source-scan test covers twelve programs plus `.exe`/absolute-path literals,
+  the game installer's interactive-vs-silent window choice is explicit instead
+  of inferred from the timeout, and game/emulator/Moonlight spawns stay
+  user-visible by marker.
 - Windows updates now replace the app binary (#186): every build carries a
   `LUDEX_BUILD_COMMIT` stamp, the updater records the version it installs and
   verifies it on the next start, startup logs the running exe/version/commit and

@@ -1,0 +1,74 @@
+- generic [ref=e2]:
+  - generic [ref=e3210]:
+    - banner "Système" [ref=e3211]:
+      - generic [ref=e3212]:
+        - img "Ludex" [ref=e3213]
+        - generic [ref=e3222]: Big Picture
+      - generic [ref=e3223]:
+        - generic "Connecté en tant que mara" [ref=e3224]:
+          - generic [ref=e3225]: MA
+          - generic [ref=e3226]:
+            - generic [ref=e3227]: "@mara"
+            - generic [ref=e3228]: 127.0.0.1:5173
+        - generic [ref=e3229]: En ligne
+        - generic "2 en cours" [ref=e3235]:
+          - generic [ref=e3239]: "2"
+          - generic [ref=e3240]: 75%
+        - time [ref=e3242]: 21:18
+    - main [ref=e3246]:
+      - region "Réglages" [ref=e3247]:
+        - generic [ref=e3248]:
+          - generic [ref=e3249]:
+            - generic [ref=e3250]:
+              - paragraph [ref=e3251]: Système
+              - heading "Réglages" [level=1] [ref=e3252]
+            - generic [ref=e3253]:
+              - generic [ref=e3254]: MA
+              - generic [ref=e3255]:
+                - generic [ref=e3256]: Connecté en tant que mara
+                - generic [ref=e3257]: "Serveur : 127.0.0.1:5173"
+          - paragraph [ref=e3258]: S’applique à votre compte sur tous les appareils. Une préférence propre à l’appareil reste sur cet appareil.
+          - group "Réglages" [ref=e3259]:
+            - button "Langue" [ref=e3260] [cursor=pointer]
+            - button "Apparence" [ref=e3266] [cursor=pointer]
+            - button "Manettes" [ref=e3273] [cursor=pointer]
+            - button "Diffusion" [ref=e3276] [cursor=pointer]
+            - generic [ref=e3281]:
+              - generic [ref=e3282]: LB
+              - generic [ref=e3283]: RB
+              - text: Onglets
+        - list [ref=e3285]:
+          - listitem [ref=e3314]:
+            - 'button "Langue: Français" [active] [ref=e3315] [cursor=pointer]':
+              - generic [ref=e3316]:
+                - generic [ref=e3317]: Langue
+                - generic [ref=e3318]: S’applique à votre compte sur tous les appareils. Une préférence propre à l’appareil reste sur cet appareil.
+              - generic [ref=e3319]: Français
+          - listitem [ref=e3326]:
+            - 'button "Cet appareil uniquement: Désactivé" [ref=e3327] [cursor=pointer]':
+              - generic [ref=e3328]:
+                - generic [ref=e3329]: Cet appareil uniquement
+                - generic [ref=e3330]: Les changements s’appliquent immédiatement.
+              - generic [ref=e3331]: Désactivé
+    - contentinfo [ref=e3296]:
+      - generic [ref=e3297]:
+        - generic [ref=e3298]:
+          - generic [ref=e3299]: ↑
+          - generic [ref=e3300]: ↓
+          - text: naviguer
+        - generic [ref=e3301]:
+          - generic [ref=e3302]: ←
+          - generic [ref=e3303]: →
+          - text: Changer
+        - generic [ref=e3304]:
+          - generic [ref=e3305]: ↵
+          - text: sélectionner
+        - generic [ref=e3306]:
+          - generic [ref=e3307]: "["
+          - generic [ref=e3308]: "]"
+          - text: Onglets
+        - generic [ref=e3309]:
+          - generic [ref=e3310]: esc
+          - text: retour
+      - generic [ref=e3311]: Clavier uniquement — connectez une manette pour la navigation canapé
+  - region "Notifications"

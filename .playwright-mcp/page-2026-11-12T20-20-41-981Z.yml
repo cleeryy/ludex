@@ -1,0 +1,74 @@
+- generic [ref=e2]:
+  - generic [ref=e3785]:
+    - banner "System" [ref=e3786]:
+      - generic [ref=e3787]:
+        - img "Ludex" [ref=e3788]
+        - generic [ref=e3797]: Big Picture
+      - generic [ref=e3798]:
+        - generic "Signed in as mara" [ref=e3799]:
+          - generic [ref=e3800]: MA
+          - generic [ref=e3801]:
+            - generic [ref=e3802]: "@mara"
+            - generic [ref=e3803]: 127.0.0.1:5173
+        - generic [ref=e3804]: Online
+        - generic "2 downloading" [ref=e3810]:
+          - generic [ref=e3814]: "2"
+          - generic [ref=e3815]: 80%
+        - time [ref=e3817]: 21:20
+    - main [ref=e3821]:
+      - region "Settings" [ref=e4428]:
+        - generic [ref=e4429]:
+          - generic [ref=e4430]:
+            - generic [ref=e4431]:
+              - paragraph [ref=e4432]: System
+              - heading "Settings" [level=1] [ref=e4433]
+            - generic [ref=e4434]:
+              - generic [ref=e4435]: MA
+              - generic [ref=e4436]:
+                - generic [ref=e4437]: Signed in as mara
+                - generic [ref=e4438]: "Server: 127.0.0.1:5173"
+          - paragraph [ref=e4439]: Themes, accent colour and the shape of the window on this device.
+          - group "Settings" [ref=e4440]:
+            - button "Language" [ref=e4441] [cursor=pointer]
+            - button "Appearance" [ref=e4447] [cursor=pointer]
+            - button "Controllers" [ref=e4454] [cursor=pointer]
+            - button "Streaming" [ref=e4457] [cursor=pointer]
+            - generic [ref=e4462]:
+              - generic [ref=e4463]: LB
+              - generic [ref=e4464]: RB
+              - text: Tabs
+        - list [ref=e4466]:
+          - listitem [ref=e4467]:
+            - 'button "Layout: Shelf" [active] [ref=e4468] [cursor=pointer]':
+              - generic [ref=e4469]:
+                - generic [ref=e4470]: Layout
+                - generic [ref=e4471]: Change how the library is presented.
+              - generic [ref=e4472]: Shelf
+          - listitem [ref=e4479]:
+            - 'button "Theme: Follow the system" [ref=e4480] [cursor=pointer]':
+              - generic [ref=e4481]:
+                - generic [ref=e4482]: Theme
+                - generic [ref=e4483]: Theme applies to this browser; language is saved to your account.
+              - generic [ref=e4484]: Follow the system
+    - contentinfo [ref=e3880]:
+      - generic [ref=e3881]:
+        - generic [ref=e4422]:
+          - generic [ref=e4491]: ↑
+          - generic [ref=e4492]: ↓
+          - text: navigate
+        - generic [ref=e4493]:
+          - generic [ref=e4494]: ←
+          - generic [ref=e4495]: →
+          - text: Change
+        - generic [ref=e3888]:
+          - generic [ref=e4425]: ↵
+          - text: select
+        - generic [ref=e4496]:
+          - generic [ref=e4497]: "["
+          - generic [ref=e4498]: "]"
+          - text: Tabs
+        - generic [ref=e4426]:
+          - generic [ref=e4427]: esc
+          - text: back
+      - generic [ref=e3895]: Keyboard only — connect a controller for couch navigation
+  - region "Notifications"

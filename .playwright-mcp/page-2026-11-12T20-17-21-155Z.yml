@@ -1,0 +1,80 @@
+- generic [ref=e2]:
+  - generic [ref=e1148]:
+    - banner "System" [ref=e1149]:
+      - generic [ref=e1150]:
+        - img "Ludex" [ref=e1151]
+        - generic [ref=e1160]: Big Picture
+      - generic [ref=e1161]:
+        - generic "Signed in as mara" [ref=e1162]:
+          - generic [ref=e1163]: MA
+          - generic [ref=e1164]:
+            - generic [ref=e1165]: "@mara"
+            - generic [ref=e1166]: 127.0.0.1:5173
+        - generic [ref=e1167]: Online
+        - generic "2 downloading" [ref=e1173]:
+          - generic [ref=e1177]: "2"
+          - generic [ref=e1178]: 71%
+        - time [ref=e1180]: 21:17
+    - main [ref=e1244]:
+      - region "Settings" [ref=e1612]:
+        - generic [ref=e1613]:
+          - generic [ref=e1614]:
+            - generic [ref=e1615]:
+              - paragraph [ref=e1616]: System
+              - heading "Settings" [level=1] [ref=e1617]
+            - generic [ref=e1618]:
+              - generic [ref=e1619]: MA
+              - generic [ref=e1620]:
+                - generic [ref=e1621]: Signed in as mara
+                - generic [ref=e1622]: "Server: 127.0.0.1:5173"
+          - paragraph [ref=e1623]: Applies to your account on every device. A device override stays on this device.
+          - group "Settings" [ref=e1624]:
+            - button "Language" [ref=e1625] [cursor=pointer]
+            - button "Appearance" [ref=e1631] [cursor=pointer]
+            - button "Controllers" [ref=e1638] [cursor=pointer]
+            - button "Streaming" [ref=e1641] [cursor=pointer]
+            - generic [ref=e1646]:
+              - generic [ref=e1647]: LB
+              - generic [ref=e1648]: RB
+              - text: Tabs
+        - list [ref=e1650]:
+          - listitem [ref=e1651]:
+            - 'button "Language: English" [active] [ref=e1652] [cursor=pointer]':
+              - generic [ref=e1653]:
+                - generic [ref=e1654]: Language
+                - generic [ref=e1655]: Applies to your account on every device. A device override stays on this device.
+              - generic [ref=e1656]: English
+          - listitem [ref=e1663]:
+            - 'button "Only this device: Off" [ref=e1664] [cursor=pointer]':
+              - generic [ref=e1665]:
+                - generic [ref=e1666]: Only this device
+                - generic [ref=e1667]: Changes apply immediately.
+              - generic [ref=e1668]: "Off"
+          - listitem [ref=e1670]:
+            - 'button "Use account default: Select" [ref=e1671] [cursor=pointer]':
+              - generic [ref=e1672]:
+                - generic [ref=e1673]: Use account default
+                - generic [ref=e1674]: Applies to your account on every device. A device override stays on this device.
+              - generic [ref=e1675]: Select
+    - contentinfo [ref=e1580]:
+      - generic [ref=e1581]:
+        - generic [ref=e1606]:
+          - generic [ref=e1607]: ←
+          - generic [ref=e1608]: →
+          - text: navigate
+        - generic [ref=e1680]:
+          - generic [ref=e1681]: ←
+          - generic [ref=e1682]: →
+          - text: Change
+        - generic [ref=e1582]:
+          - generic [ref=e1609]: ↵
+          - text: select
+        - generic [ref=e1683]:
+          - generic [ref=e1684]: "["
+          - generic [ref=e1685]: "]"
+          - text: Tabs
+        - generic [ref=e1610]:
+          - generic [ref=e1611]: esc
+          - text: back
+      - generic [ref=e1601]: Keyboard only — connect a controller for couch navigation
+  - region "Notifications"

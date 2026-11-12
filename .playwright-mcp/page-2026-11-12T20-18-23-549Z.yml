@@ -1,0 +1,76 @@
+- generic [ref=e2]:
+  - generic [ref=e1148]:
+    - banner "System" [ref=e1149]:
+      - generic [ref=e1150]:
+        - img "Ludex" [ref=e1151]
+        - generic [ref=e1160]: Big Picture
+      - generic [ref=e1161]:
+        - generic "Signed in as mara" [ref=e1162]:
+          - generic [ref=e1163]: MA
+          - generic [ref=e1164]:
+            - generic [ref=e1165]: "@mara"
+            - generic [ref=e1166]: 127.0.0.1:5173
+        - generic [ref=e1167]: Online
+        - generic "2 downloading" [ref=e1173]:
+          - generic [ref=e1177]: "2"
+          - generic [ref=e1178]: 74%
+        - time [ref=e1180]: 21:18
+    - main [ref=e1244]:
+      - region "Settings" [ref=e3112]:
+        - generic [ref=e3113]:
+          - generic [ref=e3114]:
+            - generic [ref=e3115]:
+              - paragraph [ref=e3116]: System
+              - heading "Settings" [level=1] [ref=e3117]
+            - generic [ref=e3118]:
+              - generic [ref=e3119]: MA
+              - generic [ref=e3120]:
+                - generic [ref=e3121]: Signed in as mara
+                - generic [ref=e3122]: "Server: 127.0.0.1:5173"
+          - paragraph [ref=e3123]: Themes, accent colour and the shape of the window on this device.
+          - group "Settings" [ref=e3124]:
+            - button "Language" [ref=e3125] [cursor=pointer]
+            - button "Appearance" [ref=e3131] [cursor=pointer]
+            - button "Controllers" [ref=e3138] [cursor=pointer]
+            - button "Streaming" [ref=e3141] [cursor=pointer]
+            - generic [ref=e3146]:
+              - generic [ref=e3147]: LB
+              - generic [ref=e3148]: RB
+              - text: Tabs
+        - list [ref=e3150]:
+          - listitem [ref=e3151]:
+            - 'button "Layout: Compact" [active] [ref=e3152] [cursor=pointer]':
+              - generic [ref=e3153]:
+                - generic [ref=e3154]: Layout
+                - generic [ref=e3155]: Change how the library is presented.
+              - generic [ref=e3156]: Compact
+          - listitem [ref=e3163]:
+            - 'button "Theme: Follow the system" [ref=e3164] [cursor=pointer]':
+              - generic [ref=e3165]:
+                - generic [ref=e3166]: Theme
+                - generic [ref=e3167]: Theme applies to this browser; language is saved to your account.
+              - generic [ref=e3168]: Follow the system
+    - contentinfo [ref=e1580]:
+      - generic [ref=e1581]:
+        - generic [ref=e3102]:
+          - generic [ref=e3103]: ←
+          - generic [ref=e3104]: →
+          - generic [ref=e3105]: ↑
+          - generic [ref=e3106]: ↓
+          - text: navigate
+        - generic [ref=e3175]:
+          - generic [ref=e3176]: ←
+          - generic [ref=e3177]: →
+          - text: Change
+        - generic [ref=e1582]:
+          - generic [ref=e3107]: ↵
+          - text: select
+        - generic [ref=e3178]:
+          - generic [ref=e3179]: "["
+          - generic [ref=e3180]: "]"
+          - text: Tabs
+        - generic [ref=e3108]:
+          - generic [ref=e3109]: esc
+          - text: back
+      - generic [ref=e1601]: Keyboard only — connect a controller for couch navigation
+  - region "Notifications"

@@ -1,0 +1,156 @@
+- generic [ref=e2]:
+  - generic [ref=e3785]:
+    - banner "System" [ref=e3786]:
+      - generic [ref=e3787]:
+        - img "Ludex" [ref=e3788]
+        - generic [ref=e3797]: Big Picture
+      - generic [ref=e3798]:
+        - generic "Signed in as mara" [ref=e3799]:
+          - generic [ref=e3800]: MA
+          - generic [ref=e3801]:
+            - generic [ref=e3802]: "@mara"
+            - generic [ref=e3803]: 127.0.0.1:5173
+        - generic [ref=e3804]: Online
+        - generic "2 downloading" [ref=e3810]:
+          - generic [ref=e3814]: "2"
+          - generic [ref=e3815]: 80%
+        - time [ref=e3817]: 21:20
+    - navigation "System" [ref=e3922]:
+      - list [ref=e3923]:
+        - listitem [ref=e3924]:
+          - button "Continue playing — Marvel's Spider-Man 2" [ref=e3925] [cursor=pointer]:
+            - generic [ref=e3926]: "01"
+            - generic [ref=e3930]:
+              - generic [ref=e3931]: Continue playing
+              - generic [ref=e3932]: Marvel's Spider-Man 2
+        - listitem [ref=e3933]:
+          - button "Library — All games" [ref=e3934] [cursor=pointer]:
+            - generic [ref=e3935]: "02"
+            - generic [ref=e3939]:
+              - generic [ref=e3940]: Library
+              - generic [ref=e3941]: All games
+        - listitem [ref=e3942]:
+          - button "Downloads — 2 downloading · 80%" [ref=e4337] [cursor=pointer]:
+            - generic [ref=e3944]: "03"
+            - generic [ref=e3949]:
+              - generic [ref=e3950]: Downloads
+              - generic [ref=e3951]: 2 downloading · 80%
+        - listitem [ref=e3952]:
+          - button "Collections — 14 games" [ref=e3953] [cursor=pointer]:
+            - generic [ref=e3954]: "04"
+            - generic [ref=e3960]:
+              - generic [ref=e3961]: Collections
+              - generic [ref=e3962]: 14 games
+        - listitem [ref=e3963]:
+          - button "Settings — Shelf · Follow the system" [ref=e3964] [cursor=pointer]:
+            - generic [ref=e3965]: "05"
+            - generic [ref=e3970]:
+              - generic [ref=e3971]: Settings
+              - generic [ref=e3972]: Shelf · Follow the system
+        - listitem [ref=e3973]:
+          - button "Power — Quit" [ref=e3974] [cursor=pointer]:
+            - generic [ref=e3975]: "06"
+            - generic [ref=e3979]:
+              - generic [ref=e3980]: Power
+              - generic [ref=e3981]: Quit
+    - main [ref=e3821]:
+      - generic [ref=e3998]:
+        - generic [ref=e4001]:
+          - generic:
+            - generic:
+              - generic: Ludex
+              - generic: No. 004
+            - generic:
+              - generic: "Call of Duty: Black Ops III"
+              - generic:
+                - generic: "2015"
+                - generic: Shooter
+        - generic [ref=e4014]:
+          - generic [ref=e4015]: Continue playing
+          - 'heading "Call of Duty: Black Ops III" [level=1] [ref=e4407]'
+          - generic [ref=e4018]:
+            - generic [ref=e4019]: "2015"
+            - generic [ref=e4020]: Completed
+            - generic [ref=e4021]: 79 / 100
+            - generic [ref=e4022]: 20h 40m played
+            - generic [ref=e4023]: Last played 2 months ago
+          - paragraph [ref=e4408]: A military shooter from the tail end of the 2010s, remembered mostly for its movement system and a co-op mode that refused to die.
+          - generic [ref=e4025]:
+            - button "Download" [ref=e4026] [cursor=pointer]
+            - button "Game page" [ref=e4030] [cursor=pointer]
+      - region "Games" [ref=e4031]:
+        - generic [ref=e4032]:
+          - group "Shelves" [ref=e4033]:
+            - button "Recently played 13" [pressed] [ref=e4034] [cursor=pointer]:
+              - generic [ref=e4035]: Recently played
+              - generic [ref=e4036]: "13"
+            - button "All games 19" [ref=e4037] [cursor=pointer]:
+              - generic [ref=e4038]: All games
+              - generic [ref=e4039]: "19"
+          - generic [ref=e4040]: 5 / 13
+        - generic [ref=e4041]:
+          - button "Marvel's Spider-Man 2" [active] [ref=e4043] [cursor=pointer]:
+            - generic [ref=e4059]: "2023"
+          - button "Forza Horizon 6" [ref=e4061] [cursor=pointer]:
+            - generic [ref=e4075]: "2026"
+          - button "It Takes Two" [ref=e4077] [cursor=pointer]:
+            - generic [ref=e4090]: "2021"
+          - button "Chrono Trigger" [ref=e4092] [cursor=pointer]:
+            - generic [ref=e4113]: "1995"
+          - 'button "Call of Duty: Black Ops III" [ref=e4115] [cursor=pointer]':
+            - generic [ref=e4133]: 2015 · Completed
+          - button "Cat Quest II" [ref=e4135] [cursor=pointer]:
+            - generic [ref=e4159]: "2019"
+          - button "HITMAN 3" [ref=e4161] [cursor=pointer]:
+            - generic [ref=e4175]: "2021"
+          - button "Little Nightmares II" [ref=e4177] [cursor=pointer]:
+            - generic [ref=e4198]: "2021"
+          - button "Little Nightmares" [ref=e4200] [cursor=pointer]:
+            - img [ref=e4203]:
+              - generic [ref=e4204]: L
+            - generic [ref=e4210]: "2017"
+          - button "Outer Wilds" [ref=e4212] [cursor=pointer]:
+            - generic [ref=e4246]: "2019"
+          - 'button "Sackboy: A Big Adventure" [ref=e4248] [cursor=pointer]':
+            - generic [ref=e4272]: "2020"
+          - button "Minecraft Dungeons" [ref=e4274] [cursor=pointer]:
+            - generic [ref=e4294]: "2020"
+          - 'button "UNCHARTED: Legacy of Thieves Collection" [ref=e4296] [cursor=pointer]':
+            - generic [ref=e4317]: "2022"
+    - contentinfo [ref=e3880]:
+      - generic [ref=e3881]:
+        - generic [ref=e3888]:
+          - generic [ref=e4318]: ←
+          - generic [ref=e4319]: →
+          - text: select
+        - generic [ref=e4320]:
+          - generic [ref=e4321]: "["
+          - generic [ref=e4322]: "]"
+          - text: shelf
+        - generic [ref=e4323]:
+          - generic [ref=e4324]: PgUp
+          - generic [ref=e4325]: PgDn
+          - text: page
+        - generic [ref=e4326]:
+          - generic [ref=e4327]: ↵
+          - text: play or install
+        - generic [ref=e4328]:
+          - generic [ref=e4329]: /
+          - text: search
+        - generic [ref=e4330]:
+          - generic [ref=e4331]: D
+          - text: downloads
+        - generic [ref=e4332]:
+          - generic [ref=e4333]: M
+          - text: menu
+        - generic [ref=e4334]:
+          - generic [ref=e4335]: esc
+          - text: exit
+      - generic [ref=e3895]: Keyboard only — connect a controller for couch navigation
+  - region "Notifications":
+    - status [ref=e4409]:
+      - generic [ref=e4411]:
+        - generic [ref=e4415]:
+          - paragraph [ref=e4416]: Download did not start
+          - paragraph [ref=e4417]: "Demo build: downloads need the real server. The browser flow is wired."
+        - button "Dismiss notification" [ref=e4418] [cursor=pointer]
