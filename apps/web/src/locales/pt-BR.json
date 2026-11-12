@@ -3338,5 +3338,9 @@
   "Will start when {device} is online.": "Começará quando {device} estiver online.",
   "Windows on Arm": "Janelas no braço",
   "x64 redistributables run under Windows' emulation layer; a game that needs a native Arm build is out of scope.": "redistribuíveis x64 são executados na camada de emulação do Windows; um jogo que precisa de uma versão nativa do Arm está fora do escopo.",
-  "Your PCs": "Seus computadores"
+  "Your PCs": "Seus computadores",
+  "Working directory": "Diretório de trabalho",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "Pasta em que o jogo inicia. Vazio usa a pasta de instalação; um jogo adotado inicia, caso contrário, na pasta do executável.",
+  "The game exited immediately": "O jogo encerrou imediatamente",
+  "The game exited immediately (code {code})": "O jogo encerrou imediatamente (código {code})"
 }

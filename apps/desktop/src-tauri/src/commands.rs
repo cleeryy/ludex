@@ -2278,6 +2278,26 @@ pub fn set_launch_options(
         return Err("The Wine prefix cannot be the install folder itself.".to_string());
     }
 
+    // #187: the working directory is stored absolute (a relative value is
+    // resolved against the install folder) and must be a readable folder now,
+    // so a typo is an error at save time instead of a confusing failed launch.
+    if !options.working_dir.is_empty() {
+        let candidate = PathBuf::from(&options.working_dir);
+        let full = if candidate.is_absolute() {
+            candidate
+        } else {
+            install_root.join(candidate)
+        };
+        let full = crate::paths::normalize_native_path(&full);
+        if !full.is_dir() {
+            return Err(format!(
+                "The working directory {} does not exist. Choose the folder the game starts in.",
+                full.display()
+            ));
+        }
+        options.working_dir = full.to_string_lossy().to_string();
+    }
+
     let connection = state
         .db
         .lock()

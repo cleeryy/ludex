@@ -737,12 +737,27 @@ export const native = {
   },
 
   async onGameExited(
-    handler: (payload: { sessionId: string; gameId: number; minutesPlayed: number; secondsPlayed: number }) => void,
+    handler: (payload: {
+      sessionId: string;
+      gameId: number;
+      minutesPlayed: number;
+      secondsPlayed: number;
+      source?: string;
+      /** Root process exit code (`0xC0000409` keeps its bits); null on a signal kill. */
+      exitCode?: number | null;
+      /** True when the process tree ended within 5 s (#187). */
+      immediateExit?: boolean;
+    }) => void,
   ): Promise<() => void> {
-    return listen<{ sessionId: string; gameId: number; minutesPlayed: number; secondsPlayed: number }>(
-      "game://exited",
-      handler,
-    );
+    return listen<{
+      sessionId: string;
+      gameId: number;
+      minutesPlayed: number;
+      secondsPlayed: number;
+      source?: string;
+      exitCode?: number | null;
+      immediateExit?: boolean;
+    }>("game://exited", handler);
   },
 
   /** Tray navigation: the menu asked the UI to open a route. */

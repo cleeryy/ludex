@@ -1919,7 +1919,7 @@ interface GameVaultAdoptReport {
   skipped: { folder: string; reason: string }[];
 }
 
-/** How a game is started on Linux (#89); stored per game in the desktop index. */
+/** How a game is started on Linux (#89) plus the shared working directory (#187); stored per game in the desktop index. */
 interface LaunchOptions {
   mode: "auto" | "native" | "proton" | "umu";
   toolId: string;                    // compat_scan tool id, empty = best available
@@ -1927,6 +1927,7 @@ interface LaunchOptions {
   env: Record<string, string>;       // DXVK_*, PROTON_*, WINEDLLOVERRIDES…
   winetricksVerbs: string[];         // run on demand in the game prefix
   steamAppId: number | null;         // ProtonDB (#91) and GAMEID
+  workingDir: string;                // cwd override; empty = automatic rule (#187)
 }
 
 /** One detected Steam/Proton/UMU/Wine tool (#90). */
@@ -2479,8 +2480,8 @@ interface RemotePlayCleanup {
 | `make_it_run_remove` | `{ gameId, providerId }` | `RuntimeRemovalReport`; deletes only the managed folder and cached archive, or forgets an imported DMG / registry redistributable without deleting any user file |
 | `make_it_run_select` | `{ gameId, providerId }` | `RuntimeDiagnosis`; records a user-installed wrapper as the game's runtime |
 | `set_runtime_prerequisites` | `{ gameId, prerequisites }` | `RuntimeDiagnosis`; records declared ids (`vcrun`, `dotnet`, `directx`, `physx`); unknown ids are rejected |
-| `get_launch_options` | `{ gameId }` | `LaunchOptions`; defaults when nothing was saved (#89) |
-| `set_launch_options` | `{ gameId, options }` | `LaunchOptions`; validates env names, verbs and prefix (#89, #92) |
+| `get_launch_options` | `{ gameId }` | `LaunchOptions`; defaults when nothing was saved (#89). Paths are normalised before they reach a process API (#187) |
+| `set_launch_options` | `{ gameId, options }` | `LaunchOptions`; validates env names, verbs, prefix and the working directory (must exist; a relative value is resolved against the install folder and stored absolute) (#89, #92, #187) |
 | `wine_prefix_info` | `{ gameId }` | `PrefixInfo`; path, custom flag, existence and size (#92) |
 | `reset_wine_prefix` | `{ gameId }` | `null`; deletes the game prefix after UI confirmation, refuses while the game runs |
 | `run_winetricks` | `{ gameId, verbs? }` | `WinetricksReport`; runs `winetricks -q <verbs>` with the game prefix, 30 min timeout (#92) |
@@ -2585,7 +2586,7 @@ Events:
 - `install://move-progress` → `{ gameId, bytesDone, bytesTotal, message }`
 - `install://verify-progress` → `{ gameId, filesDone, filesTotal, bytesDone, bytesTotal, message }`
 - `install://repair-progress` → same shape plus `phase: "downloading" | "extracting" | "restoring" | "verifying"`
-- `game://exited` → `{ sessionId, gameId, minutesPlayed, secondsPlayed, source }` (#129 adds `source`)
+- `game://exited` → `{ sessionId, gameId, minutesPlayed, secondsPlayed, source, exitCode, immediateExit }` (#129 adds `source`; #187 adds the root process `exitCode` as an unsigned 32-bit value — NTSTATUS bits are preserved — and `immediateExit`, true when the process tree ended within 5 s; the shell shows a danger toast with the code in hex)
 - `install://manifest-progress` → `{ gameId, filesDone, filesTotal, bytesDone, bytesTotal, message }` (#129)
 - `cloud-save://synced` → `gameId` (automatic upload completed or was unchanged)
 - `cloud-save://pending` → `gameId` (automatic upload failed and was queued for retry)
@@ -2763,9 +2764,16 @@ archive by default (`keepArchives` setting false).
   are never matched from the title — and `archiveHash: null`. One row per game:
   replacing a `ludex` or launcher row needs `replace: true`, a folder already
   owned by a launcher import (#116) is refused, and the same folder cannot back
-  two entries. Launching uses the normal pipeline with the folder as working
-  directory and process-tree playtime; `launch_game` and `game://exited` report
-  the source. An adopted folder has no manifest, so `verify_install` returns
+  two entries. Launching uses the normal pipeline with the executable's own
+  folder as working directory (#160) unless the game has a stored
+  `workingDir` override, which wins (#187). Stored install, executable and
+  launch-option paths are normalised: a Windows verbatim `\\?\` drive path is
+  stripped and `\\?\UNC\srv\share` becomes `\\srv\share` before the path is
+  stored or handed to `Command::new`/`current_dir`; a path longer than the
+  legacy `MAX_PATH` keeps the prefix so long-path support still applies. The
+  same normalisation runs when reading old rows. Process-tree playtime applies;
+  `launch_game` and `game://exited` report the source. An adopted folder has no
+  manifest, so `verify_install` returns
   `noManifest` until `build_install_manifest` hashes it (progress on
   `install://manifest-progress`); Repair still needs a server archive.
   `unlink_installation` drops the row/manifest/save paths and keeps the files;

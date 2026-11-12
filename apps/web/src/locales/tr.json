@@ -3338,5 +3338,9 @@
   "Will start when {device} is online.": "{device} çevrimiçi olduğunda başlayacaktır.",
   "Windows on Arm": "Koldaki Windows",
   "x64 redistributables run under Windows' emulation layer; a game that needs a native Arm build is out of scope.": "x64 yeniden dağıtılabilir dosyaları Windows'un öykünme katmanı altında çalışır; yerel bir Arm yapısına ihtiyaç duyan bir oyun kapsam dışıdır.",
-  "Your PCs": "PC'leriniz"
+  "Your PCs": "PC'leriniz",
+  "Working directory": "Çalışma dizini",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "Oyunun başlatıldığı klasör. Boş bırakılırsa kurulum klasörü kullanılır; sahiplenilen bir oyun aksi halde çalıştırılabilir dosyasının klasöründen başlar.",
+  "The game exited immediately": "Oyun hemen kapandı",
+  "The game exited immediately (code {code})": "Oyun hemen kapandı (kod {code})"
 }

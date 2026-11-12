@@ -3338,5 +3338,9 @@
   "Will start when {device} is online.": "Inizierà quando {device} sarà online.",
   "Windows on Arm": "Finestre sul braccio",
   "x64 redistributables run under Windows' emulation layer; a game that needs a native Arm build is out of scope.": "I ridistribuibili x64 vengono eseguiti nel livello di emulazione di Windows; un gioco che necessita di una build Arm nativa non rientra nell'ambito.",
-  "Your PCs": "I tuoi PC"
+  "Your PCs": "I tuoi PC",
+  "Working directory": "Directory di lavoro",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "Cartella in cui viene avviato il gioco. Vuoto usa la cartella di installazione; un gioco adottato parte altrimenti dalla cartella del suo eseguibile.",
+  "The game exited immediately": "Il gioco si è chiuso subito",
+  "The game exited immediately (code {code})": "Il gioco si è chiuso subito (codice {code})"
 }

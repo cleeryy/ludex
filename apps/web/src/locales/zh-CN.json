@@ -3338,5 +3338,9 @@
   "Will start when {device} is online.": "当{device}上线时开始。",
   "Windows on Arm": "手臂上的 Windows",
   "x64 redistributables run under Windows' emulation layer; a game that needs a native Arm build is out of scope.": "x64 可再发行组件在 Windows 模拟层下运行；需要原生 Arm 构建的游戏超出了范围。",
-  "Your PCs": "您的电脑"
+  "Your PCs": "您的电脑",
+  "Working directory": "工作目录",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "游戏启动时所在的文件夹。留空则使用安装文件夹；已收录的游戏否则从可执行文件所在文件夹启动。",
+  "The game exited immediately": "游戏立即退出",
+  "The game exited immediately (code {code})": "游戏立即退出（代码 {code}）"
 }

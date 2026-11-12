@@ -3338,5 +3338,9 @@
   "Will start when {device} is online.": "Will start when {device} is online.",
   "Windows on Arm": "Windows on Arm",
   "x64 redistributables run under Windows' emulation layer; a game that needs a native Arm build is out of scope.": "x64 redistributables run under Windows' emulation layer; a game that needs a native Arm build is out of scope.",
-  "Your PCs": "Your PCs"
+  "Your PCs": "Your PCs",
+  "Working directory": "작업 디렉터리",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "게임이 시작되는 폴더입니다. 비워 두면 설치 폴더를 사용하며, 가져온 게임은 그렇지 않으면 실행 파일의 폴더에서 시작합니다.",
+  "The game exited immediately": "게임이 즉시 종료되었습니다",
+  "The game exited immediately (code {code})": "게임이 즉시 종료되었습니다 (코드 {code})"
 }

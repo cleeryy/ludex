@@ -3338,5 +3338,9 @@
   "Will start when {device} is online.": "Начнется, когда {device} будет онлайн.",
   "Windows on Arm": "Окна на руке",
   "x64 redistributables run under Windows' emulation layer; a game that needs a native Arm build is out of scope.": "Распространяемые файлы x64 работают на уровне эмуляции Windows; игра, требующая встроенной сборки Arm, выходит за рамки.",
-  "Your PCs": "Ваши компьютеры"
+  "Your PCs": "Ваши компьютеры",
+  "Working directory": "Рабочий каталог",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "Папка, в которой запускается игра. Пусто — папка установки; для добавленной игры иначе используется папка исполняемого файла.",
+  "The game exited immediately": "Игра сразу завершилась",
+  "The game exited immediately (code {code})": "Игра сразу завершилась (код {code})"
 }

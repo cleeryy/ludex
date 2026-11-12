@@ -10,6 +10,89 @@ use std::path::{Component, Path, PathBuf};
 
 const MAX_COMPONENT_CHARS: usize = 80;
 
+/// Win32 verbatim-path prefix.
+#[cfg(any(windows, test))]
+pub const VERBATIM_PREFIX: &str = r"\\?\";
+/// Win32 verbatim UNC prefix; the plain form is `\\server\share`.
+#[cfg(any(windows, test))]
+pub const VERBATIM_UNC_PREFIX: &str = r"\\?\UNC\";
+/// Legacy Win32 `MAX_PATH` (characters, including the terminating NUL in Win32
+/// terms; a path at this length needs long-path support to be opened).
+#[cfg(any(windows, test))]
+pub const LEGACY_MAX_PATH: usize = 260;
+
+/// Normalise a native filesystem path for an OS API (#187).
+///
+/// Windows: the verbatim `\\?\` form is stripped from drive paths and
+/// `\\?\UNC\server\share` becomes `\\server\share`. A path that would no longer
+/// fit in the legacy `MAX_PATH` keeps its verbatim prefix, because that prefix
+/// is what enables long-path support; other verbatim forms (volumes, devices)
+/// are left untouched. Everywhere else this is a no-op.
+pub fn normalize_native_path(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let raw = path.to_string_lossy();
+        let normalized = normalize_verbatim_string(&raw);
+        if normalized == raw {
+            path.to_path_buf()
+        } else {
+            PathBuf::from(normalized)
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        path.to_path_buf()
+    }
+}
+
+/// String form of [`normalize_native_path`], platform-independent so the
+/// Windows table is unit-tested on every host (#187).
+#[cfg(any(windows, test))]
+pub(crate) fn normalize_verbatim_string(raw: &str) -> String {
+    let Some(rest) = raw.strip_prefix(VERBATIM_PREFIX) else {
+        return raw.to_string();
+    };
+
+    let plain = if let Some(unc) = strip_unc_prefix(rest) {
+        // `\\?\UNC\server\share\dir` -> `\\server\share\dir`. A malformed UNC
+        // tail (no server/share) is left alone: stripping it would produce a
+        // path the Win32 API cannot open.
+        if unc.split('\\').filter(|part| !part.is_empty()).count() < 2 {
+            return raw.to_string();
+        }
+        format!(r"\\{unc}")
+    } else if is_drive_path(rest) {
+        rest.to_string()
+    } else {
+        // `\\?\Volume{…}` and other device namespaces are not playable paths.
+        return raw.to_string();
+    };
+
+    if plain.chars().count() >= LEGACY_MAX_PATH {
+        // The prefix is what makes >MAX_PATH paths work: keep it.
+        return raw.to_string();
+    }
+    plain
+}
+
+#[cfg(any(windows, test))]
+fn strip_unc_prefix(rest: &str) -> Option<&str> {
+    let head = rest.get(..4)?;
+    if head.eq_ignore_ascii_case(r"UNC\") {
+        Some(&rest[4..])
+    } else {
+        None
+    }
+}
+
+/// A drive path tail (`C:\…` or `C:`), after the verbatim prefix.
+#[cfg(any(windows, test))]
+fn is_drive_path(rest: &str) -> bool {
+    let mut chars = rest.chars();
+    matches!(chars.next(), Some(letter) if letter.is_ascii_alphabetic())
+        && matches!(chars.next(), Some(':'))
+}
+
 /// Make an arbitrary string usable as a single path component.
 pub fn sanitize_component(raw: &str, fallback: &str) -> String {
     let mut cleaned = String::with_capacity(raw.len());
@@ -452,6 +535,71 @@ mod tests {
             split_args(r#"-windowed "C:\Games\My Game" --x"#),
             vec!["-windowed", r"C:\Games\My Game", "--x"]
         );
+    }
+
+    /// #187: `Command::new` fail-fasts (0xc0000409) when handed the verbatim
+    /// form of a drive path; the plain form must be used instead.
+    #[test]
+    fn verbatim_drive_paths_lose_their_prefix() {
+        assert_eq!(
+            normalize_verbatim_string(r"\\?\C:\Games\GameVault\Uncharted\u4.exe"),
+            r"C:\Games\GameVault\Uncharted\u4.exe"
+        );
+        assert_eq!(normalize_verbatim_string(r"\\?\D:\"), r"D:\");
+        assert_eq!(normalize_verbatim_string(r"\\?\d:\games"), r"d:\games");
+        // Already plain: unchanged.
+        assert_eq!(
+            normalize_verbatim_string(r"C:\Games\Game\game.exe"),
+            r"C:\Games\Game\game.exe"
+        );
+    }
+
+    #[test]
+    fn verbatim_unc_paths_become_plain_unc() {
+        assert_eq!(
+            normalize_verbatim_string(r"\\?\UNC\srv\share\games\game.exe"),
+            r"\\srv\share\games\game.exe"
+        );
+        assert_eq!(
+            normalize_verbatim_string(r"\\?\unc\srv\share"),
+            r"\\srv\share"
+        );
+        // Malformed (no server/share) and plain UNC paths are untouched.
+        assert_eq!(normalize_verbatim_string(r"\\?\UNC\srv"), r"\\?\UNC\srv");
+        assert_eq!(
+            normalize_verbatim_string(r"\\srv\share\game.exe"),
+            r"\\srv\share\game.exe"
+        );
+    }
+
+    #[test]
+    fn long_verbatim_paths_keep_the_prefix() {
+        let long_plain = format!(r"C:\Games\{}game.exe", "segment\\".repeat(40));
+        assert!(long_plain.chars().count() >= LEGACY_MAX_PATH);
+        let verbatim = format!("{VERBATIM_PREFIX}{long_plain}");
+        assert_eq!(normalize_verbatim_string(&verbatim), verbatim);
+
+        let long_unc_plain = format!(r"\\srv\share\{}game.exe", "segment\\".repeat(40));
+        let verbatim_unc = format!("{VERBATIM_UNC_PREFIX}{}", &long_unc_plain[2..]);
+        assert_eq!(
+            normalize_verbatim_string(&verbatim_unc),
+            verbatim_unc,
+            "a >MAX_PATH UNC path must keep its prefix"
+        );
+    }
+
+    #[test]
+    fn unrelated_verbatim_forms_are_left_alone() {
+        let volume = r"\\?\Volume{4c1b02c1-0000-0000-0000-100000000000}\Games";
+        assert_eq!(normalize_verbatim_string(volume), volume);
+        assert_eq!(normalize_verbatim_string(r"\\?\"), r"\\?\");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn normalize_native_path_is_a_noop_off_windows() {
+        let path = Path::new(r"\\?\C:\Games\Game\game.exe");
+        assert_eq!(normalize_native_path(path), path);
     }
 
     #[test]

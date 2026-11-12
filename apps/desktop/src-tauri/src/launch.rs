@@ -35,6 +35,35 @@ struct GameExited {
     /// `adopted` for a linked folder, `ludex` for an install, a launcher id for
     /// an import (#129).
     source: String,
+    /// Exit code of the root game process as an unsigned 32-bit value, when the
+    /// platform reported one. Windows NTSTATUS values keep their bits
+    /// (`0xC0000409`), so the renderer can print them in hex (#187).
+    exit_code: Option<u32>,
+    /// True when the whole process tree ended within
+    /// [`IMMEDIATE_EXIT_WINDOW`]: the game crashed or bailed out instead of
+    /// running (#187). The renderer shows a danger toast for this.
+    immediate_exit: bool,
+}
+
+/// A game that ends this quickly never reached its first frame in practice
+/// (#187); the shell reports it instead of silently closing the session.
+pub(crate) const IMMEDIATE_EXIT_WINDOW: Duration = Duration::from_secs(5);
+
+/// Hex form of a process exit code (`0xC0000409`), used in logs and events.
+pub(crate) fn exit_code_hex(code: u32) -> String {
+    format!("0x{code:08X}")
+}
+
+/// Exit code of a game that died inside the immediate-exit window (#187).
+///
+/// Returns `None` once the window elapsed, or when the platform did not report
+/// an exit code (killed by a signal on Unix, for example): a session ended by
+/// `stop_game` must not raise the "exited immediately" toast.
+pub(crate) fn immediate_exit_code(elapsed: Duration, code: Option<i32>) -> Option<u32> {
+    if elapsed >= IMMEDIATE_EXIT_WINDOW {
+        return None;
+    }
+    code.map(|code| code as u32)
 }
 
 static SYNCING: AtomicBool = AtomicBool::new(false);
@@ -73,7 +102,10 @@ pub async fn launch(
     let installed =
         installed.ok_or_else(|| format!("Game {game_id} is not installed on this device."))?;
 
-    let install_path = PathBuf::from(&installed.install_path);
+    let stored_install_path = PathBuf::from(&installed.install_path);
+    // #187: a stored verbatim path (`\\?\D:\…`) must never reach `Command::new`
+    // or `current_dir`: Win32 fail-fasts (0xc0000409) on the verbatim form.
+    let install_path = paths::normalize_native_path(&stored_install_path);
     let external_uri = installed
         .launch_uri
         .as_deref()
@@ -129,19 +161,45 @@ pub async fn launch(
     };
     // #160: adopted folders often wrap the game in an edition/version folder,
     // so a nested executable runs from its own folder (see the rule on
-    // [`launch_working_directory`]).
-    let working_dir = executable_path
+    // [`launch_working_directory`]). #187: an explicit per-game working
+    // directory wins over that rule, and every cwd is normalised before the
+    // process starts.
+    let rule_working_dir = executable_path
         .as_deref()
         .map(|path| launch_working_directory(&install_path, path, &installed.source));
-    if let (Some(path), Some(cwd)) = (executable_path.as_deref(), working_dir.as_deref()) {
-        tracing::info!(
+    let working_dir =
+        working_directory_override(&options.working_dir, &install_path).or_else(|| {
+            rule_working_dir
+                .as_deref()
+                .map(paths::normalize_native_path)
+        });
+
+    // #187: log exactly what is about to run, and whether any stored path had
+    // to be normalised, including when the spawn fails below.
+    let normalized = stored_install_path != install_path
+        || installed
+            .executable
+            .as_deref()
+            .is_some_and(|raw| paths::normalize_native_path(Path::new(raw)) != Path::new(raw))
+        || executable
+            .as_deref()
+            .is_some_and(|raw| paths::normalize_native_path(Path::new(raw)) != Path::new(raw));
+    match executable_path.as_deref() {
+        Some(path) => tracing::info!(
             game_id,
             source = %installed.source,
-            executable = %path.display(),
-            working_dir = %cwd.display(),
+            program = %path.display(),
+            working_dir = %working_dir.as_deref().unwrap_or(&install_path).display(),
+            normalized,
             args = args.as_deref().unwrap_or(""),
             "launching the game"
-        );
+        ),
+        None => tracing::info!(
+            game_id,
+            source = %installed.source,
+            uri = installed.launch_uri.as_deref().unwrap_or(""),
+            "opening the game launcher"
+        ),
     }
 
     let (mut command, tool) = prepare_launch(
@@ -173,16 +231,30 @@ pub async fn launch(
         }
     }
 
-    let child = command.spawn().map_err(|e| match &executable_path {
-        Some(path) => format!(
-            "Could not launch {} (working directory {}): {e}",
-            path.display(),
-            working_dir.as_deref().unwrap_or(&install_path).display()
-        ),
-        None => format!(
-            "Could not open {}: {e}",
-            installed.launch_uri.as_deref().unwrap_or("the game")
-        ),
+    let child = command.spawn().map_err(|e| {
+        tracing::error!(
+            game_id,
+            program = %executable_path
+                .as_deref()
+                .map(|path| path.display().to_string())
+                .or_else(|| installed.launch_uri.clone())
+                .unwrap_or_default(),
+            working_dir = %working_dir.as_deref().unwrap_or(&install_path).display(),
+            normalized,
+            error = %e,
+            "the game process could not be started"
+        );
+        match &executable_path {
+            Some(path) => format!(
+                "Could not launch {} (working directory {}): {e}",
+                path.display(),
+                working_dir.as_deref().unwrap_or(&install_path).display()
+            ),
+            None => format!(
+                "Could not open {}: {e}",
+                installed.launch_uri.as_deref().unwrap_or("the game")
+            ),
+        }
     })?;
     let pid = child.id();
 
@@ -353,6 +425,12 @@ fn linux_prepare_launch(
     use crate::compat;
     use crate::linux_gaming::{self, LaunchMode};
 
+    // #187: the tool receives the normalised program and cwd.
+    let normalized_executable = paths::normalize_native_path(executable);
+    let normalized_working_dir = paths::normalize_native_path(working_dir);
+    let executable = normalized_executable.as_path();
+    let working_dir = normalized_working_dir.as_path();
+
     let is_windows_exe = executable
         .extension()
         .map(|extension| extension.eq_ignore_ascii_case("exe"))
@@ -508,7 +586,7 @@ fn resolve_executable(
                 "using the discovered executable instead of the stale recorded path"
             );
         }
-        return Ok(path);
+        return Ok(paths::normalize_native_path(&path));
     }
 
     Err(missing_executable_message(
@@ -586,7 +664,10 @@ fn resolve_recorded_executable(
             canonical.display()
         )));
     }
-    Ok(canonical)
+    // #187: `fs::canonicalize` returns the `\\?\` verbatim form on Windows.
+    // Strip it here so every caller (launch, adoption storage) gets a path
+    // `Command::new` can start.
+    Ok(paths::normalize_native_path(&canonical))
 }
 
 /// True when a path is a program to launch: a regular file, or a macOS `.app`
@@ -678,19 +759,53 @@ fn missing_executable_message(
 ///   executable's folder.
 /// - `ludex` installs keep the historical install-root behaviour (#129) so a
 ///   working layout is never moved under a game's feet.
+///
+/// A per-game override stored in the launch options replaces this rule; see
+/// [`working_directory_override`].
 pub(crate) fn launch_working_directory(
     install_path: &Path,
     executable: &Path,
     source: &str,
 ) -> PathBuf {
+    let install_path = paths::normalize_native_path(install_path);
+    let executable = paths::normalize_native_path(executable);
     if source == db::SOURCE_ADOPTED {
         if let Some(parent) = executable.parent() {
-            if !parent.as_os_str().is_empty() && !same_path(parent, install_path) {
+            if !parent.as_os_str().is_empty() && !same_path(parent, &install_path) {
                 return parent.to_path_buf();
             }
         }
     }
-    install_path.to_path_buf()
+    install_path
+}
+
+/// Resolve the persisted working-directory override (#187).
+///
+/// An empty value means "use [`launch_working_directory`]". A relative value is
+/// resolved against the install folder, then normalised ([`paths::normalize_native_path`]).
+/// A value that is not a readable folder is ignored with a warning: a bad
+/// setting must never make the game unlaunchable.
+pub(crate) fn working_directory_override(raw: &str, install_path: &Path) -> Option<PathBuf> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let candidate = PathBuf::from(raw);
+    let full = if candidate.is_absolute() {
+        candidate
+    } else {
+        install_path.join(candidate)
+    };
+    let normalized = paths::normalize_native_path(&full);
+    if normalized.is_dir() {
+        Some(normalized)
+    } else {
+        tracing::warn!(
+            working_dir = %normalized.display(),
+            "the saved working directory is missing; using the automatic folder"
+        );
+        None
+    }
 }
 
 /// Path equality that tolerates one side being canonical and the other not.
@@ -709,8 +824,27 @@ fn build_command(
     #[cfg(all(unix, not(target_os = "macos")))]
     ensure_executable_permission(executable)?;
 
-    let mut command = platform_command(executable)?;
-    command.current_dir(working_dir);
+    // #187: normalise both the program and the cwd right before the process is
+    // created. The normalizer is a parameter so tests can drive the Windows
+    // table on any host.
+    build_command_with(executable, working_dir, args, paths::normalize_native_path)
+}
+
+/// Build the process with an explicit path normalizer.
+///
+/// `Command::new` and `current_dir` only ever see the output of `normalize`;
+/// tests inject `paths::normalize_verbatim_string` to prove the Windows
+/// behaviour without a Windows host.
+fn build_command_with(
+    executable: &Path,
+    working_dir: &Path,
+    args: Option<&str>,
+    normalize: impl Fn(&Path) -> PathBuf,
+) -> Result<Command, String> {
+    let program = normalize(executable);
+    let working_dir = normalize(working_dir);
+    let mut command = platform_command(&program)?;
+    command.current_dir(&working_dir);
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -888,6 +1022,7 @@ fn spawn_watcher(
         let mut sampler = ProcessSampler::new();
         let mut tracker = TreeTracker::new(entry.pid);
         let mut exit_description: Option<String> = None;
+        let mut exit_status: Option<std::process::ExitStatus> = None;
 
         loop {
             // Reap the root child as soon as it exits so it does not linger as
@@ -895,7 +1030,10 @@ fn spawn_watcher(
             if exit_description.is_none() {
                 if let Ok(mut child) = entry.child.lock() {
                     match child.try_wait() {
-                        Ok(Some(status)) => exit_description = Some(status.to_string()),
+                        Ok(Some(status)) => {
+                            exit_status = Some(status);
+                            exit_description = Some(status.to_string());
+                        }
                         Ok(None) => {}
                         Err(error) => {
                             tracing::warn!(error = %error, "could not wait for the game process");
@@ -918,13 +1056,28 @@ fn spawn_watcher(
         let minutes = ((elapsed_seconds + 30) / 60) as i64;
         let ended_at = now_rfc3339();
 
-        tracing::info!(
-            game_id,
-            started_at = %entry.started_at,
-            status = ?exit_description,
-            seconds,
-            "game process tree exited"
-        );
+        // #187: an immediate exit is a failed launch, not a zero-minute
+        // session. Keep the code (hex for NTSTATUS values) so the shell can
+        // tell the user instead of doing nothing visible.
+        let exit_code = exit_status.and_then(|status| status.code());
+        let immediate_exit = immediate_exit_code(entry.started.elapsed(), exit_code);
+        if let Some(code) = immediate_exit {
+            tracing::warn!(
+                game_id,
+                status = ?exit_description,
+                exit_code = %exit_code_hex(code),
+                seconds,
+                "the game exited immediately"
+            );
+        } else {
+            tracing::info!(
+                game_id,
+                started_at = %entry.started_at,
+                status = ?exit_description,
+                seconds,
+                "game process tree exited"
+            );
+        }
 
         let state = app.state::<AppState>();
         if let Ok(connection) = state.db.lock() {
@@ -946,6 +1099,8 @@ fn spawn_watcher(
                 minutes_played: minutes,
                 seconds_played: seconds,
                 source,
+                exit_code: exit_code.map(|code| code as u32),
+                immediate_exit: immediate_exit.is_some(),
             },
         );
 
@@ -1325,6 +1480,95 @@ mod tests {
         assert_eq!(canonical(&cwd), canonical(&root));
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// #187: a persisted working-directory override wins over the adopted
+    /// rule; a relative value is resolved against the install folder and a
+    /// missing folder is ignored instead of blocking the launch.
+    #[test]
+    fn a_saved_working_directory_override_wins_over_the_adopted_rule() {
+        let root = temp_root("cwd-override");
+        let installation = root.join("Installation");
+        let edition = installation.join("Uncharted Legacy of Thieves Collection");
+        let override_dir = root.join("cwd");
+        std::fs::create_dir_all(&edition).unwrap();
+        std::fs::create_dir_all(&override_dir).unwrap();
+        std::fs::write(edition.join("Uncharted4.exe"), b"MZ").unwrap();
+
+        let resolved = resolve_executable(
+            &installation,
+            None,
+            None,
+            Some("Uncharted Legacy of Thieves Collection/Uncharted4.exe"),
+            "Uncharted 4",
+        )
+        .unwrap();
+        let rule = launch_working_directory(&installation, &resolved, db::SOURCE_ADOPTED);
+        assert_eq!(canonical(&rule), canonical(&edition), "rule: exe folder");
+
+        let chosen =
+            working_directory_override(&override_dir.to_string_lossy(), &installation).unwrap();
+        assert_eq!(canonical(&chosen), canonical(&override_dir));
+
+        std::fs::create_dir_all(installation.join("bin")).unwrap();
+        let relative = working_directory_override("bin", &installation).unwrap();
+        assert_eq!(canonical(&relative), canonical(&installation.join("bin")));
+
+        assert!(working_directory_override("   ", &installation).is_none());
+        assert!(working_directory_override("gone", &installation).is_none());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// #187: the program and cwd handed to `Command` are exactly what the
+    /// normalizer returns. The Windows table is injected here so the wiring is
+    /// checked on every host; the platform normalizer is a no-op elsewhere.
+    #[test]
+    fn the_command_takes_its_program_and_cwd_from_the_normalizer() {
+        use std::ffi::OsStr;
+
+        let executable = Path::new(r"\\?\C:\Games\Installation\Uncharted\u4.bin");
+        let working_dir = Path::new(r"\\?\C:\Games\Installation\Uncharted");
+        let command = build_command_with(executable, working_dir, Some("--windowed"), |path| {
+            PathBuf::from(paths::normalize_verbatim_string(&path.to_string_lossy()))
+        })
+        .unwrap();
+
+        assert_eq!(
+            command.get_program(),
+            OsStr::new(r"C:\Games\Installation\Uncharted\u4.bin")
+        );
+        assert_eq!(
+            command.get_current_dir(),
+            Some(Path::new(r"C:\Games\Installation\Uncharted"))
+        );
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(args, vec!["--windowed"]);
+    }
+
+    /// #187: the immediate-exit mapping feeds the `game://exited` payload. An
+    /// NTSTATUS code keeps its bits (`0xC0000409`), the 5 s boundary is
+    /// exclusive, and a signal kill (no code) never raises the toast.
+    #[test]
+    fn immediate_exit_codes_are_mapped_and_hex_formatted() {
+        assert_eq!(
+            immediate_exit_code(Duration::from_millis(1), Some(0)),
+            Some(0)
+        );
+        assert_eq!(
+            immediate_exit_code(Duration::from_secs(2), Some(0xC0000409u32 as i32)),
+            Some(0xC0000409)
+        );
+        assert_eq!(
+            immediate_exit_code(Duration::from_millis(4_999), Some(3)),
+            Some(3)
+        );
+        assert_eq!(immediate_exit_code(Duration::from_secs(5), Some(3)), None);
+        assert_eq!(immediate_exit_code(Duration::from_secs(1), None), None);
+        assert_eq!(exit_code_hex(0xC0000409), "0xC0000409");
     }
 
     /// #160 end-to-end: the resolved nested executable really runs, from its

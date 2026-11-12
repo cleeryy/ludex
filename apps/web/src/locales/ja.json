@@ -3338,5 +3338,9 @@
   "Will start when {device} is online.": "Will start when {device} is online.",
   "Windows on Arm": "Windows on Arm",
   "x64 redistributables run under Windows' emulation layer; a game that needs a native Arm build is out of scope.": "x64 redistributables run under Windows' emulation layer; a game that needs a native Arm build is out of scope.",
-  "Your PCs": "Your PCs"
+  "Your PCs": "Your PCs",
+  "Working directory": "作業ディレクトリ",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "ゲームを起動するフォルダ。空の場合はインストールフォルダを使用します。取り込んだゲームは、それ以外の場合は実行ファイルのフォルダから起動します。",
+  "The game exited immediately": "ゲームが即座に終了しました",
+  "The game exited immediately (code {code})": "ゲームが即座に終了しました（コード {code}）"
 }
