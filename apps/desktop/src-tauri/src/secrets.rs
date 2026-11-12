@@ -12,7 +12,7 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::Mutex;
 
 use rusqlite::{params, Connection};
@@ -264,7 +264,7 @@ impl SecretStore {
 fn keychain_set(kind: KeychainKind, key: &str, value: &str) -> Result<(), String> {
     match kind {
         KeychainKind::SecretService => {
-            let mut child = Command::new("secret-tool")
+            let mut child = crate::process::command("secret-tool")
                 .args([
                     "store",
                     "--label",
@@ -297,7 +297,7 @@ fn keychain_set(kind: KeychainKind, key: &str, value: &str) -> Result<(), String
             Ok(())
         }
         KeychainKind::MacSecurity => {
-            let output = Command::new("security")
+            let output = crate::process::command("security")
                 .args([
                     "add-generic-password",
                     "-U",
@@ -325,11 +325,11 @@ fn keychain_set(kind: KeychainKind, key: &str, value: &str) -> Result<(), String
 
 fn keychain_get(kind: KeychainKind, key: &str) -> Result<Option<String>, String> {
     let output = match kind {
-        KeychainKind::SecretService => Command::new("secret-tool")
+        KeychainKind::SecretService => crate::process::capture("secret-tool")
             .args(["lookup", "service", KEYCHAIN_SERVICE, "key", key])
             .stdin(Stdio::null())
             .output(),
-        KeychainKind::MacSecurity => Command::new("security")
+        KeychainKind::MacSecurity => crate::process::capture("security")
             .args([
                 "find-generic-password",
                 "-s",
@@ -353,11 +353,11 @@ fn keychain_get(kind: KeychainKind, key: &str) -> Result<Option<String>, String>
 
 fn keychain_delete(kind: KeychainKind, key: &str) -> Result<(), String> {
     let output = match kind {
-        KeychainKind::SecretService => Command::new("secret-tool")
+        KeychainKind::SecretService => crate::process::capture("secret-tool")
             .args(["clear", "service", KEYCHAIN_SERVICE, "key", key])
             .stdin(Stdio::null())
             .output(),
-        KeychainKind::MacSecurity => Command::new("security")
+        KeychainKind::MacSecurity => crate::process::capture("security")
             .args(["delete-generic-password", "-s", KEYCHAIN_SERVICE, "-a", key])
             .stdin(Stdio::null())
             .output(),

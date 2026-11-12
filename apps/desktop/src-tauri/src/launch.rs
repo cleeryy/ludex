@@ -735,6 +735,8 @@ fn build_uri_command(uri: &str) -> Result<Command, String> {
     let uri = uri.trim();
     #[cfg(windows)]
     {
+        // `start` hands the URI to Steam or another client, which owns its own
+        // window; only internal probes are hidden. #181 user-visible
         let mut command = Command::new("cmd");
         command.args(["/C", "start", "", uri]);
         Ok(command)

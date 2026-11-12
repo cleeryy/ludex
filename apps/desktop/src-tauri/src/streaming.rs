@@ -1944,7 +1944,7 @@ pub struct WindowsMoonlightSettings;
 #[cfg(windows)]
 impl MoonlightSettingsSource for WindowsMoonlightSettings {
     fn read(&self) -> Result<Vec<QtSettingEntry>, String> {
-        let output = Command::new("reg")
+        let output = crate::process::capture("reg")
             .args(["query", MOONLIGHT_REGISTRY_KEY, "/s"])
             .output()
             .map_err(|error| format!("Could not run reg.exe: {error}"))?;
@@ -2435,6 +2435,8 @@ pub fn build_stream_args(host: &str, app: &str) -> Result<Vec<String>, String> {
 /// Start Moonlight for one host/app pair, detached from Ludex.
 pub fn spawn_stream(binary: &str, host: &str, app: &str) -> Result<StreamLaunch, String> {
     let args = build_stream_args(host, app)?;
+    // #181 user-visible: Moonlight is the app the user watches, so it keeps its
+    // own window; only Ludex's internal probes go through `process::command`.
     let mut command = Command::new(binary);
     command
         .args(&args)

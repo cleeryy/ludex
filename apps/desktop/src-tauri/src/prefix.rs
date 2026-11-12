@@ -4,7 +4,7 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -112,7 +112,7 @@ pub fn run_winetricks(
     command: &WinetricksCommand,
     timeout: Duration,
 ) -> Result<WinetricksReport, String> {
-    let mut process = Command::new(&command.program);
+    let mut process = crate::process::command(&command.program);
     process
         .args(&command.args)
         .envs(&command.env)

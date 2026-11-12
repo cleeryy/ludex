@@ -644,7 +644,7 @@ fn capture_foreground(_app: &AppHandle) -> Option<FocusToken> {
     // Best effort on X11. Wayland compositors refuse to report another client's
     // window, and xdotool may not be installed: the overlay still closes, the
     // window manager then decides where focus goes.
-    let output = std::process::Command::new("xdotool")
+    let output = crate::process::capture("xdotool")
         .arg("getactivewindow")
         .output()
         .ok()?;
@@ -683,7 +683,7 @@ fn restore_foreground(app: &AppHandle, state: &AppState) {
     let captured = state.overlay.take_focus_token();
     let plan = focus_return_plan(captured.is_some(), running_game(state).is_some());
     if let Some(window_id) = captured {
-        let restored = std::process::Command::new("xdotool")
+        let restored = crate::process::command("xdotool")
             .args(["windowactivate", "--sync", &window_id.to_string()])
             .status()
             .map(|status| status.success())

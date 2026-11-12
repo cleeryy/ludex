@@ -329,7 +329,7 @@ fn home_dir() -> Option<PathBuf> {
 fn windows_steam_path() -> Option<PathBuf> {
     // Reading the registry needs a subprocess; failure is not fatal, the
     // Program Files candidates cover the default install.
-    let output = std::process::Command::new("reg")
+    let output = crate::process::capture("reg")
         .args(["query", r"HKCU\Software\Valve\Steam", "/v", "SteamPath"])
         .output()
         .ok()?;

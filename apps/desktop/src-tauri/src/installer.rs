@@ -176,6 +176,11 @@ impl Runner for SystemRunner {
             .current_dir(&invocation.working_dir)
             .envs(invocation.env.iter().map(|(key, value)| (key, value)))
             .stdin(Stdio::null());
+        // #181: silent automation runs hidden; an interactive run (timeout
+        // zero) keeps its own window so the user can follow the prompts.
+        if !timeout.is_zero() {
+            crate::process::hide_console(&mut command);
+        }
 
         match &invocation.log_path {
             Some(log) => {

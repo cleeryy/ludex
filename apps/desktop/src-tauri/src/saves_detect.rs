@@ -2188,7 +2188,7 @@ fn ludusavi_preview(binary: &Path, title: &str) -> Result<LudusaviPreview, Strin
     }
     let version = ludusavi_version(binary);
 
-    let mut command = Command::new(binary);
+    let mut command = crate::process::command(binary);
     command.arg("--api");
     let request = serde_json::json!({
         "apiVersion": "v1",
@@ -2208,7 +2208,7 @@ fn ludusavi_preview(binary: &Path, title: &str) -> Result<LudusaviPreview, Strin
 }
 
 fn ludusavi_version(binary: &Path) -> Option<String> {
-    let mut command = Command::new(binary);
+    let mut command = crate::process::command(binary);
     command.arg("--version");
     let captured = run_capture(command, None, 64 * 1024, CLI_VERSION_TIMEOUT).ok()?;
     if !captured.success {

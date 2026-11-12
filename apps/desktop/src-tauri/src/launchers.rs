@@ -995,7 +995,7 @@ fn scan_lutris(collector: &mut Collector, roots: &ScanRoots) -> LauncherSource {
 
 #[cfg(windows)]
 fn query_registry(key: &str) -> Option<String> {
-    let output = std::process::Command::new("reg")
+    let output = crate::process::capture("reg")
         .args(["query", key, "/s"])
         .output()
         .ok()?;
@@ -1007,7 +1007,7 @@ fn query_registry(key: &str) -> Option<String> {
 
 #[cfg(windows)]
 fn query_appx_packages() -> Option<String> {
-    let output = std::process::Command::new("powershell")
+    let output = crate::process::capture("powershell")
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -1024,7 +1024,7 @@ fn query_appx_packages() -> Option<String> {
 
 #[cfg(windows)]
 fn query_start_apps() -> Option<String> {
-    let output = std::process::Command::new("powershell")
+    let output = crate::process::capture("powershell")
         .args([
             "-NoProfile",
             "-NonInteractive",
