@@ -570,7 +570,15 @@ async fn retry_after_cancel_restarts_cleanly() {
     let (status, body) = http(&app, request).await;
     assert_eq!(status, StatusCode::OK);
     let retried: IngestJob = serde_json::from_slice(&body).expect("retried job");
-    assert_eq!(retried.status, IngestStatus::Queued);
+    // The worker may pick the job up between the response and this assertion.
+    assert!(
+        matches!(
+            retried.status,
+            IngestStatus::Queued | IngestStatus::Downloading
+        ),
+        "retry should queue or start the job, got {:?}",
+        retried.status
+    );
 
     let done = wait_for_status(&app, &job.id, IngestStatus::Done).await;
     assert_eq!(done.file_name.as_deref(), Some("Retry Game.zip"));
