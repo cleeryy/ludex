@@ -2117,3 +2117,70 @@ export interface RomCommandValidation {
   program: string | null;
   args: string[];
 }
+
+/* ---------------------------------- Backups (#169) ---------------------------------- */
+
+export type BackupKind = "manual" | "pre_restore" | "other";
+export type BackupVerificationState = "unverified" | "verified" | "failed";
+
+export interface BackupVerification {
+  state: BackupVerificationState;
+  checkedAt: string | null;
+  message: string | null;
+  games: number | null;
+  versions: number | null;
+  users: number | null;
+  saves: number | null;
+  files: number | null;
+  bytes: number | null;
+  serverVersion: string | null;
+}
+
+export interface BackupEntry {
+  name: string;
+  path: string;
+  size: number;
+  createdAt: string;
+  kind: BackupKind;
+  verification: BackupVerification;
+}
+
+export interface BackupList {
+  directory: string;
+  backups: BackupEntry[];
+}
+
+export interface BackupCreateInput {
+  dryRun?: boolean;
+  includeMedia?: boolean;
+  uploadS3?: boolean;
+}
+
+export interface BackupCreated {
+  name: string;
+  path: string;
+  bytes: number;
+  files: number;
+  dryRun: boolean;
+  uploadedKey: string | null;
+  createdAt: string;
+}
+
+export interface BackupRestoreInput {
+  dryRun?: boolean;
+  includeMedia?: boolean;
+  confirmation?: string;
+}
+
+export interface BackupRestoreResult {
+  dryRun: boolean;
+  overwrote: boolean;
+  files: number;
+  bytes: number;
+  games: number;
+  versions: number;
+  users: number;
+  createdAt: string;
+  safetyBackup: string | null;
+  restartRequired: boolean;
+}

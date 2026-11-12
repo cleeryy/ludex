@@ -98,6 +98,12 @@ pub mod actions {
     pub const METADATA_PROVIDER_UPDATED: &str = "settings.metadata_provider_updated";
     /// An editor picked a metadata provider record for a game (#135).
     pub const GAME_METADATA_MATCHED: &str = "game.metadata_matched";
+    /// An administrator created a backup archive (#169).
+    pub const BACKUP_CREATED: &str = "backup.created";
+    /// An administrator restored an archive (#169).
+    pub const BACKUP_RESTORED: &str = "backup.restored";
+    /// An administrator deleted a backup archive (#169).
+    pub const BACKUP_DELETED: &str = "backup.deleted";
 }
 
 /// Writes one event to `audit_logs`. Failures are logged, never propagated:

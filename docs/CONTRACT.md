@@ -970,6 +970,50 @@ Checks never delete anything: findings are informational. The first successful
 hash of an archive or media file becomes its baseline. Scheduled by
 `LUDEX_INTEGRITY_INTERVAL_HOURS` (default 168, `0` disables).
 
+## Backups (#169)
+
+Backup archives are read from and written to `LUDEX_BACKUP_DIR`
+(default `{LUDEX_DATA_DIR}/backups`). Clients only name an archive by its file
+name; the server canonicalises it and rejects any name or symlink that escapes
+the directory. The archive format and the `ludex-backup` CLI are unchanged
+(see [`BACKUP.md`](./BACKUP.md)).
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/admin/backups` | admin + `admin` scope; `{ directory, backups: BackupEntry[] }`, newest first |
+| POST | `/api/admin/backups` | admin; `{ dryRun?, includeMedia?, uploadS3? }` → 201 `BackupCreated`; `409 backup_busy` |
+| POST | `/api/admin/backups/{name}/verify` | admin; re-checks every SHA-256 and opens the snapshot; `422 backup_failed` on a corrupt archive |
+| POST | `/api/admin/backups/{name}/restore` | admin; `{ dryRun?, includeMedia?, confirmation? }`; `dryRun` previews, a real run requires `confirmation` equal to `{name}` and writes a `ludex-pre-restore-*` safety copy first; `400 confirmation_required`, `409 restore_blocked`, `422 backup_failed` |
+| GET | `/api/admin/backups/{name}/download` | admin; authenticated binary stream (`application/gzip`) for an offsite copy |
+| DELETE | `/api/admin/backups/{name}?confirm={name}` | admin; `400 confirmation_required` when `confirm` does not match |
+
+```ts
+interface BackupEntry {
+  name: string; path: string; size: number; createdAt: string;
+  kind: "manual" | "pre_restore" | "other";
+  verification: {
+    state: "unverified" | "verified" | "failed";
+    checkedAt: string | null; message: string | null;
+    games: number | null; versions: number | null; users: number | null;
+    saves: number | null; files: number | null; bytes: number | null;
+    serverVersion: string | null;
+  };
+}
+
+interface RestoreBackupResponse {
+  dryRun: boolean; overwrote: boolean; files: number; bytes: number;
+  games: number; versions: number; users: number; createdAt: string;
+  safetyBackup: string | null; restartRequired: boolean;
+}
+```
+
+Verification state is persisted next to each archive as
+`<archive>.verify.json`; it never contains secrets. The database is replaced on
+disk, so a real restore answers `restartRequired: true` and the server keeps
+serving the previous data until it is restarted. Audit actions:
+`backup.created`, `backup.restored`, `backup.deleted` (no secrets, only the file
+name and counters).
+
 ## Object storage (#47)
 
 Game archives can live on local roots (`local`, default) or in an

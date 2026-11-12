@@ -79,6 +79,7 @@ async fn main() -> Result<()> {
         integrity_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         media_gc_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         achievement_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        backup_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         storage,
         metrics: Arc::new(ludex_server::metrics::Metrics::default()),
         ingest: None,

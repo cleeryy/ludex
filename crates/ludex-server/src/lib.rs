@@ -289,6 +289,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
         integrity_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         media_gc_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         achievement_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        backup_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         storage: ArchiveStorage::from_config(&config),
         metrics: Arc::new(metrics::Metrics::default()),
         ingest: Some(ingest_handle),

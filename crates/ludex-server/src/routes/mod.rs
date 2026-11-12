@@ -5,6 +5,7 @@ pub mod admin_oidc;
 pub mod artwork;
 pub mod audit;
 pub mod auth;
+pub mod backups;
 pub mod collections;
 pub mod community;
 pub mod controllers;
@@ -41,6 +42,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(auth::router())
         .merge(oidc::router())
         .merge(admin_oidc::router())
+        .merge(backups::router())
         .merge(metadata_providers::router())
         .merge(games::router())
         .merge(game_metadata::router())
