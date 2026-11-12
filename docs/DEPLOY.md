@@ -91,6 +91,11 @@ ludex.example.com {
         # Do not buffer downloads: archives are large and Range requests
         # should reach the server immediately.
         flush_interval -1
+        # A large transfer may pause between chunks; a proxy write deadline
+        # shorter than the client's stall timeout (30 s default) would kill a
+        # healthy download. 0 disables it; see docs/PERFORMANCE.md.
+        read_timeout 0
+        write_timeout 0
     }
 }
 ```

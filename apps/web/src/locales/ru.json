@@ -365,7 +365,6 @@
   "Cannot reach the server. Check that it is running and the address is correct.": "Невозможно связаться с сервером. Убедитесь, что он работает и адрес правильный.",
   "Cannot reach the server. Check that it is running.": "Невозможно связаться с сервером. Проверьте, что он работает.",
   "Canonical fields: {fields}": "Канонические поля: {fields}",
-  "Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.": "Ограничивает каждую загрузку (установку, восстановление и потоковую установку) в КиБ/с. Используйте 0 для отсутствия ограничений.",
   "Categories": "Категории",
   "Certain": "Определенный",
   "Change": "Изменить",
@@ -984,7 +983,6 @@
   "Key pinned": "Ключ закреплен",
   "Keyboard only — connect a controller for couch navigation": "Только клавиатура — подключите контроллер для навигации на диване.",
   "Keyboard shortcuts": "Сочетания клавиш",
-  "KiB/s": "КиБ/с",
   "Kind": "Добрый",
   "Known folder": "Известная папка",
   "Label": "Этикетка",
@@ -3382,5 +3380,9 @@
   "Use server default": "Использовать серверный по умолчанию",
   "Used for signed-out visitors and accounts without their own language.": "Используется для неавторизованных посетителей и учётных записей без своего языка.",
   "Your account": "Ваша учётная запись",
-  "What this server is running, where it keeps files, and the language new visitors see.": "Что запущено на этом сервере, где он хранит файлы и какой язык видят новые посетители."
+  "What this server is running, where it keeps files, and the language new visitors see.": "Что запущено на этом сервере, где он хранит файлы и какой язык видят новые посетители.",
+  "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "Ограничивает каждую загрузку (установки, исправления и потоковые установки) в Mb/s. 0 — без ограничения.",
+  "Connection recovery": "Восстановление соединения",
+  "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex прерывает ответ, молчащий указанное число секунд, и продолжает с последнего полученного байта. Передача, которая продолжает получать данные, никогда не прерывается.",
+  "Connection lost, resuming from {percent}": "Соединение потеряно, возобновление с {percent}"
 }

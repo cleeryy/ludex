@@ -365,7 +365,6 @@
   "Cannot reach the server. Check that it is running and the address is correct.": "Nie można połączyć się z serwerem. Sprawdź, czy działa i czy adres jest poprawny.",
   "Cannot reach the server. Check that it is running.": "Nie można połączyć się z serwerem. Sprawdź, czy działa.",
   "Canonical fields: {fields}": "Pola kanoniczne: {fields}",
-  "Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.": "Ogranicza każde pobieranie (instalacje, naprawy i instalacje strumieniowe) w KiB/s. Użyj 0, aby uzyskać brak limitu.",
   "Categories": "Kategorie",
   "Certain": "Pewne",
   "Change": "Zmień",
@@ -984,7 +983,6 @@
   "Key pinned": "Klucz przypięty",
   "Keyboard only — connect a controller for couch navigation": "Tylko klawiatura — podłącz kontroler do nawigacji na kanapie",
   "Keyboard shortcuts": "Skróty klawiaturowe",
-  "KiB/s": "KiB/s",
   "Kind": "Miły",
   "Known folder": "Znany folder",
   "Label": "Etykieta",
@@ -3382,5 +3380,9 @@
   "Use server default": "Użyj domyślnego serwera",
   "Used for signed-out visitors and accounts without their own language.": "Używany dla wylogowanych gości i kont bez własnego języka.",
   "Your account": "Twoje konto",
-  "What this server is running, where it keeps files, and the language new visitors see.": "Co ten serwer uruchamia, gdzie przechowuje pliki i jaki język widzą nowi goście."
+  "What this server is running, where it keeps files, and the language new visitors see.": "Co ten serwer uruchamia, gdzie przechowuje pliki i jaki język widzą nowi goście.",
+  "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "Ogranicza każde pobieranie (instalacje, naprawy i instalacje strumieniowe) do Mb/s. 0 oznacza brak limitu.",
+  "Connection recovery": "Odzyskiwanie połączenia",
+  "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex przerywa odpowiedź milczącą przez podaną liczbę sekund i wznawia od ostatnio odebranego bajtu. Transfer, który nadal odbiera dane, nigdy nie jest przerywany.",
+  "Connection lost, resuming from {percent}": "Utracono połączenie, wznawianie od {percent}"
 }

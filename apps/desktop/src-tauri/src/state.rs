@@ -223,6 +223,11 @@ impl AppState {
             .user_agent(format!("ludex-desktop/{}", env!("CARGO_PKG_VERSION")))
             .redirect(reqwest::redirect::Policy::limited(10))
             .connect_timeout(std::time::Duration::from_secs(20))
+            // Large transfers sit idle behind Caddy between chunks; TCP
+            // keepalive keeps the socket alive without masking a real stall,
+            // which is detected per-read in `install::download_into` (#195).
+            .tcp_keepalive(std::time::Duration::from_secs(30))
+            .tcp_nodelay(true)
             .build()
             .map_err(|e| format!("Could not create the HTTP client: {e}"))?;
 

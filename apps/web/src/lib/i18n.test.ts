@@ -255,7 +255,7 @@ describe("language picker state (#188)", () => {
   it("marks below-the-gate locales disabled with a coverage reason", () => {
     const arabic = localePickerEntries("en").find((entry) => entry.meta.code === "ar");
     expect(arabic?.disabled).toBe(true);
-    expect(arabic?.reason).toContain("6.6");
+    expect(arabic?.reason).toContain("6.5");
     const french = localePickerEntries("en").find((entry) => entry.meta.code === "fr");
     expect(french?.disabled).toBe(false);
     expect(french?.reason).toBeNull();

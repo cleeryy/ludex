@@ -263,7 +263,6 @@
   "Cannot reach the server. Check that it is running and the address is correct.": "Serveur injoignable. Vérifiez qu’il fonctionne et que l’adresse est correcte.",
   "Cannot reach the server. Check that it is running.": "Serveur injoignable. Vérifiez qu’il fonctionne.",
   "Canonical fields: {fields}": "Champs canoniques : {fields}",
-  "Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.": "Plafonne chaque téléchargement (installations, réparations et installations en flux) en Kio/s. Utilisez 0 pour aucune limite.",
   "Categories": "Catégories",
   "Certain": "Certain",
   "Change": "Changer",
@@ -909,7 +908,6 @@
   "Key pinned": "Clé épinglée",
   "Keyboard only — connect a controller for couch navigation": "Clavier uniquement — connectez une manette pour la navigation canapé",
   "Keyboard shortcuts": "Raccourcis clavier",
-  "KiB/s": "Kio/s",
   "Kind": "Type",
   "Known folder": "Dossier système",
   "Label": "Libellé",
@@ -3382,5 +3380,9 @@
   "Use server default": "Utiliser la langue du serveur",
   "Used for signed-out visitors and accounts without their own language.": "Utilisée pour les visiteurs déconnectés et les comptes sans langue propre.",
   "Your account": "Votre compte",
-  "What this server is running, where it keeps files, and the language new visitors see.": "Ce que ce serveur exécute, où il stocke ses fichiers et la langue que voient les nouveaux visiteurs."
+  "What this server is running, where it keeps files, and the language new visitors see.": "Ce que ce serveur exécute, où il stocke ses fichiers et la langue que voient les nouveaux visiteurs.",
+  "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "Plafonne chaque téléchargement (installations, réparations et installations en flux) en Mb/s. Utilisez 0 pour aucune limite.",
+  "Connection recovery": "Reprise de connexion",
+  "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex abandonne une réponse silencieuse après ce nombre de secondes et reprend au dernier octet reçu. Un transfert qui continue de recevoir des données n’est jamais interrompu.",
+  "Connection lost, resuming from {percent}": "Connexion perdue, reprise à {percent}"
 }

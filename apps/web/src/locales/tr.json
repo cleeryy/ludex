@@ -365,7 +365,6 @@
   "Cannot reach the server. Check that it is running and the address is correct.": "Sunucuya ulaşılamıyor. Çalıştığını ve adresin doğru olduğunu kontrol edin.",
   "Cannot reach the server. Check that it is running.": "Sunucuya ulaşılamıyor. Çalıştığını kontrol edin.",
   "Canonical fields: {fields}": "Kanonik alanlar: {fields}",
-  "Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.": "Her indirmeyi (yüklemeler, onarımlar ve akış yüklemeleri) KiB/s cinsinden sınırlar. Sınırsız olarak 0'ı kullanın.",
   "Categories": "Kategoriler",
   "Certain": "kesin",
   "Change": "Değiştir",
@@ -984,7 +983,6 @@
   "Key pinned": "Anahtar sabitlendi",
   "Keyboard only — connect a controller for couch navigation": "Yalnızca klavye — kanepede gezinme için bir denetleyici bağlayın",
   "Keyboard shortcuts": "Klavye kısayolları",
-  "KiB/s": "KiB/sn",
   "Kind": "tür",
   "Known folder": "Bilinen klasör",
   "Label": "Etiket",
@@ -3382,5 +3380,9 @@
   "Use server default": "Sunucu varsayılanını kullan",
   "Used for signed-out visitors and accounts without their own language.": "Oturum açmamış ziyaretçiler ve kendi dili olmayan hesaplar için kullanılır.",
   "Your account": "Hesabınız",
-  "What this server is running, where it keeps files, and the language new visitors see.": "Bu sunucunun neler çalıştırdığı, dosyaları nerede tuttuğu ve yeni ziyaretçilerin gördüğü dil."
+  "What this server is running, where it keeps files, and the language new visitors see.": "Bu sunucunun neler çalıştırdığı, dosyaları nerede tuttuğu ve yeni ziyaretçilerin gördüğü dil.",
+  "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "Her indirmeyi (kurulumlar, onarımlar ve akış kurulumları) Mb/s olarak sınırlar. Sınırsız için 0 kullanın.",
+  "Connection recovery": "Bağlantı kurtarma",
+  "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex, bu kadar saniye sessiz kalan bir yanıtı iptal eder ve son alınan bayttan devam eder. Veri almaya devam eden bir aktarım asla kesilmez.",
+  "Connection lost, resuming from {percent}": "Bağlantı kayboldu, {percent} noktasından devam ediliyor"
 }

@@ -9,7 +9,7 @@ use ludex_server::{start, Config, ServerHandle};
 use rand::RngCore;
 use reqwest::header::{
     ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
-    RANGE,
+    ETAG, RANGE,
 };
 use reqwest::{Client, Method, StatusCode};
 use serde_json::{json, Value};
@@ -766,8 +766,39 @@ async fn downloads_support_tickets_ranges_and_media_cache() {
         .get(CONTENT_DISPOSITION)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.starts_with("attachment;")));
+    let etag = response
+        .headers()
+        .get(ETAG)
+        .and_then(|value| value.to_str().ok())
+        .expect("archives carry an ETag for resume validation")
+        .to_string();
     let bytes = response.bytes().await.expect("body");
     assert_eq!(bytes.len(), 100);
+
+    // A reconnect resumes at its own offset and sees the same archive identity.
+    let response = server
+        .client
+        .get(format!("{}{}", server.url, url))
+        .header(RANGE, "bytes=100-199")
+        .send()
+        .await
+        .expect("resumed range");
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("bytes 100-199/{file_size}").as_str())
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get(ETAG)
+            .and_then(|value| value.to_str().ok()),
+        Some(etag.as_str())
+    );
+    assert_eq!(response.bytes().await.expect("resumed body").len(), 100);
 
     let response = server
         .client

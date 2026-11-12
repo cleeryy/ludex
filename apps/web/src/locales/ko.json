@@ -365,7 +365,6 @@
   "Cannot reach the server. Check that it is running and the address is correct.": "서버에 연결할 수 없습니다. 실행 중인지, 주소가 올바른지 확인하세요.",
   "Cannot reach the server. Check that it is running.": "서버에 연결할 수 없습니다. 실행 중인지 확인하세요.",
   "Canonical fields: {fields}": "표준 필드: {fields}",
-  "Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.": "모든 다운로드(설치, 복구 및 스트림 설치)를 KiB/s로 제한합니다. 제한이 없으면 0을 사용합니다.",
   "Categories": "카테고리",
   "Certain": "확실함",
   "Change": "변경",
@@ -984,7 +983,6 @@
   "Key pinned": "키 고정됨",
   "Keyboard only — connect a controller for couch navigation": "키보드만 — 소파 탐색을 위한 컨트롤러 연결",
   "Keyboard shortcuts": "키보드 단축키",
-  "KiB/s": "KiB/초",
   "Kind": "친절한",
   "Known folder": "알려진 폴더",
   "Label": "상표",
@@ -3382,5 +3380,9 @@
   "Use server default": "서버 기본값 사용",
   "Used for signed-out visitors and accounts without their own language.": "로그아웃한 방문자와 자체 언어가 없는 계정에 사용됩니다.",
   "Your account": "내 계정",
-  "What this server is running, where it keeps files, and the language new visitors see.": "이 서버가 실행하는 항목, 파일을 저장하는 위치, 새 방문자에게 표시되는 언어입니다."
+  "What this server is running, where it keeps files, and the language new visitors see.": "이 서버가 실행하는 항목, 파일을 저장하는 위치, 새 방문자에게 표시되는 언어입니다.",
+  "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "모든 다운로드(설치, 복구, 스트림 설치)를 Mb/s로 제한합니다. 0은 무제한입니다.",
+  "Connection recovery": "연결 복구",
+  "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex는 응답이 이 시간(초) 동안 조용하면 중단하고 마지막으로 받은 바이트부터 재개합니다. 계속 데이터를 받는 전송은 중단되지 않습니다.",
+  "Connection lost, resuming from {percent}": "연결이 끊어졌습니다. {percent}에서 재개합니다"
 }

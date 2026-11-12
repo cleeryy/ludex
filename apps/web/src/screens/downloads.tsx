@@ -75,7 +75,7 @@ function TransferGraph({ points, now }: { points: SpeedPoint[]; now: number }) {
           .join(" ")} L${coords[coords.length - 1][0].toFixed(1)},${GRAPH_HEIGHT} Z`
       : "";
 
-  const speedLabel = (value: number) => (value > 0 ? formatSpeed(value) : "0 B/s");
+  const speedLabel = (value: number) => formatSpeed(value);
   const summary = t("Download speed over the last two minutes: {current} now, peak {peak}, average {average}.", {
     current: speedLabel(current),
     peak: speedLabel(peak),
@@ -422,7 +422,13 @@ function JobRow({
             <>
               <span>{formatBytes(job.bytesDone)}</span>
               {job.bytesTotal && <span>{t("{done} of {total}", { done: formatBytes(job.bytesDone), total: formatBytes(job.bytesTotal) })}</span>}
-              {speed > 0 && <span>{formatSpeed(speed)}</span>}
+              {job.reconnecting ? (
+                <span className="text-signal-text" title={job.lastError ?? undefined}>
+                  {t("Connection lost, resuming from {percent}", { percent: formatPercent(pct ?? 0) })}
+                </span>
+              ) : (
+                speed > 0 && <span>{formatSpeed(speed)}</span>
+              )}
               {eta && <span>{eta}</span>}
               {phaseElapsed && <span>{t("{phase} for {duration}", { phase: installPhaseLabel(job.phase), duration: phaseElapsed })}</span>}
               {pct !== null && <span>{formatPercent(pct, 1)}</span>}

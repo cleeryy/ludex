@@ -365,7 +365,6 @@
   "Cannot reach the server. Check that it is running and the address is correct.": "No se puede llegar al servidor. Compruebe que esté funcionando y que la dirección sea correcta.",
   "Cannot reach the server. Check that it is running.": "No se puede llegar al servidor. Compruebe que esté funcionando.",
   "Canonical fields: {fields}": "Campos canónicos: {fields}",
-  "Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.": "Limita cada descarga (instalaciones, reparaciones e instalaciones de transmisión) en KiB/s. Utilice 0 sin límite.",
   "Categories": "Categorías",
   "Certain": "ciertos",
   "Change": "Cambiar",
@@ -984,7 +983,6 @@
   "Key pinned": "Clave fijada",
   "Keyboard only — connect a controller for couch navigation": "Solo teclado: conecta un controlador para la navegación en el sofá",
   "Keyboard shortcuts": "Atajos de teclado",
-  "KiB/s": "KiB/s",
   "Kind": "amable",
   "Known folder": "Carpeta conocida",
   "Label": "Etiqueta",
@@ -3382,5 +3380,9 @@
   "Use server default": "Usar el predeterminado del servidor",
   "Used for signed-out visitors and accounts without their own language.": "Se usa para visitantes sin sesión y cuentas sin idioma propio.",
   "Your account": "Tu cuenta",
-  "What this server is running, where it keeps files, and the language new visitors see.": "Qué ejecuta este servidor, dónde guarda los archivos y el idioma que ven los nuevos visitantes."
+  "What this server is running, where it keeps files, and the language new visitors see.": "Qué ejecuta este servidor, dónde guarda los archivos y el idioma que ven los nuevos visitantes.",
+  "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "Limita cada descarga (instalaciones, reparaciones e instalaciones en streaming) en Mb/s. Usa 0 para no limitar.",
+  "Connection recovery": "Recuperación de conexión",
+  "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex cancela una respuesta que permanece en silencio durante estos segundos y continúa desde el último byte recibido. Una transferencia que sigue recibiendo datos nunca se interrumpe.",
+  "Connection lost, resuming from {percent}": "Conexión perdida, reanudando al {percent}"
 }

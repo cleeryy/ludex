@@ -365,7 +365,6 @@
   "Cannot reach the server. Check that it is running and the address is correct.": "サーバーにアクセスできません。実行中であり、アドレスが正しいことを確認してください。",
   "Cannot reach the server. Check that it is running.": "サーバーにアクセスできません。実行されていることを確認してください。",
   "Canonical fields: {fields}": "正規フィールド: {fields}",
-  "Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.": "すべてのダウンロード (インストール、修復、ストリーム インストール) を KiB/s 単位で制限します。制限がない場合は 0 を使用します。",
   "Categories": "カテゴリ",
   "Certain": "確実",
   "Change": "変更",
@@ -984,7 +983,6 @@
   "Key pinned": "キーが固定されました",
   "Keyboard only — connect a controller for couch navigation": "キーボードのみ - カウチナビゲーション用のコントローラーを接続します",
   "Keyboard shortcuts": "キーボードショートカット",
-  "KiB/s": "KiB/秒",
   "Kind": "親切",
   "Known folder": "既知のフォルダー",
   "Label": "ラベル",
@@ -3382,5 +3380,9 @@
   "Use server default": "サーバーの既定を使用",
   "Used for signed-out visitors and accounts without their own language.": "サインアウト中の訪問者と言語未設定のアカウントに使用されます。",
   "Your account": "あなたのアカウント",
-  "What this server is running, where it keeps files, and the language new visitors see.": "このサーバーが実行している内容、ファイルの保存場所、新しい訪問者に表示される言語。"
+  "What this server is running, where it keeps files, and the language new visitors see.": "このサーバーが実行している内容、ファイルの保存場所、新しい訪問者に表示される言語。",
+  "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "すべてのダウンロード（インストール、修復、ストリームインストール）を Mb/s で制限します。0 で無制限。",
+  "Connection recovery": "接続の復元",
+  "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex は応答がこの秒数だけ無音になると中断し、最後に受信したバイトから再開します。データを受信し続けている転送は中断されません。",
+  "Connection lost, resuming from {percent}": "接続が失われました。{percent} から再開します"
 }

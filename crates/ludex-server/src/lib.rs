@@ -347,6 +347,9 @@ async fn prepare(config: Config) -> Result<Prepared> {
             devices::HEARTBEAT_LIMIT_PER_MINUTE,
             Duration::from_secs(60),
         )),
+        // One download or Range resume per second, averaged over a minute.
+        // Well above parallel ranges (aria2c -x8) and normal reconnects.
+        download_limits: Arc::new(security::AttemptCounter::new(120, Duration::from_secs(60))),
     };
 
     let watcher_handle = watcher::start(&state).await;

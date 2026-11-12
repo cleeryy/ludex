@@ -356,7 +356,13 @@ export function InstallDialog({
                   })}
                 </span>
               ) : null}
-              {job.message && <span className="text-ink-2">{job.message}</span>}
+              {job.reconnecting ? (
+                <span className="text-signal-text" title={job.lastError ?? undefined}>
+                  {t("Connection lost, resuming from {percent}", { percent: formatPercent(pct ?? 0) })}
+                </span>
+              ) : job.message ? (
+                <span className="text-ink-2">{job.message}</span>
+              ) : null}
             </div>
             {job.currentEntry && (
               <p className="truncate font-mono text-[10.5px] text-ink-3" title={job.currentEntry}>

@@ -1330,8 +1330,10 @@ export interface LocalSettings {
   keepArchives: boolean;
   /** Archive passwords, tried in order. */
   archivePasswords: string[];
-  /** Global download cap in KiB/s. 0 means unlimited. */
+  /** Global download cap in KiB/s (presented in Mb/s, #199). 0 means unlimited. */
   bandwidthLimitKib: number;
+  /** Seconds without data before a download reconnects with Range (#195). */
+  downloadStallTimeoutSecs: number;
   /** Closing the window hides Ludex to the tray instead of quitting. */
   closeToTray: boolean;
   /** Use the OS title bar instead of Ludex's own (#111). Off by default. */
@@ -2313,6 +2315,14 @@ export interface InstallJob {
   currentEntry: string | null;
   /** Files already present when this attempt started (#115). */
   resumedEntries: number | null;
+  /** True while the download waits to reconnect after a stall or drop (#195). */
+  reconnecting: boolean;
+  /** Connection attempt that produced this snapshot; the next one while reconnecting. */
+  attempt: number;
+  /** Last transport error, kept until the transfer completes (#195). */
+  lastError: string | null;
+  /** Milliseconds the connection was silent when the stall was detected. */
+  stalledForMs: number | null;
 }
 
 /** A game with a newer version on the server (#30). */
