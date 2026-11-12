@@ -18,6 +18,8 @@ pub const DEFAULT_SCAN_INTERVAL_SECONDS: u64 = 300;
 pub const DEFAULT_WATCHER_DEBOUNCE_MS: u64 = 5_000;
 /// Default interval between scheduled integrity checks (one week).
 pub const DEFAULT_INTEGRITY_INTERVAL_HOURS: u64 = 168;
+/// Default interval between scheduled Library Health Center reports (daily).
+pub const DEFAULT_LIBRARY_HEALTH_INTERVAL_HOURS: u64 = 24;
 /// Default grace period before an unreferenced media file is deleted.
 pub const DEFAULT_MEDIA_GC_GRACE_HOURS: u64 = 24;
 /// Maximum JSON request body accepted by the API (10 MiB).
@@ -250,6 +252,9 @@ pub struct Config {
     pub media_gc_grace: Duration,
     /// Interval between scheduled media garbage collections. Zero disables them.
     pub media_gc_interval: Duration,
+    /// Interval between scheduled Library Health Center reports. Zero disables
+    /// them (`LUDEX_HEALTH_INTERVAL_HOURS`, default 24 h).
+    pub library_health_interval: Duration,
     /// Maximum size of a single cloud save upload, in bytes.
     pub saves_max_bytes: u64,
     /// JWT access-token lifetime, in minutes.
@@ -428,6 +433,11 @@ impl Config {
             .transpose()
             .context("LUDEX_MEDIA_GC_INTERVAL_HOURS must be an integer")?
             .unwrap_or(0);
+        let library_health_interval_hours = env_opt("LUDEX_HEALTH_INTERVAL_HOURS")
+            .map(|value| value.parse::<u64>())
+            .transpose()
+            .context("LUDEX_HEALTH_INTERVAL_HOURS must be an integer")?
+            .unwrap_or(DEFAULT_LIBRARY_HEALTH_INTERVAL_HOURS);
 
         let saves_max_bytes = match env_opt("LUDEX_SAVES_MAX_BYTES") {
             Some(value) => {
@@ -603,6 +613,7 @@ impl Config {
             integrity_interval: Duration::from_secs(integrity_interval_hours * 3_600),
             media_gc_grace: Duration::from_secs(media_gc_grace_hours * 3_600),
             media_gc_interval: Duration::from_secs(media_gc_interval_hours * 3_600),
+            library_health_interval: Duration::from_secs(library_health_interval_hours * 3_600),
             saves_max_bytes,
             jwt_ttl_minutes,
             rate_limit_rps,
@@ -697,6 +708,7 @@ impl Config {
             integrity_interval: Duration::from_secs(DEFAULT_INTEGRITY_INTERVAL_HOURS * 3_600),
             media_gc_grace: Duration::from_secs(DEFAULT_MEDIA_GC_GRACE_HOURS * 3_600),
             media_gc_interval: Duration::ZERO,
+            library_health_interval: Duration::ZERO,
             saves_max_bytes: DEFAULT_SAVES_MAX_BYTES,
             jwt_ttl_minutes: DEFAULT_JWT_TTL_MINUTES,
             rate_limit_rps: 0,

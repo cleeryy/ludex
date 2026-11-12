@@ -1183,6 +1183,28 @@ fn candidate_from_entry(root: &Path, entry: &DirEntry, kind: &str) -> Option<Can
     candidate_from_path(root, entry.path(), kind)
 }
 
+/// Counts the files a scan of `root` would inspect, using the scanner's own
+/// filters (blocked directories, minimum sizes, archive/ROM extensions).
+///
+/// Used by the Library Health Center to compare the index with what is really
+/// on disk (#165). It only stats files: nothing is hashed or written.
+#[must_use]
+pub fn count_indexable_files(root: &Path, kind: &str) -> usize {
+    if !root.is_dir() {
+        return 0;
+    }
+    let rom_root = kind == "rom";
+    WalkDir::new(root)
+        .max_depth(if rom_root { MAX_DEPTH + 2 } else { MAX_DEPTH })
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(keep_entry)
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .filter(|entry| candidate_from_entry(root, entry, kind).is_some())
+        .count()
+}
+
 fn candidate_from_path(root: &Path, path: &Path, kind: &str) -> Option<Candidate> {
     let file_name = path.file_name()?.to_str()?.to_string();
     let rom = kind == "rom";

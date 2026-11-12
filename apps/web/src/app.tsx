@@ -42,6 +42,7 @@ import { ServerScreen } from "@/screens/admin/server";
 import { AuthenticationScreen } from "@/screens/admin/authentication";
 import { MetadataProvidersScreen } from "@/screens/admin/metadata";
 import { UploadScreen } from "@/screens/admin/upload";
+import { LibraryHealthScreen } from "@/screens/admin/health";
 import { ShareScreen } from "@/screens/share";
 import { DownloadScreen } from "@/screens/download";
 import { t } from "@/lib/i18n";
@@ -273,6 +274,14 @@ export function App() {
                     element={
                       <RequireEditor>
                         <ScanScreen />
+                      </RequireEditor>
+                    }
+                  />
+                  <Route
+                    path="admin/health"
+                    element={
+                      <RequireEditor>
+                        <LibraryHealthScreen />
                       </RequireEditor>
                     }
                   />

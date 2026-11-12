@@ -813,6 +813,48 @@ pub const ROUTES: &[RouteDoc] = &[
         Auth::Session,
         Payload::Object,
     ),
+    // Library health (#165)
+    query(
+        route(
+            HttpMethod::Get,
+            "/admin/health/library",
+            "Library health",
+            "Read the cached library health report",
+            Auth::Editor,
+            Payload::Schema("LibraryHealthResponse"),
+        ),
+        &[
+            ("severity", "Filter by error, warning or info"),
+            ("category", "Filter by finding category"),
+            ("limit", "Maximum findings (1-500, default 200)"),
+            ("offset", "Pagination offset"),
+        ],
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/admin/health/library/scan",
+            "Library health",
+            "Generate a library health report",
+            Auth::Editor,
+            Payload::Schema("LibraryHealthStartResponse"),
+        ),
+        202,
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/admin/health/library/actions",
+                "Library health",
+                "Apply a safe repair action",
+                Auth::Editor,
+                Payload::Schema("LibraryHealthActionResult"),
+            ),
+            "LibraryHealthActionRequest",
+        ),
+        200,
+    ),
     // Integrity
     body(
         route(
@@ -1932,6 +1974,15 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::emulators::SetGameEmulatorRequest>()
         .schema_from::<crate::emulators::EmulatorLaunch>()
         .schema_from::<crate::models::RootScanResponse>()
+        .schema_from::<crate::library_health::LibraryHealthCounts>()
+        .schema_from::<crate::library_health::LibraryHealthCategoryCount>()
+        .schema_from::<crate::library_health::LibraryHealthReport>()
+        .schema_from::<crate::library_health::LibraryHealthFinding>()
+        .schema_from::<crate::library_health::LibraryHealthResponse>()
+        .schema_from::<crate::library_health::LibraryHealthStartResponse>()
+        .schema_from::<crate::library_health::LibraryHealthActionRequest>()
+        .schema_from::<crate::library_health::LibraryHealthActionResult>()
+        .schema_from::<crate::library_health::LibraryHealthMediaGc>()
         .schema_from::<crate::models::IntegrityCheckRequest>()
         .schema_from::<crate::models::IntegrityCheckResponse>()
         .schema_from::<crate::models::IntegrityReportDetail>()

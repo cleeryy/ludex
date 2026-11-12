@@ -25,6 +25,7 @@ export type NavIconName =
   | "users"
   | "ingest"
   | "upload"
+  | "health"
   | "metadata"
   | "authentication"
   | "server"
@@ -188,6 +189,14 @@ export const NAV_DESTINATIONS = [
     labelKey: "Library scan",
     group: "admin",
     icon: "refresh",
+    visibility: "editor",
+  },
+  {
+    id: "health",
+    to: "/admin/health",
+    labelKey: "Library health",
+    group: "admin",
+    icon: "health",
     visibility: "editor",
   },
   {

@@ -58,6 +58,8 @@ pub struct AppState {
     pub integrity_busy: Arc<AtomicBool>,
     /// Guards against two concurrent media garbage collections.
     pub media_gc_busy: Arc<AtomicBool>,
+    /// Guards against two concurrent Library Health Center reports (#165).
+    pub library_health_busy: Arc<AtomicBool>,
     /// Guards against two concurrent achievement scans.
     pub achievement_busy: Arc<AtomicBool>,
     /// Game archive storage (local disk or S3-compatible bucket).
@@ -150,6 +152,7 @@ impl AppState {
             watcher_handle: Arc::new(RwLock::new(None)),
             integrity_busy: Arc::new(AtomicBool::new(false)),
             media_gc_busy: Arc::new(AtomicBool::new(false)),
+            library_health_busy: Arc::new(AtomicBool::new(false)),
             achievement_busy: Arc::new(AtomicBool::new(false)),
             storage,
             metrics: Arc::new(Metrics::default()),

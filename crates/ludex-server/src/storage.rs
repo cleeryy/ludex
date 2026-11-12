@@ -243,6 +243,17 @@ impl ArchiveStorage {
         }))
     }
 
+    /// Reads an object's metadata without transferring its body (#165).
+    ///
+    /// Returns the object size; [`StorageError::NotFound`] means the key is
+    /// absent from the bucket.
+    pub async fn head(&self, key: &str) -> Result<u64, StorageError> {
+        let store = self.inner.store.as_ref().ok_or(StorageError::Disabled)?;
+        let location = ObjectPath::from(key);
+        let meta = store.head(&location).await.map_err(unavailable)?;
+        Ok(meta.size)
+    }
+
     /// Opens an object, optionally bounded by an HTTP Range.
     pub async fn open(
         &self,
