@@ -3039,5 +3039,15 @@
   "Your friends": "Your friends",
   "Your invitation is valid until {date}.": "Your invitation is valid until {date}.",
   "Your password alone will sign you in again. Your other devices are signed out.": "Your password alone will sign you in again. Your other devices are signed out.",
-  "Your presence is off. Turn it on in Settings to let friends see when you are online.": "Your presence is off. Turn it on in Settings to let friends see when you are online."
+  "Your presence is off. Turn it on in Settings to let friends see when you are online.": "Your presence is off. Turn it on in Settings to let friends see when you are online.",
+  "{stored} of {total} chunks stored": "{stored} de {total} partes armazenadas",
+  "An upload is already running.": "Já existe um envio em andamento.",
+  "Cancel current and send": "Cancelar o atual e enviar",
+  "Cancel it to send {file} instead, or keep the current transfer.": "Cancele-o para enviar {file} em vez disso, ou mantenha a transferência atual.",
+  "Cannot start this upload": "Não foi possível iniciar este envio",
+  "Choose another archive": "Escolher outro arquivo",
+  "Keep current upload": "Manter o envio atual",
+  "The server still has {received} of {size}. Pick the same archive to continue.": "O servidor ainda tem {received} de {size}. Escolha o mesmo arquivo para continuar.",
+  "Uploading {file} — {percent}%": "Enviando {file} — {percent} %",
+  "You can leave this page; the upload keeps running.": "Você pode sair desta página; o envio continua em segundo plano."
 }

@@ -3039,5 +3039,15 @@
   "Your friends": "Your friends",
   "Your invitation is valid until {date}.": "Your invitation is valid until {date}.",
   "Your password alone will sign you in again. Your other devices are signed out.": "Your password alone will sign you in again. Your other devices are signed out.",
-  "Your presence is off. Turn it on in Settings to let friends see when you are online.": "Your presence is off. Turn it on in Settings to let friends see when you are online."
+  "Your presence is off. Turn it on in Settings to let friends see when you are online.": "Your presence is off. Turn it on in Settings to let friends see when you are online.",
+  "{stored} of {total} chunks stored": "{total}개 중 {stored}개 청크 저장됨",
+  "An upload is already running.": "이미 업로드가 진행 중입니다.",
+  "Cancel current and send": "현재 업로드 취소하고 보내기",
+  "Cancel it to send {file} instead, or keep the current transfer.": "취소하고 대신 {file}을(를) 보내거나 현재 전송을 계속하세요.",
+  "Cannot start this upload": "이 업로드를 시작할 수 없습니다",
+  "Choose another archive": "다른 아카이브 선택",
+  "Keep current upload": "현재 업로드 유지",
+  "The server still has {received} of {size}. Pick the same archive to continue.": "서버에 아직 {size} 중 {received}이(가) 있습니다. 계속하려면 같은 압축 파일을 선택하세요.",
+  "Uploading {file} — {percent}%": "{file} 업로드 중 — {percent}%",
+  "You can leave this page; the upload keeps running.": "이 페이지를 떠나도 됩니다. 업로드는 계속 실행됩니다."
 }

@@ -3039,5 +3039,15 @@
   "Your friends": "Ваши друзья",
   "Your invitation is valid until {date}.": "Ваше приглашение действительно до {date}.",
   "Your password alone will sign you in again. Your other devices are signed out.": "Только ваш пароль позволит вам снова войти в систему. На других ваших устройствах выход из системы выполнен.",
-  "Your presence is off. Turn it on in Settings to let friends see when you are online.": "Ваше присутствие отключено. Включите эту функцию в настройках, чтобы друзья могли видеть, когда вы онлайн."
+  "Your presence is off. Turn it on in Settings to let friends see when you are online.": "Ваше присутствие отключено. Включите эту функцию в настройках, чтобы друзья могли видеть, когда вы онлайн.",
+  "{stored} of {total} chunks stored": "Сохранено {stored} из {total} фрагментов",
+  "An upload is already running.": "Отправка уже выполняется.",
+  "Cancel current and send": "Отменить текущую и отправить",
+  "Cancel it to send {file} instead, or keep the current transfer.": "Отмените её, чтобы отправить вместо этого {file}, или продолжите текущую передачу.",
+  "Cannot start this upload": "Не удалось начать эту отправку",
+  "Choose another archive": "Выбрать другой архив",
+  "Keep current upload": "Оставить текущую отправку",
+  "The server still has {received} of {size}. Pick the same archive to continue.": "На сервере ещё {received} из {size}. Выберите тот же архив, чтобы продолжить.",
+  "Uploading {file} — {percent}%": "Отправка {file} — {percent} %",
+  "You can leave this page; the upload keeps running.": "Можно покинуть эту страницу; отправка продолжится."
 }

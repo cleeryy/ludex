@@ -13,6 +13,7 @@ import { UpdatesScreen } from "@/screens/updates";
 import { ToastProvider } from "@/state/toasts";
 import { AuthProvider } from "@/state/auth";
 import { DownloadsProvider } from "@/state/downloads";
+import { UploadProvider } from "@/state/upload";
 import { Wordmark } from "@/components/brand";
 import { Button } from "@/components/ui/controls";
 import { ToastViewport } from "@/components/ui/toast";
@@ -249,6 +250,7 @@ export function App() {
         <ToastProvider>
           <AuthProvider>
             <DownloadsProvider>
+            <UploadProvider>
             <I18nProvider>
             <UpdateProvider>
             <ConfigSyncDefaults />
@@ -416,6 +418,7 @@ export function App() {
             <PwaPrompts />
             </UpdateProvider>
             </I18nProvider>
+            </UploadProvider>
             </DownloadsProvider>
           </AuthProvider>
         </ToastProvider>
