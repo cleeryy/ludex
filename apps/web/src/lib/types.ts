@@ -298,6 +298,110 @@ export interface RemoteInstall {
   completedAt: string | null;
 }
 
+/* ------------------------- library health (#165) -------------------------- */
+
+export type HealthSeverity = "error" | "warning" | "info";
+
+export type HealthCategory =
+  | "missing"
+  | "unavailable"
+  | "orphan"
+  | "duplicate"
+  | "metadata"
+  | "integrity"
+  | "counts";
+
+export type HealthAction =
+  | "rescan_root"
+  | "refresh_metadata"
+  | "mark_missing"
+  | "remove_version"
+  | "remove_orphan_game"
+  | "media_gc_dry_run"
+  | "media_gc_apply"
+  | "review";
+
+export interface LibraryHealthCounts {
+  error: number;
+  warning: number;
+  info: number;
+  total: number;
+}
+
+export interface LibraryHealthCategoryCount {
+  category: HealthCategory;
+  count: number;
+}
+
+export interface LibraryHealthReport {
+  id: number;
+  status: "running" | "completed" | "failed";
+  trigger: "manual" | "scheduled" | "action";
+  /** Progress percentage, 0–100. */
+  progress: number;
+  total: number;
+  findingsCount: number;
+  counts: LibraryHealthCounts;
+  byCategory: LibraryHealthCategoryCount[];
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface LibraryHealthFinding {
+  id: number;
+  reportId: number;
+  category: HealthCategory;
+  kind: string;
+  severity: HealthSeverity;
+  gameId?: number;
+  versionId?: number;
+  rootId?: number;
+  path?: string;
+  title: string;
+  detail: string;
+  evidence: Record<string, unknown>;
+  actions: HealthAction[];
+  createdAt: string;
+}
+
+export interface LibraryHealthResponse {
+  report: LibraryHealthReport | null;
+  findings: LibraryHealthFinding[];
+  findingsTotal: number;
+}
+
+export interface LibraryHealthStartResponse {
+  reportId: number;
+  status: string;
+}
+
+export interface LibraryHealthMediaGc {
+  dryRun: boolean;
+  scanned: number;
+  referenced: number;
+  orphanFiles: number;
+  orphanBytes: number;
+  deletedFiles: number;
+  deletedBytes: number;
+  candidates: string[];
+}
+
+export interface LibraryHealthActionResult {
+  action: string;
+  applied: number;
+  skipped: number;
+  errors: string[];
+  mediaGc?: LibraryHealthMediaGc;
+  reportQueued: boolean;
+}
+
+export interface LibraryHealthActionInput {
+  action: HealthAction;
+  findingIds?: number[];
+  confirm?: boolean;
+}
+
 export interface LibraryFile {
   name: string;
   size: number;

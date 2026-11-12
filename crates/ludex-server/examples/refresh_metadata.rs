@@ -78,6 +78,7 @@ async fn main() -> Result<()> {
         watcher_handle: Arc::new(RwLock::new(None)),
         integrity_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         media_gc_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        library_health_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         achievement_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         backup_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         storage,

@@ -72,6 +72,10 @@ pub mod actions {
     pub const INTEGRITY_CHECK_STARTED: &str = "integrity.check_started";
     /// Media cache garbage collection removed files.
     pub const MEDIA_GC_RUN: &str = "media.gc";
+    /// Library Health Center report started (#165).
+    pub const HEALTH_SCAN_STARTED: &str = "health.scan_started";
+    /// A Library Health Center repair action was applied (#165).
+    pub const HEALTH_ACTION_APPLIED: &str = "health.action_applied";
     /// Share link created.
     pub const SHARE_CREATED: &str = "share.created";
     /// Share link revoked.

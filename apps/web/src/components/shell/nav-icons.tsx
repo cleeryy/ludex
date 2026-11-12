@@ -38,6 +38,7 @@ const ICONS: Record<NavIconName, LucideIcon> = {
   users: Users,
   ingest: Download,
   upload: UploadCloud,
+  health: Activity,
   metadata: PlugZap,
   authentication: KeyRound,
   server: Server,

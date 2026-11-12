@@ -44,6 +44,10 @@ import type {
   IngestJob,
   IngestStats,
   LibraryFile,
+  LibraryHealthActionInput,
+  LibraryHealthActionResult,
+  LibraryHealthResponse,
+  LibraryHealthStartResponse,
   LibraryStats,
   MetadataApplyInput,
   MetadataCandidates,
@@ -545,6 +549,33 @@ export const api = {
   },
   folders(): Promise<{ gamesDir: string; mediaDir: string; dataDir: string }> {
     return USING_MOCKS ? mockApi.folders(tokenStore.get()) : request<{ gamesDir: string; mediaDir: string; dataDir: string }>("/library/folders");
+  },
+
+  /* library health (#165) */
+  libraryHealth(params?: {
+    severity?: string;
+    category?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<LibraryHealthResponse> {
+    if (USING_MOCKS) return mockApi.libraryHealth(tokenStore.get(), params);
+    const query = new URLSearchParams();
+    if (params?.severity) query.set("severity", params.severity);
+    if (params?.category) query.set("category", params.category);
+    if (params?.limit !== undefined) query.set("limit", String(params.limit));
+    if (params?.offset !== undefined) query.set("offset", String(params.offset));
+    const suffix = query.toString();
+    return request<LibraryHealthResponse>(`/admin/health/library${suffix ? `?${suffix}` : ""}`);
+  },
+  startLibraryHealth(): Promise<LibraryHealthStartResponse> {
+    return USING_MOCKS
+      ? mockApi.startLibraryHealth(tokenStore.get())
+      : request<LibraryHealthStartResponse>("/admin/health/library/scan", { method: "POST" });
+  },
+  libraryHealthAction(body: LibraryHealthActionInput): Promise<LibraryHealthActionResult> {
+    return USING_MOCKS
+      ? mockApi.libraryHealthAction(tokenStore.get(), body)
+      : request<LibraryHealthActionResult>("/admin/health/library/actions", { method: "POST", body });
   },
 
   /* controller profiles (#51) */

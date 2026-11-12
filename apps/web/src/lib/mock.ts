@@ -53,6 +53,12 @@ import type {
   IngestStats,
   InstalledGame,
   LibraryFile,
+  LibraryHealthActionInput,
+  LibraryHealthActionResult,
+  LibraryHealthFinding,
+  LibraryHealthReport,
+  LibraryHealthResponse,
+  LibraryHealthStartResponse,
   LibraryStats,
   MetadataApplyInput,
   MetadataCandidate,
@@ -449,6 +455,76 @@ let scan: ScanStatus = {
   metadataPending: 0,
   errors: [],
 };
+
+let libraryHealthReport: LibraryHealthReport | null = null;
+
+function demoHealthFindings(): LibraryHealthFinding[] {
+  const createdAt = new Date(Date.now() - 1000 * 60 * 12).toISOString();
+  return [
+    {
+      id: 1,
+      reportId: libraryHealthReport?.id ?? 1,
+      category: "missing",
+      kind: "missing_archive",
+      severity: "error",
+      gameId: DEMO_GAMES[0]?.id ?? 1,
+      versionId: 9001,
+      path: "/srv/ludex/games/Hades (2020).zip",
+      title: "Hades has a missing archive",
+      detail: "The indexed file no longer exists. The database row and any save data were kept.",
+      evidence: { filePath: "Hades (2020).zip", size: 8_734_003_200 },
+      actions: ["rescan_root", "mark_missing", "remove_version"],
+      createdAt,
+    },
+    {
+      id: 2,
+      reportId: libraryHealthReport?.id ?? 1,
+      category: "orphan",
+      kind: "media_orphan",
+      severity: "info",
+      path: "/srv/ludex/media/legacy-cover.jpg",
+      title: "An unreferenced artwork file can be cleaned up",
+      detail: "legacy-cover.jpg is not referenced by any game or account and is 184320 bytes.",
+      evidence: { name: "legacy-cover.jpg", size: 184_320 },
+      actions: ["media_gc_dry_run", "media_gc_apply"],
+      createdAt,
+    },
+    {
+      id: 3,
+      reportId: libraryHealthReport?.id ?? 1,
+      category: "metadata",
+      kind: "metadata_gap",
+      severity: "info",
+      gameId: DEMO_GAMES[1]?.id ?? 2,
+      title: "Celeste has incomplete metadata",
+      detail: "Missing: description, provider.",
+      evidence: { missingFields: ["description", "provider"] },
+      actions: ["refresh_metadata", "review"],
+      createdAt,
+    },
+  ];
+}
+
+function buildDemoHealthReport(): LibraryHealthReport {
+  const findings = demoHealthFindings();
+  return {
+    id: Date.now(),
+    status: "completed",
+    trigger: "manual",
+    progress: 100,
+    total: 18,
+    findingsCount: findings.length,
+    counts: { error: 1, warning: 0, info: 2, total: findings.length },
+    byCategory: [
+      { category: "missing", count: 1 },
+      { category: "orphan", count: 1 },
+      { category: "metadata", count: 1 },
+    ],
+    error: null,
+    startedAt: new Date(Date.now() - 1000 * 60 * 13).toISOString(),
+    finishedAt: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
+  };
+}
 
 let verify: { name: string; ok: boolean; log: string } | null = null;
 
@@ -1385,6 +1461,71 @@ export const mockApi = {
       };
     }
     return { started: true };
+  },
+
+  async libraryHealth(
+    token: string | null,
+    params?: { severity?: string; category?: string; limit?: number; offset?: number },
+  ): Promise<LibraryHealthResponse> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role === "user") fail(403, "forbidden", "Editor role required");
+    const all = demoHealthFindings();
+    const filtered = all.filter(
+      (finding) =>
+        (!params?.severity || finding.severity === params.severity) &&
+        (!params?.category || finding.category === params.category),
+    );
+    const offset = params?.offset ?? 0;
+    const limit = params?.limit ?? 200;
+    return {
+      report: libraryHealthReport,
+      findings: filtered.slice(offset, offset + limit),
+      findingsTotal: filtered.length,
+    };
+  },
+
+  async startLibraryHealth(token: string | null): Promise<LibraryHealthStartResponse> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role === "user") fail(403, "forbidden", "Editor role required");
+    libraryHealthReport = buildDemoHealthReport();
+    return { reportId: libraryHealthReport.id, status: "completed" };
+  },
+
+  async libraryHealthAction(token: string | null, body: LibraryHealthActionInput): Promise<LibraryHealthActionResult> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role === "user") fail(403, "forbidden", "Editor role required");
+    const destructive = ["remove_version", "remove_orphan_game", "media_gc_apply"].includes(body.action);
+    if (destructive && user.role !== "admin") fail(403, "forbidden", "Administrator role required");
+    if (destructive && !body.confirm) fail(400, "confirmation_required", "This action needs an explicit confirmation");
+    if (body.action === "media_gc_dry_run" || body.action === "media_gc_apply") {
+      return {
+        action: body.action,
+        applied: 1,
+        skipped: 0,
+        errors: [],
+        mediaGc: {
+          dryRun: body.action === "media_gc_dry_run",
+          scanned: 12,
+          referenced: 10,
+          orphanFiles: 1,
+          orphanBytes: 184_320,
+          deletedFiles: body.action === "media_gc_apply" ? 1 : 0,
+          deletedBytes: body.action === "media_gc_apply" ? 184_320 : 0,
+          candidates: ["legacy-cover.jpg"],
+        },
+        reportQueued: body.action === "media_gc_apply",
+      };
+    }
+    return {
+      action: body.action,
+      applied: body.findingIds?.length ?? 1,
+      skipped: 0,
+      errors: [],
+      reportQueued: true,
+    };
   },
 
   async folders(token: string | null) {

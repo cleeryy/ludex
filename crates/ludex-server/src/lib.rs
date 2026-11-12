@@ -46,6 +46,7 @@ pub mod extract;
 pub mod gamevault;
 pub mod ingest;
 pub mod integrity;
+pub mod library_health;
 pub mod media;
 pub mod media_gc;
 pub mod metadata;
@@ -291,6 +292,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
         watcher_handle: Arc::new(RwLock::new(None)),
         integrity_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         media_gc_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        library_health_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         achievement_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         backup_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         storage: ArchiveStorage::from_config(&config),
@@ -339,6 +341,10 @@ async fn prepare(config: Config) -> Result<Prepared> {
         cancel_rx.clone(),
     ));
     tokio::spawn(media_gc::scheduled_worker(state.clone(), cancel_rx.clone()));
+    tokio::spawn(library_health::scheduled_worker(
+        state.clone(),
+        cancel_rx.clone(),
+    ));
     tokio::spawn(achievements::scheduled_worker(state.clone(), cancel_rx));
     tokio::spawn(uploads::cleanup_worker(state.clone()));
     // Initial scan in the background; never blocks startup.

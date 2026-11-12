@@ -1167,6 +1167,87 @@ and a `lastError`; its versions keep `missing = 0` and downloads answer
 See [`LIBRARY.md`](./LIBRARY.md) for scan ordering, mirror deduplication and
 watcher platform limits.
 
+## Library Health Center (#165)
+
+One cached report tells an administrator whether the library is healthy and
+offers safe repairs. Reading or starting a report requires the editor role;
+actions that delete a database row or run the media collector require an
+administrator **and** `confirm: true`.
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/admin/health/library?severity=&category=&limit=&offset=` | admin/editor; latest cached report plus filtered findings. `limit` 1–500 (default 200) |
+| POST | `/api/admin/health/library/scan` | admin/editor; 202 `{ reportId, status }`; 409 `health_running` while another report runs |
+| POST | `/api/admin/health/library/actions` | admin/editor; body `{ action, findingIds?, confirm? }`. Destructive actions require admin + `confirm: true` (400 `confirmation_required`, 403 for editors) |
+
+```ts
+type HealthSeverity = "error" | "warning" | "info";
+type HealthCategory =
+  | "missing" | "unavailable" | "orphan" | "duplicate"
+  | "metadata" | "integrity" | "counts";
+
+interface LibraryHealthCounts {
+  error: number; warning: number; info: number; total: number;
+}
+
+interface LibraryHealthReport {
+  id: number; status: "running" | "completed" | "failed";
+  trigger: "manual" | "scheduled" | "action";
+  progress: number;            // percent, 0–100
+  total: number;               // rows/files considered
+  findingsCount: number; counts: LibraryHealthCounts;
+  byCategory: { category: HealthCategory; count: number }[];
+  error: string | null; startedAt: string; finishedAt: string | null;
+}
+
+interface LibraryHealthFinding {
+  id: number; reportId: number;
+  category: HealthCategory;
+  kind: string;                // missing_archive, media_orphan, duplicate_game, …
+  severity: HealthSeverity;
+  gameId?: number; versionId?: number; rootId?: number;
+  path?: string;
+  title: string; detail: string;
+  evidence: Record<string, unknown>;
+  actions: HealthAction[];
+  createdAt: string;
+}
+
+type HealthAction =
+  | "rescan_root" | "refresh_metadata" | "mark_missing"
+  | "remove_version" | "remove_orphan_game"
+  | "media_gc_dry_run" | "media_gc_apply" | "review";
+```
+
+Checks: unavailable roots; missing archives (local files and S3 objects);
+games with no available version; orphan game rows and unreferenced artwork;
+duplicate games (normalised title + year, or provider id) and byte-identical
+archives (`content_hash`); metadata gaps (cover, description, release date,
+provider); index/disk count differences; and the findings of the latest
+completed integrity report. No archive is hashed here: deep verification stays
+in the integrity check.
+
+The handler returns `{ report, findings, findingsTotal }`. When no report has
+run yet `report` is `null`. Reports are generated in the background, persist
+across restarts, and older reports are pruned after every successful run.
+
+Action rules:
+
+| Action | Role | Confirmation | Effect |
+|---|---|---|---|
+| `rescan_root` | editor | no | Queue a scan of the finding's root (or every root) |
+| `refresh_metadata` | editor | no | Queue metadata enrichment for the finding's game |
+| `mark_missing` | editor | no | Re-check the file, then set `missing = 1` (scanner behaviour) |
+| `media_gc_dry_run` | editor | no | Return the media GC plan; deletes nothing |
+| `media_gc_apply` | admin | yes | Delete unreferenced artwork past the grace period; archives are never touched |
+| `remove_version` | admin | yes | Delete a missing version row; refuses while the file exists, and never deletes a file |
+| `remove_orphan_game` | admin | yes | Delete a game with no versions and no progress, bookmarks or saves |
+| `review` | client | — | Open the related game for a human decision; the API rejects it with `unknown_health_action` |
+
+Every applied action is written to the audit log as
+`health.action_applied`; starting a report writes `health.scan_started`.
+Scheduled by `LUDEX_HEALTH_INTERVAL_HOURS` (default 24, `0` disables).
+
 ## Integrity checks
 
 | Method | Route | Notes |
@@ -2953,6 +3034,7 @@ finishes. A queued request untouched for two minutes is labelled "PC offline".
 | `LUDEX_DESKTOP_DOWNLOAD_BASE_URL` | unset | Flat mirror replacing asset URLs (`{base}/{fileName}`), e.g. an internal artifact proxy (#164) |
 | `LUDEX_DESKTOP_DOWNLOAD_TTL_SECONDS` | `600` (10–86400) | In-process cache for release metadata (#164) |
 | `LUDEX_DESKTOP_DOWNLOAD_TIMEOUT_SECONDS` | `5` (1–30) | Upstream timeout for release metadata and checksums (#164) |
+| `LUDEX_HEALTH_INTERVAL_HOURS` | `24` (`0` disables) | Scheduled Library Health Center reports (#165) |
 | `LUDEX_OPENAPI_DOCS` | `false` | Serve `/api/docs` |
 
 ## Achievements (#117, #118)

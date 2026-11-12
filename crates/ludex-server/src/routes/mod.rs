@@ -17,6 +17,7 @@ pub mod games;
 pub mod integrity;
 pub mod keys;
 pub mod library;
+pub mod library_health;
 pub mod media;
 pub mod metadata_providers;
 pub mod metrics;
@@ -56,6 +57,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(search::router())
         .merge(users::router())
         .merge(library::router())
+        .merge(library_health::router())
         .merge(news::router())
         .merge(media::router())
         .merge(saves::router(saves_max_bytes))
