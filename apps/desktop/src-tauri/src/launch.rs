@@ -165,8 +165,12 @@ pub async fn launch(
     .await
     {
         Ok(Ok(())) => {}
-        Ok(Err(error)) => tracing::debug!(error = %error, game_id, "save candidate snapshot failed"),
-        Err(error) => tracing::debug!(error = %error, game_id, "save candidate snapshot task failed"),
+        Ok(Err(error)) => {
+            tracing::debug!(error = %error, game_id, "save candidate snapshot failed")
+        }
+        Err(error) => {
+            tracing::debug!(error = %error, game_id, "save candidate snapshot task failed")
+        }
     }
 
     let child = command.spawn().map_err(|e| match &executable_path {

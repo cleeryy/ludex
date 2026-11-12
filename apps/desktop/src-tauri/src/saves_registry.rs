@@ -296,9 +296,7 @@ impl SaveCandidate {
 /// Manifest and manual paths never reach this layer: they are save paths
 /// already.
 pub fn is_high_confidence(candidate: &SaveCandidate) -> bool {
-    candidate.confirmed
-        || candidate.source == SOURCE_STORE
-        || candidate.source == SOURCE_OVERRIDE
+    candidate.confirmed || candidate.source == SOURCE_STORE || candidate.source == SOURCE_OVERRIDE
 }
 
 /// Candidates for one installed game, as returned by the Tauri commands.

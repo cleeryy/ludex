@@ -159,7 +159,7 @@ impl Probe for RealProbe {
     fn registry_value(&self, key: &str, value: &str) -> Option<String> {
         #[cfg(windows)]
         {
-            let output = Command::new("reg")
+            let output = crate::process::capture("reg")
                 .args(["query", key, "/v", value])
                 .output()
                 .ok()?;
@@ -190,7 +190,7 @@ impl Probe for RealProbe {
     fn registry_key_exists(&self, key: &str) -> bool {
         #[cfg(windows)]
         {
-            Command::new("reg")
+            crate::process::capture("reg")
                 .args(["query", key])
                 .output()
                 .map(|output| output.status.success())

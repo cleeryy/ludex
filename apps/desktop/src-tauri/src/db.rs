@@ -3008,6 +3008,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V12).unwrap();
         connection.execute_batch(SCHEMA_V13).unwrap();
         connection.execute_batch(SCHEMA_V14).unwrap();
+        connection.execute_batch(SCHEMA_V15).unwrap();
         connection
     }
 
@@ -4371,7 +4372,10 @@ mod tests {
             ..before
         };
         replace_candidate_snapshots(&connection, 7, std::slice::from_ref(&next)).unwrap();
-        assert_eq!(list_candidate_snapshots(&connection, 7).unwrap(), vec![next]);
+        assert_eq!(
+            list_candidate_snapshots(&connection, 7).unwrap(),
+            vec![next]
+        );
 
         clear_candidate_snapshots(&connection, 7).unwrap();
         assert!(list_candidate_snapshots(&connection, 7).unwrap().is_empty());

@@ -870,12 +870,7 @@ impl PromotionGuard {
 
     /// `Ok` when the candidate may be archived automatically; `Err` carries a
     /// sentence the panel can show as "Skipped: …".
-    pub fn check(
-        &self,
-        path: &Path,
-        kind: &str,
-        measured: &PathMeasurement,
-    ) -> Result<(), String> {
+    pub fn check(&self, path: &Path, kind: &str, measured: &PathMeasurement) -> Result<(), String> {
         if has_symlink_component(path) {
             return Err("The path goes through a symlink.".to_string());
         }
@@ -948,7 +943,11 @@ fn has_symlink_component(path: &Path) -> bool {
     false
 }
 
-fn detected_from_measurement(path: &Path, source: &str, measured: &PathMeasurement) -> DetectedSave {
+fn detected_from_measurement(
+    path: &Path,
+    source: &str,
+    measured: &PathMeasurement,
+) -> DetectedSave {
     DetectedSave {
         path: path.to_string_lossy().to_string(),
         kind: if measured.is_dir { "directory" } else { "file" }.to_string(),
@@ -1010,10 +1009,7 @@ pub fn auto_promote_detected(
     let count = promoted.len();
     detection.saves.extend(promoted);
     detection.saves = aggregate(std::mem::take(&mut detection.saves));
-    detection.detected = detection
-        .saves
-        .iter()
-        .any(|save| !is_missing(save));
+    detection.detected = detection.saves.iter().any(|save| !is_missing(save));
     detection.total_bytes = detection
         .saves
         .iter()
@@ -1024,7 +1020,10 @@ pub fn auto_promote_detected(
 
 /// True when a session changed a candidate: it existed before the session,
 /// still exists, and its bytes or newest file timestamp moved.
-pub fn session_changed(before: &crate::db::CandidateSnapshotRecord, after: &PathMeasurement) -> bool {
+pub fn session_changed(
+    before: &crate::db::CandidateSnapshotRecord,
+    after: &PathMeasurement,
+) -> bool {
     if !before.existed || !after.exists || after.files == 0 {
         return false;
     }
@@ -3797,7 +3796,11 @@ mod tests {
 
         // A missing folder is never promoted.
         assert!(guard
-            .check(&save.join("missing"), "directory", &PathMeasurement::default())
+            .check(
+                &save.join("missing"),
+                "directory",
+                &PathMeasurement::default()
+            )
             .unwrap_err()
             .contains("does not exist"));
 

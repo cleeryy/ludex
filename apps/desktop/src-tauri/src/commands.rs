@@ -2925,7 +2925,10 @@ pub(crate) fn promote_save_candidates(
             statuses.push((
                 snapshot.path.clone(),
                 saves_detect::CANDIDATE_STATUS_WAITING,
-                Some("Waiting for the first session: the folder did not exist before this launch.".to_string()),
+                Some(
+                    "Waiting for the first session: the folder did not exist before this launch."
+                        .to_string(),
+                ),
             ));
             continue;
         }
@@ -3017,13 +3020,7 @@ pub(crate) fn promote_save_candidates(
             db::replace_save_paths(&connection, game_id, &rows)?;
         }
         for (path, status, reason) in &statuses {
-            db::set_save_candidate_status(
-                &connection,
-                game_id,
-                path,
-                status,
-                reason.as_deref(),
-            )?;
+            db::set_save_candidate_status(&connection, game_id, path, status, reason.as_deref())?;
             if *status == saves_detect::CANDIDATE_STATUS_SAVING {
                 db::set_save_candidate_confirmed(&connection, game_id, path, true)?;
             }

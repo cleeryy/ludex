@@ -1974,8 +1974,14 @@ pub fn schedule_after_exit(app: AppHandle, game_id: i64) {
             tracing::debug!(
                 game_id,
                 elapsed_ms = started.elapsed().as_millis() as u64,
-                promoted = report.as_ref().map(|report| report.promoted.len()).unwrap_or(0),
-                skipped = report.as_ref().map(|report| report.skipped.len()).unwrap_or(0),
+                promoted = report
+                    .as_ref()
+                    .map(|report| report.promoted.len())
+                    .unwrap_or(0),
+                skipped = report
+                    .as_ref()
+                    .map(|report| report.skipped.len())
+                    .unwrap_or(0),
                 "save candidate promotion after exit"
             );
             report
@@ -2578,8 +2584,15 @@ mod tests {
             launch_uri: None,
         };
 
-        let detection =
-            crate::saves_detect::detect_for_game_with_ignored(&settings, &game, &fixture.root, &[], None, None, &[]);
+        let detection = crate::saves_detect::detect_for_game_with_ignored(
+            &settings,
+            &game,
+            &fixture.root,
+            &[],
+            None,
+            None,
+            &[],
+        );
         assert!(detection.detected, "{detection:?}");
         assert!(!detection.saves.is_empty(), "{detection:?}");
 

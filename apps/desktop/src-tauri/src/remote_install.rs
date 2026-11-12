@@ -432,23 +432,13 @@ pub async fn remote_installs_sync(app: AppHandle) -> Result<RemoteSyncResult, St
         };
 
         result.claimed.push(request.id.clone());
-        spawn_reporter(
-            app.clone(),
-            request.id,
-            job.job_id,
-            client_id.clone(),
-        );
+        spawn_reporter(app.clone(), request.id, job.job_id, client_id.clone());
     }
     Ok(result)
 }
 
 /// Polls the local install job and mirrors its state onto the server.
-fn spawn_reporter(
-    app: AppHandle,
-    remote_id: String,
-    job_id: String,
-    client_id: Option<String>,
-) {
+fn spawn_reporter(app: AppHandle, remote_id: String, job_id: String, client_id: Option<String>) {
     tauri::async_runtime::spawn(async move {
         let mut last_percent: Option<u8> = None;
         loop {
