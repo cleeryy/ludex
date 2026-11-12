@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, setApiBase, tokenStore, UNAUTHORIZED_EVENT } from "@/lib/api";
+import { ApiError } from "@/lib/http";
 import { isNative, native } from "@/lib/native";
 import { bootstrapBrowserServer } from "@/lib/servers";
 import type { AuthResult, SetupStatus, User } from "@/lib/types";
-import { t } from "@/lib/i18n";
+import { applyAccountLocale, applyServerDefaultLocale, chooseAccountLocale, t } from "@/lib/i18n";
 
 interface AuthValue {
   user: User | null;
@@ -41,6 +42,11 @@ interface AuthValue {
    * value for this session and retries on the next explicit action.
    */
   updateOnboarding: (body: { completed?: boolean; step?: number }) => Promise<void>;
+  /**
+   * Persists the account interface language (#188). `null` clears it so the
+   * account follows the server default again; the UI applies it immediately.
+   */
+  updateLocale: (locale: string | null) => Promise<void>;
   retryBoot: () => void;
 }
 
@@ -93,6 +99,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         setSetup(status);
 
+        // #188: the public config carries the server default language, which
+        // the login/setup screens use before any account exists. The cache is
+        // written first so a reload bootstraps without a flash.
+        try {
+          const config = await api.config();
+          if (!cancelled) await applyServerDefaultLocale(config.defaultLocale);
+        } catch {
+          /* older server or offline: keep the cached/browser locale */
+        }
+
         const current = tokenStore.get();
         if (current) {
           try {
@@ -100,13 +116,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (cancelled) return;
             setUser(me);
             setToken(current);
-          } catch {
+            await applyAccountLocale(me.locale);
+          } catch (cause) {
             tokenStore.clear();
             if (!cancelled) {
               setToken(null);
               setUser(null);
             }
+            // Keep the cached account language when the server is merely
+            // unreachable (the desktop must still boot in the last language);
+            // drop it when the session is actually rejected.
+            const rejected = cause instanceof ApiError && cause.status === 401;
+            if (rejected) await applyAccountLocale(null);
           }
+        } else {
+          await applyAccountLocale(null);
         }
         if (!cancelled) setReady(true);
       } catch (error) {
@@ -139,6 +163,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(nextToken);
     setUser(nextUser);
     setSetup((current) => (current ? { ...current, needsSetup: false } : current));
+    // #188: cache and apply the account language as soon as login answers.
+    void applyAccountLocale(nextUser.locale);
     return true;
   }, []);
 
@@ -226,6 +252,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     tokenStore.clear();
     setToken(null);
     setUser(null);
+    // #188: the next visitor on this device must not inherit the account
+    // language; the server/browser default applies again.
+    await applyAccountLocale(null);
   }, []);
 
   const adoptSession = useCallback(async ({ serverUrl, token: nextToken, user: nextUser }: { serverUrl: string; token: string; user?: User }) => {
@@ -234,9 +263,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(nextToken);
     if (nextUser) {
       setUser(nextUser);
+      await applyAccountLocale(nextUser.locale);
     } else {
       const me = await api.me();
       setUser(me);
+      await applyAccountLocale(me.locale);
     }
     setNativeFirstRun(false);
     setSetup((current) => ({ needsSetup: false, serverName: current?.serverName ?? "Ludex", version: current?.version ?? "0.2.0" }));
@@ -246,6 +277,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshUser = useCallback(async () => {
     const me = await api.me();
     setUser(me);
+    await applyAccountLocale(me.locale);
+  }, []);
+
+  const updateLocale = useCallback(async (locale: string | null) => {
+    const next = await api.updateAccountProfile({ locale });
+    setUser(next);
+    // An explicit account choice also drops a per-device override, so the
+    // picker never leaves the UI on a language the user just moved away from.
+    await chooseAccountLocale(next.locale);
   }, []);
 
   const updateOnboarding = useCallback(async (body: { completed?: boolean; step?: number }) => {
@@ -271,8 +311,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, token, ready, bootError, setup, nativeFirstRun, holdLogin, setHoldLogin, adoptSession, signIn, completeMfaSignIn, acceptInvitation, signInWithOidc, completeSetup, signOut, refreshUser, updateOnboarding, retryBoot }),
-    [user, token, ready, bootError, setup, nativeFirstRun, holdLogin, adoptSession, signIn, completeMfaSignIn, acceptInvitation, signInWithOidc, completeSetup, signOut, refreshUser, updateOnboarding, retryBoot],
+    () => ({ user, token, ready, bootError, setup, nativeFirstRun, holdLogin, setHoldLogin, adoptSession, signIn, completeMfaSignIn, acceptInvitation, signInWithOidc, completeSetup, signOut, refreshUser, updateOnboarding, updateLocale, retryBoot }),
+    [user, token, ready, bootError, setup, nativeFirstRun, holdLogin, adoptSession, signIn, completeMfaSignIn, acceptInvitation, signInWithOidc, completeSetup, signOut, refreshUser, updateOnboarding, updateLocale, retryBoot],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

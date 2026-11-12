@@ -1,12 +1,14 @@
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, Copy, Lock, Minus } from "lucide-react";
+import { Check, Copy, Minus } from "lucide-react";
 import { api, USING_MOCKS } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { formatBytes } from "@/lib/format";
 import { useToast } from "@/state/toasts";
 import { ErrorState, PageHeader, SectionHeader } from "@/components/page";
-import { Badge, Skeleton } from "@/components/ui/controls";
-import { t } from "@/lib/i18n";
+import { Badge, Button, Skeleton } from "@/components/ui/controls";
+import { Select } from "@/components/ui/select";
+import { selectableLocales, t } from "@/lib/i18n";
 
 function formatUptime(seconds: number): string {
   const days = Math.floor(seconds / 86400);
@@ -22,6 +24,29 @@ export function ServerScreen() {
   const config = useQuery({ queryKey: ["config"], queryFn: () => api.config() });
   const health = useQuery({ queryKey: ["health"], queryFn: () => api.health(), refetchInterval: 30_000 });
   const folders = useQuery({ queryKey: ["folders"], queryFn: () => api.folders() });
+  const settings = useQuery({ queryKey: ["admin-server"], queryFn: () => api.adminServer() });
+  const [defaultLocale, setDefaultLocale] = useState("");
+  const [savingLocale, setSavingLocale] = useState(false);
+  const [localeError, setLocaleError] = useState<string | null>(null);
+  const storedDefault = settings.data?.defaultLocale ?? "";
+
+  useEffect(() => {
+    if (settings.data) setDefaultLocale(settings.data.defaultLocale);
+  }, [settings.data]);
+
+  const saveDefaultLocale = async () => {
+    setSavingLocale(true);
+    setLocaleError(null);
+    try {
+      const next = await api.saveAdminServer({ defaultLocale });
+      setDefaultLocale(next.defaultLocale);
+      await config.refetch();
+    } catch (cause) {
+      setLocaleError(errorMessage(cause));
+    } finally {
+      setSavingLocale(false);
+    }
+  };
 
   const copy = async (value: string, label: string) => {
     try {
@@ -56,7 +81,7 @@ export function ServerScreen() {
             {USING_MOCKS && <Badge tone="outline">{t("Demo data")}</Badge>}
           </>
         }
-        description={t("Read-only view of what this server is running and where it keeps files. Change these through environment variables and restart the container.")}
+        description={t("What this server is running, where it keeps files, and the language new visitors see.")}
       />
 
       {config.isError && <ErrorState message={errorMessage(config.error)} onRetry={() => void config.refetch()} />}
@@ -101,6 +126,35 @@ export function ServerScreen() {
         </section>
 
         <section className="lg:col-span-2">
+          <SectionHeader
+            title={t("Default language")}
+            description={t("Used for signed-out visitors and accounts without their own language.")}
+          />
+          <div className="flex flex-wrap items-end gap-3 border-t border-line pt-3">
+            <div className="min-w-[220px] flex-1">
+              <Select
+                label={t("Default language")}
+                value={defaultLocale}
+                onChange={setDefaultLocale}
+                options={[
+                  { value: "", label: t("System") },
+                  ...selectableLocales().map((entry) => ({ value: entry.code, label: entry.label })),
+                ]}
+              />
+            </div>
+            <Button
+              variant="default"
+              loading={savingLocale}
+              disabled={savingLocale || defaultLocale === storedDefault}
+              onClick={() => void saveDefaultLocale()}
+            >
+              {t("Save")}
+            </Button>
+          </div>
+          {localeError && <p role="alert" className="mt-2 text-[11.5px] text-danger">{localeError}</p>}
+        </section>
+
+        <section className="lg:col-span-2">
           <SectionHeader title={t("Folders")} description={t("Mounted into the container")} />
           <div className="border-t border-line">
             {folders.isError && <ErrorState message={errorMessage(folders.error)} onRetry={() => void folders.refetch()} />}
@@ -136,10 +190,6 @@ export function ServerScreen() {
         </section>
       </div>
 
-      <p className="mt-8 flex items-center gap-2 text-[11.5px] text-ink-3">
-        <Lock className="size-3.5" aria-hidden="true" />
-        {t("Configuration is read-only here by design; the server owns its environment.")}
-      </p>
     </div>
   );
 }

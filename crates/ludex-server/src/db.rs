@@ -1463,6 +1463,15 @@ pub async fn server_name(pool: &Database, fallback: &str) -> String {
     }
 }
 
+/// Server-wide default interface language (#188). Empty means System: the web
+/// client falls back to the browser languages, then English.
+pub async fn default_locale(pool: &Database) -> String {
+    match get_setting(pool, "default_locale").await {
+        Ok(Some(value)) => value.trim().to_string(),
+        _ => String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

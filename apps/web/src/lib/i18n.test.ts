@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  cacheAccountLocale,
+  cacheServerLocale,
+  cachedAccountLocale,
+  cachedServerLocale,
   coverageFor,
   coveragePercent,
   detectLocale,
@@ -10,8 +14,10 @@ import {
   isSelectable,
   LOCALE_CODES,
   localeMeta,
+  localePickerEntries,
   LOCALES,
   readLocaleOverride,
+  resolveLocale,
   selectableLocales,
   SELECTABLE_PERCENT,
   statusLabel,
@@ -187,5 +193,102 @@ describe("labels", () => {
   it("labels official and preview locales", () => {
     expect(statusLabel(localeMeta("fr"))).toBe("Official");
     expect(statusLabel(localeMeta("de"))).toBe("Community · unreviewed");
+  });
+});
+
+describe("effective locale resolution (#188)", () => {
+  it("follows device → account → server → browser → English", () => {
+    expect(
+      resolveLocale({ device: "en", account: "fr", server: "de", browser: ["es"] }),
+    ).toEqual({ locale: "en", source: "device" });
+    expect(resolveLocale({ account: "fr", server: "de", browser: ["es"] })).toEqual({
+      locale: "fr",
+      source: "account",
+    });
+    expect(resolveLocale({ server: "de", browser: ["es"] })).toEqual({
+      locale: "de",
+      source: "server",
+    });
+    expect(resolveLocale({ browser: ["de-DE", "fr"] })).toEqual({
+      locale: "de",
+      source: "browser",
+    });
+    expect(resolveLocale({ browser: [] })).toEqual({ locale: "en", source: "default" });
+  });
+
+  it("keeps ?lang= above every stored preference", () => {
+    expect(
+      resolveLocale({ override: "ja", device: "en", account: "fr", server: "de" }),
+    ).toEqual({ locale: "ja", source: "override" });
+  });
+
+  it("ignores stored values under the coverage gate", () => {
+    // Arabic is registered but cannot be selected, so it never wins.
+    expect(resolveLocale({ device: "ar", account: "fr" })).toEqual({
+      locale: "fr",
+      source: "account",
+    });
+    expect(resolveLocale({ account: "ar", server: "de" })).toEqual({
+      locale: "de",
+      source: "server",
+    });
+  });
+
+  it("canonicalises casing and ignores unknown codes", () => {
+    expect(resolveLocale({ account: "PT-br" })).toEqual({ locale: "pt-BR", source: "account" });
+    expect(resolveLocale({ device: "zz", account: "de" })).toEqual({
+      locale: "de",
+      source: "account",
+    });
+  });
+});
+
+describe("language picker state (#188)", () => {
+  it("lists every registered locale, including the ones under the gate", () => {
+    const entries = localePickerEntries("en");
+    const codes = entries.map((entry) => entry.meta.code);
+    expect(codes).toContain("ar");
+    expect(codes).toContain("nl");
+    expect(codes).not.toContain(PSEUDO_LOCALE);
+  });
+
+  it("marks below-the-gate locales disabled with a coverage reason", () => {
+    const arabic = localePickerEntries("en").find((entry) => entry.meta.code === "ar");
+    expect(arabic?.disabled).toBe(true);
+    expect(arabic?.reason).toContain("6.6");
+    const french = localePickerEntries("en").find((entry) => entry.meta.code === "fr");
+    expect(french?.disabled).toBe(false);
+    expect(french?.reason).toBeNull();
+  });
+
+  it("marks the effective locale selected", () => {
+    const selected = localePickerEntries("de").filter((entry) => entry.selected);
+    expect(selected.map((entry) => entry.meta.code)).toEqual(["de"]);
+  });
+});
+
+describe("locale preference caches (#188)", () => {
+  it("round-trips the account and server caches and rejects gated codes", () => {
+    const store = new Map<string, string>();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => store.set(key, value),
+        removeItem: (key: string) => store.delete(key),
+      },
+    });
+    try {
+      cacheAccountLocale("PT-br");
+      expect(cachedAccountLocale()).toBe("pt-BR");
+      cacheAccountLocale("ar");
+      expect(cachedAccountLocale()).toBeNull();
+      cacheServerLocale("fr");
+      expect(cachedServerLocale()).toBe("fr");
+      cacheServerLocale("");
+      expect(cachedServerLocale()).toBeNull();
+    } finally {
+      Reflect.deleteProperty(globalThis, "localStorage");
+    }
   });
 });

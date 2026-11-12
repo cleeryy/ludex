@@ -51,6 +51,8 @@ RUN if [ -f Cargo.lock ]; then \
     fi
 
 COPY crates ./crates
+# The server embeds this at compile time to validate locale preferences (#188).
+COPY apps/web/src/locales ./apps/web/src/locales
 COPY --from=web-builder /build/apps/web/dist ./apps/web/dist
 
 # Docker COPY preserves source mtimes. The dependency-cache layer compiled

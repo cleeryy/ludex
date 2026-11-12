@@ -103,6 +103,7 @@ import type {
   Role,
   SaveSnapshot,
   ScanStatus,
+  ServerAdminSettings,
   ServerConfig,
   SocialUser,
   SetupStatus,
@@ -1245,6 +1246,8 @@ function demoCandidates(game: GameDetail): MetadataCandidate[] {
   ];
 }
 
+let mockServerLocale = "";
+
 export const mockApi = {
   async setupStatus(): Promise<SetupStatus> {
     await latency();
@@ -1271,6 +1274,7 @@ export const mockApi = {
       onboardingStep: 0,
       mfaEnabled: false,
       mustChangePassword: false,
+      locale: null,
     };
     users = [user];
     persistUsers();
@@ -1314,6 +1318,32 @@ export const mockApi = {
     if (body.currentPassword !== passwordFor(user)) fail(400, "invalid_password", "Current password is incorrect");
     if (body.newPassword.length < 8) fail(400, "weak_password", "Use at least eight characters");
     passwords.set(user.id, body.newPassword);
+  },
+
+  async updateAccountProfile(token: string | null, body: { locale: string | null }): Promise<User> {
+    await latency();
+    const user = currentUser(token);
+    user.locale = body.locale;
+    persistUsers();
+    return clone(user);
+  },
+
+  async adminServer(token: string | null): Promise<ServerAdminSettings> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role !== "admin") fail(403, "forbidden", "Administrator role required");
+    return { serverName: DEMO_SERVER_NAME, defaultLocale: mockServerLocale };
+  },
+
+  async saveAdminServer(
+    token: string | null,
+    body: { defaultLocale: string },
+  ): Promise<ServerAdminSettings> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role !== "admin") fail(403, "forbidden", "Administrator role required");
+    mockServerLocale = body.defaultLocale;
+    return { serverName: DEMO_SERVER_NAME, defaultLocale: mockServerLocale };
   },
 
   async updateOnboarding(token: string | null, body: { completed?: boolean; step?: number }): Promise<User> {
@@ -1623,6 +1653,7 @@ export const mockApi = {
       onboardingStep: 0,
       mfaEnabled: false,
       mustChangePassword: false,
+      locale: null,
     };
     users = [...users, user];
     persistUsers();
@@ -2875,6 +2906,7 @@ export const mockApi = {
       features: { igdb: false, steam: true, ingest: true, localMode: false, oidc: demoOidc.enabled },
       oidcDisplayName: demoOidc.enabled ? demoOidc.displayName : null,
       maxUploadBytes: 32 * 1024 * GB,
+      defaultLocale: mockServerLocale,
     };
   },
 

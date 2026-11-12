@@ -86,6 +86,7 @@ import type {
   Role,
   SaveSnapshot,
   ScanStatus,
+  ServerAdminSettings,
   ServerConfig,
   SetupStatus,
   SuggestResponse,
@@ -320,6 +321,22 @@ export const api = {
     return USING_MOCKS
       ? mockApi.updateOnboarding(tokenStore.get(), body)
       : request<{ user: User }>("/auth/onboarding", { method: "PUT", body }).then((r) => r.user);
+  },
+  /** Account interface language (#188). `null` inherits the server/browser. */
+  updateAccountProfile(body: { locale: string | null }): Promise<User> {
+    return USING_MOCKS
+      ? mockApi.updateAccountProfile(tokenStore.get(), body)
+      : request<User>("/account/profile", { method: "PATCH", body });
+  },
+
+  /* admin server (#188) */
+  adminServer(): Promise<ServerAdminSettings> {
+    return USING_MOCKS ? mockApi.adminServer(tokenStore.get()) : request<ServerAdminSettings>("/admin/server");
+  },
+  saveAdminServer(body: { defaultLocale: string }): Promise<ServerAdminSettings> {
+    return USING_MOCKS
+      ? mockApi.saveAdminServer(tokenStore.get(), body)
+      : request<ServerAdminSettings>("/admin/server", { method: "PUT", body });
   },
 
   /* admin OIDC (#103) */

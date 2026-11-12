@@ -529,6 +529,7 @@ export const DEMO_USERS: User[] = [
     onboardingStep: 0,
     mfaEnabled: false,
     mustChangePassword: false,
+    locale: null,
   },
   {
     id: 2,
@@ -545,6 +546,7 @@ export const DEMO_USERS: User[] = [
     onboardingStep: 6,
     mfaEnabled: false,
     mustChangePassword: false,
+    locale: null,
   },
   {
     id: 3,
@@ -561,6 +563,7 @@ export const DEMO_USERS: User[] = [
     onboardingStep: 2,
     mfaEnabled: false,
     mustChangePassword: false,
+    locale: null,
   },
   {
     id: 4,
@@ -577,6 +580,7 @@ export const DEMO_USERS: User[] = [
     onboardingStep: 6,
     mfaEnabled: false,
     mustChangePassword: false,
+    locale: null,
   },
 ];
 

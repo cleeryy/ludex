@@ -474,7 +474,8 @@ function SavesStep({ settings, desktopAvailable }: { settings: LocalSettings | n
 
 function AppearanceStep() {
   const { theme, setTheme } = useSettings();
-  const { locale, setLocale } = useI18n();
+  const { locale } = useI18n();
+  const { updateLocale } = useAuth();
   const options: { value: ThemeSelection; label: string }[] = [
     { value: "midnight", label: t("Dark") },
     { value: "light", label: t("Light") },
@@ -483,7 +484,7 @@ function AppearanceStep() {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-[13px] leading-relaxed text-ink-2">
-        {t("Theme and language apply to this browser or app window, not to the account.")}
+        {t("Theme applies to this browser; language is saved to your account.")}
       </p>
       <div>
         <p className="mb-2 text-[12px] text-ink-3">{t("Theme")}</p>
@@ -510,7 +511,7 @@ function AppearanceStep() {
         <Select
           label={t("Language")}
           value={locale}
-          onChange={(value) => void setLocale(value)}
+          onChange={(value) => void updateLocale(value)}
           options={selectableLocales().map((entry) => ({ value: entry.code, label: entry.label, hint: entry.englishLabel }))}
         />
         <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">

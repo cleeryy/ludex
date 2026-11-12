@@ -31,6 +31,8 @@ export interface User {
   mfaEnabled: boolean;
   /** Set by an administrator password reset; the account should choose a new one (#166). */
   mustChangePassword: boolean;
+  /** Interface-language preference (#188); `null`/empty inherits the server/browser. */
+  locale: string | null;
 }
 
 export interface GameSummary {
@@ -480,6 +482,15 @@ export interface ServerConfig {
   /** Label for the SSO button, e.g. "Authentik". Null hides the button. */
   oidcDisplayName: string | null;
   maxUploadBytes: number;
+  /** Server default interface language (#188); empty means System/English. */
+  defaultLocale: string;
+}
+
+/** `GET/PUT /api/admin/server` (#188). */
+export interface ServerAdminSettings {
+  serverName: string;
+  /** Empty means System/English. */
+  defaultLocale: string;
 }
 
 export interface SetupStatus {

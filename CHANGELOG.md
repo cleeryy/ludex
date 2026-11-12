@@ -10,6 +10,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Account and server default language (#188): users carry a `locale` preference
+  (exposed on `/api/me`, login/OIDC responses and the account profile), admins
+  set a server default published in the public config, and the web resolves
+  device override → account → server → system → English with no flash on reload.
+  The language panel shows the effective value and its source, lists every
+  registered locale (below-gate ones visible but disabled with the reason),
+  saves to the account by default with a device-only option, and the desktop
+  mirrors the account locale for game-config sync.
 - Guided "Make it run" runtime installer (#178): diagnoses why a game cannot
   launch, shows a numbered consent-gated plan, downloads and extracts from an
   allow-listed catalog (UMU/GE-Proton on Linux, VC++/.NET/DirectX on Windows,
