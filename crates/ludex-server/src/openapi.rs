@@ -236,6 +236,26 @@ pub const ROUTES: &[RouteDoc] = &[
         ),
         200,
     ),
+    // Server settings (#188)
+    route(
+        HttpMethod::Get,
+        "/admin/server",
+        "System",
+        "Server display name and default interface language",
+        Auth::Admin,
+        Payload::Schema("ServerSettings"),
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/admin/server",
+            "System",
+            "Set the default interface language (empty = System/English)",
+            Auth::Admin,
+            Payload::Schema("ServerSettings"),
+        ),
+        "UpdateServerSettingsRequest",
+    ),
     // Community metadata providers (#28)
     route(
         HttpMethod::Get,
@@ -372,6 +392,17 @@ pub const ROUTES: &[RouteDoc] = &[
         "Remove the avatar and delete the managed file",
         Auth::Session,
         Payload::Schema("User"),
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/account/profile",
+            "Authentication",
+            "Update the interface-language preference of the current account",
+            Auth::Session,
+            Payload::Schema("User"),
+        ),
+        "AccountProfileRequest",
     ),
     body(
         route(
@@ -2553,6 +2584,9 @@ pub fn document() -> OpenApi {
         .schema_from::<ludex_core::models::Role>()
         .schema_from::<ludex_core::models::ProgressState>()
         .schema_from::<crate::models::User>()
+        .schema_from::<crate::routes::account::AccountProfileRequest>()
+        .schema_from::<crate::routes::admin_server::ServerSettings>()
+        .schema_from::<crate::routes::admin_server::UpdateServerSettingsRequest>()
         .schema_from::<crate::models::UserSource>()
         .schema_from::<ludex_core::models::GameSummary>()
         .schema_from::<ludex_core::models::GameDetail>()

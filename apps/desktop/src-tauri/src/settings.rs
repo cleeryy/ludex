@@ -1457,6 +1457,24 @@ mod tests {
     }
 
     #[test]
+    fn ui_language_mirrors_the_account_locale_for_game_sync() {
+        // #188: the web writes `uiLanguage` from the account preference so a
+        // game launch does not use a different language than the interface.
+        let mut settings = LocalSettings {
+            ui_language: "  PT-BR  ".into(),
+            ..LocalSettings::default()
+        };
+        settings.normalize(Path::new("/tmp/ludex-test"));
+        assert_eq!(settings.ui_language, "pt-br");
+
+        let json = serde_json::to_value(&settings).expect("serialize");
+        assert_eq!(json["uiLanguage"], "pt-br");
+        // The value survives a reload, which is what the offline cache needs.
+        let parsed: LocalSettings = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(parsed.ui_language, "pt-br");
+    }
+
+    #[test]
     fn download_dir_priority() {
         let install_root = Path::new("/games");
         let mut settings = LocalSettings::for_app_data(Path::new("/data"));

@@ -219,6 +219,10 @@ pub struct User {
     /// choose a new one (#166). Advisory for clients.
     #[serde(default)]
     pub must_change_password: bool,
+    /// Interface language preference (#188). `None` or empty means inherit:
+    /// the server default, then the browser, then English.
+    #[serde(default)]
+    pub locale: Option<String>,
 }
 
 impl User {
@@ -248,6 +252,7 @@ pub struct UserRow {
     pub onboarding_step: i64,
     pub mfa_enabled: i64,
     pub must_change_password: i64,
+    pub locale: Option<String>,
 }
 
 impl UserRow {
@@ -276,6 +281,7 @@ impl UserRow {
             onboarding_step: self.onboarding_step,
             mfa_enabled: self.mfa_enabled != 0,
             must_change_password: self.must_change_password != 0,
+            locale: crate::locale::normalize_stored(self.locale.clone()),
         }
     }
 
@@ -636,6 +642,9 @@ pub struct ServerConfig {
     /// Display name for the SSO button (the configured label even while SSO
     /// is disabled, matching the historical response).
     pub oidc_display_name: String,
+    /// Server-wide default interface language (#188). Empty means System:
+    /// signed-out visitors use their browser languages, then English.
+    pub default_locale: String,
 }
 
 /// Password change request.
@@ -2012,7 +2021,7 @@ pub struct UpdateProfileRequest {
 /// `Option<Option<T>>` is `None` when the field is missing (thanks to
 /// `#[serde(default)]`), `Some(None)` when it is explicitly `null`, and
 /// `Some(Some(value))` otherwise.
-fn deserialize_some<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+pub(crate) fn deserialize_some<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,

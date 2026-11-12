@@ -76,9 +76,26 @@
           // synchronous and dependency-free; `scripts/i18n.mjs` fails the build
           // when this list and src/locales/manifest.json disagree.
           var LUDEX_RTL_LOCALES = ["ar", "he", "fa", "ur"];
+          // Same order as `bootstrapI18n` (#188): ?lang= → explicit device
+          // override → cached account preference → cached server default →
+          // English. The module bootstrap also probes navigator.languages and
+          // runs before the first React render; this script only avoids a
+          // wrong lang/dir on the very first paint.
           var search = typeof location === "undefined" ? "" : location.search + location.hash;
           var override = /[?&]lang=([A-Za-z-]{2,16})/.exec(search);
-          var locale = (override && override[1]) || localStorage.getItem("ludex.locale") || "en";
+          var read = function (key) {
+            try {
+              return localStorage.getItem(key);
+            } catch (error) {
+              return null;
+            }
+          };
+          var locale =
+            (override && override[1]) ||
+            read("ludex.locale") ||
+            read("ludex.locale.account") ||
+            read("ludex.locale.server") ||
+            "en";
           var base = String(locale).split("-")[0].toLowerCase();
           root.lang = locale;
           root.dir = LUDEX_RTL_LOCALES.indexOf(base) === -1 ? "ltr" : "rtl";

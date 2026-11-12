@@ -1,14 +1,20 @@
-//! Account self-service routes (#183).
+//! Account self-service routes (#183, #188).
 //!
 //! The account holder uploads a logo/avatar here. The file is sniffed and
 //! stored in the media cache, and every user payload immediately carries the
 //! new `avatarUrl`. Removing it clears the column and deletes the managed file.
+//!
+//! The same module owns the account profile preferences: the interface
+//! language is validated against the web locale manifest, so a locale the
+//! picker hides is rejected before it reaches the database.
 
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
-use axum::routing::post;
+use axum::routing::{patch, post};
 use axum::{Json, Router};
+use serde::Deserialize;
 use serde_json::json;
+use utoipa::ToSchema;
 
 use crate::api_keys::Scope;
 use crate::audit::actions;
@@ -17,7 +23,8 @@ use crate::avatar::{self, AvatarRejection, MAX_AVATAR_BYTES};
 use crate::db;
 use crate::error::ApiError;
 use crate::events::Event;
-use crate::extract::MultipartBody;
+use crate::extract::{JsonBody, MultipartBody};
+use crate::locale;
 use crate::models::User;
 use crate::state::AppState;
 
@@ -28,7 +35,50 @@ const AVATAR_BODY_LIMIT: usize = MAX_AVATAR_BYTES + 1024 * 1024;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/account/avatar", post(upload_avatar).delete(delete_avatar))
+        .route("/account/profile", patch(update_profile))
         .layer(DefaultBodyLimit::max(AVATAR_BODY_LIMIT))
+}
+
+/// `PATCH /api/account/profile` request (#188).
+///
+/// The field is `Option<Option<String>>` so the three cases stay distinct:
+/// absent leaves the preference untouched, `null` and `""` both clear it
+/// ("inherit"), and a code is validated against the locale manifest.
+#[derive(Debug, Default, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountProfileRequest {
+    /// Interface language from `apps/web/src/locales/manifest.json`.
+    #[serde(default, deserialize_with = "crate::models::deserialize_some")]
+    pub locale: Option<Option<String>>,
+}
+
+/// `PATCH /api/account/profile` — updates the caller's own preferences.
+async fn update_profile(
+    State(state): State<AppState>,
+    user: AuthUser,
+    JsonBody(request): JsonBody<AccountProfileRequest>,
+) -> Result<Json<User>, ApiError> {
+    user.require_scope(Scope::Write)?;
+
+    if let Some(locale) = request.locale {
+        let locale = locale::validate(locale.as_deref().unwrap_or_default())?;
+        db::query("UPDATE users SET locale = ?, updated_at = ? WHERE id = ?")
+            .bind(locale.as_deref())
+            .bind(db::db_time(db::now()))
+            .bind(user.id)
+            .execute(&state.pool)
+            .await
+            .map_err(ApiError::from)?;
+        state.events.emit(
+            Event::new(actions::USER_UPDATED, user.actor())
+                .target("user", user.id.to_string())
+                .metadata(json!({ "locale": locale })),
+        );
+    }
+
+    Ok(Json(
+        super::users::fetch_user(&state, user.id).await?.to_public(),
+    ))
 }
 
 /// `POST /api/account/avatar` — multipart field `file` (or `avatar`).

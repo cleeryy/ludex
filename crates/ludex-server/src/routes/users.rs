@@ -59,7 +59,7 @@ async fn list(State(state): State<AppState>, user: AuthUser) -> Result<Json<Vec<
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
                 onboarding_completed_at, onboarding_step,
          CAST(COALESCE((SELECT 1 FROM user_mfa m WHERE m.user_id = users.id AND m.enabled_at IS NOT NULL), 0) AS BIGINT) AS mfa_enabled,
-         must_change_password
+         must_change_password, locale
          FROM users ORDER BY id",
     )
     .fetch_all(&state.pool)
@@ -107,7 +107,7 @@ async fn create(
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
                 onboarding_completed_at, onboarding_step,
          CAST(COALESCE((SELECT 1 FROM user_mfa m WHERE m.user_id = users.id AND m.enabled_at IS NOT NULL), 0) AS BIGINT) AS mfa_enabled,
-         must_change_password
+         must_change_password, locale
          FROM users WHERE id = ?",
     )
     .bind(user_id)
@@ -318,7 +318,7 @@ pub(crate) async fn fetch_user(state: &AppState, id: i64) -> Result<UserRow, Api
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
                 onboarding_completed_at, onboarding_step,
          CAST(COALESCE((SELECT 1 FROM user_mfa m WHERE m.user_id = users.id AND m.enabled_at IS NOT NULL), 0) AS BIGINT) AS mfa_enabled,
-         must_change_password
+         must_change_password, locale
          FROM users WHERE id = ?",
     )
     .bind(id)

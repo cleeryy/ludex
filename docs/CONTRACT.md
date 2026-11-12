@@ -34,6 +34,8 @@ interface User {
   onboardingCompletedAt: string | null;
   /** Canonical wizard step to resume at (#119), 0..=20. */
   onboardingStep: number;
+  /** Interface language (#188); null/empty inherits the server/browser. */
+  locale: string | null;
 }
 
 interface GameSummary {
@@ -134,7 +136,7 @@ interface ScanStatus {
 | GET | `/api/setup/status` | `{ needsSetup: boolean, serverName: string, version: string }` |
 | POST | `/api/setup` | body `{ username, password, serverName? }` → `{ token, user }`; 409 if users exist |
 | GET | `/api/media/{name}` | cached image/file (public, immutable cache headers) |
-| GET | `/api/config` | `{ serverName, version, features: { igdb, steam, ingest, localMode, oidc }, maxUploadBytes, oidcDisplayName }` (public, used by setup/login). `features.oidc` and `oidcDisplayName` reflect the live OIDC client, so a saved admin configuration applies without a restart |
+| GET | `/api/config` | `{ serverName, version, features: { igdb, steam, ingest, localMode, oidc }, maxUploadBytes, oidcDisplayName, defaultLocale }` (public, used by setup/login). `features.oidc` and `oidcDisplayName` reflect the live OIDC client, so a saved admin configuration applies without a restart; `defaultLocale` is the admin interface default (`""` = System/English, #188) |
 | GET | `/api/desktop/download` | latest stable desktop installers as links (`DesktopDownload`); optional `?platform=windows\|linux\|macos`, see *Desktop download page (#164)* |
 | GET | `/api/share/{token}` | public share page (`ShareView`); see *Share links (#9)* |
 | POST | `/api/share/{token}/access` | exchange a share link for a 15-minute download ticket; see *Share links (#9)* |
@@ -263,6 +265,7 @@ interface DesktopDownload {
 | POST | `/api/auth/desktop-handoff/claim` | public; `{ state }` → `{ code, expiresAt }` **once**; 410 `handoff_unavailable` when unknown, expired or used |
 | POST | `/api/account/avatar` | authenticated, `write` scope; multipart field `file` (PNG/JPEG/WebP, ≤2 MiB, ≤4096×4096) → updated `User`; see *Account avatars (#183)* |
 | DELETE | `/api/account/avatar` | clears `users.avatar_path`, deletes the managed file → updated `User` |
+| PATCH | `/api/account/profile` | authenticated, `write` scope; `{ locale?: string \| null }` → updated `User`; see *Interface language (#188)* |
 
 ### Account avatars (#183)
 
@@ -284,7 +287,37 @@ serializer and write one `user.avatar_updated` audit event (format,
 dimensions, bytes, SHA-256 — never a path).
 
 
-### Desktop SSO handoff (#157)
+### Interface language (#188)
+
+The language follows the account, with an explicit per-device escape hatch.
+
+- `users.locale` is nullable; `NULL`/`""` means inherit. Values are canonical
+  codes from `apps/web/src/locales/manifest.json`, validated against the same
+  95 % coverage gate the picker uses: unknown codes return 400
+  `invalid_locale`, registered-but-gated ones (including `en-XA`) return 400
+  `locale_unavailable`. The server embeds both locale JSON files at build time,
+  so it cannot drift from the picker.
+- `PATCH /api/account/profile { locale }` writes the preference. An absent
+  field leaves it untouched; `null` or `""` clears it. `User.locale` is carried
+  by `/api/me`, login, MFA login, OIDC exchange, invitation acceptance and the
+  user list, so a client never needs a second `/api/me` round-trip after
+  sign-in.
+- `settings.default_locale` is the administrator default, managed through
+  `PUT /api/admin/server` with the same validation. `""` clears it. It is
+  published as `defaultLocale` in `GET /api/config`, which is public, so the
+  login/setup screens honour it before an account exists.
+- Resolution order in the web client: explicit device override
+  (`localStorage["ludex.locale"]`) → account locale → server default →
+  `navigator.languages` → `en`. The picker always shows the effective value and
+  its source; below-the-gate locales stay visible but disabled with their
+  coverage reason. Choosing a language saves to the account and applies
+  immediately; "Only this device" writes the local override instead.
+- The desktop mirrors the account locale into `settings.json.uiLanguage` after
+  sign-in (`set_config_sync_defaults`), so a game launch uses the same language
+  as the interface; the web caches the account/server values in `localStorage`
+  for offline boots.
+
+
 
 The desktop app cannot receive an OIDC redirect, so the browser hands the
 session back through a short-lived, state-bound one-time code. No local port is
@@ -1611,7 +1644,9 @@ A successful ingest triggers `library/scan` automatically.
 
 | Method | Route | Notes |
 |---|---|---|
-| GET | `/api/config` | public; `{ serverName, version, features: { igdb, steam, ingest, localMode }, maxUploadBytes }` |
+| GET | `/api/config` | public; `{ serverName, version, features: { igdb, steam, ingest, localMode }, maxUploadBytes, defaultLocale }` |
+| GET | `/api/admin/server` | admin; `{ serverName, defaultLocale }` |
+| PUT | `/api/admin/server` | admin; `{ defaultLocale?: string \| null }` → `{ serverName, defaultLocale }`; `null`/`""` clears it (#188) |
 
 ## Desktop (Tauri) commands
 
@@ -3793,11 +3828,15 @@ shape changes.
 |---|---|---|
 | `localStorage` | `ludex.theme` | `v2` JSON: `config` (`selection`, `accent`, `tint`), resolved `mode`, `bases`, `vars` and `themeColor` per mode. Legacy `dark`/`light`/`system` strings are migrated to `midnight`/`light`/`system` |
 | `localStorage` | `ludex.theme.custom.v1` | imported theme files, validated with the same token/contrast rules as the picker |
-| `localStorage` | `ludex.locale` | a code from `apps/web/src/locales/manifest.json` (default `en`) |
+| `localStorage` | `ludex.locale` | explicit per-device language override (#188), from `apps/web/src/locales/manifest.json`; absent = follow the account/server |
+| `localStorage` | `ludex.locale.account` | cache of the account preference from the last `/api/me` or login, read before the first render |
+| `localStorage` | `ludex.locale.server` | cache of `defaultLocale` from the last `/api/config`, read before the first render |
 | `localStorage` | `ludex.pwa.installDismissedAt` | epoch ms; the install prompt is hidden for 30 days |
 
 The web client applies `theme` and `locale` before the first paint
-(`apps/web/index.html`). The boot script replays the ready-made CSS variable
+(`apps/web/index.html`). Language resolution is device override → account
+preference → server default → `navigator.languages` → `en` (#188); the inline
+boot script and `bootstrapI18n` use the same order and the same cache keys. The boot script replays the ready-made CSS variable
 map stored in `ludex.theme`, so accents, tints and imported themes paint
 without a flash and without duplicating the theme registry in HTML. It also
 sets `<html lang>` and `<html dir>` from the locale manifest. The app uses

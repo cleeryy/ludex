@@ -180,6 +180,7 @@ async fn setup(
         onboarding_step: 0,
         mfa_enabled: false,
         must_change_password: false,
+        locale: None,
     };
     state.events.emit(
         Event::new(actions::USER_CREATED, Actor::System)
@@ -203,6 +204,7 @@ async fn setup(
 
 async fn config(State(state): State<AppState>) -> Result<Json<ServerConfig>, ApiError> {
     let server_name = db::server_name(&state.pool, &state.config.server_name).await;
+    let default_locale = db::default_locale(&state.pool).await;
     // Snapshot the live client so a save from the admin UI is reflected
     // without restarting the server.
     let oidc = state.oidc_client().await;
@@ -221,6 +223,7 @@ async fn config(State(state): State<AppState>) -> Result<Json<ServerConfig>, Api
             || state.config.oidc_display_name.clone(),
             |client| client.display_name().to_string(),
         ),
+        default_locale,
     }))
 }
 

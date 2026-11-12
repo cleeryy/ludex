@@ -49,6 +49,7 @@ pub mod gamevault;
 pub mod ingest;
 pub mod integrity;
 pub mod library_health;
+pub mod locale;
 pub mod media;
 pub mod media_gc;
 pub mod metadata;

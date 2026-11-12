@@ -184,7 +184,7 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
 let lastSyncedDefaults = "";
 
 function ConfigSyncDefaults() {
-  const { locale } = useI18n();
+  const { locale, accountLocale } = useI18n();
   const { user } = useAuth();
   const profile = useQuery({
     queryKey: ["my-profile"],
@@ -194,20 +194,25 @@ function ConfigSyncDefaults() {
     retry: false,
   });
   const name = profile.data?.displayName?.trim() || user?.username || "";
+  // #188: the desktop mirrors the account language so game config sync never
+  // disagrees with what the user sees on their other devices. A per-device
+  // override is a browser choice, not the account preference; signed out (or
+  // before /api/me answers) the effective locale is the best available value.
+  const language = (user ? accountLocale : null) ?? locale;
 
   useEffect(() => {
     if (!isNative()) return;
-    const key = `${locale}\u0000${name}`;
+    const key = `${language}\u0000${name}`;
     if (key === lastSyncedDefaults) return;
     void native
-      .setConfigSyncDefaults(locale, name)
+      .setConfigSyncDefaults(language, name)
       .then(() => {
         lastSyncedDefaults = key;
       })
       .catch(() => {
         /* the mirror is best effort; the game settings page still works */
       });
-  }, [locale, name]);
+  }, [language, name]);
 
   return null;
 }

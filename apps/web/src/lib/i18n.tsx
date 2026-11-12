@@ -25,14 +25,16 @@ import { PSEUDO_LOCALE, pseudoCatalog } from "./pseudo";
  * key parity, placeholders, plural categories, RTL coherence, coverage
  * thresholds and the pseudo-locale, and keeps `coverage.json` fresh.
  *
- * Locale selection rules (#139):
- *   - a locale is offered in the picker when its catalog covers at least
+ * Locale selection rules (#139, #188):
+ *   - a locale can be chosen when its catalog covers at least
  *     `SELECTABLE_PERCENT` of the ids (official locales are complete by CI);
- *   - everything else stays hidden and the user sees English, key by key —
- *     never a raw key and never a half-translated screen;
- *   - the choice is stored per device; the first run follows the browser
- *     (`navigator.languages`) and `?lang=xx` forces a locale for that session
- *     without persisting it (translator/reviewer escape hatch).
+ *   - below the gate it stays visible in the picker but disabled, with the
+ *     coverage percentage as the reason; missing strings still fall back to
+ *     English key by key — never a raw key and never a half-translated screen;
+ *   - the account preference comes from the server, cached for the pre-paint
+ *     bootstrap; an explicit per-device override wins over it, and the server
+ *     default covers signed-out visitors. `?lang=xx` forces a locale for that
+ *     session without persisting it (translator/reviewer escape hatch).
  */
 
 export type LocaleCode = string;
@@ -59,9 +61,26 @@ export interface LocaleMeta {
 }
 
 export const LOCALE_STORAGE_KEY = "ludex.locale";
+/** Cached account preference, used before `/api/me` answers (#188). */
+export const ACCOUNT_LOCALE_STORAGE_KEY = "ludex.locale.account";
+/** Cached server default, used before `/api/config` answers (#188). */
+export const SERVER_LOCALE_STORAGE_KEY = "ludex.locale.server";
 export const DEFAULT_LOCALE: LocaleCode = "en";
-/** Below this coverage a locale is hidden from the picker. */
+/** Below this coverage a locale is disabled in the picker (#188). */
 export const SELECTABLE_PERCENT = 95;
+
+/**
+ * Where the effective language came from (#188). `device` is the explicit
+ * per-device override, `account` the preference stored on the server, `server`
+ * the administrator default, `browser` the OS/browser languages and `default`
+ * English. `override` is the `?lang=` reviewer escape hatch.
+ */
+export type LocaleSource = "override" | "device" | "account" | "server" | "browser" | "default";
+
+export interface LocaleResolution {
+  locale: LocaleCode;
+  source: LocaleSource;
+}
 
 export const LOCALES = localeManifest as readonly LocaleMeta[];
 export const LOCALE_CODES: LocaleCode[] = LOCALES.map((locale) => locale.code);
@@ -141,6 +160,41 @@ export function selectableLocales(): LocaleMeta[] {
     });
 }
 
+/** Canonical casing for a registered code, or `null` when unknown. */
+export function canonicalLocale(value: string | null | undefined): LocaleCode | null {
+  if (!value) return null;
+  const wanted = value.trim().toLowerCase();
+  if (!wanted) return null;
+  return LOCALES.find((locale) => locale.code.toLowerCase() === wanted)?.code ?? null;
+}
+
+/**
+ * One picker row: every registered locale stays visible (#188). Below the gate
+ * it is disabled with the coverage reason instead of silently disappearing.
+ */
+export interface LocalePickerEntry {
+  meta: LocaleMeta;
+  selected: boolean;
+  disabled: boolean;
+  reason: string | null;
+}
+
+export function localePickerEntries(active: LocaleCode): LocalePickerEntry[] {
+  return LOCALES.filter((locale) => locale.status !== "pseudo").map((meta) => {
+    const selectable = isSelectable(meta.code);
+    return {
+      meta,
+      selected: meta.code === active,
+      disabled: !selectable,
+      reason: selectable
+        ? null
+        : t("Below the coverage gate ({percent}% translated)", {
+            percent: coveragePercent(meta.code),
+          }),
+    };
+  });
+}
+
 /* ------------------------------ selection ------------------------------- */
 
 function storeLocale(code: LocaleCode): void {
@@ -151,18 +205,113 @@ function storeLocale(code: LocaleCode): void {
   }
 }
 
-/** Stored preference, or `null` on a first run (and in private mode). */
-export function storedLocale(): LocaleCode | null {
+function removeStored(key: string): void {
   try {
-    const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
-    return isLocaleCode(stored) ? stored : null;
+    localStorage.removeItem(key);
+  } catch {
+    /* private mode */
+  }
+}
+
+function readPreference(key: string): LocaleCode | null {
+  try {
+    const stored = canonicalLocale(localStorage.getItem(key));
+    return stored && isSelectable(stored) ? stored : null;
   } catch {
     return null;
   }
 }
 
+function writePreference(key: string, code: LocaleCode | null | undefined): void {
+  try {
+    const canonical = code ? canonicalLocale(code) : null;
+    if (canonical && isSelectable(canonical)) localStorage.setItem(key, canonical);
+    else localStorage.removeItem(key);
+  } catch {
+    /* private mode: the preference is session-only */
+  }
+}
+
+/** Explicit per-device override, or `null` on a first run. */
+export function storedLocale(): LocaleCode | null {
+  return readPreference(LOCALE_STORAGE_KEY);
+}
+
+/** Account preference cached from the last `/api/me` or login (#188). */
+export function cachedAccountLocale(): LocaleCode | null {
+  return readPreference(ACCOUNT_LOCALE_STORAGE_KEY);
+}
+
+/** Server default cached from the last `/api/config` (#188). */
+export function cachedServerLocale(): LocaleCode | null {
+  return readPreference(SERVER_LOCALE_STORAGE_KEY);
+}
+
+/** Caches the account preference for the pre-paint bootstrap. */
+export function cacheAccountLocale(code: string | null | undefined): LocaleCode | null {
+  const canonical = code ? canonicalLocale(code) : null;
+  const selectable = canonical && isSelectable(canonical) ? canonical : null;
+  writePreference(ACCOUNT_LOCALE_STORAGE_KEY, selectable);
+  return selectable;
+}
+
+/** Caches the server default for the pre-paint bootstrap. */
+export function cacheServerLocale(code: string | null | undefined): LocaleCode | null {
+  const canonical = code ? canonicalLocale(code) : null;
+  const selectable = canonical && isSelectable(canonical) ? canonical : null;
+  writePreference(SERVER_LOCALE_STORAGE_KEY, selectable);
+  return selectable;
+}
+
 export function getStoredLocale(): LocaleCode {
   return storedLocale() ?? DEFAULT_LOCALE;
+}
+
+/**
+ * Resolution order (#188): explicit device override → account preference →
+ * server default → browser languages → English. Every stored value must still
+ * be selectable; a locale that fell under the coverage gate is skipped.
+ */
+export function resolveLocale(input: {
+  override?: string | null;
+  device?: string | null;
+  account?: string | null;
+  server?: string | null;
+  browser?: readonly string[];
+}): LocaleResolution {
+  // `?lang=` deliberately opens a gated catalog for reviewers.
+  const override = canonicalLocale(input.override);
+  if (override) return { locale: override, source: "override" };
+
+  const device = canonicalLocale(input.device);
+  if (device && isSelectable(device)) return { locale: device, source: "device" };
+
+  const account = canonicalLocale(input.account);
+  if (account && isSelectable(account)) return { locale: account, source: "account" };
+
+  const server = canonicalLocale(input.server);
+  if (server && isSelectable(server)) return { locale: server, source: "server" };
+
+  const browser = detectLocale(input.browser ?? []);
+  if (browser) return { locale: browser, source: "browser" };
+
+  return { locale: DEFAULT_LOCALE, source: "default" };
+}
+
+/** Human label for where the effective language came from. */
+export function localeSourceLabel(source: LocaleSource): string {
+  switch (source) {
+    case "device":
+      return t("This device");
+    case "account":
+      return t("Your account");
+    case "server":
+      return t("Server default");
+    case "override":
+      return t("Link override");
+    default:
+      return t("System");
+  }
 }
 
 /**
@@ -208,8 +357,10 @@ export function detectLocale(candidates: readonly string[]): LocaleCode | null {
 }
 
 let activeLocale: LocaleCode = DEFAULT_LOCALE;
+let activeSource: LocaleSource = "default";
 let activeMessages: Messages = {};
 let hydrationToken = 0;
+const localeListeners = new Set<() => void>();
 
 async function loadMessages(code: LocaleCode): Promise<Messages> {
   if (code === DEFAULT_LOCALE) return {};
@@ -235,24 +386,106 @@ function applyDocumentLocale(code: LocaleCode): void {
   root.dataset.localeStatus = localeMeta(code).status;
 }
 
-/** Loads the persisted locale before the first React render (see main.tsx). */
-export async function bootstrapI18n(): Promise<void> {
-  const override = readLocaleOverride();
-  const stored = storedLocale();
-  const detected = stored ? null : detectLocale(browserLanguages());
-  const code = override ?? stored ?? detected ?? DEFAULT_LOCALE;
-  const messages = await loadMessages(code);
+function currentResolution(): LocaleResolution {
+  return resolveLocale({
+    override: readLocaleOverride(),
+    device: storedLocale(),
+    account: cachedAccountLocale(),
+    server: cachedServerLocale(),
+    browser: browserLanguages(),
+  });
+}
+
+function notifyLocaleListeners(): void {
+  for (const listener of localeListeners) listener();
+}
+
+function commitLocale(code: LocaleCode, source: LocaleSource, messages: Messages): void {
   activeLocale = code;
+  activeSource = source;
   activeMessages = messages;
   applyDocumentLocale(code);
-  // Persist an OS/browser match once, so later visits keep the user's locale
-  // even if the browser languages change. An override stays session-only.
-  if (!override && !stored && detected) storeLocale(detected);
+  notifyLocaleListeners();
+}
+
+async function hydrate(code: LocaleCode, source: LocaleSource): Promise<void> {
+  const token = ++hydrationToken;
+  const messages = await loadMessages(code);
+  if (token !== hydrationToken) return;
+  commitLocale(code, source, messages);
+}
+
+/**
+ * Loads the effective locale before the first React render (see `main.tsx`).
+ * The three provider caches are written by the app as soon as `/api/config`,
+ * login or `/api/me` answers, so a reload paints the account/server language
+ * without a flash and without waiting for the network.
+ */
+export async function bootstrapI18n(): Promise<void> {
+  const resolution = currentResolution();
+  const messages = await loadMessages(resolution.locale);
+  commitLocale(resolution.locale, resolution.source, messages);
 }
 
 /** Applied before paint by the inline boot script in index.html. */
 export function getLocaleFromStorageUnsafe(): LocaleCode {
   return getStoredLocale();
+}
+
+/** Caches the account preference and re-resolves the effective language. */
+export async function applyAccountLocale(code: string | null | undefined): Promise<void> {
+  cacheAccountLocale(code);
+  await refreshLocale();
+}
+
+/**
+ * Explicit account choice (#188): stores the preference, drops the per-device
+ * override and applies the new language immediately.
+ */
+export async function chooseAccountLocale(code: string | null | undefined): Promise<void> {
+  const cached = cacheAccountLocale(code);
+  removeStored(LOCALE_STORAGE_KEY);
+  if (cached) await hydrate(cached, "account");
+  else await refreshLocale();
+}
+
+/**
+ * Stores an explicit choice for this device and applies it immediately. The
+ * account preference is untouched.
+ */
+export async function applyDeviceLocale(code: LocaleCode): Promise<void> {
+  if (!isSelectable(code)) return;
+  storeLocale(code);
+  await hydrate(code, "device");
+}
+
+/** Drops the device override; the account/server/browser order applies again. */
+export async function clearDeviceLocale(): Promise<void> {
+  removeStored(LOCALE_STORAGE_KEY);
+  await refreshLocale();
+}
+
+/** Caches the server default and applies it when nothing outranks it. */
+export async function applyServerDefaultLocale(code: string | null | undefined): Promise<void> {
+  cacheServerLocale(code);
+  await refreshLocale();
+}
+
+/** Re-resolves the effective locale from the caches, e.g. after logout. */
+export async function refreshLocale(): Promise<void> {
+  const resolution = currentResolution();
+  if (resolution.locale === activeLocale && resolution.source === activeSource) {
+    // The source did not move, but a cached preference may have changed (for
+    // example an account locale while a device override is active): let the
+    // provider repaint its account/device labels.
+    notifyLocaleListeners();
+    return;
+  }
+  await hydrate(resolution.locale, resolution.source);
+}
+
+export function getLocaleSource(): LocaleSource {
+  return activeSource;
 }
 
 export function getLocale(): LocaleCode {
@@ -369,38 +602,79 @@ export function formatRelativeTime(
 
 interface I18nValue {
   locale: LocaleCode;
+  /** Where the effective locale came from (#188). */
+  source: LocaleSource;
   meta: LocaleMeta;
   dir: LocaleDir;
   coverage: LocaleCoverage | undefined;
-  /** Changes the locale, loading its catalog first so the tree remounts once. */
+  /** Account preference currently cached, when any. */
+  accountLocale: LocaleCode | null;
+  /** Explicit per-device override, when any. */
+  deviceOverride: LocaleCode | null;
+  /** Sets the per-device override and applies it immediately. */
   setLocale: (code: LocaleCode) => Promise<void>;
+  /** Applies an account choice: caches it and clears the device override. */
+  setAccountLocale: (code: LocaleCode) => Promise<void>;
+  /** Drops the device override and falls back to account/server/browser. */
+  clearDeviceOverride: () => Promise<void>;
+  /** Re-resolves after the caches changed elsewhere (login, logout). */
+  refresh: () => Promise<void>;
 }
 
 const I18nContext = createContext<I18nValue | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<LocaleCode>(() => activeLocale);
+  const [state, setState] = useState<{ locale: LocaleCode; source: LocaleSource }>(() => ({
+    locale: activeLocale,
+    source: activeSource,
+  }));
 
   useEffect(() => {
-    // bootstrapI18n already ran in main.tsx; this covers tests and HMR.
-    if (activeLocale !== locale) void hydrate(locale, setLocaleState);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // bootstrapI18n already ran in main.tsx; this covers tests and HMR and
+    // keeps the tree in sync when auth/login changes the caches.
+    const sync = () => setState({ locale: activeLocale, source: activeSource });
+    localeListeners.add(sync);
+    sync();
+    return () => {
+      localeListeners.delete(sync);
+    };
   }, []);
 
   const setLocale = useCallback(async (next: LocaleCode) => {
-    if (next === activeLocale || !isLocaleCode(next)) return;
-    await hydrate(next, setLocaleState);
+    if (!isLocaleCode(next) || !isSelectable(next)) return;
+    await applyDeviceLocale(next);
+  }, []);
+
+  const setAccountLocale = useCallback(async (next: LocaleCode) => {
+    if (!isLocaleCode(next) || !isSelectable(next)) return;
+    cacheAccountLocale(next);
+    removeStored(LOCALE_STORAGE_KEY);
+    await hydrate(next, "account");
+  }, []);
+
+  const clearDeviceOverride = useCallback(async () => {
+    await clearDeviceLocale();
+  }, []);
+
+  const refresh = useCallback(async () => {
+    await refreshLocale();
   }, []);
 
   const value = useMemo<I18nValue>(
     () => ({
-      locale,
-      meta: localeMeta(locale),
-      dir: localeMeta(locale).dir,
-      coverage: coverageFor(locale),
+      locale: state.locale,
+      source: state.source,
+      meta: localeMeta(state.locale),
+      dir: localeMeta(state.locale).dir,
+      coverage: coverageFor(state.locale),
+      accountLocale: cachedAccountLocale(),
+      deviceOverride: storedLocale(),
       setLocale,
+      setAccountLocale,
+      clearDeviceOverride,
+      refresh,
     }),
-    [locale, setLocale],
+    [state, setLocale, setAccountLocale, clearDeviceOverride, refresh],
   );
 
   return (
@@ -408,20 +682,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       {/* Locale changes remount the tree: copy comes from module-level `t`,
           which is not a hook, so a keyed remount is the cheapest correct
           update. Providers above this one keep their state. */}
-      <Fragment key={locale}>{children}</Fragment>
+      <Fragment key={state.locale}>{children}</Fragment>
     </I18nContext.Provider>
   );
-}
-
-async function hydrate(code: LocaleCode, set: (code: LocaleCode) => void): Promise<void> {
-  const token = ++hydrationToken;
-  const messages = await loadMessages(code);
-  if (token !== hydrationToken) return;
-  activeLocale = code;
-  activeMessages = messages;
-  storeLocale(code);
-  applyDocumentLocale(code);
-  set(code);
 }
 
 export function useI18n(): I18nValue {
