@@ -477,7 +477,7 @@ fn wine_version(path: &Path) -> Option<String> {
     if !path.is_file() {
         return None;
     }
-    let output = std::process::Command::new(path)
+    let output = crate::process::capture(path)
         .arg("--version")
         .output()
         .ok()?;

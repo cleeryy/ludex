@@ -25,6 +25,7 @@ mod overlay;
 mod paths;
 mod prefix;
 mod presence;
+mod process;
 mod process_tree;
 mod profiles;
 mod protondb;
