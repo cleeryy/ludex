@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 
 use crate::db::InstalledGame;
 use crate::elevate;
@@ -26,6 +27,13 @@ pub const CONSOLE_MARKER: &str = "console";
 const MANAGED_VERSION: i64 = 1;
 /// Prefix of the launch URI used when a game has no local command.
 pub const LUDEX_URI_PREFIX: &str = "ludex://play/";
+/// Folder under `{appDataDir}` that holds the console artwork Sunshine reads.
+pub const CONSOLE_ART_DIR: &str = "sunshine";
+/// Bundled console artwork (#207): a 600x900 PNG, the box-art ratio Moonlight
+/// renders for Sunshine apps. Embedded so publishing never depends on a file
+/// shipped next to the executable, which an updater may move or replace.
+pub const CONSOLE_ART: &[u8] = include_bytes!("../assets/ludex-console.png");
+const CONSOLE_ART_PREFIX: &str = "ludex-console-";
 
 /* ------------------------------- Sunshine -------------------------------- */
 
@@ -2422,6 +2430,114 @@ pub fn cached_cover(dir: &Path, game_id: i64) -> Option<String> {
         .map(|path| path.to_string_lossy().to_string())
 }
 
+/// Fingerprint of the bundled console artwork (#207).
+///
+/// The first 16 hex characters of the SHA-256 are plenty to distinguish two
+/// releases, and a short name keeps the path readable in `apps.json`.
+pub fn console_art_hash() -> String {
+    let digest = Sha256::digest(CONSOLE_ART);
+    hex::encode(digest)[..16].to_string()
+}
+
+fn console_art_file_name(hash: &str) -> String {
+    format!("{CONSOLE_ART_PREFIX}{hash}.png")
+}
+
+/// Absolute path of the artwork file the bundled bytes map to.
+///
+/// `dir` is the caller's absolute `{appDataDir}/sunshine` folder; the file does
+/// not have to exist yet.
+pub fn console_art_path(dir: &Path) -> PathBuf {
+    dir.join(console_art_file_name(&console_art_hash()))
+}
+
+/// Materialize the bundled console artwork under `dir` and return its path.
+///
+/// The file name carries the asset hash, so a Ludex update with different bytes
+/// writes a new file and prunes the previous one instead of overwriting an image
+/// Sunshine may be serving at that moment. A second call with the same bytes
+/// reuses the file. The caller publishes without a logo when this fails; a
+/// missing image must never block the app list.
+pub fn materialize_console_art(dir: &Path) -> Result<String, String> {
+    materialize_console_art_bytes(dir, CONSOLE_ART, &console_art_path(dir))
+}
+
+fn materialize_console_art_bytes(dir: &Path, bytes: &[u8], path: &Path) -> Result<String, String> {
+    if bytes.is_empty() {
+        return Err("The bundled console artwork is empty.".to_string());
+    }
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return Err(format!(
+            "The console artwork path {} has no file name.",
+            path.display()
+        ));
+    };
+    std::fs::create_dir_all(dir).map_err(|error| {
+        format!(
+            "Could not create the console artwork folder {}: {error}",
+            dir.display()
+        )
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Sunshine may run as a systemd unit under another account, so the
+        // folder and image must not inherit a private 0700/0600 umask.
+        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755));
+    }
+
+    let reusable = std::fs::metadata(path)
+        .map(|meta| meta.len() == bytes.len() as u64)
+        .unwrap_or(false);
+    if !reusable {
+        let temporary = dir.join(format!("{name}.tmp"));
+        std::fs::write(&temporary, bytes).map_err(|error| {
+            format!(
+                "Could not write the console artwork {}: {error}",
+                temporary.display()
+            )
+        })?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o644));
+        }
+        // Windows refuses to rename onto an existing file; a hash-named file
+        // with the wrong size is a leftover from an interrupted write.
+        let _ = std::fs::remove_file(path);
+        if let Err(error) = std::fs::rename(&temporary, path) {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(format!(
+                "Could not store the console artwork {}: {error}",
+                path.display()
+            ));
+        }
+    }
+
+    prune_console_art(dir, name);
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Drop artwork versions written by an older Ludex build. Best effort: a file
+/// still open by Sunshine may refuse removal on Windows, which is harmless.
+fn prune_console_art(dir: &Path, keep: &str) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let file = entry.file_name();
+        let Some(file) = file.to_str() else {
+            continue;
+        };
+        if file.starts_with(CONSOLE_ART_PREFIX)
+            && (file.ends_with(".png") || file.ends_with(".png.tmp"))
+            && file != keep
+        {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
 /// Store downloaded cover bytes in the local cache, returning the file path.
 pub fn store_cover(dir: &Path, game_id: i64, bytes: &[u8]) -> Option<String> {
     if bytes.is_empty() || bytes.len() > 8 * 1024 * 1024 {
@@ -3418,6 +3534,121 @@ customname=Deck
                 .and_then(|marker| marker.get(CONSOLE_MARKER))
                 .and_then(Value::as_bool),
             Some(true)
+        );
+    }
+
+    #[test]
+    fn console_artwork_is_a_stable_600x900_png() {
+        assert!(CONSOLE_ART.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]));
+        // PNG IHDR: width and height are big-endian u32 at offsets 16 and 20.
+        assert_eq!(&CONSOLE_ART[16..20], &600u32.to_be_bytes()[..]);
+        assert_eq!(&CONSOLE_ART[20..24], &900u32.to_be_bytes()[..]);
+        // The materialized file name carries this hash; bump both together
+        // only when the artwork itself changes.
+        assert_eq!(console_art_hash(), "c2643add4d63001b");
+        assert_eq!(
+            console_art_path(Path::new("/data/sunshine")),
+            PathBuf::from("/data/sunshine/ludex-console-c2643add4d63001b.png")
+        );
+    }
+
+    #[test]
+    fn console_artwork_is_materialized_once_and_reused() {
+        let dir = temp_dir("console-art");
+        let first = materialize_console_art(&dir).unwrap();
+        let path = Path::new(&first);
+        assert!(path.is_file());
+        assert!(path.starts_with(&dir));
+        assert_eq!(std::fs::read(path).unwrap(), CONSOLE_ART);
+
+        #[cfg(unix)]
+        let inode = {
+            use std::os::unix::fs::MetadataExt;
+            std::fs::metadata(path).unwrap().ino()
+        };
+
+        let second = materialize_console_art(&dir).unwrap();
+        assert_eq!(second, first);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            // Reuse means the file is not rewritten: the inode is unchanged.
+            assert_eq!(std::fs::metadata(&second).unwrap().ino(), inode);
+        }
+
+        let artwork_files = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(CONSOLE_ART_PREFIX)
+            })
+            .count();
+        assert_eq!(artwork_files, 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn console_artwork_refreshes_when_the_bundled_bytes_change() {
+        let dir = temp_dir("console-art-refresh");
+        let first = materialize_console_art_bytes(
+            &dir,
+            b"\x89PNG-old",
+            &dir.join(console_art_file_name("aaaaaaaaaaaaaaaa")),
+        )
+        .unwrap();
+        let second = materialize_console_art_bytes(
+            &dir,
+            b"\x89PNG-new",
+            &dir.join(console_art_file_name("bbbbbbbbbbbbbbbb")),
+        )
+        .unwrap();
+        assert_ne!(first, second);
+        assert!(
+            !Path::new(&first).exists(),
+            "the previous version is pruned"
+        );
+        assert_eq!(std::fs::read(&second).unwrap(), b"\x89PNG-new");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn console_entry_writes_the_artwork_image_path() {
+        let mut entry = console("Ludex");
+        assert!(generated_console_app(&entry, "srv_1")
+            .get("image-path")
+            .is_none());
+
+        entry.image_path = Some("/data/sunshine/ludex-console-abc.png".to_string());
+        let app = generated_console_app(&entry, "srv_1");
+        assert_eq!(
+            as_string(app.get("image-path")).as_deref(),
+            Some("/data/sunshine/ludex-console-abc.png")
+        );
+    }
+
+    #[test]
+    fn console_merge_updates_the_artwork_when_it_changes() {
+        let mut first = console("Ludex");
+        first.image_path = Some("/data/sunshine/ludex-console-old.png".to_string());
+        let (root, _) = merge_entries(Some(USER_APPS), &[], Some(&first), "srv_1", true).unwrap();
+        let text = render_apps(&root).unwrap();
+
+        let mut second = console("Ludex");
+        second.image_path = Some("/data/sunshine/ludex-console-new.png".to_string());
+        let (root, report) = merge_entries(Some(&text), &[], Some(&second), "srv_1", true).unwrap();
+        assert_eq!(report.updated, 1);
+        assert!(report.changed);
+
+        let list = apps_ref(&root).unwrap();
+        let console_app = list.iter().find(|app| is_console_app(app)).unwrap();
+        assert_eq!(
+            as_string(console_app.get("image-path")).as_deref(),
+            Some("/data/sunshine/ludex-console-new.png")
         );
     }
 
