@@ -163,6 +163,8 @@ pub struct AppState {
     pub secrets: SecretStore,
     /// Pending desktop SSO sign-ins (#157), keyed by the generated state.
     pub oidc_logins: Arc<crate::oidc_login::LoginSessions>,
+    /// Local crash reports and opt-in diagnostics (#171).
+    pub diagnostics: crate::diagnostics::DiagnosticsStore,
 }
 
 impl AppState {
@@ -220,6 +222,19 @@ impl AppState {
             .build()
             .map_err(|e| format!("Could not create the HTTP client: {e}"))?;
 
+        let mut server_urls: Vec<String> = loaded
+            .servers
+            .iter()
+            .map(|profile| profile.url.clone())
+            .collect();
+        if !loaded.server_url.trim().is_empty() {
+            server_urls.push(loaded.server_url.clone());
+        }
+        let diagnostics = crate::diagnostics::DiagnosticsStore::new(
+            Some(crate::diagnostics::store_path(&app_data)),
+            crate::diagnostics::local_redaction_context(server_urls),
+        );
+
         Ok(Self {
             app_data,
             settings_path,
@@ -234,6 +249,7 @@ impl AppState {
             install_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_INSTALLS)),
             secrets,
             oidc_logins: Arc::new(crate::oidc_login::LoginSessions::new()),
+            diagnostics,
         })
     }
 

@@ -28,6 +28,7 @@ pub mod fingerprint;
 pub mod gamepad;
 pub mod models;
 pub mod naming;
+pub mod redact;
 pub mod rom;
 pub mod slug;
 
@@ -48,4 +49,5 @@ pub use models::{
     ProgressUpdate, ProviderRef, Role, Stats, Trailer, User,
 };
 pub use naming::{grouping_key, normalize_title, parse_filename, ParsedName};
+pub use redact::{path_hash, redact, redact_json, RedactionContext};
 pub use slug::slugify;

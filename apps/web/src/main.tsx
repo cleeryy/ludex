@@ -4,6 +4,7 @@ import "@fontsource-variable/instrument-sans";
 import "@fontsource-variable/jetbrains-mono";
 import "./styles/index.css";
 import { App } from "./app";
+import { ErrorBoundary, installGlobalErrorCapture } from "./components/error-boundary";
 import { bootstrapI18n } from "./lib/i18n";
 import { initPwa } from "./lib/pwa";
 
@@ -14,7 +15,12 @@ async function start() {
   // Load the persisted locale catalog before the first render so there is no
   // flash of English for French users.
   await bootstrapI18n();
-  ReactDOM.createRoot(document.getElementById("root")!).render(<App />);
+  installGlobalErrorCapture();
+  ReactDOM.createRoot(document.getElementById("root")!).render(
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>,
+  );
   initPwa();
 }
 

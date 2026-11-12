@@ -124,6 +124,14 @@ pub const DEFAULT_JWT_TTL_MINUTES: u64 = 7 * 24 * 60;
 pub const DEFAULT_RATE_LIMIT_RPS: u32 = 100;
 /// Default global API burst, per client IP.
 pub const DEFAULT_RATE_LIMIT_BURST: u32 = 300;
+/// Default number of diagnostics reports one address may submit per hour
+/// (#171). Zero disables the extra throttle.
+pub const DEFAULT_DIAGNOSTICS_RATE_LIMIT: u32 = 10;
+/// Maximum size of a diagnostics report body, in bytes (#171).
+pub const MAX_DIAGNOSTICS_BYTES: usize = 24 * 1024;
+/// Number of days diagnostics reports are kept before the retention sweep
+/// deletes them (#171).
+pub const DIAGNOSTICS_RETENTION_DAYS: i64 = 90;
 /// Default failed logins before a lockout.
 pub const DEFAULT_LOGIN_MAX_ATTEMPTS: u32 = 5;
 /// Default lockout duration after too many failed logins.
@@ -258,6 +266,9 @@ pub struct Config {
     pub rate_limit_rps: u32,
     /// Global API burst per client IP.
     pub rate_limit_burst: u32,
+    /// Diagnostics reports accepted per client IP per hour (#171). Zero
+    /// disables the extra throttle; the global limiter still applies.
+    pub diagnostics_rate_limit: u32,
     /// Failed logins allowed before a lockout. Zero disables lockout.
     pub login_max_attempts: u32,
     /// Lockout duration after too many failed logins.
@@ -462,6 +473,12 @@ impl Config {
                 .context("LUDEX_RATE_LIMIT_BURST must be an integer")?,
             None => DEFAULT_RATE_LIMIT_BURST,
         };
+        let diagnostics_rate_limit = match env_opt("LUDEX_DIAGNOSTICS_RATE_LIMIT") {
+            Some(value) => value
+                .parse::<u32>()
+                .context("LUDEX_DIAGNOSTICS_RATE_LIMIT must be an integer")?,
+            None => DEFAULT_DIAGNOSTICS_RATE_LIMIT,
+        };
         let login_max_attempts = match env_opt("LUDEX_LOGIN_MAX_ATTEMPTS") {
             Some(value) => value
                 .parse::<u32>()
@@ -607,6 +624,7 @@ impl Config {
             jwt_ttl_minutes,
             rate_limit_rps,
             rate_limit_burst,
+            diagnostics_rate_limit,
             login_max_attempts,
             login_lockout: Duration::from_secs(login_lockout_seconds),
             login_backoff: Duration::from_millis(login_backoff_ms),
@@ -701,6 +719,7 @@ impl Config {
             jwt_ttl_minutes: DEFAULT_JWT_TTL_MINUTES,
             rate_limit_rps: 0,
             rate_limit_burst: DEFAULT_RATE_LIMIT_BURST,
+            diagnostics_rate_limit: DEFAULT_DIAGNOSTICS_RATE_LIMIT,
             login_max_attempts: DEFAULT_LOGIN_MAX_ATTEMPTS,
             login_lockout: Duration::from_secs(DEFAULT_LOGIN_LOCKOUT_SECONDS),
             login_backoff: Duration::from_millis(500),

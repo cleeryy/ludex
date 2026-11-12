@@ -8,6 +8,7 @@ mod compat;
 mod config_adapters;
 mod config_fields;
 mod db;
+mod diagnostics;
 mod game_config;
 mod game_executables;
 mod install;
@@ -80,7 +81,16 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            let state = state::AppState::new(app.handle()).map_err(std::io::Error::other)?;
+            // #171: capture panics before anything else can fail. The hook is
+            // local-only; nothing is uploaded from it.
+            diagnostics::install_panic_hook(app.handle().clone());
+            let state = match state::AppState::new(app.handle()) {
+                Ok(state) => state,
+                Err(error) => {
+                    diagnostics::record_startup_failure(app.handle(), &error);
+                    return Err(std::io::Error::other(error).into());
+                }
+            };
             let settings = state.settings_snapshot();
             app.manage(state);
 
@@ -243,6 +253,12 @@ pub fn run() {
             commands::oidc_login_start,
             commands::oidc_login_poll,
             commands::oidc_login_cancel,
+            commands::diagnostics_status,
+            commands::set_diagnostics_enabled,
+            commands::diagnostics_preview,
+            commands::diagnostics_send,
+            commands::diagnostics_delete_reports,
+            commands::diagnostics_record_error,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Ludex application");

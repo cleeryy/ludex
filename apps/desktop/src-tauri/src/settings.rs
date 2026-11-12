@@ -258,6 +258,14 @@ pub struct LocalSettings {
     /// (#148) for the same launch-time config sync. Empty means "not set".
     #[serde(default)]
     pub player_name: String,
+    /// Opt-in anonymous diagnostics and crash reports (#171). Off by default;
+    /// nothing is ever uploaded without this flag.
+    #[serde(default)]
+    pub diagnostics_enabled: bool,
+    /// Random install id generated locally when diagnostics are first used.
+    /// Not derived from hardware, the account or the hostname (#171).
+    #[serde(default)]
+    pub diagnostics_install_id: String,
 }
 
 /// Default executable search depth for folder scans (#134).
@@ -333,6 +341,8 @@ impl Default for LocalSettings {
             launcher_sources: default_launcher_sources(),
             ui_language: String::new(),
             player_name: String::new(),
+            diagnostics_enabled: false,
+            diagnostics_install_id: String::new(),
         }
     }
 }
@@ -420,6 +430,15 @@ impl LocalSettings {
             .collect::<String>()
             .to_lowercase();
         self.player_name = self.player_name.trim().chars().take(60).collect();
+        // #171: the install id is local and random; keep it to the charset the
+        // server accepts so a hand-edited settings file cannot break sending.
+        self.diagnostics_install_id = self
+            .diagnostics_install_id
+            .trim()
+            .chars()
+            .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+            .take(64)
+            .collect();
         // #163: a skipped version is a display preference, never a security
         // decision; trim it and drop blanks so the field serialises cleanly.
         self.skipped_update_version = self

@@ -774,7 +774,7 @@ metadata, IP when known, and timestamp. Recorded actions: `login.succeeded`,
 `settings.oidc_updated`, `settings.metadata_provider_updated`,
 `webhook.created|updated|deleted`,
 `save.uploaded|deleted`, `oidc.login`, `oidc.linked`,
-`oidc.handoff_created|claimed|failed`.
+`oidc.handoff_created|claimed|failed`, `diagnostics.deleted`.
 
 ```ts
 interface AuditLog {
@@ -791,6 +791,50 @@ interface AuditPage { items: AuditLog[]; nextBefore: number | null }
 
 Newest first. Pass `nextBefore` as `before` to fetch the next page; `null`
 means the last page.
+
+## Anonymous diagnostics (#171)
+
+Opt-in crash and error reports. The toggle is off by default and lives on the
+device (`LocalSettings.diagnosticsEnabled`); the server only sees reports a user
+explicitly sent after previewing the exact payload. A report is not linked to an
+account: the row carries a random install id generated on the device, never a
+username, user id or IP address. The server keeps reports for 90 days
+(`DIAGNOSTICS_RETENTION_DAYS`) and sweeps expired rows on every insert.
+
+```ts
+interface DiagnosticsReportInput {
+  installId: string;    // [A-Za-z0-9_-]{8,64}, random, generated locally
+  appVersion: string;   // 1-64 chars
+  platform: "linux" | "windows" | "macos" | "web" | "android" | "ios" | "other";
+  os: string;           // 1-120 chars
+  locale?: string;      // up to 32 chars
+  channel?: string;     // up to 32 chars
+  errorKind: "panic" | "startup" | "command" | "api" | "install" | "launch" | "update" | "web" | "other";
+  summary: string;      // 1-2000 chars, redacted again server-side
+  detail?: Record<string, unknown>; // object, serialised cap 16 KiB, depth 4
+}
+
+interface DiagnosticsReport { id: number; installId: string; appVersion: string; platform: string; os: string; locale: string; channel: string; errorKind: string; summary: string; detail: Record<string, unknown>; createdAt: string }
+interface DiagnosticsPage {
+  items: DiagnosticsReport[]; nextBefore: number | null; total: number;
+  byVersion: { value: string; count: number }[];
+  byKind: { value: string; count: number }[];
+  byPlatform: { value: string; count: number }[];
+  retentionDays: number;
+}
+```
+
+| Method | Route | Notes |
+|---|---|---|
+| POST | `/api/diagnostics` | public; body above, capped at 24 KiB (larger bodies get `413 report_too_large`). Throttled per address (`LUDEX_DIAGNOSTICS_RATE_LIMIT`, default 10 per hour, 0 disables; `429 rate_limited`). Unknown fields are rejected with `400 invalid_report`; field errors use `invalid_install_id`, `invalid_platform`, `invalid_error_kind`, `invalid_summary`, `invalid_detail`, `detail_too_large`. Returns `202 { accepted: true }` |
+| GET | `/api/diagnostics` | admin + `admin` scope. Query: `limit` (50, max 200), `before` (id cursor), `kind`. Returns `DiagnosticsPage`; `null` `nextBefore` is the last page |
+| DELETE | `/api/diagnostics/{id}` | admin + `admin` scope; 204 on success, 404 `report_not_found`. Emits `diagnostics.deleted` in the audit log |
+
+Every string is run through `ludex_core::redact` before storage (client-side
+first, then again on the server): URLs → `<url>`, absolute paths →
+`<path:hash>`, IPv4/IPv6 → `<ip>`, e-mails → `<email>`, `Bearer` credentials and
+`token=…` values → `<token>`, plus the configured home directory, username and
+hostname. Reports are read-only for everyone except the admin delete route.
 
 ## Webhooks (#41)
 
@@ -1108,6 +1152,8 @@ interface LocalSettings {
   checkUpdatesOnStartup: boolean;    // throttled to once per 24 h
   lastUpdateCheckAt: string | null;  // RFC 3339, drives the throttle
   skippedUpdateVersion: string | null; // #163: no prompt/badge for this version
+  diagnosticsEnabled: boolean;       // #171: opt-in anonymous reports, default false
+  diagnosticsInstallId: string;      // #171: random local id, cleared when disabled
   discordPresence: boolean;          // Discord Rich Presence (#12), default false
   discordClientId: string;           // Discord application id, not a bot token
   installerSilentArgs: string[][];   // silent install attempts (#7), empty = presets
@@ -1844,6 +1890,12 @@ interface StreamTarget {
 | `oidc_login_poll` | `{ sessionId }` | `{ status: "claimed" \| "expired" \| "cancelled" \| "error", code, message }`; polls the claim endpoint every second for up to five minutes, then the webview redeems `code` through the existing exchange. `code` is `null` unless `status` is `claimed`; the app never logs the state or the code (#157) |
 | `oidc_login_cancel` | `{ sessionId }` | Stops an in-flight poll; idempotent, the attempt resolves as `cancelled` (#157) |
 | `open_external_url` | `{ url }` | Opens an `http(s)` address in the system browser (the "Open web login" fallback). Refuses any other scheme (#157) |
+| `diagnostics_status` | — | `{ enabled, installId, appVersion, platform, os, locale, channel, reports, unsent }`; generates the random install id on first read. Local capture is on, uploading is not (#171) |
+| `set_diagnostics_enabled` | `{ enabled }` | Refreshed status. Enabling only records consent; disabling deletes the local queue and forgets the install id (#171) |
+| `diagnostics_preview` | `{ reportId? }` | `{ reportId, payload }`; the exact JSON body, already redacted. Defaults to the newest report (#171) |
+| `diagnostics_send` | `{ reportId }` | `{ reportId, sent: true }`; refuses with a string error while the toggle is off. There is no automatic send path (#171) |
+| `diagnostics_delete_reports` | — | `null`; clears every report stored on the device (#171) |
+| `diagnostics_record_error` | `{ kind, summary, command?, stack? }` | `null`; called by the web error boundary, unhandled-rejection listener and invoke wrapper. Stored locally only (#171) |
 
 Events:
 
@@ -2477,6 +2529,7 @@ interface UploadSession {
 | `LUDEX_JWT_TTL_MINUTES` | `10080` (7 days) | Session token lifetime; sessions also expire server-side |
 | `LUDEX_RATE_LIMIT_RPS` | `100` (`0` disables) | Global requests/second per client IP |
 | `LUDEX_RATE_LIMIT_BURST` | `300` | Global burst per client IP |
+| `LUDEX_DIAGNOSTICS_RATE_LIMIT` | `10` (`0` disables) | Anonymous diagnostics reports accepted per client IP per hour (#171) |
 | `LUDEX_LOGIN_MAX_ATTEMPTS` | `5` (`0` disables) | Failed logins before lockout |
 | `LUDEX_LOGIN_LOCKOUT_SECONDS` | `900` | Lockout duration |
 | `LUDEX_LOGIN_BACKOFF_MS` | `500` | Base exponential backoff from the third failure |

@@ -19,6 +19,7 @@ import type {
   DesktopDownload,
   DesktopHandoff,
   DesktopPlatform,
+  DiagnosticsPage,
   Emulator,
   EmulatorDefault,
   EmulatorLaunch,
@@ -222,6 +223,26 @@ export const api = {
     return USING_MOCKS
       ? mockApi.desktopDownload(platform)
       : request<DesktopDownload>("/desktop/download", { auth: false, query: { platform } });
+  },
+
+  /* admin diagnostics (#171) */
+  listDiagnostics(limit = 50, before?: number): Promise<DiagnosticsPage> {
+    if (USING_MOCKS) {
+      return Promise.resolve({
+        items: [],
+        nextBefore: null,
+        total: 0,
+        byVersion: [],
+        byKind: [],
+        byPlatform: [],
+        retentionDays: 90,
+      });
+    }
+    return request<DiagnosticsPage>("/diagnostics", { query: { limit, before } });
+  },
+  deleteDiagnosticsReport(id: number): Promise<void> {
+    if (USING_MOCKS) return Promise.resolve();
+    return request<void>(`/diagnostics/${id}`, { method: "DELETE" });
   },
 
   /* auth */

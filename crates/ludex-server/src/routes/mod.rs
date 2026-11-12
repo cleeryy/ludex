@@ -9,6 +9,7 @@ pub mod collections;
 pub mod community;
 pub mod controllers;
 pub mod desktop;
+pub mod diagnostics;
 pub mod emulators;
 pub mod game_metadata;
 pub mod games;
@@ -63,6 +64,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(achievements::router())
         .merge(controllers::router())
         .merge(desktop::router())
+        .merge(diagnostics::router())
         .merge(emulators::router())
         .fallback(api_not_found)
 }

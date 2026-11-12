@@ -20,6 +20,9 @@ import type {
   ConfigSyncPrefs,
   ConfigWriteReport,
   DeleteAdoptedPreview,
+  DiagnosticsPreview,
+  DiagnosticsSendOutcome,
+  DiagnosticsStatus,
   DiskUsage,
   GameConfigListing,
   GameExecutables,
@@ -91,7 +94,30 @@ export function nativeUnavailable(): Error {
 async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!isNative()) throw nativeUnavailable();
   const { invoke: call } = await import("@tauri-apps/api/core");
-  return call<T>(command, args);
+  try {
+    return await call<T>(command, args);
+  } catch (error) {
+    // #171: failed commands are recorded locally (redacted in Rust) so the
+    // user can attach one to an opt-in report. Never uploaded here.
+    if (command !== "diagnostics_record_error") {
+      const summary = typeof error === "string" ? error : error instanceof Error ? error.message : "Command failed";
+      void call("diagnostics_record_error", {
+        kind: commandKind(command),
+        summary: `${command}: ${summary}`,
+        command,
+        stack: error instanceof Error ? error.stack ?? null : null,
+      }).catch(() => {});
+    }
+    throw error;
+  }
+}
+
+/** Classifies a failed Tauri command for the local report. */
+function commandKind(command: string): string {
+  if (/^(install_game|run_installer|move_install|update_game|check_game_updates)/.test(command)) return "install";
+  if (/^(launch_game|launch_rom_game|stop_game)/.test(command)) return "launch";
+  if (/^(check_for_updates|install_update|update_status)/.test(command)) return "update";
+  return "command";
 }
 
 export const native = {
@@ -957,6 +983,44 @@ export const native = {
     if (!isNative()) throw nativeUnavailable();
     await invoke<null>("open_external_url", { url });
   },
+
+  /* ------------- opt-in diagnostics and crash reports (#171) ------------- */
+
+  /** Local consent, install id and stored (already redacted) reports. */
+  async diagnosticsStatus(): Promise<DiagnosticsStatus> {
+    if (!isNative()) throw nativeUnavailable();
+    return invoke<DiagnosticsStatus>("diagnostics_status");
+  },
+
+  /** Toggle the opt-in. Turning it off clears local reports and the id. */
+  async setDiagnosticsEnabled(enabled: boolean): Promise<DiagnosticsStatus> {
+    if (!isNative()) throw nativeUnavailable();
+    return invoke<DiagnosticsStatus>("set_diagnostics_enabled", { enabled });
+  },
+
+  /** Exact payload a send would use, for the "what will be sent" view. */
+  async diagnosticsPreview(reportId?: string): Promise<DiagnosticsPreview> {
+    if (!isNative()) throw nativeUnavailable();
+    return invoke<DiagnosticsPreview>("diagnostics_preview", { reportId: reportId ?? null });
+  },
+
+  /** Explicitly send one report. Refused while the toggle is off. */
+  async diagnosticsSend(reportId: string): Promise<DiagnosticsSendOutcome> {
+    if (!isNative()) throw nativeUnavailable();
+    return invoke<DiagnosticsSendOutcome>("diagnostics_send", { reportId });
+  },
+
+  /** Delete every report stored on this device. */
+  async diagnosticsDeleteReports(): Promise<void> {
+    if (!isNative()) return;
+    await invoke<null>("diagnostics_delete_reports");
+  },
+
+  /** Record a web-view error locally; never uploads. */
+  async diagnosticsRecordError(kind: string, summary: string, stack?: string | null): Promise<void> {
+    if (!isNative()) return;
+    await invoke<null>("diagnostics_record_error", { kind, summary, command: null, stack: stack ?? null });
+  },
 };
 
 async function listen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
@@ -1012,4 +1076,6 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   gamevaultRoots: [],
   gamevaultScanDepth: 6,
   launcherSources: ALL_LAUNCHER_IDS,
+  diagnosticsEnabled: false,
+  diagnosticsInstallId: "",
 };

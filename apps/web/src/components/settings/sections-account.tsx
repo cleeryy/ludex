@@ -10,11 +10,12 @@ import { formatDate } from "@/lib/format";
 import { openOnboarding, restoreGettingStarted } from "@/lib/onboarding";
 import { openShortcutsHelp } from "@/lib/ui-events";
 import { t } from "@/lib/i18n";
-import { useAuth } from "@/state/auth";
+import { useAuth, useIsAdmin } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { Button, Field, Input, Switch, Textarea } from "@/components/ui/controls";
 import { AppearancePanel } from "@/components/settings/appearance-panel";
 import { ControllerPanel } from "@/components/settings/controller-panel";
+import { AdminDiagnosticsPanel, DiagnosticsPrivacyPanel } from "@/components/settings/diagnostics-panel";
 import { RomEmulatorsPanel } from "@/components/settings/rom-emulators";
 import { SettingsGroup, SettingsSwitchRow } from "@/components/settings/settings-section";
 import type { DesktopSettingsController } from "@/components/settings/use-desktop-settings";
@@ -264,9 +265,10 @@ export function ProfilesBody({ desktop }: { desktop: DesktopSettingsController }
   );
 }
 
-/** Help and about: onboarding, shortcuts, and the build you are running. */
+/** Help and about: onboarding, shortcuts, privacy and the build you are running. */
 export function HelpBody() {
   const { setup } = useAuth();
+  const admin = useIsAdmin();
   return (
     <div className="border-t border-line pt-5">
       <SettingsGroup
@@ -309,6 +311,22 @@ export function HelpBody() {
           ))}
         </dl>
       </SettingsGroup>
+
+      <SettingsGroup
+        title={t("Privacy and diagnostics")}
+        description={t("Anonymous crash reports are opt-in. Nothing is uploaded without consent, and you can read the exact payload before sending.")}
+      >
+        <DiagnosticsPrivacyPanel />
+      </SettingsGroup>
+
+      {admin && (
+        <SettingsGroup
+          title={t("Sent reports on this server")}
+          description={t("Administrators can review anonymous reports, see version and error distributions, and delete them.")}
+        >
+          <AdminDiagnosticsPanel />
+        </SettingsGroup>
+      )}
     </div>
   );
 }
