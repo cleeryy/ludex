@@ -30,6 +30,7 @@ mod profiles;
 mod protondb;
 mod remote_install;
 mod roms;
+mod runtime;
 mod saves_detect;
 mod saves_manifest;
 mod saves_registry;
@@ -98,7 +99,6 @@ pub fn run() {
             let console_mode = console::ConsoleMode::from_args(std::env::args());
             app.manage(console_mode);
 
-            let state = state::AppState::new(app.handle()).map_err(std::io::Error::other)?;
             // #171: capture panics before anything else can fail. The hook is
             // local-only; nothing is uploaded from it.
             diagnostics::install_panic_hook(app.handle().clone());
@@ -226,6 +226,15 @@ pub fn run() {
             commands::wine_prefix_info,
             commands::reset_wine_prefix,
             commands::run_winetricks,
+            runtime::commands::runtime_catalog,
+            runtime::commands::make_it_run_diagnose,
+            runtime::commands::make_it_run_apply,
+            runtime::commands::make_it_run_cancel,
+            runtime::commands::make_it_run_import,
+            runtime::commands::make_it_run_pick_import,
+            runtime::commands::make_it_run_remove,
+            runtime::commands::make_it_run_select,
+            runtime::commands::set_runtime_prerequisites,
             commands::protondb_rating,
             commands::detect_save_paths,
             commands::get_save_paths,

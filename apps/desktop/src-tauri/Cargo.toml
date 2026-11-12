@@ -67,6 +67,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # manually uploaded snapshots readable on restore. Bounded in saves_sync.rs.
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
+# Guided runtime installer (#178): every archive is verified by size and
+# SHA-256 before these crates see it; extraction has its own path guards.
+flate2 = "1"
+tar = "0.4"
+
 # Known-folder resolution (#146): SHGetKnownFolderPath is the only correct way
 # to read Documents (OneDrive KFM/GPO), Saved Games and LocalLow on Windows.
 # The overlay (#144) also needs GetForegroundWindow/SetForegroundWindow to hand

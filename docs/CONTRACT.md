@@ -2317,6 +2317,15 @@ interface StreamTarget {
 | `list_game_executables` | `{ gameId, refresh? }` | `GameExecutables`; scans the game's install folder (depth 4-8, default 6, bounded, loop-safe) for the Launch options pickers. `entries` are `{ path, name, sizeBytes, modifiedAt, kind: "launch" \| "installer" \| "uninstaller" \| "other", recommended }`; `path` is relative to `installPath` and never leaves it, `recommended` marks the `pick_executable` result. Installer kinds are `setup*`, `install*`, `gog*`; uninstallers are `unins*`, `uninstall*`. Works for `ludex` installs, adopted folders and launcher imports that have a folder; a row without a usable folder errors. Cached for 5 s, `refresh: true` rescans (#143) |
 | `check_game_executable` | `{ gameId, path }` | `string`: the normalised forward-slash relative path. Resolves the value inside the install folder and rejects `..`, absolute paths outside it and symlink escapes; used before saving the server launch config (#143) |
 | `compat_scan` | — | `CompatScan`; detects Steam roots, Proton builds, UMU, Wine, winetricks and protonfixes (#90) |
+| `runtime_catalog` | — | `RuntimeCatalog`; the shipped, version-pinned "Make it run" manifest (#178). Managed providers carry an allow-listed HTTPS URL, size and SHA-256; `refresh.enabled` stays false until a signing key ships |
+| `make_it_run_diagnose` | `{ gameId }` | `RuntimeDiagnosis`; platform/arch, detections, issues and the numbered plan. Reads filesystem/registry only, never the network (#178) |
+| `make_it_run_apply` | `{ gameId, stepIds, consent }` | `RuntimeApplyReport`; refuses without `consent: true`, accepts only steps the current plan offers, downloads/verifies/installs in order, re-diagnoses after each step. Progress on `runtime://progress` |
+| `make_it_run_cancel` | `{ gameId }` | `boolean`; asks the running apply to stop at the next chunk |
+| `make_it_run_import` | `{ gameId, providerId, path }` | `RuntimeImportReport`; GPTK only: hashes the user's DMG in place, records path/SHA-256, never copies it |
+| `make_it_run_pick_import` | `{ gameId }` | `string \| null`; native `.dmg` picker |
+| `make_it_run_remove` | `{ gameId, providerId }` | `RuntimeRemovalReport`; deletes only the managed folder and cached archive, or forgets an imported DMG / registry redistributable without deleting any user file |
+| `make_it_run_select` | `{ gameId, providerId }` | `RuntimeDiagnosis`; records a user-installed wrapper as the game's runtime |
+| `set_runtime_prerequisites` | `{ gameId, prerequisites }` | `RuntimeDiagnosis`; records declared ids (`vcrun`, `dotnet`, `directx`, `physx`); unknown ids are rejected |
 | `get_launch_options` | `{ gameId }` | `LaunchOptions`; defaults when nothing was saved (#89) |
 | `set_launch_options` | `{ gameId, options }` | `LaunchOptions`; validates env names, verbs and prefix (#89, #92) |
 | `wine_prefix_info` | `{ gameId }` | `PrefixInfo`; path, custom flag, existence and size (#92) |
@@ -2462,6 +2471,54 @@ archive by default (`keepArchives` setting false).
   offline, and supports a manual `steamAppId`. `wine_prefix_info`,
   `reset_wine_prefix` and `run_winetricks` manage the prefix; reset refuses
   while the game runs and never deletes an install folder or its ancestor.
+- **Guided runtime installer (#178).** "Make it run" turns a missing
+  compatibility runtime into a numbered, consent-driven plan. The manifest is
+  shipped with the app (`schemaVersion`, `manifestVersion`, `generatedAt`), not
+  fetched: `runtime_catalog` returns providers with `id`, `platform`, `kind`,
+  pinned `version`, `licence`, `homepage`, `managed`, `requiresAdmin`,
+  `requiresConsent`, `download` (`url`, `sizeBytes`, `sha256`, `archive`,
+  `stripComponents`, `entryPoint`), `install`, `detection`, `manualSteps` and
+  `notes`. Remote refresh reports `refresh.enabled: false` until an Ed25519 key
+  ships, and the app then fails closed on a bad signature.
+  Managed pinning: UMU Launcher 1.4.4, GE-Proton 11-12 (x86_64), VC++
+  2015–2022 x64/x86, .NET Desktop Runtime 10.0.15 and DirectX June 2010.
+  macOS providers (Whisky fork, Heroic, CrossOver 26, Sikarugir, Rosetta 2,
+  GPTK) are detection-only or import-only; nothing is bundled or downloaded by
+  Ludex. `make_it_run_diagnose` reports every provider (`installed`,
+  `applicable`, `version`, `path`, `evidence`), the GPU/Vulkan signal, free
+  space, elevation, managed runtimes and the last audit rows.
+  The plan contains stable step ids (`linux-umu`, `linux-proton`,
+  `linux-prefix`, `linux-prefix-reset`, `linux-configure`, `windows-vcrun-2022-x64`,
+  `windows-dotnet`, `windows-directx`, `macos-rosetta`, `macos-whisky`,
+  `macos-gptk`, …) with `action` (`install`, `import`, `preparePrefix`,
+  `configure`, `manual`), `status`, `requiresAdmin`, `requiresConsent`,
+  `download` and `manual`. Manual steps are never applied by the backend.
+  `make_it_run_apply` accepts only ids from the current plan, requires
+  `consent: true`, and never accepts a URL, size or checksum from the web view.
+  It downloads to `{appData}/runtime-cache`, checks size and SHA-256, aborts
+  before extracting or executing on any mismatch, re-checks redirects against
+  the same allow-list, then extracts with path-traversal guards (no symlinks,
+  no absolute paths, 4 GiB/200k-entry cap) or runs a fixed-argument installer.
+  Progress events are `runtime://progress` with `{ gameId, stepId, providerId,
+  phase, bytesDone, bytesTotal, percent, message }` where `phase` is
+  `downloading | verifying | extracting | installing | done | failed |
+  cancelled`. Cancellation is checked between chunks and before any installer
+  runs. The apply log path is returned in `logPath`; each step also reports its
+  own `status` and `message`. After a run, the final diagnosis is rebuilt, so a
+  removed/imported/repaired provider changes the next plan.
+  Windows machine-wide redistributables need elevation. Ludex downloads and
+  verifies them first, then, when the app is not elevated, returns step status
+  `needsElevation` with the exact `program` and fixed `args` for the user to run
+  in an elevated terminal. It never builds a shell string and never bypasses
+  UAC. macOS wrapper steps open the official HTTPS page and are re-detected on
+  the next scan; GPTK is hashed in place and never copied.
+  Persistence: `runtime_installs` is machine-wide, `runtime_game_prefs` keeps
+  the chosen provider/version/prefix/prerequisites per game, `runtime_audit`
+  records `install`, `configure`, `import`, `remove`, `select`, `cancel` and
+  `needs-elevation` locally. Removing a managed runtime never touches a game
+  folder, its save files or its Wine prefix.
+  Anti-cheat: kernel-level EAC/BattlEye without the developer's Proton support
+  is unsupported; the catalog carries that notice and Ludex never bypasses it.
 - **Executable picker (#143).** The Launch options form offers the programs
   actually present in the install folder instead of a free-text path.
   `list_game_executables` returns them with `kind` (`launch`, `installer`,

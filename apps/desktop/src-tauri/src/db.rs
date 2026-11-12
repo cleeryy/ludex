@@ -11,6 +11,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::linux_gaming::{LaunchMode, LaunchOptions};
+use crate::runtime::{RuntimeAuditEvent, RuntimeGamePrefs, RuntimeInstallRow};
 use crate::saves_registry::SaveCandidate;
 
 /// Mirrors `InstalledGame` from `docs/CONTRACT.md`.
@@ -117,7 +118,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 13;
+const SCHEMA_VERSION: i64 = 14;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -394,6 +395,48 @@ CREATE INDEX IF NOT EXISTS save_candidates_game_idx
     ON save_candidates (game_id, ignored);
 "#;
 
+/// Guided runtime installer (#178): exactly what Ludex installed on this
+/// machine, which runtime each game selected, and a local audit trail.
+///
+/// `runtime_installs` is machine-wide because a runtime is shared by every
+/// game. `runtime_game_prefs` is the per-game choice that later launches use.
+/// The audit rows never leave this device.
+const SCHEMA_V14: &str = r#"
+CREATE TABLE IF NOT EXISTS runtime_installs (
+    provider_id  TEXT    NOT NULL,
+    platform     TEXT    NOT NULL,
+    version      TEXT    NOT NULL,
+    path         TEXT    NOT NULL DEFAULT '',
+    sha256       TEXT    NOT NULL DEFAULT '',
+    size_bytes   INTEGER NOT NULL DEFAULT 0,
+    installed_at TEXT    NOT NULL,
+    PRIMARY KEY (provider_id, platform)
+);
+
+CREATE TABLE IF NOT EXISTS runtime_game_prefs (
+    game_id          INTEGER PRIMARY KEY,
+    provider_id      TEXT    NOT NULL DEFAULT '',
+    provider_version TEXT    NOT NULL DEFAULT '',
+    prefix_path      TEXT    NOT NULL DEFAULT '',
+    prerequisites    TEXT    NOT NULL DEFAULT '[]',
+    updated_at       TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS runtime_audit (
+    id          TEXT    PRIMARY KEY,
+    game_id     INTEGER NOT NULL DEFAULT 0,
+    provider_id TEXT    NOT NULL,
+    version     TEXT    NOT NULL,
+    action      TEXT    NOT NULL,
+    outcome     TEXT    NOT NULL,
+    detail      TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS runtime_audit_game_idx
+    ON runtime_audit (game_id, created_at);
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -509,6 +552,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         connection
             .execute_batch(SCHEMA_V13)
             .map_err(|e| format!("Could not add save candidates to the desktop database: {e}"))?;
+    }
+    if version < 14 {
+        connection
+            .execute_batch(SCHEMA_V14)
+            .map_err(|e| format!("Could not add runtime installs to the desktop database: {e}"))?;
     }
 
     if version < SCHEMA_VERSION {
@@ -2529,6 +2577,222 @@ pub fn mark_config_sync_applied(
     Ok(())
 }
 
+/* ---------------------- Guided runtime installer (#178) ---------------------- */
+
+pub fn list_runtime_installs(connection: &Connection) -> Result<Vec<RuntimeInstallRow>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT provider_id, platform, version, path, sha256, size_bytes, installed_at
+             FROM runtime_installs ORDER BY provider_id",
+        )
+        .map_err(|e| format!("Could not read the runtime installs: {e}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(RuntimeInstallRow {
+                provider_id: row.get(0)?,
+                platform: row.get(1)?,
+                version: row.get(2)?,
+                path: row.get(3)?,
+                sha256: row.get(4)?,
+                size_bytes: row.get::<_, i64>(5)?.max(0) as u64,
+                installed_at: row.get(6)?,
+            })
+        })
+        .map_err(|e| format!("Could not read the runtime installs: {e}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Could not read the runtime installs: {e}"))
+}
+
+pub fn get_runtime_install(
+    connection: &Connection,
+    provider_id: &str,
+) -> Result<Option<RuntimeInstallRow>, String> {
+    connection
+        .query_row(
+            "SELECT provider_id, platform, version, path, sha256, size_bytes, installed_at
+             FROM runtime_installs WHERE provider_id = ?1 ORDER BY installed_at DESC LIMIT 1",
+            params![provider_id],
+            |row| {
+                Ok(RuntimeInstallRow {
+                    provider_id: row.get(0)?,
+                    platform: row.get(1)?,
+                    version: row.get(2)?,
+                    path: row.get(3)?,
+                    sha256: row.get(4)?,
+                    size_bytes: row.get::<_, i64>(5)?.max(0) as u64,
+                    installed_at: row.get(6)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the runtime install: {e}"))
+}
+
+pub fn save_runtime_install(
+    connection: &Connection,
+    row: &RuntimeInstallRow,
+) -> Result<(), String> {
+    connection
+        .execute(
+            "INSERT INTO runtime_installs
+                (provider_id, platform, version, path, sha256, size_bytes, installed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(provider_id, platform) DO UPDATE SET
+                version = excluded.version,
+                path = excluded.path,
+                sha256 = excluded.sha256,
+                size_bytes = excluded.size_bytes,
+                installed_at = excluded.installed_at",
+            params![
+                row.provider_id,
+                row.platform,
+                row.version,
+                row.path,
+                row.sha256,
+                row.size_bytes as i64,
+                row.installed_at
+            ],
+        )
+        .map_err(|e| format!("Could not save the runtime install: {e}"))?;
+    Ok(())
+}
+
+pub fn delete_runtime_install(connection: &Connection, provider_id: &str) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM runtime_installs WHERE provider_id = ?1",
+            params![provider_id],
+        )
+        .map_err(|e| format!("Could not remove the runtime install: {e}"))?;
+    Ok(())
+}
+
+/// Per-game prefs, with a default row when the game has none yet.
+pub fn get_runtime_prefs(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<RuntimeGamePrefs, String> {
+    let stored = connection
+        .query_row(
+            "SELECT provider_id, provider_version, prefix_path, prerequisites, updated_at
+             FROM runtime_game_prefs WHERE game_id = ?1",
+            params![game_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the runtime choice: {e}"))?;
+    let Some((provider_id, provider_version, prefix_path, prerequisites, updated_at)) = stored
+    else {
+        return Ok(RuntimeGamePrefs {
+            game_id,
+            provider_id: String::new(),
+            provider_version: String::new(),
+            prefix_path: String::new(),
+            prerequisites: Vec::new(),
+            updated_at: String::new(),
+        });
+    };
+    let prerequisites: Vec<String> = serde_json::from_str(&prerequisites).unwrap_or_default();
+    Ok(RuntimeGamePrefs {
+        game_id,
+        provider_id,
+        provider_version,
+        prefix_path,
+        prerequisites,
+        updated_at,
+    })
+}
+
+pub fn save_runtime_prefs(connection: &Connection, prefs: &RuntimeGamePrefs) -> Result<(), String> {
+    let prerequisites = serde_json::to_string(&prefs.prerequisites)
+        .map_err(|e| format!("Could not encode the prerequisites: {e}"))?;
+    connection
+        .execute(
+            "INSERT INTO runtime_game_prefs
+                (game_id, provider_id, provider_version, prefix_path, prerequisites, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(game_id) DO UPDATE SET
+                provider_id = excluded.provider_id,
+                provider_version = excluded.provider_version,
+                prefix_path = excluded.prefix_path,
+                prerequisites = excluded.prerequisites,
+                updated_at = excluded.updated_at",
+            params![
+                prefs.game_id,
+                prefs.provider_id,
+                prefs.provider_version,
+                prefs.prefix_path,
+                prerequisites,
+                prefs.updated_at
+            ],
+        )
+        .map_err(|e| format!("Could not save the runtime choice: {e}"))?;
+    Ok(())
+}
+
+pub fn record_runtime_audit(
+    connection: &Connection,
+    event: &RuntimeAuditEvent,
+) -> Result<(), String> {
+    connection
+        .execute(
+            "INSERT INTO runtime_audit
+                (id, game_id, provider_id, version, action, outcome, detail, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                event.id,
+                event.game_id,
+                event.provider_id,
+                event.version,
+                event.action,
+                event.outcome,
+                event.detail,
+                event.created_at
+            ],
+        )
+        .map_err(|e| format!("Could not record the runtime audit entry: {e}"))?;
+    Ok(())
+}
+
+pub fn list_runtime_audit(
+    connection: &Connection,
+    game_id: i64,
+    limit: usize,
+) -> Result<Vec<RuntimeAuditEvent>, String> {
+    let limit = limit.clamp(1, 200) as i64;
+    let mut statement = connection
+        .prepare(
+            "SELECT id, game_id, provider_id, version, action, outcome, detail, created_at
+             FROM runtime_audit WHERE game_id = ?1
+             ORDER BY created_at DESC, id DESC LIMIT ?2",
+        )
+        .map_err(|e| format!("Could not read the runtime audit: {e}"))?;
+    let rows = statement
+        .query_map(params![game_id, limit], |row| {
+            Ok(RuntimeAuditEvent {
+                id: row.get(0)?,
+                game_id: row.get(1)?,
+                provider_id: row.get(2)?,
+                version: row.get(3)?,
+                action: row.get(4)?,
+                outcome: row.get(5)?,
+                detail: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })
+        .map_err(|e| format!("Could not read the runtime audit: {e}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Could not read the runtime audit: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2548,6 +2812,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V11).unwrap();
         connection.execute_batch(SCHEMA_V12).unwrap();
         connection.execute_batch(SCHEMA_V13).unwrap();
+        connection.execute_batch(SCHEMA_V14).unwrap();
         connection
     }
 
@@ -3860,5 +4125,72 @@ mod tests {
         assert_eq!(groups[0].2.len(), 2);
         assert_eq!(groups[0].2[0].confidence, "likely");
         assert_eq!(groups[0].2[1].confidence, "guess");
+    }
+
+    #[test]
+    fn runtime_install_prefs_and_audit_round_trip() {
+        let connection = memory_database();
+        let row = RuntimeInstallRow {
+            provider_id: "umu-launcher".into(),
+            platform: "linux".into(),
+            version: "1.4.4".into(),
+            path: "/home/player/.local/share/ludex/runtimes/umu-launcher/1.4.4".into(),
+            sha256: "abc".into(),
+            size_bytes: 430_080,
+            installed_at: "2026-11-12T00:00:00Z".into(),
+        };
+        save_runtime_install(&connection, &row).unwrap();
+        assert_eq!(
+            list_runtime_installs(&connection).unwrap(),
+            vec![row.clone()]
+        );
+        assert_eq!(
+            get_runtime_install(&connection, "umu-launcher").unwrap(),
+            Some(row.clone())
+        );
+
+        // Upsert replaces the row instead of duplicating it.
+        let mut updated = row.clone();
+        updated.version = "1.4.5".into();
+        save_runtime_install(&connection, &updated).unwrap();
+        assert_eq!(list_runtime_installs(&connection).unwrap().len(), 1);
+        assert_eq!(
+            get_runtime_install(&connection, "umu-launcher")
+                .unwrap()
+                .unwrap()
+                .version,
+            "1.4.5"
+        );
+
+        let prefs = get_runtime_prefs(&connection, 7).unwrap();
+        assert!(prefs.provider_id.is_empty());
+        assert!(prefs.prerequisites.is_empty());
+
+        let prefs = RuntimeGamePrefs {
+            game_id: 7,
+            provider_id: "umu-launcher".into(),
+            provider_version: "1.4.4".into(),
+            prefix_path: "/games/test/.prefix".into(),
+            prerequisites: vec!["dotnet".into(), "directx".into()],
+            updated_at: "2026-11-12T00:00:00Z".into(),
+        };
+        save_runtime_prefs(&connection, &prefs).unwrap();
+        assert_eq!(get_runtime_prefs(&connection, 7).unwrap(), prefs);
+
+        let event = RuntimeAuditEvent {
+            id: "audit-1".into(),
+            game_id: 7,
+            provider_id: "umu-launcher".into(),
+            version: "1.4.4".into(),
+            action: "install".into(),
+            outcome: "ok".into(),
+            detail: "verified and extracted".into(),
+            created_at: "2026-11-12T00:00:00Z".into(),
+        };
+        record_runtime_audit(&connection, &event).unwrap();
+        assert_eq!(list_runtime_audit(&connection, 7, 10).unwrap(), vec![event]);
+
+        delete_runtime_install(&connection, "umu-launcher").unwrap();
+        assert!(list_runtime_installs(&connection).unwrap().is_empty());
     }
 }

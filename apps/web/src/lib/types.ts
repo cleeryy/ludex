@@ -2307,6 +2307,248 @@ export interface WinetricksReport {
   durationMs: number;
 }
 
+/* ------------------ Guided runtime installer (#178) ------------------ */
+
+export type RuntimePlatform = "linux" | "windows" | "macos";
+export type RuntimeProviderKind =
+  | "launcher"
+  | "proton"
+  | "wine"
+  | "redistributable"
+  | "translation"
+  | "wrapper";
+export type RuntimeArchiveKind = "tarGz" | "tar" | "zip" | "exe" | "dmg";
+export type RuntimeInstallKind = "extract" | "installer" | "directXRedist" | "import";
+export type RuntimeIssueSeverity = "info" | "warning" | "blocking";
+export type RuntimeStepAction = "install" | "import" | "preparePrefix" | "configure" | "manual";
+export type RuntimeStepStatus =
+  | "pending"
+  | "blocked"
+  | "running"
+  | "done"
+  | "failed"
+  | "skipped"
+  | "needsElevation";
+export type RuntimeWizardPhase =
+  | "idle"
+  | "planned"
+  | "installing"
+  | "verifying"
+  | "complete"
+  | "failed"
+  | "cancelled";
+
+/** One verified artifact in the shipped manifest. */
+export interface RuntimeDownloadArtifact {
+  url: string;
+  sizeBytes: number;
+  sha256: string;
+  archive: RuntimeArchiveKind;
+  stripComponents: number;
+  entryPoint: string | null;
+}
+
+export interface RuntimeInstallSpec {
+  kind: RuntimeInstallKind;
+  target: string;
+  args: string[];
+  innerArgs: string[];
+}
+
+export interface RuntimeRegistryCheck {
+  key: string;
+  value: string;
+  expected: string | null;
+  minVersion: string | null;
+}
+
+export interface RuntimeDetectionSpec {
+  paths: string[];
+  dirs: string[];
+  appBundles: string[];
+  registry: RuntimeRegistryCheck[];
+  managed: boolean;
+}
+
+export interface RuntimeManualStep {
+  label: string;
+  detail: string;
+  url: string | null;
+  /** Exact command to display; never executed by Ludex. */
+  command: string | null;
+}
+
+export interface RuntimeProvider {
+  id: string;
+  platform: RuntimePlatform;
+  kind: RuntimeProviderKind;
+  name: string;
+  version: string;
+  licence: string;
+  homepage: string;
+  summary: string;
+  managed: boolean;
+  requiresAdmin: boolean;
+  requiresConsent: boolean;
+  download: RuntimeDownloadArtifact | null;
+  install: RuntimeInstallSpec | null;
+  detection: RuntimeDetectionSpec;
+  manualSteps: RuntimeManualStep[];
+  notes: string[];
+  arch: string | null;
+}
+
+export interface RuntimeCatalog {
+  schemaVersion: number;
+  manifestVersion: string;
+  generatedAt: string;
+  refresh: { enabled: boolean; reason: string };
+  maxDownloadBytes: number;
+  providers: RuntimeProvider[];
+  notices: string[];
+}
+
+export interface RuntimeDetection {
+  providerId: string;
+  name: string;
+  kind: RuntimeProviderKind;
+  version: string | null;
+  installed: boolean;
+  applicable: boolean;
+  path: string | null;
+  evidence: string;
+  managed: boolean;
+}
+
+export interface RuntimeIssue {
+  code: string;
+  severity: RuntimeIssueSeverity;
+  title: string;
+  detail: string;
+}
+
+export interface RuntimeStepDownload {
+  url: string;
+  sizeBytes: number;
+  sha256: string;
+  licence: string;
+  host: string;
+}
+
+export interface RuntimeStep {
+  id: string;
+  providerId: string | null;
+  action: RuntimeStepAction;
+  title: string;
+  detail: string;
+  requiresAdmin: boolean;
+  requiresConsent: boolean;
+  download: RuntimeStepDownload | null;
+  manual: RuntimeManualStep | null;
+  status: RuntimeStepStatus;
+  blockedReason: string | null;
+  optional: boolean;
+}
+
+export interface ManagedRuntime {
+  providerId: string;
+  name: string;
+  version: string;
+  path: string;
+  sizeBytes: number;
+  present: boolean;
+  imported: boolean;
+}
+
+export interface RuntimeAuditEvent {
+  id: string;
+  gameId: number;
+  providerId: string;
+  version: string;
+  action: string;
+  outcome: string;
+  detail: string;
+  createdAt: string;
+}
+
+export interface RuntimeDiagnosis {
+  gameId: number;
+  title: string;
+  platform: RuntimePlatform;
+  arch: string;
+  osVersion: string | null;
+  elevated: boolean;
+  windowsGame: boolean;
+  ready: boolean;
+  running: boolean;
+  summary: string;
+  issues: RuntimeIssue[];
+  steps: RuntimeStep[];
+  detections: RuntimeDetection[];
+  prerequisites: string[];
+  gpu: { vulkan: boolean | null; note: string };
+  cacheDir: string;
+  freeBytes: number | null;
+  requiredBytes: number;
+  managed: ManagedRuntime[];
+  audit: RuntimeAuditEvent[];
+  notices: string[];
+  generatedAt: string;
+}
+
+/** Returned by `launch_game`; `tool` names the Linux compatibility tool used. */
+export interface GameLaunchResult {
+  sessionId: string;
+  tool: string | null;
+  source: string;
+}
+
+export interface RuntimeProgress {
+  gameId: number;
+  stepId: string;
+  providerId: string | null;
+  phase: "downloading" | "verifying" | "extracting" | "installing" | "done" | "failed" | "cancelled";
+  bytesDone: number;
+  bytesTotal: number;
+  percent: number | null;
+  message: string;
+}
+
+export interface RuntimeAppliedStep {
+  stepId: string;
+  providerId: string | null;
+  status: RuntimeStepStatus;
+  message: string;
+  log: string | null;
+}
+
+export interface RuntimeApplyReport {
+  gameId: number;
+  consent: boolean;
+  cancelled: boolean;
+  failed: boolean;
+  needsElevation: boolean;
+  steps: RuntimeAppliedStep[];
+  diagnosis: RuntimeDiagnosis;
+  wizard: RuntimeWizardPhase;
+  logPath: string;
+}
+
+export interface RuntimeRemovalReport {
+  providerId: string;
+  freedBytes: number;
+  forgotImport: boolean;
+  diagnosis: RuntimeDiagnosis;
+}
+
+export interface RuntimeImportReport {
+  providerId: string;
+  path: string;
+  sha256: string;
+  sizeBytes: number;
+  diagnosis: RuntimeDiagnosis;
+}
+
 export type ProtonDbStatus = "ok" | "cached" | "stale" | "unavailable" | "notFound" | "noAppId";
 
 /** ProtonDB summary for a Steam app id (#91). */
