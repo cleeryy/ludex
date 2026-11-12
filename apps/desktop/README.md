@@ -737,16 +737,21 @@ window drawn above a borderless or windowed-fullscreen game.
   mouse focus. A double Guide/Home/PS press inside 400 ms toggles the overlay; a
   single press is ignored so the OS/Steam menu keeps working. The **LB+RB+Start**
   chord is the fallback for pads whose Guide button is not exposed (Windows
-  XInput/WGI does not expose it). Hot-plug, controller ids and a 0.25 deadzone
-  for the activity indicator are handled by the listener. Set
-  `overlayTrigger` to `chord` to leave Guide entirely to Steam, or `keyboard`
-  to disable both pad gestures.
+  XInput/WGI does not expose it, so on Windows `doubleHome` is reported as
+  `effective: "chord"` and the panel says so instead of doing nothing). Hot-plug,
+  controller ids and a 0.25 deadzone for the activity indicator are handled by
+  the listener; a pad that connects with the chord held starts from a clean
+  detector. The thread always starts at boot and retries a failed `gilrs` init
+  with a capped backoff (1-30 s) instead of staying deaf until the next restart.
+  Set `overlayTrigger` to `chord` to leave Guide entirely to Steam, or
+  `keyboard` to disable both pad gestures.
 - **Window.** When a game owns the focus, `open_overlay` creates the `overlay`
-  webview: transparent (Windows/Linux), always-on-top, undecorated, focusable,
-  skipped from the taskbar, covering the monitor the main window is on. Closing
-  hides it and restores focus to the window captured before opening (Windows
-  HWND; X11 through `xdotool` when installed). When Ludex itself is focused the
-  panel is drawn in-app instead.
+  webview on demand: transparent (Windows/Linux), always-on-top, undecorated,
+  focusable, skipped from the taskbar, covering the monitor the main window is
+  on, shown/unminimized and focused with one retry (the topmost flag is
+  re-asserted on every open). Closing hides it and restores focus to the window
+  captured before opening (Windows HWND; X11 through `xdotool` when installed).
+  When Ludex itself is focused the panel is drawn in-app instead.
 - **Content.** Current game and playtime, Resume/Exit, Library quick launch,
   Downloads progress (installs keep running), achievements of the running game,
   controller status/battery and a Big Picture link. Gamepad-first navigation
@@ -755,14 +760,26 @@ window drawn above a borderless or windowed-fullscreen game.
   opacity, scale, tabs and the per-game opt-out list. Every change saves on its
   own through `set_overlay_settings` and applies live. The runner footer can
   disable the overlay for the current game.
+- **Why it does not open (#190).** `overlay_status` returns a diagnostic
+  checklist: feature switch, per-game opt-out, listener thread/backend, detected
+  controllers (name/id), trigger deliverability (`guide`, `chord`, `keyboard` or
+  `none`), the fullscreen hint, the floating-window capability and the last
+  trigger verdict (timestamp, source, outcome, ignore reason). The panel renders
+  it as a list with a **Preview the overlay** / **Open the overlay now** fallback
+  that reports whether the in-app or floating presentation was used, plus the
+  `Shift+Tab` hint. Every trigger press/release and open/close attempt is logged
+  at info with its reason.
 - **Privacy.** No telemetry; the only network calls are the user's own server
   (achievements). The overlay never reads or writes the game process.
 
 ### Overlay limitations
 
 - **Exclusive fullscreen.** A game in exclusive fullscreen generally hides every
-  non-injected overlay. Use borderless or windowed fullscreen; this is what the
-  platform note reports.
+  non-injected overlay. The foreground window style is probed while a game runs
+  (Windows style bits, X11 `_NET_WM_STATE_FULLSCREEN`); style bits cannot
+  separate borderless from exclusive, so both are reported as `fullscreen` and
+  the panel asks you to switch to borderless or windowed fullscreen. The overlay
+  still tries: the hint is advisory.
 - **Windows Guide button.** XInput and Windows.Gaming.Input do not expose the
   Guide button, so double-Home works only with drivers that do (for example
   some DualSense/Steam configurations); use the chord otherwise.

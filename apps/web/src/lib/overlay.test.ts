@@ -148,6 +148,13 @@ describe("normalizeOverlayStatus", () => {
     expect(status.tabs).toEqual(["game", "library", "downloads", "achievements"]);
     expect(status.presentation).toBe("closed");
     expect(status.listener.available).toBe(false);
+    expect(status.listener.running).toBe(false);
+    expect(status.diagnostics.checks).toEqual([]);
+    expect(status.diagnostics.canOpen).toBe(true);
+    expect(status.capabilities.floatingWindow).toBe(false);
+    expect(status.triggerStatus.effective).toBe("none");
+    expect(status.foreground).toBeNull();
+    expect(status.lastTrigger).toBeNull();
     expect(status.keyboardShortcut).toBe("Shift+Tab");
   });
 
@@ -164,6 +171,7 @@ describe("normalizeOverlayStatus", () => {
       listener: {
         backend: "gilrs",
         available: true,
+        running: true,
         platform: "linux",
         reason: null,
         controllers: [{ id: "0", name: "Pad", active: true, battery: 80, charging: false }],

@@ -1457,10 +1457,75 @@ export interface OverlayController {
 export interface OverlayListenerStatus {
   /** `gilrs`, `unsupported` or `failed`. */
   backend: string;
+  /** True once `gilrs` initialised and controllers can be read. */
   available: boolean;
+  /** True while the listener thread is alive (including its retry loop). */
+  running: boolean;
   platform: string;
   reason: string | null;
   controllers: OverlayController[];
+}
+
+/** Static platform capabilities reported by the desktop. */
+export interface OverlayCapabilities {
+  platform: string;
+  /** A separate always-on-top window exists on this platform. */
+  floatingWindow: boolean;
+  alwaysOnTop: boolean;
+  globalListener: boolean;
+  /** The Guide/Home/PS button reaches the process (never on Windows). */
+  guideButton: boolean;
+  chord: boolean;
+}
+
+/** Whether the configured trigger can actually fire on this host. */
+export interface OverlayTriggerStatus {
+  trigger: OverlayTrigger;
+  guideEnabled: boolean;
+  chordEnabled: boolean;
+  /** Gesture that will fire first, or `none` when no pad gesture can. */
+  effective: "guide" | "chord" | "keyboard" | "none";
+  deliverable: boolean;
+  /** Stable code the settings panel translates. */
+  noteCode: string | null;
+  /** English fallback. */
+  note: string | null;
+}
+
+/** One line of the "why does it not open" checklist. */
+export interface OverlayCheck {
+  /** Stable code the settings panel translates. */
+  id: string;
+  level: "ok" | "info" | "warning" | "blocking";
+  /** English fallback for an unknown id. */
+  message: string;
+}
+
+/** Status decision tree result. */
+export interface OverlayDiagnostics {
+  canOpen: boolean;
+  triggerDeliverable: boolean;
+  /** A floating window can draw above the running game. */
+  overGame: boolean;
+  /** First blocking check id, else the first warning, else `ready`. */
+  summary: string;
+  checks: OverlayCheck[];
+}
+
+/** Foreground window the overlay would cover. */
+export interface OverlayForeground {
+  title: string | null;
+  fullscreen: "windowed" | "fullscreen" | "unknown";
+}
+
+/** Last trigger/open/close attempt. */
+export interface OverlayTriggerEvent {
+  /** RFC 3339 timestamp. */
+  at: string;
+  source: string;
+  action: string;
+  outcome: "openedWindow" | "openedInApp" | "closed" | "ignored";
+  detail: string | null;
 }
 
 /** The game currently running, as shown in the overlay. */
@@ -1468,6 +1533,8 @@ export interface OverlayGameState {
   sessionId: string;
   gameId: number;
   title: string;
+  /** Root pid of the launched game (absent on an older desktop). */
+  pid?: number;
   /** RFC 3339 launch time. */
   startedAt: string;
   /** Seconds since the launch. */
@@ -1492,6 +1559,16 @@ export interface OverlayStatus {
   /** `window` = floating window over the game, `inApp` = inside the main window. */
   presentation: "closed" | "window" | "inApp";
   listener: OverlayListenerStatus;
+  /** Static capabilities of this build/host. */
+  capabilities: OverlayCapabilities;
+  /** Whether the configured trigger can actually fire. */
+  triggerStatus: OverlayTriggerStatus;
+  /** "Why does it not open" checklist. */
+  diagnostics: OverlayDiagnostics;
+  /** Foreground window while a game is running. */
+  foreground: OverlayForeground | null;
+  /** Last trigger/open/close attempt. */
+  lastTrigger: OverlayTriggerEvent | null;
   /** Platform limitation, shown verbatim in Settings. */
   platformNote: string;
   /** Shortcut that works while Ludex is focused. */

@@ -1,10 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Gamepad2, MonitorPlay } from "lucide-react";
 import { isNative, native } from "@/lib/native";
 import { errorMessage } from "@/lib/http";
-import { clampOverlayOpacity, clampOverlayScale, OVERLAY_TABS } from "@/lib/overlay";
-import type { OverlayStatus, OverlayTabId, OverlayTrigger } from "@/lib/types";
+import {
+  clampOverlayOpacity,
+  clampOverlayScale,
+  normalizeOverlayStatus,
+  OVERLAY_TABS,
+} from "@/lib/overlay";
+import type {
+  OverlayCheck,
+  OverlayStatus,
+  OverlayTabId,
+  OverlayTrigger,
+  OverlayTriggerEvent,
+} from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Checkbox, Segmented } from "@/components/ui/controls";
 import { SettingsGroup, SettingsSwitchRow } from "@/components/settings/settings-section";
@@ -38,7 +49,7 @@ export function OverlayPanel() {
     staleTime: 60_000,
   });
 
-  const status = query.data;
+  const status = query.data ? normalizeOverlayStatus(query.data) : null;
   const [opacity, setOpacity] = useState(status?.opacity ?? 0.92);
   const [scale, setScale] = useState(status?.scale ?? 1);
 
@@ -62,6 +73,34 @@ export function OverlayPanel() {
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  /**
+   * Test button: opens the overlay without a controller and reports which
+   * presentation the backend chose, so a user with no pad can still verify the
+   * window itself (issue #190).
+   */
+  const preview = async () => {
+    if (!isNative()) return;
+    try {
+      const opened = await native.openOverlay();
+      const detail = opened.lastTrigger?.detail;
+      push({
+        title: t("Overlay opened"),
+        description:
+          opened.presentation === "window"
+            ? t("Opened in the floating window.")
+            : (detail ?? t("Opened inside Ludex.")),
+        tone: "success",
+      });
+      await queryClient.invalidateQueries({ queryKey: ["overlay-status"] });
+    } catch (cause) {
+      push({
+        title: t("Could not open the overlay"),
+        description: errorMessage(cause),
+        tone: "danger",
+      });
     }
   };
 
@@ -116,17 +155,7 @@ export function OverlayPanel() {
           variant="default"
           icon={<MonitorPlay className="size-3.5" />}
           disabled={!enabled}
-          onClick={() => {
-            void native
-              .openOverlay()
-              .catch((cause) =>
-                push({
-                  title: t("Could not open the overlay"),
-                  description: errorMessage(cause),
-                  tone: "danger",
-                }),
-              );
-          }}
+          onClick={() => void preview()}
         >
           {t("Preview the overlay")}
         </Button>
@@ -259,7 +288,7 @@ export function OverlayPanel() {
         )}
       </div>
 
-      <ListenerRow status={status} saving={saving} />
+      <DiagnosticsChecklist status={status} saving={saving} onPreview={() => void preview()} />
 
       <p className="mt-4 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">{status.platformNote}</p>
     </SettingsGroup>
@@ -279,35 +308,193 @@ function overlayTabLabel(tab: OverlayTabId): string {
   }
 }
 
-function ListenerRow({ status, saving }: { status: OverlayStatus; saving: boolean }) {
+/**
+ * The checklist that answers "why does the overlay not open".
+ *
+ * The desktop reports one stable check id per reason; the labels live here as
+ * literal `t()` keys so every locale gets the explanation, with the backend's
+ * English message as the fallback for an id this bundle does not know yet.
+ */
+function DiagnosticsChecklist({
+  status,
+  saving,
+  onPreview,
+}: {
+  status: OverlayStatus;
+  saving: boolean;
+  onPreview: () => void;
+}) {
+  const diagnostics = status.diagnostics;
+  const blocking = diagnostics.checks.some((check) => check.level === "blocking");
   const listener = status.listener;
   const active = listener.controllers.find((pad) => pad.active) ?? listener.controllers[0];
+
   return (
-    <div className="py-4">
-      <p className="text-[13px] font-medium text-ink">{t("Controller listener")}</p>
-      <p className="mt-1 max-w-[60ch] text-[11.5px] leading-relaxed text-ink-3">
-        {listener.available
-          ? t("The global listener reads controllers even while a game is focused.")
-          : (listener.reason ?? t("The global listener is not available on this system."))}
+    <div className="border-b border-line py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[13px] font-medium text-ink">{t("Why the overlay does not open")}</p>
+        <div className="flex items-center gap-2">
+          {saving && <span className="text-[11px] text-ink-3">{t("Saving…")}</span>}
+          <Badge tone={diagnostics.summary === "ready" ? "ok" : blocking ? "danger" : "signal"}>
+            {diagnostics.summary === "ready" ? t("Ready") : t("Needs attention")}
+          </Badge>
+        </div>
+      </div>
+      <p className="mt-1 max-w-[62ch] text-[11.5px] leading-relaxed text-ink-3">
+        {diagnostics.summary === "ready"
+          ? t("Everything the controller overlay needs is ready.")
+          : t("Fix the first item below, then press the configured gesture again.")}
       </p>
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <Badge tone={listener.available ? "ok" : "danger"}>
-          {listener.available ? listener.backend : t("unavailable")}
-        </Badge>
-        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-3">{listener.platform}</span>
-        {active ? (
-          <span className="flex items-center gap-2 text-[12px] text-ink-2">
-            <Gamepad2 className="size-3.5" />
-            {active.name}
-            {active.battery !== null ? ` · ${active.battery}%${active.charging ? "+" : ""}` : ""}
-          </span>
-        ) : (
-          <span className="text-[12px] text-ink-3">
-            {listener.available ? t("No controller detected.") : t("No controller is being read.")}
-          </span>
-        )}
-        {saving && <span className="text-[11px] text-ink-3">{t("Saving…")}</span>}
+
+      <ul className="mt-3 flex flex-col gap-2">
+        {diagnostics.checks.map((check) => (
+          <li key={check.id} className="flex items-start gap-2">
+            <span
+              className={`mt-[6px] size-1.5 shrink-0 rounded-full ${checkDot(check)}`}
+              aria-hidden="true"
+            />
+            <span className="text-[12px] leading-relaxed text-ink-2">
+              {overlayCheckLabel(check)}
+              {check.id === "listener-failed" && (
+                <span className="text-ink-3"> · {check.message}</span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <DiagnosticFact label={t("Configured gesture")}>
+          {effectiveGestureLabel(status)}
+        </DiagnosticFact>
+        <DiagnosticFact label={t("Controllers")}>
+          {active ? (
+            <span className="flex items-center gap-2">
+              <Gamepad2 className="size-3.5" />
+              {active.name} <span className="text-ink-3">#{active.id}</span>
+              {active.battery !== null ? ` · ${active.battery}%${active.charging ? "+" : ""}` : ""}
+            </span>
+          ) : (
+            t("No controller detected.")
+          )}
+        </DiagnosticFact>
+        <DiagnosticFact label={t("Running game")}>
+          {status.game
+            ? `${status.game.title}${status.game.pid ? ` · PID ${status.game.pid}` : ""}`
+            : t("No game is running.")}
+        </DiagnosticFact>
+        <DiagnosticFact label={t("Last trigger")}>
+          {lastTriggerLabel(status.lastTrigger)}
+        </DiagnosticFact>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <Button size="sm" variant="default" icon={<MonitorPlay className="size-3.5" />} onClick={onPreview}>
+          {t("Open the overlay now")}
+        </Button>
+        <span className="max-w-[52ch] text-[11.5px] leading-relaxed text-ink-3">
+          {t("{shortcut} always works while Ludex is focused.", { shortcut: status.keyboardShortcut })}
+        </span>
       </div>
     </div>
   );
+}
+
+function DiagnosticFact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="text-[10.5px] uppercase tracking-[0.12em] text-ink-3">{label}</p>
+      <p className="mt-0.5 text-[12px] text-ink-2">{children}</p>
+    </div>
+  );
+}
+
+function checkDot(check: OverlayCheck): string {
+  switch (check.level) {
+    case "ok":
+      return "bg-ok";
+    case "warning":
+      return "bg-signal";
+    case "blocking":
+      return "bg-danger";
+    default:
+      return "bg-ink-3";
+  }
+}
+
+/** Translate a stable check id; unknown ids fall back to the backend copy. */
+function overlayCheckLabel(check: OverlayCheck): string {
+  switch (check.id) {
+    case "overlay-enabled":
+      return t("The overlay is enabled.");
+    case "overlay-disabled":
+      return t("The overlay is turned off in Settings → Profiles.");
+    case "game-enabled":
+      return t("The overlay is enabled for this game.");
+    case "game-disabled":
+      return t("The overlay is turned off for this game.");
+    case "listener-running":
+      return t("The controller listener is running.");
+    case "listener-failed":
+    case "listener-stopped":
+    case "trigger-unavailable":
+      return t("The controller listener is not running.");
+    case "listener-unsupported":
+      return t("Controller triggers need Windows or Linux. Use the keyboard shortcut.");
+    case "controller-connected":
+      return t("A controller is connected.");
+    case "no-controller":
+      return t("No controller detected. Connect a pad and press a button so the system registers it; the keyboard shortcut still works.");
+    case "trigger-ready":
+      return t("The configured controller gesture is ready.");
+    case "trigger-keyboard":
+      return t("Only the keyboard shortcut is armed; no controller gesture opens the overlay.");
+    case "guide-unsupported-windows":
+      return t("Windows does not deliver the Guide/Home button to apps. LB+RB+Start still opens the overlay, or switch the gesture to LB+RB+Start.");
+    case "trigger-no-controller":
+      return t("The configured gesture needs a connected controller.");
+    case "no-game":
+      return t("No game is running; open the overlay from here or launch a game first.");
+    case "game-windowed":
+      return t("The game window is windowed or borderless: the overlay can draw above it.");
+    case "game-fullscreen":
+    case "game-fullscreen-unknown":
+      return t("If the game is in exclusive fullscreen, Windows hides every overlay that is not injected: switch it to borderless or windowed fullscreen.");
+    case "floating-window":
+      return t("A floating always-on-top window can be drawn above a borderless game.");
+    case "no-floating-window":
+      return t("This platform can only draw the overlay inside Ludex, not over a game.");
+    default:
+      return check.message;
+  }
+}
+
+function effectiveGestureLabel(status: OverlayStatus): string {
+  switch (status.triggerStatus.effective) {
+    case "guide":
+      return t("Double Home (Guide button)");
+    case "chord":
+      return t("LB+RB+Start");
+    case "keyboard":
+      return t("Keyboard only");
+    default:
+      return t("No controller gesture available");
+  }
+}
+
+function lastTriggerLabel(event: OverlayTriggerEvent | null): string {
+  if (!event) return t("No trigger event yet.");
+  const time = new Date(event.at).toLocaleTimeString();
+  switch (event.outcome) {
+    case "openedWindow":
+      return `${t("Opened in the floating window.")} · ${time}`;
+    case "openedInApp":
+      return `${t("Opened inside Ludex.")} · ${time}`;
+    case "closed":
+      return `${t("Closed.")} · ${time}`;
+    case "ignored":
+      return `${t("Ignored: {reason}", { reason: event.detail ?? t("unknown reason") })} · ${time}`;
+    default:
+      return time;
+  }
 }
