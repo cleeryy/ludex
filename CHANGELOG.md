@@ -37,6 +37,12 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Changed
 
+- The game page now reads like Settings (#189): one sticky sub-nav and one group
+  at a time (Overview, Files, Launch, Settings, Saves, Achievements, ROM),
+  addressable with `?tab=`, one 1240px content width, consistent headings and
+  empty states, editor-only actions moved into their group, duplicate hero/aside
+  facts removed, and every panel region named for screen readers. No visual
+  redesign.
 - Save folders confirm themselves (#180): high-confidence paths (manifest match,
   Steam ground truth, already confirmed) are promoted without a prompt, the
   pre-launch snapshot is diffed against the post-exit tree so changed candidates
