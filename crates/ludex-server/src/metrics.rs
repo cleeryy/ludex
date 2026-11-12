@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -14,7 +15,7 @@ use axum::extract::{MatchedPath, State};
 use axum::http::Request;
 use axum::middleware::Next;
 use axum::response::Response;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use serde::Serialize;
 
 use crate::db;
@@ -30,6 +31,15 @@ const BUCKETS: [f64; 11] = [
 const PUBLIC_SCRAPES_PER_WINDOW: u32 = 30;
 /// Sliding window for the public scrape limit.
 const RATE_WINDOW: Duration = Duration::from_secs(60);
+
+/// Seconds covered by one in-memory timeline slot.
+const TIMELINE_SLOT_SECONDS: i64 = 300;
+/// Slots needed for the largest supported window (24 h at 5 minutes).
+const TIMELINE_WINDOW_SLOTS: i64 = 86_400 / TIMELINE_SLOT_SECONDS;
+/// Hard cap on retained slots; older slots are dropped before the map grows.
+const TIMELINE_MAX_SLOTS: usize = 512;
+/// Maximum number of points a windowed series returns.
+pub const MAX_SERIES_POINTS: usize = 96;
 
 #[derive(Debug, Default, Clone)]
 struct Histogram {
@@ -50,6 +60,113 @@ impl Histogram {
     }
 }
 
+/// Counters for one 5-minute timeline slot.
+#[derive(Debug, Default, Clone, Copy)]
+struct SlotCounters {
+    success: u64,
+    redirect: u64,
+    client_error: u64,
+    server_error: u64,
+    other: u64,
+    duration_sum: f64,
+    duration_count: u64,
+}
+
+impl SlotCounters {
+    fn observe(&mut self, status: u16, seconds: f64) {
+        match status {
+            200..=299 => self.success += 1,
+            300..=399 => self.redirect += 1,
+            400..=499 => self.client_error += 1,
+            500..=599 => self.server_error += 1,
+            _ => self.other += 1,
+        }
+        self.duration_sum += seconds;
+        self.duration_count += 1;
+    }
+}
+
+/// One point in a windowed request series.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SeriesPoint {
+    /// Bucket start, Unix seconds.
+    pub at: i64,
+    /// Requests seen in the bucket.
+    pub requests: u64,
+    /// 2xx responses.
+    pub success: u64,
+    /// 3xx responses.
+    pub redirects: u64,
+    /// 4xx responses.
+    pub client_errors: u64,
+    /// 5xx responses.
+    pub server_errors: u64,
+    /// Average response time in milliseconds for the bucket.
+    pub average_ms: f64,
+}
+
+/// Aggregate request statistics for a bounded time window.
+#[derive(Debug, Clone, Default)]
+pub struct WindowStats {
+    /// Requests in the window.
+    pub total: u64,
+    /// 2xx responses.
+    pub success: u64,
+    /// 3xx responses.
+    pub redirects: u64,
+    /// 4xx responses.
+    pub client_errors: u64,
+    /// 5xx responses.
+    pub server_errors: u64,
+    /// 1xx or unknown status responses.
+    pub other: u64,
+    /// Average response time in milliseconds.
+    pub average_ms: f64,
+    /// Windowed series, at most [`MAX_SERIES_POINTS`] points, oldest first.
+    pub samples: Vec<SeriesPoint>,
+}
+
+impl WindowStats {
+    fn add(&mut self, counters: &SlotCounters) {
+        self.total += counters.success
+            + counters.redirect
+            + counters.client_error
+            + counters.server_error
+            + counters.other;
+        self.success += counters.success;
+        self.redirects += counters.redirect;
+        self.client_errors += counters.client_error;
+        self.server_errors += counters.server_error;
+        self.other += counters.other;
+    }
+}
+
+/// Latency percentiles derived from every recorded histogram.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LatencyStats {
+    /// 50th percentile, milliseconds.
+    pub p50_ms: f64,
+    /// 95th percentile, milliseconds.
+    pub p95_ms: f64,
+    /// 99th percentile, milliseconds.
+    pub p99_ms: f64,
+    /// Mean latency, milliseconds.
+    pub average_ms: f64,
+}
+
+/// One error series from the cumulative request counters.
+#[derive(Debug, Clone)]
+pub struct ErrorRoute {
+    /// HTTP method.
+    pub method: String,
+    /// Route template.
+    pub route: String,
+    /// Response status.
+    pub status: u16,
+    /// Requests seen since process start.
+    pub count: u64,
+}
+
 #[derive(Debug, Default)]
 struct Window {
     started: Option<Instant>,
@@ -61,7 +178,12 @@ struct Window {
 pub struct Metrics {
     requests: Mutex<HashMap<(String, String, String), u64>>,
     durations: Mutex<HashMap<(String, String), Histogram>>,
-    scrapes: Mutex<HashMap<IpAddr, Window>>,
+    scrape_windows: Mutex<HashMap<IpAddr, Window>>,
+    /// Bounded 5-minute timeline, keyed by slot index. Never grows past
+    /// [`TIMELINE_MAX_SLOTS`] entries.
+    timeline: Mutex<HashMap<i64, SlotCounters>>,
+    /// Archive transfers currently streaming to a client.
+    active_downloads: AtomicU64,
 }
 
 impl Metrics {
@@ -69,10 +191,10 @@ impl Metrics {
     pub fn record(&self, method: &str, route: &str, status: u16, seconds: f64) {
         let method = normalize_method(method);
         let route = route.to_string();
-        let status = status.to_string();
+        let status_label = status.to_string();
         if let Ok(mut requests) = self.requests.lock() {
             *requests
-                .entry((method.clone(), route.clone(), status))
+                .entry((method.clone(), route.clone(), status_label))
                 .or_insert(0) += 1;
         }
         if let Ok(mut durations) = self.durations.lock() {
@@ -81,13 +203,131 @@ impl Metrics {
                 .or_default()
                 .observe(seconds);
         }
+        if let Ok(mut timeline) = self.timeline.lock() {
+            let slot = Utc::now().timestamp().div_euclid(TIMELINE_SLOT_SECONDS);
+            if timeline.len() > TIMELINE_MAX_SLOTS {
+                let cutoff = slot - TIMELINE_WINDOW_SLOTS;
+                timeline.retain(|key, _| *key >= cutoff);
+            }
+            timeline.entry(slot).or_default().observe(status, seconds);
+        }
+    }
+
+    /// Marks an archive transfer as in flight until the returned guard drops.
+    pub fn download_started(&self) -> DownloadGuard<'_> {
+        self.active_downloads.fetch_add(1, Ordering::Relaxed);
+        DownloadGuard { metrics: self }
+    }
+
+    /// Archive transfers currently streaming.
+    #[must_use]
+    pub fn active_downloads(&self) -> u64 {
+        self.active_downloads.load(Ordering::Relaxed)
+    }
+
+    /// Request counts and a bounded series for the last `seconds`.
+    ///
+    /// The series is downsampled so a response never carries more than
+    /// [`MAX_SERIES_POINTS`] points, whatever the window.
+    #[must_use]
+    pub fn window(&self, seconds: i64) -> WindowStats {
+        let slots = (seconds.div_euclid(TIMELINE_SLOT_SECONDS)).clamp(1, TIMELINE_WINDOW_SLOTS);
+        let now_slot = Utc::now().timestamp().div_euclid(TIMELINE_SLOT_SECONDS);
+        let first_slot = now_slot - slots + 1;
+        let Ok(timeline) = self.timeline.lock() else {
+            return WindowStats::default();
+        };
+        let mut stats = WindowStats::default();
+        let mut raw: Vec<(i64, SlotCounters)> = Vec::with_capacity(slots as usize);
+        let mut weighted_seconds = 0.0;
+        let mut timed_requests = 0_u64;
+        for slot in first_slot..=now_slot {
+            let counters = timeline.get(&slot).copied().unwrap_or_default();
+            stats.add(&counters);
+            weighted_seconds += counters.duration_sum;
+            timed_requests += counters.duration_count;
+            raw.push((slot, counters));
+        }
+        if timed_requests > 0 {
+            stats.average_ms = (weighted_seconds / timed_requests as f64) * 1000.0;
+        }
+        stats.samples = downsample(&raw, MAX_SERIES_POINTS);
+        stats
+    }
+
+    /// Latency percentiles over every request recorded since start.
+    #[must_use]
+    pub fn latency(&self) -> LatencyStats {
+        let Ok(durations) = self.durations.lock() else {
+            return LatencyStats::default();
+        };
+        let mut buckets = [0_u64; BUCKETS.len()];
+        let mut count = 0_u64;
+        let mut sum = 0.0;
+        for histogram in durations.values() {
+            for (index, value) in histogram.buckets.iter().enumerate() {
+                buckets[index] += value;
+            }
+            count += histogram.count;
+            sum += histogram.sum;
+        }
+        if count == 0 {
+            return LatencyStats::default();
+        }
+        let percentile = |fraction: f64| -> f64 {
+            let rank = ((count as f64) * fraction).ceil().max(1.0) as u64;
+            for (index, bound) in BUCKETS.iter().enumerate() {
+                if buckets[index] >= rank {
+                    return bound * 1000.0;
+                }
+            }
+            BUCKETS[BUCKETS.len() - 1] * 1000.0
+        };
+        LatencyStats {
+            p50_ms: percentile(0.50),
+            p95_ms: percentile(0.95),
+            p99_ms: percentile(0.99),
+            average_ms: (sum / count as f64) * 1000.0,
+        }
+    }
+
+    /// Most frequent 4xx/5xx series since process start, capped at `limit`.
+    ///
+    /// Route labels come from axum templates, so the list stays small even on a
+    /// busy server.
+    #[must_use]
+    pub fn top_errors(&self, limit: usize) -> Vec<ErrorRoute> {
+        let Ok(requests) = self.requests.lock() else {
+            return Vec::new();
+        };
+        let mut rows: Vec<ErrorRoute> = requests
+            .iter()
+            .filter_map(|((method, route, status), count)| {
+                let status = status.parse::<u16>().ok()?;
+                (status >= 400).then(|| ErrorRoute {
+                    method: method.clone(),
+                    route: route.clone(),
+                    status,
+                    count: *count,
+                })
+            })
+            .collect();
+        rows.sort_by(|left, right| {
+            right
+                .count
+                .cmp(&left.count)
+                .then_with(|| left.route.cmp(&right.route))
+                .then_with(|| left.status.cmp(&right.status))
+        });
+        rows.truncate(limit.clamp(1, 20));
+        rows
     }
 
     /// Whether a public scrape from `ip` is allowed. Rotating windows: at most
     /// [`PUBLIC_SCRAPES_PER_WINDOW`] requests per [`RATE_WINDOW`].
     #[must_use]
     pub fn allow_scrape(&self, ip: IpAddr) -> bool {
-        let Ok(mut scrapes) = self.scrapes.lock() else {
+        let Ok(mut scrapes) = self.scrape_windows.lock() else {
             return true;
         };
         let now = Instant::now();
@@ -180,6 +420,68 @@ pub async fn track(
         started.elapsed().as_secs_f64(),
     );
     response
+}
+
+/// RAII gauge for an archive transfer in flight.
+pub struct DownloadGuard<'a> {
+    metrics: &'a Metrics,
+}
+
+impl Drop for DownloadGuard<'_> {
+    fn drop(&mut self) {
+        self.metrics
+            .active_downloads
+            .fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+/// Merges adjacent slots until at most `max_points` remain.
+fn downsample(slots: &[(i64, SlotCounters)], max_points: usize) -> Vec<SeriesPoint> {
+    if slots.is_empty() {
+        return Vec::new();
+    }
+    let group = slots.len().div_ceil(max_points.max(1)).max(1);
+    slots
+        .chunks(group)
+        .map(|chunk| {
+            let mut totals = SlotCounters::default();
+            for (_, counters) in chunk {
+                totals.success += counters.success;
+                totals.redirect += counters.redirect;
+                totals.client_error += counters.client_error;
+                totals.server_error += counters.server_error;
+                totals.other += counters.other;
+                totals.duration_sum += counters.duration_sum;
+                totals.duration_count += counters.duration_count;
+            }
+            let requests = totals.success
+                + totals.redirect
+                + totals.client_error
+                + totals.server_error
+                + totals.other;
+            SeriesPoint {
+                at: chunk[0].0 * TIMELINE_SLOT_SECONDS,
+                requests,
+                success: totals.success,
+                redirects: totals.redirect,
+                client_errors: totals.client_error,
+                server_errors: totals.server_error,
+                average_ms: if totals.duration_count == 0 {
+                    0.0
+                } else {
+                    (totals.duration_sum / totals.duration_count as f64) * 1000.0
+                },
+            }
+        })
+        .collect()
+}
+
+/// Formats a slot index as a UTC timestamp for API responses.
+#[must_use]
+pub fn slot_time(seconds: i64) -> DateTime<Utc> {
+    Utc.timestamp_opt(seconds, 0)
+        .single()
+        .unwrap_or_else(Utc::now)
 }
 
 fn normalize_method(method: &str) -> String {
@@ -583,7 +885,7 @@ async fn webhook_counts(state: &AppState) -> (i64, i64, i64, i64) {
     }
 }
 
-async fn media_usage(media_dir: &std::path::Path) -> (u64, u64) {
+pub(crate) async fn media_usage(media_dir: &std::path::Path) -> (u64, u64) {
     let directory = media_dir.to_path_buf();
     tokio::task::spawn_blocking(move || {
         let mut files = 0_u64;
@@ -604,7 +906,7 @@ async fn media_usage(media_dir: &std::path::Path) -> (u64, u64) {
     .unwrap_or((0, 0))
 }
 
-async fn database_size(database_url: &str) -> u64 {
+pub(crate) async fn database_size(database_url: &str) -> u64 {
     let Some(database) = crate::db::sqlite_path_from_url(database_url) else {
         return 0;
     };
@@ -622,11 +924,13 @@ async fn database_size(database_url: &str) -> u64 {
     total
 }
 
-fn free_space(path: &std::path::Path) -> u64 {
+pub(crate) fn free_space(path: &std::path::Path) -> u64 {
     fs2::available_space(path).unwrap_or(0)
 }
 
-async fn last_integrity(state: &AppState) -> Option<IntegritySummary> {
+/// Last integrity report, shared by `/metrics`, health details and the admin
+/// observability dashboard.
+pub(crate) async fn last_integrity(state: &AppState) -> Option<IntegritySummary> {
     let row = db::query_as::<(i64, String, String, Option<String>, i64)>(
         "SELECT r.id, r.status, r.started_at, r.finished_at,
                 (SELECT COUNT(*) FROM integrity_findings f WHERE f.report_id = r.id)

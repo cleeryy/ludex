@@ -58,6 +58,8 @@ import type {
   OidcSettings,
   OidcSettingsInput,
   OidcTestResult,
+  ObservabilitySnapshot,
+  ObservabilityWindow,
   ProfilePatch,
   ProgressState,
   ProviderCandidate,
@@ -2113,6 +2115,171 @@ export const mockApi = {
   async health() {
     await latency();
     return { status: "ok", version: "0.1.0", uptimeSeconds: 412_800 };
+  },
+
+  async adminObservability(
+    token: string | null,
+    window: ObservabilityWindow,
+  ): Promise<ObservabilitySnapshot> {
+    await latency();
+    requireDemoAdmin(token);
+    const points = window === "24h" ? 24 : 12;
+    const stepMs = window === "24h" ? 3_600_000 : 300_000;
+    const startedAt = Date.now();
+    const series = Array.from({ length: points }, (_, index) => {
+      const wave = 40 + Math.round(24 * Math.sin(index / 2.2) + 14 * Math.sin(index / 5));
+      const failed = index % 7 === 3 ? 6 : index % 5 === 2 ? 2 : 0;
+      return {
+        at: new Date(startedAt - (points - 1 - index) * stepMs).toISOString(),
+        requests: wave,
+        success: wave - failed,
+        redirects: 0,
+        clientErrors: failed,
+        serverErrors: index % 11 === 6 ? 1 : 0,
+        averageMs: 24 + Math.round(10 * Math.sin(index / 3)),
+      };
+    });
+    const total = series.reduce((sum, point) => sum + point.requests, 0);
+    const clientErrors = series.reduce((sum, point) => sum + point.clientErrors, 0);
+    const serverErrors = series.reduce((sum, point) => sum + point.serverErrors, 0);
+    const success = series.reduce((sum, point) => sum + point.success, 0);
+    const seconds = window === "24h" ? 86_400 : 3_600;
+    const libraryEmpty = emptyLibrary();
+    const now = nowIso();
+    return {
+      generatedAt: now,
+      window,
+      server: {
+        version: "0.3.2",
+        commit: "demo",
+        uptimeSeconds: 412_800,
+        startedAt: new Date(Date.now() - 412_800_000).toISOString(),
+      },
+      requests: {
+        total,
+        perSecond: total / seconds,
+        success,
+        redirects: 0,
+        clientErrors,
+        serverErrors,
+        errorRate: total === 0 ? 0 : (clientErrors + serverErrors) / total,
+        averageMs: 31.4,
+        p50Ms: 18,
+        p95Ms: 90,
+        p99Ms: 250,
+      },
+      series,
+      topErrors: libraryEmpty
+        ? []
+        : [
+            { method: "GET", route: "/api/games/{id}", status: 404, count: 6 },
+            { method: "POST", route: "/api/webhooks/{id}/test", status: 502, count: 2 },
+          ],
+      active: {
+        scans: 0,
+        ingestRunning: libraryEmpty ? 0 : 1,
+        ingestQueued: libraryEmpty ? 0 : 2,
+        downloads: libraryEmpty ? 0 : 1,
+        integrityRunning: false,
+      },
+      database: {
+        ok: true,
+        backend: "sqlite",
+        sizeBytes: 284 * MB,
+        latencyMs: 1.2,
+        connections: 4,
+        idleConnections: 3,
+        maxConnections: 5,
+      },
+      storage: {
+        backend: "local",
+        disk: {
+          dataFreeBytes: 84 * GB,
+          gamesFreeBytes: 512 * GB,
+          mediaFreeBytes: 84 * GB,
+        },
+        media: { files: libraryEmpty ? 0 : 1284, bytes: libraryEmpty ? 0 : 3 * GB },
+        saves: { snapshots: libraryEmpty ? 0 : 42, bytes: libraryEmpty ? 0 : 640 * MB },
+        backups: {
+          archives: 3,
+          bytes: 12 * GB,
+          latestAt: new Date(Date.now() - 86_400_000).toISOString(),
+        },
+        roots: libraryEmpty
+          ? []
+          : [
+              { label: "Library", enabled: true, available: true, versions: 128, lastError: null },
+              { label: "ROMs", enabled: true, available: true, versions: 24, lastError: null },
+            ],
+      },
+      recentEvents: libraryEmpty
+        ? []
+        : [
+            {
+              id: 9,
+              action: "game.ingested",
+              actorKind: "user",
+              targetType: "game",
+              targetId: "41",
+              createdAt: now,
+            },
+            {
+              id: 8,
+              action: "library.scan_completed",
+              actorKind: "system",
+              targetType: "library",
+              targetId: null,
+              createdAt: new Date(Date.now() - 3_600_000).toISOString(),
+            },
+            {
+              id: 7,
+              action: "user.login",
+              actorKind: "user",
+              targetType: "user",
+              targetId: "1",
+              createdAt: new Date(Date.now() - 7_200_000).toISOString(),
+            },
+          ],
+      webhooks: {
+        pending: libraryEmpty ? 0 : 1,
+        failed: libraryEmpty ? 0 : 1,
+        recentFailures: libraryEmpty
+          ? []
+          : [
+              {
+                id: 3,
+                event: "game.ingested",
+                statusCode: 502,
+                attempts: 3,
+                lastError: "The endpoint answered 502 Bad Gateway",
+                nextAttemptAt: new Date(Date.now() + 600_000).toISOString(),
+              },
+            ],
+      },
+      integrity: {
+        last: libraryEmpty
+          ? null
+          : {
+              id: 2,
+              status: "completed",
+              findings: 1,
+              startedAt: new Date(Date.now() - 43_200_000).toISOString(),
+              finishedAt: new Date(Date.now() - 43_100_000).toISOString(),
+            },
+        recentFindings: libraryEmpty
+          ? []
+          : [
+              {
+                kind: "missing",
+                targetType: "archive",
+                targetId: "41",
+                detail: "The archive for this version is gone from the library root",
+                createdAt: new Date(Date.now() - 43_100_000).toISOString(),
+              },
+            ],
+      },
+      prometheus: { endpoint: "/metrics", tokenProtected: false },
+    };
   },
 
   /* collections */

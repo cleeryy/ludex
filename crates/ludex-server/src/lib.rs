@@ -50,6 +50,7 @@ pub mod media_gc;
 pub mod metadata;
 pub mod metrics;
 pub mod models;
+pub mod observability;
 pub mod oidc;
 pub mod openapi;
 pub mod providers;

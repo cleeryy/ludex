@@ -20,6 +20,7 @@ pub mod media;
 pub mod metadata_providers;
 pub mod metrics;
 pub mod news;
+pub mod observability;
 pub mod oidc;
 pub mod openapi;
 pub mod saves;
@@ -66,6 +67,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(controllers::router())
         .merge(desktop::router())
         .merge(emulators::router())
+        .merge(observability::router())
         .fallback(api_not_found)
 }
 

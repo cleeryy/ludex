@@ -2298,3 +2298,168 @@ export interface BackupRestoreResult {
   safetyBackup: string | null;
   restartRequired: boolean;
 }
+
+/* --------------------------------- Observability (#170) --------------------------------- */
+
+/** Time window supported by the admin dashboard. */
+export type ObservabilityWindow = "1h" | "24h";
+
+export interface ObservabilityServer {
+  version: string;
+  commit: string;
+  uptimeSeconds: number;
+  startedAt: string;
+}
+
+export interface ObservabilityRequests {
+  total: number;
+  perSecond: number;
+  success: number;
+  redirects: number;
+  clientErrors: number;
+  serverErrors: number;
+  /** Share of 4xx/5xx responses, 0..1. */
+  errorRate: number;
+  averageMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+}
+
+export interface ObservabilityPoint {
+  at: string;
+  requests: number;
+  success: number;
+  redirects: number;
+  clientErrors: number;
+  serverErrors: number;
+  averageMs: number;
+}
+
+export interface ObservabilityErrorRoute {
+  method: string;
+  route: string;
+  status: number;
+  count: number;
+}
+
+export interface ObservabilityActive {
+  scans: number;
+  ingestRunning: number;
+  ingestQueued: number;
+  downloads: number;
+  integrityRunning: boolean;
+}
+
+export interface ObservabilityDatabase {
+  ok: boolean;
+  backend: string;
+  sizeBytes: number;
+  latencyMs: number;
+  connections: number;
+  idleConnections: number;
+  maxConnections: number;
+}
+
+export interface ObservabilityDisk {
+  dataFreeBytes: number;
+  gamesFreeBytes: number;
+  mediaFreeBytes: number;
+}
+
+export interface ObservabilityMedia {
+  files: number;
+  bytes: number;
+}
+
+export interface ObservabilitySaves {
+  snapshots: number;
+  bytes: number;
+}
+
+export interface ObservabilityBackups {
+  archives: number;
+  bytes: number;
+  latestAt: string | null;
+}
+
+export interface ObservabilityRoot {
+  label: string;
+  enabled: boolean;
+  available: boolean;
+  versions: number;
+  lastError: string | null;
+}
+
+export interface ObservabilityStorage {
+  backend: string;
+  disk: ObservabilityDisk;
+  media: ObservabilityMedia;
+  saves: ObservabilitySaves;
+  backups: ObservabilityBackups;
+  roots: ObservabilityRoot[];
+}
+
+export interface ObservabilityEvent {
+  id: number;
+  action: string;
+  actorKind: "user" | "api_key" | "system" | string;
+  targetType: string | null;
+  targetId: string | null;
+  createdAt: string | null;
+}
+
+export interface ObservabilityWebhookFailure {
+  id: number;
+  event: string;
+  statusCode: number | null;
+  attempts: number;
+  lastError: string | null;
+  nextAttemptAt: string | null;
+}
+
+export interface ObservabilityWebhooks {
+  pending: number;
+  failed: number;
+  recentFailures: ObservabilityWebhookFailure[];
+}
+
+export interface ObservabilityFinding {
+  kind: string;
+  targetType: string;
+  targetId: string | null;
+  detail: string | null;
+  createdAt: string | null;
+}
+
+export interface ObservabilityIntegrity {
+  last: {
+    id: number;
+    status: string;
+    findings: number;
+    startedAt: string | null;
+    finishedAt: string | null;
+  } | null;
+  recentFindings: ObservabilityFinding[];
+}
+
+export interface ObservabilityPrometheus {
+  endpoint: string;
+  tokenProtected: boolean;
+}
+
+export interface ObservabilitySnapshot {
+  generatedAt: string;
+  window: ObservabilityWindow;
+  server: ObservabilityServer;
+  requests: ObservabilityRequests;
+  series: ObservabilityPoint[];
+  topErrors: ObservabilityErrorRoute[];
+  active: ObservabilityActive;
+  database: ObservabilityDatabase;
+  storage: ObservabilityStorage;
+  recentEvents: ObservabilityEvent[];
+  webhooks: ObservabilityWebhooks;
+  integrity: ObservabilityIntegrity;
+  prometheus: ObservabilityPrometheus;
+}

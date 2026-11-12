@@ -45,6 +45,8 @@ export function navLabel(destination: NavDestination): string {
       return t("Metadata providers");
     case "authentication":
       return t("Authentication");
+    case "observability":
+      return t("Observability");
     case "server":
       return t("Server");
     case "settings":

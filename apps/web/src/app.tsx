@@ -41,6 +41,7 @@ import { ScanScreen } from "@/screens/admin/scan";
 import { UsersScreen } from "@/screens/admin/users";
 import { AdminNewsScreen } from "@/screens/admin/news";
 import { ServerScreen } from "@/screens/admin/server";
+import { ObservabilityScreen } from "@/screens/admin/observability";
 import { AuthenticationScreen } from "@/screens/admin/authentication";
 import { MetadataProvidersScreen } from "@/screens/admin/metadata";
 import { BackupsScreen } from "@/screens/admin/backups";
@@ -339,6 +340,14 @@ export function App() {
                     element={
                       <RequireAdmin>
                         <MetadataProvidersScreen />
+                      </RequireAdmin>
+                    }
+                  />
+                  <Route
+                    path="admin/observability"
+                    element={
+                      <RequireAdmin>
+                        <ObservabilityScreen />
                       </RequireAdmin>
                     }
                   />

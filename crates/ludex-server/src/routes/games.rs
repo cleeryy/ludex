@@ -1138,6 +1138,7 @@ async fn download(
     ApiQuery(query): ApiQuery<DownloadQuery>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    let _download = state.metrics.download_started();
     let version_id = authorize_version(
         &state,
         &headers,
@@ -1409,6 +1410,7 @@ async fn stream_version(
     ApiQuery(query): ApiQuery<StreamQuery>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    let _download = state.metrics.download_started();
     let version_id = authorize_version(
         &state,
         &headers,
@@ -1695,6 +1697,7 @@ async fn stream_entry(
     ApiQuery(query): ApiQuery<StreamQuery>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    let _download = state.metrics.download_started();
     let version_id = authorize_version(
         &state,
         &headers,

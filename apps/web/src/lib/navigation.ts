@@ -29,6 +29,7 @@ export type NavIconName =
   | "authentication"
   | "server"
   | "backup"
+  | "activity"
   | "settings";
 
 export type NavGroupId = "library" | "play" | "community" | "admin" | "system";
@@ -229,6 +230,14 @@ export const NAV_DESTINATIONS = [
     labelKey: "Server",
     group: "admin",
     icon: "server",
+    visibility: "admin",
+  },
+  {
+    id: "observability",
+    to: "/admin/observability",
+    labelKey: "Observability",
+    group: "admin",
+    icon: "activity",
     visibility: "admin",
   },
   {
