@@ -135,6 +135,9 @@ export function moveFocusIndex(index: number, count: number, offset: number): nu
  */
 export function normalizeOverlayStatus(raw: Partial<OverlayStatus> | null | undefined): OverlayStatus {
   const listener = raw?.listener;
+  const diagnostics = raw?.diagnostics;
+  const capabilities = raw?.capabilities;
+  const triggerStatus = raw?.triggerStatus;
   return {
     enabled: raw?.enabled ?? true,
     open: raw?.open ?? false,
@@ -149,10 +152,37 @@ export function normalizeOverlayStatus(raw: Partial<OverlayStatus> | null | unde
     listener: {
       backend: listener?.backend ?? "none",
       available: listener?.available ?? false,
+      running: listener?.running ?? false,
       platform: listener?.platform ?? "unknown",
       reason: listener?.reason ?? null,
       controllers: Array.isArray(listener?.controllers) ? listener.controllers : [],
     },
+    capabilities: {
+      platform: capabilities?.platform ?? "unknown",
+      floatingWindow: capabilities?.floatingWindow ?? false,
+      alwaysOnTop: capabilities?.alwaysOnTop ?? false,
+      globalListener: capabilities?.globalListener ?? false,
+      guideButton: capabilities?.guideButton ?? false,
+      chord: capabilities?.chord ?? false,
+    },
+    triggerStatus: {
+      trigger: triggerStatus?.trigger ?? raw?.trigger ?? "doubleHome",
+      guideEnabled: triggerStatus?.guideEnabled ?? true,
+      chordEnabled: triggerStatus?.chordEnabled ?? true,
+      effective: triggerStatus?.effective ?? "none",
+      deliverable: triggerStatus?.deliverable ?? false,
+      noteCode: triggerStatus?.noteCode ?? null,
+      note: triggerStatus?.note ?? null,
+    },
+    diagnostics: {
+      canOpen: diagnostics?.canOpen ?? ((raw?.enabled ?? true) && !(raw?.gameDisabled ?? false)),
+      triggerDeliverable: diagnostics?.triggerDeliverable ?? false,
+      overGame: diagnostics?.overGame ?? false,
+      summary: diagnostics?.summary ?? "unknown",
+      checks: Array.isArray(diagnostics?.checks) ? diagnostics.checks : [],
+    },
+    foreground: raw?.foreground ?? null,
+    lastTrigger: raw?.lastTrigger ?? null,
     platformNote: raw?.platformNote ?? "",
     keyboardShortcut: raw?.keyboardShortcut ?? "Shift+Tab",
   };

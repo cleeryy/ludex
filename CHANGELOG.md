@@ -79,6 +79,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- The in-game overlay now says why it does not open and self-heals (#190):
+  `overlay_status` reports controller names/ids, trigger deliverability (the
+  Guide button is never delivered on Windows XInput, so the chord fallback is
+  used), global and per-game enablement, presentation/fullscreen state, the
+  running game pid and the last trigger verdict; the listener restarts with
+  capped backoff, re-arms on hot-plug, logs every trigger and open/close attempt
+  with its reason, creates and focuses the overlay window on demand, and
+  Settings → Profiles shows the checklist plus an "Open the overlay now" test.
 - PowerShell/console windows are gone for good (#193): every internal helper,
   silent installer and runtime setup now goes through the no-window helper, the
   source-scan test covers twelve programs plus `.exe`/absolute-path literals,

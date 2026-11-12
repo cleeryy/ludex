@@ -2488,9 +2488,9 @@ interface RemotePlayCleanup {
 | `get_settings` | — | `LocalSettings` |
 | `save_settings` | `{ settings }` | `LocalSettings`; also re-applies the window decorations when `nativeTitleBar` changed (#111) |
 | `set_native_title_bar` | `{ enabled }` | `LocalSettings`; shows the OS title bar (`true`) or Ludex's own (`false`) on the live window and persists it, no restart. No-op decoration change on macOS (#111) |
-| `overlay_status` | — | `OverlayStatus`; overlay feature switch/opacity/scale/tabs, running game, presentation (`closed`, `window`, `inApp`), native listener status (backend, controllers, battery) and the platform limitation note (#144). Local only |
+| `overlay_status` | — | `OverlayStatus`; overlay feature switch/opacity/scale/tabs, running game with pid, presentation (`closed`, `window`, `inApp`), native listener status (backend, available, running, controllers, battery), capabilities, trigger deliverability, the "why it does not open" checklist, the foreground fullscreen hint, the last trigger verdict and the platform limitation note (#144, #190). Also re-arms a listener thread that failed to spawn. Local only |
 | `set_overlay_settings` | `{ settings: OverlaySettingsPatch }` | `OverlayStatus`; merges any subset of `enabled`, `trigger`, `opacity`, `scale`, `tabs`, `disabledGames`, validates/clamps it, persists it and applies it live (an open overlay picks up opacity/scale/tabs; disabling closes it) (#144) |
-| `open_overlay` | — | `OverlayStatus`; opens the overlay. When the main window is focused it is drawn in-app (`presentation: "inApp"`); otherwise a transparent always-on-top `overlay` window is created on the current monitor (`presentation: "window"`). Refused when the overlay or the running game is opted out (#144) |
+| `open_overlay` | — | `OverlayStatus`; opens the overlay. When the main window is focused it is drawn in-app (`presentation: "inApp"`); otherwise a transparent always-on-top `overlay` window is created on demand on the current monitor, shown, unminimized and focused with one retry (`presentation: "window"`). Refused when the overlay or the running game is opted out; the refusal and its reason are logged and returned in `lastTrigger` (#144, #190) |
 | `close_overlay` | — | `OverlayStatus`; hides the overlay window and hands focus back (Windows: captured HWND; X11: `xdotool` when available). Never pauses or stops the game (#144) |
 | `overlay_game_state` | — | `OverlayGameState \| null`; session id, game id, title, launch time, elapsed seconds, total playtime and per-game disable flag of the newest running game (#144) |
 | `set_overlay_game_disabled` | `{ gameId, disabled }` | `OverlayStatus`; persists a per-game opt-out; disabling the running game closes the overlay (#144) |
@@ -3946,11 +3946,44 @@ interface OverlayStatus {
   presentation: "closed" | "window" | "inApp";
   listener: {
     backend: "gilrs" | "unsupported" | "failed" | "none";
-    available: boolean;
+    available: boolean;       // gilrs initialised
+    running: boolean;         // listener thread alive (incl. retry loop)
     platform: string;
     reason: string | null;
     controllers: { id: string; name: string; active: boolean; battery: number | null; charging: boolean }[];
   };
+  capabilities: {
+    platform: "windows" | "linux" | "macos" | "other";
+    floatingWindow: boolean;  // a separate always-on-top window exists
+    alwaysOnTop: boolean;     // best effort on Wayland
+    globalListener: boolean;
+    guideButton: boolean;     // Guide/Home reaches the process (false on Windows)
+    chord: boolean;
+  };
+  triggerStatus: {
+    trigger: "doubleHome" | "chord" | "keyboard";
+    guideEnabled: boolean;
+    chordEnabled: boolean;
+    effective: "guide" | "chord" | "keyboard" | "none";
+    deliverable: boolean;     // at least one configured pad gesture can fire
+    noteCode: string | null;  // guide-unsupported-windows, no-controller, ...
+    note: string | null;      // English fallback
+  };
+  diagnostics: {
+    canOpen: boolean;           // feature switch + per-game opt-out
+    triggerDeliverable: boolean;
+    overGame: boolean;          // floating window can draw above the game now
+    summary: string;            // first blocking id, else first warning, else "ready"
+    checks: { id: string; level: "ok" | "info" | "warning" | "blocking"; message: string }[];
+  };
+  foreground: { title: string | null; fullscreen: "windowed" | "fullscreen" | "unknown" } | null;
+  lastTrigger: {
+    at: string;                 // RFC 3339
+    source: "controller" | "manual" | "settings";
+    action: "open" | "close";
+    outcome: "openedWindow" | "openedInApp" | "closed" | "ignored";
+    detail: string | null;      // ignore reason or window-creation error
+  } | null;
   platformNote: string;
   keyboardShortcut: string;   // "Shift+Tab"
 }
@@ -3959,6 +3992,7 @@ interface OverlayGameState {
   sessionId: string;
   gameId: number;
   title: string;
+  pid: number;                // root pid of the launched game
   startedAt: string;          // RFC 3339
   elapsedSeconds: number;     // this session
   totalSeconds: number;       // finished sessions + this one
@@ -3978,14 +4012,54 @@ type OverlaySettingsPatch = Partial<Pick<OverlayStatus,
   it; `trigger: "keyboard"` disables both pad gestures. Hot-plug, controller id
   and a 0.25 deadzone for activity reporting are handled by the listener.
   Each controller reports `battery`/`charging` when the host exposes it.
+- **Trigger deliverability (#190).** `triggerStatus` resolves the configured
+  setting into the gesture that can actually fire. On Windows `doubleHome` is
+  demoted to `effective: "chord"` with `noteCode: "guide-unsupported-windows"`:
+  the default gesture would otherwise never fire and the overlay would silently
+  do nothing. `effective: "none"` means no pad gesture can fire
+  (`trigger: "keyboard"`, no controller, listener unavailable, or an
+  unsupported platform) and the settings panel points at the keyboard shortcut.
 - **Window.** When a game owns the focus, `open_overlay` creates the `overlay`
-  webview window: transparent (Windows/Linux), always-on-top, undecorated,
-  focusable, skipped from the taskbar, sized to cover the monitor the main
-  window is on, and focused without stopping the game. When the main window is
-  focused the same panel is drawn in-app. `close_overlay` hides the window and
-  restores focus: the captured foreground HWND on Windows; `xdotool` on X11
-  when installed (Wayland delegates to the compositor); otherwise no other
-  window is focused while a game is running.
+  webview window on demand: transparent (Windows/Linux), always-on-top,
+  undecorated, focusable, skipped from the taskbar, sized to cover the monitor
+  the main window is on, shown/unminimized and focused with one retry; the
+  topmost flag is re-asserted on every open because some window managers drop it
+  after a hide. When the main window is focused the same panel is drawn in-app.
+  `close_overlay` hides the window and restores focus: the captured foreground
+  HWND on Windows; `xdotool` on X11 when installed (Wayland delegates to the
+  compositor); otherwise no other window is focused while a game is running.
+- **Listener lifecycle (#190).** The listener thread is a supervisor: it always
+  starts at boot, independently of later settings loads, and retries a failed
+  `Gilrs::new()` with a capped backoff (1, 2, 4, 8, 16, then 30 s) instead of
+  going deaf for the session. Every `overlay_status` read re-arms a thread that
+  could not be spawned. Hot-plug edges reset the gesture detector (a new pad can
+  never inherit a held chord) and republish the controller list immediately.
+  Every trigger button press/release and every open/close attempt is logged at
+  info with its source, game id/pid, presentation, focus capture result and the
+  reason an attempt was ignored; `lastTrigger` exposes the same verdict to the
+  panel.
+- **Why it does not open (#190).** `diagnostics.checks` is the status decision
+  tree: one row per reason, in evaluation order. Stable ids are
+  `overlay-disabled`, `game-disabled`, `listener-unsupported`,
+  `listener-stopped`, `listener-failed`, `no-controller`,
+  `guide-unsupported-windows`, `trigger-keyboard`, `trigger-no-controller`,
+  `trigger-unavailable`, `no-game`, `game-fullscreen`, `game-windowed`,
+  `game-fullscreen-unknown`, `no-floating-window`; `level` is `ok`, `info`,
+  `warning` or `blocking`, and `summary` is the first blocking id, else the
+  first warning, else `ready`. Settings → Profiles renders the list plus the
+  configured/effective gesture, the detected controllers (name and id), the
+  running game with its pid, the last trigger verdict, a **Preview the overlay**
+  / **Open the overlay now** fallback that reports whether the in-app or
+  floating presentation was used, and the `keyboardShortcut` hint. The
+  `platformNote` stays verbatim.
+- **Fullscreen detection (#190).** On Windows the foreground window style is
+  read on each status call while a game is running (`WS_CAPTION`/`WS_THICKFRAME`
+  and the monitor coverage). On X11 `_NET_WM_STATE_FULLSCREEN` is read through
+  `xprop` when installed; Wayland and macOS report `unknown`. Style bits cannot
+  separate borderless from exclusive fullscreen without DXGI, so both report
+  `fullscreen` and the checklist explains the exclusive risk and how to fix it
+  (``switch the game to borderless or windowed fullscreen``). The overlay still
+  tries to open: the limitation is advisory, never a refusal.
 - **Content.** Current game and playtime, Resume/Exit, Library quick launch,
   Downloads progress (the Rust install queue keeps running), achievements of
   the running game, controller status/battery in the footer and a Big Picture
@@ -3997,3 +4071,12 @@ type OverlaySettingsPatch = Partial<Pick<OverlayStatus,
 - **Electron/web overlay windows.** The `overlay` label is declared in
   `capabilities/default.json`; the web entry is `index.html?overlay=1`, which
   mounts a router-free provider tree instead of the main app shell.
+- **Manual validation (Windows).** CI cannot press a controller or launch an
+  exclusive-fullscreen game. Before a release, on a Windows PC: connect an Xbox
+  pad, launch a borderless game from Ludex, press LB+RB+Start (and the double
+  Guide gesture on Linux) and confirm the floating window appears above the
+  game and focus returns on close; repeat with the trigger set to `keyboard`
+  and with no pad connected to confirm the checklist explains each case; set the
+  game to exclusive fullscreen and confirm the panel shows the actionable
+  message instead of failing silently. Keep the log excerpt (trigger buttons,
+  presentation, focus token, refusal reason) in the issue.

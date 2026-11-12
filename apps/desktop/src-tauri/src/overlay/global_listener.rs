@@ -8,6 +8,11 @@
 //! Supported on Windows (`xinput`/`wgi` backends) and Linux (`evdev`/udev, which
 //! needs read access to `/dev/input/event*` — usually the `input` group, or a
 //! udev rule). macOS uses the in-app overlay only.
+//!
+//! The thread is a supervisor: `Gilrs::new()` failures (no udev permission, a
+//! driver that is not ready yet) are retried with a capped backoff instead of
+//! killing the listener until the next app restart. Hot-plug edges reset the
+//! gesture detector, so a new pad can never inherit a half-pressed chord.
 
 use std::time::{Duration, Instant};
 
@@ -28,49 +33,116 @@ const STATUS_REFRESH: Duration = Duration::from_secs(2);
 const ACTIVITY_WINDOW: Duration = Duration::from_secs(5);
 /// Blocking wait so the loop can still refresh status while no pad moves.
 const POLL_TIMEOUT: Duration = Duration::from_millis(750);
+/// Never retry an unavailable controller backend more slowly than this.
+const MAX_RETRY_SECS: u64 = 30;
 
 pub fn start(app: AppHandle) {
+    let state = app.state::<AppState>();
+    if state.overlay.listener_running() {
+        return;
+    }
+    state.overlay.set_listener_running(true);
+
     let thread_app = app.clone();
     let result = std::thread::Builder::new()
         .name("ludex-overlay-gamepad".to_string())
         .spawn(move || run(thread_app));
     if let Err(error) = result {
+        app.state::<AppState>().overlay.set_listener_running(false);
+        publish_failure(
+            &app,
+            format!("The controller listener thread could not start: {error}"),
+        );
         tracing::warn!(error = %error, "could not start the global gamepad listener");
-        app.state::<AppState>()
-            .overlay
-            .set_listener_status(OverlayListenerStatus {
-                backend: "failed".to_string(),
-                available: false,
-                platform: std::env::consts::OS.to_string(),
-                reason: Some(format!(
-                    "The controller listener thread could not start: {error}"
-                )),
-                controllers: Vec::new(),
-            });
     }
 }
 
+/// Supervisor: retry `Gilrs::new()` instead of giving up for the whole session.
 fn run(app: AppHandle) {
-    let mut gilrs = match Gilrs::new() {
-        Ok(gilrs) => gilrs,
-        Err(error) => {
-            tracing::warn!(error = %error, "the global gamepad listener is unavailable");
-            app.state::<AppState>()
-                .overlay
-                .set_listener_status(OverlayListenerStatus {
-                    backend: "failed".to_string(),
-                    available: false,
-                    platform: std::env::consts::OS.to_string(),
-                    reason: Some(format!(
-                        "Controllers cannot be read on this system: {error}"
-                    )),
-                    controllers: Vec::new(),
-                });
-            return;
+    let mut attempt = 0u32;
+    loop {
+        match Gilrs::new() {
+            Ok(gilrs) => {
+                if attempt > 0 {
+                    tracing::info!(attempts = attempt, "the global gamepad listener recovered");
+                }
+                publish_controllers(&app, &gilrs, None, None);
+                run_events(&app, gilrs);
+                // `run_events` only returns when the process is shutting down.
+                app.state::<AppState>().overlay.set_listener_running(false);
+                return;
+            }
+            Err(error) => {
+                attempt = attempt.saturating_add(1);
+                let delay = retry_delay(attempt);
+                publish_failure(
+                    &app,
+                    format!(
+                        "Controllers cannot be read on this system: {error}. Retrying in {}s.",
+                        delay.as_secs()
+                    ),
+                );
+                tracing::warn!(
+                    attempt,
+                    error = %error,
+                    retry_in_secs = delay.as_secs(),
+                    "the global gamepad listener is unavailable; retrying"
+                );
+                std::thread::sleep(delay);
+            }
         }
-    };
+    }
+}
 
-    let trigger = current_trigger(&app);
+/// Capped exponential backoff: 1, 2, 4, 8, 16, then 30 seconds.
+pub fn retry_delay(attempt: u32) -> Duration {
+    const BACKOFF_SECS: [u64; 5] = [1, 2, 4, 8, 16];
+    let index = usize::try_from(attempt.saturating_sub(1)).unwrap_or(usize::MAX);
+    let seconds = BACKOFF_SECS.get(index).copied().unwrap_or(MAX_RETRY_SECS);
+    Duration::from_secs(seconds)
+}
+
+/// A pad arrives or leaves while the listener runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HotplugEdge {
+    Connected,
+    Disconnected,
+}
+
+/// What a hot-plug edge must do. Pure so the re-arm rule is unit-tested.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HotplugPlan {
+    /// Drop held buttons: a new pad may arrive with the chord held.
+    pub reset_detector: bool,
+    /// Forget the active-pad indicator when that pad leaves.
+    pub clear_active_pad: bool,
+    /// Republish the controller list immediately.
+    pub republish: bool,
+}
+
+pub fn hotplug_plan(edge: HotplugEdge) -> HotplugPlan {
+    HotplugPlan {
+        reset_detector: true,
+        clear_active_pad: edge == HotplugEdge::Disconnected,
+        republish: true,
+    }
+}
+
+fn publish_failure(app: &AppHandle, reason: String) {
+    app.state::<AppState>()
+        .overlay
+        .set_listener_status(OverlayListenerStatus {
+            backend: "failed".to_string(),
+            available: false,
+            running: true,
+            platform: std::env::consts::OS.to_string(),
+            reason: Some(reason),
+            controllers: Vec::new(),
+        });
+}
+
+fn run_events(app: &AppHandle, mut gilrs: Gilrs) {
+    let trigger = current_trigger(app);
     let mut detector = GestureDetector::new(DetectorConfig::for_trigger(overlay::trigger_choice(
         trigger,
     )));
@@ -79,8 +151,6 @@ fn run(app: AppHandle) {
     let mut last_status_publish = Instant::now() - STATUS_REFRESH;
     let mut active_pad: Option<usize> = None;
     let mut active_at: Option<Instant> = None;
-
-    publish_controllers(&app, &gilrs, active_pad, active_at);
 
     loop {
         let event = gilrs.next_event_blocking(Some(POLL_TIMEOUT));
@@ -93,17 +163,22 @@ fn run(app: AppHandle) {
                         active_pad = Some(pad);
                         active_at = Some(Instant::now());
                     }
-                    if let Some(button) = pad_button(button) {
-                        if detector.handle(PadEvent::Pressed(button), now_ms)
+                    if let Some(mapped) = pad_button(button) {
+                        tracing::info!(pad, button = ?mapped, "overlay button pressed");
+                        if detector.handle(PadEvent::Pressed(mapped), now_ms)
                             == Some(Gesture::Toggle)
                         {
-                            overlay::toggle(&app);
+                            tracing::info!(pad, "overlay gesture recognised");
+                            overlay::toggle(app, "controller");
                         }
+                    } else {
+                        tracing::trace!(pad, button = ?button, "controller button pressed");
                     }
                 }
                 EventType::ButtonReleased(button, _) => {
-                    if let Some(button) = pad_button(button) {
-                        detector.handle(PadEvent::Released(button), now_ms);
+                    if let Some(mapped) = pad_button(button) {
+                        tracing::info!(pad, button = ?mapped, "overlay button released");
+                        detector.handle(PadEvent::Released(mapped), now_ms);
                     }
                 }
                 EventType::AxisChanged(_, value, _) => {
@@ -113,20 +188,28 @@ fn run(app: AppHandle) {
                     }
                 }
                 EventType::Connected => {
-                    // A new pad may arrive with buttons already held; never
-                    // inherit a half-pressed chord from the previous device.
-                    detector.reset();
-                    last_status_publish = Instant::now() - STATUS_REFRESH;
-                    tracing::info!(pad, "controller connected to the overlay listener");
+                    let plan = hotplug_plan(HotplugEdge::Connected);
+                    if plan.reset_detector {
+                        detector.reset();
+                    }
+                    if plan.republish {
+                        last_status_publish = Instant::now() - STATUS_REFRESH;
+                    }
+                    tracing::info!(pad, "controller connected; overlay trigger re-armed");
                 }
                 EventType::Disconnected => {
-                    detector.reset();
-                    if active_pad == Some(pad) {
+                    let plan = hotplug_plan(HotplugEdge::Disconnected);
+                    if plan.reset_detector {
+                        detector.reset();
+                    }
+                    if plan.clear_active_pad && active_pad == Some(pad) {
                         active_pad = None;
                         active_at = None;
                     }
-                    last_status_publish = Instant::now() - STATUS_REFRESH;
-                    tracing::info!(pad, "controller disconnected from the overlay listener");
+                    if plan.republish {
+                        last_status_publish = Instant::now() - STATUS_REFRESH;
+                    }
+                    tracing::info!(pad, "controller disconnected; overlay trigger re-armed");
                 }
                 _ => {}
             }
@@ -134,16 +217,17 @@ fn run(app: AppHandle) {
 
         if last_config_check.elapsed() >= CONFIG_REFRESH {
             last_config_check = Instant::now();
-            let trigger = current_trigger(&app);
+            let trigger = current_trigger(app);
             let config = DetectorConfig::for_trigger(overlay::trigger_choice(trigger));
             if config != detector.config() {
+                tracing::info!(?trigger, "overlay trigger setting changed");
                 detector.set_config(config);
             }
         }
 
         if last_status_publish.elapsed() >= STATUS_REFRESH {
             last_status_publish = Instant::now();
-            publish_controllers(&app, &gilrs, active_pad, active_at);
+            publish_controllers(app, &gilrs, active_pad, active_at);
         }
     }
 }
@@ -217,6 +301,7 @@ fn publish_controllers(
         .set_listener_status(OverlayListenerStatus {
             backend: "gilrs".to_string(),
             available: true,
+            running: true,
             platform: std::env::consts::OS.to_string(),
             reason: None,
             controllers,
@@ -249,5 +334,37 @@ mod tests {
         assert_eq!(power_info(PowerInfo::Charged), (Some(100), true));
         assert_eq!(power_info(PowerInfo::Wired), (None, false));
         assert_eq!(power_info(PowerInfo::Unknown), (None, false));
+    }
+
+    #[test]
+    fn listener_restarts_with_a_capped_backoff() {
+        // A transient driver/permission error must retry quickly, then settle
+        // on a slow poll rather than spinning or giving up for the session.
+        let expected = [1, 2, 4, 8, 16, 30, 30];
+        for (attempt, seconds) in expected.into_iter().enumerate() {
+            assert_eq!(
+                retry_delay(attempt as u32 + 1),
+                Duration::from_secs(seconds),
+                "attempt {}",
+                attempt + 1
+            );
+        }
+        assert_eq!(retry_delay(0), Duration::from_secs(1));
+        assert_eq!(retry_delay(u32::MAX), Duration::from_secs(MAX_RETRY_SECS));
+    }
+
+    #[test]
+    fn hot_plug_edges_re_arm_the_trigger() {
+        // A pad that arrives with the chord held must start from a clean
+        // detector, and the panel must see the new controller immediately.
+        let connected = hotplug_plan(HotplugEdge::Connected);
+        assert!(connected.reset_detector);
+        assert!(connected.republish);
+        assert!(!connected.clear_active_pad);
+
+        let disconnected = hotplug_plan(HotplugEdge::Disconnected);
+        assert!(disconnected.reset_detector);
+        assert!(disconnected.republish);
+        assert!(disconnected.clear_active_pad);
     }
 }
