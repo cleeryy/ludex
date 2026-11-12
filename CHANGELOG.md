@@ -6,8 +6,6 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
-## [0.4.1] - 2026-11-12
-
 ### Added
 
 - Resume and Force close on the game page (#191): while a game runs, Overview
@@ -30,6 +28,49 @@ All notable changes to Ludex are documented here. The format is based on
   registered locale (below-gate ones visible but disabled with the reason),
   saves to the account by default with a device-only option, and the desktop
   mirrors the account locale for game-config sync.
+
+### Changed
+
+- The game page now reads like Settings (#189): one sticky sub-nav and one group
+  at a time (Overview, Files, Launch, Settings, Saves, Achievements, ROM),
+  addressable with `?tab=`, one 1240px content width, consistent headings and
+  empty states, editor-only actions moved into their group, duplicate hero/aside
+  facts removed, and every panel region named for screen readers. No visual
+  redesign.
+
+### Fixed
+
+- The in-game overlay now says why it does not open and self-heals (#190):
+  `overlay_status` reports controller names/ids, trigger deliverability (the
+  Guide button is never delivered on Windows XInput, so the chord fallback is
+  used), global and per-game enablement, presentation/fullscreen state, the
+  running game pid and the last trigger verdict; the listener restarts with
+  capped backoff, re-arms on hot-plug, logs every trigger and open/close attempt
+  with its reason, creates and focuses the overlay window on demand, and
+  Settings → Profiles shows the checklist plus an "Open the overlay now" test.
+- PowerShell/console windows are gone for good (#193): every internal helper,
+  silent installer and runtime setup now goes through the no-window helper, the
+  source-scan test covers twelve programs plus `.exe`/absolute-path literals,
+  the game installer's interactive-vs-silent window choice is explicit instead
+  of inferred from the timeout, and game/emulator/Moonlight spawns stay
+  user-visible by marker.
+- Windows updates now replace the app binary (#186): every build carries a
+  `LUDEX_BUILD_COMMIT` stamp, the updater records the version it installs and
+  verifies it on the next start, startup logs the running exe/version/commit and
+  warns about a second `ludex.exe` in the usual install roots, and a mismatch
+  shows a danger toast instead of "updated". The NSIS bundle is pinned to a
+  per-user install and the release CI verifies the payload's build stamp.
+- Adopted games on Windows launch again (#187): verbatim `\\?\` paths are
+  normalized before `Command::new`/`current_dir` (drive and UNC forms, keeping
+  the prefix only past MAX_PATH) at launch, adoption storage and DB reads, the
+  working-directory override is persisted and wins over the adopted rule, and a
+  process that dies within 5 s now surfaces a danger toast with its exit code
+  (`0x…`) instead of doing nothing.
+
+## [0.4.1] - 2026-11-12
+
+### Added
+
 - Guided "Make it run" runtime installer (#178): diagnoses why a game cannot
   launch, shows a numbered consent-gated plan, downloads and extracts from an
   allow-listed catalog (UMU/GE-Proton on Linux, VC++/.NET/DirectX on Windows,
@@ -57,12 +98,6 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Changed
 
-- The game page now reads like Settings (#189): one sticky sub-nav and one group
-  at a time (Overview, Files, Launch, Settings, Saves, Achievements, ROM),
-  addressable with `?tab=`, one 1240px content width, consistent headings and
-  empty states, editor-only actions moved into their group, duplicate hero/aside
-  facts removed, and every panel region named for screen readers. No visual
-  redesign.
 - Save folders confirm themselves (#180): high-confidence paths (manifest match,
   Steam ground truth, already confirmed) are promoted without a prompt, the
   pre-launch snapshot is diffed against the post-exit tree so changed candidates
@@ -79,32 +114,6 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
-- The in-game overlay now says why it does not open and self-heals (#190):
-  `overlay_status` reports controller names/ids, trigger deliverability (the
-  Guide button is never delivered on Windows XInput, so the chord fallback is
-  used), global and per-game enablement, presentation/fullscreen state, the
-  running game pid and the last trigger verdict; the listener restarts with
-  capped backoff, re-arms on hot-plug, logs every trigger and open/close attempt
-  with its reason, creates and focuses the overlay window on demand, and
-  Settings → Profiles shows the checklist plus an "Open the overlay now" test.
-- PowerShell/console windows are gone for good (#193): every internal helper,
-  silent installer and runtime setup now goes through the no-window helper, the
-  source-scan test covers twelve programs plus `.exe`/absolute-path literals,
-  the game installer's interactive-vs-silent window choice is explicit instead
-  of inferred from the timeout, and game/emulator/Moonlight spawns stay
-  user-visible by marker.
-- Windows updates now replace the app binary (#186): every build carries a
-  `LUDEX_BUILD_COMMIT` stamp, the updater records the version it installs and
-  verifies it on the next start, startup logs the running exe/version/commit and
-  warns about a second `ludex.exe` in the usual install roots, and a mismatch
-  shows a danger toast instead of "updated". The NSIS bundle is pinned to a
-  per-user install and the release CI verifies the payload byte-for-byte.
-- Adopted games on Windows launch again (#187): verbatim `\\?\` paths are
-  normalized before `Command::new`/`current_dir` (drive and UNC forms, keeping
-  the prefix only past MAX_PATH) at launch, adoption storage and DB reads, the
-  working-directory override is persisted and wins over the adopted rule, and a
-  process that dies within 5 s now surfaces a danger toast with its exit code
-  (`0x…`) instead of doing nothing.
 - The game page no longer freezes on open (#159): `list_game_configs`,
   `game_config_adapters` and `stream_target` now run on the blocking pool
   instead of the UI thread, and a scan slower than 50 ms logs one warning with
