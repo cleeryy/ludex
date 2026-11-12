@@ -109,6 +109,10 @@ pub struct InstallJob {
     pub last_error: Option<String>,
     /// Milliseconds the connection was silent when the stall was detected.
     pub stalled_for_ms: Option<u64>,
+    /// Position in the install queue (#202): the scheduler starts the lowest
+    /// one when a slot frees. `None` for a finished job and for a row that
+    /// predates the queue order.
+    pub queue_position: Option<u32>,
 }
 
 impl InstallJob {
@@ -164,6 +168,16 @@ impl InstallJob {
             attempt: 1,
             last_error: None,
             stalled_for_ms: None,
+            // #202: a finished job leaves the queue for good. An interrupted
+            // job (error after a crash) keeps the slot recorded by the previous
+            // session, so resuming restores the order instead of appending.
+            queue_position: if phase.is_terminal() && phase != InstallPhase::Error {
+                None
+            } else {
+                record
+                    .queue_position
+                    .and_then(|value| u32::try_from(value).ok())
+            },
         }
     }
 
@@ -173,6 +187,166 @@ impl InstallJob {
         self.last_error = None;
         self.stalled_for_ms = None;
     }
+}
+
+/// One active job as seen by the queue scheduler and the reorder commands
+/// (#202). Positions are unique among active jobs; the running job keeps the
+/// front slot and is never reordered silently.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct QueueJob {
+    pub job_id: String,
+    pub phase: InstallPhase,
+    /// `None` for a job that has not been placed yet (a row written by an
+    /// older build): it sorts last and gets a real position on the next pass.
+    pub position: Option<u32>,
+    pub created_at: String,
+    /// True while a worker owns the job, even during the short window before
+    /// the phase leaves `queued`.
+    pub running: bool,
+}
+
+impl QueueJob {
+    /// Waiting jobs are the reorderable part of the queue: they have not
+    /// touched the disk yet, or they keep their checkpoint while paused.
+    fn is_waiting(&self) -> bool {
+        matches!(self.phase, InstallPhase::Queued | InstallPhase::Paused)
+    }
+
+    fn is_running(&self) -> bool {
+        self.running
+            || matches!(
+                self.phase,
+                InstallPhase::Downloading | InstallPhase::Extracting | InstallPhase::Finalizing
+            )
+    }
+
+    /// Queue order: running jobs first, then waiting jobs by position.
+    fn order_key(&self) -> (u8, u32, &str, &str) {
+        (
+            u8::from(!self.is_running()),
+            self.position.unwrap_or(u32::MAX),
+            self.created_at.as_str(),
+            self.job_id.as_str(),
+        )
+    }
+}
+
+/// A queue move requested by Downloads or Big Picture (#202).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueueMove {
+    Top,
+    Up,
+    Down,
+    /// 0-based index inside the waiting queue.
+    Position(u32),
+}
+
+impl QueueMove {
+    pub fn parse(action: &str, position: Option<u32>) -> Result<Self, String> {
+        match action.trim() {
+            "top" => Ok(QueueMove::Top),
+            "up" => Ok(QueueMove::Up),
+            "down" => Ok(QueueMove::Down),
+            "position" => position.map(QueueMove::Position).ok_or_else(|| {
+                "A position is required to move an install to a specific place in the queue."
+                    .to_string()
+            }),
+            other => Err(format!(
+                "Unknown queue action \"{other}\". Use \"top\", \"up\", \"down\" or \"position\"."
+            )),
+        }
+    }
+}
+
+/// The next free position: one past the highest active position (#202).
+pub(crate) fn next_queue_position(jobs: &[QueueJob]) -> u32 {
+    jobs.iter()
+        .filter_map(|job| job.position)
+        .max()
+        .map_or(0, |position| position + 1)
+}
+
+/// Renumbers the active queue `0..n` in queue order, so a finished, cancelled
+/// or superseded job never leaves a gap.
+pub(crate) fn plan_compact(jobs: &[QueueJob]) -> Vec<(String, u32)> {
+    let mut ordered: Vec<&QueueJob> = jobs.iter().collect();
+    ordered.sort_by(|left, right| left.order_key().cmp(&right.order_key()));
+    ordered
+        .into_iter()
+        .enumerate()
+        .map(|(index, job)| (job.job_id.clone(), index as u32))
+        .collect()
+}
+
+/// The job the scheduler starts next: the lowest position among `queued` jobs
+/// that no worker owns.
+pub(crate) fn next_queued(jobs: &[QueueJob]) -> Option<String> {
+    jobs.iter()
+        .filter(|job| job.phase == InstallPhase::Queued && !job.running)
+        .min_by(|left, right| left.order_key().cmp(&right.order_key()))
+        .map(|job| job.job_id.clone())
+}
+
+/// Reorders the waiting queue and returns the compacted position of every
+/// active job. Running and finished jobs are refused with a clear reason: a
+/// running install is only stopped by an explicit pause or cancel.
+pub(crate) fn plan_reorder(
+    jobs: &[QueueJob],
+    job_id: &str,
+    action: QueueMove,
+) -> Result<Vec<(String, u32)>, String> {
+    let target = jobs
+        .iter()
+        .find(|job| job.job_id == job_id)
+        .ok_or_else(|| format!("Unknown install job: {job_id}"))?;
+    if target.is_running() {
+        return Err(
+            "This install is running. Pause or cancel it before reordering the queue.".to_string(),
+        );
+    }
+    if !target.is_waiting() {
+        return Err("This install already finished and cannot be reordered.".to_string());
+    }
+
+    let mut waiting: Vec<&QueueJob> = jobs.iter().filter(|job| job.is_waiting()).collect();
+    waiting.sort_by(|left, right| left.order_key().cmp(&right.order_key()));
+    let current = waiting
+        .iter()
+        .position(|job| job.job_id == job_id)
+        .expect("the target is a waiting job");
+    let target_index = match action {
+        QueueMove::Top => 0,
+        QueueMove::Up => current.saturating_sub(1),
+        QueueMove::Down => (current + 1).min(waiting.len().saturating_sub(1)),
+        QueueMove::Position(position) => {
+            let position = position as usize;
+            if position >= waiting.len() {
+                return Err(format!(
+                    "Position {position} is out of range: the queue has {} waiting install(s).",
+                    waiting.len()
+                ));
+            }
+            position
+        }
+    };
+    if target_index != current {
+        let moved = waiting.remove(current);
+        waiting.insert(target_index, moved);
+    }
+
+    // Running jobs keep the front slots; the waiting queue follows in the
+    // order chosen here.
+    let mut ordered: Vec<String> = {
+        let mut running: Vec<&QueueJob> = jobs.iter().filter(|job| job.is_running()).collect();
+        running.sort_by(|left, right| left.order_key().cmp(&right.order_key()));
+        running.into_iter().map(|job| job.job_id.clone()).collect()
+    };
+    ordered.extend(waiting.into_iter().map(|job| job.job_id.clone()));
+    Ok(ordered
+        .into_iter()
+        .enumerate()
+        .map(|(index, job_id)| (job_id, index as u32))
+        .collect())
 }
 
 /// Everything `install_game` needs, captured when the job starts.
@@ -433,6 +607,9 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
     let job_id = uuid::Uuid::new_v4().to_string();
     let stream = stream_requested(params.stream, &settings, &params.server_url);
     let created_at = now_rfc3339();
+    // #202: a new job joins the end of the queue; `compact_queue` renumbers
+    // the whole active set so a previous gap cannot leak through.
+    let queue_position = next_queue_position(&queue_snapshot(&state));
     let job = InstallJob {
         job_id: job_id.clone(),
         game_id,
@@ -453,6 +630,7 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
         attempt: 1,
         last_error: None,
         stalled_for_ms: None,
+        queue_position: Some(queue_position),
     };
 
     let entry = Arc::new(JobEntry {
@@ -508,7 +686,7 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
                 });
                 persist(app, &existing);
                 emit_jobs(app);
-                start_run(app, &existing);
+                dispatch(app);
                 return Ok(existing.snapshot());
             }
             return Ok(snapshot);
@@ -525,24 +703,143 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
         }
     }
 
+    // #202: place the new job last, then renumber the active queue so the
+    // position is always a compact 0..n.
+    compact_queue(app);
     persist(app, &entry);
     emit_jobs(app);
-    start_run(app, &entry);
+    dispatch(app);
 
     Ok(job)
 }
 
-/// Spawn the worker for a job, unless one is already running. Pausing stops the
-/// worker; resuming calls this again with the same entry.
-fn start_run(app: &AppHandle, entry: &Arc<JobEntry>) {
-    if entry.running.swap(true, Ordering::SeqCst) {
-        return;
+/// Start the next queued install while a slot is free (#202).
+///
+/// The scheduler picks the lowest `queue_position` among `queued` jobs, so a
+/// game moved to the top starts next. A running job is never preempted: it is
+/// only stopped by an explicit pause or cancel. The worker that frees a slot
+/// calls this again.
+pub(crate) fn dispatch(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    loop {
+        let permit = match Arc::clone(&state.install_slots).try_acquire_owned() {
+            Ok(permit) => permit,
+            // Every slot is busy; the worker that finishes calls dispatch.
+            Err(_) => return,
+        };
+        let Some(job_id) = next_queued(&queue_snapshot(&state)) else {
+            return;
+        };
+        // Claim the job under the registry lock, so a cancel or a second
+        // dispatch can never start the same entry twice.
+        let claimed = match state.jobs.lock() {
+            Ok(jobs) => match jobs.get(&job_id) {
+                Some(entry) => !entry.running.swap(true, Ordering::SeqCst),
+                None => false,
+            },
+            Err(_) => return,
+        };
+        if !claimed {
+            continue;
+        }
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            run(handle, job_id, permit).await;
+        });
     }
-    let handle = app.clone();
-    let job_id = entry.snapshot().job_id;
-    tauri::async_runtime::spawn(async move {
-        run(handle, job_id).await;
-    });
+}
+
+/// Snapshot of the active queue: running, queued and paused jobs.
+fn queue_snapshot(state: &AppState) -> Vec<QueueJob> {
+    let Ok(jobs) = state.jobs.lock() else {
+        return Vec::new();
+    };
+    jobs.values()
+        .map(|entry| {
+            let job = entry.snapshot();
+            QueueJob {
+                job_id: job.job_id,
+                phase: job.phase,
+                position: job.queue_position,
+                created_at: entry.created_at.clone(),
+                running: entry.running.load(Ordering::SeqCst),
+            }
+        })
+        .filter(|job| !job.phase.is_terminal())
+        .collect()
+}
+
+/// Applies compacted positions to the registry and the database (#202).
+fn apply_queue_positions(app: &AppHandle, assignments: &[(String, u32)]) {
+    let state = app.state::<AppState>();
+    let entries: Vec<Arc<JobEntry>> = match state.jobs.lock() {
+        Ok(jobs) => jobs.values().cloned().collect(),
+        Err(_) => return,
+    };
+    for (job_id, position) in assignments {
+        let Some(entry) = entries
+            .iter()
+            .find(|entry| entry.snapshot().job_id == *job_id)
+        else {
+            continue;
+        };
+        if entry.snapshot().queue_position != Some(*position) {
+            entry.update(|job| job.queue_position = Some(*position));
+        }
+    }
+    if let Ok(connection) = state.db.lock() {
+        let rows: Vec<(String, i64)> = assignments
+            .iter()
+            .map(|(job_id, position)| (job_id.clone(), i64::from(*position)))
+            .collect();
+        if let Err(error) = db::set_install_queue_positions(&connection, &rows) {
+            tracing::warn!(error = %error, "could not persist the install queue order");
+        }
+    };
+}
+
+/// Renumber the active queue `0..n` so a finished or cancelled job leaves no
+/// gap behind.
+fn compact_queue(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let assignments = plan_compact(&queue_snapshot(&state));
+    apply_queue_positions(app, &assignments);
+}
+
+/// Move a waiting install in the queue (#202).
+///
+/// The running job keeps its slot and the front of the list; a running or
+/// finished job is refused with a clear message. Returns the new queue order.
+pub fn reorder(
+    app: &AppHandle,
+    job_id: &str,
+    action: QueueMove,
+) -> Result<Vec<InstallJob>, String> {
+    let state = app.state::<AppState>();
+    let snapshot = queue_snapshot(&state);
+    let assignments = match plan_reorder(&snapshot, job_id, action) {
+        Ok(assignments) => assignments,
+        Err(error) => {
+            // A job that only exists in the database (previous app run) has no
+            // queue slot: say so instead of "unknown".
+            if !snapshot.iter().any(|job| job.job_id == job_id) {
+                if let Ok(connection) = state.db.lock() {
+                    if let Ok(Some(record)) = db::get_install_job(&connection, job_id) {
+                        return Err(if InstallPhase::parse(&record.phase).is_terminal() {
+                            "This install already finished and cannot be reordered.".to_string()
+                        } else {
+                            "This install is from a previous session. Resume it before reordering the queue."
+                                .to_string()
+                        });
+                    }
+                }
+            }
+            return Err(error);
+        }
+    };
+    apply_queue_positions(app, &assignments);
+    emit_jobs(app);
+    list(app)
 }
 
 pub fn job(app: &AppHandle, job_id: &str) -> Result<InstallJob, String> {
@@ -596,9 +893,35 @@ pub fn list(app: &AppHandle) -> Result<Vec<InstallJob>, String> {
         }
     }
 
-    // Newest first; job id breaks ties deterministically.
-    merged.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| right.1.cmp(&left.1)));
-    Ok(merged.into_iter().map(|(_, _, job)| job).collect())
+    // Active jobs first in queue order (#202), then history newest first; the
+    // job id breaks ties deterministically. Downloads and Big Picture share
+    // this order.
+    let mut active: Vec<(u32, String, String, InstallJob)> = Vec::new();
+    let mut history: Vec<(String, String, InstallJob)> = Vec::new();
+    for (created_at, job_id, job) in merged {
+        if job.phase.is_terminal() {
+            history.push((created_at, job_id, job));
+        } else {
+            active.push((
+                job.queue_position.unwrap_or(u32::MAX),
+                created_at,
+                job_id,
+                job,
+            ));
+        }
+    }
+    active.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.cmp(&right.1))
+            .then_with(|| left.2.cmp(&right.2))
+    });
+    history.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| right.1.cmp(&left.1)));
+    Ok(active
+        .into_iter()
+        .map(|(_, _, _, job)| job)
+        .chain(history.into_iter().map(|(_, _, job)| job))
+        .collect())
 }
 
 /// Tell the UI that the job list changed (queued, finished, cancelled).
@@ -615,29 +938,38 @@ fn emit_jobs(app: &AppHandle) {
 
 pub fn cancel(app: &AppHandle, job_id: &str) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let entry = {
+    let (entry, orphan) = {
         let jobs = state
             .jobs
             .lock()
             .map_err(|_| "The install queue is unavailable; restart Ludex.".to_string())?;
-        jobs.get(job_id).cloned()
-    };
-    match entry {
-        Some(entry) => {
-            entry.cancel.cancel();
-            // A paused job has no worker waiting on the token: finish it here so
-            // its partial archive is cleaned up.
-            if entry.snapshot().phase == InstallPhase::Paused {
-                let paths = planned_paths(&state, &entry);
-                let handle = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    finalize_cancelled(&handle, &entry, &paths).await;
-                });
-            }
-            Ok(())
+        let Some(entry) = jobs.get(job_id) else {
+            return Err(format!("Unknown install job: {job_id}"));
+        };
+        entry.cancel.cancel();
+        // A queued or paused job has no worker watching the token, and the
+        // scheduler may start it at any moment. Claim it here (the same
+        // `running` swap the scheduler uses) so exactly one path finishes it.
+        let phase = entry.snapshot().phase;
+        let orphan = matches!(phase, InstallPhase::Queued | InstallPhase::Paused)
+            && !entry.running.swap(true, Ordering::SeqCst);
+        if orphan {
+            // Leave the queue before the cleanup: the scheduler only picks
+            // `queued` jobs, so it cannot start this one mid-cancel.
+            entry.update(|job| job.phase = InstallPhase::Cancelled);
         }
-        None => Err(format!("Unknown install job: {job_id}")),
+        (Arc::clone(entry), orphan)
+    };
+    if orphan {
+        // Clean up the partial archive/staging folder and persist the row.
+        let paths = planned_paths(&state, &entry);
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            finalize_cancelled(&handle, &entry, &paths).await;
+            entry.running.store(false, Ordering::SeqCst);
+        });
     }
+    Ok(())
 }
 
 /// Pause a queued or downloading job.
@@ -918,6 +1250,9 @@ fn resume_entry(
     }
 
     let previous_phase = entry.snapshot().phase;
+    // A paused job kept its slot; a cancelled, failed or previous-session job
+    // has none and re-joins at the end of the queue (#202).
+    let had_position = entry.snapshot().queue_position.is_some();
     entry.clear_pause();
     entry.update(|job| {
         job.phase = InstallPhase::Queued;
@@ -929,6 +1264,11 @@ fn resume_entry(
             "Resuming".to_string()
         });
     });
+    if !had_position {
+        let position = next_queue_position(&queue_snapshot(&state));
+        entry.update(|job| job.queue_position = Some(position));
+    }
+    compact_queue(app);
     persist(app, &entry);
     emit_jobs(app);
     let snapshot = entry.snapshot();
@@ -944,7 +1284,7 @@ fn resume_entry(
         bytes_done = snapshot.bytes_done,
         "resuming install job"
     );
-    start_run(app, &entry);
+    dispatch(app);
     Ok(entry.snapshot())
 }
 
@@ -994,27 +1334,15 @@ impl Drop for RunGuard<'_> {
     }
 }
 
-async fn run(app: AppHandle, job_id: String) {
-    run_job(app.clone(), job_id.clone()).await;
-
-    // A resume can land while the worker is finishing a pause: `start_run` sees
-    // `running = true` and does nothing. Pick the job up again once the flag is
-    // clear so it never stays queued without a worker.
-    let state = app.state::<AppState>();
-    let entry = {
-        match state.jobs.lock() {
-            Ok(jobs) => jobs.get(&job_id).cloned(),
-            Err(_) => None,
-        }
-    };
-    if let Some(entry) = entry {
-        if entry.snapshot().phase == InstallPhase::Queued && !entry.cancel.is_cancelled() {
-            start_run(&app, &entry);
-        }
-    }
+async fn run(app: AppHandle, job_id: String, permit: tokio::sync::OwnedSemaphorePermit) {
+    run_job(app.clone(), job_id, permit).await;
+    // The slot is free: start the next install in queue order. This also picks
+    // up a resume that landed while the worker was finishing a pause, so a job
+    // never stays queued without a worker.
+    dispatch(&app);
 }
 
-async fn run_job(app: AppHandle, job_id: String) {
+async fn run_job(app: AppHandle, job_id: String, permit: tokio::sync::OwnedSemaphorePermit) {
     let state = app.state::<AppState>();
     let entry = {
         match state.jobs.lock() {
@@ -1036,29 +1364,8 @@ async fn run_job(app: AppHandle, job_id: String) {
             .map(|path| path.to_string_lossy().to_string()),
     );
 
-    // One install at a time; queued jobs wait here. A pause while queued moves
-    // the job out of the queue without ever touching the disk.
-    let slots = Arc::clone(&state.install_slots);
-    let pause = entry.pause_token();
-    let permit = tokio::select! {
-        biased;
-        _ = entry.cancel.cancelled() => {
-            finalize_cancelled(&app, &entry, &job_paths).await;
-            return;
-        }
-        _ = pause.cancelled() => {
-            finalize_paused(&app, &entry, &job_paths).await;
-            return;
-        }
-        permit = slots.acquire_owned() => match permit {
-            Ok(permit) => permit,
-            Err(_) => {
-                finalize_error(&app, &entry, "The install queue is unavailable. Restart Ludex.".to_string());
-                return;
-            }
-        },
-    };
-
+    // The scheduler already gave this job the install slot (#202). A cancel or
+    // pause while queued moves it out of the queue without touching the disk.
     if entry.cancel.is_cancelled() {
         drop(permit);
         finalize_cancelled(&app, &entry, &job_paths).await;
@@ -1131,8 +1438,11 @@ async fn run_job(app: AppHandle, job_id: String) {
                 job.message = Some("Installed".to_string());
                 job.install_path = Some(install_path.to_string_lossy().to_string());
                 job.resumable = false;
+                // #202: a finished job leaves the queue without a gap.
+                job.queue_position = None;
             });
             persist(&app, &entry);
+            compact_queue(&app);
             // A finished install cannot be resumed: drop the request row so it
             // never offers a stale "Restart" (#208). Done after the last
             // persist, which would otherwise write it back.
@@ -1230,8 +1540,11 @@ async fn finalize_cancelled(app: &AppHandle, entry: &JobEntry, job_paths: &JobPa
         job.speed_bps = 0;
         job.clear_reconnect();
         job.message = Some(message.to_string());
+        // #202: a cancelled job leaves the queue without a gap.
+        job.queue_position = None;
     });
     persist(app, entry);
+    compact_queue(app);
     let _ = app.emit("install://progress", entry.snapshot());
     emit_jobs(app);
     tracing::info!(job_id = %entry.snapshot().job_id, "install cancelled");
@@ -1255,8 +1568,11 @@ fn finalize_error(app: &AppHandle, entry: &JobEntry, message: String) {
         job.speed_bps = 0;
         job.clear_reconnect();
         job.message = Some(message.clone());
+        // #202: a failed job leaves the queue without a gap.
+        job.queue_position = None;
     });
     persist(app, entry);
+    compact_queue(app);
     let job = entry.snapshot();
     let _ = app.emit("install://progress", &job);
     let _ = app.emit(
@@ -1304,6 +1620,7 @@ pub(crate) fn persist(app: &AppHandle, entry: &JobEntry) {
         resumable,
         stream_completed: entry.stream_completed(),
         entries_total: job.entries_total.map(|value| value as i64),
+        queue_position: job.queue_position.map(i64::from),
         created_at: entry.created_at.clone(),
         updated_at: now_rfc3339(),
     };
@@ -3200,6 +3517,268 @@ mod tests {
         assert!(!InstallPhase::Paused.is_terminal());
     }
 
+    fn queued(job_id: &str, position: u32, created_at: &str) -> QueueJob {
+        QueueJob {
+            job_id: job_id.to_string(),
+            phase: InstallPhase::Queued,
+            position: Some(position),
+            created_at: created_at.to_string(),
+            running: false,
+        }
+    }
+
+    fn running(job_id: &str, position: u32, created_at: &str) -> QueueJob {
+        QueueJob {
+            phase: InstallPhase::Downloading,
+            ..queued(job_id, position, created_at)
+        }
+    }
+
+    #[test]
+    fn new_jobs_get_the_next_position() {
+        assert_eq!(next_queue_position(&[]), 0);
+        let jobs = vec![
+            running("job-a", 0, "2026-01-01T00:00:00Z"),
+            queued("job-b", 1, "2026-01-01T00:01:00Z"),
+            queued("job-c", 2, "2026-01-01T00:02:00Z"),
+        ];
+        assert_eq!(next_queue_position(&jobs), 3);
+        // A legacy row without a position sorts last and is ignored when
+        // computing the next one.
+        let mut legacy = queued("job-d", 0, "2026-01-01T00:03:00Z");
+        legacy.position = None;
+        let mut with_legacy = jobs.clone();
+        with_legacy.push(legacy);
+        assert_eq!(next_queue_position(&with_legacy), 3);
+    }
+
+    #[test]
+    fn the_scheduler_picks_the_lowest_queue_position() {
+        let jobs = vec![
+            running("job-a", 0, "2026-01-01T00:00:00Z"),
+            queued("job-c", 2, "2026-01-01T00:02:00Z"),
+            queued("job-b", 1, "2026-01-01T00:01:00Z"),
+        ];
+        // The running job owns the slot; the lowest waiting position is next.
+        assert_eq!(next_queued(&jobs).as_deref(), Some("job-b"));
+        // A paused job never starts on its own: it waits for an explicit resume.
+        let mut paused = queued("job-p", 0, "2026-01-01T00:00:30Z");
+        paused.phase = InstallPhase::Paused;
+        let mut with_paused = jobs.clone();
+        with_paused.push(paused);
+        assert_eq!(next_queued(&with_paused).as_deref(), Some("job-b"));
+        // A claimed job (worker starting) is never picked twice.
+        let mut claimed = queued("job-z", 0, "2026-01-01T00:00:10Z");
+        claimed.running = true;
+        let mut with_claimed = jobs.clone();
+        with_claimed.push(claimed);
+        assert_eq!(next_queued(&with_claimed).as_deref(), Some("job-b"));
+        // Equal positions fall back to creation time, then to the job id.
+        let tied = vec![
+            queued("job-y", 4, "2026-01-01T00:05:00Z"),
+            queued("job-x", 4, "2026-01-01T00:04:00Z"),
+        ];
+        assert_eq!(next_queued(&tied).as_deref(), Some("job-x"));
+    }
+
+    #[test]
+    fn moving_the_third_job_to_the_top_starts_it_next() {
+        let mut jobs = vec![
+            running("job-a", 0, "2026-01-01T00:00:00Z"),
+            queued("job-b", 1, "2026-01-01T00:01:00Z"),
+            queued("job-c", 2, "2026-01-01T00:02:00Z"),
+            queued("job-d", 3, "2026-01-01T00:03:00Z"),
+        ];
+        let assignments = plan_reorder(&jobs, "job-d", QueueMove::Top).unwrap();
+        assert_eq!(
+            assignments,
+            vec![
+                ("job-a".to_string(), 0),
+                ("job-d".to_string(), 1),
+                ("job-b".to_string(), 2),
+                ("job-c".to_string(), 3),
+            ]
+        );
+        apply_positions(&mut jobs, &assignments);
+        assert_eq!(next_queued(&jobs).as_deref(), Some("job-d"));
+        // Up/down one place swap neighbours and never jump the running job.
+        let assignments = plan_reorder(&jobs, "job-c", QueueMove::Up).unwrap();
+        assert_eq!(
+            assignments,
+            vec![
+                ("job-a".to_string(), 0),
+                ("job-d".to_string(), 1),
+                ("job-c".to_string(), 2),
+                ("job-b".to_string(), 3),
+            ]
+        );
+        apply_positions(&mut jobs, &assignments);
+        let assignments = plan_reorder(&jobs, "job-d", QueueMove::Down).unwrap();
+        assert_eq!(assignments[1], ("job-c".to_string(), 1));
+        assert_eq!(assignments[2], ("job-d".to_string(), 2));
+        // The running job stays pinned at the front.
+        assert_eq!(assignments[0], ("job-a".to_string(), 0));
+    }
+
+    fn apply_positions(jobs: &mut [QueueJob], assignments: &[(String, u32)]) {
+        for (job_id, position) in assignments {
+            if let Some(job) = jobs.iter_mut().find(|job| job.job_id == *job_id) {
+                job.position = Some(*position);
+            }
+        }
+    }
+
+    #[test]
+    fn running_and_finished_jobs_cannot_be_reordered() {
+        let mut jobs = vec![
+            running("job-a", 0, "2026-01-01T00:00:00Z"),
+            queued("job-b", 1, "2026-01-01T00:01:00Z"),
+        ];
+        let error = plan_reorder(&jobs, "job-a", QueueMove::Top).unwrap_err();
+        assert!(error.contains("is running"), "{error}");
+        assert!(error.contains("Pause or cancel"), "{error}");
+
+        let mut done = queued("job-done", 0, "2026-01-01T00:00:00Z");
+        done.phase = InstallPhase::Done;
+        jobs.push(done);
+        let error = plan_reorder(&jobs, "job-done", QueueMove::Top).unwrap_err();
+        assert!(error.contains("already finished"), "{error}");
+
+        let error = plan_reorder(&jobs, "job-missing", QueueMove::Top).unwrap_err();
+        assert!(error.contains("Unknown install job"), "{error}");
+    }
+
+    #[test]
+    fn explicit_positions_are_validated() {
+        let jobs = vec![
+            queued("job-a", 0, "2026-01-01T00:00:00Z"),
+            queued("job-b", 1, "2026-01-01T00:01:00Z"),
+            queued("job-c", 2, "2026-01-01T00:02:00Z"),
+        ];
+        let assignments = plan_reorder(&jobs, "job-a", QueueMove::Position(2)).unwrap();
+        assert_eq!(assignments[0], ("job-b".to_string(), 0));
+        assert_eq!(assignments[1], ("job-c".to_string(), 1));
+        assert_eq!(assignments[2], ("job-a".to_string(), 2));
+
+        let error = plan_reorder(&jobs, "job-a", QueueMove::Position(3)).unwrap_err();
+        assert!(error.contains("out of range"), "{error}");
+        assert!(error.contains("3 waiting install"), "{error}");
+
+        // Moving to the place it already has is a no-op, not an error.
+        let assignments = plan_reorder(&jobs, "job-b", QueueMove::Position(1)).unwrap();
+        assert_eq!(assignments[1], ("job-b".to_string(), 1));
+    }
+
+    #[test]
+    fn an_empty_or_single_item_queue_is_a_no_op() {
+        assert!(plan_reorder(&[], "job-a", QueueMove::Top).is_err());
+        let single = vec![queued("job-a", 0, "2026-01-01T00:00:00Z")];
+        assert_eq!(
+            plan_reorder(&single, "job-a", QueueMove::Top).unwrap(),
+            vec![("job-a".to_string(), 0)]
+        );
+        assert_eq!(
+            plan_reorder(&single, "job-a", QueueMove::Up).unwrap(),
+            vec![("job-a".to_string(), 0)]
+        );
+        assert_eq!(
+            plan_reorder(&single, "job-a", QueueMove::Down).unwrap(),
+            vec![("job-a".to_string(), 0)]
+        );
+        assert_eq!(
+            plan_reorder(&single, "job-a", QueueMove::Position(0)).unwrap(),
+            vec![("job-a".to_string(), 0)]
+        );
+    }
+
+    #[test]
+    fn a_finished_job_leaves_no_gap_in_the_queue() {
+        // Running job 0 finishes: the waiting queue compacts to 0..n.
+        let jobs = vec![
+            queued("job-b", 1, "2026-01-01T00:01:00Z"),
+            queued("job-c", 2, "2026-01-01T00:02:00Z"),
+            queued("job-d", 3, "2026-01-01T00:03:00Z"),
+        ];
+        assert_eq!(
+            plan_compact(&jobs),
+            vec![
+                ("job-b".to_string(), 0),
+                ("job-c".to_string(), 1),
+                ("job-d".to_string(), 2),
+            ]
+        );
+        // A legacy row without a position goes last instead of blocking.
+        let mut legacy = queued("job-e", 0, "2026-01-01T00:00:00Z");
+        legacy.position = None;
+        let mut with_legacy = jobs.clone();
+        with_legacy.push(legacy);
+        let compacted = plan_compact(&with_legacy);
+        assert_eq!(compacted.last(), Some(&("job-e".to_string(), 3)));
+    }
+
+    #[test]
+    fn queue_moves_parse_and_validate_their_action() {
+        assert_eq!(QueueMove::parse("top", None).unwrap(), QueueMove::Top);
+        assert_eq!(QueueMove::parse("up", None).unwrap(), QueueMove::Up);
+        assert_eq!(QueueMove::parse("down", None).unwrap(), QueueMove::Down);
+        assert_eq!(
+            QueueMove::parse("position", Some(2)).unwrap(),
+            QueueMove::Position(2)
+        );
+        let error = QueueMove::parse("position", None).unwrap_err();
+        assert!(error.contains("position is required"), "{error}");
+        let error = QueueMove::parse("sideways", Some(0)).unwrap_err();
+        assert!(error.contains("Unknown queue action"), "{error}");
+    }
+
+    fn job_record(job_id: &str, phase: &str, position: Option<i64>) -> db::InstallJobRecord {
+        db::InstallJobRecord {
+            job_id: job_id.to_string(),
+            game_id: 3,
+            version_id: 31,
+            phase: phase.to_string(),
+            bytes_done: 0,
+            bytes_total: None,
+            speed_bps: 0,
+            part_path: None,
+            install_path: None,
+            staging_path: None,
+            error: None,
+            stream: false,
+            resumable: false,
+            stream_completed: None,
+            entries_total: None,
+            queue_position: position,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn a_persisted_queue_position_survives_a_restart() {
+        // After a restart the active rows are rebuilt from SQLite; the position
+        // recorded by the previous session is what restores the order.
+        let job = InstallJob::from_record(job_record("job-a", "queued", Some(2)));
+        assert_eq!(job.queue_position, Some(2));
+        // A row written by an older build has no position: it sorts last and
+        // gets one on the next compaction instead of failing.
+        assert_eq!(
+            InstallJob::from_record(job_record("job-old", "queued", None)).queue_position,
+            None
+        );
+        // An install interrupted by an app exit keeps its recorded slot, so
+        // resuming restores the previous order.
+        assert_eq!(
+            InstallJob::from_record(job_record("job-crashed", "error", Some(1))).queue_position,
+            Some(1)
+        );
+        // A finished row never re-enters the queue with a stale position.
+        assert_eq!(
+            InstallJob::from_record(job_record("job-done", "done", Some(1))).queue_position,
+            None
+        );
+    }
+
     fn download_temp_dir(label: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
             "ludex-download-{label}-{}",
@@ -3735,6 +4314,7 @@ mod tests {
             resumable: true,
             stream_completed: Some("0f".into()),
             entries_total: Some(8),
+            queue_position: Some(1),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:10:00Z".into(),
         }

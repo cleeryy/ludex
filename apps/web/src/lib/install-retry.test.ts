@@ -22,6 +22,7 @@ const job = (patch: Partial<InstallJob> = {}): InstallJob => ({
   attempt: 1,
   lastError: null,
   stalledForMs: null,
+  queuePosition: null,
   ...patch,
 });
 

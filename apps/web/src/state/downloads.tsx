@@ -5,6 +5,7 @@ import { installBridge, installsAvailable } from "@/lib/install";
 import { isNative, native } from "@/lib/native";
 import { errorMessage } from "@/lib/http";
 import { planRetry } from "@/lib/install-retry";
+import { moveInQueue, orderActiveQueue, type QueueMove } from "@/lib/install-queue";
 import type { InstallJob, InstallPhase, InstallResumeMode } from "@/lib/types";
 import { useAuth } from "@/state/auth";
 import { useToast } from "@/state/toasts";
@@ -123,6 +124,11 @@ interface DownloadsValue {
   resume: (job: InstallJob, info: ResumeInfo) => Promise<InstallJob | null>;
   retryAsDownload: (job: InstallJob, info: ResumeInfo) => Promise<InstallJob | null>;
   retryStream: (job: InstallJob, info: ResumeInfo) => Promise<InstallJob | null>;
+  /**
+   * Move a waiting install in the queue (#202): `top`, `up`, `down` or an
+   * explicit `position`. Optimistic, rolled back when the desktop refuses.
+   */
+  reorder: (jobId: string, move: QueueMove, position?: number) => Promise<void>;
   /** Delete one finished job from history; files and `.part` downloads stay. */
   remove: (jobId: string) => Promise<void>;
   /** Delete every finished job from history; resolves with the entries removed. */
@@ -205,7 +211,9 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     };
   }, [available, user, refresh]);
 
-  const active = useMemo(() => jobs.filter(isActiveJob), [jobs]);
+  // The running install stays pinned at the top, then the waiting queue in
+  // start order (#202); the desktop confirms the same order.
+  const active = useMemo(() => orderActiveQueue(jobs.filter(isActiveJob)), [jobs]);
   const history = useMemo(
     () => jobs.filter((job) => !isActiveJob(job) && !hidden.has(job.jobId)),
     [jobs, hidden],
@@ -461,6 +469,33 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     [runRetry],
   );
 
+  /**
+   * Reorder the queue (#202). The local list moves first so the buttons react
+   * immediately; the desktop's confirmed order replaces it, and any refusal
+   * (a running job, a stale queue) restores the previous list.
+   */
+  const reorder = useCallback(
+    async (jobId: string, move: QueueMove, position?: number) => {
+      const previous = jobsRef.current;
+      let optimistic: InstallJob[];
+      try {
+        optimistic = moveInQueue(previous, jobId, move, position);
+      } catch (cause) {
+        push({ title: t("Could not reorder the queue"), description: errorMessage(cause), tone: "danger" });
+        return;
+      }
+      setJobs(optimistic);
+      try {
+        const confirmed = await installBridge.reorder(jobId, move, position ?? null);
+        setJobs(confirmed);
+      } catch (cause) {
+        setJobs(previous);
+        push({ title: t("Could not reorder the queue"), description: errorMessage(cause), tone: "danger" });
+      }
+    },
+    [push],
+  );
+
   const remove = useCallback(
     async (jobId: string) => {
       try {
@@ -535,6 +570,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       resume,
       retryAsDownload,
       retryStream,
+      reorder,
       remove,
       clearHistory,
       openFolder,
@@ -542,7 +578,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       resumableForGame,
       titleFor,
     }),
-    [available, jobs, active, history, aggregate, transfer, startInstall, cancel, pause, resume, retryAsDownload, retryStream, remove, clearHistory, openFolder, jobForGame, resumableForGame, titleFor],
+    [available, jobs, active, history, aggregate, transfer, startInstall, cancel, pause, resume, retryAsDownload, retryStream, reorder, remove, clearHistory, openFolder, jobForGame, resumableForGame, titleFor],
   );
 
   return <DownloadsContext.Provider value={value}>{children}</DownloadsContext.Provider>;

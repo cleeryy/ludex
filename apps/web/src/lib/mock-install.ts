@@ -2,6 +2,7 @@ import { DEMO_GAMES } from "@/data/demo";
 import { USING_MOCKS } from "@/lib/flags";
 import { ALL_LAUNCHER_IDS } from "@/lib/launchers";
 import { slugify } from "@/lib/art";
+import { moveInQueue, nextQueuePosition, orderActiveQueue, type QueueMove } from "@/lib/install-queue";
 import type { SaveCandidate, SaveCandidateGroup, SaveCandidateOverview } from "@/lib/save-discovery";
 import type {
   DiskUsage,
@@ -155,6 +156,7 @@ function job(
     attempt: 1,
     lastError: null,
     stalledForMs: null,
+    queuePosition: null,
   };
 }
 
@@ -175,6 +177,7 @@ let jobs: InstallJob[] = [
     true,
   ),
   job("job_ln3", 10, 101, "queued", 0, Math.round(18.5 * GB), 0, "Little Nightmares III", "1.0.3", "Waiting for a slot"),
+  job("job_blue", 2, 21, "queued", 0, Math.round(6.4 * GB), 0, "Blue Prince", "1.0.2", "Waiting for a slot"),
   job(
     "job_spidey",
     11,
@@ -237,6 +240,13 @@ if (jobs[0]) {
 }
 
 phaseEnds.set("job_ln3", now() + 5000);
+phaseEnds.set("job_blue", now() + 8000);
+
+// #202: the demo queue has one running install and two waiting behind it, so
+// the reorder controls have something to move.
+jobs[0].queuePosition = 0;
+jobs[1].queuePosition = 1;
+jobs[2].queuePosition = 2;
 
 function addInstalled(job: InstallJob) {
   if (installed.some((entry) => entry.gameId === job.gameId)) return;
@@ -264,15 +274,7 @@ if (USING_MOCKS) setInterval(() => {
   const time = now();
 
   for (const current of jobs) {
-    if (current.phase === "queued") {
-      const end = phaseEnds.get(current.jobId) ?? time;
-      if (time >= end) {
-        current.phase = "downloading";
-        current.speedBps = nextMockSpeed(current.jobId);
-        current.message = "Downloading archive";
-        changed = true;
-      }
-    } else if (current.phase === "downloading") {
+    if (current.phase === "downloading") {
       const total = current.bytesTotal ?? 0;
       current.speedBps = nextMockSpeed(current.jobId);
       current.bytesDone = Math.min(total, current.bytesDone + current.speedBps);
@@ -301,6 +303,28 @@ if (USING_MOCKS) setInterval(() => {
       changed = true;
     }
   }
+
+  // #202: one install at a time; the lowest queue position starts next, so
+  // moving a game to the top in the demo starts it after the current one.
+  const busy = jobs.some((entry) => ACTIVE.has(entry.phase) && entry.phase !== "queued");
+  if (!busy) {
+    const next = orderActiveQueue(jobs).find(
+      (entry) => entry.phase === "queued" && time >= (phaseEnds.get(entry.jobId) ?? 0),
+    );
+    if (next) {
+      next.phase = "downloading";
+      next.speedBps = nextMockSpeed(next.jobId);
+      next.message = "Downloading archive";
+      changed = true;
+    }
+  }
+  // Keep the positions compact after a job finishes, like the desktop does.
+  orderActiveQueue(jobs).forEach((entry, index) => {
+    if (entry.queuePosition !== index) {
+      entry.queuePosition = index;
+      changed = true;
+    }
+  });
 
   if (changed) emit();
 }, 1000);
@@ -458,6 +482,7 @@ export const mockInstalls = {
       attempt: 1,
       lastError: null,
       stalledForMs: null,
+      queuePosition: nextQueuePosition(jobs),
     };
     phaseEnds.set(id, now() + 1500);
     jobs = [next, ...jobs];
@@ -510,6 +535,19 @@ export const mockInstalls = {
       emit();
     }
     return Promise.resolve(clone(target));
+  },
+
+  /** Reorder the demo queue exactly like the desktop scheduler (#202). */
+  reorder(jobId: string, action: QueueMove, position?: number | null): Promise<InstallJob[]> {
+    let next: InstallJob[];
+    try {
+      next = moveInQueue(jobs, jobId, action, position ?? undefined);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    jobs = next;
+    emit();
+    return Promise.resolve(clone(jobs));
   },
 
   remove(jobId: string): Promise<void> {

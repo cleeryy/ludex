@@ -2092,6 +2092,7 @@ interface InstallJob {
   attempt: number;              // connection attempt that produced this snapshot; the next one while reconnecting
   lastError: string | null;     // last transport error, kept until the transfer completes (#195)
   stalledForMs: number | null;  // silence that triggered the stall, in milliseconds
+  queuePosition: number | null; // install queue slot (#202); null when finished or from an older build
 }
 
 interface VerifyIssue {
@@ -2538,7 +2539,8 @@ interface RemotePlayCleanup {
 | `pause_install` | `{ jobId }` | `InstallJob` (`paused`; keeps the `.part`) |
 | `resume_install` | `{ jobId, mode? }` | `InstallJob`; continues the **same** job (#205/#208). Accepts `paused`, `error`, `interrupted` and `cancelled` rows, including a job persisted by a previous app run: the worker is rebuilt from `install_job_params`, keeps the `.part`/staging path and the per-entry checkpoint, and never creates a second history row. `mode` is `null`/`"keep"` (same transport), `"download"` (explicit retry as a download) or `"stream"` (explicit restart of the per-entry stream); both reuse the job id. A `done` job or an unknown/legacy row without parameters is refused with a clear reason |
 | `get_install_job` | `{ jobId }` | `InstallJob` |
-| `list_install_jobs` | — | `InstallJob[]` (active + persisted, newest first) |
+| `list_install_jobs` | — | `InstallJob[]`; active jobs first in queue order (`queuePosition`, lowest first, running install at the front), then history newest first |
+| `reorder_install_job` | `{ jobId, action, position? }` | `InstallJob[]` (the new queue order, same shape as `list_install_jobs`). `action` is `"top"`, `"up"`, `"down"` or `"position"`; `position` is the 0-based place inside the waiting queue and is required (and validated) for `"position"`. Queued and paused jobs move; the running install is never preempted and is refused with a clear message, as is a finished job or a row from a previous session. Moving a job to the top makes it the next one the scheduler starts (#202) |
 | `delete_install_job` | `{ jobId }` | `null`; removes one terminal (`done`, `cancelled`, `error`, `interrupted`) row from Downloads history. Refuses active and paused jobs. Never deletes the install folder, archives or `.part` files |
 | `clear_finished_install_jobs` | — | `number` (rows removed); deletes every terminal history row, keeps active/paused jobs and all files on disk |
 | `remote_installs_sync` | — | `{ claimed: string[], skipped: number, error: string \| null }`; picks up phone-queued installs (#167) via `GET /api/remote-installs?status=queued`, claims each row, starts the normal `install_game` pipeline and mirrors progress (`claimed` → `downloading` → `ready`/`failed`/`cancelled`) every 2 s. Safe to call repeatedly; two desktops racing get `409` on the loser |
@@ -2739,7 +2741,13 @@ Per-entry stream checkpoints live in
 `install_stream_manifests` (one manifest per job/version) and the
 `install_jobs.stream_completed` hex bitset (schema v10). Schema v17 adds
 `install_job_params` (the request needed to rebuild a worker after a restart)
-and `install_jobs.staging_path`, `resumable` and `entries_total`. Local archive extraction
+and `install_jobs.staging_path`, `resumable` and `entries_total`. Schema v18
+adds `install_jobs.queue_position` (#202): a compact `0..n` slot per active job
+that survives a restart; terminal rows carry `NULL`, so a finished or cancelled
+job never leaves a gap. A single scheduler starts the lowest position when the
+install slot frees (stream and classic jobs share the same queue), and the
+running install keeps its slot until it finishes, pauses or is cancelled.
+Local archive extraction
 uses `GET /api/games/{id}/versions/{vid}/local-path` when the embedded server is
 in local mode; remote installs download with Range resume and delete the temp
 archive by default (`keepArchives` setting false).
@@ -3094,6 +3102,16 @@ stops every write. Each applied change appears in the Backups tab with
   focuses an already-running job instead of starting another. "Resume" is only
   shown when a checkpoint exists; otherwise the action is "Restart" with a
   confirmation that it starts from zero.
+- **Install queue order (#202).** One install slot (`MAX_CONCURRENT_INSTALLS`)
+  shared by classic downloads and stream installs. Every active job carries a
+  persisted `queuePosition`; the scheduler starts the lowest position when the
+  slot frees instead of relying on the order the tasks reached a semaphore.
+  `reorder_install_job` moves a waiting job to the top, one place up/down or to
+  an explicit place inside the waiting queue; running jobs keep the front slot
+  and are refused, and a finished job cannot be reordered. Positions compact to
+  `0..n` after every change, so a completed/cancelled job leaves no gap, and
+  the order survives a restart. Downloads and Big Picture render the same list;
+  the web UI reorders optimistically and rolls back on refusal.
 - **Bandwidth limit.** `bandwidthLimitKib` caps the copy loop of archive
   downloads, repairs and stream installs. 0 means unlimited. The cap is read
   when a transfer starts. The field keeps its KiB/s storage for compatibility;

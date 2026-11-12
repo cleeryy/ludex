@@ -234,6 +234,23 @@ pub fn resume_install(
     install::resume_with_mode(&app, &job_id, mode)
 }
 
+/// Move a waiting install in the download queue (#202).
+///
+/// `action` is `top`, `up`, `down` or `position` (then `position` is the
+/// 0-based place inside the waiting queue). A running job is never preempted
+/// and a finished one cannot be moved: both are refused with a clear message.
+/// Returns the new queue order, active jobs first.
+#[tauri::command]
+pub fn reorder_install_job(
+    app: AppHandle,
+    job_id: String,
+    action: String,
+    position: Option<u32>,
+) -> Result<Vec<InstallJob>, String> {
+    let action = install::QueueMove::parse(&action, position)?;
+    install::reorder(&app, &job_id, action)
+}
+
 #[tauri::command]
 pub fn get_install_job(app: AppHandle, job_id: String) -> Result<InstallJob, String> {
     match install::job(&app, &job_id) {
