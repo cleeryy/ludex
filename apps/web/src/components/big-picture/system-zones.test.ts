@@ -4,13 +4,17 @@ import {
   SETTINGS_SECTIONS,
   atLibraryTop,
   closeSystemApp,
+  homeRowPlacement,
   levelFromSearch,
   openSystemApp,
+  restoreZone,
   sameLevel,
   settingsSectionFromSearch,
   stepSettingsSection,
   wrapIndex,
   zoneAfterMove,
+  zoneExit,
+  zonesForLayout,
   type ShellLevel,
 } from "./system-zones";
 
@@ -39,22 +43,71 @@ describe("console home row", () => {
     expect(wrapIndex(4, 1, 0)).toBe(0);
   });
 
-  it("moves Up into the home row only when the library has run out of rows", () => {
-    expect(zoneAfterMove("library", "up", { atLibraryTop: true })).toBe("home");
-    expect(zoneAfterMove("library", "up", { atLibraryTop: false })).toBe("library");
-    expect(zoneAfterMove("home", "down", { atLibraryTop: false })).toBe("library");
-    expect(zoneAfterMove("home", "up", { atLibraryTop: false })).toBe("home");
-    expect(zoneAfterMove("library", "left", { atLibraryTop: true })).toBe("library");
+  it("moves Up into the home row only when the layout says so", () => {
+    expect(zoneAfterMove("library", "up", { layout: "shelf", atLibraryTop: true })).toBe("home");
+    expect(zoneAfterMove("library", "up", { layout: "grid", atLibraryTop: false })).toBe("library");
+    expect(zoneAfterMove("home", "down", { layout: "shelf", atLibraryTop: false })).toBe("library");
+    expect(zoneAfterMove("home", "up", { layout: "shelf", atLibraryTop: false })).toBe("home");
+    expect(zoneAfterMove("library", "left", { layout: "shelf", atLibraryTop: true })).toBe("library");
   });
 
   it("knows the first row of every layout", () => {
-    expect(atLibraryTop({ layout: "shelf", index: 0, shelfIndex: 0, columns: 6 })).toBe(true);
-    expect(atLibraryTop({ layout: "shelf", index: 0, shelfIndex: 1, columns: 6 })).toBe(false);
-    expect(atLibraryTop({ layout: "hero", index: 4, shelfIndex: 0, columns: 6 })).toBe(true);
-    expect(atLibraryTop({ layout: "grid", index: 5, shelfIndex: 0, columns: 6 })).toBe(true);
-    expect(atLibraryTop({ layout: "grid", index: 6, shelfIndex: 0, columns: 6 })).toBe(false);
-    expect(atLibraryTop({ layout: "compact", index: 0, shelfIndex: 0, columns: 6 })).toBe(true);
-    expect(atLibraryTop({ layout: "compact", index: 1, shelfIndex: 0, columns: 6 })).toBe(false);
+    expect(atLibraryTop({ layout: "shelf", index: 0, columns: 6 })).toBe(true);
+    expect(atLibraryTop({ layout: "shelf", index: 4, columns: 6 })).toBe(true);
+    expect(atLibraryTop({ layout: "hero", index: 4, columns: 6 })).toBe(true);
+    expect(atLibraryTop({ layout: "spotlight", index: 9, columns: 6 })).toBe(true);
+    expect(atLibraryTop({ layout: "dock", index: 0, columns: 6 })).toBe(false);
+    expect(atLibraryTop({ layout: "grid", index: 5, columns: 6 })).toBe(true);
+    expect(atLibraryTop({ layout: "grid", index: 6, columns: 6 })).toBe(false);
+    expect(atLibraryTop({ layout: "compact", index: 0, columns: 6 })).toBe(true);
+    expect(atLibraryTop({ layout: "compact", index: 1, columns: 6 })).toBe(false);
+  });
+});
+
+describe("per-layout zone graph", () => {
+  it("orders the zones the way the layout draws them", () => {
+    expect(zonesForLayout("shelf")).toEqual(["home", "library"]);
+    expect(zonesForLayout("hero")).toEqual(["home", "library"]);
+    expect(zonesForLayout("grid")).toEqual(["home", "library"]);
+    expect(zonesForLayout("compact")).toEqual(["home", "library"]);
+    expect(zonesForLayout("dock")).toEqual(["library", "home"]);
+    expect(zonesForLayout("spotlight")).toEqual(["home", "library", "actions"]);
+  });
+
+  it("places the system row per layout", () => {
+    expect(homeRowPlacement("shelf")).toBe("row");
+    expect(homeRowPlacement("hero")).toBe("row");
+    expect(homeRowPlacement("grid")).toBe("row");
+    expect(homeRowPlacement("compact")).toBe("row");
+    expect(homeRowPlacement("dock")).toBe("dock");
+    expect(homeRowPlacement("spotlight")).toBe("overlay");
+  });
+
+  it("dock: Down enters the system row, Up is a dead end", () => {
+    expect(zoneAfterMove("library", "down", { layout: "dock", atLibraryTop: false })).toBe("home");
+    expect(zoneAfterMove("library", "up", { layout: "dock", atLibraryTop: false })).toBe("library");
+    expect(zoneAfterMove("library", "left", { layout: "dock", atLibraryTop: false })).toBe("library");
+    expect(zoneExit("dock", "home")).toBe("up");
+    expect(zoneAfterMove("home", "up", { layout: "dock", atLibraryTop: false })).toBe("library");
+    expect(zoneAfterMove("home", "down", { layout: "dock", atLibraryTop: false })).toBe("home");
+  });
+
+  it("spotlight: Up reaches the system row, Down reaches the actions", () => {
+    expect(zoneAfterMove("library", "up", { layout: "spotlight", atLibraryTop: true })).toBe("home");
+    expect(zoneAfterMove("library", "down", { layout: "spotlight", atLibraryTop: true })).toBe("actions");
+    expect(zoneAfterMove("home", "down", { layout: "spotlight", atLibraryTop: true })).toBe("library");
+    expect(zoneAfterMove("actions", "up", { layout: "spotlight", atLibraryTop: true })).toBe("library");
+    expect(zoneAfterMove("actions", "down", { layout: "spotlight", atLibraryTop: true })).toBe("actions");
+    expect(zoneExit("spotlight", "home")).toBe("down");
+    expect(zoneExit("spotlight", "actions")).toBe("up");
+  });
+
+  it("keeps a surviving zone across a layout switch and drops a missing one", () => {
+    expect(restoreZone("dock", "home")).toBe("home");
+    expect(restoreZone("spotlight", "actions")).toBe("actions");
+    expect(restoreZone("dock", "actions")).toBe("library");
+    expect(restoreZone("shelf", "actions")).toBe("library");
+    expect(restoreZone("grid", "library")).toBe("library");
   });
 });
 

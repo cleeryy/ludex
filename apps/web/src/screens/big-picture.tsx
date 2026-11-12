@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useReducedMotion } from "motion/react";
@@ -11,7 +11,7 @@ import { isNative, native } from "@/lib/native";
 import { listServers } from "@/lib/servers";
 import type { ConsoleStatus, GameSummary } from "@/lib/types";
 import { useAllGames, useInstalledMap, useLaunchGame } from "@/lib/hooks";
-import { useGamepad, gamepadDebugEnabled, type ActionSource, type GamepadAction } from "@/lib/gamepad";
+import { useGamepad, gamepadDebugEnabled, focusGamepadTarget, type ActionSource, type GamepadAction } from "@/lib/gamepad";
 import { GamepadDebugPanel } from "@/components/gamepad/gamepad-debug";
 import { useControllerProfile } from "@/lib/use-controller-profile";
 import { useAuth } from "@/state/auth";
@@ -41,9 +41,11 @@ import {
   type SearchStep,
 } from "@/components/big-picture/input";
 import { CompactLayout } from "@/components/big-picture/layout-compact";
+import { DockLayout } from "@/components/big-picture/layout-dock";
 import { GridLayout } from "@/components/big-picture/layout-grid";
 import { HeroLayout } from "@/components/big-picture/layout-hero";
 import { ShelfLayout } from "@/components/big-picture/layout-shelf";
+import { SpotlightLayout } from "@/components/big-picture/layout-spotlight";
 import { LayoutSkeleton } from "@/components/big-picture/layout-skeleton";
 import { LayoutPicker } from "@/components/big-picture/layout-switcher";
 import {
@@ -51,6 +53,7 @@ import {
   clampIndex,
   gridColumns,
   type BigPictureLayout,
+  type MoveDirection,
 } from "@/components/big-picture/layout";
 import { layoutLabel } from "@/components/big-picture/labels";
 import { jobPercent, type BigPictureLayoutProps } from "@/components/big-picture/model";
@@ -69,14 +72,16 @@ import { SettingsApp, type SettingsRow } from "@/components/big-picture/settings
 import { SystemBar } from "@/components/big-picture/system-bar";
 import {
   HOME_ITEM_IDS,
-  atLibraryTop,
   closeSystemApp,
+  homeRowPlacement,
   levelFromSearch,
   openSystemApp,
+  restoreZone,
   sameLevel,
   settingsSectionFromSearch,
   stepSettingsSection,
   wrapIndex,
+  zoneExit,
   type FocusZone,
   type HomeItemId,
   type SettingsSectionId,
@@ -111,6 +116,19 @@ const REFRESH_ON_OPEN_MS = 10_000;
 /** Regaining focus only refetches when the shelf has had time to age. */
 const REFRESH_ON_FOCUS_MS = 30_000;
 let lastRefreshAt = 0;
+
+/**
+ * Every layout is wired here, with no fallback: adding a seventh id is a
+ * compile error until its view exists (#197). The screen's body never guesses.
+ */
+const LAYOUT_VIEWS: Record<BigPictureLayout, ComponentType<BigPictureLayoutProps>> = {
+  shelf: ShelfLayout,
+  dock: DockLayout,
+  spotlight: SpotlightLayout,
+  hero: HeroLayout,
+  grid: GridLayout,
+  compact: CompactLayout,
+};
 
 function storage(): Storage | null {
   try {
@@ -209,7 +227,7 @@ export function BigPictureScreen() {
   // choice. None of these leave Big Picture when they change.
   const [overlay, setOverlay] = useState<BigPictureOverlay | null>(null);
   const [overlayIndex, setOverlayIndex] = useState(0);
-  const overlayReturnRef = useRef<"library" | "home" | "app">("library");
+  const overlayReturnRef = useRef<"library" | "home" | "actions" | "app">("library");
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
@@ -597,9 +615,37 @@ export function BigPictureScreen() {
     const selector = target === "home" ? "[data-home-active='true']" : "[data-system-active='true']";
     const element = document.querySelector<HTMLElement>(selector);
     if (!element) return;
+    // One ring at a time: the game card keeps its selected ring, not the
+    // gamepad outline it wore before the zone step.
+    document.querySelectorAll("[data-gamepad-focus]").forEach((marked) => marked.removeAttribute("data-gamepad-focus"));
     element.setAttribute("data-gamepad-focus", "true");
     element.focus({ preventScroll: true });
   }, []);
+
+  /* ------------------------------ zone focus ------------------------------- */
+
+  // The Spotlight action row is built by the layout (the primary node comes
+  // from the screen), so the zone addresses its buttons in DOM order instead of
+  // holding refs. One wrapper per action keeps the order stable.
+  const actionTargets = () =>
+    Array.from(document.querySelectorAll<HTMLElement>("[data-bp-action='true'] button"));
+
+  const actionIndexRef = useRef(0);
+  const zoneRef = useRef<FocusZone>(zone);
+  zoneRef.current = zone;
+
+  const focusActions = useCallback((index: number) => {
+    const targets = actionTargets();
+    if (targets.length === 0) return;
+    const next = clampIndex(index, targets.length);
+    actionIndexRef.current = next;
+    focusGamepadTarget(targets, next, false, { scroll: false });
+  }, []);
+
+  const activateAction = (index: number) => {
+    const targets = actionTargets();
+    targets[clampIndex(index, targets.length)]?.click();
+  };
 
   const openApp = (id: "settings" | "power") => {
     setOverlay(null);
@@ -632,6 +678,48 @@ export function BigPictureScreen() {
     setOverlay(null);
     setPendingPower(null);
     window.setTimeout(() => nav.focusSelected(), 0);
+  };
+
+  /**
+   * The game row handed a direction to the shell (#197). Home lands on the
+   * system row; actions lands on the Spotlight quick actions; the library is
+   * where B and the exit direction always return.
+   */
+  const enterZone = (target: FocusZone) => {
+    if (target === "home") {
+      enterHome();
+      return;
+    }
+    if (target === "actions") {
+      setZone("actions");
+      actionIndexRef.current = 0;
+      window.setTimeout(() => focusActions(0), 0);
+      return;
+    }
+    returnToLibrary();
+  };
+
+  /**
+   * One direction inside a secondary zone. Left/right wrap the system ring and
+   * clamp the action row; the direction that points back at the games leaves
+   * the zone, and the opposite direction is a dead end on purpose.
+   */
+  const moveZone = (direction: MoveDirection) => {
+    if (zone === "home") {
+      if (direction === "left" || direction === "right") {
+        setHomeIndex((current) => wrapIndex(current, direction === "left" ? -1 : 1, HOME_ITEM_IDS.length));
+      } else if (direction === zoneExit(layout, "home")) {
+        returnToLibrary();
+      }
+      return;
+    }
+    if (zone === "actions") {
+      if (direction === "left" || direction === "right") {
+        focusActions(actionIndexRef.current + (direction === "left" ? -1 : 1));
+      } else if (direction === zoneExit(layout, "actions")) {
+        returnToLibrary();
+      }
+    }
   };
 
   const startGame = async (game: GameSummary, executable?: string | null) => {
@@ -810,7 +898,8 @@ export function BigPictureScreen() {
   /* ------------------------------- overlays ------------------------------- */
 
   const openOverlay = (next: BigPictureOverlay) => {
-    overlayReturnRef.current = level.kind === "app" ? "app" : zone === "home" ? "home" : "library";
+    overlayReturnRef.current =
+      level.kind === "app" ? "app" : zone === "home" ? "home" : zone === "actions" ? "actions" : "library";
     setOverlay(next);
     if (next === "search") {
       setSearchIndex(0);
@@ -833,6 +922,7 @@ export function BigPictureScreen() {
     // ref already holds the new selection, so the ring lands on the right one.
     window.setTimeout(() => {
       if (target === "home") focusSurface("home");
+      else if (target === "actions") focusActions(actionIndexRef.current);
       else if (target === "app") focusSurface("app");
       else nav.focusSelected();
     }, 0);
@@ -946,17 +1036,13 @@ export function BigPictureScreen() {
 
   const runCommand = (command: BigPictureCommand) => {
     switch (command.type) {
-      case "move":
-        if (
-          zone === "library" &&
-          command.direction === "up" &&
-          atLibraryTop({ layout, index: nav.index, shelfIndex: nav.shelfIndex, columns })
-        ) {
-          enterHome();
-          return;
-        }
-        nav.actions[command.direction]();
+      case "move": {
+        // The step model returns the zone the press belongs to when the game
+        // row has run out (#197); the shell owns the zone state, not the hook.
+        const target = nav.move(command.direction);
+        if (target) enterZone(target);
         return;
+      }
       case "shelf":
         if (command.delta < 0) nav.actions.prevShelf();
         else nav.actions.nextShelf();
@@ -1010,6 +1096,8 @@ export function BigPictureScreen() {
     if (!active) return;
     // `pointerdown` clears every mark, and React will not rewrite an unchanged
     // attribute; re-marking here keeps the ring visible after a mouse click.
+    // The library card or action keeps its selected state, not the outline.
+    document.querySelectorAll("[data-gamepad-focus]").forEach((marked) => marked.removeAttribute("data-gamepad-focus"));
     active.setAttribute("data-gamepad-focus", "true");
     if (overlay !== "search") active.focus({ preventScroll: true });
   }, [overlay, overlayIndex]);
@@ -1070,19 +1158,17 @@ export function BigPictureScreen() {
       return;
     }
 
-    if (zone === "home") {
+    if (zone !== "library") {
       switch (action) {
         case "left":
-          return setHomeIndex((current) => wrapIndex(current, -1, HOME_ITEM_IDS.length));
         case "right":
-          return setHomeIndex((current) => wrapIndex(current, 1, HOME_ITEM_IDS.length));
         case "up":
-          return;
         case "down":
+          return moveZone(action);
+        case "confirm":
+          return zone === "home" ? activateHome(homeIndex) : activateAction(actionIndexRef.current);
         case "back":
           return returnToLibrary();
-        case "confirm":
-          return activateHome(homeIndex);
         case "menu":
           return openOverlay("menu");
         case "downloads":
@@ -1101,21 +1187,32 @@ export function BigPictureScreen() {
   });
   const padFamilyName = padFamily(gamepad.id, activeProfile);
 
-  // After a layout switch the ring must come back to the same game. Only when
-  // the pad owns focus: a mouse click on the switcher keeps its own focus.
+  // After a layout switch the ring must come back to the same surface. A zone
+  // the new layout does not draw falls back to the game row; a surviving zone
+  // (the system row exists everywhere) is refocused where it now sits. The
+  // guard keeps a mouse click on the switcher from stealing focus.
   const lastLayout = useRef(layout);
   useEffect(() => {
     if (lastLayout.current === layout) return;
     lastLayout.current = layout;
-    if (!gamepad.connected) return;
+    const restored = restoreZone(layout, zoneRef.current);
+    if (restored !== zoneRef.current) {
+      zoneRef.current = restored;
+      setZone(restored);
+    }
+    // An app level owns the ring; only the library has a surface to refocus.
+    if (level.kind !== "library") return;
     const active = document.activeElement as HTMLElement | null;
     const ownsFocus =
       !active ||
       active === document.body ||
       active.hasAttribute("data-gamepad-focus") ||
       active.closest("[data-gamepad-target]") !== null;
-    if (ownsFocus) nav.focusSelected();
-  }, [layout, gamepad.connected, nav]);
+    if (!ownsFocus) return;
+    if (restored === "home") focusSurface("home");
+    else if (restored === "actions") focusActions(actionIndexRef.current);
+    else nav.focusSelected();
+  }, [layout, level, nav, focusSurface, focusActions]);
 
   const recentGame = shelves.find((shelf) => shelf.id === "recent")?.games[0] ?? null;
   const themeValue =
@@ -1323,6 +1420,11 @@ export function BigPictureScreen() {
   }, [level, zone, homeIndex, overlay, pendingPower, focusSurface]);
 
   useEffect(() => {
+    if (level.kind !== "library" || zone !== "actions" || overlay || pendingPower) return;
+    focusActions(actionIndexRef.current);
+  }, [level, zone, overlay, pendingPower, focusActions]);
+
+  useEffect(() => {
     if (level.kind !== "app" || overlay || pendingPower) return;
     focusSurface("app");
   }, [level, appIndex, settingsSection, overlay, pendingPower, focusSurface]);
@@ -1347,6 +1449,7 @@ export function BigPictureScreen() {
     confirmWasOpen.current = true;
     const active = document.querySelector<HTMLElement>("[data-overlay-active='true']");
     if (!active) return;
+    document.querySelectorAll("[data-gamepad-focus]").forEach((marked) => marked.removeAttribute("data-gamepad-focus"));
     active.setAttribute("data-gamepad-focus", "true");
     active.focus({ preventScroll: true });
   }, [pendingPower, level, focusSurface]);
@@ -1449,29 +1552,23 @@ export function BigPictureScreen() {
         return;
       }
 
-      if (zone === "home") {
-        if (key === "ArrowLeft") {
+      if (zone !== "library") {
+        const direction =
+          key === "ArrowLeft" ? "left" : key === "ArrowRight" ? "right" : key === "ArrowUp" ? "up" : key === "ArrowDown" ? "down" : null;
+        if (direction) {
           event.preventDefault();
-          setHomeIndex((current) => wrapIndex(current, -1, HOME_ITEM_IDS.length));
-          return;
-        }
-        if (key === "ArrowRight") {
-          event.preventDefault();
-          setHomeIndex((current) => wrapIndex(current, 1, HOME_ITEM_IDS.length));
-          return;
-        }
-        if (key === "ArrowUp") {
-          event.preventDefault();
-          return;
-        }
-        if (key === "ArrowDown" || key === "Backspace") {
-          event.preventDefault();
-          returnToLibrary();
+          moveZone(direction);
           return;
         }
         if (key === "Enter") {
           event.preventDefault();
-          activateHome(homeIndex);
+          if (zone === "home") activateHome(homeIndex);
+          else activateAction(actionIndexRef.current);
+          return;
+        }
+        if (key === "Backspace") {
+          event.preventDefault();
+          returnToLibrary();
           return;
         }
         if (key === "Escape") {
@@ -1506,6 +1603,7 @@ export function BigPictureScreen() {
     consoleMode?.exitShortcut,
     pendingPower,
     level,
+    layout,
     zone,
     homeIndex,
     appIndex,
@@ -1549,6 +1647,7 @@ export function BigPictureScreen() {
     percent,
     primary,
     onOpenGame: (gameId) => navigate(`/game/${gameId}`),
+    onOpenMenu: () => openOverlay("menu"),
     jobFor: downloads.jobForGame,
   };
 
@@ -1576,14 +1675,11 @@ export function BigPictureScreen() {
         {t("Exit Big Picture")}
       </Button>
     </div>
-  ) : layout === "hero" ? (
-    <HeroLayout {...viewProps} />
-  ) : layout === "grid" ? (
-    <GridLayout {...viewProps} />
-  ) : layout === "compact" ? (
-    <CompactLayout {...viewProps} />
   ) : (
-    <ShelfLayout {...viewProps} />
+    (() => {
+      const View = LAYOUT_VIEWS[layout];
+      return <View {...viewProps} />;
+    })()
   );
 
   const overlayShell = {
@@ -1602,7 +1698,24 @@ export function BigPictureScreen() {
         ? level.id
         : zone === "home"
           ? "home"
-          : "library";
+          : zone === "actions"
+            ? "actions"
+            : "library";
+
+  // #197: the layout owns where the system row sits. Above the games it is the
+  // console header; the Dock puts it under the row; the Spotlight floats it
+  // over the artwork. One component, three placements.
+  const homePlacement = homeRowPlacement(layout);
+  const homeRow = (
+    <HomeRow
+      active={homeIndex}
+      focused={zone === "home"}
+      details={homeDetails}
+      onHighlight={setHomeIndex}
+      onChoose={activateHome}
+      placement={homePlacement}
+    />
+  );
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-bg-deep text-ink">
@@ -1622,17 +1735,14 @@ export function BigPictureScreen() {
         consoleActive={consoleActive}
       />
 
-      {level.kind === "library" && (
-        <HomeRow
-          active={homeIndex}
-          focused={zone === "home"}
-          details={homeDetails}
-          onHighlight={setHomeIndex}
-          onChoose={activateHome}
-        />
-      )}
+      {level.kind === "library" && homePlacement === "row" && homeRow}
 
       <main className="relative z-10 flex min-h-0 flex-1 flex-col">
+        {level.kind === "library" && homePlacement === "overlay" && (
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-end pt-2 bp-pad-x">
+            <div className="pointer-events-auto">{homeRow}</div>
+          </div>
+        )}
         {level.kind === "app" && level.id === "settings" ? (
           <SettingsApp
             section={settingsSection}
@@ -1662,6 +1772,8 @@ export function BigPictureScreen() {
           body
         )}
       </main>
+
+      {level.kind === "library" && homePlacement === "dock" && homeRow}
 
       <BigPictureFooter
         layout={layout}

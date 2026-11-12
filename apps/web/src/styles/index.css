@@ -354,6 +354,45 @@
       );
   }
 
+  /* Spotlight (#197): the system icons float over the top of the artwork, so
+     the top edge needs enough stage to keep 22 px glyphs readable. */
+  .bp-top-shade {
+    background: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--stage) 76%, transparent) 0%,
+      color-mix(in oklab, var(--stage) 34%, transparent) 58%,
+      transparent 100%
+    );
+  }
+
+  /* Two layers at most: the outgoing Spotlight backdrop fades under the new
+     one. Opacity only, and the global reduced-motion rule turns it off. */
+  @keyframes bp-crossfade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes bp-crossfade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
+  .bp-crossfade-in {
+    animation: bp-crossfade-in var(--dur-3) var(--ease-out) both;
+  }
+
+  .bp-crossfade-out {
+    animation: bp-crossfade-out var(--dur-3) var(--ease-out) both;
+  }
+
   .still-shade {
     background: linear-gradient(
       180deg,

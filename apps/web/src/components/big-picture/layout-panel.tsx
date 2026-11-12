@@ -30,7 +30,11 @@ export function BigPictureLayoutPanel() {
         </span>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2.5 lg:grid-cols-4" role="group" aria-label={t("Big Picture layout")}>
+      <div
+        className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6"
+        role="group"
+        aria-label={t("Big Picture layout")}
+      >
         {BIG_PICTURE_LAYOUTS.map((entry) => {
           const active = entry === layout;
           return (
@@ -65,7 +69,7 @@ export function BigPictureLayoutPanel() {
       </div>
 
       <p className="mt-2.5 text-[11px] leading-relaxed text-ink-3">
-        {t("Saved on this device. Big Picture switches with L on a keyboard or X on a controller.")}
+        {t("Saved on this device. Big Picture switches with L on a keyboard, or Menu → Layout on a controller.")}
       </p>
     </section>
   );
