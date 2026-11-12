@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { Check, ChevronDown, GalleryHorizontalEnd, LayoutGrid, List, PanelTop } from "lucide-react";
+import { Check, ChevronDown, GalleryHorizontalEnd, LayoutGrid, List, PanelBottom, PanelTop, Sparkles } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { Kbd } from "@/components/ui/controls";
@@ -14,12 +14,14 @@ import { LayoutPreview } from "./layout-preview";
    Settings → Appearance, so a change applies everywhere without a reload.
    -------------------------------------------------------------------------- */
 
-const LAYOUT_ICONS = {
+const LAYOUT_ICONS: Record<BigPictureLayout, typeof GalleryHorizontalEnd> = {
   shelf: GalleryHorizontalEnd,
+  dock: PanelBottom,
+  spotlight: Sparkles,
   hero: PanelTop,
   grid: LayoutGrid,
   compact: List,
-} as const;
+};
 
 export function LayoutTrigger({
   layout,
@@ -104,7 +106,7 @@ export function LayoutPicker({
           </span>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
           {BIG_PICTURE_LAYOUTS.map((entry, position) => {
             const active = entry === layout;
             const focused = position === highlight;

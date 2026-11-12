@@ -14,8 +14,12 @@ import type { BigPictureLayout, MoveDirection } from "./layout";
    apart.
    -------------------------------------------------------------------------- */
 
-/** The focus graph above the game grid: one row of system tiles, then the shelf. */
-export type FocusZone = "home" | "library";
+/**
+ * The focus graph around the game grid (#196, extended by #197): the system
+ * row, the games themselves, and — in the Spotlight layout — the quick-action
+ * row under the title. A layout only exposes the zones it actually draws.
+ */
+export type FocusZone = "home" | "library" | "actions";
 
 /** Console surfaces that replace the grid but keep the system bar. */
 export type SystemAppId = "settings" | "power";
@@ -35,6 +39,8 @@ export function wrapIndex(index: number, delta: number, count: number): number {
 }
 
 export interface ZoneMoveOptions {
+  /** The layout whose zone graph applies. */
+  layout: BigPictureLayout;
   /** True when Up would otherwise run out of game rows. */
   atLibraryTop: boolean;
 }
@@ -43,15 +49,83 @@ export interface ZoneMoveOptions {
  * Up from the first game row enters the home row; Down from the home row
  * returns to the game grid. Left/right and every other direction stay in the
  * zone they started in, so the ring never jumps between zones sideways.
+ *
+ * #197 makes the graph per layout: the Dock puts the system row *under* the
+ * games, the Spotlight adds an action row under the title, and a rail with a
+ * single row always hands Up to the home row instead of cycling shelves.
  */
 export function zoneAfterMove(
   zone: FocusZone,
   direction: MoveDirection,
-  { atLibraryTop }: ZoneMoveOptions,
+  { layout, atLibraryTop }: ZoneMoveOptions,
 ): FocusZone {
-  if (zone === "library" && direction === "up" && atLibraryTop) return "home";
-  if (zone === "home" && direction === "down") return "library";
-  return zone;
+  if (zone === "library") {
+    switch (layout) {
+      case "dock":
+        return direction === "down" ? "home" : "library";
+      case "spotlight":
+        if (direction === "up") return "home";
+        if (direction === "down") return "actions";
+        return "library";
+      case "shelf":
+      case "hero":
+        return direction === "up" ? "home" : "library";
+      case "grid":
+      case "compact":
+        return direction === "up" && atLibraryTop ? "home" : "library";
+    }
+  }
+  return direction === zoneExit(layout, zone) ? "library" : zone;
+}
+
+/** Zones a layout exposes, top to bottom. */
+export function zonesForLayout(layout: BigPictureLayout): readonly FocusZone[] {
+  switch (layout) {
+    case "dock":
+      return ["library", "home"];
+    case "spotlight":
+      return ["home", "library", "actions"];
+    case "shelf":
+    case "hero":
+    case "grid":
+    case "compact":
+      return ["home", "library"];
+  }
+}
+
+/**
+ * The direction that leaves a secondary zone and lands back on the selected
+ * game. The Dock row sits at the bottom, so Up goes back to the games; every
+ * other placement is above the row.
+ */
+export function zoneExit(layout: BigPictureLayout, zone: Exclude<FocusZone, "library">): MoveDirection {
+  if (zone === "actions") return "up";
+  return layout === "dock" ? "up" : "down";
+}
+
+/**
+ * After a layout switch, a zone the new layout does not draw cannot keep the
+ * ring: it falls back to the game row. A zone that survives keeps its place.
+ */
+export function restoreZone(layout: BigPictureLayout, zone: FocusZone): FocusZone {
+  return zonesForLayout(layout).includes(zone) ? zone : "library";
+}
+
+/** Where the shell renders the system row for each layout (#197). */
+export type HomeRowPlacement = "row" | "dock" | "overlay";
+
+export function homeRowPlacement(layout: BigPictureLayout): HomeRowPlacement {
+  switch (layout) {
+    case "dock":
+      return "dock";
+    case "spotlight":
+      return "overlay";
+    case "shelf":
+    case "hero":
+    case "grid":
+    case "compact":
+      return "row";
+  }
 }
 
 /**
@@ -132,18 +206,27 @@ export function settingsSectionFromSearch(search: string): SettingsSectionId {
 export interface LibraryEdgeInput {
   layout: BigPictureLayout;
   index: number;
-  shelfIndex: number;
   columns: number;
 }
 
 /**
- * Whether Up at this slot should leave the grid. The rails switch shelf on
- * Up/Down, so only the first shelf hands the press to the home row; the grid
- * and the list hand it over on their first row. This keeps every layout usable
- * without changing what Up means inside it.
+ * Whether Up at this slot should leave the grid. The rails are a single row, so
+ * Up always reaches the home row (shelf, hero and spotlight, whose system row
+ * floats over the art); the Dock's row is below the games, so Up is a dead end
+ * there; the grid and the list hand Up over on their first row. This keeps
+ * every layout usable without changing what Up means inside it.
  */
-export function atLibraryTop({ layout, index, shelfIndex, columns }: LibraryEdgeInput): boolean {
-  if (layout === "shelf" || layout === "hero") return shelfIndex === 0;
-  if (layout === "grid") return index < Math.max(1, columns);
-  return index === 0;
+export function atLibraryTop({ layout, index, columns }: LibraryEdgeInput): boolean {
+  switch (layout) {
+    case "shelf":
+    case "hero":
+    case "spotlight":
+      return true;
+    case "dock":
+      return false;
+    case "grid":
+      return index < Math.max(1, columns);
+    case "compact":
+      return index === 0;
+  }
 }

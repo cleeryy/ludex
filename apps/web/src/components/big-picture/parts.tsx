@@ -163,7 +163,37 @@ function FocusRing() {
   );
 }
 
-/** Rail card, used by the shelf and hero layouts. */
+/**
+ * Focus behaviour per layout (#197). The rail is the original shelf card; the
+ * Dock lifts and enlarges the selected tile; the Spotlight keeps it still and
+ * lets the backdrop move. Both new variants show the caption under the
+ * selected tile only, and never scale under reduced motion.
+ */
+export type RailCardVariant = "rail" | "dock" | "spotlight";
+
+const RAIL_CARD_VARIANTS: Record<
+  RailCardVariant,
+  { selected: string; idle: string; caption: "always" | "selected" }
+> = {
+  rail: {
+    selected: "scale-[1.03] opacity-100",
+    idle: "opacity-70 hover:opacity-100",
+    caption: "always",
+  },
+  dock: {
+    selected:
+      "origin-bottom scale-[1.12] -translate-y-[4px] opacity-100 motion-reduce:scale-100 motion-reduce:translate-y-0",
+    idle: "origin-bottom opacity-55 hover:opacity-80",
+    caption: "selected",
+  },
+  spotlight: {
+    selected: "origin-bottom scale-[1.08] opacity-100 motion-reduce:scale-100",
+    idle: "origin-bottom opacity-50 hover:opacity-80",
+    caption: "selected",
+  },
+};
+
+/** Rail card, used by every horizontal layout. */
 export function RailCard({
   game,
   position,
@@ -171,6 +201,7 @@ export function RailCard({
   nav,
   installed,
   className,
+  variant = "rail",
 }: {
   game: GameSummary;
   position: number;
@@ -178,7 +209,10 @@ export function RailCard({
   nav: BigPictureNavigation;
   installed: boolean;
   className?: string;
+  variant?: RailCardVariant;
 }) {
+  const look = RAIL_CARD_VARIANTS[variant];
+  const captionVisible = look.caption === "always" || selected;
   return (
     <button
       type="button"
@@ -189,7 +223,7 @@ export function RailCard({
       aria-label={game.title}
       className={cn(
         "group relative shrink-0 rounded-[2px] text-start transition-[transform,opacity] duration-150",
-        selected ? "scale-[1.03] opacity-100" : "opacity-70 hover:opacity-100",
+        selected ? look.selected : look.idle,
         className,
       )}
     >
@@ -198,10 +232,21 @@ export function RailCard({
         {selected && <FocusRing />}
         {installed && <InstalledDot />}
       </div>
-      <span className={cn("mt-2 block truncate text-[12.5px]", selected ? "text-ink" : "text-ink-3")}>
+      <span
+        className={cn(
+          "mt-2 block truncate text-[12.5px]",
+          selected ? "text-ink" : "text-ink-3",
+          !captionVisible && "opacity-0 group-hover:opacity-100 group-focus:opacity-100",
+        )}
+      >
         {game.title}
       </span>
-      <span className="num block truncate text-[9.5px] text-ink-3">
+      <span
+        className={cn(
+          "num block truncate text-[9.5px] text-ink-3",
+          !captionVisible && "opacity-0 group-hover:opacity-100 group-focus:opacity-100",
+        )}
+      >
         {formatYear(game.releaseDate)}
         {selected ? ` · ${stateLabel(game.state)}` : ""}
       </span>

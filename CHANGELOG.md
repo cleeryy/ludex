@@ -10,6 +10,11 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Two new Big Picture layouts (#197): a Switch-style bottom Dock and a
+  PlayStation-style Spotlight, selectable in Settings → Appearance and in the
+  console settings; each has its own keyboard/gamepad navigation (zones, wrap,
+  focus restoration on switch), the existing layouts stay available, and the
+  choice persists and applies immediately.
 - Ludex artwork for the Sunshine console app (#207): the managed `Ludex` app now
   publishes a bundled 600x900 box-art `image-path`, materialized once under the
   app data directory with a content hash (refreshed on change, old copies

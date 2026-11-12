@@ -10,6 +10,7 @@ import {
   type BigPictureLayout,
   type MoveDirection,
 } from "./layout";
+import type { FocusZone } from "./system-zones";
 
 /* --------------------------------------------------------------------------
    One navigation model for every Big Picture layout (#141).
@@ -59,7 +60,12 @@ export interface BigPictureNavigation {
   selectShelf: (index: number) => void;
   /** Selects one card across shelves, for search results (#138). */
   selectGame: (shelfIndex: number, index: number) => void;
-  move: (direction: MoveDirection) => void;
+  /**
+   * Applies a direction to the game row. Returns the zone the press belongs to
+   * when the row has run out (the system row or the quick actions), otherwise
+   * `null` — the caller owns the zone state, not this hook.
+   */
+  move: (direction: MoveDirection) => FocusZone | null;
   /** Jumps a page in the active layout (trigger / PageUp / PageDown). */
   jump: (delta: -1 | 1) => void;
   /** Puts the gamepad ring back on the selected card (after a layout switch). */
@@ -136,10 +142,18 @@ export function useBigPictureNavigation({
   );
 
   const move = useCallback(
-    (direction: MoveDirection) => {
+    (direction: MoveDirection): FocusZone | null => {
       const step = stepForLayout({ layout, direction, index, total: games.length, columns });
-      if (step.type === "move") setRawIndex(step.index);
-      else if (step.type === "shelf") switchShelf(step.delta);
+      if (step.type === "move") {
+        setRawIndex(step.index);
+        return null;
+      }
+      if (step.type === "shelf") {
+        switchShelf(step.delta);
+        return null;
+      }
+      if (step.type === "zone") return step.target;
+      return null;
     },
     [layout, index, games.length, columns, switchShelf],
   );

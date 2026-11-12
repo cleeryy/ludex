@@ -105,6 +105,7 @@ export interface Hint {
 export type HintContext =
   | "library"
   | "home"
+  | "actions"
   | "settings"
   | "power"
   | "picker"
@@ -197,9 +198,12 @@ const KEYBOARD_LABELS: Record<HintInput, string[]> = {
   nextTab: ["]"],
 };
 
-/** The rails only walk sideways, so their keyboard hint stays honest. */
+/* The rails only walk sideways, so their keyboard hint stays honest. The
+   Spotlight adds vertical zones, but they are the shell's, not the row's. */
 function keyboardNavigate(layout: BigPictureLayout): string[] {
-  return layout === "shelf" || layout === "hero" ? ["←", "→"] : ["←", "→", "↑", "↓"];
+  return layout === "shelf" || layout === "hero" || layout === "dock" || layout === "spotlight"
+    ? ["←", "→"]
+    : ["←", "→", "↑", "↓"];
 }
 
 /**
@@ -219,7 +223,6 @@ export function hintsFor(context: HintContext, { layout, family, connected }: Hi
       return [
         { id: "select", keys: keys("navigate") },
         { id: "shelf", keys: keys("shelf") },
-        { id: "page", keys: keys("page") },
         { id: "play", keys: keys("confirm") },
         { id: "search", keys: keys("search") },
         { id: "downloads", keys: keys("downloads") },
@@ -235,6 +238,12 @@ export function hintsFor(context: HintContext, { layout, family, connected }: Hi
     case "home":
       return [
         { id: "navigate", keys: keys("navigate") },
+        { id: "select", keys: keys("confirm") },
+        { id: "back", keys: keys("back") },
+      ];
+    case "actions":
+      return [
+        { id: "navigate", keys: keys("horizontal") },
         { id: "select", keys: keys("confirm") },
         { id: "back", keys: keys("back") },
       ];

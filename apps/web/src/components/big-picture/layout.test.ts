@@ -37,13 +37,13 @@ function memoryStorage(entries: Record<string, string> = {}): LayoutStorage & { 
 }
 
 describe("big picture layout registry", () => {
-  it("lists the four layouts in switch order, shelf first", () => {
-    expect(BIG_PICTURE_LAYOUTS).toEqual(["shelf", "hero", "grid", "compact"]);
+  it("lists the six layouts in switch order, shelf first", () => {
+    expect(BIG_PICTURE_LAYOUTS).toEqual(["shelf", "dock", "spotlight", "hero", "grid", "compact"]);
     expect(DEFAULT_BIG_PICTURE_LAYOUT).toBe("shelf");
     expect(BIG_PICTURE_LAYOUTS).toContain(DEFAULT_BIG_PICTURE_LAYOUT);
   });
 
-  it("recognises the four ids and nothing else", () => {
+  it("recognises the six ids and nothing else", () => {
     for (const layout of BIG_PICTURE_LAYOUTS) expect(isBigPictureLayout(layout)).toBe(true);
     for (const value of ["Shelf", "tiles", "", null, undefined, 3, {}]) {
       expect(isBigPictureLayout(value)).toBe(false);
@@ -65,6 +65,8 @@ describe("big picture layout persistence", () => {
 
   it("reads a stored layout and ignores junk", () => {
     expect(readLayout(memoryStorage({ [BIG_PICTURE_LAYOUT_KEY]: "grid" }))).toBe("grid");
+    expect(readLayout(memoryStorage({ [BIG_PICTURE_LAYOUT_KEY]: "dock" }))).toBe("dock");
+    expect(readLayout(memoryStorage({ [BIG_PICTURE_LAYOUT_KEY]: "spotlight" }))).toBe("spotlight");
     expect(readLayout(memoryStorage({ [BIG_PICTURE_LAYOUT_KEY]: "tiles" }))).toBe("shelf");
     expect(readLayout(memoryStorage({ [BIG_PICTURE_LAYOUT_KEY]: "" }))).toBe("shelf");
     expect(readLayout(memoryStorage())).toBe("shelf");
@@ -153,19 +155,47 @@ describe("grid geometry", () => {
 describe("layout direction model", () => {
   const base = { index: 2, total: 10, columns: 5 };
 
-  it("moves a rail sideways and changes shelf vertically", () => {
+  it("moves a rail sideways and hands vertical travel to the shell", () => {
     expect(stepForLayout({ ...base, layout: "shelf", direction: "left" })).toEqual({ type: "move", index: 1 });
     expect(stepForLayout({ ...base, layout: "shelf", direction: "right" })).toEqual({ type: "move", index: 3 });
-    expect(stepForLayout({ ...base, layout: "shelf", direction: "up" })).toEqual({ type: "shelf", delta: -1 });
-    expect(stepForLayout({ ...base, layout: "shelf", direction: "down" })).toEqual({ type: "shelf", delta: 1 });
-    expect(stepForLayout({ ...base, layout: "hero", direction: "up" })).toEqual({ type: "shelf", delta: -1 });
+    expect(stepForLayout({ ...base, layout: "shelf", direction: "up" })).toEqual({ type: "zone", target: "home" });
+    expect(stepForLayout({ ...base, layout: "shelf", direction: "down" })).toEqual({ type: "none" });
+    expect(stepForLayout({ ...base, layout: "hero", direction: "up" })).toEqual({ type: "zone", target: "home" });
+    expect(stepForLayout({ ...base, layout: "hero", direction: "down" })).toEqual({ type: "none" });
   });
 
-  it("walks the grid in both axes", () => {
+  it("dock: Down enters the dock, Up is a dead end, Left/Right clamp", () => {
+    expect(stepForLayout({ ...base, layout: "dock", direction: "down" })).toEqual({ type: "zone", target: "home" });
+    expect(stepForLayout({ ...base, layout: "dock", direction: "up" })).toEqual({ type: "none" });
+    expect(stepForLayout({ ...base, layout: "dock", direction: "left" })).toEqual({ type: "move", index: 1 });
+    expect(stepForLayout({ ...base, layout: "dock", direction: "right" })).toEqual({ type: "move", index: 3 });
+    expect(stepForLayout({ ...base, index: 0, layout: "dock", direction: "left" })).toEqual({ type: "move", index: 0 });
+    expect(stepForLayout({ ...base, index: 9, layout: "dock", direction: "right" })).toEqual({ type: "move", index: 9 });
+  });
+
+  it("spotlight: Up reaches the icons, Down reaches the actions", () => {
+    expect(stepForLayout({ ...base, layout: "spotlight", direction: "up" })).toEqual({ type: "zone", target: "home" });
+    expect(stepForLayout({ ...base, layout: "spotlight", direction: "down" })).toEqual({
+      type: "zone",
+      target: "actions",
+    });
+    expect(stepForLayout({ ...base, layout: "spotlight", direction: "left" })).toEqual({ type: "move", index: 1 });
+    expect(stepForLayout({ ...base, layout: "spotlight", direction: "right" })).toEqual({ type: "move", index: 3 });
+  });
+
+  it("walks the grid in both axes and leaves from the first row", () => {
     expect(stepForLayout({ ...base, layout: "grid", direction: "left" })).toEqual({ type: "move", index: 1 });
     expect(stepForLayout({ ...base, layout: "grid", direction: "right" })).toEqual({ type: "move", index: 3 });
     expect(stepForLayout({ ...base, layout: "grid", direction: "down" })).toEqual({ type: "move", index: 7 });
-    expect(stepForLayout({ ...base, layout: "grid", direction: "up" })).toEqual({ type: "move", index: 2 });
+    expect(stepForLayout({ ...base, index: 7, layout: "grid", direction: "up" })).toEqual({ type: "move", index: 2 });
+    expect(stepForLayout({ ...base, index: 3, layout: "grid", direction: "up" })).toEqual({
+      type: "zone",
+      target: "home",
+    });
+    expect(stepForLayout({ ...base, index: 9, layout: "grid", direction: "down" })).toEqual({
+      type: "move",
+      index: 9,
+    });
   });
 
   it("walks the list vertically and changes shelf sideways", () => {
@@ -173,6 +203,10 @@ describe("layout direction model", () => {
     expect(stepForLayout({ ...base, layout: "compact", direction: "up" })).toEqual({ type: "move", index: 1 });
     expect(stepForLayout({ ...base, layout: "compact", direction: "left" })).toEqual({ type: "shelf", delta: -1 });
     expect(stepForLayout({ ...base, layout: "compact", direction: "right" })).toEqual({ type: "shelf", delta: 1 });
+    expect(stepForLayout({ ...base, index: 0, layout: "compact", direction: "up" })).toEqual({
+      type: "zone",
+      target: "home",
+    });
   });
 
   it("does nothing on an empty shelf", () => {
@@ -181,6 +215,12 @@ describe("layout direction model", () => {
         expect(stepForLayout({ layout, direction, index: 0, total: 0, columns: 6 })).toEqual({ type: "none" });
       }
     }
+  });
+
+  it("a zone step never changes the selected game", () => {
+    const zone = stepForLayout({ ...base, layout: "spotlight", direction: "down" });
+    expect(zone).toEqual({ type: "zone", target: "actions" });
+    expect("index" in zone).toBe(false);
   });
 });
 
@@ -193,6 +233,14 @@ describe("page jumps", () => {
       index: 6 + RAIL_PAGE_STEP,
     });
     expect(pageStepForLayout({ ...base, layout: "hero", direction: "left" })).toEqual({
+      type: "move",
+      index: 6 - RAIL_PAGE_STEP,
+    });
+    expect(pageStepForLayout({ ...base, layout: "dock", direction: "right" })).toEqual({
+      type: "move",
+      index: 6 + RAIL_PAGE_STEP,
+    });
+    expect(pageStepForLayout({ ...base, layout: "spotlight", direction: "left" })).toEqual({
       type: "move",
       index: 6 - RAIL_PAGE_STEP,
     });

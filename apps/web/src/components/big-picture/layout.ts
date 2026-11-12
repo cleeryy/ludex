@@ -1,17 +1,28 @@
 /* --------------------------------------------------------------------------
-   Big Picture layouts (#141).
+   Big Picture layouts (#141, #197).
 
-   Four ways to read the same shelf at ten feet: the shelf Big Picture always
-   had, a PlayStation-style hero, a Steam-style cover grid and a dense list.
-   Everything that can be decided without the DOM lives here — the registry,
-   the persisted choice, the grid geometry and the direction-to-step mapping —
-   so all four views share one navigation model instead of four copies of it.
+   Six ways to read the same shelf at ten feet: the shelf Big Picture always
+   had, a Dock that puts the system row under one large rail, a Spotlight that
+   lets the selected game take over the screen, a PlayStation-style hero, a
+   Steam-style cover grid and a dense list. Everything that can be decided
+   without the DOM lives here — the registry, the persisted choice, the grid
+   geometry and the direction-to-step mapping — so every view shares one
+   navigation model instead of six copies of it.
    -------------------------------------------------------------------------- */
 
-export type BigPictureLayout = "shelf" | "hero" | "grid" | "compact";
+import { atLibraryTop, zoneAfterMove } from "./system-zones";
+
+export type BigPictureLayout = "shelf" | "dock" | "spotlight" | "hero" | "grid" | "compact";
 
 /** Registry order is the order of the settings cards and of the switcher. */
-export const BIG_PICTURE_LAYOUTS: readonly BigPictureLayout[] = ["shelf", "hero", "grid", "compact"];
+export const BIG_PICTURE_LAYOUTS: readonly BigPictureLayout[] = [
+  "shelf",
+  "dock",
+  "spotlight",
+  "hero",
+  "grid",
+  "compact",
+];
 
 /** The shelf is the layout Big Picture has always had, so it stays the default. */
 export const DEFAULT_BIG_PICTURE_LAYOUT: BigPictureLayout = "shelf";
@@ -72,6 +83,8 @@ export type MoveDirection = "left" | "right" | "up" | "down";
 export type LayoutStep =
   | { type: "move"; index: number }
   | { type: "shelf"; delta: -1 | 1 }
+  /** The game row has run out: the ring belongs to the shell's system surfaces. */
+  | { type: "zone"; target: "home" | "actions" }
   | { type: "none" };
 
 export interface StepInput {
@@ -138,26 +151,41 @@ export function gridStepIndex(index: number, delta: number, columns: number, tot
 }
 
 /**
- * The one direction model all four layouts obey. Moving left/right on a rail
- * walks the rail while up/down changes shelf; in the grid, up/down walk the
- * rows and the shoulders change shelf; in the list, up/down walk the rows and
- * left/right change shelf, because the tabs sit along the top.
+ * The one direction model every layout obeys. Moving left/right on a rail
+ * walks the rail; in the grid, up/down walk the rows; in the list, up/down walk
+ * the rows and left/right change shelf, because the tabs sit along the top.
+ * Shoulders change shelf everywhere, triggers jump a page (#138).
+ *
+ * Vertical travel that runs out of games is a zone step (#196, #197): the
+ * layout decides whether that means the system row above (shelf, hero, grid,
+ * compact), the dock underneath (dock) or the quick actions (spotlight).
+ * `zoneAfterMove` owns the graph; this function only knows when the game row
+ * can no longer move.
  */
 export function stepForLayout({ layout, direction, index, total, columns }: StepInput): LayoutStep {
   if (total <= 0) return { type: "none" };
   const horizontal = direction === "left" || direction === "right";
   const delta: -1 | 1 = direction === "left" || direction === "up" ? -1 : 1;
+  const atTop = atLibraryTop({ layout, index, columns });
+  const zoneStep = (): LayoutStep => {
+    const target = zoneAfterMove("library", direction, { layout, atLibraryTop: atTop });
+    return target === "library" ? { type: "none" } : { type: "zone", target };
+  };
 
   switch (layout) {
     case "shelf":
     case "hero":
+    case "dock":
+    case "spotlight":
       if (horizontal) return { type: "move", index: stepIndex(index, delta, total) };
-      return { type: "shelf", delta };
+      return zoneStep();
     case "grid":
       if (horizontal) return { type: "move", index: stepIndex(index, delta, total) };
+      if (delta < 0 && atTop) return { type: "zone", target: "home" };
       return { type: "move", index: gridStepIndex(index, delta, columns, total) };
     case "compact":
       if (horizontal) return { type: "shelf", delta };
+      if (delta < 0 && atTop) return { type: "zone", target: "home" };
       return { type: "move", index: stepIndex(index, delta, total) };
   }
 }
@@ -169,11 +197,11 @@ export const RAIL_PAGE_STEP = 5;
 export const LIST_PAGE_STEP = 10;
 
 /**
- * LT/RT (and PageUp/PageDown) jump a page instead of one step (#138). The
- * rails move along the shelf by {@link RAIL_PAGE_STEP} covers, the list by
- * {@link LIST_PAGE_STEP} rows, and the grid by two full rows — one screenful at
- * ten feet. Every jump clamps, so the ring never wraps behind the player's
- * back.
+ * LT/RT (and PageUp/PageDown) jump a page instead of one step (#138). Every
+ * rail — shelf, hero, dock, spotlight — moves along the shelf by
+ * {@link RAIL_PAGE_STEP} covers, the list by {@link LIST_PAGE_STEP} rows, and
+ * the grid by two full rows — one screenful at ten feet. Every jump clamps, so
+ * the ring never wraps behind the player's back.
  */
 export function pageStepForLayout({ layout, direction, index, total, columns }: StepInput): LayoutStep {
   if (total <= 0) return { type: "none" };
@@ -188,6 +216,8 @@ export function pageStepForLayout({ layout, direction, index, total, columns }: 
       return { type: "move", index: stepIndex(index, delta * LIST_PAGE_STEP, total) };
     case "shelf":
     case "hero":
+    case "dock":
+    case "spotlight":
       return { type: "move", index: stepIndex(index, delta * RAIL_PAGE_STEP, total) };
   }
 }

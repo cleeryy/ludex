@@ -27,6 +27,8 @@ export interface BigPictureLayoutProps {
   /** Play / Install / Download / Installing, built by the screen. */
   primary: ReactNode;
   onOpenGame: (gameId: number) => void;
+  /** Opens the quick menu scoped to the selected game (Spotlight action row). */
+  onOpenMenu: () => void;
   /** Per-row install state for the compact list. */
   jobFor: (gameId: number) => InstallJob | undefined;
 }
