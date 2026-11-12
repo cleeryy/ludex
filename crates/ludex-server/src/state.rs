@@ -92,6 +92,8 @@ pub struct AppState {
     pub handoff_claim_limits: Arc<crate::security::AttemptCounter>,
     /// In-flight archive reads, used to refuse deleting a version in use (#168).
     pub transfers: Arc<ActiveTransfers>,
+    /// Per-account throttle for friend requests (#161).
+    pub friend_request_limits: Arc<crate::security::AttemptCounter>,
 }
 
 /// Counts the handlers currently reading each version's archive (#168).
@@ -243,6 +245,10 @@ impl AppState {
             transfers: Arc::new(ActiveTransfers::default()),
             invitation_limits: Arc::new(invitation_limits),
             mfa_attempt_limits: Arc::new(mfa_attempt_limits),
+            friend_request_limits: Arc::new(crate::security::AttemptCounter::new(
+                crate::social::FRIEND_REQUEST_LIMIT_PER_HOUR,
+                std::time::Duration::from_secs(3600),
+            )),
         }
     }
 }

@@ -1559,6 +1559,184 @@ pub const ROUTES: &[RouteDoc] = &[
         ),
         &[("limit", "Page size"), ("before", "Cursor")],
     ),
+    // Friends, presence and notifications (#161)
+    route(
+        HttpMethod::Get,
+        "/friends",
+        "Friends",
+        "Friends, pending requests and blocks",
+        Auth::Session,
+        Payload::Schema("FriendsResponse"),
+    ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/friends/activity",
+            "Friends",
+            "Activity of friends that opted in",
+            Auth::Session,
+            Payload::Schema("ActivityPage"),
+        ),
+        &[("limit", "Page size"), ("before", "Cursor")],
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/friends/requests",
+                "Friends",
+                "Send a friend request by exact username or id",
+                Auth::Session,
+                Payload::Schema("FriendRequest"),
+            ),
+            201,
+        ),
+        "FriendRequestInput",
+    ),
+    route(
+        HttpMethod::Post,
+        "/friends/requests/{id}/accept",
+        "Friends",
+        "Accept an incoming friend request",
+        Auth::Session,
+        Payload::Schema("Friend"),
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/friends/requests/{id}/decline",
+            "Friends",
+            "Decline an incoming friend request",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/friends/requests/{id}",
+            "Friends",
+            "Cancel an outgoing friend request",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/friends/{id}",
+            "Friends",
+            "Remove a friend",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Get,
+        "/blocks",
+        "Friends",
+        "Accounts you blocked",
+        Auth::Session,
+        Payload::Array("SocialUser"),
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/blocks/{id}",
+            "Friends",
+            "Block an account",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/blocks/{id}",
+            "Friends",
+            "Lift a block",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Get,
+        "/presence",
+        "Friends",
+        "Your presence and opt-in state",
+        Auth::Session,
+        Payload::Schema("PresenceStateResponse"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/presence",
+            "Friends",
+            "Presence heartbeat",
+            Auth::Session,
+            Payload::Schema("PresenceStateResponse"),
+        ),
+        "PresenceHeartbeat",
+    ),
+    route(
+        HttpMethod::Get,
+        "/presence/friends",
+        "Friends",
+        "Online friends, for bounded polling",
+        Auth::Session,
+        Payload::Schema("FriendsPresenceResponse"),
+    ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/notifications",
+            "Notifications",
+            "In-app notifications, newest first",
+            Auth::Session,
+            Payload::Schema("NotificationPage"),
+        ),
+        &[("limit", "Page size"), ("before", "Cursor")],
+    ),
+    route(
+        HttpMethod::Post,
+        "/notifications/read-all",
+        "Notifications",
+        "Mark every notification read",
+        Auth::Session,
+        Payload::Schema("NotificationReadResponse"),
+    ),
+    route(
+        HttpMethod::Post,
+        "/notifications/{id}/read",
+        "Notifications",
+        "Mark one notification read",
+        Auth::Session,
+        Payload::Schema("NotificationReadResponse"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/me/notification-prefs",
+        "Notifications",
+        "Notification preferences",
+        Auth::Session,
+        Payload::Schema("NotificationPrefs"),
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/me/notification-prefs",
+            "Notifications",
+            "Update notification preferences",
+            Auth::Session,
+            Payload::Schema("NotificationPrefs"),
+        ),
+        "NotificationPrefsPatch",
+    ),
     // Custom artwork (#38)
     ok(
         route(
@@ -2500,6 +2678,23 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::models::SmartRules>()
         .schema_from::<crate::models::SmartRule>()
         .schema_from::<crate::models::PublicStats>()
+        .schema_from::<crate::social::SocialUser>()
+        .schema_from::<crate::social::FriendGame>()
+        .schema_from::<crate::social::FriendPresence>()
+        .schema_from::<crate::social::Friend>()
+        .schema_from::<crate::social::FriendRequest>()
+        .schema_from::<crate::social::FriendsResponse>()
+        .schema_from::<crate::social::FriendRequestInput>()
+        .schema_from::<crate::social::FriendPresenceEntry>()
+        .schema_from::<crate::social::FriendsPresenceResponse>()
+        .schema_from::<crate::social::PresenceStateResponse>()
+        .schema_from::<crate::social::PresenceHeartbeat>()
+        .schema_from::<crate::social::NotificationAchievement>()
+        .schema_from::<crate::social::Notification>()
+        .schema_from::<crate::social::NotificationPage>()
+        .schema_from::<crate::social::NotificationPrefs>()
+        .schema_from::<crate::social::NotificationPrefsPatch>()
+        .schema_from::<crate::social::NotificationReadResponse>()
         .schema_from::<crate::models::AuditLog>()
         .schema_from::<crate::models::SuggestResponse>()
         .schema_from::<crate::models::GameSuggestion>()
@@ -2598,6 +2793,11 @@ pub fn document() -> OpenApi {
         ("Webhooks", "Outbound HMAC-signed events"),
         ("Collections", "Curated and smart collections"),
         ("Community", "Public profiles and activity"),
+        ("Friends", "Friend requests, presence and blocks"),
+        (
+            "Notifications",
+            "In-app notifications and per-kind preferences",
+        ),
         ("Shares", "Public, unauthenticated share links"),
         ("Uploads", "Resumable archive uploads"),
         ("Ingest", "URL download manager"),

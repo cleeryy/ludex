@@ -1,6 +1,6 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowUpRight, Lock } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Lock, UserPlus } from "lucide-react";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { formatDate, formatMinutes } from "@/lib/format";
@@ -10,9 +10,10 @@ import { isNative } from "@/lib/native";
 import { GameCard } from "@/components/game/game-card";
 import { CollectionCard } from "@/components/collections/collection-card";
 import { AchievementShowcase } from "@/components/community/achievement-showcase";
+import { PresenceBadge } from "@/components/community/friend-presence";
 import { ActivityList } from "@/components/community/activity-list";
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
-import { Badge, Skeleton } from "@/components/ui/controls";
+import { Badge, Button, Skeleton } from "@/components/ui/controls";
 import { t } from "@/lib/i18n";
 
 export function ProfileScreen() {
@@ -24,6 +25,7 @@ export function ProfileScreen() {
   const bookmark = useBookmark();
   const launch = useLaunchGame();
   const own = user?.id === userId;
+  const queryClient = useQueryClient();
 
   const profile = useQuery({
     queryKey: ["community-user", userId],
@@ -37,6 +39,19 @@ export function ProfileScreen() {
     getNextPageParam: (last) => last.nextBefore ?? undefined,
     enabled: Number.isFinite(userId) && !profile.isError,
   });
+  const friends = useQuery({ queryKey: ["friends"], queryFn: () => api.friends(), enabled: !own && Number.isFinite(userId) });
+  const invalidateFriends = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["friends"] }),
+      queryClient.invalidateQueries({ queryKey: ["friends-presence"] }),
+      queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+    ]);
+  };
+  const addFriend = useMutation({ mutationFn: () => api.sendFriendRequest({ userId }), onSuccess: invalidateFriends });
+  const unfriend = useMutation({ mutationFn: () => api.removeFriend(userId), onSuccess: invalidateFriends });
+  const friend = friends.data?.friends.find((entry) => entry.user.id === userId);
+  const outgoing = friends.data?.outgoing.some((entry) => entry.user.id === userId) ?? false;
+  const incoming = friends.data?.incoming.find((entry) => entry.user.id === userId);
 
   if (profile.isPending) {
     return (
@@ -121,6 +136,34 @@ export function ProfileScreen() {
           <Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           {t("Only you can see this page. Turn on the public profile in Settings to share your library and activity.")}
         </p>
+      )}
+
+      {!own && friends.isSuccess && (
+        <div className="mt-5 flex flex-wrap items-center gap-3" aria-label={t("Friendship")}>
+          {friend ? (
+            <>
+              <Badge tone="signal">{t("Friend")}</Badge>
+              <PresenceBadge presence={friend.presence} />
+              <Button variant="ghost" size="sm" loading={unfriend.isPending} onClick={() => unfriend.mutate()}>
+                {t("Remove friend")}
+              </Button>
+            </>
+          ) : outgoing ? (
+            <Badge tone="outline">{t("Request sent")}</Badge>
+          ) : incoming ? (
+            <>
+              <Badge tone="signal">{t("Wants to be friends")}</Badge>
+              <Link to="/community/friends" className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
+                {t("Answer the request")}
+              </Link>
+            </>
+          ) : (
+            <Button variant="default" size="sm" loading={addFriend.isPending} onClick={() => addFriend.mutate()}>
+              <UserPlus className="size-3.5" aria-hidden="true" />
+              {t("Add friend")}
+            </Button>
+          )}
+        </div>
       )}
 
       <section className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label={t("Profile statistics")}>

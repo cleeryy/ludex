@@ -163,6 +163,10 @@ async fn create(
         )
         .await;
     }
+    // Sharing a new shelf notifies the owner's friends (#161).
+    if is_public {
+        crate::social::notify_collection_shared(&state, user.id, id, &name).await;
+    }
     Ok((StatusCode::CREATED, Json(row.to_public(user.id))))
 }
 
@@ -273,6 +277,8 @@ async fn update(
             }),
         )
         .await;
+        // Newly sharing the shelf notifies the owner's friends (#161).
+        crate::social::notify_collection_shared(&state, user.id, id, &row.name).await;
     }
     Ok(Json(row.to_public(user.id)))
 }

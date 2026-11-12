@@ -1947,6 +1947,11 @@ pub struct PublicProfile {
     pub avatar_url: Option<String>,
     /// Whether the profile is public.
     pub public_profile: bool,
+    /// Whether friends may see online/last-seen presence (#161).
+    pub presence_enabled: bool,
+    /// Whether friends see this account in their activity and achievement
+    /// feed (#161). Independent from the public profile.
+    pub friends_activity: bool,
     /// Member since.
     pub created_at: DateTime<Utc>,
 }
@@ -1988,6 +1993,12 @@ pub struct UpdateProfileRequest {
     /// Opt in or out of the public directory and feed.
     #[serde(default)]
     pub public_profile: Option<bool>,
+    /// Opt in or out of friend-visible presence (#161).
+    #[serde(default)]
+    pub presence_enabled: Option<bool>,
+    /// Opt in or out of the friends-only activity feed (#161).
+    #[serde(default)]
+    pub friends_activity: Option<bool>,
     /// Display name (`null` clears).
     #[serde(default, deserialize_with = "deserialize_some")]
     pub display_name: Option<Option<String>>,

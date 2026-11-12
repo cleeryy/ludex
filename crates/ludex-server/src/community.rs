@@ -147,3 +147,55 @@ pub async fn feed(
         next_before,
     })
 }
+
+/// Reads one page of the friends-only feed (#161).
+///
+/// Only accepted friends that opted into `friends_activity` and are not
+/// blocked by the viewer appear. A private public profile does not hide the
+/// friends feed, and a public profile does not publish it: the two opt-ins are
+/// independent.
+pub async fn friends_feed(
+    state: &AppState,
+    viewer_id: i64,
+    query: &ActivityQuery,
+) -> Result<ActivityPage, ApiError> {
+    let limit = query.limit.unwrap_or(20).clamp(1, 100);
+    let mut binds = vec![
+        Bind::Int(viewer_id),
+        Bind::Int(viewer_id),
+        Bind::Int(viewer_id),
+    ];
+    let mut clauses = vec![
+        "u.friends_activity = 1".to_string(),
+        "a.user_id IN (
+            SELECT CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
+            FROM friendships f
+            WHERE f.status = 'accepted' AND (f.requester_id = ? OR f.addressee_id = ?)
+         )"
+        .to_string(),
+    ];
+    if let Some(before) = query.before {
+        clauses.push("a.id < ?".to_string());
+        binds.push(Bind::Int(before));
+    }
+    binds.push(Bind::Int(limit + 1));
+
+    let sql = format!(
+        "SELECT {FEED_COLUMNS}{FEED_JOINS} WHERE {} ORDER BY a.id DESC LIMIT ?",
+        clauses.join(" AND ")
+    );
+    let mut rows = bind_query_as(db::query_as::<ActivityRow>(&sql), &binds)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(ApiError::from)?;
+
+    let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
+    if has_more {
+        rows.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+    }
+    let next_before = has_more.then(|| rows.last().map(|row| row.id)).flatten();
+    Ok(ActivityPage {
+        items: rows.iter().map(ActivityRow::to_public).collect(),
+        next_before,
+    })
+}

@@ -30,6 +30,7 @@ pub mod remote_installs;
 pub mod saves;
 pub mod search;
 pub mod share;
+pub mod social;
 pub mod system;
 pub mod uploads;
 pub mod users;
@@ -55,6 +56,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(integrity::router())
         .merge(collections::router())
         .merge(community::router())
+        .merge(social::router())
         .merge(search::router())
         .merge(users::router())
         .merge(invitations::router())

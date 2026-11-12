@@ -688,6 +688,8 @@ export const DEMO_PROFILES: PublicProfile[] = [
     bio: "Runs the archive. Puzzle games and long nights.",
     avatarUrl: null,
     publicProfile: true,
+    presenceEnabled: true,
+    friendsActivity: true,
     createdAt: "2026-02-11T09:00:00Z",
   },
   {
@@ -697,6 +699,8 @@ export const DEMO_PROFILES: PublicProfile[] = [
     bio: "Horror, co-op, and bad decisions in racing games.",
     avatarUrl: null,
     publicProfile: true,
+    presenceEnabled: true,
+    friendsActivity: true,
     createdAt: "2026-03-04T18:20:00Z",
   },
   {
@@ -706,6 +710,8 @@ export const DEMO_PROFILES: PublicProfile[] = [
     bio: null,
     avatarUrl: null,
     publicProfile: false,
+    presenceEnabled: true,
+    friendsActivity: false,
     createdAt: "2026-04-22T11:45:00Z",
   },
   {
@@ -715,6 +721,8 @@ export const DEMO_PROFILES: PublicProfile[] = [
     bio: null,
     avatarUrl: null,
     publicProfile: false,
+    presenceEnabled: false,
+    friendsActivity: false,
     createdAt: "2026-06-30T14:05:00Z",
   },
 ];

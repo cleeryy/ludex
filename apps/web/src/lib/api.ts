@@ -34,6 +34,11 @@ import type {
   Emulator,
   EmulatorDefault,
   EmulatorLaunch,
+  Friend,
+  FriendRequest,
+  FriendRequestInput,
+  FriendsPresenceResponse,
+  FriendsResponse,
   GameAchievements,
   GameDetail,
   GameList,
@@ -58,11 +63,16 @@ import type {
   MetadataProviderInput,
   MfaStatus,
   NewsPost,
+  NotificationPage,
+  NotificationPrefs,
+  NotificationReadResponse,
   OidcAdminResponse,
   OidcSettingsInput,
   ObservabilitySnapshot,
   ObservabilityWindow,
   OidcTestResult,
+  PresenceHeartbeat,
+  PresenceStateResponse,
   ProfilePatch,
   PlatformInfo,
   ProgressState,
@@ -870,6 +880,89 @@ export const api = {
     return USING_MOCKS
       ? mockApi.reportInstalled(tokenStore.get(), id)
       : request<{ recorded: boolean }>(`/games/${id}/installed`, { method: "POST" });
+  },
+
+  /* friends, presence and notifications (#161) */
+  friends(): Promise<FriendsResponse> {
+    return USING_MOCKS ? mockApi.friends(tokenStore.get()) : request<FriendsResponse>("/friends");
+  },
+  sendFriendRequest(body: FriendRequestInput): Promise<FriendRequest> {
+    return USING_MOCKS
+      ? mockApi.sendFriendRequest(tokenStore.get(), body)
+      : request<FriendRequest>("/friends/requests", { method: "POST", body });
+  },
+  acceptFriendRequest(id: number): Promise<Friend> {
+    return USING_MOCKS
+      ? mockApi.acceptFriendRequest(tokenStore.get(), id)
+      : request<Friend>(`/friends/requests/${id}/accept`, { method: "POST" });
+  },
+  declineFriendRequest(id: number): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.declineFriendRequest(tokenStore.get(), id)
+      : request<void>(`/friends/requests/${id}/decline`, { method: "POST" });
+  },
+  cancelFriendRequest(id: number): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.cancelFriendRequest(tokenStore.get(), id)
+      : request<void>(`/friends/requests/${id}`, { method: "DELETE" });
+  },
+  removeFriend(id: number): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.removeFriend(tokenStore.get(), id)
+      : request<void>(`/friends/${id}`, { method: "DELETE" });
+  },
+  blockUser(id: number): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.blockUser(tokenStore.get(), id)
+      : request<void>(`/blocks/${id}`, { method: "POST" });
+  },
+  unblockUser(id: number): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.unblockUser(tokenStore.get(), id)
+      : request<void>(`/blocks/${id}`, { method: "DELETE" });
+  },
+  friendsActivity(limit = 20, before?: number): Promise<ActivityPage> {
+    return USING_MOCKS
+      ? mockApi.friendsActivity(tokenStore.get(), limit, before)
+      : request<ActivityPage>("/friends/activity", { query: { limit, before } });
+  },
+  friendsPresence(): Promise<FriendsPresenceResponse> {
+    return USING_MOCKS
+      ? mockApi.friendsPresence(tokenStore.get())
+      : request<FriendsPresenceResponse>("/presence/friends");
+  },
+  presence(): Promise<PresenceStateResponse> {
+    return USING_MOCKS ? mockApi.presence(tokenStore.get()) : request<PresenceStateResponse>("/presence");
+  },
+  sendPresence(heartbeat: PresenceHeartbeat): Promise<PresenceStateResponse> {
+    return USING_MOCKS
+      ? mockApi.sendPresence(tokenStore.get(), heartbeat)
+      : request<PresenceStateResponse>("/presence", { method: "POST", body: heartbeat });
+  },
+  notifications(limit = 20, before?: number): Promise<NotificationPage> {
+    return USING_MOCKS
+      ? mockApi.notifications(tokenStore.get(), limit, before)
+      : request<NotificationPage>("/notifications", { query: { limit, before } });
+  },
+  readNotification(id: number): Promise<NotificationReadResponse> {
+    return USING_MOCKS
+      ? mockApi.readNotification(tokenStore.get(), id)
+      : request<NotificationReadResponse>(`/notifications/${id}/read`, { method: "POST" });
+  },
+  readAllNotifications(): Promise<NotificationReadResponse> {
+    return USING_MOCKS
+      ? mockApi.readAllNotifications(tokenStore.get())
+      : request<NotificationReadResponse>("/notifications/read-all", { method: "POST" });
+  },
+  notificationPrefs(): Promise<NotificationPrefs> {
+    return USING_MOCKS
+      ? mockApi.notificationPrefs(tokenStore.get())
+      : request<NotificationPrefs>("/me/notification-prefs");
+  },
+  updateNotificationPrefs(patch: Partial<NotificationPrefs>): Promise<NotificationPrefs> {
+    return USING_MOCKS
+      ? mockApi.updateNotificationPrefs(tokenStore.get(), patch)
+      : request<NotificationPrefs>("/me/notification-prefs", { method: "PATCH", body: patch });
   },
 
   /* achievements */

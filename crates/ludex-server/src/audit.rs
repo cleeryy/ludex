@@ -144,6 +144,16 @@ pub mod actions {
     pub const MFA_DISABLED: &str = "mfa.disabled";
     /// Recovery codes replaced (#166).
     pub const MFA_RECOVERY_CODES_ROTATED: &str = "mfa.recovery_codes_rotated";
+    /// A friend request was sent (#161).
+    pub const FRIEND_REQUESTED: &str = "friend.requested";
+    /// A friend request was accepted (#161).
+    pub const FRIEND_ACCEPTED: &str = "friend.accepted";
+    /// A friendship was removed (#161).
+    pub const FRIEND_REMOVED: &str = "friend.removed";
+    /// An account blocked another (#161).
+    pub const FRIEND_BLOCKED: &str = "friend.blocked";
+    /// An account lifted a block (#161).
+    pub const FRIEND_UNBLOCKED: &str = "friend.unblocked";
 }
 
 /// Writes one event to `audit_logs`. Failures are logged, never propagated:

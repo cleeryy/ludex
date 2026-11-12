@@ -18,6 +18,7 @@ import type {
   Activity,
   ActivityKind,
   ActivityPage,
+  AppNotification,
   AuthResult,
   AuthSession,
   BackupCreated,
@@ -40,6 +41,12 @@ import type {
   DesktopDownload,
   DesktopHandoff,
   DesktopPlatform,
+  Friend,
+  FriendPresence,
+  FriendRequest,
+  FriendRequestInput,
+  FriendsPresenceResponse,
+  FriendsResponse,
   GameAchievements,
   GameDetail,
   GameList,
@@ -70,6 +77,11 @@ import type {
   MfaStatus,
   MetadataProviderInput,
   NewsPost,
+  NotificationAchievement,
+  NotificationKind,
+  NotificationPage,
+  NotificationPrefs,
+  NotificationReadResponse,
   OidcAdminResponse,
   OidcSettings,
   OidcSettingsInput,
@@ -82,6 +94,8 @@ import type {
   ProviderTestResult,
   PublicProfile,
   PublicProfileResponse,
+  PresenceHeartbeat,
+  PresenceStateResponse,
   RemoteInstall,
   RecoveryCodes,
   ResetPasswordResult,
@@ -89,6 +103,7 @@ import type {
   SaveSnapshot,
   ScanStatus,
   ServerConfig,
+  SocialUser,
   SetupStatus,
   SmartRules,
   SuggestResponse,
@@ -316,6 +331,204 @@ function publicShareLink(share: MockCollectionShare): CollectionShareLink {
   };
 }
 
+/* ------------------------- friends and notifications --------------------- */
+
+type MockFriendship = {
+  id: number;
+  requesterId: number;
+  addresseeId: number;
+  status: "pending" | "accepted";
+  createdAt: string;
+};
+
+type MockPresence = {
+  userId: number;
+  state: "online" | "in_game";
+  gameId: number | null;
+  updatedAt: string;
+};
+
+let friendships: MockFriendship[] = [
+  { id: 1, requesterId: 1, addresseeId: 2, status: "accepted", createdAt: "2026-09-02T18:00:00Z" },
+  { id: 2, requesterId: 2, addresseeId: 3, status: "accepted", createdAt: "2026-09-14T19:30:00Z" },
+  { id: 3, requesterId: 4, addresseeId: 1, status: "pending", createdAt: "2026-10-28T20:05:00Z" },
+  { id: 4, requesterId: 1, addresseeId: 3, status: "pending", createdAt: "2026-10-30T09:12:00Z" },
+];
+let nextFriendshipId = 5;
+let blockedPairs: { blockerId: number; blockedId: number }[] = [];
+let presenceRows: MockPresence[] = [
+  { userId: 1, state: "online", gameId: null, updatedAt: nowIso() },
+  { userId: 2, state: "in_game", gameId: 14, updatedAt: nowIso() },
+  { userId: 3, state: "online", gameId: null, updatedAt: nowIso() },
+];
+
+type MockNotification = { userId: number; item: AppNotification };
+
+let notifications: MockNotification[] = [
+  {
+    userId: 1,
+    item: {
+      id: 1,
+      kind: "friend_request",
+      createdAt: "2026-10-28T20:05:00Z",
+      readAt: null,
+      actor: { id: 4, username: "sam", displayName: null, avatarUrl: null },
+      game: null,
+      achievement: null,
+      payload: {},
+    },
+  },
+  {
+    userId: 1,
+    item: {
+      id: 2,
+      kind: "friend_achievement",
+      createdAt: "2026-11-06T21:44:00Z",
+      readAt: null,
+      actor: { id: 2, username: "jonas", displayName: "Jonas", avatarUrl: null },
+      game: { id: 14, title: "Outer Wilds" },
+      achievement: { id: 1, key: "first_steps", name: "First Steps", points: 10 },
+      payload: { achievementKey: "first_steps", achievementName: "First Steps", points: 10 },
+    },
+  },
+  {
+    userId: 1,
+    item: {
+      id: 3,
+      kind: "collection_share",
+      createdAt: "2026-11-04T18:20:00Z",
+      readAt: "2026-11-04T19:00:00Z",
+      actor: { id: 2, username: "jonas", displayName: "Jonas", avatarUrl: null },
+      game: null,
+      achievement: null,
+      payload: { collectionId: 2, collectionName: "Recent and well rated" },
+    },
+  },
+  {
+    userId: 2,
+    item: {
+      id: 4,
+      kind: "friend_accepted",
+      createdAt: "2026-09-02T18:01:00Z",
+      readAt: "2026-09-02T18:05:00Z",
+      actor: { id: 1, username: "mara", displayName: "Mara", avatarUrl: null },
+      game: null,
+      achievement: null,
+      payload: {},
+    },
+  },
+];
+let nextNotificationId = 5;
+let notificationPreferences: Record<number, NotificationPrefs> = {};
+
+const PRESENCE_TTL_MS = 120_000;
+const PRESENCE_POLL_SECONDS = 30;
+
+function socialUser(id: number): SocialUser {
+  const profile = profiles.find((entry) => entry.id === id);
+  return {
+    id,
+    username: profile?.username ?? `user${id}`,
+    displayName: profile?.displayName ?? null,
+    avatarUrl: profile?.avatarUrl ?? null,
+  };
+}
+
+function friendIdsOf(userId: number): number[] {
+  return friendships
+    .filter((entry) => entry.status === "accepted" && (entry.requesterId === userId || entry.addresseeId === userId))
+    .map((entry) => (entry.requesterId === userId ? entry.addresseeId : entry.requesterId));
+}
+
+function isBlockedPair(blockerId: number, blockedId: number): boolean {
+  return blockedPairs.some((entry) => entry.blockerId === blockerId && entry.blockedId === blockedId);
+}
+
+function presenceFor(userId: number): FriendPresence | null {
+  const profile = profiles.find((entry) => entry.id === userId);
+  if (!profile?.presenceEnabled) return null;
+  const row = presenceRows.find((entry) => entry.userId === userId);
+  if (!row) return { state: "offline", game: null, lastSeen: null };
+  const online = Date.now() - Date.parse(row.updatedAt) <= PRESENCE_TTL_MS;
+  if (!online) return { state: "offline", game: null, lastSeen: row.updatedAt };
+  const game = row.gameId === null ? null : visibleGames().find((entry) => entry.id === row.gameId) ?? null;
+  return {
+    state: row.state,
+    game: game ? { id: game.id, title: game.title } : null,
+    lastSeen: row.updatedAt,
+  };
+}
+
+function defaultNotificationPrefs(): NotificationPrefs {
+  return {
+    friendRequests: true,
+    friendAccepted: true,
+    friendAchievements: false,
+    collectionShares: true,
+  };
+}
+
+function pushNotification(
+  recipientId: number,
+  kind: NotificationKind,
+  actorId: number,
+  payload: Record<string, unknown> = {},
+  gameId: number | null = null,
+  achievement: NotificationAchievement | null = null,
+): void {
+  if (recipientId === actorId) return;
+  const prefs = notificationPreferences[recipientId] ?? defaultNotificationPrefs();
+  const allowed =
+    (kind === "friend_request" && prefs.friendRequests) ||
+    (kind === "friend_accepted" && prefs.friendAccepted) ||
+    (kind === "friend_achievement" && prefs.friendAchievements) ||
+    (kind === "collection_share" && prefs.collectionShares);
+  if (!allowed) return;
+  const game = gameId === null ? null : visibleGames().find((entry) => entry.id === gameId);
+  notifications = [
+    ...notifications,
+    {
+      userId: recipientId,
+      item: {
+        id: nextNotificationId++,
+        kind,
+        createdAt: nowIso(),
+        readAt: null,
+        actor: socialUser(actorId),
+        game: game ? { id: game.id, title: game.title } : null,
+        achievement,
+        payload,
+      },
+    },
+  ];
+  // Mirror the server cap: the newest 200 rows per account.
+  const mine = notifications.filter((entry) => entry.userId === recipientId);
+  if (mine.length > 200) {
+    const keep = new Set(mine.slice(-200).map((entry) => entry.item.id));
+    notifications = notifications.filter((entry) => entry.userId !== recipientId || keep.has(entry.item.id));
+  }
+}
+
+function notifyFriends(actorId: number, kind: NotificationKind, payload: Record<string, unknown> = {}): void {
+  for (const friendId of friendIdsOf(actorId)) {
+    pushNotification(friendId, kind, actorId, payload);
+  }
+}
+
+function notificationPage(userId: number, limit: number, before?: number | null): NotificationPage {
+  const mine = notifications
+    .filter((entry) => entry.userId === userId)
+    .map((entry) => entry.item)
+    .filter((item) => (before ? item.id < before : true))
+    .sort((left, right) => right.id - left.id);
+  const page = mine.slice(0, limit);
+  return {
+    items: clone(page),
+    nextBefore: mine.length > limit ? page[page.length - 1]?.id ?? null : null,
+    unreadCount: notifications.filter((entry) => entry.userId === userId && entry.item.readAt === null).length,
+  };
+}
+
 function collectionGameIds(collection: Collection): number[] {
   if (collection.kind === "manual") return collectionMembers[collection.id] ?? [];
   return visibleGames()
@@ -379,6 +592,8 @@ function profileFor(user: User): PublicProfile {
       bio: null,
       avatarUrl: user.avatarUrl,
       publicProfile: false,
+      presenceEnabled: false,
+      friendsActivity: false,
       createdAt: user.createdAt,
     };
     profiles = [...profiles, profile];
@@ -1894,6 +2109,7 @@ export const mockApi = {
     }
     if (visibility === "public") {
       recordActivity(user, "collection_created", { collectionId: id, metadata: { name, kind, gameCount: collectionMembers[id]?.length ?? 0 } });
+      notifyFriends(user.id, "collection_share", { collectionId: id, collectionName: name });
     }
     return clone(decorateCollection(collection, user));
   },
@@ -2196,6 +2412,8 @@ export const mockApi = {
     const user = currentUser(token);
     const profile = profileFor(user);
     if (patch.publicProfile !== undefined) profile.publicProfile = patch.publicProfile;
+    if (patch.presenceEnabled !== undefined) profile.presenceEnabled = patch.presenceEnabled;
+    if (patch.friendsActivity !== undefined) profile.friendsActivity = patch.friendsActivity;
     if (patch.displayName !== undefined) profile.displayName = patch.displayName?.trim() || null;
     if (patch.bio !== undefined) profile.bio = patch.bio?.trim() || null;
     if (patch.displayName && patch.displayName.length > 64) fail(400, "invalid_display_name", "Display names are limited to 64 characters");
@@ -2250,6 +2468,244 @@ export const mockApi = {
     const before = activities.length;
     recordActivity(user, "game_installed", { gameId: id, metadata: { source: "desktop" }, dedupeMinutes: 60 });
     return { recorded: activities.length > before };
+  },
+
+  /* friends, presence and notifications (#161) */
+  async friends(token: string | null): Promise<FriendsResponse> {
+    await latency();
+    const viewer = currentUser(token);
+    const friends: Friend[] = friendIdsOf(viewer.id)
+      .map((friendId) => {
+        const friendship = friendships.find(
+          (entry) =>
+            entry.status === "accepted" &&
+            ((entry.requesterId === viewer.id && entry.addresseeId === friendId) ||
+              (entry.requesterId === friendId && entry.addresseeId === viewer.id)),
+        );
+        return {
+          user: socialUser(friendId),
+          since: friendship?.createdAt ?? nowIso(),
+          presence: presenceFor(friendId),
+        };
+      })
+      .sort((left, right) => left.user.username.localeCompare(right.user.username));
+    const toRequest = (entry: MockFriendship, otherId: number): FriendRequest => ({
+      id: entry.id,
+      user: socialUser(otherId),
+      createdAt: entry.createdAt,
+    });
+    const incoming = friendships
+      .filter((entry) => entry.status === "pending" && entry.addresseeId === viewer.id)
+      .map((entry) => toRequest(entry, entry.requesterId))
+      .sort((left, right) => right.id - left.id);
+    const outgoing = friendships
+      .filter((entry) => entry.status === "pending" && entry.requesterId === viewer.id)
+      .map((entry) => toRequest(entry, entry.addresseeId))
+      .sort((left, right) => right.id - left.id);
+    const blocked = blockedPairs.filter((entry) => entry.blockerId === viewer.id).map((entry) => socialUser(entry.blockedId));
+    return clone({ friends, incoming, outgoing, blocked });
+  },
+
+  async sendFriendRequest(token: string | null, body: FriendRequestInput): Promise<FriendRequest> {
+    await latency();
+    const viewer = currentUser(token);
+    const target = body.userId !== undefined
+      ? profiles.find((entry) => entry.id === body.userId)
+      : profiles.find((entry) => entry.username.toLowerCase() === (body.username ?? "").trim().toLowerCase());
+    if (body.userId === undefined && !(body.username ?? "").trim()) {
+      fail(400, "invalid_friend_request", "Provide an exact username or a user id");
+    }
+    if (!target) fail(404, "user_not_found", "No account with that exact username exists");
+    if (target.id === viewer.id) fail(400, "invalid_friend_request", "You cannot send a friend request to yourself");
+    if (isBlockedPair(target.id, viewer.id)) fail(404, "user_not_found", "User not found");
+    if (isBlockedPair(viewer.id, target.id)) fail(403, "friendship_blocked", "Unblock this account before sending a friend request");
+    if (friendships.some((entry) => (entry.requesterId === viewer.id && entry.addresseeId === target.id) || (entry.requesterId === target.id && entry.addresseeId === viewer.id))) {
+      fail(409, "friend_request_exists", "A friendship or pending request already exists with this account");
+    }
+    const request: MockFriendship = {
+      id: nextFriendshipId++,
+      requesterId: viewer.id,
+      addresseeId: target.id,
+      status: "pending",
+      createdAt: nowIso(),
+    };
+    friendships = [...friendships, request];
+    pushNotification(target.id, "friend_request", viewer.id);
+    return { id: request.id, user: socialUser(target.id), createdAt: request.createdAt };
+  },
+
+  async acceptFriendRequest(token: string | null, id: number): Promise<Friend> {
+    await latency();
+    const viewer = currentUser(token);
+    const request = friendships.find((entry) => entry.id === id && entry.addresseeId === viewer.id && entry.status === "pending");
+    if (!request) fail(404, "friend_request_not_found", "Friend request not found");
+    request.status = "accepted";
+    request.createdAt = nowIso();
+    pushNotification(request.requesterId, "friend_accepted", viewer.id);
+    return clone({ user: socialUser(request.requesterId), since: request.createdAt, presence: presenceFor(request.requesterId) });
+  },
+
+  async declineFriendRequest(token: string | null, id: number): Promise<void> {
+    await latency();
+    const viewer = currentUser(token);
+    const request = friendships.find((entry) => entry.id === id && entry.addresseeId === viewer.id && entry.status === "pending");
+    if (!request) fail(404, "friend_request_not_found", "Friend request not found");
+    friendships = friendships.filter((entry) => entry.id !== id);
+    notifications = notifications.filter((entry) => !(entry.userId === request.requesterId && entry.item.kind === "friend_request" && entry.item.actor?.id === viewer.id && entry.item.readAt === null));
+  },
+
+  async cancelFriendRequest(token: string | null, id: number): Promise<void> {
+    await latency();
+    const viewer = currentUser(token);
+    const request = friendships.find((entry) => entry.id === id && entry.requesterId === viewer.id && entry.status === "pending");
+    if (!request) fail(404, "friend_request_not_found", "Friend request not found");
+    friendships = friendships.filter((entry) => entry.id !== id);
+    notifications = notifications.filter((entry) => !(entry.userId === request.addresseeId && entry.item.kind === "friend_request" && entry.item.actor?.id === viewer.id && entry.item.readAt === null));
+  },
+
+  async removeFriend(token: string | null, id: number): Promise<void> {
+    await latency();
+    const viewer = currentUser(token);
+    const before = friendships.length;
+    friendships = friendships.filter(
+      (entry) =>
+        entry.status !== "accepted" ||
+        !((entry.requesterId === viewer.id && entry.addresseeId === id) || (entry.requesterId === id && entry.addresseeId === viewer.id)),
+    );
+    if (friendships.length === before) fail(404, "friend_not_found", "Friend not found");
+  },
+
+  async blockUser(token: string | null, id: number): Promise<void> {
+    await latency();
+    const viewer = currentUser(token);
+    if (viewer.id === id) fail(400, "invalid_block", "You cannot block yourself");
+    if (!profiles.some((entry) => entry.id === id)) fail(404, "user_not_found", "User not found");
+    if (!isBlockedPair(viewer.id, id)) blockedPairs = [...blockedPairs, { blockerId: viewer.id, blockedId: id }];
+    friendships = friendships.filter(
+      (entry) => !((entry.requesterId === viewer.id && entry.addresseeId === id) || (entry.requesterId === id && entry.addresseeId === viewer.id)),
+    );
+    notifications = notifications.filter((entry) => !(entry.userId === viewer.id && entry.item.actor?.id === id));
+  },
+
+  async unblockUser(token: string | null, id: number): Promise<void> {
+    await latency();
+    const viewer = currentUser(token);
+    blockedPairs = blockedPairs.filter((entry) => !(entry.blockerId === viewer.id && entry.blockedId === id));
+  },
+
+  async friendsActivity(token: string | null, limit = 20, before?: number | null): Promise<ActivityPage> {
+    await latency();
+    const viewer = currentUser(token);
+    const visible = new Set(friendIdsOf(viewer.id).filter((id) => profiles.find((entry) => entry.id === id)?.friendsActivity));
+    return clone(activityPage(activities.filter((activity) => visible.has(activity.user.id)), limit, before));
+  },
+
+  async friendsPresence(token: string | null): Promise<FriendsPresenceResponse> {
+    await latency();
+    const viewer = currentUser(token);
+    const friends = friendIdsOf(viewer.id)
+      .map((id) => ({ id, presence: presenceFor(id) }))
+      .filter((entry): entry is { id: number; presence: FriendPresence } => entry.presence !== null)
+      .map((entry) => ({
+        userId: entry.id,
+        state: entry.presence.state,
+        game: entry.presence.game,
+        lastSeen: entry.presence.lastSeen,
+      }));
+    return clone({ friends, pollAfterSeconds: PRESENCE_POLL_SECONDS });
+  },
+
+  async presence(token: string | null): Promise<PresenceStateResponse> {
+    await latency();
+    const viewer = currentUser(token);
+    const profile = profileFor(viewer);
+    if (!profile.presenceEnabled) {
+      return { enabled: false, state: null, game: null, lastSeen: null, staleAfterSeconds: 120 };
+    }
+    const presence = presenceFor(viewer.id);
+    return {
+      enabled: true,
+      state: presence?.state ?? null,
+      game: presence?.game ?? null,
+      lastSeen: presence?.lastSeen ?? null,
+      staleAfterSeconds: 120,
+    };
+  },
+
+  async sendPresence(token: string | null, heartbeat: PresenceHeartbeat): Promise<PresenceStateResponse> {
+    await latency();
+    const viewer = currentUser(token);
+    const profile = profileFor(viewer);
+    if (!profile.presenceEnabled) {
+      return { enabled: false, state: null, game: null, lastSeen: null, staleAfterSeconds: 120 };
+    }
+    const state = heartbeat.state ?? "online";
+    if (state !== "online" && state !== "in_game") fail(400, "invalid_presence", "Presence state must be 'online' or 'in_game'");
+    if (state === "in_game" && heartbeat.gameId === undefined) fail(400, "invalid_presence", "in_game requires a gameId");
+    if (state === "in_game" && !visibleGames().some((game) => game.id === heartbeat.gameId)) {
+      fail(404, "game_not_found", "Game not found");
+    }
+    const updatedAt = nowIso();
+    presenceRows = [
+      ...presenceRows.filter((entry) => entry.userId !== viewer.id),
+      { userId: viewer.id, state, gameId: state === "in_game" ? heartbeat.gameId ?? null : null, updatedAt },
+    ];
+    const game = state === "in_game" ? visibleGames().find((entry) => entry.id === heartbeat.gameId) : undefined;
+    return {
+      enabled: true,
+      state,
+      game: game ? { id: game.id, title: game.title } : null,
+      lastSeen: updatedAt,
+      staleAfterSeconds: 120,
+    };
+  },
+
+  async notifications(token: string | null, limit = 20, before?: number | null): Promise<NotificationPage> {
+    await latency();
+    const viewer = currentUser(token);
+    return clone(notificationPage(viewer.id, limit, before));
+  },
+
+  async readNotification(token: string | null, id: number): Promise<NotificationReadResponse> {
+    await latency();
+    const viewer = currentUser(token);
+    const entry = notifications.find((row) => row.userId === viewer.id && row.item.id === id);
+    if (!entry) fail(404, "notification_not_found", "Notification not found");
+    let updated = 0;
+    if (entry.item.readAt === null) {
+      entry.item.readAt = nowIso();
+      updated = 1;
+    }
+    return {
+      updated,
+      unreadCount: notifications.filter((row) => row.userId === viewer.id && row.item.readAt === null).length,
+    };
+  },
+
+  async readAllNotifications(token: string | null): Promise<NotificationReadResponse> {
+    await latency();
+    const viewer = currentUser(token);
+    let updated = 0;
+    for (const entry of notifications) {
+      if (entry.userId !== viewer.id || entry.item.readAt !== null) continue;
+      entry.item.readAt = nowIso();
+      updated += 1;
+    }
+    return { updated, unreadCount: 0 };
+  },
+
+  async notificationPrefs(token: string | null): Promise<NotificationPrefs> {
+    await latency();
+    const viewer = currentUser(token);
+    return clone(notificationPreferences[viewer.id] ?? defaultNotificationPrefs());
+  },
+
+  async updateNotificationPrefs(token: string | null, patch: Partial<NotificationPrefs>): Promise<NotificationPrefs> {
+    await latency();
+    const viewer = currentUser(token);
+    const next = { ...(notificationPreferences[viewer.id] ?? defaultNotificationPrefs()), ...patch };
+    notificationPreferences = { ...notificationPreferences, [viewer.id]: next };
+    return clone(next);
   },
 
   /* achievements */
