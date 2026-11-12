@@ -6,8 +6,6 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
-## [0.4.2] - 2026-11-12
-
 ### Added
 
 - Account settings sync through the server (#201): a validated per-account
@@ -32,6 +30,37 @@ All notable changes to Ludex are documented here. The format is based on
   publishes a bundled 600x900 box-art `image-path`, materialized once under the
   app data directory with a content hash (refreshed on change, old copies
   pruned), so Moonlight shows the logo instead of a blank tile.
+
+### Changed
+
+- Network architecture decision record (#200): `docs/NETWORK-ARCHITECTURE.md`
+  evaluates direct vs Caddy, port-forward/UPnP, parallel ranges, TCP/BBR tuning,
+  STUN/TURN and QUIC/HTTP3 against the measured path (and notes the desktop
+  client is HTTP/1.1 today), with explicit decision thresholds;
+  `scripts/bench-download.sh` runs the whole measurement matrix and prints
+  verdicts, and the deploy/performance docs cover Caddy, HTTP/3 and the numbers
+  to collect. No speculative protocol code.
+
+### Fixed
+
+- Stream installs resume instead of restarting (#203, #204, #205, #208):
+  retries reuse the same job id and history row, the desktop persists the job
+  request and rebuilds a worker for paused/failed/interrupted jobs (including
+  from a previous app run) at the exact `.part`/entry checkpoint, the per-entry
+  stream gained a stall timeout with bounded backoff and exact-byte Range
+  resume, non-resumable formats fall back to the classic resumable download
+  before writing anything, and the UI distinguishes Resume from Restart with an
+  explicit confirmation.
+- The remote-play wizard shows the VPN/mesh address (#206): it enumerates every
+  interface, prefers Netbird/Tailscale/WireGuard/ZeroTier addresses over the
+  default-route LAN IP, never advertises CGNAT, Docker, loopback or link-local
+  addresses, lists alternatives to copy, and warns when a VPN is detected
+  without an address.
+
+## [0.4.2] - 2026-11-12
+
+### Added
+
 - One shared one-shot elevation flow (#192): privileged actions go through a
   whitelisted elevation module (path ACL, signed installer, service/driver,
   firewall rule, config write) that validates every path, launches a single
@@ -62,13 +91,6 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Changed
 
-- Network architecture decision record (#200): `docs/NETWORK-ARCHITECTURE.md`
-  evaluates direct vs Caddy, port-forward/UPnP, parallel ranges, TCP/BBR tuning,
-  STUN/TURN and QUIC/HTTP3 against the measured path (and notes the desktop
-  client is HTTP/1.1 today), with explicit decision thresholds;
-  `scripts/bench-download.sh` runs the whole measurement matrix and prints
-  verdicts, and the deploy/performance docs cover Caddy, HTTP/3 and the numbers
-  to collect. No speculative protocol code.
 - Network speeds are shown in bits per second (#199): download, update, stream
   and bandwidth-cap figures now read `Kb/s`/`Mb/s`/`Gb/s` (decimal), while file
   sizes stay in bytes; the cap is edited in Mb/s and still stored as KiB.
@@ -81,19 +103,6 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
-- Stream installs resume instead of restarting (#203, #204, #205, #208):
-  retries reuse the same job id and history row, the desktop persists the job
-  request and rebuilds a worker for paused/failed/interrupted jobs (including
-  from a previous app run) at the exact `.part`/entry checkpoint, the per-entry
-  stream gained a stall timeout with bounded backoff and exact-byte Range
-  resume, non-resumable formats fall back to the classic resumable download
-  before writing anything, and the UI distinguishes Resume from Restart with an
-  explicit confirmation.
-- The remote-play wizard shows the VPN/mesh address (#206): it enumerates every
-  interface, prefers Netbird/Tailscale/WireGuard/ZeroTier addresses over the
-  default-route LAN IP, never advertises CGNAT, Docker, loopback or link-local
-  addresses, lists alternatives to copy, and warns when a VPN is detected
-  without an address.
 - Large downloads survive dropped connections (#195): an idle timeout detects a
   stalled stream, the client reconnects with bounded backoff and `Range` from the
   last flushed byte, shows "Connection lost, resuming from X%", and restarts
