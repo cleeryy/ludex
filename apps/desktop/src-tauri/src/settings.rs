@@ -152,8 +152,13 @@ pub struct LocalSettings {
     pub keep_archives: bool,
     /// Passwords tried, in order, when extracting an archive.
     pub archive_passwords: Vec<String>,
-    /// Global download bandwidth cap in KiB/s. 0 = unlimited.
+    /// Global download bandwidth cap in KiB/s. 0 = unlimited. The UI presents
+    /// it in Mb/s (#199); the stored unit stays KiB/s so old settings keep working.
     pub bandwidth_limit_kib: u64,
+    /// Abort a silent download response after this many seconds and resume
+    /// with Range (#195). Clamped to 5..=600 when used.
+    #[serde(default = "default_download_stall_timeout_secs")]
+    pub download_stall_timeout_secs: u64,
     /// Closing the window hides Ludex to the tray instead of quitting.
     pub close_to_tray: bool,
     /// Use the native title bar instead of Ludex's own (#111). Windows and Linux
@@ -418,6 +423,12 @@ pub const fn default_cloud_save_folder_cap_mb() -> u64 {
     2048
 }
 
+/// Seconds without a byte before a download response is abandoned and resumed
+/// with Range (#195).
+pub const fn default_download_stall_timeout_secs() -> u64 {
+    30
+}
+
 /// A console session is meant for a TV: fullscreen by default (#172).
 pub const fn default_console_fullscreen() -> bool {
     true
@@ -444,6 +455,7 @@ impl Default for LocalSettings {
             keep_archives: false,
             archive_passwords: Vec::new(),
             bandwidth_limit_kib: 0,
+            download_stall_timeout_secs: default_download_stall_timeout_secs(),
             close_to_tray: true,
             native_title_bar: false,
             update_channel: UpdateChannel::Stable,
@@ -522,6 +534,10 @@ impl LocalSettings {
         self.download_dir = self.download_dir.trim().to_string();
         self.normalize_locations(app_data);
         self.server_url = self.server_url.trim().trim_end_matches('/').to_string();
+        if self.download_stall_timeout_secs == 0 {
+            self.download_stall_timeout_secs = default_download_stall_timeout_secs();
+        }
+        self.download_stall_timeout_secs = self.download_stall_timeout_secs.clamp(5, 600);
         self.games_dir = self
             .games_dir
             .take()

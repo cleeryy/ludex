@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronRight, FolderOpen } from "lucide-react";
 import { errorMessage } from "@/lib/http";
 import { isNative } from "@/lib/native";
-import { formatBytes } from "@/lib/format";
+import { kibToMbps, mbpsToKib } from "@/lib/format";
 import type { LocalSettings } from "@/lib/types";
 import { t, tn, tr } from "@/lib/i18n";
 import { useAuth } from "@/state/auth";
@@ -128,27 +129,39 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
 
           <SettingsGroup
             title={t("Bandwidth limit")}
-            description={t("Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.")}
+            description={t("Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.")}
+          >
+            <BandwidthLimitField
+              kib={draft.bandwidthLimitKib}
+              onChange={(bandwidthLimitKib) => desktop.update({ bandwidthLimitKib })}
+            />
+          </SettingsGroup>
+
+          <SettingsGroup
+            title={t("Connection recovery")}
+            description={t("Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.")}
           >
             <div className="flex flex-wrap items-center gap-2">
               <div className="w-[150px]">
                 <Input
-                  id="bandwidth-limit"
-                  aria-label={t("Bandwidth limit")}
+                  id="stall-timeout"
+                  aria-label={t("Connection recovery")}
                   type="number"
-                  min={0}
-                  step={64}
+                  min={5}
+                  max={600}
+                  step={5}
                   inputMode="numeric"
-                  value={draft.bandwidthLimitKib}
+                  value={draft.downloadStallTimeoutSecs}
                   onChange={(event) =>
-                    desktop.update({ bandwidthLimitKib: Math.max(0, Math.round(Number(event.target.value) || 0)) })
+                    desktop.update({
+                      downloadStallTimeoutSecs: Math.min(600, Math.max(5, Math.round(Number(event.target.value) || 30))),
+                    })
                   }
                   className="font-mono text-[12px]"
                 />
               </div>
-              <span className="text-[11.5px] text-ink-3">{t("KiB/s")}</span>
-              <span className="num text-[11px] text-ink-3">
-                {draft.bandwidthLimitKib > 0 ? `≈ ${formatBytes(draft.bandwidthLimitKib * 1024)}/s` : t("Unlimited")}
+              <span className="text-[11.5px] text-ink-3" aria-hidden="true">
+                s
               </span>
             </div>
           </SettingsGroup>
@@ -520,14 +533,58 @@ export function CompatibilityBody({ desktop }: { desktop: DesktopSettingsControl
   );
 }
 
+/**
+ * Bandwidth cap, stored in KiB/s but edited in Mb/s (#199). The text stays
+ * local while typing so a partially typed value ("8.") does not bounce back.
+ */
+function BandwidthLimitField({ kib, onChange }: { kib: number; onChange: (kib: number) => void }) {
+  const [text, setText] = useState(() => (kib > 0 ? formatMbpsInput(kib) : "0"));
+  useEffect(() => {
+    const parsed = Number(text);
+    const stored = Number.isFinite(parsed) ? mbpsToKib(parsed) : 0;
+    if (stored !== kib) setText(kib > 0 ? formatMbpsInput(kib) : "0");
+    // Resync only when the saved cap changes from outside this input.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kib]);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="w-[150px]">
+        <Input
+          id="bandwidth-limit"
+          aria-label={t("Bandwidth limit")}
+          type="number"
+          min={0}
+          step={1}
+          inputMode="decimal"
+          value={text}
+          onChange={(event) => {
+            const value = event.target.value;
+            setText(value);
+            onChange(mbpsToKib(Number(value) || 0));
+          }}
+          className="font-mono text-[12px]"
+        />
+      </div>
+      <span className="text-[11.5px] text-ink-3" aria-hidden="true">
+        Mb/s
+      </span>
+      {kib === 0 && <span className="num text-[11px] text-ink-3">{t("Unlimited")}</span>}
+    </div>
+  );
+}
+
+/** Whole or one-decimal Mb/s without a trailing `.0`. */
+function formatMbpsInput(kib: number): string {
+  return String(Math.round(kibToMbps(kib) * 10) / 10);
+}
+
 function PathField({
   label,
   hint,
   value,
   onChange,
   onPick,
-}: {
-  label: string;
+}: {  label: string;
   hint: string;
   value: string;
   onChange: (value: string) => void;

@@ -1368,6 +1368,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   keepArchives: false,
   archivePasswords: [],
   bandwidthLimitKib: 0,
+  downloadStallTimeoutSecs: 30,
   closeToTray: true,
   nativeTitleBar: false,
   updateChannel: "stable",

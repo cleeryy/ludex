@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Gamepad2, Library, Play, Square, Trophy, X } from "lucide-react";
 import { api, tokenStore } from "@/lib/api";
-import { formatBytes, formatPercent } from "@/lib/format";
+import { formatBytes, formatPercent, formatSpeed } from "@/lib/format";
 import { errorMessage } from "@/lib/http";
 import { isNative, native } from "@/lib/native";
 import { useGamepad } from "@/lib/gamepad";
@@ -540,7 +540,11 @@ function DownloadsTab() {
               <span className="font-mono text-[11px] text-ink">{job.phase}</span>
               <span className="font-mono text-[11px] tabular-nums text-ink-3">
                 {percent === null ? t("estimating") : formatPercent(percent)}
-                {job.speedBps > 0 ? ` · ${formatBytes(job.speedBps)}/s` : ""}
+                {job.reconnecting
+                  ? ` · ${t("Connection lost, resuming from {percent}", { percent: formatPercent(percent ?? 0) })}`
+                  : job.speedBps > 0
+                    ? ` · ${formatSpeed(job.speedBps)}`
+                    : ""}
               </span>
             </div>
             <div className="mt-2 h-1 overflow-hidden rounded-full bg-line">

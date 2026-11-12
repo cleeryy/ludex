@@ -1668,7 +1668,8 @@ interface LocalSettings {
   streamInstall: boolean;       // remote ZIP/7z/RAR installs without storing the archive
   keepArchives: boolean;        // keep the downloaded archive after install
   archivePasswords: string[];   // tried in order
-  bandwidthLimitKib: number;    // global download cap in KiB/s, 0 = unlimited
+  bandwidthLimitKib: number;    // global cap stored in KiB/s; the UI presents Mb/s (#199), 0 = unlimited
+  downloadStallTimeoutSecs: number; // idle seconds before a download reconnects with Range (#195), default 30, clamped 5..600
   closeToTray: boolean;         // closing the window hides to the tray (default true)
   nativeTitleBar: boolean;      // OS title bar instead of Ludex's own (#111), default false
   updateChannel: "stable" | "early"; // app updater channel (default stable)
@@ -2086,6 +2087,10 @@ interface InstallJob {
   entriesTotal: number | null;
   currentEntry: string | null;  // entry currently being written
   resumedEntries: number | null;// files already present when this attempt started
+  reconnecting: boolean;        // true while a stalled/dropped download waits to reconnect (#195)
+  attempt: number;              // connection attempt that produced this snapshot; the next one while reconnecting
+  lastError: string | null;     // last transport error, kept until the transfer completes (#195)
+  stalledForMs: number | null;  // silence that triggered the stall, in milliseconds
 }
 
 interface VerifyIssue {
@@ -3028,7 +3033,21 @@ stops every write. Each applied change appears in the Backups tab with
   the completed files when at least one exists.
 - **Bandwidth limit.** `bandwidthLimitKib` caps the copy loop of archive
   downloads, repairs and stream installs. 0 means unlimited. The cap is read
-  when a transfer starts.
+  when a transfer starts. The field keeps its KiB/s storage for compatibility;
+  Settings and the onboarding summary present it in Mb/s (`1 Mb/s =
+  122.0703125 KiB/s`, #199). Network speeds are always rendered in decimal bits
+  (`Kb/s`, `Mb/s`, `Gb/s`); file sizes stay in bytes.
+- **Download resilience (#195).** A response that yields no bytes for
+  `downloadStallTimeoutSecs` (default 30 s) is abandoned; the `.part` is kept and
+  the next request resumes with `Range: bytes=<last flushed byte>-`. Reconnects
+  use exponential backoff with jitter, are bounded by attempts and a retry
+  window, and never restart from zero while the `.part` is valid. A changed
+  archive (different `ETag` or total size) restarts explicitly with a visible
+  job message. While reconnecting, the job carries `reconnecting`, `attempt`,
+  `lastError` and `stalledForMs`; cancellation and pause keep their existing
+  `.part` semantics. The server treats a Range reconnect as a normal request,
+  logs each stream's `bytes`/`elapsed_ms`/`outcome`, and answers `429` with
+  `Retry-After` above 120 attempts/minute per address and version.
 - **Manifests.** At install completion the desktop hashes every installed file
   (relative path, size, SHA-256) into `install_manifests`. Hashing failures are
   logged and never fail the install; such installs report `noManifest` until

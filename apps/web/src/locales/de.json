@@ -365,7 +365,6 @@
   "Cannot reach the server. Check that it is running and the address is correct.": "Der Server kann nicht erreicht werden. Überprüfen Sie, ob es läuft und die Adresse korrekt ist.",
   "Cannot reach the server. Check that it is running.": "Der Server kann nicht erreicht werden. Überprüfen Sie, ob es läuft.",
   "Canonical fields: {fields}": "Kanonische Felder: {fields}",
-  "Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.": "Begrenzt jeden Download (Installationen, Reparaturen und Stream-Installationen) in KiB/s. Verwenden Sie 0 für keine Begrenzung.",
   "Categories": "Kategorien",
   "Certain": "Sicher",
   "Change": "Veränderung",
@@ -983,7 +982,6 @@
   "Key pinned": "Schlüssel festgesteckt",
   "Keyboard only — connect a controller for couch navigation": "Nur Tastatur – schließen Sie einen Controller für die Couchnavigation an",
   "Keyboard shortcuts": "Tastaturkürzel",
-  "KiB/s": "KiB/s",
   "Kind": "Freundlich",
   "Known folder": "Bekannter Ordner",
   "Label": "Etikett",
@@ -3444,5 +3442,9 @@
   "Why": "Warum",
   "If you cancel, nothing is changed and the manual instructions stay available.": "Bei Abbruch wird nichts geändert, und die manuellen Anweisungen bleiben verfügbar.",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Sunshines Konfigurationsordner liegt unter Program Files, wo Windows Schreibzugriffe blockiert.",
-  "You can also set a Sunshine config folder your account can write to.": "Sie können auch einen Sunshine-Konfigurationsordner festlegen, in den Ihr Konto schreiben darf."
+  "You can also set a Sunshine config folder your account can write to.": "Sie können auch einen Sunshine-Konfigurationsordner festlegen, in den Ihr Konto schreiben darf.",
+  "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "Begrenzt jeden Download (Installationen, Reparaturen und Stream-Installationen) in Mb/s. 0 bedeutet kein Limit.",
+  "Connection recovery": "Verbindungswiederherstellung",
+  "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex bricht eine Antwort ab, die so viele Sekunden still bleibt, und setzt beim zuletzt empfangenen Byte fort. Ein Transfer, der weiter Daten empfängt, wird nie unterbrochen.",
+  "Connection lost, resuming from {percent}": "Verbindung unterbrochen, Fortsetzung bei {percent}"
 }

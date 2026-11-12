@@ -365,7 +365,6 @@
   "Cannot reach the server. Check that it is running and the address is correct.": "Sunucuya ulaşılamıyor. Çalıştığını ve adresin doğru olduğunu kontrol edin.",
   "Cannot reach the server. Check that it is running.": "Sunucuya ulaşılamıyor. Çalıştığını kontrol edin.",
   "Canonical fields: {fields}": "Kanonik alanlar: {fields}",
-  "Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.": "Her indirmeyi (yüklemeler, onarımlar ve akış yüklemeleri) KiB/s cinsinden sınırlar. Sınırsız olarak 0'ı kullanın.",
   "Categories": "Kategoriler",
   "Certain": "kesin",
   "Change": "Değiştir",
@@ -983,7 +982,6 @@
   "Key pinned": "Anahtar sabitlendi",
   "Keyboard only — connect a controller for couch navigation": "Yalnızca klavye — kanepede gezinme için bir denetleyici bağlayın",
   "Keyboard shortcuts": "Klavye kısayolları",
-  "KiB/s": "KiB/sn",
   "Kind": "tür",
   "Known folder": "Bilinen klasör",
   "Label": "Etiket",
@@ -3444,5 +3442,9 @@
   "Why": "Neden",
   "If you cancel, nothing is changed and the manual instructions stay available.": "İptal ederseniz hiçbir şey değişmez ve manuel yönergeler kullanılabilir kalır.",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Sunshine yapılandırma klasörü, Windows'un yazmayı engellediği Program Files altında.",
-  "You can also set a Sunshine config folder your account can write to.": "Ayrıca hesabınızın yazabildiği bir Sunshine yapılandırma klasörü belirleyebilirsiniz."
+  "You can also set a Sunshine config folder your account can write to.": "Ayrıca hesabınızın yazabildiği bir Sunshine yapılandırma klasörü belirleyebilirsiniz.",
+  "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "Her indirmeyi (kurulumlar, onarımlar ve akış kurulumları) Mb/s olarak sınırlar. Sınırsız için 0 kullanın.",
+  "Connection recovery": "Bağlantı kurtarma",
+  "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex, bu kadar saniye sessiz kalan bir yanıtı iptal eder ve son alınan bayttan devam eder. Veri almaya devam eden bir aktarım asla kesilmez.",
+  "Connection lost, resuming from {percent}": "Bağlantı kayboldu, {percent} noktasından devam ediliyor"
 }

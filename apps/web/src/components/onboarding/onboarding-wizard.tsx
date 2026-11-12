@@ -5,8 +5,8 @@ import { motion, useReducedMotion } from "motion/react";
 import { ArrowLeft, ArrowRight, Download, FolderOpen, HardDrive, Palette, Server, ShieldCheck, Sparkles, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { formatRelative } from "@/lib/format";
-import { formatNumber, selectableLocales, t, tn, useI18n } from "@/lib/i18n";
+import { formatRelative, formatSpeed } from "@/lib/format";
+import { selectableLocales, t, tn, useI18n } from "@/lib/i18n";
 import { installBridge, installsAvailable } from "@/lib/install";
 import { isNative } from "@/lib/native";
 import {
@@ -418,7 +418,7 @@ function DownloadsStep({ settings, desktopAvailable }: { settings: LocalSettings
           <Fact label={t("Download folder")} value={settings.downloadDir} mono />
           <Fact
             label={t("Bandwidth limit")}
-            value={settings.bandwidthLimitKib > 0 ? `${formatNumber(settings.bandwidthLimitKib)} ${t("KiB/s")}` : t("Unlimited")}
+            value={settings.bandwidthLimitKib > 0 ? formatSpeed(settings.bandwidthLimitKib * 1024) : t("Unlimited")}
           />
           <Fact label={t("Stream installs")} value={settings.streamInstall ? t("On") : t("Off")} />
         </dl>

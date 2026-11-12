@@ -38,6 +38,9 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Changed
 
+- Network speeds are shown in bits per second (#199): download, update, stream
+  and bandwidth-cap figures now read `Kb/s`/`Mb/s`/`Gb/s` (decimal), while file
+  sizes stay in bytes; the cap is edited in Mb/s and still stored as KiB.
 - The game page now reads like Settings (#189): one sticky sub-nav and one group
   at a time (Overview, Files, Launch, Settings, Saves, Achievements, ROM),
   addressable with `?tab=`, one 1240px content width, consistent headings and
@@ -47,6 +50,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- Large downloads survive dropped connections (#195): an idle timeout detects a
+  stalled stream, the client reconnects with bounded backoff and `Range` from the
+  last flushed byte, shows "Connection lost, resuming from X%", and restarts
+  explicitly when the archive changed; the server logs per-stream
+  bytes/elapsed/outcome and rate-limits reconnect storms. The download path also
+  got larger stream chunks, a stable ETag, TCP keepalive/NODELAY, a documented
+  measurement matrix and `scripts/bench-download.sh` (#194); parallel ranged
+  downloads wait for measurements on the user's network.
 - The in-game overlay now says why it does not open and self-heals (#190):
   `overlay_status` reports controller names/ids, trigger deliverability (the
   Guide button is never delivered on Windows XInput, so the chord fallback is

@@ -365,7 +365,6 @@
   "Cannot reach the server. Check that it is running and the address is correct.": "サーバーにアクセスできません。実行中であり、アドレスが正しいことを確認してください。",
   "Cannot reach the server. Check that it is running.": "サーバーにアクセスできません。実行されていることを確認してください。",
   "Canonical fields: {fields}": "正規フィールド: {fields}",
-  "Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.": "すべてのダウンロード (インストール、修復、ストリーム インストール) を KiB/s 単位で制限します。制限がない場合は 0 を使用します。",
   "Categories": "カテゴリ",
   "Certain": "確実",
   "Change": "変更",
@@ -983,7 +982,6 @@
   "Key pinned": "キーが固定されました",
   "Keyboard only — connect a controller for couch navigation": "キーボードのみ - カウチナビゲーション用のコントローラーを接続します",
   "Keyboard shortcuts": "キーボードショートカット",
-  "KiB/s": "KiB/秒",
   "Kind": "親切",
   "Known folder": "既知のフォルダー",
   "Label": "ラベル",
@@ -3444,5 +3442,9 @@
   "Why": "理由",
   "If you cancel, nothing is changed and the manual instructions stay available.": "キャンセルしても何も変更されず、手動での手順は引き続き利用できます。",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Sunshine の構成フォルダーは Program Files 内にあり、Windows が書き込みをブロックします。",
-  "You can also set a Sunshine config folder your account can write to.": "アカウントで書き込み可能な Sunshine 構成フォルダーを指定することもできます。"
+  "You can also set a Sunshine config folder your account can write to.": "アカウントで書き込み可能な Sunshine 構成フォルダーを指定することもできます。",
+  "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "すべてのダウンロード（インストール、修復、ストリームインストール）を Mb/s で制限します。0 で無制限。",
+  "Connection recovery": "接続の復元",
+  "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex は応答がこの秒数だけ無音になると中断し、最後に受信したバイトから再開します。データを受信し続けている転送は中断されません。",
+  "Connection lost, resuming from {percent}": "接続が失われました。{percent} から再開します"
 }

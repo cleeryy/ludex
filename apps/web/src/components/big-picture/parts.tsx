@@ -7,6 +7,7 @@ import {
   formatPercent,
   formatRating,
   formatRelative,
+  formatSpeed,
   formatYear,
   stateLabel,
 } from "@/lib/format";
@@ -78,7 +79,7 @@ export function ProgressLine({ job, percent, className }: { job: InstallJob; per
       {job.bytesTotal && (
         <span>{t("{done} of {total}", { done: formatBytes(job.bytesDone), total: formatBytes(job.bytesTotal) })}</span>
       )}
-      {job.speedBps > 0 && <span>{formatBytes(job.speedBps, 0)}/s</span>}
+      {job.speedBps > 0 && <span>{formatSpeed(job.speedBps)}</span>}
     </p>
   );
 }

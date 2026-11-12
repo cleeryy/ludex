@@ -263,7 +263,6 @@
   "Cannot reach the server. Check that it is running and the address is correct.": "Serveur injoignable. Vérifiez qu’il fonctionne et que l’adresse est correcte.",
   "Cannot reach the server. Check that it is running.": "Serveur injoignable. Vérifiez qu’il fonctionne.",
   "Canonical fields: {fields}": "Champs canoniques : {fields}",
-  "Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.": "Plafonne chaque téléchargement (installations, réparations et installations en flux) en Kio/s. Utilisez 0 pour aucune limite.",
   "Categories": "Catégories",
   "Certain": "Certain",
   "Change": "Changer",
@@ -908,7 +907,6 @@
   "Key pinned": "Clé épinglée",
   "Keyboard only — connect a controller for couch navigation": "Clavier uniquement — connectez une manette pour la navigation canapé",
   "Keyboard shortcuts": "Raccourcis clavier",
-  "KiB/s": "Kio/s",
   "Kind": "Type",
   "Known folder": "Dossier système",
   "Label": "Libellé",
@@ -3444,5 +3442,9 @@
   "Why": "Pourquoi",
   "If you cancel, nothing is changed and the manual instructions stay available.": "Si vous annulez, rien n’est modifié et les instructions manuelles restent disponibles.",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Le dossier de configuration de Sunshine se trouve dans Program Files, où Windows bloque les écritures.",
-  "You can also set a Sunshine config folder your account can write to.": "Vous pouvez aussi définir un dossier de configuration Sunshine accessible en écriture à votre compte."
+  "You can also set a Sunshine config folder your account can write to.": "Vous pouvez aussi définir un dossier de configuration Sunshine accessible en écriture à votre compte.",
+  "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "Plafonne chaque téléchargement (installations, réparations et installations en flux) en Mb/s. Utilisez 0 pour aucune limite.",
+  "Connection recovery": "Reprise de connexion",
+  "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex abandonne une réponse silencieuse après ce nombre de secondes et reprend au dernier octet reçu. Un transfert qui continue de recevoir des données n’est jamais interrompu.",
+  "Connection lost, resuming from {percent}": "Connexion perdue, reprise à {percent}"
 }

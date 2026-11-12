@@ -105,6 +105,15 @@ pub struct InstallJob {
     pub current_entry: Option<String>,
     /// Files already present when this attempt started (#115).
     pub resumed_entries: Option<u32>,
+    /// True while the download waits to reconnect after a stall or a dropped
+    /// response (#195). The UI shows the resume point instead of a stale speed.
+    pub reconnecting: bool,
+    /// Connection attempt of the current download, starting at 1.
+    pub attempt: u32,
+    /// Last transport error, kept until the transfer completes.
+    pub last_error: Option<String>,
+    /// Milliseconds the connection was silent when the stall was detected.
+    pub stalled_for_ms: Option<u64>,
 }
 
 impl InstallJob {
@@ -142,7 +151,18 @@ impl InstallJob {
             entries_total: None,
             current_entry: None,
             resumed_entries: None,
+            reconnecting: false,
+            attempt: 1,
+            last_error: None,
+            stalled_for_ms: None,
         }
+    }
+
+    /// Clear the transient reconnect state when the job leaves `downloading`.
+    pub fn clear_reconnect(&mut self) {
+        self.reconnecting = false;
+        self.last_error = None;
+        self.stalled_for_ms = None;
     }
 }
 
@@ -322,6 +342,10 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
         entries_total: None,
         current_entry: None,
         resumed_entries: None,
+        reconnecting: false,
+        attempt: 1,
+        last_error: None,
+        stalled_for_ms: None,
     };
 
     let entry = Arc::new(JobEntry {
@@ -372,6 +396,7 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
                 existing.update(|job| {
                     job.phase = InstallPhase::Queued;
                     job.speed_bps = 0;
+                    job.clear_reconnect();
                     job.message = Some("Queued".to_string());
                 });
                 persist(app, &existing);
@@ -537,6 +562,7 @@ pub fn pause(app: &AppHandle, job_id: &str) -> Result<InstallJob, String> {
             entry.update(|job| {
                 job.phase = InstallPhase::Paused;
                 job.speed_bps = 0;
+                job.clear_reconnect();
                 job.message = Some("Paused".to_string());
             });
             persist(app, &entry);
@@ -590,6 +616,7 @@ pub fn resume(app: &AppHandle, job_id: &str) -> Result<InstallJob, String> {
     entry.update(|job| {
         job.phase = InstallPhase::Queued;
         job.speed_bps = 0;
+        job.clear_reconnect();
         job.message = Some("Resuming".to_string());
     });
     persist(app, &entry);
@@ -776,6 +803,7 @@ async fn run_job(app: AppHandle, job_id: String) {
             entry.update(|job| {
                 job.phase = InstallPhase::Done;
                 job.speed_bps = 0;
+                job.clear_reconnect();
                 job.bytes_done = job.bytes_total.unwrap_or(job.bytes_done);
                 job.message = Some("Installed".to_string());
                 job.install_path = Some(install_path.to_string_lossy().to_string());
@@ -820,6 +848,7 @@ async fn finalize_paused(app: &AppHandle, entry: &JobEntry, job_paths: &JobPaths
     entry.update(|job| {
         job.phase = InstallPhase::Paused;
         job.speed_bps = 0;
+        job.clear_reconnect();
         job.message = Some("Paused".to_string());
     });
     persist(app, entry);
@@ -861,6 +890,7 @@ async fn finalize_cancelled(app: &AppHandle, entry: &JobEntry, job_paths: &JobPa
     entry.update(|job| {
         job.phase = InstallPhase::Cancelled;
         job.speed_bps = 0;
+        job.clear_reconnect();
         job.message = Some(message.to_string());
     });
     persist(app, entry);
@@ -885,6 +915,7 @@ fn finalize_error(app: &AppHandle, entry: &JobEntry, message: String) {
     entry.update(|job| {
         job.phase = InstallPhase::Error;
         job.speed_bps = 0;
+        job.clear_reconnect();
         job.message = Some(message.clone());
     });
     persist(app, entry);
@@ -1145,6 +1176,7 @@ async fn execute(
                         job.bytes_done = done;
                         job.bytes_total = Some(total);
                         job.speed_bps = 0;
+                        job.clear_reconnect();
                         job.message = Some("Installing game file".to_string());
                     });
                     let _ = app_for_copy.emit("install://progress", entry_for_copy.snapshot());
@@ -1205,6 +1237,7 @@ async fn execute(
                             job.bytes_done = done;
                             job.bytes_total = total;
                             job.speed_bps = 0;
+                            job.clear_reconnect();
                             job.message = Some(message);
                         });
                         let _ = app_for_extract
@@ -1275,6 +1308,7 @@ async fn execute(
                 job.bytes_done = done;
                 job.bytes_total = Some(total);
                 job.speed_bps = 0;
+                job.clear_reconnect();
                 job.message = Some("Installing files".to_string());
             });
             let _ = app_for_move.emit("install://progress", entry_for_move.snapshot());
@@ -1395,6 +1429,7 @@ async fn record_manifest(
                 job.bytes_done = progress.bytes_done;
                 job.bytes_total = Some(progress.bytes_total.max(1));
                 job.speed_bps = 0;
+                job.clear_reconnect();
                 job.message = Some(format!(
                     "Hashing {} of {} files",
                     progress.files_done, progress.files_total
@@ -1480,6 +1515,7 @@ fn set_progress(
         job.bytes_total = bytes_total;
         job.speed_bps = speed_bps;
         job.message = message;
+        job.clear_reconnect();
     });
     persist(app, entry);
     let _ = app.emit("install://progress", entry.snapshot());
@@ -1591,6 +1627,183 @@ pub(crate) struct DownloadProgress {
     pub total: Option<u64>,
     pub speed_bps: u64,
     pub message: String,
+    /// True while the client waits to reconnect after a stall or a dropped
+    /// response (#195). The UI shows the resume point instead of a frozen rate.
+    pub reconnecting: bool,
+    /// Connection attempt of this download, starting at 1.
+    pub attempt: u32,
+    /// Last transport error, kept until the transfer completes.
+    pub last_error: Option<String>,
+    /// How long the connection was silent when the stall was detected.
+    pub stalled_for_ms: Option<u64>,
+}
+
+impl DownloadProgress {
+    fn plain(attempt: u32, done: u64, total: Option<u64>, speed_bps: u64, message: String) -> Self {
+        Self {
+            done,
+            total,
+            speed_bps,
+            message,
+            reconnecting: false,
+            attempt,
+            last_error: None,
+            stalled_for_ms: None,
+        }
+    }
+}
+
+/// Read/write tuning for one resumable download (#195).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DownloadTuning {
+    /// Abort the response when no bytes arrive for this long. A transfer that
+    /// keeps producing bytes is never judged a stall.
+    pub idle_timeout: Duration,
+    /// Connections per download, including the first one.
+    pub max_attempts: u32,
+    /// Give up on retries once this much wall-clock time was spent reconnecting.
+    pub max_retry_window: Duration,
+    pub base_backoff: Duration,
+    pub max_backoff: Duration,
+}
+
+impl Default for DownloadTuning {
+    fn default() -> Self {
+        Self {
+            idle_timeout: Duration::from_secs(30),
+            max_attempts: 12,
+            max_retry_window: Duration::from_secs(30 * 60),
+            base_backoff: Duration::from_millis(750),
+            max_backoff: Duration::from_secs(30),
+        }
+    }
+}
+
+impl DownloadTuning {
+    /// Build from the persisted setting, clamped so a bad value cannot turn
+    /// every install into a reconnect storm or wait forever.
+    pub(crate) fn from_idle_secs(seconds: u64) -> Self {
+        Self {
+            idle_timeout: Duration::from_secs(seconds.clamp(5, 600)),
+            ..Self::default()
+        }
+    }
+}
+
+/// Why a chunk read ended early.
+#[derive(Debug)]
+pub(crate) enum ChunkError {
+    /// The connection went silent beyond the idle timeout.
+    Stalled,
+    /// The transport reported an error (reset, truncated body, TLS, …).
+    Lost(String),
+}
+
+/// The part of an HTTP response the resume loop needs.
+#[allow(async_fn_in_trait)]
+pub(crate) trait DownloadResponse {
+    fn status(&self) -> u16;
+    fn content_length(&self) -> Option<u64>;
+    fn content_range_total(&self) -> Option<u64>;
+    /// First byte of a 206 response; `None` when the header is absent.
+    fn content_range_start(&self) -> Option<u64> {
+        None
+    }
+    fn etag(&self) -> Option<String>;
+    /// Next body chunk, or `None` at end of stream.
+    async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, ChunkError>;
+    /// Body of a failed response, for the user-facing error.
+    async fn error_body(self) -> String
+    where
+        Self: Sized,
+    {
+        String::new()
+    }
+}
+
+/// Opens one response for a byte offset (`None` = from zero).
+#[allow(async_fn_in_trait)]
+pub(crate) trait DownloadTransport {
+    type Response: DownloadResponse;
+    async fn open(&mut self, range_start: Option<u64>) -> Result<Self::Response, String>;
+}
+
+struct HttpTransport<'a> {
+    client: &'a reqwest::Client,
+    url: &'a str,
+    token: Option<&'a str>,
+}
+
+struct HttpDownloadResponse {
+    response: reqwest::Response,
+}
+
+impl DownloadResponse for HttpDownloadResponse {
+    fn status(&self) -> u16 {
+        self.response.status().as_u16()
+    }
+
+    fn content_length(&self) -> Option<u64> {
+        self.response.content_length()
+    }
+
+    fn content_range_total(&self) -> Option<u64> {
+        self.response
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(parse_content_range_total)
+    }
+
+    fn content_range_start(&self) -> Option<u64> {
+        self.response
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(parse_content_range_start)
+    }
+
+    fn etag(&self) -> Option<String> {
+        self.response
+            .headers()
+            .get(reqwest::header::ETAG)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string)
+    }
+
+    async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, ChunkError> {
+        match self.response.chunk().await {
+            Ok(Some(bytes)) => Ok(Some(bytes.to_vec())),
+            Ok(None) => Ok(None),
+            Err(error) => Err(ChunkError::Lost(error.to_string())),
+        }
+    }
+
+    async fn error_body(self) -> String {
+        match tokio::time::timeout(Duration::from_secs(5), self.response.text()).await {
+            Ok(Ok(body)) => body,
+            _ => String::new(),
+        }
+    }
+}
+
+impl DownloadTransport for HttpTransport<'_> {
+    type Response = HttpDownloadResponse;
+
+    async fn open(&mut self, range_start: Option<u64>) -> Result<Self::Response, String> {
+        let mut request = self
+            .client
+            .get(self.url)
+            .header(reqwest::header::ACCEPT_ENCODING, "identity");
+        if let Some(token) = self.token {
+            request = request.bearer_auth(token);
+        }
+        if let Some(start) = range_start {
+            request = request.header(reqwest::header::RANGE, format!("bytes={start}-"));
+        }
+        let response = request.send().await.map_err(|error| error.to_string())?;
+        Ok(HttpDownloadResponse { response })
+    }
 }
 
 /// Paces a copy loop to a KiB/s cap. `0` disables throttling.
@@ -1621,8 +1834,11 @@ impl Throttle {
 
 /// Download `url` into `part`, resuming an existing file with HTTP Range.
 ///
-/// The `.part` file is kept when the user pauses; cancelling is handled by the
-/// caller (which deletes it). `progress` is called at most every 250 ms.
+/// A silent response is abandoned after `tuning.idle_timeout` and the next
+/// request resumes at the last flushed byte; reconnects are bounded by
+/// `tuning` (#195). The `.part` file is kept when the user pauses; cancelling
+/// is handled by the caller (which deletes it). `progress` is called at most
+/// every 250 ms.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn download_file(
     client: &reqwest::Client,
@@ -1633,6 +1849,109 @@ pub(crate) async fn download_file(
     cancel: &CancellationToken,
     pause: &CancellationToken,
     bandwidth_kib: u64,
+    tuning: DownloadTuning,
+    progress: impl FnMut(DownloadProgress) + Send,
+) -> Result<(), Failure> {
+    let mut transport = HttpTransport { client, url, token };
+    download_into(
+        &mut transport,
+        part,
+        title,
+        cancel,
+        pause,
+        bandwidth_kib,
+        tuning,
+        progress,
+    )
+    .await
+}
+
+/// Connection budget of one download: attempt count and retry window (#195).
+struct RetryState {
+    attempt: u32,
+    retry_started: Option<Instant>,
+}
+
+impl RetryState {
+    fn new() -> Self {
+        Self {
+            attempt: 0,
+            retry_started: None,
+        }
+    }
+
+    fn next_attempt(&mut self) {
+        self.attempt = self.attempt.saturating_add(1);
+        if self.retry_started.is_none() && self.attempt > 1 {
+            self.retry_started = Some(Instant::now());
+        }
+    }
+
+    /// Whether another connection is allowed; adds a friendly reason when not.
+    fn exhausted(&self, tuning: DownloadTuning) -> Option<String> {
+        if self.attempt >= tuning.max_attempts {
+            return Some(format!(
+                "the connection failed {} times in a row",
+                self.attempt
+            ));
+        }
+        if let Some(started) = self.retry_started {
+            if started.elapsed() >= tuning.max_retry_window {
+                return Some(format!(
+                    "the connection stayed unreliable for {}",
+                    human_duration(tuning.max_retry_window)
+                ));
+            }
+        }
+        None
+    }
+}
+
+fn human_duration(duration: Duration) -> String {
+    let seconds = duration.as_secs();
+    if seconds >= 60 {
+        format!("{} min", seconds / 60)
+    } else {
+        format!("{seconds} s")
+    }
+}
+
+/// Exponential backoff with ±25 % jitter, capped by the tuning.
+pub(crate) fn retry_delay(attempt: u32, tuning: DownloadTuning) -> Duration {
+    let exponent = attempt.saturating_sub(1).min(10);
+    let base = tuning
+        .base_backoff
+        .saturating_mul(1u32 << exponent)
+        .min(tuning.max_backoff);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.subsec_nanos())
+        .unwrap_or(0);
+    let factor = 0.75 + f64::from(nanos % 501) / 1000.0;
+    base.mul_f64(factor).min(tuning.max_backoff)
+}
+
+fn resume_message(done: u64, total: Option<u64>) -> String {
+    match total.filter(|total| *total > 0) {
+        Some(total) => format!(
+            "Connection lost, resuming from {}%",
+            done.saturating_mul(100) / total
+        ),
+        None => format!("Connection lost, resuming from {}", human_bytes(done)),
+    }
+}
+
+/// The resumable transfer core, generic over the transport so tests can inject
+/// stalls, resets and a changed archive deterministically (#195).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn download_into<T: DownloadTransport>(
+    transport: &mut T,
+    part: &Path,
+    title: &str,
+    cancel: &CancellationToken,
+    pause: &CancellationToken,
+    bandwidth_kib: u64,
+    tuning: DownloadTuning,
     mut progress: impl FnMut(DownloadProgress) + Send,
 ) -> Result<(), Failure> {
     if let Some(parent) = part.parent() {
@@ -1649,48 +1968,92 @@ pub(crate) async fn download_file(
         .map(|metadata| metadata.len())
         .unwrap_or(0);
 
-    let mut restarted = false;
-    let mut response = loop {
-        let mut request = client
-            .get(url)
-            .header(reqwest::header::ACCEPT_ENCODING, "identity");
-        if let Some(token) = token {
-            request = request.bearer_auth(token);
-        }
-        if existing > 0 {
-            request = request.header(reqwest::header::RANGE, format!("bytes={existing}-"));
-        }
+    let mut retry = RetryState::new();
+    // Guards the "restart from zero" paths so a flapping server cannot loop.
+    let mut restarts = 0u32;
+    let mut expected_total: Option<u64> = None;
+    let mut expected_etag: Option<String> = None;
+    let mut preflight_done = false;
+    let mut last_error: Option<String> = None;
 
-        let response = request.send().await.map_err(|e| {
-            Failure::Failed(format!(
-                "Could not reach the server to download \"{title}\": {e}"
-            ))
-        })?;
-        let status = response.status();
+    'connect: loop {
+        retry.next_attempt();
 
-        if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
-            // `bytes */total` tells us whether the .part file is already
-            // complete. This is the common case after a restart once the
-            // download finished but extraction failed.
-            let total = response
-                .headers()
-                .get(reqwest::header::CONTENT_RANGE)
-                .and_then(|value| value.to_str().ok())
-                .and_then(parse_star_total);
-            if existing > 0 && total == Some(existing) {
+        let opened = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err(Failure::Cancelled),
+            _ = pause.cancelled() => return Err(Failure::Paused),
+            opened = transport.open((existing > 0).then_some(existing)) => opened,
+        };
+
+        let mut response = match opened {
+            Ok(response) => response,
+            Err(error) => {
+                last_error = Some(error.clone());
+                if let Some(reason) = retry.exhausted(tuning) {
+                    return Err(Failure::Failed(format!(
+                        "The download kept failing ({reason}). Last error: {error}. The partial archive was kept; install again to resume."
+                    )));
+                }
                 progress(DownloadProgress {
                     done: existing,
-                    total: Some(existing),
+                    total: expected_total,
                     speed_bps: 0,
-                    message: "Download already complete".to_string(),
+                    message: resume_message(existing, expected_total),
+                    reconnecting: true,
+                    attempt: retry.attempt.saturating_add(1),
+                    last_error: Some(error),
+                    stalled_for_ms: None,
                 });
+                if !sleep_or_stop(retry_delay(retry.attempt, tuning), cancel, pause).await? {
+                    return Err(Failure::Cancelled);
+                }
+                continue 'connect;
+            }
+        };
+
+        let status = response.status();
+
+        if status == 416 {
+            let total = response.content_range_total();
+            // The `.part` is only complete if it matches the archive the server
+            // still has; a replaced archive must restart, not pass as done.
+            let unchanged = expected_total.is_none() || expected_total == total;
+            if existing > 0 && total == Some(existing) && unchanged {
+                // The `.part` file is already complete: a previous run
+                // downloaded everything but failed before extraction.
+                progress(DownloadProgress::plain(
+                    retry.attempt,
+                    existing,
+                    Some(existing),
+                    0,
+                    "Download already complete".to_string(),
+                ));
                 return Ok(());
             }
-            if existing > 0 && !restarted {
-                restarted = true;
+            if existing > 0 && restarts < 2 {
+                restarts += 1;
+                tracing::warn!(
+                    part = %part.display(),
+                    bytes = existing,
+                    "server rejected the resume offset; restarting the archive explicitly"
+                );
                 let _ = tokio::fs::remove_file(part).await;
                 existing = 0;
-                continue;
+                expected_total = None;
+                expected_etag = None;
+                progress(DownloadProgress {
+                    done: 0,
+                    total: None,
+                    speed_bps: 0,
+                    message: "The server could not resume this file; restarting from 0%"
+                        .to_string(),
+                    reconnecting: true,
+                    attempt: retry.attempt.saturating_add(1),
+                    last_error: last_error.clone(),
+                    stalled_for_ms: None,
+                });
+                continue 'connect;
             }
             return Err(Failure::Failed(
                 "The server rejected the resume request (HTTP 416). Delete the partial download and retry."
@@ -1698,11 +2061,11 @@ pub(crate) async fn download_file(
             ));
         }
 
-        if !status.is_success() {
-            let code = status.as_u16();
-            let body = response.text().await.unwrap_or_default();
+        if !(200..300).contains(&status) {
+            let retryable = matches!(status, 408 | 425 | 429 | 500..=599);
+            let body = response.error_body().await;
             let snippet = body.trim().chars().take(300).collect::<String>();
-            let hint = match code {
+            let hint = match status {
                 401 | 403 => " Check that you are signed in to the server.",
                 404 => " The game version was not found on the server.",
                 _ => "",
@@ -1712,174 +2075,334 @@ pub(crate) async fn download_file(
             } else {
                 format!(": {snippet}")
             };
-            return Err(Failure::Failed(format!(
-                "Download failed with HTTP {code}{hint}{detail}"
-            )));
+            let message = format!("Download failed with HTTP {status}{hint}{detail}");
+            if !retryable {
+                return Err(Failure::Failed(message));
+            }
+            last_error = Some(message);
+            if let Some(reason) = retry.exhausted(tuning) {
+                return Err(Failure::Failed(format!(
+                    "The download kept failing ({reason}). Last error: {}. The partial archive was kept; install again to resume.",
+                    last_error.clone().unwrap_or_default()
+                )));
+            }
+            progress(DownloadProgress {
+                done: existing,
+                total: expected_total,
+                speed_bps: 0,
+                message: resume_message(existing, expected_total),
+                reconnecting: true,
+                attempt: retry.attempt.saturating_add(1),
+                last_error: last_error.clone(),
+                stalled_for_ms: None,
+            });
+            if !sleep_or_stop(retry_delay(retry.attempt, tuning), cancel, pause).await? {
+                return Err(Failure::Cancelled);
+            }
+            continue 'connect;
         }
 
-        break response;
-    };
+        let append = status == 206 && existing > 0;
+        if !append && existing > 0 {
+            // The server ignored `Range` and started from zero. Truncating is
+            // the only honest option; say so instead of appending a full body
+            // to an existing partial file.
+            tracing::warn!(
+                part = %part.display(),
+                bytes = existing,
+                "server ignored the Range request; restarting the archive"
+            );
+            existing = 0;
+        }
 
-    let status = response.status();
-    let append = status == reqwest::StatusCode::PARTIAL_CONTENT && existing > 0;
-    if !append {
-        existing = 0;
-    }
-    let mut done = existing;
+        let content_length = response.content_length();
+        let content_range_total = response.content_range_total();
+        let total = if status == 206 {
+            content_range_total.or_else(|| content_length.map(|length| length + existing))
+        } else {
+            content_length
+        };
 
-    let content_length = response.content_length();
-    let content_range_total = response
-        .headers()
-        .get(reqwest::header::CONTENT_RANGE)
-        .and_then(|value| value.to_str().ok())
-        .and_then(parse_content_range_total);
-    let total = if append {
-        content_range_total.or_else(|| content_length.map(|length| length + existing))
-    } else {
-        content_length
-    };
+        // A resumed response must describe the same archive. A size or ETag
+        // change means the server replaced the file: restart explicitly (with
+        // a visible message) instead of splicing two different archives.
+        if append {
+            let etag_changed = match (&expected_etag, response.etag()) {
+                (Some(known), Some(current)) => *known != current,
+                _ => false,
+            };
+            let total_changed =
+                matches!((expected_total, total), (Some(known), Some(current)) if known != current);
+            let start_changed =
+                matches!(response.content_range_start(), Some(start) if start != existing);
+            if (start_changed || etag_changed || total_changed) && restarts < 2 {
+                restarts += 1;
+                tracing::warn!(
+                    part = %part.display(),
+                    bytes = existing,
+                    ?expected_total,
+                    ?total,
+                    start = response.content_range_start(),
+                    "the archive changed on the server; restarting from zero"
+                );
+                let _ = tokio::fs::remove_file(part).await;
+                existing = 0;
+                expected_total = None;
+                expected_etag = None;
+                progress(DownloadProgress {
+                    done: 0,
+                    total: None,
+                    speed_bps: 0,
+                    message: "The archive changed on the server; restarting the download from 0%"
+                        .to_string(),
+                    reconnecting: true,
+                    attempt: retry.attempt.saturating_add(1),
+                    last_error: last_error.clone(),
+                    stalled_for_ms: None,
+                });
+                continue 'connect;
+            }
+            if expected_total.is_none() {
+                expected_total = total;
+            }
+            if expected_etag.is_none() {
+                expected_etag = response.etag();
+            }
+        } else {
+            expected_total = total;
+            expected_etag = response.etag();
+        }
 
-    // Disk preflight: never start a download that cannot fit. Extraction size
-    // is unknown, so we only require the archive itself; the job message warns
-    // that peak usage is archive + extracted.
-    let needed = total.unwrap_or(0).saturating_sub(done);
-    if needed > 0 {
-        if let Some(directory) = part.parent() {
-            match fs2::available_space(directory) {
-                Ok(free) => {
-                    if let Err(message) = ensure_download_space(needed, free, directory) {
-                        return Err(Failure::Failed(message));
+        let mut done = existing;
+
+        if !preflight_done {
+            preflight_done = true;
+            // Disk preflight: never start a download that cannot fit.
+            // Extraction size is unknown, so only the archive is required.
+            let needed = total.unwrap_or(0).saturating_sub(done);
+            if needed > 0 {
+                if let Some(directory) = part.parent() {
+                    match fs2::available_space(directory) {
+                        Ok(free) => {
+                            if let Err(message) = ensure_download_space(needed, free, directory) {
+                                return Err(Failure::Failed(message));
+                            }
+                        }
+                        Err(error) => {
+                            tracing::warn!(error = %error, path = %directory.display(), "could not check free disk space");
+                        }
                     }
-                }
-                Err(error) => {
-                    tracing::warn!(error = %error, path = %directory.display(), "could not check free disk space");
                 }
             }
         }
-    }
 
-    progress(DownloadProgress {
-        done,
-        total,
-        speed_bps: 0,
-        message: download_message(title),
-    });
+        progress(DownloadProgress::plain(
+            retry.attempt,
+            done,
+            total,
+            0,
+            download_message(title),
+        ));
 
-    let file = if append {
-        tokio::fs::OpenOptions::new()
-            .append(true)
-            .open(part)
-            .await
-            .map_err(|e| {
+        let file = if append {
+            tokio::fs::OpenOptions::new()
+                .append(true)
+                .open(part)
+                .await
+                .map_err(|e| {
+                    Failure::Failed(format!(
+                        "Could not open the partial download {}: {e}",
+                        part.display()
+                    ))
+                })?
+        } else {
+            tokio::fs::File::create(part).await.map_err(|e| {
                 Failure::Failed(format!(
-                    "Could not open the partial download {}: {e}",
+                    "Could not create the download file {}: {e}",
                     part.display()
                 ))
             })?
-    } else {
-        tokio::fs::File::create(part).await.map_err(|e| {
-            Failure::Failed(format!(
-                "Could not create the download file {}: {e}",
-                part.display()
-            ))
-        })?
-    };
+        };
 
-    let mut writer = tokio::io::BufWriter::with_capacity(1024 * 1024, file);
-    let mut throttle = Throttle::new(bandwidth_kib);
-    let mut last_emit = Instant::now();
-    let mut last_instant = Instant::now();
-    let mut last_bytes = done;
+        let mut writer = tokio::io::BufWriter::with_capacity(1024 * 1024, file);
+        let mut throttle = Throttle::new(bandwidth_kib);
+        let mut last_emit = Instant::now();
+        let mut last_instant = Instant::now();
+        let mut last_bytes = done;
+        let mut last_chunk = Instant::now();
+        let mut interrupted: Option<(ChunkError, u64)> = None;
 
-    loop {
-        tokio::select! {
-            biased;
-            _ = cancel.cancelled() => {
-                let _ = writer.flush().await;
-                return Err(Failure::Cancelled);
-            }
-            _ = pause.cancelled() => {
-                let _ = writer.flush().await;
-                return Err(Failure::Paused);
-            }
-            chunk = response.chunk() => {
-                match chunk {
-                    Ok(Some(bytes)) => {
-                        writer.write_all(&bytes).await.map_err(|e| {
-                            Failure::Failed(format!(
-                                "Could not write the download to {}: {e}",
-                                part.display()
-                            ))
-                        })?;
-                        done = done.saturating_add(bytes.len() as u64);
+        loop {
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => {
+                    let _ = writer.flush().await;
+                    return Err(Failure::Cancelled);
+                }
+                _ = pause.cancelled() => {
+                    let _ = writer.flush().await;
+                    return Err(Failure::Paused);
+                }
+                chunk = tokio::time::timeout(tuning.idle_timeout, response.next_chunk()) => {
+                    match chunk {
+                        Err(_elapsed) => {
+                            let silent = last_chunk.elapsed();
+                            flush_before_resume(&mut writer, part).await?;
+                            interrupted = Some((ChunkError::Stalled, silent.as_millis() as u64));
+                            break;
+                        }
+                        Ok(Ok(Some(bytes))) => {
+                            writer.write_all(&bytes).await.map_err(|e| {
+                                Failure::Failed(format!(
+                                    "Could not write the download to {}: {e}",
+                                    part.display()
+                                ))
+                            })?;
+                            done = done.saturating_add(bytes.len() as u64);
+                            last_chunk = Instant::now();
 
-                        if let Some(throttle) = throttle.as_mut() {
-                            if let Some(delay) = throttle.pace(bytes.len()) {
-                                if delay > Duration::from_millis(2) {
-                                    tokio::select! {
-                                        biased;
-                                        _ = cancel.cancelled() => {
-                                            let _ = writer.flush().await;
-                                            return Err(Failure::Cancelled);
+                            if let Some(throttle) = throttle.as_mut() {
+                                if let Some(delay) = throttle.pace(bytes.len()) {
+                                    if delay > Duration::from_millis(2) {
+                                        tokio::select! {
+                                            biased;
+                                            _ = cancel.cancelled() => {
+                                                let _ = writer.flush().await;
+                                                return Err(Failure::Cancelled);
+                                            }
+                                            _ = pause.cancelled() => {
+                                                let _ = writer.flush().await;
+                                                return Err(Failure::Paused);
+                                            }
+                                            _ = tokio::time::sleep(delay) => {}
                                         }
-                                        _ = pause.cancelled() => {
-                                            let _ = writer.flush().await;
-                                            return Err(Failure::Paused);
-                                        }
-                                        _ = tokio::time::sleep(delay) => {}
                                     }
                                 }
                             }
-                        }
 
-                        if last_emit.elapsed() >= Duration::from_millis(250) {
-                            let elapsed = last_instant.elapsed().as_secs_f64().max(0.001);
-                            let speed = ((done.saturating_sub(last_bytes)) as f64 / elapsed) as u64;
-                            progress(DownloadProgress {
-                                done,
-                                total,
-                                speed_bps: speed,
-                                message: download_message(title),
-                            });
-                            last_emit = Instant::now();
-                            last_instant = Instant::now();
-                            last_bytes = done;
+                            if last_emit.elapsed() >= Duration::from_millis(250) {
+                                let elapsed = last_instant.elapsed().as_secs_f64().max(0.001);
+                                let speed = ((done.saturating_sub(last_bytes)) as f64 / elapsed) as u64;
+                                progress(DownloadProgress::plain(
+                                    retry.attempt,
+                                    done,
+                                    total,
+                                    speed,
+                                    download_message(title),
+                                ));
+                                last_emit = Instant::now();
+                                last_instant = Instant::now();
+                                last_bytes = done;
+                            }
                         }
-                    }
-                    Ok(None) => break,
-                    Err(error) => {
-                        let _ = writer.flush().await;
-                        return Err(Failure::Failed(format!(
-                            "The download was interrupted after {done} bytes: {error}. Retry the install to resume."
-                        )));
+                        Ok(Ok(None)) => break,
+                        Ok(Err(error)) => {
+                            let silent = last_chunk.elapsed();
+                            flush_before_resume(&mut writer, part).await?;
+                            interrupted = Some((error, silent.as_millis() as u64));
+                            break;
+                        }
                     }
                 }
             }
         }
+
+        if let Some((error, silent_ms)) = interrupted {
+            // The connection is gone but every byte written so far is on disk:
+            // the next attempt asks for exactly this offset.
+            existing = done;
+            let reason = match &error {
+                ChunkError::Stalled => format!(
+                    "no data for {}",
+                    human_duration(Duration::from_millis(silent_ms))
+                ),
+                ChunkError::Lost(message) => message.clone(),
+            };
+            last_error = Some(reason);
+            if let Some(reason) = retry.exhausted(tuning) {
+                return Err(Failure::Failed(format!(
+                    "The download stopped at {} ({reason}). Last error: {}. The partial archive was kept; install again to resume.",
+                    human_bytes(existing),
+                    last_error.clone().unwrap_or_default()
+                )));
+            }
+            tracing::warn!(
+                part = %part.display(),
+                bytes = existing,
+                attempt = retry.attempt,
+                error = %last_error.clone().unwrap_or_default(),
+                "download interrupted; reconnecting from the last flushed byte"
+            );
+            progress(DownloadProgress {
+                done: existing,
+                total,
+                speed_bps: 0,
+                message: resume_message(existing, total),
+                reconnecting: true,
+                attempt: retry.attempt.saturating_add(1),
+                last_error: last_error.clone(),
+                stalled_for_ms: Some(silent_ms),
+            });
+            if !sleep_or_stop(retry_delay(retry.attempt, tuning), cancel, pause).await? {
+                return Err(Failure::Cancelled);
+            }
+            continue 'connect;
+        }
+
+        writer.flush().await.map_err(|e| {
+            Failure::Failed(format!(
+                "Could not flush the download to {}: {e}",
+                part.display()
+            ))
+        })?;
+        let file = writer.into_inner();
+        file.sync_all().await.map_err(|e| {
+            Failure::Failed(format!(
+                "Could not flush the download to disk ({}): {e}",
+                part.display()
+            ))
+        })?;
+
+        progress(DownloadProgress::plain(
+            retry.attempt,
+            done,
+            Some(total.unwrap_or(done)),
+            0,
+            "Download complete".to_string(),
+        ));
+
+        return Ok(());
     }
+}
 
-    writer.flush().await.map_err(|e| {
+/// Flush the buffered bytes before a reconnect. The resume offset is only
+/// valid if everything counted in `done` reached the file (#195).
+async fn flush_before_resume(
+    writer: &mut tokio::io::BufWriter<tokio::fs::File>,
+    part: &Path,
+) -> Result<(), Failure> {
+    writer.flush().await.map_err(|error| {
         Failure::Failed(format!(
-            "Could not flush the download to {}: {e}",
+            "Could not flush the download to {}: {error}",
             part.display()
         ))
-    })?;
-    let file = writer.into_inner();
-    file.sync_all().await.map_err(|e| {
-        Failure::Failed(format!(
-            "Could not flush the download to disk ({}): {e}",
-            part.display()
-        ))
-    })?;
+    })
+}
 
-    progress(DownloadProgress {
-        done,
-        total: Some(total.unwrap_or(done)),
-        speed_bps: 0,
-        message: "Download complete".to_string(),
-    });
-
-    Ok(())
+/// Sleep the backoff, still honouring cancel and pause. Returns `Ok(false)`
+/// when the caller should stop with `Failure::Cancelled` (checked by the call
+/// site) and `Err` for pause.
+async fn sleep_or_stop(
+    delay: Duration,
+    cancel: &CancellationToken,
+    pause: &CancellationToken,
+) -> Result<bool, Failure> {
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => Ok(false),
+        _ = pause.cancelled() => Err(Failure::Paused),
+        _ = tokio::time::sleep(delay) => Ok(true),
+    }
 }
 
 async fn download(
@@ -1890,7 +2413,9 @@ async fn download(
 ) -> Result<(), Failure> {
     let state = app.state::<AppState>();
     let client = state.http.clone();
-    let bandwidth_kib = state.settings_snapshot().bandwidth_limit_kib;
+    let settings = state.settings_snapshot();
+    let bandwidth_kib = settings.bandwidth_limit_kib;
+    let tuning = DownloadTuning::from_idle_secs(settings.download_stall_timeout_secs);
     let base = params.server_url.trim_end_matches('/');
     if base.is_empty() {
         return Err(Failure::Failed(
@@ -1916,6 +2441,7 @@ async fn download(
         &cancel,
         &pause,
         bandwidth_kib,
+        tuning,
         move |update| {
             job_entry.update(|job| {
                 job.phase = InstallPhase::Downloading;
@@ -1923,6 +2449,10 @@ async fn download(
                 job.bytes_total = update.total;
                 job.speed_bps = update.speed_bps;
                 job.message = Some(update.message);
+                job.reconnecting = update.reconnecting;
+                job.attempt = update.attempt;
+                job.last_error = update.last_error;
+                job.stalled_for_ms = update.stalled_for_ms;
             });
             persist(&handle, &job_entry);
             let _ = handle.emit("install://progress", job_entry.snapshot());
@@ -2328,14 +2858,11 @@ fn parse_content_range_total(value: &str) -> Option<u64> {
     value.rsplit('/').next()?.trim().parse().ok()
 }
 
-/// Parse `bytes */1234` from a 416 response.
-fn parse_star_total(value: &str) -> Option<u64> {
-    let total = value.rsplit('/').next()?.trim();
-    if total == "*" {
-        None
-    } else {
-        total.parse().ok()
-    }
+/// Parse the first byte of `bytes <start>-<end>/<total>`.
+fn parse_content_range_start(value: &str) -> Option<u64> {
+    let range = value.trim().strip_prefix("bytes ")?;
+    let (start, _) = range.split_once('-')?;
+    start.trim().parse().ok()
 }
 
 /// True for standalone game files that must not go through the archive
@@ -2475,8 +3002,8 @@ mod tests {
     fn content_range_parsing() {
         assert_eq!(parse_content_range_total("bytes 100-199/200"), Some(200));
         assert_eq!(parse_content_range_total("bytes 0-0/*"), None);
-        assert_eq!(parse_star_total("bytes */4096"), Some(4096));
-        assert_eq!(parse_star_total("bytes */"), None);
+        assert_eq!(parse_content_range_total("bytes */4096"), Some(4096));
+        assert_eq!(parse_content_range_total("bytes */"), None);
     }
 
     #[test]
@@ -2653,6 +3180,7 @@ mod tests {
             &cancel,
             &pause,
             256,
+            DownloadTuning::default(),
             move |update| {
                 if update.done > 0 && !paused_once {
                     paused_once = true;
@@ -2681,6 +3209,7 @@ mod tests {
             &cancel,
             &pause,
             0,
+            DownloadTuning::default(),
             |_| {},
         )
         .await
@@ -2720,6 +3249,7 @@ mod tests {
             &CancellationToken::new(),
             &CancellationToken::new(),
             512,
+            DownloadTuning::default(),
             |_| {},
         )
         .await
@@ -2741,6 +3271,387 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /* --------------------- injected-transport resume tests (#195) ---------------- */
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum After {
+        End,
+        Stall,
+        Lost,
+    }
+
+    struct FakeConn {
+        status: u16,
+        declared_length: Option<u64>,
+        range_total: Option<u64>,
+        etag: Option<String>,
+        body: Vec<u8>,
+        after: After,
+        /// Pause between chunks, to model a slow but healthy transfer.
+        chunk_delay: Duration,
+    }
+
+    struct FakeTransport {
+        conns: std::collections::VecDeque<FakeConn>,
+        ranges: Arc<std::sync::Mutex<Vec<Option<u64>>>>,
+    }
+
+    struct FakeResponse {
+        conn: FakeConn,
+        sent: usize,
+    }
+
+    impl FakeTransport {
+        fn new(conns: Vec<FakeConn>) -> (Self, Arc<std::sync::Mutex<Vec<Option<u64>>>>) {
+            let ranges = Arc::new(std::sync::Mutex::new(Vec::new()));
+            (
+                Self {
+                    conns: conns.into(),
+                    ranges: Arc::clone(&ranges),
+                },
+                ranges,
+            )
+        }
+    }
+
+    impl DownloadTransport for FakeTransport {
+        type Response = FakeResponse;
+
+        async fn open(&mut self, range_start: Option<u64>) -> Result<Self::Response, String> {
+            self.ranges.lock().unwrap().push(range_start);
+            let conn = self
+                .conns
+                .pop_front()
+                .ok_or_else(|| "the fake server ran out of scripted responses".to_string())?;
+            Ok(FakeResponse { conn, sent: 0 })
+        }
+    }
+
+    impl DownloadResponse for FakeResponse {
+        fn status(&self) -> u16 {
+            self.conn.status
+        }
+
+        fn content_length(&self) -> Option<u64> {
+            self.conn.declared_length
+        }
+
+        fn content_range_total(&self) -> Option<u64> {
+            self.conn.range_total
+        }
+
+        fn etag(&self) -> Option<String> {
+            self.conn.etag.clone()
+        }
+
+        async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, ChunkError> {
+            const STEP: usize = 16 * 1024;
+            if self.sent < self.conn.body.len() {
+                if !self.conn.chunk_delay.is_zero() {
+                    tokio::time::sleep(self.conn.chunk_delay).await;
+                }
+                let end = (self.sent + STEP).min(self.conn.body.len());
+                let chunk = self.conn.body[self.sent..end].to_vec();
+                self.sent = end;
+                return Ok(Some(chunk));
+            }
+            match self.conn.after {
+                After::End => Ok(None),
+                // A silent connection: the caller's idle timeout must fire.
+                After::Stall => {
+                    std::future::pending::<()>().await;
+                    Ok(None)
+                }
+                After::Lost => Err(ChunkError::Lost("connection reset by peer".to_string())),
+            }
+        }
+
+        async fn error_body(self) -> String {
+            "fake error".to_string()
+        }
+    }
+
+    fn test_tuning(idle_ms: u64, max_attempts: u32) -> DownloadTuning {
+        DownloadTuning {
+            idle_timeout: Duration::from_millis(idle_ms),
+            max_attempts,
+            max_retry_window: Duration::from_secs(30),
+            base_backoff: Duration::from_millis(1),
+            max_backoff: Duration::from_millis(5),
+        }
+    }
+
+    #[tokio::test]
+    async fn stall_resumes_at_the_exact_flushed_offset() {
+        let payload: Vec<u8> = (0..300 * 1024).map(|index| (index % 251) as u8).collect();
+        let split = 64 * 1024;
+        let (mut transport, ranges) = FakeTransport::new(vec![
+            FakeConn {
+                status: 200,
+                declared_length: Some(payload.len() as u64),
+                range_total: None,
+                etag: Some("\"v1\"".to_string()),
+                body: payload[..split].to_vec(),
+                after: After::Stall,
+                chunk_delay: Duration::ZERO,
+            },
+            FakeConn {
+                status: 206,
+                declared_length: Some((payload.len() - split) as u64),
+                range_total: Some(payload.len() as u64),
+                etag: Some("\"v1\"".to_string()),
+                body: payload[split..].to_vec(),
+                after: After::End,
+                chunk_delay: Duration::ZERO,
+            },
+        ]);
+
+        let root = download_temp_dir("stall");
+        let part = root.join("archive.part");
+        let updates = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&updates);
+
+        let result = download_into(
+            &mut transport,
+            &part,
+            "Stalled game",
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            0,
+            test_tuning(40, 4),
+            move |update| sink.lock().unwrap().push(update),
+        )
+        .await;
+
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(std::fs::read(&part).unwrap(), payload);
+        assert_eq!(
+            *ranges.lock().unwrap(),
+            vec![None, Some(split as u64)],
+            "the resume must ask for the last flushed byte"
+        );
+        let updates = updates.lock().unwrap();
+        let reconnect = updates
+            .iter()
+            .find(|update| update.reconnecting)
+            .expect("a reconnecting progress update");
+        assert_eq!(reconnect.done, split as u64);
+        assert_eq!(reconnect.total, Some(payload.len() as u64));
+        assert_eq!(reconnect.attempt, 2, "the resume is the second connection");
+        assert!(reconnect.stalled_for_ms.is_some());
+        assert!(
+            reconnect
+                .message
+                .starts_with("Connection lost, resuming from"),
+            "{}",
+            reconnect.message
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn a_slow_but_progressing_transfer_is_not_a_stall() {
+        let payload: Vec<u8> = vec![9u8; 128 * 1024];
+        let (mut transport, ranges) = FakeTransport::new(vec![FakeConn {
+            status: 200,
+            declared_length: Some(payload.len() as u64),
+            range_total: None,
+            etag: None,
+            body: payload.clone(),
+            after: After::End,
+            chunk_delay: Duration::from_millis(20),
+        }]);
+        let root = download_temp_dir("slow");
+        let part = root.join("archive.part");
+
+        // Eight 16 KiB chunks at 20 ms each: 160 ms total, far beyond the
+        // 50 ms idle timeout, but no single read is ever silent that long.
+        let result = download_into(
+            &mut transport,
+            &part,
+            "Slow game",
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            0,
+            test_tuning(50, 3),
+            |_| {},
+        )
+        .await;
+
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(std::fs::read(&part).unwrap(), payload);
+        assert_eq!(*ranges.lock().unwrap(), vec![None], "no reconnect needed");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn retries_are_bounded_with_a_clear_failure() {
+        let payload = vec![7u8; 128 * 1024];
+        let conns = (0..3)
+            .map(|_| FakeConn {
+                status: 200,
+                declared_length: Some(payload.len() as u64),
+                range_total: None,
+                etag: None,
+                body: Vec::new(),
+                after: After::Lost,
+                chunk_delay: Duration::ZERO,
+            })
+            .collect();
+        let (mut transport, ranges) = FakeTransport::new(conns);
+        let root = download_temp_dir("retry-bound");
+        let part = root.join("archive.part");
+
+        let error = download_into(
+            &mut transport,
+            &part,
+            "Dead server",
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            0,
+            test_tuning(50, 3),
+            |_| {},
+        )
+        .await
+        .unwrap_err();
+
+        let Failure::Failed(message) = error else {
+            panic!("expected a final failure");
+        };
+        assert!(message.contains("3 times in a row"), "{message}");
+        assert!(message.contains("partial archive was kept"), "{message}");
+        assert_eq!(ranges.lock().unwrap().len(), 3, "max attempts is honoured");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn changed_archive_restarts_explicitly() {
+        let first: Vec<u8> = vec![1u8; 100 * 1024];
+        let second: Vec<u8> = vec![2u8; 120 * 1024];
+        let split = 50 * 1024;
+        let (mut transport, ranges) = FakeTransport::new(vec![
+            FakeConn {
+                status: 200,
+                declared_length: Some(first.len() as u64),
+                range_total: None,
+                etag: Some("\"v1\"".to_string()),
+                body: first[..split].to_vec(),
+                after: After::Lost,
+                chunk_delay: Duration::ZERO,
+            },
+            // Same total, different ETag: the archive was replaced in place.
+            FakeConn {
+                status: 206,
+                declared_length: Some((first.len() - split) as u64),
+                range_total: Some(first.len() as u64),
+                etag: Some("\"v2\"".to_string()),
+                body: Vec::new(),
+                after: After::End,
+                chunk_delay: Duration::ZERO,
+            },
+            FakeConn {
+                status: 200,
+                declared_length: Some(second.len() as u64),
+                range_total: None,
+                etag: Some("\"v2\"".to_string()),
+                body: second.clone(),
+                after: After::End,
+                chunk_delay: Duration::ZERO,
+            },
+        ]);
+
+        let root = download_temp_dir("changed");
+        let part = root.join("archive.part");
+        let updates = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&updates);
+
+        download_into(
+            &mut transport,
+            &part,
+            "Changed game",
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            0,
+            test_tuning(50, 5),
+            move |update| sink.lock().unwrap().push(update),
+        )
+        .await
+        .expect("the download restarts from zero and completes");
+
+        assert_eq!(std::fs::read(&part).unwrap(), second);
+        assert_eq!(
+            *ranges.lock().unwrap(),
+            vec![None, Some(split as u64), None],
+            "the restart must not reuse the stale offset"
+        );
+        assert!(
+            updates
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|update| update.message.contains("archive changed")),
+            "the restart must be visible, not silent"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn permanent_http_errors_are_not_retried() {
+        let (mut transport, ranges) = FakeTransport::new(vec![FakeConn {
+            status: 403,
+            declared_length: Some(0),
+            range_total: None,
+            etag: None,
+            body: Vec::new(),
+            after: After::End,
+            chunk_delay: Duration::ZERO,
+        }]);
+        let root = download_temp_dir("forbidden");
+        let part = root.join("archive.part");
+
+        let error = download_into(
+            &mut transport,
+            &part,
+            "Forbidden game",
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            0,
+            test_tuning(50, 5),
+            |_| {},
+        )
+        .await
+        .unwrap_err();
+
+        let Failure::Failed(message) = error else {
+            panic!("expected a final failure");
+        };
+        assert!(message.contains("403"), "{message}");
+        assert_eq!(ranges.lock().unwrap().len(), 1, "a 403 is final");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn retry_backoff_grows_and_stays_capped() {
+        let tuning = DownloadTuning {
+            base_backoff: Duration::from_millis(100),
+            max_backoff: Duration::from_millis(800),
+            ..DownloadTuning::default()
+        };
+        let first = retry_delay(1, tuning);
+        let third = retry_delay(3, tuning);
+        assert!(first >= Duration::from_millis(75), "{first:?}");
+        assert!(third <= tuning.max_backoff, "{third:?}");
+        assert!(third >= Duration::from_millis(300), "{third:?}");
+        assert_eq!(
+            DownloadTuning::from_idle_secs(1).idle_timeout,
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            DownloadTuning::from_idle_secs(900).idle_timeout,
+            Duration::from_secs(600)
+        );
     }
 
     #[test]

@@ -11,9 +11,49 @@ export function formatBytes(bytes: number | null | undefined, digits = 1): strin
   return `${formatNumber(value, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })} ${BYTE_UNITS[exponent]}`;
 }
 
-export function formatSpeed(bps: number | null | undefined): string {
-  if (!bps) return "—";
-  return `${formatBytes(bps, 0)}/s`;
+/** Decimal network units. Bits, not bytes: a link rate is always bits. */
+const BIT_UNITS = ["b/s", "Kb/s", "Mb/s", "Gb/s"];
+
+/**
+ * A bit rate in decimal SI units (`Kb/s`, `Mb/s`, `Gb/s`), the way a network
+ * figure is quoted. One decimal below 100 units, none above, so `288 Mb/s` and
+ * `8.5 Mb/s` both stay readable. Zero and unknown render as an em dash.
+ */
+export function formatBitsPerSecond(bitsPerSecond: number | null | undefined): string {
+  if (bitsPerSecond === null || bitsPerSecond === undefined || Number.isNaN(bitsPerSecond) || bitsPerSecond <= 0) {
+    return "—";
+  }
+  const exponent = Math.min(Math.floor(Math.log(bitsPerSecond) / Math.log(1000)), BIT_UNITS.length - 1);
+  const value = bitsPerSecond / 1000 ** exponent;
+  const decimals = value >= 100 ? 0 : 1;
+  return `${formatNumber(value, { maximumFractionDigits: decimals })} ${BIT_UNITS[exponent]}`;
+}
+
+/**
+ * A download rate for the UI. The argument is **bytes per second** (the
+ * backend's `speedBps`); the label is bits per second. File sizes keep
+ * `formatBytes`, so a 36 MB/s transfer shows as `288 Mb/s` (#199).
+ */
+export function formatSpeed(bytesPerSecond: number | null | undefined): string {
+  if (bytesPerSecond === null || bytesPerSecond === undefined || Number.isNaN(bytesPerSecond) || bytesPerSecond <= 0) {
+    return "—";
+  }
+  return formatBitsPerSecond(bytesPerSecond * 8);
+}
+
+/**
+ * The bandwidth cap is stored in KiB/s but presented in Mb/s (#199):
+ * 1 Mb/s = 1 000 000 bits/s = 122.0703125 KiB/s.
+ */
+export function mbpsToKib(megabitsPerSecond: number): number {
+  if (!Number.isFinite(megabitsPerSecond) || megabitsPerSecond <= 0) return 0;
+  return Math.round((megabitsPerSecond * 1_000_000) / 8 / 1024);
+}
+
+/** Inverse of {@link mbpsToKib}. `0` means unlimited. */
+export function kibToMbps(kibibytesPerSecond: number): number {
+  if (!Number.isFinite(kibibytesPerSecond) || kibibytesPerSecond <= 0) return 0;
+  return (kibibytesPerSecond * 1024 * 8) / 1_000_000;
 }
 
 /**

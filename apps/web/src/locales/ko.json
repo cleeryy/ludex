@@ -365,7 +365,6 @@
   "Cannot reach the server. Check that it is running and the address is correct.": "서버에 연결할 수 없습니다. 실행 중인지, 주소가 올바른지 확인하세요.",
   "Cannot reach the server. Check that it is running.": "서버에 연결할 수 없습니다. 실행 중인지 확인하세요.",
   "Canonical fields: {fields}": "표준 필드: {fields}",
-  "Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.": "모든 다운로드(설치, 복구 및 스트림 설치)를 KiB/s로 제한합니다. 제한이 없으면 0을 사용합니다.",
   "Categories": "카테고리",
   "Certain": "확실함",
   "Change": "변경",
@@ -983,7 +982,6 @@
   "Key pinned": "키 고정됨",
   "Keyboard only — connect a controller for couch navigation": "키보드만 — 소파 탐색을 위한 컨트롤러 연결",
   "Keyboard shortcuts": "키보드 단축키",
-  "KiB/s": "KiB/초",
   "Kind": "친절한",
   "Known folder": "알려진 폴더",
   "Label": "상표",
@@ -3444,5 +3442,9 @@
   "Why": "이유",
   "If you cancel, nothing is changed and the manual instructions stay available.": "취소하면 아무것도 변경되지 않으며 수동 안내를 계속 사용할 수 있습니다.",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Sunshine의 구성 폴더가 Program Files 아래에 있어 Windows가 쓰기를 차단합니다.",
-  "You can also set a Sunshine config folder your account can write to.": "계정에서 쓸 수 있는 Sunshine 구성 폴더를 지정할 수도 있습니다."
+  "You can also set a Sunshine config folder your account can write to.": "계정에서 쓸 수 있는 Sunshine 구성 폴더를 지정할 수도 있습니다.",
+  "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "모든 다운로드(설치, 복구, 스트림 설치)를 Mb/s로 제한합니다. 0은 무제한입니다.",
+  "Connection recovery": "연결 복구",
+  "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex는 응답이 이 시간(초) 동안 조용하면 중단하고 마지막으로 받은 바이트부터 재개합니다. 계속 데이터를 받는 전송은 중단되지 않습니다.",
+  "Connection lost, resuming from {percent}": "연결이 끊어졌습니다. {percent}에서 재개합니다"
 }

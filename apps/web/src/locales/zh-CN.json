@@ -365,7 +365,6 @@
   "Cannot reach the server. Check that it is running and the address is correct.": "无法到达服务器。检查它是否正在运行并且地址是否正确。",
   "Cannot reach the server. Check that it is running.": "无法到达服务器。检查它是否正在运行。",
   "Canonical fields: {fields}": "规范字段：{fields}",
-  "Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.": "将每次下载（安装、修复和流式安装）限制为 KiB/s。使用 0 表示无限制。",
   "Categories": "类别",
   "Certain": "肯定",
   "Change": "更改",
@@ -983,7 +982,6 @@
   "Key pinned": "钥匙已固定",
   "Keyboard only — connect a controller for couch navigation": "仅键盘 — 连接控制器以进行沙发导航",
   "Keyboard shortcuts": "键盘快捷键",
-  "KiB/s": "千字节/秒",
   "Kind": "种类",
   "Known folder": "已知文件夹",
   "Label": "标签",
@@ -3444,5 +3442,9 @@
   "Why": "原因",
   "If you cancel, nothing is changed and the manual instructions stay available.": "如果取消，不会更改任何内容，手动操作说明仍然可用。",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Sunshine 的配置文件夹位于 Program Files 下，Windows 会阻止写入。",
-  "You can also set a Sunshine config folder your account can write to.": "你也可以指定一个你的账户可写入的 Sunshine 配置文件夹。"
+  "You can also set a Sunshine config folder your account can write to.": "你也可以指定一个你的账户可写入的 Sunshine 配置文件夹。",
+  "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "限制每次下载（安装、修复和流式安装）为 Mb/s。使用 0 表示不限制。",
+  "Connection recovery": "连接恢复",
+  "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex 在响应静默达到此秒数后中止，并从最后收到的字节继续。持续接收数据的传输不会被中断。",
+  "Connection lost, resuming from {percent}": "连接丢失，从 {percent} 处恢复"
 }

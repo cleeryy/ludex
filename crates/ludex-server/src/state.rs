@@ -96,6 +96,10 @@ pub struct AppState {
     pub friend_request_limits: Arc<crate::security::AttemptCounter>,
     /// Per-account throttle for device heartbeats (#184).
     pub device_heartbeat_limits: Arc<crate::security::AttemptCounter>,
+    /// Per-address, per-version throttle on download and reconnect attempts
+    /// (#195). A stalled client resumes with a normal Range request; this keeps
+    /// a broken retry loop from hammering the disk.
+    pub download_limits: Arc<crate::security::AttemptCounter>,
 }
 
 /// Counts the handlers currently reading each version's archive (#168).
@@ -253,6 +257,10 @@ impl AppState {
             )),
             device_heartbeat_limits: Arc::new(crate::security::AttemptCounter::new(
                 crate::devices::HEARTBEAT_LIMIT_PER_MINUTE,
+                std::time::Duration::from_secs(60),
+            )),
+            download_limits: Arc::new(crate::security::AttemptCounter::new(
+                120,
                 std::time::Duration::from_secs(60),
             )),
         }

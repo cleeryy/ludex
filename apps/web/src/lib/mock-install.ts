@@ -150,6 +150,10 @@ function job(
     entriesTotal: null,
     currentEntry: null,
     resumedEntries: null,
+    reconnecting: false,
+    attempt: 1,
+    lastError: null,
+    stalledForMs: null,
   };
 }
 
@@ -320,6 +324,7 @@ const DEFAULT_SETTINGS: LocalSettings = {
   keepArchives: false,
   archivePasswords: [],
   bandwidthLimitKib: 0,
+  downloadStallTimeoutSecs: 30,
   closeToTray: true,
   nativeTitleBar: false,
   updateChannel: "stable",
@@ -448,6 +453,10 @@ export const mockInstalls = {
       entriesTotal: null,
       currentEntry: null,
       resumedEntries: null,
+      reconnecting: false,
+      attempt: 1,
+      lastError: null,
+      stalledForMs: null,
     };
     phaseEnds.set(id, now() + 1500);
     jobs = [next, ...jobs];

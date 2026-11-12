@@ -3,6 +3,9 @@
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::time::Instant;
 
 use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
@@ -10,7 +13,9 @@ use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
+use bytes::Bytes;
 use chrono::Duration;
+use futures_util::Stream;
 use ludex_core::archive::{
     archive_tar_size, detect_format, zip_entry_info, zip_stream_manifest, ArchiveError,
     ArchiveFormat, StreamManifest,
@@ -1134,6 +1139,7 @@ async fn authorize_version(
 
 async fn download(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     ApiPath(game_id): ApiPath<i64>,
     ApiQuery(query): ApiQuery<DownloadQuery>,
     headers: HeaderMap,
@@ -1155,6 +1161,20 @@ async fn download(
             "This version is no longer available",
         ));
     }
+    // A stalled client reconnects with `Range` from its last byte, which is a
+    // normal request here. Bound how many times per minute and version one
+    // address may do that so a broken client cannot hammer the disk (#195).
+    if let Err(wait) = state
+        .download_limits
+        .check(&format!("{}:{}", peer.ip(), version.id))
+    {
+        return Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too_many_download_attempts",
+            "Too many download attempts for this version; wait a few seconds and retry.",
+        )
+        .with_retry_after(wait));
+    }
     let _lease = state.transfers.begin(version.id);
     if is_s3_version(&version) {
         if let Some(key) = version.object_key.as_deref() {
@@ -1172,7 +1192,7 @@ async fn download(
             }
         }
     }
-    download_local(&state, &version, &headers).await
+    download_local(&state, game_id, &version, &headers).await
 }
 
 /// Whether a failed S3 read may fall back to the local library file.
@@ -1184,12 +1204,21 @@ fn can_fall_back_to_local(error: &ApiError) -> bool {
 }
 
 /// Serves a version from its library root with `ServeFile` (Range and If-Range).
+///
+/// The response body is copied in 512 KiB chunks instead of the tower default
+/// (64 KiB) to keep the send path cheap on large archives (#194), and it is
+/// wrapped in a counter that logs how every stream ended: complete, transport
+/// error or client abort (#195).
 async fn download_local(
     state: &AppState,
+    game_id: i64,
     version: &VersionRow,
     headers: &HeaderMap,
 ) -> Result<Response, ApiError> {
     let path = local_version_path(state, version).await?;
+    let metadata = tokio::fs::metadata(&path).await.map_err(|_| {
+        ApiError::not_found("file_not_found", "The library file is missing from disk")
+    })?;
     let mut request = axum::http::Request::builder()
         .method(Method::GET)
         .uri("/")
@@ -1202,6 +1231,7 @@ async fn download_local(
     }
 
     let response = ServeFile::new(&path)
+        .with_buf_chunk_size(512 * 1024)
         .oneshot(request)
         .await
         .map_err(|error| {
@@ -1217,7 +1247,140 @@ async fn download_local(
         header::CACHE_CONTROL,
         HeaderValue::from_static("private, no-store"),
     );
-    Ok(Response::from_parts(parts, Body::new(body)))
+    // A cheap archive identity: the client compares it across Range resumes
+    // and restarts explicitly when the file was replaced (#195).
+    if let Some(etag) = file_etag(&metadata) {
+        if let Ok(value) = HeaderValue::from_str(&etag) {
+            parts.headers.insert(header::ETAG, value);
+        }
+    }
+    let status = parts.status.as_u16();
+    let range_start = parts
+        .headers
+        .get(header::CONTENT_RANGE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(content_range_start)
+        .unwrap_or(0);
+    let log = TransferLog::new(game_id, version.id, status, range_start);
+    let stream = LoggedBody {
+        inner: Body::new(body).into_data_stream(),
+        log: Some(log),
+    };
+    Ok(Response::from_parts(parts, Body::from_stream(stream)))
+}
+
+/// Strong-ish tag from size and modification time, matching the bytes on disk.
+fn file_etag(metadata: &std::fs::Metadata) -> Option<String> {
+    let modified = metadata.modified().ok()?;
+    let since = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some(format!("\"{:x}-{:x}\"", metadata.len(), since.as_nanos()))
+}
+
+/// Start offset of `Content-Range: bytes <start>-<end>/<total>`.
+fn content_range_start(value: &str) -> Option<u64> {
+    let range = value.trim().strip_prefix("bytes ")?;
+    let (start, _) = range.split_once('-')?;
+    start.trim().parse().ok()
+}
+
+/// Per-stream outcome, logged once when the body finishes or is dropped.
+struct TransferLog {
+    game_id: i64,
+    version_id: i64,
+    status: u16,
+    range_start: u64,
+    bytes: u64,
+    started: Instant,
+    finished: bool,
+}
+
+impl TransferLog {
+    fn new(game_id: i64, version_id: i64, status: u16, range_start: u64) -> Self {
+        Self {
+            game_id,
+            version_id,
+            status,
+            range_start,
+            bytes: 0,
+            started: Instant::now(),
+            finished: false,
+        }
+    }
+
+    fn finish(&mut self, outcome: &'static str) {
+        if self.finished {
+            return;
+        }
+        self.finished = true;
+        let elapsed_ms = self.started.elapsed().as_millis() as u64;
+        if outcome == "complete" {
+            tracing::info!(
+                game = self.game_id,
+                version = self.version_id,
+                status = self.status,
+                range_start = self.range_start,
+                bytes = self.bytes,
+                elapsed_ms,
+                outcome,
+                "download stream closed"
+            );
+        } else {
+            tracing::warn!(
+                game = self.game_id,
+                version = self.version_id,
+                status = self.status,
+                range_start = self.range_start,
+                bytes = self.bytes,
+                elapsed_ms,
+                outcome,
+                "download stream closed"
+            );
+        }
+    }
+}
+
+impl Drop for TransferLog {
+    fn drop(&mut self) {
+        self.finish("client_abort");
+    }
+}
+
+/// Body wrapper that accounts bytes and logs the terminal outcome (#195).
+struct LoggedBody<S> {
+    inner: S,
+    log: Option<TransferLog>,
+}
+
+impl<S> Stream for LoggedBody<S>
+where
+    S: Stream<Item = Result<Bytes, axum::Error>> + Unpin,
+{
+    type Item = S::Item;
+
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        match Pin::new(&mut this.inner).poll_next(context) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(None) => {
+                if let Some(mut log) = this.log.take() {
+                    log.finish("complete");
+                }
+                Poll::Ready(None)
+            }
+            Poll::Ready(Some(Err(error))) => {
+                if let Some(mut log) = this.log.take() {
+                    log.finish("error");
+                }
+                Poll::Ready(Some(Err(error)))
+            }
+            Poll::Ready(Some(Ok(bytes))) => {
+                if let Some(log) = this.log.as_mut() {
+                    log.bytes = log.bytes.saturating_add(bytes.len() as u64);
+                }
+                Poll::Ready(Some(Ok(bytes)))
+            }
+        }
+    }
 }
 
 /// Resolves and validates the local file of a version.

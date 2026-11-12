@@ -365,7 +365,6 @@
   "Cannot reach the server. Check that it is running and the address is correct.": "Невозможно связаться с сервером. Убедитесь, что он работает и адрес правильный.",
   "Cannot reach the server. Check that it is running.": "Невозможно связаться с сервером. Проверьте, что он работает.",
   "Canonical fields: {fields}": "Канонические поля: {fields}",
-  "Caps every download (installs, repairs and stream installs) in KiB/s. Use 0 for no limit.": "Ограничивает каждую загрузку (установку, восстановление и потоковую установку) в КиБ/с. Используйте 0 для отсутствия ограничений.",
   "Categories": "Категории",
   "Certain": "Определенный",
   "Change": "Изменить",
@@ -983,7 +982,6 @@
   "Key pinned": "Ключ закреплен",
   "Keyboard only — connect a controller for couch navigation": "Только клавиатура — подключите контроллер для навигации на диване.",
   "Keyboard shortcuts": "Сочетания клавиш",
-  "KiB/s": "КиБ/с",
   "Kind": "Добрый",
   "Known folder": "Известная папка",
   "Label": "Этикетка",
@@ -3444,5 +3442,9 @@
   "Why": "Почему",
   "If you cancel, nothing is changed and the manual instructions stay available.": "При отмене ничего не изменится, а ручные инструкции останутся доступны.",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Папка конфигурации Sunshine находится в Program Files, где Windows блокирует запись.",
-  "You can also set a Sunshine config folder your account can write to.": "Можно также указать папку конфигурации Sunshine, доступную вашему аккаунту для записи."
+  "You can also set a Sunshine config folder your account can write to.": "Можно также указать папку конфигурации Sunshine, доступную вашему аккаунту для записи.",
+  "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "Ограничивает каждую загрузку (установки, исправления и потоковые установки) в Mb/s. 0 — без ограничения.",
+  "Connection recovery": "Восстановление соединения",
+  "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex прерывает ответ, молчащий указанное число секунд, и продолжает с последнего полученного байта. Передача, которая продолжает получать данные, никогда не прерывается.",
+  "Connection lost, resuming from {percent}": "Соединение потеряно, возобновление с {percent}"
 }
