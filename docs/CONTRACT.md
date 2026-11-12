@@ -248,7 +248,13 @@ interface DesktopDownload {
 
 | Method | Route | Notes |
 |---|---|---|
-| POST | `/api/auth/login` | `{ username, password }` → `{ token, user }` |
+| POST | `/api/auth/login` | `{ username, password }` → `{ token, user }`, or `{ mfaRequired: true, challengeToken }` when a second factor is on (#166) |
+| POST | `/api/auth/login/mfa` | `{ challengeToken, code }` → `{ token, user }`; the only way a 2FA account gets a session (#166) |
+| GET | `/api/auth/mfa` | second-factor status of the account (#166) |
+| POST | `/api/auth/mfa/totp/enroll` | start a TOTP enrolment; the secret is returned **once** (#166) |
+| POST | `/api/auth/mfa/totp/activate` | `{ code }` → `{ mfa, recoveryCodes }`; codes are shown once (#166) |
+| POST | `/api/auth/mfa/disable` | `{ password }` → `{ mfa }`; signs out other devices (#166) |
+| POST | `/api/auth/mfa/recovery-codes` | `{ password }` → `{ codes }`; replaces the previous set (#166) |
 | GET | `/api/auth/me` | `{ user }` |
 | POST | `/api/auth/logout` | 204 (client discards token) |
 | POST | `/api/auth/change-password` | `{ currentPassword, newPassword }` |
@@ -2904,6 +2910,7 @@ interface AuthSession {
   expiresAt: string;
   revokedAt: string | null;
   current: boolean;
+  device: string | null;             // readable label, e.g. "Firefox on Linux" (#166)
 }
 ```
 
@@ -2919,9 +2926,111 @@ interface AuthSession {
   account. The calling session stays valid.
 - `DELETE /api/users/{id}/sessions` (admin) revokes every session of an
   account and invalidates all older tokens. Returns `{ "revoked": n }`.
+- `DELETE /api/auth/sessions` revokes every **other** session of the caller and
+  keeps the calling one alive. Returns `{ "revoked": n }`.
 
 All 429 responses carry `Retry-After` (seconds). The error envelope is
 unchanged.
+
+## Invitations, TOTP and account security (#166)
+
+### Invitations
+
+Administrators create links; the token is returned exactly once and only its
+SHA-256 hash is stored.
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/invitations` | admin; metadata only, never the token |
+| POST | `/api/invitations` | admin; `{ role?, email?, note?, expiresInDays?, maxUses? }` → 201 `{ invitation, token, path }` |
+| DELETE | `/api/invitations/{id}` | admin; revokes immediately (204) |
+| GET | `/api/invitations/{token}` | public preview for `#/register?invite=…` (same path segment as `DELETE`; the server reads it as the token) |
+| POST | `/api/invitations/{token}/accept` | public; `{ username, password }` → 201 `{ token, user }` (path segment is the token) |
+
+```ts
+interface Invitation {
+  id: number; role: Role; email: string | null; note: string | null;
+  createdBy: number | null; createdByUsername: string | null;
+  createdAt: string; expiresAt: string;
+  maxUses: number; uses: number; lastUsedAt: string | null;
+  revokedAt: string | null;
+  status: "pending" | "used" | "expired" | "revoked";
+  path: string;                      // "/register"; append ?invite=<token>
+}
+```
+
+- `expiresInDays` 1..=90 (default 7), `maxUses` 1..=100 (default 1), `note` at
+  most 500 characters. Invalid values answer `invalid_expiry`,
+  `invalid_max_uses`, `invalid_note` or `invalid_email`.
+- Redemption is atomic: `UPDATE … WHERE uses < max_uses AND revoked_at IS NULL
+  AND expires_at > ?` is the single-use guarantee, even under concurrent
+  requests. The account inherits the invited role and email and is signed in by
+  the response.
+- Dead links answer **410** with `invitation_used`, `invitation_expired`,
+  `invitation_revoked` or `invitation_unavailable`; an unknown token is 404
+  `invitation_not_found`. Redemption is limited per address
+  (`LUDEX_INVITATION_ATTEMPT_LIMIT`, 30 per ten minutes by default) and answers
+  `429 invitation_rate_limited` with `Retry-After`.
+- Audited as `invitation.created`, `invitation.redeemed` (username, role, uses)
+  and `invitation.revoked`. The token, the password hash and the password never
+  reach the audit trail.
+
+### TOTP second factor
+
+`POST /api/auth/login` stops at a challenge when the account has a confirmed
+TOTP secret: it returns **no token and no user**, only a hashed, single-use
+`challengeToken` valid for five minutes. `POST /api/auth/login/mfa` accepts a
+six-digit code (RFC 6238, SHA-1, 30 s, ±1 step) or a recovery code.
+
+- Enrolment: `POST /api/auth/mfa/totp/enroll` returns the base32 secret and the
+  `otpauth://` URI once; `POST /api/auth/mfa/totp/activate { code }` confirms
+  and returns ten recovery codes, each `XXXXX-XXXXX` and single use.
+- Accepted TOTP time steps are stored (`user_mfa.last_used_step`), so a code
+  cannot be replayed inside its 30-second window. Five wrong codes burn the
+  challenge (`429 mfa_attempts_exceeded`); a used challenge is
+  `401 challenge_used`.
+- Recovery codes are stored as SHA-256 hashes and consumed atomically;
+  `POST /api/auth/mfa/recovery-codes { password }` replaces the set.
+- Disabling requires the account password and revokes every other session.
+- Audited as `mfa.enrollment_started`, `mfa.enabled`, `mfa.disabled`,
+  `mfa.recovery_codes_rotated` and `login.challenge`. Secrets, codes and
+  challenge tokens never appear in an event.
+- The factor guards the **local password** path. OIDC sign-ins (web exchange
+  and desktop handoff) are authenticated by the identity provider and are not
+  challenged for a local TOTP code; enable MFA at the provider for those
+  accounts. Disabling an account still blocks both paths immediately.
+
+### Sessions and forced resets
+
+`AuthSession` gained `device`, a readable label derived from the `User-Agent`
+("Chrome on macOS", "Ludex app on Windows"). The raw header stays in
+`userAgent`.
+
+`POST /api/users/{id}/reset-password` (admin) `{ password?, requireChange? }`:
+
+- without `password` the server generates a 32-character temporary password and
+  returns it once (`password` is `null` when the administrator chose it);
+- always revokes every session of the account (`{ revoked }`);
+- sets `users.must_change_password`, surfaced as `mustChangePassword` on the
+  account; the next successful password change clears it;
+- refuses accounts owned by the identity provider (`409 managed_by_idp`).
+
+### Client behaviour
+
+Any client that signs in with a password (web, desktop, scripts) must treat
+`mfaRequired: true` as "ask for a code", not as an error: the response has no
+`token`. Submit the challenge to `POST /api/auth/login/mfa` and only then store
+the returned token. The desktop login dialog handles this in a follow-up; until
+then a 2FA-protected account signs in through the web and the desktop handoff
+(#157) or an API key.
+
+### Not implemented: WebAuthn/passkeys
+
+Passkeys are **not** shipped in this release. A WebAuthn implementation needs a
+CBOR/COSE verifier and an attestation policy; relying on a hand-rolled parser
+would be worse than no passkey support. TOTP plus recovery codes are the
+supported second factor. The API reserves the `methods` array in `MfaStatus` so
+a `webauthn` entry can be added without a breaking change. See `SECURITY.md`.
 
 ## Resumable archive uploads (#21)
 

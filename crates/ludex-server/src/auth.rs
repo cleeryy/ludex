@@ -580,7 +580,9 @@ async fn load_auth_user(
     let row = db::query_as::<crate::models::UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
-                onboarding_completed_at, onboarding_step
+                onboarding_completed_at, onboarding_step,
+         CAST(COALESCE((SELECT 1 FROM user_mfa m WHERE m.user_id = users.id AND m.enabled_at IS NOT NULL), 0) AS BIGINT) AS mfa_enabled,
+         must_change_password
          FROM users WHERE id = ?",
     )
     .bind(user_id)

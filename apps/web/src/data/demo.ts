@@ -527,6 +527,8 @@ export const DEMO_USERS: User[] = [
     ageLimit: null,
     onboardingCompletedAt: null,
     onboardingStep: 0,
+    mfaEnabled: false,
+    mustChangePassword: false,
   },
   {
     id: 2,
@@ -541,6 +543,8 @@ export const DEMO_USERS: User[] = [
     ageLimit: null,
     onboardingCompletedAt: "2026-03-05T09:30:00Z",
     onboardingStep: 6,
+    mfaEnabled: false,
+    mustChangePassword: false,
   },
   {
     id: 3,
@@ -555,6 +559,8 @@ export const DEMO_USERS: User[] = [
     ageLimit: null,
     onboardingCompletedAt: null,
     onboardingStep: 2,
+    mfaEnabled: false,
+    mustChangePassword: false,
   },
   {
     id: 4,
@@ -569,6 +575,8 @@ export const DEMO_USERS: User[] = [
     ageLimit: null,
     onboardingCompletedAt: "2026-07-01T08:00:00Z",
     onboardingStep: 6,
+    mfaEnabled: false,
+    mustChangePassword: false,
   },
 ];
 

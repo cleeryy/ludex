@@ -334,6 +334,20 @@ pub const ROUTES: &[RouteDoc] = &[
         ),
         "LoginRequest",
     ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/auth/login/mfa",
+                "Authentication",
+                "Finish a login with a TOTP or recovery code (#166)",
+                Auth::Public,
+                Payload::Schema("AuthResponse"),
+            ),
+            200,
+        ),
+        "MfaLoginRequest",
+    ),
     route(
         HttpMethod::Get,
         "/auth/me",
@@ -400,6 +414,14 @@ pub const ROUTES: &[RouteDoc] = &[
         Auth::Session,
         Payload::Array("AuthSession"),
     ),
+    route(
+        HttpMethod::Delete,
+        "/auth/sessions",
+        "Authentication",
+        "Revoke every other session of the account (#166)",
+        Auth::Session,
+        Payload::Schema("SessionRevocation"),
+    ),
     ok(
         route(
             HttpMethod::Delete,
@@ -410,6 +432,117 @@ pub const ROUTES: &[RouteDoc] = &[
             Payload::None,
         ),
         204,
+    ),
+    route(
+        HttpMethod::Get,
+        "/auth/mfa",
+        "Authentication",
+        "Second-factor status of the account (#166)",
+        Auth::Session,
+        Payload::Schema("MfaStatus"),
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/auth/mfa/totp/enroll",
+            "Authentication",
+            "Start a TOTP enrolment; returns the secret once (#166)",
+            Auth::Session,
+            Payload::Schema("TotpEnrollment"),
+        ),
+        200,
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/auth/mfa/totp/activate",
+                "Authentication",
+                "Confirm a TOTP enrolment and receive recovery codes (#166)",
+                Auth::Session,
+                Payload::Schema("TotpActivated"),
+            ),
+            200,
+        ),
+        "TotpActivationRequest",
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/auth/mfa/disable",
+                "Authentication",
+                "Disable two-factor authentication after re-checking the password (#166)",
+                Auth::Session,
+                Payload::Schema("MfaStatus"),
+            ),
+            200,
+        ),
+        "MfaDisableRequest",
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/auth/mfa/recovery-codes",
+                "Authentication",
+                "Replace the recovery codes (#166)",
+                Auth::Session,
+                Payload::Schema("RecoveryCodes"),
+            ),
+            200,
+        ),
+        "RecoveryCodesRequest",
+    ),
+    // Invitations (#166)
+    route(
+        HttpMethod::Get,
+        "/invitations",
+        "Invitations",
+        "List invitation links",
+        Auth::Admin,
+        Payload::Array("Invitation"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/invitations",
+            "Invitations",
+            "Create an expiring invitation link; the token is returned once",
+            Auth::Admin,
+            Payload::Schema("CreatedInvitation"),
+        ),
+        "CreateInvitationRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/invitations/{id}",
+            "Invitations",
+            "Revoke an invitation link",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Get,
+        "/invitations/{id}",
+        "Invitations",
+        "Preview an invitation before registering (the path segment is the token)",
+        Auth::Public,
+        Payload::Schema("InvitationPreview"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/invitations/{id}/accept",
+            "Invitations",
+            "Redeem an invitation and sign the new account in",
+            Auth::Public,
+            Payload::Schema("AuthResponse"),
+        ),
+        "AcceptInvitationRequest",
     ),
     route(
         HttpMethod::Get,
@@ -516,6 +649,20 @@ pub const ROUTES: &[RouteDoc] = &[
         "Revoke every session of an account",
         Auth::Admin,
         Payload::Schema("SessionRevocation"),
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/users/{id}/reset-password",
+                "Users",
+                "Reset an account password and sign every device out (#166)",
+                Auth::Admin,
+                Payload::Schema("ResetPasswordResult"),
+            ),
+            200,
+        ),
+        "ResetPasswordRequest",
     ),
     // Games
     query(
@@ -2154,7 +2301,10 @@ pub fn document() -> OpenApi {
                 )),
             );
         }
-        if matches!(doc.path, "/auth/login") {
+        if matches!(
+            doc.path,
+            "/auth/login" | "/auth/login/mfa" | "/invitations/{id}/accept"
+        ) {
             responses.responses.insert(
                 "429".to_string(),
                 RefOr::T(response_with_schema("Too many attempts", "ErrorEnvelope")),
@@ -2229,6 +2379,22 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::models::ChangePasswordRequest>()
         .schema_from::<crate::models::OnboardingRequest>()
         .schema_from::<crate::models::AuthSession>()
+        .schema_from::<crate::models::MfaLoginRequest>()
+        .schema_from::<crate::models::MfaStatus>()
+        .schema_from::<crate::models::TotpEnrollment>()
+        .schema_from::<crate::models::TotpActivationRequest>()
+        .schema_from::<crate::models::TotpActivated>()
+        .schema_from::<crate::models::MfaDisableRequest>()
+        .schema_from::<crate::models::RecoveryCodesRequest>()
+        .schema_from::<crate::models::RecoveryCodes>()
+        .schema_from::<crate::models::Invitation>()
+        .schema_from::<crate::models::InvitationStatus>()
+        .schema_from::<crate::models::CreateInvitationRequest>()
+        .schema_from::<crate::models::CreatedInvitation>()
+        .schema_from::<crate::models::InvitationPreview>()
+        .schema_from::<crate::models::AcceptInvitationRequest>()
+        .schema_from::<crate::models::ResetPasswordRequest>()
+        .schema_from::<crate::models::ResetPasswordResult>()
         .schema_from::<crate::models::UserResponse>()
         .schema_from::<crate::models::CreateUserRequest>()
         .schema_from::<crate::models::UpdateUserRequest>()
@@ -2402,8 +2568,15 @@ pub fn document() -> OpenApi {
 
     let tags: Vec<Tag> = [
         ("System", "Health, setup and discovery"),
-        ("Authentication", "Login, sessions and passwords"),
+        (
+            "Authentication",
+            "Login, sessions, second factors and passwords",
+        ),
         ("Users", "Administrator account management"),
+        (
+            "Invitations",
+            "Expiring single-use links that create local accounts",
+        ),
         ("Games", "Library browsing, metadata and downloads"),
         ("Search", "Fuzzy title search"),
         ("Library", "Scanning, roots and the folder watcher"),

@@ -64,6 +64,10 @@ import type {
   MetadataCandidate,
   MetadataCandidates,
   MetadataProvider,
+  CreatedInvitation,
+  Invitation,
+  InvitationPreview,
+  MfaStatus,
   MetadataProviderInput,
   NewsPost,
   OidcAdminResponse,
@@ -79,6 +83,8 @@ import type {
   PublicProfile,
   PublicProfileResponse,
   RemoteInstall,
+  RecoveryCodes,
+  ResetPasswordResult,
   Role,
   SaveSnapshot,
   ScanStatus,
@@ -86,6 +92,8 @@ import type {
   SetupStatus,
   SmartRules,
   SuggestResponse,
+  TotpActivated,
+  TotpEnrollment,
   UploadPartResponse,
   UploadSession,
   User,
@@ -1015,6 +1023,8 @@ export const mockApi = {
       oidcIssuer: null,
       onboardingCompletedAt: null,
       onboardingStep: 0,
+      mfaEnabled: false,
+      mustChangePassword: false,
     };
     users = [user];
     persistUsers();
@@ -1365,6 +1375,8 @@ export const mockApi = {
       oidcIssuer: null,
       onboardingCompletedAt: null,
       onboardingStep: 0,
+      mfaEnabled: false,
+      mustChangePassword: false,
     };
     users = [...users, user];
     persistUsers();
@@ -2804,6 +2816,7 @@ export const mockApi = {
         lastSeenAt: now,
         expiresAt: new Date(Date.now() + 7 * 24 * 3600_000).toISOString(),
         revokedAt: null,
+        device: "This browser",
         current: true,
       },
       ...(user.role === "admin"
@@ -2816,6 +2829,150 @@ export const mockApi = {
     await latency();
     currentUser(token);
     if (id === 1) fail(400, "session_current", "Sign out to revoke the current session");
+  },
+
+  async revokeOtherSessions(token: string | null): Promise<{ revoked: number }> {
+    await latency();
+    currentUser(token);
+    return { revoked: 0 };
+  },
+
+  /* second factor (#166) */
+  async mfaStatus(token: string | null): Promise<MfaStatus> {
+    await latency();
+    currentUser(token);
+    return {
+      enabled: false,
+      recoveryCodesRemaining: 0,
+      enabledAt: null,
+      methods: [],
+      pending: false,
+    };
+  },
+
+  async startTotpEnrollment(token: string | null): Promise<TotpEnrollment> {
+    await latency();
+    const user = currentUser(token);
+    const secret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
+    return {
+      secret,
+      otpauthUri: `otpauth://totp/Ludex:${user.username}?secret=${secret}&issuer=Ludex&algorithm=SHA1&digits=6&period=30`,
+      issuer: "Ludex",
+      account: user.username,
+      digits: 6,
+      period: 30,
+    };
+  },
+
+  async activateTotp(token: string | null, code: string): Promise<TotpActivated> {
+    await latency();
+    currentUser(token);
+    if (!/^\d{6}$/.test(code.trim())) fail(401, "invalid_mfa_code", "That code is not valid");
+    return {
+      mfa: {
+        enabled: true,
+        recoveryCodesRemaining: 10,
+        enabledAt: new Date().toISOString(),
+        methods: ["totp", "recovery_codes"],
+        pending: false,
+      },
+      recoveryCodes: Array.from({ length: 10 }, (_, index) => `DEMO${index}-CODE${index}`),
+    };
+  },
+
+  async disableMfa(token: string | null): Promise<MfaStatus> {
+    await latency();
+    currentUser(token);
+    return {
+      enabled: false,
+      recoveryCodesRemaining: 0,
+      enabledAt: null,
+      methods: [],
+      pending: false,
+    };
+  },
+
+  async regenerateRecoveryCodes(token: string | null): Promise<RecoveryCodes> {
+    await latency();
+    currentUser(token);
+    return { codes: Array.from({ length: 10 }, (_, index) => `DEMO${index}-CODE${index}`) };
+  },
+
+  /* invitations (#166) */
+  async listInvitations(token: string | null): Promise<Invitation[]> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role !== "admin") fail(403, "forbidden", "Administrator role required");
+    return [];
+  },
+
+  async createInvitation(
+    token: string | null,
+    body: { role?: Role; email?: string | null; note?: string | null; expiresInDays?: number; maxUses?: number },
+  ): Promise<CreatedInvitation> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role !== "admin") fail(403, "forbidden", "Administrator role required");
+    const now = new Date();
+    const invitation: Invitation = {
+      id: Date.now(),
+      role: body.role ?? "user",
+      email: body.email ?? null,
+      note: body.note ?? null,
+      createdBy: user.id,
+      createdByUsername: user.username,
+      createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + (body.expiresInDays ?? 7) * 86_400_000).toISOString(),
+      maxUses: body.maxUses ?? 1,
+      uses: 0,
+      lastUsedAt: null,
+      revokedAt: null,
+      status: "pending",
+      path: "/register",
+    };
+    const inviteToken = `demo-invite-${Date.now()}`;
+    return { invitation, token: inviteToken, path: `/register?invite=${inviteToken}` };
+  },
+
+  async revokeInvitation(token: string | null): Promise<void> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role !== "admin") fail(403, "forbidden", "Administrator role required");
+  },
+
+  async previewInvitation(inviteToken: string): Promise<InvitationPreview> {
+    await latency();
+    if (!inviteToken) fail(404, "invitation_not_found", "This invitation link is not valid");
+    return {
+      role: "user",
+      email: null,
+      note: null,
+      expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+      requiresPassword: true,
+    };
+  },
+
+  async acceptInvitation(
+    inviteToken: string,
+    body: { username: string; password: string },
+  ): Promise<AuthResult> {
+    await latency();
+    if (!inviteToken) fail(404, "invitation_not_found", "This invitation link is not valid");
+    const user = users[0];
+    if (!user) fail(409, "setup_required", "This server has no accounts yet");
+    return { token: `mock.${user.id}.${Date.now()}`, user: { ...user, username: body.username } };
+  },
+
+  async resetUserPassword(token: string | null): Promise<ResetPasswordResult> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role !== "admin") fail(403, "forbidden", "Administrator role required");
+    return {
+      username: "demo",
+      password: "GeneratedDemoPassword123",
+      revoked: 1,
+      mustChangePassword: true,
+    };
   },
 
   /* resumable uploads */

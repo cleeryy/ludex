@@ -24,9 +24,12 @@ use crate::db;
 use crate::error::ApiError;
 use crate::events::{Actor, Event};
 use crate::extract::{ApiPath, JsonBody};
+use crate::mfa;
 use crate::models::{
     AuthResponse, AuthSession, AuthSessionRow, ChangePasswordRequest, LoginRequest,
-    OnboardingRequest, UserResponse, UserRow,
+    MfaDisableRequest, MfaLoginRequest, MfaStatus, OnboardingRequest, RecoveryCodes,
+    RecoveryCodesRequest, TotpActivated, TotpActivationRequest, TotpEnrollment, UserResponse,
+    UserRow,
 };
 use crate::sql::{bind_query, Bind};
 use crate::state::AppState;
@@ -35,12 +38,21 @@ use crate::state::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/auth/login", post(login))
+        .route("/auth/login/mfa", post(login_mfa))
         .route("/auth/me", get(me))
         .route("/auth/onboarding", put(update_onboarding))
         .route("/auth/logout", post(logout))
         .route("/auth/change-password", post(change_password))
         .route("/me/password", post(change_password))
-        .route("/auth/sessions", get(sessions))
+        .route("/auth/mfa", get(mfa_status))
+        .route("/auth/mfa/totp/enroll", post(enroll_totp))
+        .route("/auth/mfa/totp/activate", post(activate_totp))
+        .route("/auth/mfa/disable", post(disable_mfa))
+        .route("/auth/mfa/recovery-codes", post(regenerate_recovery_codes))
+        .route(
+            "/auth/sessions",
+            get(sessions).delete(revoke_other_sessions),
+        )
         .route("/auth/sessions/{id}", delete(revoke_session))
 }
 
@@ -60,7 +72,9 @@ async fn login(
     let row = db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
-                onboarding_completed_at, onboarding_step
+                onboarding_completed_at, onboarding_step,
+         CAST(COALESCE((SELECT 1 FROM user_mfa m WHERE m.user_id = users.id AND m.enabled_at IS NOT NULL), 0) AS BIGINT) AS mfa_enabled,
+         must_change_password
          FROM users WHERE username = ?",
     )
     .bind(&username)
@@ -110,8 +124,121 @@ async fn login(
         ));
     }
 
+    let user_agent = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+
+    // #166: a password alone is not a session when a second factor is on. The
+    // challenge is stored hashed, single-use, and carries no token.
+    if mfa_enabled(&state, row.id).await? {
+        let (challenge_token, expires_at) = mfa::create_challenge(
+            &state,
+            row.id,
+            user_agent.as_deref(),
+            Some(&peer.ip().to_string()),
+        )
+        .await?;
+        state.events.emit(
+            Event::new(actions::LOGIN_CHALLENGE, Actor::User { id: row.id })
+                .target("user", row.id.to_string())
+                .metadata(json!({ "username": row.username, "methods": ["totp", "recovery"] }))
+                .ip(ip),
+        );
+        return Ok(Json(AuthResponse::challenge(challenge_token, expires_at)));
+    }
+
     state.login_guard.record_success(&key);
     let user = row.to_public();
+    let info = SessionInfo {
+        user_agent,
+        ip: Some(peer.ip().to_string()),
+    };
+    let (issued, session_id) = start_session(&state, user.id, user.role, &info).await?;
+    state.events.emit(
+        Event::new(actions::LOGIN_SUCCEEDED, Actor::User { id: user.id })
+            .target("user", user.id.to_string())
+            .metadata(json!({
+                "username": user.username,
+                "sessionId": session_id,
+                "method": "password",
+            }))
+            .ip(ip),
+    );
+    Ok(Json(AuthResponse::session(
+        issued.token,
+        user,
+        Some(issued.expires_at),
+    )))
+}
+
+/// Whether the account must present a second factor.
+async fn mfa_enabled(state: &AppState, user_id: i64) -> Result<bool, ApiError> {
+    let row = db::query_as::<(Option<String>, Option<String>)>(
+        "SELECT totp_secret, enabled_at FROM user_mfa WHERE user_id = ?",
+    )
+    .bind(user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
+    Ok(row.is_some_and(|(secret, enabled)| secret.is_some() && enabled.is_some()))
+}
+
+/// Exchanges a login challenge for a session (#166).
+async fn login_mfa(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    JsonBody(request): JsonBody<MfaLoginRequest>,
+) -> Result<Json<AuthResponse>, ApiError> {
+    let challenge = mfa::find_challenge(&state, &request.challenge_token).await?;
+    // Six digits are brute-forceable if challenges are unlimited: cap the
+    // attempts per address and account, independently of the per-challenge
+    // budget.
+    let attempt_key = format!("{}|{}", peer.ip(), challenge.user_id);
+    if let Err(wait) = state.mfa_attempt_limits.check(&attempt_key) {
+        return Err(ApiError::too_many_requests(
+            "mfa_rate_limited",
+            format!("Too many code attempts. Retry in {wait} seconds."),
+        )
+        .with_retry_after(wait));
+    }
+    let method = match mfa::verify_second_factor(&state, challenge.user_id, &request.code).await {
+        Ok(method) => method,
+        Err(error) => {
+            mfa::record_failed_attempt(&state, challenge.id).await?;
+            state.events.emit(
+                Event::new(
+                    actions::LOGIN_FAILED,
+                    Actor::User {
+                        id: challenge.user_id,
+                    },
+                )
+                .target("user", challenge.user_id.to_string())
+                .metadata(json!({ "reason": "invalid_mfa_code" }))
+                .ip(Some(peer.ip())),
+            );
+            return Err(error);
+        }
+    };
+    mfa::consume_challenge(&state, challenge.id).await?;
+
+    let row = fetch_user_row(&state, challenge.user_id).await?;
+    if row.activated == 0 {
+        return Err(ApiError::forbidden(
+            "account_disabled",
+            "This account is disabled",
+        ));
+    }
+    let user = row.to_public();
+    // The password step succeeded; clear any failure counter now that the
+    // second factor completed too.
+    state
+        .login_guard
+        .record_success(&crate::security::LoginGuard::key(
+            Some(peer.ip()),
+            &user.username,
+        ));
     let info = SessionInfo {
         user_agent: headers
             .get(axum::http::header::USER_AGENT)
@@ -123,14 +250,18 @@ async fn login(
     state.events.emit(
         Event::new(actions::LOGIN_SUCCEEDED, Actor::User { id: user.id })
             .target("user", user.id.to_string())
-            .metadata(json!({ "username": user.username, "sessionId": session_id }))
-            .ip(ip),
+            .metadata(json!({
+                "username": user.username,
+                "sessionId": session_id,
+                "method": method,
+            }))
+            .ip(Some(peer.ip())),
     );
-    Ok(Json(AuthResponse {
-        token: issued.token,
+    Ok(Json(AuthResponse::session(
+        issued.token,
         user,
-        expires_at: Some(issued.expires_at),
-    }))
+        Some(issued.expires_at),
+    )))
 }
 
 fn dummy_password_hash() -> &'static str {
@@ -154,7 +285,9 @@ async fn me(State(state): State<AppState>, user: AuthUser) -> Result<Json<UserRe
     let row = db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
-                onboarding_completed_at, onboarding_step
+                onboarding_completed_at, onboarding_step,
+         CAST(COALESCE((SELECT 1 FROM user_mfa m WHERE m.user_id = users.id AND m.enabled_at IS NOT NULL), 0) AS BIGINT) AS mfa_enabled,
+         must_change_password
          FROM users WHERE id = ?",
     )
     .bind(user.id)
@@ -210,7 +343,9 @@ async fn update_onboarding(
     let row = db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
-                onboarding_completed_at, onboarding_step
+                onboarding_completed_at, onboarding_step,
+         CAST(COALESCE((SELECT 1 FROM user_mfa m WHERE m.user_id = users.id AND m.enabled_at IS NOT NULL), 0) AS BIGINT) AS mfa_enabled,
+         must_change_password
          FROM users WHERE id = ?",
     )
     .bind(user.id)
@@ -290,7 +425,9 @@ async fn change_password(
     let row = db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
-                onboarding_completed_at, onboarding_step
+                onboarding_completed_at, onboarding_step,
+         CAST(COALESCE((SELECT 1 FROM user_mfa m WHERE m.user_id = users.id AND m.enabled_at IS NOT NULL), 0) AS BIGINT) AS mfa_enabled,
+         must_change_password
          FROM users WHERE id = ?",
     )
     .bind(user.id)
@@ -307,13 +444,15 @@ async fn change_password(
     }
     super::validate_password(&request.new_password)?;
     let password_hash = hash_password(&request.new_password)?;
-    db::query("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
-        .bind(password_hash)
-        .bind(db::db_time(db::now()))
-        .bind(user.id)
-        .execute(&state.pool)
-        .await
-        .map_err(ApiError::from)?;
+    db::query(
+        "UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?",
+    )
+    .bind(password_hash)
+    .bind(db::db_time(db::now()))
+    .bind(user.id)
+    .execute(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
 
     // Every other session dies with the old password; the caller keeps working
     // with the token it just used. Tokens without a `jti` are invalidated too.
@@ -329,4 +468,131 @@ async fn change_password(
             .metadata(json!({ "username": user.username })),
     );
     Ok(StatusCode::NO_CONTENT)
+}
+
+/* ----------------------------- second factor (#166) ---------------------- */
+
+async fn mfa_status(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<Json<MfaStatus>, ApiError> {
+    Ok(Json(mfa::status(&state, user.id).await?))
+}
+
+/// Starts a TOTP enrolment and returns the secret exactly once.
+async fn enroll_totp(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<Json<TotpEnrollment>, ApiError> {
+    user.require_scope(Scope::Write)?;
+    let issuer = db::server_name(&state.pool, &state.config.server_name).await;
+    let enrollment = mfa::start_enrollment(&state, user.id, &issuer, &user.username).await?;
+    state.events.emit(
+        Event::new(actions::MFA_ENROLLMENT_STARTED, user.actor())
+            .target("user", user.id.to_string())
+            .metadata(json!({ "method": "totp" })),
+    );
+    Ok(Json(enrollment))
+}
+
+async fn activate_totp(
+    State(state): State<AppState>,
+    user: AuthUser,
+    JsonBody(request): JsonBody<TotpActivationRequest>,
+) -> Result<Json<TotpActivated>, ApiError> {
+    user.require_scope(Scope::Write)?;
+    let recovery_codes = mfa::activate(&state, user.id, &request.code).await?;
+    let status = mfa::status(&state, user.id).await?;
+    state.events.emit(
+        Event::new(actions::MFA_ENABLED, user.actor())
+            .target("user", user.id.to_string())
+            .metadata(json!({
+                "method": "totp",
+                "recoveryCodes": recovery_codes.len(),
+            })),
+    );
+    Ok(Json(TotpActivated {
+        mfa: status,
+        recovery_codes,
+    }))
+}
+
+async fn disable_mfa(
+    State(state): State<AppState>,
+    user: AuthUser,
+    JsonBody(request): JsonBody<MfaDisableRequest>,
+) -> Result<Json<MfaStatus>, ApiError> {
+    user.require_scope(Scope::Write)?;
+    mfa::require_password(&state, user.id, &request.password).await?;
+    mfa::disable(&state, user.id).await?;
+    // A removed factor changes what the account accepts: other devices sign in
+    // again with the new rules.
+    if let Some(jti) = user.jti.as_deref() {
+        crate::auth::revoke_other_sessions(&state, user.id, jti, "mfa_disabled").await?;
+    }
+    state.events.emit(
+        Event::new(actions::MFA_DISABLED, user.actor())
+            .target("user", user.id.to_string())
+            .metadata(json!({ "method": "totp" })),
+    );
+    Ok(Json(mfa::status(&state, user.id).await?))
+}
+
+async fn regenerate_recovery_codes(
+    State(state): State<AppState>,
+    user: AuthUser,
+    JsonBody(request): JsonBody<RecoveryCodesRequest>,
+) -> Result<Json<RecoveryCodes>, ApiError> {
+    user.require_scope(Scope::Write)?;
+    mfa::require_password(&state, user.id, &request.password).await?;
+    if !mfa::status(&state, user.id).await?.enabled {
+        return Err(ApiError::bad_request(
+            "mfa_not_enabled",
+            "Enable two-factor authentication before generating recovery codes",
+        ));
+    }
+    let codes = mfa::regenerate_codes(&state, user.id).await?;
+    state.events.emit(
+        Event::new(actions::MFA_RECOVERY_CODES_ROTATED, user.actor())
+            .target("user", user.id.to_string())
+            .metadata(json!({ "codes": codes.len() })),
+    );
+    Ok(Json(RecoveryCodes { codes }))
+}
+
+/// Signs out every other session of the caller.
+async fn revoke_other_sessions(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    user.require_scope(Scope::Write)?;
+    let revoked = match user.jti.as_deref() {
+        Some(jti) => {
+            crate::auth::revoke_other_sessions(&state, user.id, jti, "user_revoked").await?
+        }
+        // An API key has no session to keep; revoke them all.
+        None => revoke_all_sessions(&state, user.id, "user_revoked").await?,
+    };
+    state.events.emit(
+        Event::new(actions::SESSION_REVOKED, user.actor())
+            .target("user", user.id.to_string())
+            .metadata(json!({ "sessions": revoked, "reason": "user_revoked" })),
+    );
+    Ok(Json(json!({ "revoked": revoked })))
+}
+
+async fn fetch_user_row(state: &AppState, id: i64) -> Result<UserRow, ApiError> {
+    db::query_as::<UserRow>(
+        "SELECT id, username, password_hash, email, role, activated, avatar_path,
+                age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
+                onboarding_completed_at, onboarding_step,
+                CAST(COALESCE((SELECT 1 FROM user_mfa m WHERE m.user_id = users.id AND m.enabled_at IS NOT NULL), 0) AS BIGINT) AS mfa_enabled,
+                must_change_password
+         FROM users WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::from)?
+    .ok_or_else(ApiError::unauthorized)
 }

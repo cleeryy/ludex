@@ -51,6 +51,7 @@ pub mod media;
 pub mod media_gc;
 pub mod metadata;
 pub mod metrics;
+pub mod mfa;
 pub mod models;
 pub mod observability;
 pub mod oidc;
@@ -68,6 +69,7 @@ pub mod sql;
 pub mod state;
 pub mod storage;
 pub mod stream;
+pub mod totp;
 pub mod uploads;
 pub mod watcher;
 pub mod web;
@@ -325,6 +327,14 @@ async fn prepare(config: Config) -> Result<Prepared> {
             Duration::from_secs(60),
         )),
         transfers: Arc::new(state::ActiveTransfers::default()),
+        invitation_limits: Arc::new(security::AttemptCounter::new(
+            config.invitation_attempt_limit,
+            Duration::from_secs(600),
+        )),
+        mfa_attempt_limits: Arc::new(security::AttemptCounter::new(
+            config.mfa_attempt_limit,
+            Duration::from_secs(300),
+        )),
     };
 
     let watcher_handle = watcher::start(&state).await;

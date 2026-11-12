@@ -144,6 +144,12 @@ pub const DEFAULT_DESKTOP_HANDOFF_TTL_SECONDS: u64 = 120;
 pub const DEFAULT_HANDOFF_CREATE_LIMIT: u32 = 12;
 /// Default number of desktop handoff claims one address may make per minute.
 pub const DEFAULT_HANDOFF_CLAIM_LIMIT: u32 = 120;
+/// Default number of invitation redemptions one address may attempt per
+/// ten-minute window (#166).
+pub const DEFAULT_INVITATION_ATTEMPT_LIMIT: u32 = 30;
+/// Default number of second-factor attempts one address + account may make per
+/// five-minute window (#166).
+pub const DEFAULT_MFA_ATTEMPT_LIMIT: u32 = 20;
 /// Default chunk size accepted by resumable archive uploads (16 MiB).
 pub const DEFAULT_UPLOAD_CHUNK_BYTES: u64 = 16 * 1024 * 1024;
 /// Default maximum size of a resumable archive upload (100 GiB).
@@ -300,6 +306,11 @@ pub struct Config {
     pub handoff_create_limit: u32,
     /// Handoff claims one address may make per minute (#157).
     pub handoff_claim_limit: u32,
+    /// Invitation redemptions one address may attempt per ten minutes (#166).
+    pub invitation_attempt_limit: u32,
+    /// Second-factor attempts one address + account may make per five minutes
+    /// (#166).
+    pub mfa_attempt_limit: u32,
     /// Chunk size accepted by `PUT /api/uploads/{id}/parts/{n}`.
     pub upload_chunk_bytes: u64,
     /// Maximum accepted archive upload size.
@@ -513,6 +524,18 @@ impl Config {
                 .context("LUDEX_LOGIN_BACKOFF_MS must be an integer")?,
             None => 500,
         };
+        let invitation_attempt_limit = match env_opt("LUDEX_INVITATION_ATTEMPT_LIMIT") {
+            Some(value) => value
+                .parse::<u32>()
+                .context("LUDEX_INVITATION_ATTEMPT_LIMIT must be an integer")?,
+            None => DEFAULT_INVITATION_ATTEMPT_LIMIT,
+        };
+        let mfa_attempt_limit = match env_opt("LUDEX_MFA_ATTEMPT_LIMIT") {
+            Some(value) => value
+                .parse::<u32>()
+                .context("LUDEX_MFA_ATTEMPT_LIMIT must be an integer")?,
+            None => DEFAULT_MFA_ATTEMPT_LIMIT,
+        };
         let desktop_handoff_ttl_seconds = match env_opt("LUDEX_DESKTOP_HANDOFF_TTL_SECONDS") {
             Some(value) => value
                 .parse::<u64>()
@@ -656,6 +679,8 @@ impl Config {
             desktop_download_timeout: Duration::from_secs(desktop_download_timeout_seconds),
             handoff_create_limit: DEFAULT_HANDOFF_CREATE_LIMIT,
             handoff_claim_limit: DEFAULT_HANDOFF_CLAIM_LIMIT,
+            invitation_attempt_limit,
+            mfa_attempt_limit,
             upload_chunk_bytes,
             upload_max_bytes,
             upload_ttl: Duration::from_secs(upload_ttl_hours * 3_600),
@@ -752,6 +777,8 @@ impl Config {
             desktop_download_timeout: Duration::from_secs(DEFAULT_DESKTOP_DOWNLOAD_TIMEOUT_SECONDS),
             handoff_create_limit: DEFAULT_HANDOFF_CREATE_LIMIT,
             handoff_claim_limit: DEFAULT_HANDOFF_CLAIM_LIMIT,
+            invitation_attempt_limit: DEFAULT_INVITATION_ATTEMPT_LIMIT,
+            mfa_attempt_limit: DEFAULT_MFA_ATTEMPT_LIMIT,
             upload_chunk_bytes: DEFAULT_UPLOAD_CHUNK_BYTES,
             upload_max_bytes: DEFAULT_UPLOAD_MAX_BYTES,
             upload_ttl: Duration::from_secs(DEFAULT_UPLOAD_TTL_HOURS * 3_600),

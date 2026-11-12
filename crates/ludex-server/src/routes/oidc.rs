@@ -158,7 +158,9 @@ async fn exchange(
     let row = db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
-                onboarding_completed_at, onboarding_step
+                onboarding_completed_at, onboarding_step,
+         CAST(COALESCE((SELECT 1 FROM user_mfa m WHERE m.user_id = users.id AND m.enabled_at IS NOT NULL), 0) AS BIGINT) AS mfa_enabled,
+         must_change_password
          FROM users WHERE id = ?",
     )
     .bind(user_id)
@@ -186,11 +188,11 @@ async fn exchange(
     };
     let (issued, _session_id) =
         crate::auth::start_session(&state, user.id, user.role, &info).await?;
-    let mut response = Json(AuthResponse {
-        token: issued.token,
+    let mut response = Json(AuthResponse::session(
+        issued.token,
         user,
-        expires_at: Some(issued.expires_at),
-    })
+        Some(issued.expires_at),
+    ))
     .into_response();
     response
         .headers_mut()

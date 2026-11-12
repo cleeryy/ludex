@@ -21,7 +21,7 @@ import { tr, t } from "@/lib/i18n";
 type HandoffPhase = "idle" | "sending" | "done" | "error";
 
 export function LoginScreen() {
-  const { user, signIn, signInWithOidc, setup, setHoldLogin } = useAuth();
+  const { user, signIn, completeMfaSignIn, signInWithOidc, setup, setHoldLogin } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [username, setUsername] = useState("");
@@ -30,6 +30,11 @@ export function LoginScreen() {
   const [busy, setBusy] = useState(false);
   const [oidcBusy, setOidcBusy] = useState(false);
   const [oidcError, setOidcError] = useState<string | null>(null);
+  // #166: the password step returns a challenge instead of a session when the
+  // account has a second factor.
+  const [challenge, setChallenge] = useState<{ token: string; expiresAt?: string } | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaError, setMfaError] = useState<string | null>(null);
   const [desktopAddress, setDesktopAddress] = useState<string | null>(null);
   const exchanged = useRef<string | null>(null);
   const desktopSession = useRef<string | null>(null);
@@ -197,7 +202,13 @@ export function LoginScreen() {
     setBusy(true);
     setError(null);
     try {
-      await signIn(username, password);
+      const result = await signIn(username, password);
+      if (result.mfaRequired && result.challengeToken) {
+        setChallenge({ token: result.challengeToken, expiresAt: result.challengeExpiresAt });
+        setMfaCode("");
+        setMfaError(null);
+        return;
+      }
       await finishSignIn();
     } catch (cause) {
       setError(errorMessage(cause));
@@ -205,6 +216,77 @@ export function LoginScreen() {
       setBusy(false);
     }
   };
+
+  const submitCode = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!challenge || busy) return;
+    setBusy(true);
+    setMfaError(null);
+    try {
+      await completeMfaSignIn(challenge.token, mfaCode.trim());
+      await finishSignIn();
+    } catch (cause) {
+      setMfaError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (challenge) {
+    return (
+      <AuthLayout
+        statement={t("The shelf you actually own.")}
+        note={t("Ludex indexes the archives on your server and serves them to your machines. No storefront, no account anywhere else.")}
+      >
+        <form onSubmit={submitCode} className="flex flex-col gap-6">
+          <div className="flex flex-col gap-2">
+            <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">
+              {t("Two-factor authentication")}
+            </h1>
+            <p className="text-[13px] leading-relaxed text-ink-3">
+              {tr("Enter the six-digit code from your authenticator app for {user}. A recovery code also works.", {
+                user: <span className="font-mono text-ink-2">{username}</span>,
+              })}
+            </p>
+          </div>
+          <Field label={t("Authentication code")} htmlFor="login-mfa-code">
+            <Input
+              id="login-mfa-code"
+              name="code"
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              autoFocus
+              required
+              value={mfaCode}
+              onChange={(event) => setMfaCode(event.target.value)}
+              placeholder="123456"
+            />
+          </Field>
+          {mfaError && (
+            <p role="alert" className="border-l-2 border-danger pl-3 text-[13px] text-danger">
+              {mfaError}
+            </p>
+          )}
+          <Button type="submit" variant="primary" size="lg" loading={busy}>
+            {t("Verify and sign in")}
+          </Button>
+          <Button
+            type="button"
+            variant="quiet"
+            size="sm"
+            className="self-start px-0 text-ink-2"
+            onClick={() => {
+              setChallenge(null);
+              setMfaCode("");
+              setMfaError(null);
+            }}
+          >
+            {t("Use another account")}
+          </Button>
+        </form>
+      </AuthLayout>
+    );
+  }
 
   if (handoffPhase === "done") {
     return (

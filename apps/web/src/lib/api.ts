@@ -30,6 +30,7 @@ import type {
   DesktopHandoff,
   DesktopPlatform,
   DiagnosticsPage,
+  CreatedInvitation,
   Emulator,
   EmulatorDefault,
   EmulatorLaunch,
@@ -43,6 +44,8 @@ import type {
   DeleteVersionResponse,
   IngestJob,
   IngestStats,
+  Invitation,
+  InvitationPreview,
   LibraryFile,
   LibraryHealthActionInput,
   LibraryHealthActionResult,
@@ -53,6 +56,7 @@ import type {
   MetadataCandidates,
   MetadataProvider,
   MetadataProviderInput,
+  MfaStatus,
   NewsPost,
   OidcAdminResponse,
   OidcSettingsInput,
@@ -66,12 +70,16 @@ import type {
   PublicProfile,
   PublicProfileResponse,
   RemoteInstall,
+  RecoveryCodes,
+  ResetPasswordResult,
   Role,
   SaveSnapshot,
   ScanStatus,
   ServerConfig,
   SetupStatus,
   SuggestResponse,
+  TotpActivated,
+  TotpEnrollment,
   UploadPartResponse,
   UploadSession,
   User,
@@ -896,6 +904,85 @@ export const api = {
     return USING_MOCKS
       ? mockApi.revokeSession(tokenStore.get(), id)
       : request(`/auth/sessions/${id}`, { method: "DELETE" });
+  },
+  /** Signs out every other device of the current account (#166). */
+  revokeOtherSessions(): Promise<{ revoked: number }> {
+    return USING_MOCKS
+      ? mockApi.revokeOtherSessions(tokenStore.get())
+      : request<{ revoked: number }>("/auth/sessions", { method: "DELETE" });
+  },
+
+  /* second factor (#166) */
+  loginMfa(body: { challengeToken: string; code: string }): Promise<AuthResult> {
+    return USING_MOCKS
+      ? mockApi.oidcExchange("demo-mfa")
+      : request<AuthResult>("/auth/login/mfa", { method: "POST", body, auth: false });
+  },
+  mfaStatus(): Promise<MfaStatus> {
+    return USING_MOCKS ? mockApi.mfaStatus(tokenStore.get()) : request<MfaStatus>("/auth/mfa");
+  },
+  startTotpEnrollment(): Promise<TotpEnrollment> {
+    return USING_MOCKS
+      ? mockApi.startTotpEnrollment(tokenStore.get())
+      : request<TotpEnrollment>("/auth/mfa/totp/enroll", { method: "POST" });
+  },
+  activateTotp(code: string): Promise<TotpActivated> {
+    return USING_MOCKS
+      ? mockApi.activateTotp(tokenStore.get(), code)
+      : request<TotpActivated>("/auth/mfa/totp/activate", { method: "POST", body: { code } });
+  },
+  disableMfa(password: string): Promise<MfaStatus> {
+    return USING_MOCKS
+      ? mockApi.disableMfa(tokenStore.get())
+      : request<MfaStatus>("/auth/mfa/disable", { method: "POST", body: { password } });
+  },
+  regenerateRecoveryCodes(password: string): Promise<RecoveryCodes> {
+    return USING_MOCKS
+      ? mockApi.regenerateRecoveryCodes(tokenStore.get())
+      : request<RecoveryCodes>("/auth/mfa/recovery-codes", { method: "POST", body: { password } });
+  },
+
+  /* invitations (#166). Preview and accept are public: the invitee has no account. */
+  invitationPreview(token: string): Promise<InvitationPreview> {
+    return USING_MOCKS
+      ? mockApi.previewInvitation(token)
+      : request<InvitationPreview>(`/invitations/${encodeURIComponent(token)}`, { auth: false });
+  },
+  acceptInvitation(token: string, body: { username: string; password: string }): Promise<AuthResult> {
+    return USING_MOCKS
+      ? mockApi.acceptInvitation(token, body)
+      : request<AuthResult>(`/invitations/${encodeURIComponent(token)}/accept`, {
+          method: "POST",
+          body,
+          auth: false,
+        });
+  },
+  listInvitations(): Promise<Invitation[]> {
+    return USING_MOCKS ? mockApi.listInvitations(tokenStore.get()) : request<Invitation[]>("/invitations");
+  },
+  createInvitation(body: {
+    role?: Role;
+    email?: string | null;
+    note?: string | null;
+    expiresInDays?: number;
+    maxUses?: number;
+  }): Promise<CreatedInvitation> {
+    return USING_MOCKS
+      ? mockApi.createInvitation(tokenStore.get(), body)
+      : request<CreatedInvitation>("/invitations", { method: "POST", body });
+  },
+  revokeInvitation(id: number): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.revokeInvitation(tokenStore.get())
+      : request(`/invitations/${id}`, { method: "DELETE" });
+  },
+  resetUserPassword(
+    id: number,
+    body: { password?: string; requireChange?: boolean } = {},
+  ): Promise<ResetPasswordResult> {
+    return USING_MOCKS
+      ? mockApi.resetUserPassword(tokenStore.get())
+      : request<ResetPasswordResult>(`/users/${id}/reset-password`, { method: "POST", body });
   },
 
   /* resumable uploads */
