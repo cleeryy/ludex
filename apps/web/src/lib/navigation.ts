@@ -27,6 +27,7 @@ export type NavIconName =
   | "upload"
   | "metadata"
   | "authentication"
+  | "activity"
   | "server"
   | "settings";
 
@@ -228,6 +229,14 @@ export const NAV_DESTINATIONS = [
     labelKey: "Server",
     group: "admin",
     icon: "server",
+    visibility: "admin",
+  },
+  {
+    id: "observability",
+    to: "/admin/observability",
+    labelKey: "Observability",
+    group: "admin",
+    icon: "activity",
     visibility: "admin",
   },
   {

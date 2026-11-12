@@ -985,6 +985,18 @@ pub const ROUTES: &[RouteDoc] = &[
         ),
         &[("limit", "Page size"), ("before", "Cursor")],
     ),
+    // Observability (#170)
+    query(
+        route(
+            HttpMethod::Get,
+            "/admin/observability",
+            "Observability",
+            "Admin dashboard snapshot",
+            Auth::Admin,
+            Payload::Schema("ObservabilitySnapshot"),
+        ),
+        &[("window", "Time window: 1h (default) or 24h")],
+    ),
     // Webhooks
     route(
         HttpMethod::Get,
@@ -1879,6 +1891,25 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::models::HealthIngest>()
         .schema_from::<crate::models::HealthWatcher>()
         .schema_from::<crate::metrics::IntegritySummary>()
+        .schema_from::<crate::observability::ObservabilitySnapshot>()
+        .schema_from::<crate::observability::ObservabilityServer>()
+        .schema_from::<crate::observability::ObservabilityRequests>()
+        .schema_from::<crate::observability::ObservabilityPoint>()
+        .schema_from::<crate::observability::ObservabilityErrorRoute>()
+        .schema_from::<crate::observability::ObservabilityActive>()
+        .schema_from::<crate::observability::ObservabilityDatabase>()
+        .schema_from::<crate::observability::ObservabilityDisk>()
+        .schema_from::<crate::observability::ObservabilityMedia>()
+        .schema_from::<crate::observability::ObservabilitySaves>()
+        .schema_from::<crate::observability::ObservabilityBackups>()
+        .schema_from::<crate::observability::ObservabilityRoot>()
+        .schema_from::<crate::observability::ObservabilityStorage>()
+        .schema_from::<crate::observability::ObservabilityEvent>()
+        .schema_from::<crate::observability::ObservabilityWebhookFailure>()
+        .schema_from::<crate::observability::ObservabilityWebhooks>()
+        .schema_from::<crate::observability::ObservabilityFinding>()
+        .schema_from::<crate::observability::ObservabilityIntegrity>()
+        .schema_from::<crate::observability::ObservabilityPrometheus>()
         .schema_from::<crate::models::ServerConfig>()
         .schema_from::<crate::desktop_download::DesktopDownload>()
         .schema_from::<crate::desktop_download::DesktopAsset>()
@@ -2036,6 +2067,7 @@ pub fn document() -> OpenApi {
         ("Cloud saves", "Per-user save snapshots"),
         ("API keys", "Bearer API keys for integrations"),
         ("Audit", "Persistent audit trail"),
+        ("Observability", "Admin health and activity dashboard"),
         ("Webhooks", "Outbound HMAC-signed events"),
         ("Collections", "Curated and smart collections"),
         ("Community", "Public profiles and activity"),

@@ -1028,6 +1028,76 @@ scrape_configs:
       - targets: ["ludex.lan:8080"]
 ```
 
+## Observability dashboard (#170)
+
+One admin-only snapshot feeds the in-product **Admin → Observability** page.
+It aggregates the in-process metrics registry, background worker counters, the
+database pool, storage volumes, the audit log, webhook deliveries and the last
+integrity report. Nothing is sampled on disk: the windowed series comes from a
+fixed 288-slot (24 h at 5 min) in-memory timeline, and a response never carries
+more than 96 points. Every list is capped (12 audit events, 8 webhook failures,
+8 findings), so the endpoint stays cheap with a large library.
+
+```ts
+type ObservabilityWindow = "1h" | "24h";
+
+interface ObservabilitySnapshot {
+  generatedAt: string; window: ObservabilityWindow;
+  server: { version: string; commit: string; uptimeSeconds: number; startedAt: string };
+  requests: {
+    total: number; perSecond: number; success: number; redirects: number;
+    clientErrors: number; serverErrors: number; errorRate: number;
+    averageMs: number; p50Ms: number; p95Ms: number; p99Ms: number;
+  };
+  series: { at: string; requests: number; success: number; redirects: number;
+            clientErrors: number; serverErrors: number; averageMs: number }[];
+  topErrors: { method: string; route: string; status: number; count: number }[];
+  active: { scans: number; ingestRunning: number; ingestQueued: number;
+            downloads: number; integrityRunning: boolean };
+  database: { ok: boolean; backend: string; sizeBytes: number; latencyMs: number;
+              connections: number; idleConnections: number; maxConnections: number };
+  storage: {
+    backend: string;
+    disk: { dataFreeBytes: number; gamesFreeBytes: number; mediaFreeBytes: number };
+    media: { files: number; bytes: number };
+    saves: { snapshots: number; bytes: number };
+    backups: { archives: number; bytes: number; latestAt: string | null };
+    roots: { label: string; enabled: boolean; available: boolean;
+             versions: number; lastError: string | null }[];
+  };
+  recentEvents: { id: number; action: string; actorKind: string;
+                  targetType: string | null; targetId: string | null;
+                  createdAt: string | null }[];
+  webhooks: { pending: number; failed: number;
+              recentFailures: { id: number; event: string; statusCode: number | null;
+                                attempts: number; lastError: string | null;
+                                nextAttemptAt: string | null }[] };
+  integrity: { last: { id: number; status: string; findings: number;
+                       startedAt: string | null; finishedAt: string | null } | null;
+               recentFindings: { kind: string; targetType: string; targetId: string | null;
+                                 detail: string | null; createdAt: string | null }[] };
+  prometheus: { endpoint: string; tokenProtected: boolean };
+}
+```
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/admin/observability?window=1h\|24h` | admin + `admin` scope. `window` defaults to `1h`; any other value is `400 invalid_window` |
+
+- Latency percentiles come from the cumulative histogram since process start;
+  `requests.*` and `series` cover the selected window only.
+- `topErrors` lists the five most frequent 4xx/5xx route templates since
+  process start; it is capped and never contains a concrete id or query string.
+- `active.downloads` counts archive transfers currently streaming, including
+  range and entry streams.
+- `storage.backups` aggregates `{data_dir}/backups` archives created by
+  `ludex-backup`; it is zero when the operator backs up elsewhere.
+- Library root **paths** and integrity finding paths are never returned; roots
+  are identified by their label. The metrics token is reported as configured or
+  not, never echoed.
+- The web page refreshes every 30 s, can be refreshed on demand, and offers
+  quick links to `/metrics`, the recent audit events and the integrity report.
+
 ## Media cache garbage collection
 
 | Method | Route | Notes |

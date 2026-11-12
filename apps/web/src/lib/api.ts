@@ -39,6 +39,8 @@ import type {
   NewsPost,
   OidcAdminResponse,
   OidcSettingsInput,
+  ObservabilitySnapshot,
+  ObservabilityWindow,
   OidcTestResult,
   ProfilePatch,
   PlatformInfo,
@@ -281,6 +283,13 @@ export const api = {
     return USING_MOCKS
       ? mockApi.resetOidcSettings(tokenStore.get())
       : request<OidcAdminResponse>("/admin/oidc/reset", { method: "POST" });
+  },
+
+  /* admin observability (#170) */
+  adminObservability(window: ObservabilityWindow): Promise<ObservabilitySnapshot> {
+    return USING_MOCKS
+      ? mockApi.adminObservability(tokenStore.get(), window)
+      : request<ObservabilitySnapshot>("/admin/observability", { query: { window } });
   },
 
   /* admin metadata providers (#28) */
