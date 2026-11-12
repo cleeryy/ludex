@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
-use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
@@ -1513,6 +1513,12 @@ async fn stream_version(
             header::CACHE_CONTROL,
             HeaderValue::from_static("private, no-store"),
         )
+        // A reverse proxy must not buffer a multi-gigabyte stream: the client
+        // needs each chunk as it is produced (#204).
+        .header(
+            HeaderName::from_static("x-accel-buffering"),
+            HeaderValue::from_static("no"),
+        )
         .body(archive_tar_body(path, tar_size, cleanup))
         .map_err(|_| ApiError::internal())
 }
@@ -1697,6 +1703,7 @@ async fn stream_entry(
     ApiQuery(query): ApiQuery<StreamQuery>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    let started = std::time::Instant::now();
     let _download = state.metrics.download_started();
     let version_id = authorize_version(
         &state,
@@ -1799,6 +1806,12 @@ async fn stream_entry(
         .header(
             header::CACHE_CONTROL,
             HeaderValue::from_static("private, no-store"),
+        )
+        // Never let Caddy/nginx buffer an entry: a buffered multi-hundred-MB
+        // entry looks like a stalled download to the client (#204).
+        .header(
+            HeaderName::from_static("x-accel-buffering"),
+            HeaderValue::from_static("no"),
         );
     if let Ok(value) = HeaderValue::from_str(&content_disposition(file_name)) {
         builder = builder.header(header::CONTENT_DISPOSITION, value);
@@ -1816,6 +1829,18 @@ async fn stream_entry(
     }
 
     let cleanup = source.staged.then(|| source.path.clone());
+    tracing::info!(
+        game_id,
+        version_id,
+        index,
+        path = %info.path,
+        size = info.size,
+        start = range.start,
+        length = range.length,
+        partial = range.partial,
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "stream entry response"
+    );
     builder
         .body(entry_body(
             source.path,
@@ -1823,6 +1848,8 @@ async fn stream_entry(
             range.start,
             range.length,
             cleanup,
+            game_id,
+            version_id,
         ))
         .map_err(|_| ApiError::internal())
 }

@@ -1608,7 +1608,6 @@
   "Resumed {count} file already on disk.": "Wznowiono plik {count} już na dysku.",
   "Resumed {count} files already on disk.": "Wznowiono {count} plików znajdujących się już na dysku.",
   "Retry as download": "Spróbuj ponownie jako plik do pobrania",
-  "Retry stream": "Ponów transmisję",
   "Return to Ludex; you can close this tab.": "Wróć do Ludex; możesz zamknąć tę kartę.",
   "Revoke": "Odwołaj",
   "Revoke link": "Unieważnij link",
@@ -2022,8 +2021,6 @@
   "This shelf is empty": "Ta półka jest pusta",
   "This shelf is empty.": "Ta półka jest pusta.",
   "This stream has no per-file checkpoint and cannot be resumed; retrying as a download keeps the archive so it can resume.": "Ten strumień nie ma punktu kontrolnego dla poszczególnych plików i nie można go wznowić; ponowna próba pobrania powoduje zachowanie archiwum i możliwość jego wznowienia.",
-  "This stream has no per-file checkpoint; retrying restarts it from zero": "Ten strumień nie ma punktu kontrolnego dla poszczególnych plików; ponowna próba powoduje ponowne uruchomienie od zera",
-  "This stream has no per-file checkpoint; retrying restarts it. A download can resume.": "Ten strumień nie ma punktu kontrolnego dla poszczególnych plików; ponowna próba powoduje jego ponowne uruchomienie. Pobieranie może zostać wznowione.",
   "This tint drops text contrast to {ratio}:1 on the surfaces. Pick a darker or lighter tint; {min}:1 is required.": "Ten odcień zmniejsza kontrast tekstu na powierzchniach do {ratio}:1. Wybierz ciemniejszy lub jaśniejszy odcień; Wymagane jest {min}:1.",
   "This token is saved for the profile, not in the settings file: the desktop uses the OS keychain when available and a local SQLite file otherwise.": "Ten token jest zapisywany dla profilu, a nie w pliku ustawień: komputer stacjonarny używa pęku kluczy systemu operacyjnego, jeśli jest dostępny, a w przeciwnym razie lokalnego pliku SQLite.",
   "this user": "tego użytkownika",
@@ -3444,5 +3441,13 @@
   "Why": "Dlaczego",
   "If you cancel, nothing is changed and the manual instructions stay available.": "Anulowanie niczego nie zmienia, a instrukcje ręczne pozostają dostępne.",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Folder konfiguracji Sunshine znajduje się w Program Files, gdzie Windows blokuje zapis.",
-  "You can also set a Sunshine config folder your account can write to.": "Możesz też wskazać folder konfiguracji Sunshine, do którego Twoje konto ma prawo zapisu."
+  "You can also set a Sunshine config folder your account can write to.": "Możesz też wskazać folder konfiguracji Sunshine, do którego Twoje konto ma prawo zapisu.",
+  "Continues from the saved checkpoint with the same job": "Wznawia od zapisanego punktu kontrolnego w tym samym zadaniu",
+  "Downloads the archive instead and resumes with the same job": "Pobiera archiwum zamiast strumienia i wznawia to samo zadanie",
+  "No saved checkpoint: restarting starts from zero and keeps one Downloads row.": "Brak zapisanego punktu kontrolnego: ponowne uruchomienie zacznie od zera i zachowa jeden wiersz w Pobraniach.",
+  "Restart": "Uruchom ponownie",
+  "Restart stream": "Uruchom strumień ponownie",
+  "Restart the install?": "Uruchomić instalację ponownie?",
+  "Starts from zero and reuses the same Downloads row": "Zacznie od zera i użyje tego samego wiersza w Pobraniach",
+  "{title} has no saved checkpoint, so restarting starts it from zero. The same Downloads row is reused; no second job is created.": "{title} nie ma zapisanego punktu kontrolnego, więc ponowne uruchomienie zacznie od zera. Ten sam wiersz w Pobraniach zostanie użyty ponownie; nie powstanie drugie zadanie."
 }

@@ -11,7 +11,9 @@
 //! Formats without random access (7z, RAR) stay on the sequential tar stream
 //! and the normal resumable download.
 
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -37,6 +39,170 @@ const ENTRY_CONCURRENCY: usize = 2;
 /// Folder inside staging that holds in-flight `.part` entry files. Removed
 /// before the staging folder is moved into place.
 const PARTIAL_DIR: &str = ".ludex-partial";
+
+/// How long an entry response may go without a single chunk before the client
+/// considers the connection dead (#204). A long decompress-and-skip can look
+/// like a network drop: the request is retried with a `Range` header, so the
+/// retry resumes at the exact byte instead of restarting the job.
+const DEFAULT_STALL_TIMEOUT: Duration = Duration::from_secs(45);
+/// Bounded attempts per entry. Five covers a proxy 502/504 burst without
+/// looping forever; the job stays resumable when they are exhausted.
+const DEFAULT_ENTRY_ATTEMPTS: u32 = 5;
+/// First backoff; doubles per attempt up to eight seconds.
+const RETRY_BACKOFF: Duration = Duration::from_millis(500);
+
+/// Retry policy of the per-entry stream (#204).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct StreamTuning {
+    pub stall_timeout: Duration,
+    pub attempts: u32,
+    pub backoff: Duration,
+}
+
+impl Default for StreamTuning {
+    fn default() -> Self {
+        Self {
+            stall_timeout: DEFAULT_STALL_TIMEOUT,
+            attempts: DEFAULT_ENTRY_ATTEMPTS,
+            backoff: RETRY_BACKOFF,
+        }
+    }
+}
+
+impl StreamTuning {
+    /// Delay before attempt `failed + 1`, capped at eight times the base.
+    fn backoff(&self, failed: u32) -> Duration {
+        let factor = 1_u32 << failed.saturating_sub(1).min(3);
+        self.backoff.saturating_mul(factor)
+    }
+}
+
+/// Body chunks of one entry response, already mapped to owned bytes so a test
+/// transport can inject stalls and mid-body disconnects (#204).
+type EntryChunks = Pin<Box<dyn futures_util::Stream<Item = Result<Vec<u8>, String>> + Send>>;
+
+/// One entry response as the download loop sees it.
+pub(crate) struct EntryResponse {
+    pub status: reqwest::StatusCode,
+    /// Start offset of a `206` response, parsed from `Content-Range`.
+    pub content_range_start: Option<u64>,
+    pub body: EntryChunks,
+}
+
+/// Injectable HTTP transport for the per-entry stream.
+///
+/// Production uses [`HttpTransport`] (reqwest). Tests implement this trait to
+/// close a body mid-entry, stall without sending a chunk, or answer 502/504
+/// without a socket, and then assert the next request resumes at the exact
+/// offset.
+pub(crate) trait EntryTransport: Send + Sync {
+    fn fetch<'a>(
+        &'a self,
+        url: &'a str,
+        token: Option<&'a str>,
+        offset: u64,
+    ) -> Pin<Box<dyn Future<Output = Result<EntryResponse, String>> + Send + 'a>>;
+}
+
+pub(crate) struct HttpTransport<'a> {
+    pub client: &'a reqwest::Client,
+}
+
+impl EntryTransport for HttpTransport<'_> {
+    fn fetch<'a>(
+        &'a self,
+        url: &'a str,
+        token: Option<&'a str>,
+        offset: u64,
+    ) -> Pin<Box<dyn Future<Output = Result<EntryResponse, String>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut request = self
+                .client
+                .get(url)
+                .header(reqwest::header::ACCEPT_ENCODING, "identity");
+            if let Some(token) = token {
+                request = request.bearer_auth(token);
+            }
+            if offset > 0 {
+                request = request.header(reqwest::header::RANGE, format!("bytes={offset}-"));
+            }
+            let response = request.send().await.map_err(|e| e.to_string())?;
+            let status = response.status();
+            let content_range_start = response
+                .headers()
+                .get(reqwest::header::CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok())
+                .and_then(parse_content_range_start);
+            let body = response
+                .bytes_stream()
+                .map(|item| item.map(|bytes| bytes.to_vec()).map_err(|e| e.to_string()));
+            Ok(EntryResponse {
+                status,
+                content_range_start,
+                body: Box::pin(body),
+            })
+        })
+    }
+}
+
+/// `bytes 100-199/200` → `Some(100)`.
+fn parse_content_range_start(value: &str) -> Option<u64> {
+    let rest = value.trim().strip_prefix("bytes")?.trim_start();
+    let (start, _) = rest.split_once('-')?;
+    start.trim().parse().ok()
+}
+
+/// How a stream job treats a previous attempt (#203).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CheckpointDecision {
+    /// No previous attempt, or its staging folder is gone.
+    Fresh,
+    /// Same archive and the staging folder is on disk: adopt the checkpoint.
+    Adopted,
+    /// A previous attempt exists but the served archive changed: restart
+    /// explicitly, never mix old and new files.
+    ArchiveChanged,
+}
+
+pub(crate) struct CheckpointPlan {
+    pub decision: CheckpointDecision,
+    pub staging: PathBuf,
+    pub stale_staging: Option<PathBuf>,
+}
+
+/// Decides whether a stream job adopts its previous checkpoint.
+///
+/// The manifest fingerprint is a SHA-256 of the entry list, so a rebuilt or
+/// replaced archive under the same version row restarts from zero instead of
+/// trusting files that no longer match the server.
+pub(crate) fn plan_checkpoint(
+    previous: Option<(&str, &Path)>,
+    fingerprint: &str,
+    staging_exists: bool,
+    default_staging: &Path,
+) -> CheckpointPlan {
+    match previous {
+        Some((stored_fingerprint, stored_staging))
+            if stored_fingerprint == fingerprint && staging_exists =>
+        {
+            CheckpointPlan {
+                decision: CheckpointDecision::Adopted,
+                staging: stored_staging.to_path_buf(),
+                stale_staging: None,
+            }
+        }
+        Some((_, stored_staging)) if staging_exists => CheckpointPlan {
+            decision: CheckpointDecision::ArchiveChanged,
+            staging: default_staging.to_path_buf(),
+            stale_staging: Some(stored_staging.to_path_buf()),
+        },
+        _ => CheckpointPlan {
+            decision: CheckpointDecision::Fresh,
+            staging: default_staging.to_path_buf(),
+            stale_staging: None,
+        },
+    }
+}
 
 /// Hex-encoded bitset of completed entry indexes.
 ///
@@ -198,8 +364,9 @@ pub(crate) async fn install(
 
     // Adopt the checkpoint of the previous attempt of this version when the
     // archive is byte-identical (same manifest fingerprint) and its staging
-    // folder is still on disk.
-    let (mut completed, staging, adopted, stale_staging) = {
+    // folder is still on disk (#115/#203). A changed archive restarts
+    // explicitly: old and new files are never mixed.
+    let (mut completed, staging, adopted, stale_staging, decision, had_previous) = {
         let connection = state.db.lock().map_err(|_| {
             Failure::Failed("The local database is unavailable; restart Ludex.".to_string())
         })?;
@@ -207,36 +374,58 @@ pub(crate) async fn install(
             db::latest_stream_manifest_for_version(&connection, params.game_id, params.version_id)
                 .ok()
                 .flatten();
-        if let Some(record) = previous {
-            let stored_staging = PathBuf::from(&record.staging);
-            if record.fingerprint == fingerprint && stored_staging.is_dir() {
-                let bits = db::get_install_job(&connection, &record.job_id)
-                    .ok()
-                    .flatten()
-                    .and_then(|job| job.stream_completed)
-                    .map(|value| CompletedEntries::from_hex(&value))
-                    .unwrap_or_default();
-                (bits, stored_staging, true, None)
-            } else {
-                // The archive changed under the same version row (or its
-                // staging folder is gone): the old files cannot be trusted.
-                (
-                    CompletedEntries::new(manifest.entry_count),
-                    default_staging.to_path_buf(),
-                    false,
-                    stored_staging.is_dir().then_some(stored_staging),
-                )
-            }
+        let plan = plan_checkpoint(
+            previous
+                .as_ref()
+                .map(|record| (record.fingerprint.as_str(), Path::new(&record.staging))),
+            &fingerprint,
+            previous
+                .as_ref()
+                .is_some_and(|record| Path::new(&record.staging).is_dir()),
+            default_staging,
+        );
+        let bits = if plan.decision == CheckpointDecision::Adopted {
+            previous
+                .as_ref()
+                .and_then(|record| {
+                    db::get_install_job(&connection, &record.job_id)
+                        .ok()
+                        .flatten()
+                        .and_then(|job| job.stream_completed)
+                })
+                .map(|value| CompletedEntries::from_hex(&value))
+                .unwrap_or_default()
         } else {
-            (
-                CompletedEntries::new(manifest.entry_count),
-                default_staging.to_path_buf(),
-                false,
-                None,
-            )
-        }
+            CompletedEntries::new(manifest.entry_count)
+        };
+        (
+            bits,
+            plan.staging,
+            plan.decision == CheckpointDecision::Adopted,
+            plan.stale_staging,
+            plan.decision,
+            previous.is_some(),
+        )
     };
     completed.resize(manifest.entry_count);
+    match decision {
+        CheckpointDecision::Adopted => tracing::info!(
+            game_id = params.game_id,
+            version_id = params.version_id,
+            "adopting the stream checkpoint of the previous attempt"
+        ),
+        CheckpointDecision::ArchiveChanged => tracing::warn!(
+            game_id = params.game_id,
+            version_id = params.version_id,
+            "the served archive changed; restarting the stream install from zero"
+        ),
+        CheckpointDecision::Fresh if had_previous => tracing::info!(
+            game_id = params.game_id,
+            version_id = params.version_id,
+            "the previous stream staging folder is gone; starting from zero"
+        ),
+        CheckpointDecision::Fresh => {}
+    }
     if let Some(stale) = stale_staging {
         // Drop a checkpoint that no longer matches the served archive instead
         // of leaking the previous staging folder.
@@ -303,6 +492,7 @@ pub(crate) async fn install(
         })?;
         let entries_json = serde_json::to_string(&manifest.entries)
             .map_err(|e| Failure::Failed(format!("Could not encode the stream manifest: {e}")))?;
+        let _ = db::set_install_job_archive_format(&connection, &job_id, &manifest.format);
         db::upsert_stream_manifest(
             &connection,
             &db::StreamManifestRecord {
@@ -353,10 +543,14 @@ pub(crate) async fn install(
         job.entries_done = Some(resumed as u32);
         job.resumed_entries = Some(resumed as u32);
         job.current_entry = None;
-        job.message = Some(if resumed > 0 {
-            format!("Resuming: {resumed}/{files_total} files already installed")
-        } else {
-            format!("Downloading {files_total} files")
+        job.message = Some(match decision {
+            CheckpointDecision::ArchiveChanged => {
+                "The archive changed on the server; restarting the install from zero".to_string()
+            }
+            _ if resumed > 0 => {
+                format!("Resuming: {resumed}/{files_total} files already installed")
+            }
+            _ => format!("Downloading {files_total} files"),
         });
     });
     persist(app, entry);
@@ -405,8 +599,11 @@ pub(crate) async fn install(
         .filter(|item| !completed.contains(item.index))
         .collect();
 
+    let transport = HttpTransport {
+        client: &state.http,
+    };
     let downloaded = download_entries(
-        &state.http,
+        &transport,
         base,
         params.token.as_deref(),
         params.game_id,
@@ -419,6 +616,7 @@ pub(crate) async fn install(
         &entry.cancel,
         &entry.pause_token(),
         &progress,
+        StreamTuning::default(),
         |item, completed_hex| {
             entry.set_stream_completed(Some(completed_hex.to_string()));
             let entries_done = progress.entries_done.load(Ordering::Relaxed);
@@ -463,7 +661,7 @@ pub(crate) async fn install(
 /// the caller can persist the job row before the next entry finishes.
 #[allow(clippy::too_many_arguments)]
 async fn download_entries<F>(
-    client: &reqwest::Client,
+    transport: &dyn EntryTransport,
     base: &str,
     token: Option<&str>,
     game_id: i64,
@@ -476,6 +674,7 @@ async fn download_entries<F>(
     cancel: &CancellationToken,
     pause: &CancellationToken,
     progress: &Arc<ProgressState>,
+    tuning: StreamTuning,
     mut on_complete: F,
 ) -> Result<(), Failure>
 where
@@ -484,7 +683,6 @@ where
     let throttle = Arc::new(Mutex::new(Throttle::new(bandwidth_kib)));
     let downloads = futures_util::stream::iter(pending)
         .map(|item| {
-            let client = client.clone();
             let token = token.map(str::to_string);
             let staging = staging.to_path_buf();
             let partial_root = partial_root.to_path_buf();
@@ -494,7 +692,7 @@ where
             let progress = Arc::clone(progress);
             async move {
                 download_entry(
-                    &client,
+                    transport,
                     base,
                     token.as_deref(),
                     game_id,
@@ -506,6 +704,7 @@ where
                     &cancel,
                     &pause,
                     &progress,
+                    tuning,
                 )
                 .await
                 .map(|()| item)
@@ -524,9 +723,16 @@ where
 }
 
 /// Downloads one entry into `staging`, resuming a `.part` file with Range.
+///
+/// Every attempt continues at the current `.part` size. A stalled body, a
+/// dropped connection, a proxy 502/504 and a short body are retried with
+/// bounded exponential backoff (#204); the checkpoint on disk is what makes
+/// each retry cheap. When the whole job has received zero bytes and every
+/// attempt fails at the transport level, the stream path is reported as
+/// unavailable so the caller can fall back to the classic download once.
 #[allow(clippy::too_many_arguments)]
 async fn download_entry(
-    client: &reqwest::Client,
+    transport: &dyn EntryTransport,
     base: &str,
     token: Option<&str>,
     game_id: i64,
@@ -538,6 +744,7 @@ async fn download_entry(
     cancel: &CancellationToken,
     pause: &CancellationToken,
     progress: &ProgressState,
+    tuning: StreamTuning,
 ) -> Result<(), Failure> {
     let relative = safe_tar_path(Path::new(&item.path)).ok_or_else(|| {
         Failure::Failed(format!(
@@ -569,39 +776,118 @@ async fn download_entry(
         item.index
     );
 
+    let started = Instant::now();
     let mut last_error = String::new();
-    for attempt in 0..2 {
-        if attempt > 0 {
-            let _ = tokio::fs::remove_file(&partial).await;
+    for attempt in 1..=tuning.attempts {
+        if attempt > 1 {
+            let delay = tuning.backoff(attempt - 1);
+            let kept = partial_size(&partial).await;
+            tracing::warn!(
+                index = item.index,
+                path = %item.path,
+                attempt,
+                max_attempts = tuning.attempts,
+                bytes = kept,
+                delay_ms = delay.as_millis() as u64,
+                error = %last_error,
+                "retrying stream entry"
+            );
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => return Err(Failure::Cancelled),
+                _ = pause.cancelled() => return Err(Failure::Paused),
+                _ = tokio::time::sleep(delay) => {}
+            }
         }
         match download_entry_once(
-            client, &url, token, item, &partial, throttle, cancel, pause, progress,
+            transport, &url, token, item, &partial, throttle, cancel, pause, progress, tuning,
         )
         .await
         {
             Ok(()) => {
                 finalize_entry(&partial, &target, item).await?;
+                tracing::info!(
+                    index = item.index,
+                    path = %item.path,
+                    bytes = item.size,
+                    attempts = attempt,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    "stream entry installed"
+                );
                 return Ok(());
             }
+            Err(Failure::Cancelled) => return Err(Failure::Cancelled),
+            Err(Failure::Paused) => return Err(Failure::Paused),
+            Err(Failure::StreamUnavailable(message)) => {
+                return Err(Failure::StreamUnavailable(message))
+            }
             Err(Failure::Failed(message)) => {
-                // Only a corrupted/truncated entry is worth a second pass; a
-                // network error must reach the caller so the job can resume.
-                let retryable = message.contains("checksum") || message.contains("size mismatch");
-                if !retryable {
+                if is_permanent_http_failure(&message) {
+                    // 401/403/404/415: retrying cannot help. Report at once so
+                    // the UI can offer a real fix (sign in, another version).
                     return Err(Failure::Failed(message));
+                }
+                if message.contains("checksum") {
+                    // The bytes on disk are wrong: drop them and fetch the
+                    // entry again from zero.
+                    let size = partial_size(&partial).await;
+                    progress.subtract_bytes(size);
+                    let _ = tokio::fs::remove_file(&partial).await;
                 }
                 last_error = message;
             }
-            Err(other) => return Err(other),
         }
     }
-    Err(Failure::Failed(last_error))
+
+    let kept = partial_size(&partial).await;
+    tracing::warn!(
+        index = item.index,
+        path = %item.path,
+        attempts = tuning.attempts,
+        bytes = kept,
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        error = %last_error,
+        "stream entry failed"
+    );
+    // Nothing was ever received for this job: a proxy or a broken stream path
+    // rejects every attempt before the first byte. Let the caller fall back to
+    // the classic resumable download instead of looping (#204).
+    if progress.bytes.load(Ordering::Relaxed) == 0 && kept == 0 {
+        return Err(Failure::StreamUnavailable(format!(
+            "entry {} could not be reached after {} attempts: {last_error}",
+            item.path, tuning.attempts
+        )));
+    }
+    Err(Failure::Failed(format!(
+        "Entry {} failed after {} attempts ({kept} bytes kept): {last_error}. Resume the install to continue.",
+        item.path, tuning.attempts
+    )))
+}
+
+/// HTTP failures that a retry cannot fix.
+fn is_permanent_http_failure(message: &str) -> bool {
+    [
+        "HTTP 400", "HTTP 401", "HTTP 403", "HTTP 404", "HTTP 405", "HTTP 415", "HTTP 416",
+    ]
+    .iter()
+    .any(|code| message.contains(code))
+}
+
+async fn partial_size(partial: &Path) -> u64 {
+    tokio::fs::metadata(partial)
+        .await
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
 }
 
 /// One HTTP pass for an entry, starting at the current `.part` size.
+///
+/// The body is read with a stall timeout: a decompress-and-skip that stops
+/// sending chunks, an idle proxy or a half-closed connection is treated as a
+/// retryable failure and the next attempt resumes at the exact byte.
 #[allow(clippy::too_many_arguments)]
 async fn download_entry_once(
-    client: &reqwest::Client,
+    transport: &dyn EntryTransport,
     url: &str,
     token: Option<&str>,
     item: &StreamEntry,
@@ -610,16 +896,14 @@ async fn download_entry_once(
     cancel: &CancellationToken,
     pause: &CancellationToken,
     progress: &ProgressState,
+    tuning: StreamTuning,
 ) -> Result<(), Failure> {
     if item.size == 0 {
         let _ = tokio::fs::write(partial, []).await;
         return Ok(());
     }
 
-    let mut offset = tokio::fs::metadata(partial)
-        .await
-        .map(|metadata| metadata.len())
-        .unwrap_or(0);
+    let mut offset = partial_size(partial).await;
     if offset > item.size {
         progress.subtract_bytes(offset);
         let _ = tokio::fs::remove_file(partial).await;
@@ -629,29 +913,20 @@ async fn download_entry_once(
 
     let mut restarted = false;
     loop {
-        let mut request = client
-            .get(url)
-            .header(reqwest::header::ACCEPT_ENCODING, "identity");
-        if let Some(token) = token {
-            request = request.bearer_auth(token);
-        }
-        if offset > 0 {
-            request = request.header(reqwest::header::RANGE, format!("bytes={offset}-"));
-        }
-
         let response = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Err(Failure::Cancelled),
             _ = pause.cancelled() => return Err(Failure::Paused),
-            response = request.send() => response.map_err(|e| {
-                Failure::Failed(format!(
-                    "Could not download {}: {e}. Retry the install to resume.",
-                    item.path
-                ))
-            })?,
-        };
+            response = transport.fetch(url, token, offset) => response,
+        }
+        .map_err(|e| {
+            Failure::Failed(format!(
+                "Could not download {}: {e}. Retrying from the saved offset.",
+                item.path
+            ))
+        })?;
 
-        let status = response.status();
+        let status = response.status;
         if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
             // The `.part` may already hold the whole entry (completed just
             // before the app stopped) or be bogus.
@@ -686,14 +961,7 @@ async fn download_entry_once(
 
         let append = status == reqwest::StatusCode::PARTIAL_CONTENT && offset > 0;
         if append {
-            let start = response
-                .headers()
-                .get(reqwest::header::CONTENT_RANGE)
-                .and_then(|value| value.to_str().ok())
-                .and_then(|value| value.split_once('-'))
-                .and_then(|(start, _)| start.split_whitespace().last())
-                .and_then(|start| start.parse::<u64>().ok());
-            if start != Some(offset) {
+            if response.content_range_start != Some(offset) {
                 let _ = tokio::fs::remove_file(partial).await;
                 if restarted {
                     return Err(Failure::Failed(format!(
@@ -728,7 +996,7 @@ async fn download_entry_once(
 
         let mut writer = tokio::io::BufWriter::with_capacity(1024 * 1024, file);
         let mut written = offset;
-        let mut stream = response.bytes_stream();
+        let mut stream = response.body;
         loop {
             let chunk = tokio::select! {
                 biased;
@@ -740,10 +1008,17 @@ async fn download_entry_once(
                     let _ = writer.flush().await;
                     return Err(Failure::Paused);
                 }
-                chunk = stream.next() => chunk,
+                result = tokio::time::timeout(tuning.stall_timeout, stream.next()) => result,
             };
             match chunk {
-                Some(Ok(bytes)) => {
+                Err(_elapsed) => {
+                    let _ = writer.flush().await;
+                    return Err(Failure::Failed(format!(
+                        "Entry {} stalled for {:?} after {written} bytes; retrying from that offset.",
+                        item.path, tuning.stall_timeout
+                    )));
+                }
+                Ok(Some(Ok(bytes))) => {
                     writer.write_all(&bytes).await.map_err(|e| {
                         Failure::Failed(format!("Could not write {}: {e}", partial.display()))
                     })?;
@@ -777,14 +1052,14 @@ async fn download_entry_once(
                         }
                     }
                 }
-                Some(Err(error)) => {
+                Ok(Some(Err(error))) => {
                     let _ = writer.flush().await;
                     return Err(Failure::Failed(format!(
-                        "The download of {} was interrupted after {written} bytes: {error}. Retry the install to resume.",
+                        "The download of {} was interrupted after {written} bytes: {error}. Retrying from that offset.",
                         item.path
                     )));
                 }
-                None => break,
+                Ok(None) => break,
             }
         }
 
@@ -800,10 +1075,7 @@ async fn download_entry_once(
             ))
         })?;
 
-        let size = tokio::fs::metadata(partial)
-            .await
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
+        let size = partial_size(partial).await;
         if size != item.size {
             return Err(Failure::Failed(format!(
                 "Entry {} size mismatch: expected {} bytes, got {size}",
@@ -1023,13 +1295,45 @@ mod tests {
         pause: &CancellationToken,
         on_complete: impl FnMut(&StreamEntry, &str),
     ) -> Result<(), Failure> {
+        run_with_tuning(
+            server,
+            manifest,
+            contents,
+            completed,
+            staging,
+            partial_root,
+            progress,
+            cancel,
+            pause,
+            StreamTuning::default(),
+            on_complete,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn run_with_tuning(
+        server: &crate::test_support::ZipServer,
+        manifest: &StreamManifest,
+        contents: &[Vec<u8>],
+        completed: &mut CompletedEntries,
+        staging: &Path,
+        partial_root: &Path,
+        progress: &Arc<ProgressState>,
+        cancel: &CancellationToken,
+        pause: &CancellationToken,
+        tuning: StreamTuning,
+        on_complete: impl FnMut(&StreamEntry, &str),
+    ) -> Result<(), Failure> {
         let pending: Vec<StreamEntry> = files(manifest)
             .into_iter()
             .filter(|item| !completed.contains(item.index))
             .collect();
         let _ = contents;
+        let client = reqwest::Client::new();
+        let transport = HttpTransport { client: &client };
         download_entries(
-            &reqwest::Client::new(),
+            &transport,
             &server.url,
             None,
             7,
@@ -1042,6 +1346,7 @@ mod tests {
             cancel,
             pause,
             progress,
+            tuning,
             on_complete,
         )
         .await
@@ -1105,7 +1410,7 @@ mod tests {
         let failing =
             crate::test_support::serve_zip(manifest.clone(), contents.clone(), Some(big_index))
                 .await;
-        let result = run(
+        let result = run_with_tuning(
             &failing,
             &manifest,
             &contents,
@@ -1115,6 +1420,10 @@ mod tests {
             &progress,
             &CancellationToken::new(),
             &CancellationToken::new(),
+            StreamTuning {
+                attempts: 1,
+                ..StreamTuning::default()
+            },
             |_, _| {},
         )
         .await;
@@ -1239,7 +1548,7 @@ mod tests {
         let progress = Arc::new(ProgressState::new(0, 0));
         let server = crate::test_support::serve_zip(manifest.clone(), contents, None).await;
 
-        let result = run(
+        let result = run_with_tuning(
             &server,
             &manifest,
             &[],
@@ -1249,6 +1558,10 @@ mod tests {
             &progress,
             &CancellationToken::new(),
             &CancellationToken::new(),
+            StreamTuning {
+                attempts: 1,
+                ..StreamTuning::default()
+            },
             |_, _| {},
         )
         .await;
@@ -1261,5 +1574,490 @@ mod tests {
         assert!(!completed.contains(target));
         assert!(!staging.join("Game/game.exe").exists());
         let _ = std::fs::remove_dir_all(&staging);
+    }
+    /* ------------------- injected transport (#204/#203) ------------------- */
+
+    enum ScriptedResult {
+        Response {
+            status: u16,
+            content_range_start: Option<u64>,
+            chunks: Vec<Result<Vec<u8>, String>>,
+            /// Keep the body open after the chunks so the stall timeout fires.
+            stall: bool,
+        },
+        Error(String),
+    }
+
+    type ScriptHandler = Box<dyn Fn(usize, u64, usize, &[Vec<u8>]) -> ScriptedResult + Send + Sync>;
+
+    /// Test transport: answers from a handler keyed by entry index and the
+    /// per-entry attempt number. No socket, so a stall or a mid-body drop is
+    /// deterministic.
+    struct ScriptedTransport {
+        contents: Arc<Vec<Vec<u8>>>,
+        handler: ScriptHandler,
+        requests: Mutex<Vec<(usize, u64)>>,
+        counts: Mutex<std::collections::HashMap<usize, usize>>,
+    }
+
+    impl ScriptedTransport {
+        fn new(
+            contents: Vec<Vec<u8>>,
+            handler: impl Fn(usize, u64, usize, &[Vec<u8>]) -> ScriptedResult + Send + Sync + 'static,
+        ) -> Self {
+            Self {
+                contents: Arc::new(contents),
+                handler: Box::new(handler),
+                requests: Mutex::new(Vec::new()),
+                counts: Mutex::new(std::collections::HashMap::new()),
+            }
+        }
+
+        fn requests(&self) -> Vec<(usize, u64)> {
+            self.requests.lock().unwrap().clone()
+        }
+    }
+
+    impl EntryTransport for ScriptedTransport {
+        fn fetch<'a>(
+            &'a self,
+            url: &'a str,
+            _token: Option<&'a str>,
+            offset: u64,
+        ) -> Pin<Box<dyn Future<Output = Result<EntryResponse, String>> + Send + 'a>> {
+            Box::pin(async move {
+                let index = url
+                    .rsplit('/')
+                    .next()
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .ok_or_else(|| "bad test url".to_string())?;
+                let attempt = {
+                    let mut counts = self.counts.lock().unwrap();
+                    let entry = counts.entry(index).or_insert(0);
+                    *entry += 1;
+                    *entry
+                };
+                self.requests.lock().unwrap().push((index, offset));
+                match (self.handler)(index, offset, attempt, &self.contents) {
+                    ScriptedResult::Error(message) => Err(message),
+                    ScriptedResult::Response {
+                        status,
+                        content_range_start,
+                        chunks,
+                        stall,
+                    } => {
+                        let mut body: Pin<
+                            Box<dyn futures_util::Stream<Item = Result<Vec<u8>, String>> + Send>,
+                        > = Box::pin(futures_util::stream::iter(chunks));
+                        if stall {
+                            body = Box::pin(body.chain(futures_util::stream::pending()));
+                        }
+                        Ok(EntryResponse {
+                            status: reqwest::StatusCode::from_u16(status).unwrap(),
+                            content_range_start,
+                            body,
+                        })
+                    }
+                }
+            })
+        }
+    }
+
+    fn full_entry(contents: &[Vec<u8>], index: usize) -> ScriptedResult {
+        ScriptedResult::Response {
+            status: 200,
+            content_range_start: None,
+            chunks: vec![Ok(contents[index].clone())],
+            stall: false,
+        }
+    }
+
+    fn fast_tuning(attempts: u32) -> StreamTuning {
+        StreamTuning {
+            stall_timeout: Duration::from_millis(120),
+            attempts,
+            backoff: Duration::from_millis(1),
+        }
+    }
+
+    fn scripted_staging(label: &str) -> (PathBuf, PathBuf) {
+        let staging = temp_dir(label);
+        let partial_root = staging.join(PARTIAL_DIR);
+        std::fs::create_dir_all(&partial_root).unwrap();
+        (staging, partial_root)
+    }
+
+    #[tokio::test]
+    async fn a_stalled_entry_resumes_at_the_exact_byte() {
+        let (manifest, contents) = zip_fixture("stall");
+        let big = files(&manifest)
+            .into_iter()
+            .find(|item| item.path.ends_with("big.bin"))
+            .expect("big entry");
+        let big_index = big.index;
+        let big_len = contents[big_index].len();
+        let half = (big_len / 2) as u64;
+        let (staging, partial_root) = scripted_staging("stall-staging");
+        let mut completed = CompletedEntries::new(manifest.entry_count);
+        let progress = Arc::new(ProgressState::new(0, 0));
+        let transport =
+            ScriptedTransport::new(contents.clone(), move |index, offset, attempt, contents| {
+                if index != big_index {
+                    return full_entry(contents, index);
+                }
+                if attempt == 1 {
+                    // Half the entry, then the body never sends another chunk.
+                    ScriptedResult::Response {
+                        status: 200,
+                        content_range_start: None,
+                        chunks: vec![Ok(contents[index][..half as usize].to_vec())],
+                        stall: true,
+                    }
+                } else {
+                    // The retry must ask for exactly the bytes already on disk.
+                    ScriptedResult::Response {
+                        status: 206,
+                        content_range_start: Some(offset),
+                        chunks: vec![Ok(contents[index][offset as usize..].to_vec())],
+                        stall: false,
+                    }
+                }
+            });
+
+        let pending: Vec<StreamEntry> = files(&manifest)
+            .into_iter()
+            .filter(|item| !completed.contains(item.index))
+            .collect();
+        let downloaded = download_entries(
+            &transport,
+            "http://test",
+            None,
+            7,
+            9,
+            pending,
+            &staging,
+            &partial_root,
+            &mut completed,
+            0,
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            &progress,
+            fast_tuning(3),
+            |_, _| {},
+        )
+        .await;
+        downloaded.expect("the stalled entry must resume");
+
+        let requests = transport.requests();
+        assert!(
+            requests.contains(&(big_index, half)),
+            "the retry must resume at the half-written byte, got {requests:?}"
+        );
+        assert_eq!(completed.count(), files(&manifest).len());
+        for item in files(&manifest) {
+            assert_eq!(
+                std::fs::read(staging.join(&item.path)).unwrap(),
+                contents[item.index],
+                "{} must be byte-identical",
+                item.path
+            );
+        }
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+
+    #[tokio::test]
+    async fn a_mid_body_disconnect_is_retried_from_the_written_offset() {
+        let (manifest, contents) = zip_fixture("drop");
+        let big = files(&manifest)
+            .into_iter()
+            .find(|item| item.path.ends_with("big.bin"))
+            .expect("big entry");
+        let big_index = big.index;
+        let half = (contents[big_index].len() / 2) as u64;
+        let (staging, partial_root) = scripted_staging("drop-staging");
+        let mut completed = CompletedEntries::new(manifest.entry_count);
+        let progress = Arc::new(ProgressState::new(0, 0));
+        let transport =
+            ScriptedTransport::new(contents.clone(), move |index, offset, attempt, contents| {
+                if index != big_index {
+                    return full_entry(contents, index);
+                }
+                if attempt == 1 {
+                    ScriptedResult::Response {
+                        status: 200,
+                        content_range_start: None,
+                        chunks: vec![
+                            Ok(contents[index][..half as usize].to_vec()),
+                            Err("connection reset by peer".to_string()),
+                        ],
+                        stall: false,
+                    }
+                } else {
+                    ScriptedResult::Response {
+                        status: 206,
+                        content_range_start: Some(offset),
+                        chunks: vec![Ok(contents[index][offset as usize..].to_vec())],
+                        stall: false,
+                    }
+                }
+            });
+
+        let pending: Vec<StreamEntry> = files(&manifest)
+            .into_iter()
+            .filter(|item| !completed.contains(item.index))
+            .collect();
+        download_entries(
+            &transport,
+            "http://test",
+            None,
+            7,
+            9,
+            pending,
+            &staging,
+            &partial_root,
+            &mut completed,
+            0,
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            &progress,
+            fast_tuning(3),
+            |_, _| {},
+        )
+        .await
+        .expect("the dropped entry must resume");
+
+        assert!(transport.requests().contains(&(big_index, half)));
+        assert_eq!(
+            std::fs::read(staging.join(&big.path)).unwrap(),
+            contents[big_index]
+        );
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+
+    #[tokio::test]
+    async fn entry_retries_are_bounded_and_keep_the_checkpoint() {
+        let (manifest, contents) = zip_fixture("bounded");
+        let big = files(&manifest)
+            .into_iter()
+            .find(|item| item.path.ends_with("big.bin"))
+            .expect("big entry");
+        let big_index = big.index;
+        let (staging, partial_root) = scripted_staging("bounded-staging");
+        let mut completed = CompletedEntries::new(manifest.entry_count);
+        let progress = Arc::new(ProgressState::new(0, 0));
+        let transport = ScriptedTransport::new(
+            contents.clone(),
+            move |index, _offset, _attempt, contents| {
+                if index == big_index {
+                    ScriptedResult::Error("proxy returned 502".to_string())
+                } else {
+                    full_entry(contents, index)
+                }
+            },
+        );
+
+        let pending: Vec<StreamEntry> = files(&manifest)
+            .into_iter()
+            .filter(|item| !completed.contains(item.index))
+            .collect();
+        let result = download_entries(
+            &transport,
+            "http://test",
+            None,
+            7,
+            9,
+            pending,
+            &staging,
+            &partial_root,
+            &mut completed,
+            0,
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            &progress,
+            fast_tuning(3),
+            |_, _| {},
+        )
+        .await;
+
+        match result {
+            Err(Failure::Failed(message)) => {
+                assert!(message.contains("after 3 attempts"), "{message}");
+            }
+            other => panic!("expected a bounded failure, got {other:?}"),
+        }
+        let big_requests = transport
+            .requests()
+            .into_iter()
+            .filter(|(index, _)| *index == big_index)
+            .count();
+        assert_eq!(
+            big_requests, 3,
+            "the entry must be attempted exactly 3 times"
+        );
+        assert!(!completed.contains(big_index));
+        // The entries that did finish are kept for the next attempt.
+        assert!(completed.count() >= 1);
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+
+    #[tokio::test]
+    async fn a_paused_entry_keeps_its_partial_and_resumes_with_range() {
+        let (manifest, contents) = zip_fixture("pause-entry");
+        let big = files(&manifest)
+            .into_iter()
+            .find(|item| item.path.ends_with("big.bin"))
+            .expect("big entry");
+        let big_index = big.index;
+        let half = (contents[big_index].len() / 2) as u64;
+        let (staging, partial_root) = scripted_staging("pause-entry-staging");
+        let mut completed = CompletedEntries::new(manifest.entry_count);
+        let progress = Arc::new(ProgressState::new(0, 0));
+
+        // First pass: half the entry, then the pause token fires.
+        let transport = ScriptedTransport::new(
+            contents.clone(),
+            move |index, _offset, _attempt, contents| {
+                if index != big_index {
+                    return full_entry(contents, index);
+                }
+                ScriptedResult::Response {
+                    status: 200,
+                    content_range_start: None,
+                    chunks: vec![Ok(contents[index][..half as usize].to_vec())],
+                    stall: true,
+                }
+            },
+        );
+        let pause = CancellationToken::new();
+        let cancel_from_test = pause.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            cancel_from_test.cancel();
+        });
+        let pending: Vec<StreamEntry> = files(&manifest)
+            .into_iter()
+            .filter(|item| !completed.contains(item.index))
+            .collect();
+        let result = download_entries(
+            &transport,
+            "http://test",
+            None,
+            7,
+            9,
+            pending,
+            &staging,
+            &partial_root,
+            &mut completed,
+            0,
+            &CancellationToken::new(),
+            &pause,
+            &progress,
+            StreamTuning {
+                stall_timeout: Duration::from_secs(5),
+                attempts: 2,
+                backoff: Duration::from_millis(1),
+            },
+            |_, _| {},
+        )
+        .await;
+        assert!(matches!(result, Err(Failure::Paused)), "{result:?}");
+        let kept = std::fs::metadata(partial_root.join(format!("{big_index}.part")))
+            .expect("partial entry kept")
+            .len();
+        assert_eq!(kept, half, "the pause must flush the exact byte offset");
+
+        // Second pass: a fresh token resumes at the kept offset.
+        let transport = ScriptedTransport::new(
+            contents.clone(),
+            move |index, offset, _attempt, contents| {
+                if index != big_index {
+                    return full_entry(contents, index);
+                }
+                ScriptedResult::Response {
+                    status: 206,
+                    content_range_start: Some(offset),
+                    chunks: vec![Ok(contents[index][offset as usize..].to_vec())],
+                    stall: false,
+                }
+            },
+        );
+        let pending: Vec<StreamEntry> = files(&manifest)
+            .into_iter()
+            .filter(|item| !completed.contains(item.index))
+            .collect();
+        download_entries(
+            &transport,
+            "http://test",
+            None,
+            7,
+            9,
+            pending,
+            &staging,
+            &partial_root,
+            &mut completed,
+            0,
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            &progress,
+            fast_tuning(2),
+            |_, _| {},
+        )
+        .await
+        .expect("the paused entry must resume");
+        assert!(transport.requests().contains(&(big_index, half)));
+        assert_eq!(
+            std::fs::read(staging.join(&big.path)).unwrap(),
+            contents[big_index]
+        );
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+
+    #[test]
+    fn checkpoint_plan_adopts_or_restarts_on_a_changed_archive() {
+        let default = Path::new("/games/.game.staging-new");
+        let previous = Path::new("/games/.game.staging-old");
+
+        let adopted = plan_checkpoint(
+            Some(("fingerprint-a", previous)),
+            "fingerprint-a",
+            true,
+            default,
+        );
+        assert_eq!(adopted.decision, CheckpointDecision::Adopted);
+        assert_eq!(adopted.staging, previous);
+        assert!(adopted.stale_staging.is_none());
+
+        let changed = plan_checkpoint(
+            Some(("fingerprint-a", previous)),
+            "fingerprint-b",
+            true,
+            default,
+        );
+        assert_eq!(changed.decision, CheckpointDecision::ArchiveChanged);
+        assert_eq!(changed.staging, default);
+        assert_eq!(changed.stale_staging.as_deref(), Some(previous));
+
+        let gone = plan_checkpoint(
+            Some(("fingerprint-a", previous)),
+            "fingerprint-a",
+            false,
+            default,
+        );
+        assert_eq!(gone.decision, CheckpointDecision::Fresh);
+        assert_eq!(gone.staging, default);
+        assert!(gone.stale_staging.is_none());
+
+        assert_eq!(
+            plan_checkpoint(None, "fingerprint-a", false, default).decision,
+            CheckpointDecision::Fresh
+        );
+    }
+
+    #[test]
+    fn content_range_start_is_parsed() {
+        assert_eq!(parse_content_range_start("bytes 100-199/200"), Some(100));
+        assert_eq!(parse_content_range_start("bytes 0-9/10"), Some(0));
+        assert_eq!(parse_content_range_start("bytes */200"), None);
+        assert_eq!(parse_content_range_start(""), None);
     }
 }

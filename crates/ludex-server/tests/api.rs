@@ -2174,6 +2174,14 @@ async fn stream_install_zip_as_tar() {
             .and_then(|value| value.to_str().ok()),
         Some("private, no-store")
     );
+    assert_eq!(
+        response
+            .headers()
+            .get("x-accel-buffering")
+            .and_then(|value| value.to_str().ok()),
+        Some("no"),
+        "a reverse proxy must not buffer the stream"
+    );
     let content_length: u64 = response
         .headers()
         .get(CONTENT_LENGTH)
@@ -2368,6 +2376,14 @@ async fn stream_manifest_and_entry_ranges() {
             .get(ACCEPT_RANGES)
             .and_then(|value| value.to_str().ok()),
         Some("bytes")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get("x-accel-buffering")
+            .and_then(|value| value.to_str().ok()),
+        Some("no"),
+        "a reverse proxy must not buffer an entry"
     );
     assert_eq!(
         response.bytes().await.expect("body").as_ref(),

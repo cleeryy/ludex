@@ -39,6 +39,7 @@ import type {
   InstallGameArgs,
   InstallHealth,
   InstallJob,
+  InstallResumeMode,
   InstalledGame,
   InstallerPlan,
   InstallerReport,
@@ -338,8 +339,13 @@ export const native = {
     return invoke<InstallJob>("pause_install", { jobId });
   },
 
-  async resumeInstall(jobId: string): Promise<InstallJob> {
-    return invoke<InstallJob>("resume_install", { jobId });
+  /**
+   * Continue a paused/failed/interrupted job, always with the same job id
+   * (#205/#208). `mode` only switches the transport: `download` is the
+   * explicit "retry as download", `stream` the explicit "restart stream".
+   */
+  async resumeInstall(jobId: string, mode?: InstallResumeMode | null): Promise<InstallJob> {
+    return invoke<InstallJob>("resume_install", { jobId, mode: mode ?? null });
   },
 
   async getInstallJob(jobId: string): Promise<InstallJob> {

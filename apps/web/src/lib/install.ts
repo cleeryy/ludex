@@ -8,6 +8,7 @@ import type {
   InstallJob,
   InstalledGame,
   LauncherId,
+  InstallResumeMode,
   LocalSettings,
   ManifestStatus,
   ManifestUpdate,
@@ -39,8 +40,8 @@ export const installBridge = {
     return USING_MOCKS ? mockInstalls.pause(jobId) : native.pauseInstall(jobId);
   },
 
-  resume(jobId: string): Promise<InstallJob | null> {
-    return USING_MOCKS ? mockInstalls.resume(jobId) : native.resumeInstall(jobId);
+  resume(jobId: string, mode?: InstallResumeMode | null): Promise<InstallJob | null> {
+    return USING_MOCKS ? mockInstalls.resume(jobId, mode) : native.resumeInstall(jobId, mode);
   },
 
   /** Delete one finished job from history, never its files (#100). */

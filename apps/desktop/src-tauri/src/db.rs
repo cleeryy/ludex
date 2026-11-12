@@ -130,7 +130,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 16;
+const SCHEMA_VERSION: i64 = 17;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -480,6 +480,41 @@ const SCHEMA_V16: &str = r#"
 ALTER TABLE game_launch_options ADD COLUMN working_dir TEXT NOT NULL DEFAULT '';
 "#;
 
+/// Resumable installs (#203/#205/#208): the job row keeps the staging folder
+/// and whether a real checkpoint exists, and `install_job_params` stores the
+/// request that created the job so `resume_install` can rebuild a worker after
+/// an app restart instead of starting a second job from zero.
+///
+/// The token is deliberately absent: it is read from the settings/secret store
+/// when the job resumes, so no credential is copied into the install table.
+const SCHEMA_V17: &str = r#"
+ALTER TABLE install_jobs ADD COLUMN staging_path TEXT;
+ALTER TABLE install_jobs ADD COLUMN resumable INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE install_jobs ADD COLUMN entries_total INTEGER;
+
+CREATE TABLE IF NOT EXISTS install_job_params (
+    job_id              TEXT    PRIMARY KEY,
+    game_id             INTEGER NOT NULL,
+    version_id          INTEGER NOT NULL,
+    title               TEXT    NOT NULL,
+    version             TEXT,
+    executable          TEXT,
+    install_dir         TEXT,
+    download_dir        TEXT,
+    install_location_id TEXT,
+    download_location_id TEXT,
+    expected_bytes      INTEGER,
+    stream              INTEGER NOT NULL DEFAULT 0,
+    archive_format      TEXT,
+    replace_path        TEXT,
+    server_url          TEXT    NOT NULL,
+    created_at          TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS install_job_params_version_idx
+    ON install_job_params (game_id, version_id);
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -609,6 +644,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
     if version < 16 {
         connection.execute_batch(SCHEMA_V16).map_err(|e| {
             format!("Could not add the launch working directory to the desktop database: {e}")
+        })?;
+    }
+    if version < 17 {
+        connection.execute_batch(SCHEMA_V17).map_err(|e| {
+            format!("Could not add resumable install parameters to the desktop database: {e}")
         })?;
     }
 
@@ -1304,12 +1344,20 @@ pub struct InstallJobRecord {
     pub speed_bps: i64,
     pub part_path: Option<String>,
     pub install_path: Option<String>,
+    /// Staging folder of the attempt (#203). A stream job keeps it so a later
+    /// resume adopts the files already written.
+    pub staging_path: Option<String>,
     pub error: Option<String>,
-    /// True when the job used the non-resumable tar stream (#114).
+    /// True when the job used a stream install (#114).
     pub stream: bool,
+    /// True when a real checkpoint exists (`.part` file, completed stream
+    /// entries, or a paused job), so Resume continues instead of restarting.
+    pub resumable: bool,
     /// Hex bitset of completed entry indexes for a resumable stream install
     /// (#115). `None` for download/tar jobs.
     pub stream_completed: Option<String>,
+    /// Total file entries of a per-entry stream install (#203).
+    pub entries_total: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -1320,9 +1368,9 @@ pub fn upsert_install_job(connection: &Connection, job: &InstallJobRecord) -> Re
             r#"
             INSERT INTO install_jobs
                 (job_id, game_id, version_id, phase, bytes_done, bytes_total,
-                 speed_bps, part_path, install_path, error, stream, stream_completed,
-                 created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                 speed_bps, part_path, install_path, staging_path, error, stream,
+                 resumable, stream_completed, entries_total, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
             ON CONFLICT(job_id) DO UPDATE SET
                 phase        = excluded.phase,
                 bytes_done   = excluded.bytes_done,
@@ -1330,9 +1378,12 @@ pub fn upsert_install_job(connection: &Connection, job: &InstallJobRecord) -> Re
                 speed_bps    = excluded.speed_bps,
                 part_path    = excluded.part_path,
                 install_path = excluded.install_path,
+                staging_path = excluded.staging_path,
                 error        = excluded.error,
                 stream       = excluded.stream,
+                resumable    = excluded.resumable,
                 stream_completed = excluded.stream_completed,
+                entries_total = excluded.entries_total,
                 updated_at   = excluded.updated_at
             "#,
             params![
@@ -1345,9 +1396,12 @@ pub fn upsert_install_job(connection: &Connection, job: &InstallJobRecord) -> Re
                 job.speed_bps,
                 job.part_path,
                 job.install_path,
+                job.staging_path,
                 job.error,
                 i64::from(job.stream),
+                i64::from(job.resumable),
                 job.stream_completed,
+                job.entries_total,
                 job.created_at,
                 job.updated_at,
             ],
@@ -1367,15 +1421,18 @@ fn map_install_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<InstallJobRecord
         speed_bps: row.get(6)?,
         part_path: row.get(7)?,
         install_path: row.get(8)?,
-        error: row.get(9)?,
-        stream: row.get::<_, i64>(10)? != 0,
-        stream_completed: row.get(11)?,
-        created_at: row.get(12)?,
-        updated_at: row.get(13)?,
+        staging_path: row.get(9)?,
+        error: row.get(10)?,
+        stream: row.get::<_, i64>(11)? != 0,
+        resumable: row.get::<_, i64>(12)? != 0,
+        stream_completed: row.get(13)?,
+        entries_total: row.get(14)?,
+        created_at: row.get(15)?,
+        updated_at: row.get(16)?,
     })
 }
 
-const INSTALL_JOB_COLUMNS: &str = "job_id, game_id, version_id, phase, bytes_done, bytes_total, speed_bps, part_path, install_path, error, stream, stream_completed, created_at, updated_at";
+const INSTALL_JOB_COLUMNS: &str = "job_id, game_id, version_id, phase, bytes_done, bytes_total, speed_bps, part_path, install_path, staging_path, error, stream, resumable, stream_completed, entries_total, created_at, updated_at";
 
 pub fn get_install_job(
     connection: &Connection,
@@ -1408,6 +1465,161 @@ pub fn latest_install_job_for_version(
         )
         .optional()
         .map_err(|e| format!("Could not read the install job: {e}"))
+}
+
+/// Most recent job for a version that can still be resumed (#205): paused,
+/// failed, interrupted or cancelled. Used so a retry reuses the existing job
+/// row instead of inserting a second history entry.
+pub fn latest_resumable_job_for_version(
+    connection: &Connection,
+    game_id: i64,
+    version_id: i64,
+    stream: bool,
+) -> Result<Option<InstallJobRecord>, String> {
+    connection
+        .query_row(
+            &format!(
+                "SELECT {INSTALL_JOB_COLUMNS} FROM install_jobs
+                 WHERE game_id = ?1 AND version_id = ?2 AND stream = ?3
+                   AND phase IN ('paused', 'error', 'cancelled', 'interrupted')
+                 ORDER BY updated_at DESC LIMIT 1"
+            ),
+            params![game_id, version_id, i64::from(stream)],
+            map_install_job,
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the install job: {e}"))
+}
+
+/// Row shape of `install_job_params` (#203/#208).
+///
+/// Everything `resume_install` needs to rebuild an `InstallParams` after an app
+/// restart. The token is not stored: it is read from the secret store/settings
+/// when the job resumes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallJobParamsRecord {
+    pub job_id: String,
+    pub game_id: i64,
+    pub version_id: i64,
+    pub title: String,
+    pub version: Option<String>,
+    pub executable: Option<String>,
+    pub install_dir: Option<String>,
+    pub download_dir: Option<String>,
+    pub install_location_id: Option<String>,
+    pub download_location_id: Option<String>,
+    pub expected_bytes: Option<i64>,
+    pub stream: bool,
+    pub archive_format: Option<String>,
+    pub replace_path: Option<String>,
+    pub server_url: String,
+    pub created_at: String,
+}
+
+/// Stores the request of a job. Immutable except for the stream flag and the
+/// archive format, which an explicit retry or the stream manifest can refine.
+pub fn upsert_install_job_params(
+    connection: &Connection,
+    record: &InstallJobParamsRecord,
+) -> Result<(), String> {
+    connection
+        .execute(
+            r#"
+            INSERT INTO install_job_params
+                (job_id, game_id, version_id, title, version, executable,
+                 install_dir, download_dir, install_location_id,
+                 download_location_id, expected_bytes, stream, archive_format,
+                 replace_path, server_url, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+            ON CONFLICT(job_id) DO UPDATE SET
+                stream         = excluded.stream,
+                archive_format = COALESCE(excluded.archive_format, install_job_params.archive_format)
+            "#,
+            params![
+                record.job_id,
+                record.game_id,
+                record.version_id,
+                record.title,
+                record.version,
+                record.executable,
+                record.install_dir,
+                record.download_dir,
+                record.install_location_id,
+                record.download_location_id,
+                record.expected_bytes,
+                i64::from(record.stream),
+                record.archive_format,
+                record.replace_path,
+                record.server_url,
+                record.created_at,
+            ],
+        )
+        .map_err(|e| format!("Could not record the install parameters: {e}"))?;
+    Ok(())
+}
+
+fn map_install_job_params(row: &rusqlite::Row<'_>) -> rusqlite::Result<InstallJobParamsRecord> {
+    Ok(InstallJobParamsRecord {
+        job_id: row.get(0)?,
+        game_id: row.get(1)?,
+        version_id: row.get(2)?,
+        title: row.get(3)?,
+        version: row.get(4)?,
+        executable: row.get(5)?,
+        install_dir: row.get(6)?,
+        download_dir: row.get(7)?,
+        install_location_id: row.get(8)?,
+        download_location_id: row.get(9)?,
+        expected_bytes: row.get(10)?,
+        stream: row.get::<_, i64>(11)? != 0,
+        archive_format: row.get(12)?,
+        replace_path: row.get(13)?,
+        server_url: row.get(14)?,
+        created_at: row.get(15)?,
+    })
+}
+
+const INSTALL_JOB_PARAMS_COLUMNS: &str = "job_id, game_id, version_id, title, version, executable, install_dir, download_dir, install_location_id, download_location_id, expected_bytes, stream, archive_format, replace_path, server_url, created_at";
+
+pub fn get_install_job_params(
+    connection: &Connection,
+    job_id: &str,
+) -> Result<Option<InstallJobParamsRecord>, String> {
+    connection
+        .query_row(
+            &format!(
+                "SELECT {INSTALL_JOB_PARAMS_COLUMNS} FROM install_job_params WHERE job_id = ?1"
+            ),
+            params![job_id],
+            map_install_job_params,
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the install parameters: {e}"))
+}
+
+/// Records the archive format once the server manifest reports it (#203).
+pub fn set_install_job_archive_format(
+    connection: &Connection,
+    job_id: &str,
+    format: &str,
+) -> Result<(), String> {
+    connection
+        .execute(
+            "UPDATE install_job_params SET archive_format = ?2 WHERE job_id = ?1",
+            params![job_id, format],
+        )
+        .map_err(|e| format!("Could not record the archive format: {e}"))?;
+    Ok(())
+}
+
+pub fn delete_install_job_params(connection: &Connection, job_id: &str) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM install_job_params WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| format!("Could not delete the install parameters: {e}"))?;
+    Ok(())
 }
 
 /// Row shape of `install_stream_manifests` (#115).
@@ -1566,6 +1778,9 @@ pub fn delete_install_job(connection: &Connection, job_id: &str) -> Result<bool,
             params![job_id],
         )
         .map_err(|e| format!("Could not remove the install job: {e}"))?;
+    if affected > 0 {
+        let _ = delete_install_job_params(connection, job_id);
+    }
     // The stream manifest and its checkpoint are intentionally kept: they
     // describe files still present in the staging folder, so a later install
     // can adopt them even after the history row is gone (#115).
@@ -1575,6 +1790,12 @@ pub fn delete_install_job(connection: &Connection, job_id: &str) -> Result<bool,
 /// Remove every terminal row from Downloads history (#100). Returns the number
 /// of rows deleted; install folders, archives and `.part` files stay.
 pub fn clear_finished_install_jobs(connection: &Connection) -> Result<usize, String> {
+    connection
+        .execute(
+            "DELETE FROM install_job_params WHERE job_id IN (SELECT job_id FROM install_jobs WHERE phase IN ('done', 'cancelled', 'error', 'interrupted'))",
+            [],
+        )
+        .map_err(|e| format!("Could not clear the install parameters: {e}"))?;
     let affected = connection
         .execute(
             &format!("DELETE FROM install_jobs WHERE phase IN ({TERMINAL_INSTALL_PHASES})"),
@@ -3051,6 +3272,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V14).unwrap();
         connection.execute_batch(SCHEMA_V15).unwrap();
         connection.execute_batch(SCHEMA_V16).unwrap();
+        connection.execute_batch(SCHEMA_V17).unwrap();
         connection
     }
 
@@ -3311,9 +3533,12 @@ mod tests {
             speed_bps: 512,
             part_path: Some("/tmp/game.part".into()),
             install_path: Some("/tmp/game".into()),
+            staging_path: Some("/tmp/game.staging".into()),
             error: None,
             stream: true,
+            resumable: false,
             stream_completed: None,
+            entries_total: Some(4),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         };
@@ -3332,6 +3557,76 @@ mod tests {
         assert_eq!(loaded.error.as_deref(), Some("interrupted"));
         assert_eq!(all_install_jobs(&connection).unwrap().len(), 1);
         assert_eq!(all_install_jobs(&connection).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn install_job_params_roundtrip_and_resumable_lookup() {
+        let connection = memory_database();
+        let params = InstallJobParamsRecord {
+            job_id: "job-params".into(),
+            game_id: 12,
+            version_id: 34,
+            title: "Elden Ring".into(),
+            version: Some("1.10".into()),
+            executable: Some("Game/eldenring.exe".into()),
+            install_dir: Some("/games".into()),
+            download_dir: Some("/downloads".into()),
+            install_location_id: Some("ssd".into()),
+            download_location_id: None,
+            expected_bytes: Some(69_200_000_000),
+            stream: true,
+            archive_format: None,
+            replace_path: None,
+            server_url: "https://ludex.example.com".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+        };
+        upsert_install_job_params(&connection, &params).unwrap();
+        let loaded = get_install_job_params(&connection, "job-params")
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded, params);
+
+        // The archive format is recorded once the manifest reports it and
+        // never cleared by a later upsert that does not know it.
+        set_install_job_archive_format(&connection, "job-params", "zip").unwrap();
+        let mut again = params.clone();
+        again.stream = true;
+        upsert_install_job_params(&connection, &again).unwrap();
+        assert_eq!(
+            get_install_job_params(&connection, "job-params")
+                .unwrap()
+                .unwrap()
+                .archive_format
+                .as_deref(),
+            Some("zip")
+        );
+
+        let mut failed = job_record("job-failed", "error");
+        failed.game_id = 12;
+        failed.version_id = 34;
+        failed.stream = true;
+        failed.resumable = true;
+        failed.updated_at = "2026-01-02T00:00:00Z".into();
+        upsert_install_job(&connection, &failed).unwrap();
+        let mut done = failed.clone();
+        done.job_id = "job-done".into();
+        done.phase = "done".into();
+        done.updated_at = "2026-01-03T00:00:00Z".into();
+        upsert_install_job(&connection, &done).unwrap();
+
+        let found = latest_resumable_job_for_version(&connection, 12, 34, true)
+            .unwrap()
+            .expect("failed job");
+        assert_eq!(found.job_id, "job-failed");
+        // A different stream mode must not adopt the row.
+        assert!(latest_resumable_job_for_version(&connection, 12, 34, false)
+            .unwrap()
+            .is_none());
+
+        delete_install_job_params(&connection, "job-params").unwrap();
+        assert!(get_install_job_params(&connection, "job-params")
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -3420,9 +3715,12 @@ mod tests {
             speed_bps: 0,
             part_path: Some("/tmp/game.part".into()),
             install_path: None,
+            staging_path: None,
             error: None,
             stream: false,
+            resumable: true,
             stream_completed: None,
+            entries_total: None,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         };
@@ -3453,9 +3751,12 @@ mod tests {
             speed_bps: 0,
             part_path: Some(format!("/tmp/{job_id}.part")),
             install_path: None,
+            staging_path: None,
             error: None,
             stream: false,
+            resumable: true,
             stream_completed: None,
+            entries_total: None,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         }

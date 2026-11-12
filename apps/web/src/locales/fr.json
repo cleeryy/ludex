@@ -1554,7 +1554,6 @@
   "Resumed {count} file already on disk.": "Reprise : {count} fichier déjà sur le disque.",
   "Resumed {count} files already on disk.": "Reprise : {count} fichiers déjà sur le disque.",
   "Retry as download": "Réessayer en téléchargement",
-  "Retry stream": "Réessayer en flux",
   "Return to Ludex; you can close this tab.": "Revenez à Ludex ; vous pouvez fermer cet onglet.",
   "Revoke": "Révoquer",
   "Revoke link": "Révoquer le lien",
@@ -1993,8 +1992,6 @@
   "This shelf is empty": "Cette étagère est vide",
   "This shelf is empty.": "Cette étagère est vide.",
   "This stream has no per-file checkpoint and cannot be resumed; retrying as a download keeps the archive so it can resume.": "Ce flux n'a pas de point de reprise par fichier et ne peut pas être repris ; réessayer en téléchargement conserve l'archive pour pouvoir reprendre.",
-  "This stream has no per-file checkpoint; retrying restarts it from zero": "Ce flux n'a pas de point de reprise par fichier ; réessayer le relance depuis zéro",
-  "This stream has no per-file checkpoint; retrying restarts it. A download can resume.": "Ce flux n'a pas de point de reprise par fichier ; réessayer le relance. Un téléchargement peut reprendre.",
   "This tint drops text contrast to {ratio}:1 on the surfaces. Pick a darker or lighter tint; {min}:1 is required.": "Cette teinte fait tomber le contraste du texte à {ratio}:1 sur les surfaces. Choisissez une teinte plus sombre ou plus claire ; {min}:1 est requis.",
   "This token is saved for the profile, not in the settings file: the desktop uses the OS keychain when available and a local SQLite file otherwise.": "Ce jeton est enregistré pour le profil, pas dans le fichier de réglages : le bureau utilise le trousseau du système s’il existe, sinon un fichier SQLite local.",
   "This value is already set; nothing will be written.": "Cette valeur est déjà définie ; rien ne sera écrit.",
@@ -3444,5 +3441,13 @@
   "Why": "Pourquoi",
   "If you cancel, nothing is changed and the manual instructions stay available.": "Si vous annulez, rien n’est modifié et les instructions manuelles restent disponibles.",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Le dossier de configuration de Sunshine se trouve dans Program Files, où Windows bloque les écritures.",
-  "You can also set a Sunshine config folder your account can write to.": "Vous pouvez aussi définir un dossier de configuration Sunshine accessible en écriture à votre compte."
+  "You can also set a Sunshine config folder your account can write to.": "Vous pouvez aussi définir un dossier de configuration Sunshine accessible en écriture à votre compte.",
+  "Continues from the saved checkpoint with the same job": "Reprend au dernier point de reprise enregistré, avec la même tâche",
+  "Downloads the archive instead and resumes with the same job": "Télécharge l’archive à la place et reprend avec la même tâche",
+  "No saved checkpoint: restarting starts from zero and keeps one Downloads row.": "Aucun point de reprise enregistré : relancer repart de zéro et conserve une seule ligne dans Téléchargements.",
+  "Restart": "Relancer",
+  "Restart stream": "Relancer le flux",
+  "Restart the install?": "Relancer l’installation ?",
+  "Starts from zero and reuses the same Downloads row": "Repart de zéro et réutilise la même ligne dans Téléchargements",
+  "{title} has no saved checkpoint, so restarting starts it from zero. The same Downloads row is reused; no second job is created.": "{title} n’a aucun point de reprise enregistré : relancer repart de zéro. La même ligne de Téléchargements est réutilisée ; aucune seconde tâche n’est créée."
 }

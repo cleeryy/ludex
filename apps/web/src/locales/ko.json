@@ -1608,7 +1608,6 @@
   "Resumed {count} file already on disk.": "이미 디스크에 있는 {count} 파일을 재개했습니다.",
   "Resumed {count} files already on disk.": "이미 디스크에 있는 {count} 파일을 재개했습니다.",
   "Retry as download": "다운로드로 다시 시도",
-  "Retry stream": "스트림 재시도",
   "Return to Ludex; you can close this tab.": "Ludex로 돌아가세요. 이 탭을 닫아도 됩니다.",
   "Revoke": "취소",
   "Revoke link": "링크 취소",
@@ -2022,8 +2021,6 @@
   "This shelf is empty": "이 선반은 비어 있습니다",
   "This shelf is empty.": "이 선반은 비어 있습니다.",
   "This stream has no per-file checkpoint and cannot be resumed; retrying as a download keeps the archive so it can resume.": "이 스트림에는 파일별 체크포인트가 없으며 다시 시작할 수 없습니다. 다운로드를 다시 시도하면 재개할 수 있도록 아카이브가 유지됩니다.",
-  "This stream has no per-file checkpoint; retrying restarts it from zero": "이 스트림에는 파일별 체크포인트가 없습니다. 다시 시도하면 0에서 다시 시작됩니다.",
-  "This stream has no per-file checkpoint; retrying restarts it. A download can resume.": "이 스트림에는 파일별 체크포인트가 없습니다. 다시 시도하면 다시 시작됩니다. 다운로드를 재개할 수 있습니다.",
   "This tint drops text contrast to {ratio}:1 on the surfaces. Pick a darker or lighter tint; {min}:1 is required.": "이 색조는 표면의 {ratio}:1 텍스트 대비를 떨어뜨립니다. 더 어둡거나 밝은 색조를 선택하세요. {min}:1이 필요합니다.",
   "This token is saved for the profile, not in the settings file: the desktop uses the OS keychain when available and a local SQLite file otherwise.": "이 토큰은 설정 파일이 아닌 프로필용으로 저장됩니다. 데스크톱은 사용 가능한 경우 OS 키체인을 사용하고 그렇지 않은 경우 로컬 SQLite 파일을 사용합니다.",
   "this user": "이 사용자",
@@ -3444,5 +3441,13 @@
   "Why": "이유",
   "If you cancel, nothing is changed and the manual instructions stay available.": "취소하면 아무것도 변경되지 않으며 수동 안내를 계속 사용할 수 있습니다.",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Sunshine의 구성 폴더가 Program Files 아래에 있어 Windows가 쓰기를 차단합니다.",
-  "You can also set a Sunshine config folder your account can write to.": "계정에서 쓸 수 있는 Sunshine 구성 폴더를 지정할 수도 있습니다."
+  "You can also set a Sunshine config folder your account can write to.": "계정에서 쓸 수 있는 Sunshine 구성 폴더를 지정할 수도 있습니다.",
+  "Continues from the saved checkpoint with the same job": "저장된 체크포인트에서 같은 작업으로 계속합니다",
+  "Downloads the archive instead and resumes with the same job": "대신 아카이브를 다운로드하고 같은 작업으로 계속합니다",
+  "No saved checkpoint: restarting starts from zero and keeps one Downloads row.": "저장된 체크포인트가 없습니다. 다시 시작하면 처음부터 시작되며 다운로드 행은 하나만 유지됩니다.",
+  "Restart": "다시 시작",
+  "Restart stream": "스트림 다시 시작",
+  "Restart the install?": "설치를 다시 시작할까요?",
+  "Starts from zero and reuses the same Downloads row": "처음부터 시작하고 같은 다운로드 행을 재사용합니다",
+  "{title} has no saved checkpoint, so restarting starts it from zero. The same Downloads row is reused; no second job is created.": "{title}에 저장된 체크포인트가 없어 다시 시작하면 처음부터 시작됩니다. 같은 다운로드 행이 재사용되며 두 번째 작업은 생성되지 않습니다."
 }

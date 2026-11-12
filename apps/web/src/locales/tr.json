@@ -1608,7 +1608,6 @@
   "Resumed {count} file already on disk.": "Zaten diskte bulunan {count} dosyası sürdürüldü.",
   "Resumed {count} files already on disk.": "Halihazırda diskte bulunan {count} dosya sürdürüldü.",
   "Retry as download": "İndirme olarak yeniden dene",
-  "Retry stream": "Akışı yeniden dene",
   "Return to Ludex; you can close this tab.": "Ludex'ye dönün; bu sekmeyi kapatabilirsiniz.",
   "Revoke": "İptal et",
   "Revoke link": "Bağlantıyı iptal et",
@@ -2022,8 +2021,6 @@
   "This shelf is empty": "Bu raf boş",
   "This shelf is empty.": "Bu raf boş.",
   "This stream has no per-file checkpoint and cannot be resumed; retrying as a download keeps the archive so it can resume.": "Bu akışın dosya başına kontrol noktası yoktur ve devam ettirilemez; İndirme işlemi olarak yeniden denemek, devam edebilmesi için arşivi korur.",
-  "This stream has no per-file checkpoint; retrying restarts it from zero": "Bu akışın dosya başına kontrol noktası yoktur; yeniden denemek onu sıfırdan yeniden başlatır",
-  "This stream has no per-file checkpoint; retrying restarts it. A download can resume.": "Bu akışın dosya başına kontrol noktası yoktur; yeniden denemek onu yeniden başlatır. İndirme devam edebilir.",
   "This tint drops text contrast to {ratio}:1 on the surfaces. Pick a darker or lighter tint; {min}:1 is required.": "Bu renk tonu yüzeylerdeki metin kontrastını {ratio}:1'e düşürür. Daha koyu veya daha açık bir renk tonu seçin; {min}:1 gereklidir.",
   "This token is saved for the profile, not in the settings file: the desktop uses the OS keychain when available and a local SQLite file otherwise.": "Bu belirteç, ayarlar dosyasına değil, profil için kaydedilir: masaüstü, mümkün olduğunda işletim sistemi anahtar zincirini, aksi halde yerel bir SQLite dosyasını kullanır.",
   "this user": "bu kullanıcı",
@@ -3444,5 +3441,13 @@
   "Why": "Neden",
   "If you cancel, nothing is changed and the manual instructions stay available.": "İptal ederseniz hiçbir şey değişmez ve manuel yönergeler kullanılabilir kalır.",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Sunshine yapılandırma klasörü, Windows'un yazmayı engellediği Program Files altında.",
-  "You can also set a Sunshine config folder your account can write to.": "Ayrıca hesabınızın yazabildiği bir Sunshine yapılandırma klasörü belirleyebilirsiniz."
+  "You can also set a Sunshine config folder your account can write to.": "Ayrıca hesabınızın yazabildiği bir Sunshine yapılandırma klasörü belirleyebilirsiniz.",
+  "Continues from the saved checkpoint with the same job": "Kaydedilen kontrol noktasından aynı işle devam eder",
+  "Downloads the archive instead and resumes with the same job": "Bunun yerine arşivi indirir ve aynı işle devam eder",
+  "No saved checkpoint: restarting starts from zero and keeps one Downloads row.": "Kaydedilmiş kontrol noktası yok: yeniden başlatma sıfırdan başlar ve tek bir İndirmeler satırı tutar.",
+  "Restart": "Yeniden başlat",
+  "Restart stream": "Akışı yeniden başlat",
+  "Restart the install?": "Kurulum yeniden başlatılsın mı?",
+  "Starts from zero and reuses the same Downloads row": "Sıfırdan başlar ve aynı İndirmeler satırını kullanır",
+  "{title} has no saved checkpoint, so restarting starts it from zero. The same Downloads row is reused; no second job is created.": "{title} için kaydedilmiş kontrol noktası yok, bu yüzden yeniden başlatma sıfırdan başlar. Aynı İndirmeler satırı yeniden kullanılır; ikinci bir iş oluşturulmaz."
 }

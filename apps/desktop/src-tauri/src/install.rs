@@ -7,18 +7,13 @@
 //! Only one job runs at a time by default; the rest wait in the queued phase.
 
 use std::path::{Component, Path, PathBuf};
-use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
-use tokio_stream::StreamExt;
-use tokio_util::io::StreamReader;
+use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
 use crate::db::{self, InstallManifestRecord, InstalledGame};
@@ -125,7 +120,16 @@ impl InstallJob {
             .as_deref()
             .map(crate::stream_install::CompletedEntries::from_hex)
             .unwrap_or_default();
-        let resumable = record.stream && completed.count() > 0;
+        // A job can resume when it has a real checkpoint: a persisted flag, a
+        // completed stream entry, or a `.part`/staging path still on disk. The
+        // UI labels the action "Resume" only in that case (#205/#208).
+        let resumable = record.resumable
+            || record.phase == "paused"
+            || (record.stream && completed.count() > 0)
+            || record
+                .part_path
+                .as_deref()
+                .is_some_and(|path| Path::new(path).is_file());
         Self {
             job_id: record.job_id,
             game_id: record.game_id,
@@ -138,8 +142,13 @@ impl InstallJob {
             install_path: record.install_path,
             stream: record.stream,
             resumable,
-            entries_done: resumable.then(|| completed.count() as u32),
-            entries_total: None,
+            entries_done: resumable
+                .then(|| completed.count() as u32)
+                .filter(|count| *count > 0),
+            entries_total: record
+                .entries_total
+                .map(|value| value.max(0) as u32)
+                .filter(|value| *value > 0),
             current_entry: None,
             resumed_entries: None,
         }
@@ -171,6 +180,89 @@ pub struct InstallParams {
     pub replace_path: Option<String>,
 }
 
+impl InstallParams {
+    /// Row written with the job so `resume_install` can rebuild it after a
+    /// restart (#203/#208). The token is never persisted.
+    fn to_record(&self, job_id: &str, created_at: &str) -> db::InstallJobParamsRecord {
+        db::InstallJobParamsRecord {
+            job_id: job_id.to_string(),
+            game_id: self.game_id,
+            version_id: self.version_id,
+            title: self.title.clone(),
+            version: self.version.clone(),
+            executable: self.executable.clone(),
+            install_dir: self.install_dir.clone(),
+            download_dir: self.download_dir.clone(),
+            install_location_id: self.install_location_id.clone(),
+            download_location_id: self.download_location_id.clone(),
+            expected_bytes: self
+                .expected_bytes
+                .and_then(|value| i64::try_from(value).ok()),
+            stream: self.stream.unwrap_or(false),
+            archive_format: None,
+            replace_path: self.replace_path.clone(),
+            server_url: self.server_url.clone(),
+            created_at: created_at.to_string(),
+        }
+    }
+
+    /// Rebuilds the request of a persisted job. `token` comes from the current
+    /// settings/secret store, so no credential is stored in the install table.
+    fn from_record(record: db::InstallJobParamsRecord, token: Option<String>) -> Self {
+        Self {
+            game_id: record.game_id,
+            version_id: record.version_id,
+            server_url: record.server_url,
+            token,
+            title: record.title,
+            version: record.version,
+            executable: record.executable,
+            install_dir: record.install_dir,
+            download_dir: record.download_dir,
+            install_location_id: record.install_location_id,
+            download_location_id: record.download_location_id,
+            expected_bytes: record
+                .expected_bytes
+                .and_then(|value| u64::try_from(value).ok()),
+            stream: Some(record.stream),
+            replace_path: record.replace_path,
+        }
+    }
+}
+
+/// How `resume_install` should treat a job's transport (#205/#208).
+///
+/// `Keep` continues the job with the mode it was created with. `Download` and
+/// `Stream` are the explicit "retry as download" / "restart stream" actions;
+/// they reuse the same job id and history row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResumeMode {
+    Keep,
+    Download,
+    Stream,
+}
+
+impl ResumeMode {
+    pub fn parse(value: Option<&str>) -> Result<Self, String> {
+        match value.map(str::trim) {
+            None | Some("") | Some("keep") => Ok(ResumeMode::Keep),
+            Some("download") => Ok(ResumeMode::Download),
+            Some("stream") => Ok(ResumeMode::Stream),
+            Some(other) => Err(format!(
+                "Unknown resume mode \"{other}\". Use \"download\" or \"stream\"."
+            )),
+        }
+    }
+
+    fn stream_flag(self, current: bool) -> bool {
+        match self {
+            ResumeMode::Keep => current,
+            ResumeMode::Download => false,
+            ResumeMode::Stream => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct InstallErrorEvent {
@@ -184,6 +276,10 @@ pub(crate) enum Failure {
     /// The user paused the job: the `.part` file is kept for a Range resume.
     Paused,
     Failed(String),
+    /// The per-entry stream path is unusable (a proxy rejects every attempt
+    /// before a single byte arrives). The caller falls back to the classic
+    /// resumable download instead of failing the install (#204).
+    StreamUnavailable(String),
 }
 
 impl From<String> for Failure {
@@ -305,7 +401,18 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
         _ => download_root.join(format!(".{game_id}-{version_id}.part")),
     };
 
+    // #205/#208: a retry from the game page must reuse the failed job instead
+    // of inserting a second history row. Only a new install (not an update)
+    // adopts a resumable job of the same version and transport.
+    if params.replace_path.is_none() {
+        if let Some(existing) = adoptable_job(&state, &params, stream_requested_now) {
+            return resume_entry(app, existing, ResumeMode::Keep);
+        }
+    }
+
     let job_id = uuid::Uuid::new_v4().to_string();
+    let stream = stream_requested(params.stream, &settings, &params.server_url);
+    let created_at = now_rfc3339();
     let job = InstallJob {
         job_id: job_id.clone(),
         game_id,
@@ -316,7 +423,7 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
         speed_bps: 0,
         message: Some("Queued".to_string()),
         install_path: None,
-        stream: stream_requested(params.stream, &settings, &params.server_url),
+        stream,
         resumable: false,
         entries_done: None,
         entries_total: None,
@@ -330,7 +437,7 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
         pause: std::sync::Mutex::new(CancellationToken::new()),
         running: AtomicBool::new(false),
         job: std::sync::Mutex::new(job.clone()),
-        created_at: now_rfc3339(),
+        created_at,
         part_path: std::sync::Mutex::new(Some(planned_part.to_string_lossy().to_string())),
         install_path: std::sync::Mutex::new(Some(planned_install.to_string_lossy().to_string())),
         staging_path: std::sync::Mutex::new(Some(
@@ -544,19 +651,16 @@ pub fn pause(app: &AppHandle, job_id: &str) -> Result<InstallJob, String> {
             Ok(entry.snapshot())
         }
         InstallPhase::Downloading => {
-            if stream_requested(
-                entry.params.stream,
-                &state.settings_snapshot(),
-                &entry.params.server_url,
-            ) && !snapshot.resumable
-            {
+            if snapshot.stream && !snapshot.resumable {
+                // A stream job from an older build may have no checkpoint at
+                // all: pausing it would throw away the work (#203).
                 return Err(
-                    "This stream install cannot be paused. Turn off stream installs in Settings, then retry."
+                    "This stream install has no checkpoint yet and cannot be paused. Wait for the first files, or cancel and retry."
                         .to_string(),
                 );
             }
             entry.request_pause();
-            // The worker flushes the `.part` file and emits the paused state.
+            // The worker flushes the `.part`/entry file and emits the paused state.
             Ok(entry.snapshot())
         }
         _ => Err(
@@ -566,34 +670,253 @@ pub fn pause(app: &AppHandle, job_id: &str) -> Result<InstallJob, String> {
     }
 }
 
-/// Resume a paused job from its byte offset. Returns the running job.
-pub fn resume(app: &AppHandle, job_id: &str) -> Result<InstallJob, String> {
+/// Resume any resumable job — paused, failed, interrupted, cancelled, or from a
+/// previous app run — always with the same job id (#205/#208).
+///
+/// `mode` only changes the transport: `Download` is the explicit "retry as
+/// download", `Stream` the explicit "restart stream". Both reuse the row.
+pub fn resume_with_mode(
+    app: &AppHandle,
+    job_id: &str,
+    mode: ResumeMode,
+) -> Result<InstallJob, String> {
     let state = app.state::<AppState>();
-    let entry = {
+    let in_memory = {
         let jobs = state
             .jobs
             .lock()
             .map_err(|_| "The install queue is unavailable; restart Ludex.".to_string())?;
         jobs.get(job_id).cloned()
-    }
-    .ok_or_else(|| {
-        "This install job is from a previous session. Start the install again from the game page to resume it."
-            .to_string()
-    })?;
+    };
 
+    if let Some(entry) = in_memory {
+        let snapshot = entry.snapshot();
+        if !matches!(
+            snapshot.phase,
+            InstallPhase::Paused | InstallPhase::Error | InstallPhase::Cancelled
+        ) {
+            // Queued/downloading/… is already active, or done: nothing to do.
+            return Ok(snapshot);
+        }
+        if snapshot.phase == InstallPhase::Cancelled {
+            // A cancelled job's cancel token is spent; rebuild a fresh entry
+            // from its own parameters but keep the same id and checkpoint.
+            let rebuilt = Arc::new(rebuild_entry(
+                &entry,
+                mode,
+                entry.staging_path(),
+                entry.stream_completed(),
+            ));
+            return resume_entry(app, rebuilt, mode);
+        }
+        let entry =
+            if mode == ResumeMode::Keep || mode.stream_flag(snapshot.stream) == snapshot.stream {
+                entry
+            } else {
+                Arc::new(rebuild_entry(
+                    &entry,
+                    mode,
+                    entry.staging_path(),
+                    entry.stream_completed(),
+                ))
+            };
+        return resume_entry(app, entry, mode);
+    }
+
+    // A job from a previous app run: rebuild it from the persisted row.
+    let (record, params_record) = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        let record = db::get_install_job(&connection, job_id)?.ok_or_else(|| {
+            format!("Unknown install job: {job_id}. It was removed from Downloads history.")
+        })?;
+        let params = db::get_install_job_params(&connection, job_id)?.ok_or_else(|| {
+            format!(
+                "Install job {job_id} was recorded by an older Ludex build and cannot be resumed. Start the install again from the game page."
+            )
+        })?;
+        (record, params)
+    };
+
+    let token = state.settings_snapshot().token.clone();
+    let entry = Arc::new(entry_from_persisted(record, params_record, token, mode)?);
+    resume_entry(app, entry, mode)
+}
+
+/// Picks a failed/paused job of the same version so `install_game` doubles as
+/// "retry" instead of inserting a second history row (#205).
+fn adoptable_job(state: &AppState, params: &InstallParams, stream: bool) -> Option<Arc<JobEntry>> {
+    let game_id = params.game_id;
+    let version_id = params.version_id;
+    {
+        let jobs = state.jobs.lock().ok()?;
+        if let Some(entry) = jobs.values().find(|entry| {
+            entry.params.game_id == game_id
+                && entry.params.version_id == version_id
+                && entry.snapshot().stream == stream
+                && matches!(
+                    entry.snapshot().phase,
+                    InstallPhase::Paused | InstallPhase::Error | InstallPhase::Cancelled
+                )
+        }) {
+            return Some(Arc::clone(entry));
+        }
+    }
+
+    let (record, params_record) = {
+        let connection = state.db.lock().ok()?;
+        let record = db::latest_resumable_job_for_version(&connection, game_id, version_id, stream)
+            .ok()
+            .flatten()?;
+        let params_record = db::get_install_job_params(&connection, &record.job_id)
+            .ok()
+            .flatten()?;
+        (record, params_record)
+    };
+    // A different install root means a different request: never adopt it.
+    if let (Some(stored), Some(requested)) = (
+        params_record.install_dir.as_deref(),
+        params.install_dir.as_deref(),
+    ) {
+        if Path::new(stored) != Path::new(requested) {
+            return None;
+        }
+    }
+    let token = state.settings_snapshot().token.clone();
+    let entry = entry_from_persisted(record, params_record, token, ResumeMode::Keep).ok()?;
+    Some(Arc::new(entry))
+}
+
+/// Rebuilds a `JobEntry` from the persisted job and its parameters (#208).
+///
+/// The job id, the `.part` path, the staging folder and the stream checkpoint
+/// are preserved, so the worker continues exactly where the previous run
+/// stopped. Only `done` jobs are refused: a finished install has nothing to
+/// resume.
+pub(crate) fn entry_from_persisted(
+    record: db::InstallJobRecord,
+    params_record: db::InstallJobParamsRecord,
+    token: Option<String>,
+    mode: ResumeMode,
+) -> Result<JobEntry, String> {
+    if record.phase == InstallPhase::Done.as_str() {
+        return Err("This install already finished. There is nothing to resume.".to_string());
+    }
+    let created_at = record.created_at.clone();
+    let mut params = InstallParams::from_record(params_record, token);
+    params.stream = Some(mode.stream_flag(record.stream));
+    let mut job = InstallJob::from_record(record.clone());
+    job.phase = InstallPhase::Queued;
+    job.speed_bps = 0;
+    job.stream = params.stream.unwrap_or(false);
+    job.message = Some("Resuming".to_string());
+    Ok(JobEntry {
+        params,
+        cancel: CancellationToken::new(),
+        pause: std::sync::Mutex::new(CancellationToken::new()),
+        running: AtomicBool::new(false),
+        job: std::sync::Mutex::new(job),
+        created_at,
+        part_path: std::sync::Mutex::new(record.part_path),
+        install_path: std::sync::Mutex::new(record.install_path),
+        staging_path: std::sync::Mutex::new(record.staging_path),
+        stream_completed: std::sync::Mutex::new(record.stream_completed),
+    })
+}
+
+/// Copies an in-memory entry under a new transport mode, keeping its id and
+/// checkpoint paths.
+fn rebuild_entry(
+    entry: &JobEntry,
+    mode: ResumeMode,
+    staging: Option<String>,
+    completed: Option<String>,
+) -> JobEntry {
     let snapshot = entry.snapshot();
-    if snapshot.phase != InstallPhase::Paused {
-        return Ok(snapshot);
+    let mut params = entry.params.clone();
+    params.stream = Some(mode.stream_flag(snapshot.stream));
+    let mut job = snapshot;
+    job.stream = params.stream.unwrap_or(false);
+    job.phase = InstallPhase::Queued;
+    job.speed_bps = 0;
+    job.message = Some("Resuming".to_string());
+    JobEntry {
+        params,
+        cancel: CancellationToken::new(),
+        pause: std::sync::Mutex::new(CancellationToken::new()),
+        running: AtomicBool::new(false),
+        job: std::sync::Mutex::new(job),
+        created_at: entry.created_at.clone(),
+        part_path: std::sync::Mutex::new(entry.stored_paths().0),
+        install_path: std::sync::Mutex::new(entry.stored_paths().1),
+        staging_path: std::sync::Mutex::new(staging),
+        stream_completed: std::sync::Mutex::new(completed),
+    }
+}
+
+/// Inserts (or replaces) a resumable entry and starts its worker.
+fn resume_entry(
+    app: &AppHandle,
+    entry: Arc<JobEntry>,
+    mode: ResumeMode,
+) -> Result<InstallJob, String> {
+    let state = app.state::<AppState>();
+    let job_id = entry.snapshot().job_id.clone();
+    let game_id = entry.params.game_id;
+    let version_id = entry.params.version_id;
+
+    // One active job per game version: focus the running one instead of
+    // starting a second (#205).
+    let mut jobs = state
+        .jobs
+        .lock()
+        .map_err(|_| "The install queue is unavailable; restart Ludex.".to_string())?;
+    if let Some(active) = jobs.values().find(|candidate| {
+        candidate.snapshot().job_id != job_id
+            && candidate.params.game_id == game_id
+            && candidate.params.version_id == version_id
+            && !candidate.snapshot().phase.is_terminal()
+    }) {
+        return Ok(active.snapshot());
+    }
+    jobs.insert(job_id.clone(), Arc::clone(&entry));
+    drop(jobs);
+
+    // An explicit transport change restarts from zero: drop the checkpoint the
+    // new mode cannot use (the classic path then downloads the archive).
+    if mode != ResumeMode::Keep && entry.stream_completed().is_some() {
+        clear_stream_checkpoint(app, &entry);
+        entry.set_stream_completed(None);
     }
 
+    let previous_phase = entry.snapshot().phase;
     entry.clear_pause();
     entry.update(|job| {
         job.phase = InstallPhase::Queued;
         job.speed_bps = 0;
-        job.message = Some("Resuming".to_string());
+        job.message = Some(if job.bytes_done > 0 {
+            format!("Resuming from {}", human_bytes(job.bytes_done))
+        } else {
+            "Resuming".to_string()
+        });
     });
     persist(app, &entry);
     emit_jobs(app);
+    let snapshot = entry.snapshot();
+    tracing::info!(
+        job_id = %job_id,
+        from = ?previous_phase,
+        to = "queued",
+        mode = ?mode,
+        stream = snapshot.stream,
+        resumable = snapshot.resumable,
+        entries_done = ?snapshot.entries_done,
+        entries_total = ?snapshot.entries_total,
+        bytes_done = snapshot.bytes_done,
+        "resuming install job"
+    );
     start_run(app, &entry);
     Ok(entry.snapshot())
 }
@@ -782,6 +1105,18 @@ async fn run_job(app: AppHandle, job_id: String) {
                 job.resumable = false;
             });
             persist(&app, &entry);
+            // A finished install cannot be resumed: drop the request row so it
+            // never offers a stale "Restart" (#208). Done after the last
+            // persist, which would otherwise write it back.
+            {
+                let state = app.state::<AppState>();
+                if let Ok(connection) = state.db.lock() {
+                    let job_id = entry.snapshot().job_id;
+                    if let Err(error) = db::delete_install_job_params(&connection, &job_id) {
+                        tracing::warn!(error = %error, "could not delete the install parameters");
+                    }
+                };
+            }
             let job = entry.snapshot();
             let _ = app.emit("install://progress", &job);
             let _ = app.emit("install://done", &job);
@@ -796,6 +1131,9 @@ async fn run_job(app: AppHandle, job_id: String) {
             finalize_paused(&app, &entry, &job_paths).await;
         }
         Err(Failure::Failed(message)) => {
+            finalize_error(&app, &entry, message);
+        }
+        Err(Failure::StreamUnavailable(message)) => {
             finalize_error(&app, &entry, message);
         }
     }
@@ -905,6 +1243,16 @@ pub(crate) fn persist(app: &AppHandle, entry: &JobEntry) {
     let state = app.state::<AppState>();
     let job = entry.snapshot();
     let (part_path, install_path) = entry.stored_paths();
+    let staging_path = entry.staging_path();
+    // A job can resume when it is paused, keeps a `.part` file, or has a
+    // per-entry checkpoint. This flag drives the UI label: "Resume" only when
+    // the action really continues, "Restart" otherwise (#205/#208).
+    let resumable = job.resumable
+        || job.phase == InstallPhase::Paused
+        || (job.phase.is_terminal()
+            && part_path
+                .as_deref()
+                .is_some_and(|path| std::path::Path::new(path).is_file()));
     let record = db::InstallJobRecord {
         job_id: job.job_id.clone(),
         game_id: job.game_id,
@@ -915,13 +1263,16 @@ pub(crate) fn persist(app: &AppHandle, entry: &JobEntry) {
         speed_bps: job.speed_bps as i64,
         part_path,
         install_path,
+        staging_path,
         error: if job.phase == InstallPhase::Error {
             job.message.clone()
         } else {
             None
         },
         stream: job.stream,
+        resumable,
         stream_completed: entry.stream_completed(),
+        entries_total: job.entries_total.map(|value| value as i64),
         created_at: entry.created_at.clone(),
         updated_at: now_rfc3339(),
     };
@@ -929,6 +1280,13 @@ pub(crate) fn persist(app: &AppHandle, entry: &JobEntry) {
     if let Ok(connection) = state.db.lock() {
         if let Err(error) = db::upsert_install_job(&connection, &record) {
             tracing::warn!(error = %error, "could not persist the install job");
+        }
+        // Immutable request parameters, kept so `resume_install` can rebuild a
+        // worker after an app restart (#208). Cheap `ON CONFLICT DO NOTHING`.
+        let mut params = entry.params.to_record(&job.job_id, &entry.created_at);
+        params.stream = job.stream;
+        if let Err(error) = db::upsert_install_job_params(&connection, &params) {
+            tracing::warn!(error = %error, "could not persist the install parameters");
         }
     };
 }
@@ -996,8 +1354,10 @@ async fn execute(
         settings::resolve_download_dir(&settings, &install_root, params.download_dir.as_deref());
 
     // 2. Stream install (remote ZIP only): write the entries straight into
-    // staging. The per-entry protocol (#115) is resumable; non-ZIP archives
-    // and older servers fall back to the sequential tar stream.
+    // staging. The per-entry protocol (#115) is resumable. Non-ZIP archives
+    // (7z/RAR) and older servers cannot stream per entry: rather than run a
+    // sequential tar that cannot be paused, they fall back to the classic
+    // resumable download *before* any data is written (#203).
     let mut streamed = false;
     if archive.is_none() && stream_requested(params.stream, &settings, &params.server_url) {
         let outcome =
@@ -1011,30 +1371,54 @@ async fn execute(
             Ok(StreamOutcome::Unsupported(status)) => {
                 tracing::info!(
                     status = status.as_u16(),
-                    "per-entry stream unsupported, trying the sequential tar stream"
+                    game_id = params.game_id,
+                    version_id = params.version_id,
+                    "per-entry stream unsupported; using the resumable download instead"
                 );
                 let stream_staging = job_paths.staging.clone().unwrap_or_else(|| staging.clone());
                 reset_staging(&stream_staging).await?;
-                match tar_stream_install(app, entry, &params, &stream_staging).await {
-                    Ok(StreamOutcome::Done) => {
-                        streamed = true;
-                        job_paths.part = None;
-                        entry.set_part_path(None);
-                    }
-                    Ok(StreamOutcome::Unsupported(status)) => {
-                        tracing::info!(
-                            status = status.as_u16(),
-                            "stream install unsupported, falling back to download"
-                        );
-                        // The job is now a normal, resumable download: a failure
-                        // must offer "Resume", not the stream-specific retry (#114).
-                        entry.update(|job| job.stream = false);
-                        entry.set_stream_completed(None);
-                        persist(app, entry);
-                        let _ = tokio::fs::remove_dir_all(&stream_staging).await;
-                    }
-                    Err(failure) => return Err(failure),
-                }
+                // The job is now a normal, resumable download: it pauses and
+                // resumes with HTTP Range and a `.part` file (#203/#208).
+                entry.update(|job| {
+                    job.stream = false;
+                    job.resumable = false;
+                    job.entries_done = None;
+                    job.entries_total = None;
+                    job.current_entry = None;
+                    job.message = Some(
+                        "Streaming is not available for this archive; downloading instead"
+                            .to_string(),
+                    );
+                });
+                entry.set_stream_completed(None);
+                entry.set_staging_path(None);
+                persist(app, entry);
+            }
+            Err(Failure::StreamUnavailable(message)) => {
+                // Every entry attempt failed before receiving a byte: the
+                // per-entry path is unusable behind this proxy. Fall back once
+                // to the classic resumable download (#204).
+                tracing::warn!(
+                    error = %message,
+                    game_id = params.game_id,
+                    version_id = params.version_id,
+                    "per-entry stream unavailable; falling back to the resumable download"
+                );
+                let stream_staging = job_paths.staging.clone().unwrap_or_else(|| staging.clone());
+                reset_staging(&stream_staging).await?;
+                entry.update(|job| {
+                    job.stream = false;
+                    job.resumable = false;
+                    job.entries_done = None;
+                    job.entries_total = None;
+                    job.current_entry = None;
+                    job.message = Some(format!(
+                        "The server could not stream this archive ({message}); downloading instead"
+                    ));
+                });
+                entry.set_stream_completed(None);
+                entry.set_staging_path(None);
+                persist(app, entry);
             }
             Err(failure) => return Err(failure),
         }
@@ -1042,6 +1426,15 @@ async fn execute(
 
     // 3. Otherwise download with resume.
     if archive.is_none() && !streamed {
+        // A stream attempt may have adopted the staging folder of an earlier
+        // job: the classic path starts from a clean folder, so drop it.
+        if let Some(previous) = job_paths
+            .staging
+            .clone()
+            .filter(|previous| previous != &staging)
+        {
+            let _ = tokio::fs::remove_dir_all(&previous).await;
+        }
         reset_staging(&staging).await?;
         let part = job_paths.part.clone().unwrap_or_else(|| {
             download_root.join(format!(".{}-{}.part", params.game_id, params.version_id))
@@ -1985,321 +2378,6 @@ pub(crate) enum StreamOutcome {
     Unsupported(reqwest::StatusCode),
 }
 
-/// Counts bytes pulled from the HTTP stream so progress reflects the download,
-/// not the extracted file sizes.
-struct ProgressReader<R> {
-    inner: R,
-    bytes: Arc<AtomicU64>,
-}
-
-impl<R> ProgressReader<R> {
-    fn new(inner: R, bytes: Arc<AtomicU64>) -> Self {
-        Self { inner, bytes }
-    }
-}
-
-impl<R: AsyncRead + Unpin> AsyncRead for ProgressReader<R> {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        context: &mut Context<'_>,
-        buffer: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        let this = self.get_mut();
-        let before = buffer.filled().len();
-        match Pin::new(&mut this.inner).poll_read(context, buffer) {
-            Poll::Ready(Ok(())) => {
-                let read = buffer.filled().len().saturating_sub(before);
-                this.bytes.fetch_add(read as u64, Ordering::Relaxed);
-                Poll::Ready(Ok(()))
-            }
-            other => other,
-        }
-    }
-}
-
-/// Stream a remote ZIP as tar and unpack it directly into `staging`.
-///
-/// Nothing is written to the download folder: the tar is consumed as it
-/// arrives. Non-ZIP versions answer 415/404 and the caller falls back to the
-/// regular download. Stream installs are not resumable.
-async fn tar_stream_install(
-    app: &AppHandle,
-    entry: &Arc<JobEntry>,
-    params: &InstallParams,
-    staging: &Path,
-) -> Result<StreamOutcome, Failure> {
-    let state = app.state::<AppState>();
-    let bandwidth_kib = state.settings_snapshot().bandwidth_limit_kib;
-    let base = params.server_url.trim_end_matches('/');
-    if base.is_empty() {
-        return Ok(StreamOutcome::Unsupported(reqwest::StatusCode::NOT_FOUND));
-    }
-
-    let url = format!(
-        "{base}/api/games/{}/versions/{}/stream",
-        params.game_id, params.version_id
-    );
-    let mut request = state
-        .http
-        .get(url)
-        .header(reqwest::header::ACCEPT_ENCODING, "identity");
-    if let Some(token) = non_empty(params.token.as_deref()) {
-        request = request.bearer_auth(token);
-    }
-
-    let response = tokio::select! {
-        biased;
-        _ = entry.cancel.cancelled() => return Err(Failure::Cancelled),
-        response = request.send() => response.map_err(|e| {
-            Failure::Failed(format!(
-                "Could not reach the server to stream \"{}\": {e}",
-                params.title
-            ))
-        })?,
-    };
-
-    let status = response.status();
-    if status == reqwest::StatusCode::NOT_FOUND
-        || status == reqwest::StatusCode::UNSUPPORTED_MEDIA_TYPE
-    {
-        return Ok(StreamOutcome::Unsupported(status));
-    }
-    if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
-        let snippet = body.trim().chars().take(300).collect::<String>();
-        let detail = if snippet.is_empty() {
-            String::new()
-        } else {
-            format!(": {snippet}")
-        };
-        return Err(Failure::Failed(format!(
-            "Stream install failed with HTTP {status}{detail}"
-        )));
-    }
-    if let Some(content_type) = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-    {
-        if !content_type
-            .to_ascii_lowercase()
-            .starts_with("application/x-tar")
-        {
-            return Ok(StreamOutcome::Unsupported(status));
-        }
-    }
-
-    // Exact length when the server sets it; otherwise an estimate that must
-    // never make the UI show 100% before the stream actually ends.
-    let exact_total = response.content_length();
-    let estimated_total = response
-        .headers()
-        .get("x-ludex-estimated-bytes")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.trim().parse::<u64>().ok())
-        .filter(|value| *value > 0);
-    let counter = Arc::new(AtomicU64::new(0));
-
-    tokio::fs::create_dir_all(staging).await.map_err(|e| {
-        Failure::Failed(format!(
-            "Could not create the staging folder {}: {e}",
-            staging.display()
-        ))
-    })?;
-
-    set_progress(
-        app,
-        entry,
-        InstallPhase::Downloading,
-        0,
-        exact_total.or(estimated_total),
-        0,
-        Some("Streaming install".to_string()),
-    );
-
-    let stream = response.bytes_stream().map_err(std::io::Error::other);
-    let reader = ProgressReader::new(StreamReader::new(Box::pin(stream)), Arc::clone(&counter));
-
-    let progress_task = {
-        let app = app.clone();
-        let entry = Arc::clone(entry);
-        let counter = Arc::clone(&counter);
-        tokio::spawn(async move {
-            let mut last_bytes = 0u64;
-            let mut last_at = Instant::now();
-            loop {
-                tokio::time::sleep(Duration::from_millis(250)).await;
-                let done = counter.load(Ordering::Relaxed);
-                let elapsed = last_at.elapsed().as_secs_f64().max(0.001);
-                let speed = ((done.saturating_sub(last_bytes)) as f64 / elapsed) as u64;
-                let total = match (exact_total, estimated_total) {
-                    (Some(total), _) => Some(total.max(done.saturating_add(1))),
-                    (None, Some(estimate)) => Some(estimate.max(done.saturating_add(1))),
-                    (None, None) => None,
-                };
-                entry.update(|job| {
-                    job.phase = InstallPhase::Downloading;
-                    job.bytes_done = done;
-                    job.bytes_total = total;
-                    job.speed_bps = speed;
-                    job.message = Some("Streaming install".to_string());
-                });
-                persist(&app, &entry);
-                let _ = app.emit("install://progress", entry.snapshot());
-                last_bytes = done;
-                last_at = Instant::now();
-            }
-        })
-    };
-
-    let unpacked = tokio::select! {
-        biased;
-        _ = entry.cancel.cancelled() => Err(Failure::Cancelled),
-        result = unpack_tar_stream(reader, staging, bandwidth_kib) => result,
-    };
-    progress_task.abort();
-    let files = unpacked?;
-    let done = counter.load(Ordering::Relaxed);
-
-    // The stream ended: only now is it safe to show a complete percentage.
-    set_progress(
-        app,
-        entry,
-        InstallPhase::Downloading,
-        done,
-        Some(done.max(1)),
-        0,
-        Some(format!("Stream complete ({files} files)")),
-    );
-
-    Ok(StreamOutcome::Done)
-}
-
-/// Unpack an uncompressed tar stream into `staging`.
-///
-/// Only regular files and directories are accepted; absolute paths, `..`
-/// components, symlinks, hard links and special files abort the install.
-async fn unpack_tar_stream<R>(reader: R, staging: &Path, bandwidth_kib: u64) -> Result<u64, Failure>
-where
-    R: AsyncRead + Unpin,
-{
-    let mut archive = tokio_tar::Archive::new(reader);
-    let mut entries = archive
-        .entries()
-        .map_err(|e| Failure::Failed(format!("The server did not send a valid tar stream: {e}")))?;
-
-    let mut files = 0u64;
-    while let Some(entry) = entries.next().await {
-        let mut entry = entry.map_err(|e| Failure::Failed(format!("Invalid tar stream: {e}")))?;
-        let entry_type = entry.header().entry_type();
-        let path = entry
-            .path()
-            .map_err(|e| Failure::Failed(format!("Invalid path in the tar stream: {e}")))?;
-        let relative = match safe_tar_path(&path) {
-            Some(relative) => relative,
-            // Some tars start with a bare `./` directory entry; it is benign.
-            None if entry_type.is_dir()
-                && path
-                    .components()
-                    .all(|component| matches!(component, Component::CurDir)) =>
-            {
-                continue;
-            }
-            None => {
-                return Err(Failure::Failed(format!(
-                    "The tar stream contains an unsafe path: {}",
-                    path.display()
-                )))
-            }
-        };
-        let target = staging.join(&relative);
-
-        if entry_type.is_dir() {
-            tokio::fs::create_dir_all(&target).await.map_err(|e| {
-                Failure::Failed(format!(
-                    "Could not create the folder {}: {e}",
-                    target.display()
-                ))
-            })?;
-            continue;
-        }
-
-        if !entry_type.is_file() {
-            return Err(Failure::Failed(format!(
-                "The tar stream contains an unsupported entry (symlink or special file): {}",
-                path.display()
-            )));
-        }
-
-        if let Some(parent) = target.parent() {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                Failure::Failed(format!(
-                    "Could not create the folder {}: {e}",
-                    parent.display()
-                ))
-            })?;
-        }
-
-        #[cfg(unix)]
-        let mode = entry
-            .header()
-            .mode()
-            .ok()
-            .map(|mode| mode & 0o777)
-            .filter(|mode| *mode != 0);
-
-        let mut file = tokio::fs::File::create(&target).await.map_err(|e| {
-            Failure::Failed(format!(
-                "Could not create the file {}: {e}",
-                target.display()
-            ))
-        })?;
-
-        // Copy in chunks so the global bandwidth cap applies to stream installs
-        // too. A pause is not offered here: the tar has no offset to resume.
-        let mut throttle = Throttle::new(bandwidth_kib);
-        let mut buffer = vec![0u8; 64 * 1024];
-        loop {
-            let read = entry.read(&mut buffer).await.map_err(|e| {
-                Failure::Failed(format!(
-                    "The stream was interrupted while writing {}: {e}. Stream installs are not resumable.",
-                    target.display()
-                ))
-            })?;
-            if read == 0 {
-                break;
-            }
-            file.write_all(&buffer[..read]).await.map_err(|e| {
-                Failure::Failed(format!(
-                    "Could not write the streamed file {}: {e}",
-                    target.display()
-                ))
-            })?;
-            if let Some(throttle) = throttle.as_mut() {
-                if let Some(delay) = throttle.pace(read) {
-                    if delay > Duration::from_millis(2) {
-                        tokio::time::sleep(delay).await;
-                    }
-                }
-            }
-        }
-        file.flush().await.map_err(|e| {
-            Failure::Failed(format!("Could not flush {} to disk: {e}", target.display()))
-        })?;
-
-        #[cfg(unix)]
-        if let Some(mode) = mode {
-            use std::os::unix::fs::PermissionsExt;
-            let _ =
-                tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(mode)).await;
-        }
-
-        files += 1;
-    }
-
-    Ok(files)
-}
-
 /// Convert a tar entry path to a safe relative path. Rejects absolute paths,
 /// `..`, Windows drive/separator tricks and empty paths.
 pub(crate) fn safe_tar_path(path: &Path) -> Option<PathBuf> {
@@ -2576,33 +2654,6 @@ mod tests {
         assert!(safe_tar_path(Path::new("")).is_none());
     }
 
-    #[tokio::test]
-    async fn unpacks_a_tar_stream() {
-        let mut builder = tokio_tar::Builder::new(Vec::new());
-        let data = b"#!/bin/sh\necho hi\n";
-        let mut header = tokio_tar::Header::new_gnu();
-        header.set_size(data.len() as u64);
-        header.set_mode(0o755);
-        header.set_cksum();
-        builder
-            .append_data(&mut header, "bin/game.sh", &data[..])
-            .await
-            .unwrap();
-        let bytes = builder.into_inner().await.unwrap();
-
-        let root = std::env::temp_dir().join(format!(
-            "ludex-tar-{}",
-            crate::util::short_id(&uuid::Uuid::new_v4().to_string())
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-
-        let files = unpack_tar_stream(&bytes[..], &root, 0).await.unwrap();
-        assert_eq!(files, 1);
-        assert_eq!(std::fs::read(root.join("bin/game.sh")).unwrap(), data);
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
     #[test]
     fn phase_roundtrip() {
         for phase in [
@@ -2755,5 +2806,118 @@ mod tests {
         // 64 KiB at 256 KiB/s is ~0.25 s.
         assert!(started.elapsed() >= Duration::from_millis(180));
         assert!(Throttle::new(0).is_none());
+    }
+    fn persisted_record(job_id: &str, phase: &str) -> db::InstallJobRecord {
+        db::InstallJobRecord {
+            job_id: job_id.into(),
+            game_id: 3,
+            version_id: 4,
+            phase: phase.into(),
+            bytes_done: 100,
+            bytes_total: Some(200),
+            speed_bps: 0,
+            part_path: Some("/tmp/.3-4.part".into()),
+            install_path: Some("/games/elden-ring/1.10".into()),
+            staging_path: Some("/games/.elden-ring.staging-old".into()),
+            error: Some("interrupted".into()),
+            stream: false,
+            resumable: true,
+            stream_completed: Some("0f".into()),
+            entries_total: Some(8),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:10:00Z".into(),
+        }
+    }
+
+    fn persisted_params(job_id: &str) -> db::InstallJobParamsRecord {
+        db::InstallJobParamsRecord {
+            job_id: job_id.into(),
+            game_id: 3,
+            version_id: 4,
+            title: "Elden Ring".into(),
+            version: Some("1.10".into()),
+            executable: Some("Game/eldenring.exe".into()),
+            install_dir: Some("/games".into()),
+            download_dir: Some("/downloads".into()),
+            install_location_id: None,
+            download_location_id: None,
+            expected_bytes: Some(69_200_000_000),
+            stream: false,
+            archive_format: Some("zip".into()),
+            replace_path: None,
+            server_url: "https://ludex.example.com".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+        }
+    }
+
+    #[test]
+    fn persisted_job_resume_reuses_the_job_id_and_checkpoint() {
+        let entry = entry_from_persisted(
+            persisted_record("job-resume", "error"),
+            persisted_params("job-resume"),
+            Some("token-1".into()),
+            ResumeMode::Keep,
+        )
+        .expect("persisted resume");
+
+        let snapshot = entry.snapshot();
+        assert_eq!(snapshot.job_id, "job-resume");
+        assert_eq!(snapshot.phase, InstallPhase::Queued);
+        assert!(snapshot.resumable, "a failed job with a .part can resume");
+        assert_eq!(snapshot.bytes_done, 100);
+        assert_eq!(
+            entry.stored_paths().0.as_deref(),
+            Some("/tmp/.3-4.part"),
+            "the .part path must be preserved"
+        );
+        assert_eq!(
+            entry.staging_path().as_deref(),
+            Some("/games/.elden-ring.staging-old"),
+            "the staging folder must be preserved"
+        );
+        assert_eq!(entry.stream_completed().as_deref(), Some("0f"));
+        assert_eq!(entry.params.title, "Elden Ring");
+        assert_eq!(entry.params.server_url, "https://ludex.example.com");
+        assert_eq!(entry.params.token.as_deref(), Some("token-1"));
+        assert_eq!(entry.params.expected_bytes, Some(69_200_000_000));
+
+        // An explicit retry-as-download flips the transport, same job id.
+        let download = entry_from_persisted(
+            persisted_record("job-resume", "error"),
+            persisted_params("job-resume"),
+            None,
+            ResumeMode::Download,
+        )
+        .expect("retry as download");
+        assert!(!download.snapshot().stream);
+
+        // A finished job has nothing to resume.
+        assert!(entry_from_persisted(
+            persisted_record("job-done", "done"),
+            persisted_params("job-done"),
+            None,
+            ResumeMode::Keep,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn resume_mode_parses_and_maps_the_stream_flag() {
+        assert_eq!(ResumeMode::parse(None).unwrap(), ResumeMode::Keep);
+        assert_eq!(ResumeMode::parse(Some("")).unwrap(), ResumeMode::Keep);
+        assert_eq!(
+            ResumeMode::parse(Some("download")).unwrap(),
+            ResumeMode::Download
+        );
+        assert_eq!(
+            ResumeMode::parse(Some("stream")).unwrap(),
+            ResumeMode::Stream
+        );
+        assert!(ResumeMode::parse(Some("teleport")).is_err());
+
+        assert!(ResumeMode::Stream.stream_flag(false));
+        assert!(!ResumeMode::Download.stream_flag(true));
+        assert!(ResumeMode::Keep.stream_flag(true));
+        assert!(!ResumeMode::Keep.stream_flag(false));
     }
 }

@@ -1608,7 +1608,6 @@
   "Resumed {count} file already on disk.": "Возобновленный файл {count} уже находится на диске.",
   "Resumed {count} files already on disk.": "Возобновлены файлы {count}, уже находящиеся на диске.",
   "Retry as download": "Повторить попытку загрузки",
-  "Retry stream": "Повторить трансляцию",
   "Return to Ludex; you can close this tab.": "Вернитесь к Ludex; вы можете закрыть эту вкладку.",
   "Revoke": "Отозвать",
   "Revoke link": "Отозвать ссылку",
@@ -2022,8 +2021,6 @@
   "This shelf is empty": "Эта полка пуста",
   "This shelf is empty.": "Эта полка пуста.",
   "This stream has no per-file checkpoint and cannot be resumed; retrying as a download keeps the archive so it can resume.": "Этот поток не имеет контрольной точки для каждого файла и не может быть возобновлен; повторная попытка загрузки сохраняет архив, чтобы его можно было возобновить.",
-  "This stream has no per-file checkpoint; retrying restarts it from zero": "Этот поток не имеет контрольной точки для каждого файла; повторная попытка перезапускает его с нуля",
-  "This stream has no per-file checkpoint; retrying restarts it. A download can resume.": "Этот поток не имеет контрольной точки для каждого файла; повторная попытка перезапускает его. Загрузка может возобновиться.",
   "This tint drops text contrast to {ratio}:1 on the surfaces. Pick a darker or lighter tint; {min}:1 is required.": "Этот оттенок снижает контрастность текста на поверхностях до {ratio}:1. Выберите более темный или светлый оттенок; Требуется {min}:1.",
   "This token is saved for the profile, not in the settings file: the desktop uses the OS keychain when available and a local SQLite file otherwise.": "Этот токен сохраняется для профиля, а не в файле настроек: рабочий стол использует связку ключей ОС, если она доступна, а в противном случае — локальный файл SQLite.",
   "this user": "этот пользователь",
@@ -3444,5 +3441,13 @@
   "Why": "Почему",
   "If you cancel, nothing is changed and the manual instructions stay available.": "При отмене ничего не изменится, а ручные инструкции останутся доступны.",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Папка конфигурации Sunshine находится в Program Files, где Windows блокирует запись.",
-  "You can also set a Sunshine config folder your account can write to.": "Можно также указать папку конфигурации Sunshine, доступную вашему аккаунту для записи."
+  "You can also set a Sunshine config folder your account can write to.": "Можно также указать папку конфигурации Sunshine, доступную вашему аккаунту для записи.",
+  "Continues from the saved checkpoint with the same job": "Продолжает с сохранённой контрольной точки в той же задаче",
+  "Downloads the archive instead and resumes with the same job": "Скачивает архив вместо потока и продолжает в той же задаче",
+  "No saved checkpoint: restarting starts from zero and keeps one Downloads row.": "Сохранённой контрольной точки нет: перезапуск начнётся с нуля и сохранит одну строку в «Загрузках».",
+  "Restart": "Перезапустить",
+  "Restart stream": "Перезапустить поток",
+  "Restart the install?": "Перезапустить установку?",
+  "Starts from zero and reuses the same Downloads row": "Начнётся с нуля и использует ту же строку в «Загрузках»",
+  "{title} has no saved checkpoint, so restarting starts it from zero. The same Downloads row is reused; no second job is created.": "У {title} нет сохранённой контрольной точки, поэтому перезапуск начнётся с нуля. Строка в «Загрузках» будет использована повторно; вторая задача не создаётся."
 }

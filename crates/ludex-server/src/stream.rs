@@ -68,16 +68,24 @@ pub fn archive_tar_body(path: PathBuf, expected_bytes: u64, cleanup: Option<Path
 /// `Content-Length`; a shorter or longer write is reported as a stream error
 /// instead of silently truncating the response. `cleanup` removes a staged
 /// object-store archive once the response ends.
+///
+/// One line is logged when the body finishes or fails: entry index, bytes,
+/// duration and the reason. A client abort shows up as a broken-pipe failure
+/// here, which is how a 499/proxy drop is told apart from a server error
+/// (#204).
 pub fn entry_body(
     path: PathBuf,
     index: usize,
     offset: u64,
     length: u64,
     cleanup: Option<PathBuf>,
+    game_id: i64,
+    version_id: i64,
 ) -> Body {
     let (sender, receiver) = mpsc::channel::<Result<Bytes, io::Error>>(CHANNEL_CAPACITY);
 
     tokio::task::spawn_blocking(move || {
+        let started = std::time::Instant::now();
         let error_sender = sender.clone();
         let mut writer = ChannelWriter::new(sender);
         let result = write_zip_entry_range(&path, index, offset, Some(length), &mut writer);
@@ -92,6 +100,28 @@ pub fn entry_body(
             (Err(error), _) => Some(format!("entry stream failed: {error}")),
             (Ok(_), Err(error)) => Some(format!("entry flush failed: {error}")),
         };
+
+        match &failure {
+            None => tracing::info!(
+                game_id,
+                version_id,
+                index,
+                offset,
+                bytes = length,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "stream entry body complete"
+            ),
+            Some(message) => tracing::warn!(
+                game_id,
+                version_id,
+                index,
+                offset,
+                bytes = length,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                error = %message,
+                "stream entry body failed"
+            ),
+        }
 
         if let Some(message) = failure {
             // The receiver is gone when the client disconnected; that is the

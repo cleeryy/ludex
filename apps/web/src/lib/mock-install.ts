@@ -7,6 +7,7 @@ import type {
   DiskUsage,
   InstallGameArgs,
   InstallJob,
+  InstallResumeMode,
   InstalledGame,
   LocalSettings,
   ManifestStatus,
@@ -478,9 +479,13 @@ export const mockInstalls = {
     return Promise.resolve(clone(target));
   },
 
-  resume(jobId: string): Promise<InstallJob | null> {
+  resume(jobId: string, mode?: InstallResumeMode | null): Promise<InstallJob | null> {
     const target = jobs.find((entry) => entry.jobId === jobId);
     if (!target) return Promise.resolve(null);
+    // Retry always reuses the same job (#205/#208): `mode` only switches the
+    // transport, never the row.
+    if (mode === "download") target.stream = false;
+    if (mode === "stream") target.stream = true;
     if (!ACTIVE.has(target.phase)) {
       const total = target.bytesTotal ?? 0;
       if (total > 0 && target.bytesDone >= total) {
@@ -490,7 +495,7 @@ export const mockInstalls = {
       } else {
         target.phase = "downloading";
         target.speedBps = nextMockSpeed(jobId);
-        target.message = "Resuming";
+        target.message = target.resumable ? "Resuming" : "Restarting from zero";
         phaseEnds.delete(jobId);
       }
       emit();

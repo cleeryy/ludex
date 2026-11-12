@@ -421,7 +421,7 @@ payload are ignored. New and existing accounts default to
 | POST | `/api/games/{id}/metadata/apply` | editor; `{ provider, providerId, replaceManual? }` → `GameDetail`; caches the record's cover/background/screenshots/trailers, replaces title/year/description/genres/developers/publishers/rating/ageRating/maxPlayers/altTitles, always sets `provider.slug/id/url`, and emits `game.metadata_matched` |
 | POST | `/api/games/{id}/download-ticket` | `{ versionId? }` → `{ url, expiresAt }` (15 min, no auth needed on the URL) |
 | GET | `/api/games/{id}/download?versionId=&token=` | file stream, Range supported, `Content-Disposition` |
-| GET | `/api/games/{id}/versions/{versionId}/stream?token=` | Stream install: an uncompressed `application/x-tar` of the archive entries, no archive stored on the client. ZIP, 7z and RAR (RAR4/RAR5) are supported; unsupported files return 415 and the client falls back, encrypted archives return 409. Exact `Content-Length`. Same auth rules as download. |
+| GET | `/api/games/{id}/versions/{versionId}/stream?token=` | Compatibility tar stream: an uncompressed `application/x-tar` of the archive entries, no archive stored on the client. ZIP, 7z and RAR (RAR4/RAR5) are supported; unsupported files return 415, encrypted archives return 409. Exact `Content-Length`, `X-Accel-Buffering: no`. The desktop installs through the per-entry manifest instead, because a tar cannot be checkpointed (#203). Same auth rules as download. |
 | GET | `/api/games/{id}/versions/{versionId}/stream/manifest?token=` | Ordered ZIP manifest for resumable per-entry installs (#115): `{ format: "zip", entryCount, totalBytes, totalCompressedBytes, entries: [{ index, path, size, compressedSize, mode, crc32, isDir }] }`. Same auth as `/stream` (Bearer or download ticket). Non-ZIP → `415 stream_unsupported`. |
 | GET | `/api/games/{id}/versions/{versionId}/stream/entries/{index}?token=` | Raw content of one ZIP entry, single HTTP `Range` supported (`206` + `Content-Range`, `416` + `Content-Range: bytes */size`). `Content-Length` is exact. Unknown index → `404 entry_not_found`; directories → `404 entry_not_found`. Same auth as `/stream`. |
 | GET | `/api/games/{id}/versions/latest` | preferred version (`games.defaultVersionId`, else the newest non-missing version) → `LatestVersion`; 404 `no_versions` when the game has none |
@@ -2081,7 +2081,8 @@ interface InstallJob {
   bytesDone: number; bytesTotal: number | null; speedBps: number;
   message: string | null; installPath: string | null;
   stream: boolean;              // job used a stream install (#114)
-  resumable: boolean;           // per-entry checkpoint exists and can resume (#115)
+  resumable: boolean;           // a real checkpoint exists: paused, `.part` or completed entries
+                                // "Resume" only when true, otherwise the UI says "Restart" (#205/#208)
   entriesDone: number | null;   // per-entry stream installs
   entriesTotal: number | null;
   currentEntry: string | null;  // entry currently being written
@@ -2502,7 +2503,7 @@ interface RemotePlayCleanup {
 | `install_game` | `{ gameId, versionId, serverUrl, token, title, version?, executable?, installDir?, downloadDir?, locationId?, downloadLocationId?, expectedBytes?, stream? }` | `InstallJob` (starts background; survives dialog close). `locationId`/`downloadLocationId` pick #99 named locations; `installDir` is the direct-root override used while a #145 recommendation is not saved yet; `expectedBytes` enables the free-space guard. An unknown id or a read-only/missing location fails immediately |
 | `cancel_install` | `{ jobId }` | `null` |
 | `pause_install` | `{ jobId }` | `InstallJob` (`paused`; keeps the `.part`) |
-| `resume_install` | `{ jobId }` | `InstallJob` (continues with HTTP Range) |
+| `resume_install` | `{ jobId, mode? }` | `InstallJob`; continues the **same** job (#205/#208). Accepts `paused`, `error`, `interrupted` and `cancelled` rows, including a job persisted by a previous app run: the worker is rebuilt from `install_job_params`, keeps the `.part`/staging path and the per-entry checkpoint, and never creates a second history row. `mode` is `null`/`"keep"` (same transport), `"download"` (explicit retry as a download) or `"stream"` (explicit restart of the per-entry stream); both reuse the job id. A `done` job or an unknown/legacy row without parameters is refused with a clear reason |
 | `get_install_job` | `{ jobId }` | `InstallJob` |
 | `list_install_jobs` | — | `InstallJob[]` (active + persisted, newest first) |
 | `delete_install_job` | `{ jobId }` | `null`; removes one terminal (`done`, `cancelled`, `error`, `interrupted`) row from Downloads history. Refuses active and paused jobs. Never deletes the install folder, archives or `.part` files |
@@ -2685,7 +2686,9 @@ adopts by copy. Update bookkeeping lives in `{appDataDir}/install-state.json`
 and the startup self-check appends to `{appDataDir}/logs/ludex.log` (#186).
 Per-entry stream checkpoints live in
 `install_stream_manifests` (one manifest per job/version) and the
-`install_jobs.stream_completed` hex bitset (schema v9). Local archive extraction
+`install_jobs.stream_completed` hex bitset (schema v10). Schema v17 adds
+`install_job_params` (the request needed to rebuild a worker after a restart)
+and `install_jobs.staging_path`, `resumable` and `entries_total`. Local archive extraction
 uses `GET /api/games/{id}/versions/{vid}/local-path` when the embedded server is
 in local mode; remote installs download with Range resume and delete the temp
 archive by default (`keepArchives` setting false).
@@ -3021,11 +3024,25 @@ stops every write. Each applied change appears in the Backups tab with
   boundary, flushes and keeps the `.part` file; the job stays in the queue with
   phase `paused` (persisted across restarts). Resuming sends
   `Range: bytes=<offset>-` and continues with the same job id. Per-entry stream
-  installs pause too: they stop between entries, keep the staging folder and
-  the checkpoint, and resume from the first missing entry. Sequential tar
-  installs cannot be paused and `pause_install` returns an actionable error.
-  Cancelling discards the `.part`; cancelling a per-entry stream install keeps
-  the completed files when at least one exists.
+  installs pause too: they stop between entries or at the next chunk, keep the
+  staging folder, the `.ludex-partial` entry files and the checkpoint, and
+  resume from the first missing entry/byte. There is no non-resumable stream
+  path any more: 7z/RAR archives and old servers fall back to the classic
+  resumable download *before* writing anything (#203). Cancelling discards the
+  `.part`; cancelling a per-entry stream install keeps the completed files when
+  at least one exists.
+- **Retry = resume (#205/#208).** `resume_install` accepts failed, interrupted,
+  paused and cancelled jobs, in memory or persisted. The job parameters (game,
+  version, source URL, title, folders, stream flag, expected size, `.part` path,
+  archive format, staging folder and checkpoint) are stored in
+  `install_job_params` + `install_jobs` when the job starts and after every
+  completed entry; the token is never stored and is read from the settings/
+  secret store on resume. A retry therefore keeps one history row and continues
+  at the checkpoint. `install_game` also adopts the most recent resumable job of
+  the same version/transport/install root instead of inserting a second row, and
+  focuses an already-running job instead of starting another. "Resume" is only
+  shown when a checkpoint exists; otherwise the action is "Restart" with a
+  confirmation that it starts from zero.
 - **Bandwidth limit.** `bandwidthLimitKib` caps the copy loop of archive
   downloads, repairs and stream installs. 0 means unlimited. The cap is read
   when a transfer starts.
@@ -3287,13 +3304,13 @@ files are written straight into the staging folder. There are two protocols.
 
 **Sequential tar (compatibility).**
 `GET /api/games/{id}/versions/{versionId}/stream` returns an uncompressed tar
-stream of the archive entries. It exists so the desktop can install a remote
-archive without storing it: the client writes extracted files directly from the
-tar stream. ZIP, 7z and RAR (RAR4/RAR5) are supported; unsupported files return
-415 and the client falls back to the normal download+extract path. Encrypted
-archives return 409 `archive_password_required` because the stream route has no
-password parameter. `Content-Length` is set to the exact tar size so the desktop
-can show a percentage.
+stream of the archive entries. It is kept for older clients and manual use, but
+the desktop no longer installs through it: a tar has no entry boundary the
+client can checkpoint, so pausing or resuming it would restart from zero
+(#203). ZIP, 7z and RAR (RAR4/RAR5) are supported; unsupported files return
+415. Encrypted archives return 409 `archive_password_required` because the
+stream route has no password parameter. `Content-Length` is set to the exact
+tar size.
 
 **Per-entry (resumable, ZIP only, #115).**
 `GET …/stream/manifest` lists the ZIP central directory in order. Each entry has
@@ -3310,11 +3327,47 @@ symlinks are rejected.
 The desktop persists the manifest and a completed-entry bitset in its SQLite
 index. On retry, pause/resume or app restart it verifies the manifest
 fingerprint (SHA-256 of the JSON), keeps completed files, resumes a partial
-entry with `Range` and requests only missing entries. Cancel stops between
-entries and keeps completed files when at least one exists. 7z/RAR archives and
-servers without these endpoints fall back to the tar stream, then to the normal
-resumable download. No archive is written to the download folder on either
-stream path.
+entry with `Range` and requests only missing entries. A different fingerprint
+is an explicit restart: the stale staging folder is deleted and the job message
+says the archive changed, instead of mixing old and new files. Cancel stops
+between entries and keeps completed files when at least one exists. 7z/RAR
+archives and servers without these endpoints fall back to the classic
+resumable download *before* any data is written; no archive is stored for the
+per-entry path.
+
+**Connection drops, stalls and retries (#204).**
+Every entry response is read with a stall timeout (45 s without a chunk). A
+stalled body, a dropped connection, a proxy 502/504 or a short body is retried
+for that entry only, with exponential backoff (0.5 s, 1 s, 2 s, 4 s; five
+attempts), resuming at the exact `.part` byte with `Range`. 401/403/404/415 are
+not retried. Each attempt logs the entry index, path, bytes kept, elapsed time
+and error; a completed entry logs its index, bytes and duration. When the whole
+job has received zero bytes and every attempt fails at the transport level, the
+stream path is declared unavailable and the job falls back once to the classic
+resumable download (same job id, one history row). Otherwise the job fails with
+a resumable error that names the entry and the kept offset, and Resume
+continues from there.
+
+**Reverse proxy.** `Caddyfile` for the stream endpoints:
+
+```caddy
+example.com {
+    @stream path /api/games/*/versions/*/stream* /api/games/*/download
+    reverse_proxy @stream 127.0.0.1:8080 {
+        flush_interval -1
+        transport http {
+            read_timeout 0
+            write_timeout 0
+        }
+    }
+}
+```
+
+`flush_interval -1` disables response buffering, and the zero read/write
+timeouts stop Caddy from closing a long decompress-and-skip. The server also
+sends `X-Accel-Buffering: no` and an exact `Content-Length` per entry; a
+buffering proxy in front of a 20 GB archive otherwise turns a slow entry into a
+502/504 that looks like a network drop.
 
 Core API:
 
