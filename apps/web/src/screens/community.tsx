@@ -60,13 +60,22 @@ export function CommunityScreen() {
         }
         description={t("What people are playing, finishing and collecting. Only accounts that opt in appear here.")}
         actions={
-          <Link
-            to={user ? `/community/u/${user.id}` : "/settings"}
-            className="inline-flex h-9 items-center gap-2 border border-line px-3 text-[12.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
-          >
-            {isPublic ? t("Your public page") : t("Your profile")}
-            <ArrowUpRight className="size-3.5" aria-hidden="true" />
-          </Link>
+          <>
+            <Link
+              to="/community/friends"
+              className="inline-flex h-9 items-center gap-2 border border-line px-3 text-[12.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
+            >
+              <Users className="size-3.5" aria-hidden="true" />
+              {t("Friends")}
+            </Link>
+            <Link
+              to={user ? `/community/u/${user.id}` : "/settings"}
+              className="inline-flex h-9 items-center gap-2 border border-line px-3 text-[12.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
+            >
+              {isPublic ? t("Your public page") : t("Your profile")}
+              <ArrowUpRight className="size-3.5" aria-hidden="true" />
+            </Link>
+          </>
         }
       />
 

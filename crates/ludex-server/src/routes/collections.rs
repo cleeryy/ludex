@@ -131,6 +131,9 @@ async fn create(
         }),
     )
     .await;
+    if is_public {
+        crate::social::notify_collection_shared(&state, user.id, id, &name).await;
+    }
     Ok((StatusCode::CREATED, Json(row.to_public(user.id))))
 }
 
@@ -218,6 +221,9 @@ async fn update(
     }
 
     let row = load(&state, id).await?;
+    if request.is_public == Some(true) && current.is_public == 0 {
+        crate::social::notify_collection_shared(&state, user.id, id, &row.name).await;
+    }
     Ok(Json(row.to_public(user.id)))
 }
 

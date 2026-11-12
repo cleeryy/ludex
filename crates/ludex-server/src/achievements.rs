@@ -1049,6 +1049,16 @@ async fn upsert(
                 }),
             )
             .await;
+            crate::social::notify_achievement(
+                state,
+                user_id,
+                game_id,
+                achievement_id,
+                &key,
+                &name,
+                points,
+            )
+            .await;
         }
     }
 
@@ -1550,12 +1560,13 @@ pub async fn unlock(
     let created = result.rows_affected() > 0;
 
     if created {
-        let (name, hidden) =
-            db::query_as::<(String, i64)>("SELECT name, hidden FROM achievements WHERE id = ?")
-                .bind(achievement_id)
-                .fetch_one(&state.pool)
-                .await
-                .map_err(ApiError::from)?;
+        let (name, hidden, points) = db::query_as::<(String, i64, i64)>(
+            "SELECT name, hidden, points FROM achievements WHERE id = ?",
+        )
+        .bind(achievement_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(ApiError::from)?;
         if hidden == 0 {
             crate::community::record(
                 state,
@@ -1568,6 +1579,16 @@ pub async fn unlock(
                     "achievementName": name,
                     "provider": source,
                 }),
+            )
+            .await;
+            crate::social::notify_achievement(
+                state,
+                user_id,
+                game_id,
+                achievement_id,
+                &key,
+                &name,
+                points,
             )
             .await;
         }

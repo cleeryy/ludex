@@ -99,6 +99,11 @@ impl TestServer {
             .await
     }
 
+    pub async fn patch(&self, path: &str, token: &str, body: Value) -> (StatusCode, Value) {
+        self.request(Method::PATCH, path, Some(token), Some(body))
+            .await
+    }
+
     pub async fn delete(&self, path: &str, token: &str) -> (StatusCode, Value) {
         self.request(Method::DELETE, path, Some(token), None).await
     }

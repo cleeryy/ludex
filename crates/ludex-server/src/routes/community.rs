@@ -28,6 +28,8 @@ struct ProfileRow {
     bio: Option<String>,
     avatar_path: Option<String>,
     public_profile: i64,
+    presence_enabled: i64,
+    friends_activity: i64,
     created_at: String,
 }
 
@@ -44,13 +46,16 @@ impl ProfileRow {
                 .filter(|path| !path.is_empty())
                 .map(crate::media::media_url),
             public_profile: self.public_profile != 0,
+            presence_enabled: self.presence_enabled != 0,
+            friends_activity: self.friends_activity != 0,
             created_at: crate::db::parse_time(&self.created_at).unwrap_or_else(chrono::Utc::now),
         }
     }
 }
 
 const PROFILE_COLUMNS: &str =
-    "id, username, display_name, bio, avatar_path, public_profile, created_at";
+    "id, username, display_name, bio, avatar_path, public_profile, presence_enabled, \
+     friends_activity, created_at";
 
 /// Community routes.
 pub fn router() -> Router<AppState> {
@@ -82,6 +87,14 @@ async fn update_profile(
     if let Some(public_profile) = request.public_profile {
         sets.push("public_profile = ?");
         binds.push(Bind::Int(i64::from(public_profile)));
+    }
+    if let Some(presence_enabled) = request.presence_enabled {
+        sets.push("presence_enabled = ?");
+        binds.push(Bind::Int(i64::from(presence_enabled)));
+    }
+    if let Some(friends_activity) = request.friends_activity {
+        sets.push("friends_activity = ?");
+        binds.push(Bind::Int(i64::from(friends_activity)));
     }
     if let Some(display_name) = request.display_name {
         sets.push("display_name = ?");

@@ -707,6 +707,10 @@ export interface PublicProfile {
   bio: string | null;
   avatarUrl: string | null;
   publicProfile: boolean;
+  /** Whether friends may see online/last-seen presence (#161). */
+  presenceEnabled: boolean;
+  /** Whether friends see this account in their activity feed (#161). */
+  friendsActivity: boolean;
   createdAt: string;
 }
 
@@ -727,8 +731,127 @@ export interface PublicProfileResponse {
 
 export interface ProfilePatch {
   publicProfile?: boolean;
+  presenceEnabled?: boolean;
+  friendsActivity?: boolean;
   displayName?: string | null;
   bio?: string | null;
+}
+
+/* ------------------------- friends and presence -------------------------- */
+
+/** Minimal account shape used by social responses. Never carries an email. */
+export interface SocialUser {
+  id: number;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
+/** Game attached to a presence row; friends only see id and title. */
+export interface FriendGame {
+  id: number;
+  title: string;
+}
+
+/** Presence of one friend, already filtered for visibility. */
+export interface FriendPresence {
+  state: "online" | "in_game" | "offline";
+  game: FriendGame | null;
+  lastSeen: string | null;
+}
+
+export interface Friend {
+  user: SocialUser;
+  since: string;
+  /** `null` when the friend did not opt into presence. */
+  presence: FriendPresence | null;
+}
+
+export interface FriendRequest {
+  id: number;
+  user: SocialUser;
+  createdAt: string;
+}
+
+export interface FriendsResponse {
+  friends: Friend[];
+  incoming: FriendRequest[];
+  outgoing: FriendRequest[];
+  blocked: SocialUser[];
+}
+
+export interface FriendRequestInput {
+  username?: string;
+  userId?: number;
+}
+
+export interface FriendPresenceEntry {
+  userId: number;
+  state: "online" | "in_game" | "offline";
+  game: FriendGame | null;
+  lastSeen: string | null;
+}
+
+export interface FriendsPresenceResponse {
+  friends: FriendPresenceEntry[];
+  pollAfterSeconds: number;
+}
+
+export interface PresenceStateResponse {
+  enabled: boolean;
+  state: "online" | "in_game" | "offline" | null;
+  game: FriendGame | null;
+  lastSeen: string | null;
+  staleAfterSeconds: number;
+}
+
+export interface PresenceHeartbeat {
+  state?: "online" | "in_game";
+  gameId?: number;
+}
+
+/* ------------------------------ notifications ---------------------------- */
+
+export type NotificationKind =
+  | "friend_request"
+  | "friend_accepted"
+  | "friend_achievement"
+  | "collection_share";
+
+export interface NotificationAchievement {
+  id: number;
+  key: string;
+  name: string;
+  points: number;
+}
+
+export interface AppNotification {
+  id: number;
+  kind: NotificationKind;
+  createdAt: string;
+  readAt: string | null;
+  actor: SocialUser | null;
+  game: FriendGame | null;
+  achievement: NotificationAchievement | null;
+  payload: Record<string, unknown>;
+}
+
+export interface NotificationPage {
+  items: AppNotification[];
+  nextBefore: number | null;
+  unreadCount: number;
+}
+
+export interface NotificationPrefs {
+  friendRequests: boolean;
+  friendAccepted: boolean;
+  friendAchievements: boolean;
+  collectionShares: boolean;
+}
+
+export interface NotificationReadResponse {
+  updated: number;
+  unreadCount: number;
 }
 
 /* ------------------------------- desktop -------------------------------- */

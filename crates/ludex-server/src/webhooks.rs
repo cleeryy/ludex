@@ -30,6 +30,9 @@ pub const EVENTS: &[&str] = &[
     actions::USER_CREATED,
     actions::SAVE_UPLOADED,
     actions::ACHIEVEMENT_UNLOCKED,
+    actions::FRIEND_REQUESTED,
+    actions::FRIEND_ACCEPTED,
+    actions::FRIEND_REMOVED,
 ];
 
 /// Event name used by the test-delivery endpoint.

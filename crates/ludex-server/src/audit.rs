@@ -98,6 +98,16 @@ pub mod actions {
     pub const METADATA_PROVIDER_UPDATED: &str = "settings.metadata_provider_updated";
     /// An editor picked a metadata provider record for a game (#135).
     pub const GAME_METADATA_MATCHED: &str = "game.metadata_matched";
+    /// A friend request was sent (#161).
+    pub const FRIEND_REQUESTED: &str = "friend.requested";
+    /// A friend request was accepted (#161).
+    pub const FRIEND_ACCEPTED: &str = "friend.accepted";
+    /// A friendship was removed (#161).
+    pub const FRIEND_REMOVED: &str = "friend.removed";
+    /// An account blocked another (#161).
+    pub const FRIEND_BLOCKED: &str = "friend.blocked";
+    /// An account lifted a block (#161).
+    pub const FRIEND_UNBLOCKED: &str = "friend.unblocked";
 }
 
 /// Writes one event to `audit_logs`. Failures are logged, never propagated:

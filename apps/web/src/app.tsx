@@ -31,6 +31,7 @@ import { NewsScreen } from "@/screens/news";
 import { CollectionsScreen } from "@/screens/collections";
 import { CollectionScreen } from "@/screens/collection";
 import { CommunityScreen } from "@/screens/community";
+import { FriendsScreen } from "@/screens/friends";
 import { ProfileScreen } from "@/screens/profile";
 import { SettingsScreen } from "@/screens/settings";
 import { NotFoundScreen } from "@/screens/not-found";
@@ -248,6 +249,7 @@ export function App() {
                   <Route path="collections" element={<CollectionsScreen />} />
                   <Route path="collections/:id" element={<CollectionScreen />} />
                   <Route path="community" element={<CommunityScreen />} />
+                  <Route path="community/friends" element={<FriendsScreen />} />
                   <Route path="community/u/:id" element={<ProfileScreen />} />
                   <Route path="news" element={<NewsScreen />} />
                   <Route path="settings" element={<SettingsScreen />} />

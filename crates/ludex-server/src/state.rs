@@ -80,6 +80,8 @@ pub struct AppState {
     pub handoff_create_limits: Arc<crate::security::AttemptCounter>,
     /// Per-address throttle for handoff claims (#157).
     pub handoff_claim_limits: Arc<crate::security::AttemptCounter>,
+    /// Per-account throttle for friend requests (#161).
+    pub friend_request_limits: Arc<crate::security::AttemptCounter>,
 }
 
 impl AppState {
@@ -161,6 +163,10 @@ impl AppState {
             exchange_codes: Arc::new(crate::desktop_handoff::ExchangeCodes::new()),
             handoff_create_limits: Arc::new(handoff_create_limits),
             handoff_claim_limits: Arc::new(handoff_claim_limits),
+            friend_request_limits: Arc::new(crate::security::AttemptCounter::new(
+                crate::social::FRIEND_REQUEST_LIMIT_PER_HOUR,
+                std::time::Duration::from_secs(3600),
+            )),
         }
     }
 }

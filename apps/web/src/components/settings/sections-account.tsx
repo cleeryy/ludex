@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Keyboard } from "lucide-react";
 import { api } from "@/lib/api";
+import type { NotificationPrefs } from "@/lib/types";
 import { errorMessage } from "@/lib/http";
 import { isNative } from "@/lib/native";
 import { supportsCustomTitleBar } from "@/lib/window-chrome";
@@ -34,16 +35,37 @@ export function AccountBody() {
 
   const profileQuery = useQuery({ queryKey: ["my-profile"], queryFn: () => api.myProfile() });
   const [publicProfile, setPublicProfile] = useState(false);
+  const [presenceEnabled, setPresenceEnabled] = useState(false);
+  const [friendsActivity, setFriendsActivity] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
 
+  const prefsQuery = useQuery({ queryKey: ["notification-prefs"], queryFn: () => api.notificationPrefs() });
+  const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
+
   useEffect(() => {
     if (!profileQuery.data) return;
     setPublicProfile(profileQuery.data.publicProfile);
+    setPresenceEnabled(profileQuery.data.presenceEnabled);
+    setFriendsActivity(profileQuery.data.friendsActivity);
     setDisplayName(profileQuery.data.displayName ?? "");
     setBio(profileQuery.data.bio ?? "");
   }, [profileQuery.data]);
+
+  useEffect(() => {
+    if (prefsQuery.data) setPrefs(prefsQuery.data);
+  }, [prefsQuery.data]);
+
+  const updatePrefs = async (patch: Partial<NotificationPrefs>) => {
+    if (prefs) setPrefs({ ...prefs, ...patch });
+    try {
+      setPrefs(await api.updateNotificationPrefs(patch));
+    } catch (cause) {
+      push({ title: t("Could not save notification preferences"), description: errorMessage(cause), tone: "danger" });
+      await prefsQuery.refetch();
+    }
+  };
 
   const changePassword = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -70,6 +92,8 @@ export function AccountBody() {
     try {
       await api.updateProfile({
         publicProfile,
+        presenceEnabled,
+        friendsActivity,
         displayName: displayName.trim() || null,
         bio: bio.trim() || null,
       });
@@ -173,6 +197,18 @@ export function AccountBody() {
                 </div>
                 <Switch checked={publicProfile} onCheckedChange={setPublicProfile} label={t("Public profile")} />
               </div>
+              <SettingsSwitchRow
+                title={t("Share presence with friends")}
+                description={t("Friends you accept can see whether you are online or in game, and when you were last seen. Rows go stale after two minutes. Nobody else sees this.")}
+                checked={presenceEnabled}
+                onCheckedChange={setPresenceEnabled}
+              />
+              <SettingsSwitchRow
+                title={t("Share activity with friends")}
+                description={t("Friends see your play sessions, completions and achievement unlocks in their friends feed and can get notifications. Independent from the public profile.")}
+                checked={friendsActivity}
+                onCheckedChange={setFriendsActivity}
+              />
               <Field label={t("Display name")} htmlFor="display-name" hint={t("Shown instead of your login name. Optional.")}>
                 <Input
                   id="display-name"
@@ -205,6 +241,42 @@ export function AccountBody() {
               </div>
             </div>
           </div>
+        )}
+      </SettingsGroup>
+
+      <SettingsGroup
+        title={t("Notifications")}
+        description={t("In-app notifications. Each kind can be muted without losing friend requests or the friends list itself.")}
+      >
+        {prefs ? (
+          <div>
+            <SettingsSwitchRow
+              title={t("Friend requests")}
+              description={t("Someone sent you a friend request. The request still appears on the Friends page when this is off.")}
+              checked={prefs.friendRequests}
+              onCheckedChange={(checked) => void updatePrefs({ friendRequests: checked })}
+            />
+            <SettingsSwitchRow
+              title={t("Accepted requests")}
+              description={t("Someone accepted a request you sent.")}
+              checked={prefs.friendAccepted}
+              onCheckedChange={(checked) => void updatePrefs({ friendAccepted: checked })}
+            />
+            <SettingsSwitchRow
+              title={t("Friends' achievements")}
+              description={t("Notify me when a friend unlocks an achievement. Off by default; the friend must also share activity.")}
+              checked={prefs.friendAchievements}
+              onCheckedChange={(checked) => void updatePrefs({ friendAchievements: checked })}
+            />
+            <SettingsSwitchRow
+              title={t("Collection shares")}
+              description={t("Notify me when a friend publishes a collection.")}
+              checked={prefs.collectionShares}
+              onCheckedChange={(checked) => void updatePrefs({ collectionShares: checked })}
+            />
+          </div>
+        ) : (
+          <p className="text-[13px] text-ink-3">{t("Loading notification preferences…")}</p>
         )}
       </SettingsGroup>
     </div>

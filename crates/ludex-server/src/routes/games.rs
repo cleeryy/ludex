@@ -1621,6 +1621,7 @@ async fn set_progress(
                 30,
             )
             .await;
+            crate::social::touch_playing(&state, user.id, game_id).await;
         }
         ProgressState::Completed => {
             crate::community::record_deduped(
@@ -1702,6 +1703,7 @@ async fn report_playtime(
         30,
     )
     .await;
+    crate::social::touch_playing(&state, user.id, game_id).await;
 
     Ok(Json(fetch_progress(&state, user.id, game_id).await?))
 }

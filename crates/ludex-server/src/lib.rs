@@ -60,6 +60,7 @@ pub mod scanner;
 pub mod secrets;
 pub mod security;
 pub mod share;
+pub mod social;
 pub mod sql;
 pub mod state;
 pub mod storage;
@@ -313,6 +314,10 @@ async fn prepare(config: Config) -> Result<Prepared> {
         handoff_claim_limits: Arc::new(security::AttemptCounter::new(
             config.handoff_claim_limit,
             Duration::from_secs(60),
+        )),
+        friend_request_limits: Arc::new(security::AttemptCounter::new(
+            social::FRIEND_REQUEST_LIMIT_PER_HOUR,
+            Duration::from_secs(3600),
         )),
     };
 

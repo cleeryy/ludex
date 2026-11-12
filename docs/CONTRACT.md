@@ -541,7 +541,12 @@ return 404 to everyone else, including their activity.
 ```ts
 interface PublicProfile {
   id: number; username: string; displayName: string | null; bio: string | null;
-  avatarUrl: string | null; publicProfile: boolean; createdAt: string;
+  avatarUrl: string | null; publicProfile: boolean;
+  /** Friends-only presence opt-in (#161). */
+  presenceEnabled: boolean;
+  /** Friends-only activity/achievement feed opt-in (#161). */
+  friendsActivity: boolean;
+  createdAt: string;
 }
 interface PublicStats {
   games: number; completed: number; minutesPlayed: number;
@@ -568,7 +573,7 @@ interface ActivityPage { items: Activity[]; nextBefore: number | null }
 | Method | Route | Notes |
 |---|---|---|
 | GET | `/api/me/profile` | own profile, including `publicProfile` |
-| PATCH | `/api/me/profile` | `{ publicProfile?, displayName?, bio? }`; `null` clears text |
+| PATCH | `/api/me/profile` | `{ publicProfile?, presenceEnabled?, friendsActivity?, displayName?, bio? }`; `null` clears text |
 | GET | `/api/community/users` | public profiles, alphabetical |
 | GET | `/api/community/users/{id}` | `PublicProfileResponse`; private → 404 for others |
 | GET | `/api/community/users/{id}/activity` | `?limit=&before=` → `ActivityPage` |
@@ -581,6 +586,84 @@ completed state (deduped 60 min), `collection_created` on creation, and
 `game_installed` from `POST /api/games/{id}/installed` (deduped 60 min; the
 desktop calls it). Feed entries survive deletion of the referenced game or
 collection as `null` references.
+
+## Friends, presence and notifications (#161)
+
+Friendships are opt-in relationships between two accounts on the same server.
+No federation, no member search, no email exposure: a request targets an exact
+username (case-insensitive) or a user id. Declining or cancelling deletes the
+request, so the pair can retry later. Blocking removes the friendship, drops
+pending requests and notifications mentioning the blocked account, and stops
+further requests in both directions.
+
+```ts
+interface SocialUser {
+  id: number; username: string; displayName: string | null; avatarUrl: string | null;
+}
+interface FriendGame { id: number; title: string }
+interface FriendPresence {
+  state: "online" | "in_game" | "offline";
+  game: FriendGame | null;     // only while in_game
+  lastSeen: string | null;     // null when the account never checked in
+}
+interface Friend { user: SocialUser; since: string; presence: FriendPresence | null }
+interface FriendRequest { id: number; user: SocialUser; createdAt: string }
+interface FriendsResponse {
+  friends: Friend[]; incoming: FriendRequest[]; outgoing: FriendRequest[];
+  blocked: SocialUser[];
+}
+type NotificationKind =
+  | "friend_request" | "friend_accepted" | "friend_achievement" | "collection_share";
+interface AppNotification {
+  id: number; kind: NotificationKind; createdAt: string; readAt: string | null;
+  actor: SocialUser | null; game: FriendGame | null;
+  achievement: { id: number; key: string; name: string; points: number } | null;
+  payload: Record<string, unknown>;
+}
+interface NotificationPage { items: AppNotification[]; nextBefore: number | null; unreadCount: number }
+interface NotificationPrefs {
+  friendRequests: boolean; friendAccepted: boolean;
+  friendAchievements: boolean; collectionShares: boolean;
+}
+```
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/friends` | friends, incoming/outgoing requests, blocks |
+| POST | `/api/friends/requests` | `{ username? , userId? }`; exact match only; 201; rate-limited per account |
+| POST | `/api/friends/requests/{id}/accept` | addressee only → `Friend` |
+| POST | `/api/friends/requests/{id}/decline` | addressee only; 204 |
+| DELETE | `/api/friends/requests/{id}` | cancel an outgoing request; 204 |
+| DELETE | `/api/friends/{id}` | either side; 204 |
+| GET | `/api/blocks` | accounts you blocked |
+| POST | `/api/blocks/{id}` | block; 204 |
+| DELETE | `/api/blocks/{id}` | unblock; 204 |
+| GET | `/api/friends/activity` | feed of friends with `friendsActivity` on; `?limit=&before=` |
+| GET | `/api/presence` | own presence and opt-in |
+| POST | `/api/presence` | `{ state: "online" \| "in_game", gameId? }` heartbeat |
+| GET | `/api/presence/friends` | compact poll payload; `pollAfterSeconds: 30` |
+| GET | `/api/notifications` | `?limit=&before=` → `NotificationPage` |
+| POST | `/api/notifications/read-all` | `{ updated, unreadCount: 0 }` |
+| POST | `/api/notifications/{id}/read` | `{ updated, unreadCount }` |
+| GET | `/api/me/notification-prefs` | per-kind preferences |
+| PATCH | `/api/me/notification-prefs` | partial `NotificationPrefs` |
+
+Presence is opt-in (`users.presence_enabled`, default false). A row older than
+120 seconds reads as `offline` with `game: null`; only accepted friends of an
+opted-in account ever receive a presence object, and no endpoint returns the
+game to anyone else. Progress writes and playtime reports mark the account
+`in_game`; clients may also heartbeat. The web polls
+`GET /api/presence/friends` every 30 seconds.
+
+Notifications are persisted per recipient and honour the per-kind preferences
+at write time (a muted kind writes nothing). The actor is never notified about
+their own action. `friend_achievement` needs the unlocker's
+`friendsActivity` opt-in on top of the recipient's `friendAchievements`. Rows
+are pruned on every write: the newest 200 per account are kept and rows older
+than 90 days are deleted. Friend request, acceptance, removal and block
+operations also emit the audited events `friend.requested`,
+`friend.accepted`, `friend.removed`, `friend.blocked` and `friend.unblocked`;
+the first three are subscribable through webhooks.
 
 ## Cloud saves (per user)
 
