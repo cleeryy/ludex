@@ -147,9 +147,76 @@ export function useLaunchGame() {
       push({ title: t("{title} is starting", { title: game.title }), description: t("Playtime is recorded when the game exits.") });
       void queryClient.invalidateQueries({ queryKey: ["games"] });
       void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
+      // #191: the game page flips to Resume without waiting for the next poll.
+      void queryClient.invalidateQueries({ queryKey: ["game-session", game.id] });
     },
     onError: (error: Error) => {
       push({ title: t("Could not launch the game"), description: error.message, tone: "danger" });
+    },
+  });
+}
+
+/**
+ * The live session of one game (#191).
+ *
+ * Polled while the page is open, because the process can start or end without
+ * a command from this window (tray launch, crash). `game://exited` invalidates
+ * it immediately, so a crashed game never leaves a stale "running" hero.
+ */
+export function useGameSession(gameId: number, enabled = true) {
+  return useQuery({
+    queryKey: ["game-session", gameId],
+    queryFn: () => native.gameSession(gameId),
+    enabled: isNative() && enabled && Number.isFinite(gameId),
+    refetchInterval: 2_500,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+    retry: 0,
+  });
+}
+
+/** Bring the running game's window back; the UI explains the Alt+Tab fallback. */
+export function useResumeGame() {
+  const { push } = useToast();
+
+  return useMutation({
+    mutationFn: (gameId: number) => native.resumeGame(gameId),
+    onSuccess: (result) => {
+      if (result.focused) return;
+      push({
+        title: t("Game window not found"),
+        description: t("Ludex was hidden. Use Alt+Tab to switch back to the game."),
+      });
+    },
+    onError: (error: Error) => {
+      push({ title: t("Could not resume the game"), description: error.message, tone: "danger" });
+    },
+  });
+}
+
+/** Force close a running game and refresh what the page shows (#191). */
+export function useForceCloseGame(gameId: number) {
+  const queryClient = useQueryClient();
+  const { push } = useToast();
+
+  return useMutation({
+    mutationFn: (sessionId: string) => native.forceCloseGame(sessionId),
+    onSuccess: () => {
+      push({
+        title: t("Game closed"),
+        description: t("The game stopped and its session was saved."),
+        tone: "success",
+      });
+    },
+    onError: (error: Error) => {
+      push({ title: t("Could not close the game"), description: error.message, tone: "danger" });
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["game-session", gameId] });
+      void queryClient.invalidateQueries({ queryKey: ["playtime", gameId] });
+      void queryClient.invalidateQueries({ queryKey: ["installed"] });
+      void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
+      void queryClient.invalidateQueries({ queryKey: ["game", gameId] });
     },
   });
 }
@@ -170,6 +237,7 @@ export function useNativeEvents() {
         void queryClient.invalidateQueries({ queryKey: ["installed"] });
         void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
         void queryClient.invalidateQueries({ queryKey: ["playtime", gameId] });
+        void queryClient.invalidateQueries({ queryKey: ["game-session", gameId] });
         void queryClient.invalidateQueries({ queryKey: ["game", gameId] });
         void queryClient.invalidateQueries({ queryKey: ["games"] });
         // #187: a game that dies within seconds is a failed launch, not a
@@ -213,6 +281,8 @@ export function useNativeEvents() {
           .then(() => {
             void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
             void queryClient.invalidateQueries({ queryKey: ["games"] });
+            // #191: a tray launch while the game page is open flips it to Resume.
+            void queryClient.invalidateQueries({ queryKey: ["game-session"] });
           })
           .catch((cause: Error) => push({ title: t("Could not launch the game"), description: cause.message, tone: "danger" }));
       });

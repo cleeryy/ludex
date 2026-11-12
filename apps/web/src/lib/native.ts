@@ -25,10 +25,12 @@ import type {
   DiagnosticsSendOutcome,
   DiagnosticsStatus,
   DiskUsage,
+  ForceCloseGameResult,
   GameConfigListing,
   GameExecutables,
   GameLaunchResult,
   GamePlaytime,
+  GameSession,
   GameUpdate,
   GameVaultAdoptEntry,
   GameVaultAdoptReport,
@@ -68,6 +70,7 @@ import type {
   RemotePlayVerification,
   RepairProgress,
   RepairReport,
+  ResumeGameResult,
   RomCommandValidation,
   RomEmulator,
   RomLaunchResult,
@@ -472,6 +475,28 @@ export const native = {
   async stopGame(sessionId: string): Promise<void> {
     if (!isNative()) return;
     await invoke<null>("stop_game", { sessionId });
+  },
+
+  /** The live session of one game, or null when it is not running (#191). */
+  async gameSession(gameId: number): Promise<GameSession | null> {
+    if (!isNative()) return null;
+    try {
+      return await invoke<GameSession | null>("game_session", { gameId });
+    } catch {
+      // A page must never crash because the session poll failed; the next
+      // poll retries and `game://exited` clears it.
+      return null;
+    }
+  },
+
+  /** Bring a running game's window back; never launches a second instance. */
+  async resumeGame(gameId: number): Promise<ResumeGameResult> {
+    return invoke<ResumeGameResult>("resume_game", { gameId });
+  },
+
+  /** Stop the whole process tree, escalating to a hard kill (#191). */
+  async forceCloseGame(sessionId: string): Promise<ForceCloseGameResult> {
+    return invoke<ForceCloseGameResult>("force_close_game", { sessionId });
   },
 
   async uninstallGame(gameId: number): Promise<void> {

@@ -1163,6 +1163,131 @@ pub fn stop(app: &AppHandle, session_id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// How long the tree stop gets before the force close escalates (#191).
+pub(crate) const FORCE_CLOSE_GRACE: Duration = Duration::from_secs(2);
+/// How long a hard-killed tree gets to disappear before the close is failed.
+pub(crate) const FORCE_CLOSE_VERIFY: Duration = Duration::from_secs(3);
+
+/// Outcome of a force close, shown to the user and logged (#191).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForceCloseResult {
+    /// True when the tree stop did not end the game and the hard kill ran.
+    pub escalated: bool,
+}
+
+/// Force close (#191): the normal tree stop first, then a hard kill that is
+/// verified. Unlike `stop`, a game that ignores the first pass does not leave
+/// the page showing a ghost "running" session.
+pub fn force_close(app: &AppHandle, session_id: &str) -> Result<ForceCloseResult, String> {
+    let state = app.state::<AppState>();
+    let pid = {
+        let processes = state
+            .processes
+            .lock()
+            .map_err(|_| "The process list is unavailable; restart Ludex.".to_string())?;
+        processes.get(session_id).map(|entry| entry.pid)
+    };
+    // Idempotent: the game may have exited between the page's poll and the
+    // click. There is nothing left to kill, and the page already offers Play.
+    let Some(pid) = pid else {
+        tracing::debug!(session_id, "force close: the session already ended");
+        return Ok(ForceCloseResult { escalated: false });
+    };
+
+    // First pass: the same tree stop the tray and the overlay use. A game that
+    // ignores it (anti-cheat helper, hung renderer) is still alive afterwards.
+    if let Err(error) = stop(app, session_id) {
+        tracing::debug!(session_id, error = %error, "the tree stop failed; escalating");
+    }
+
+    let mut sampler = ProcessSampler::new();
+    let mut escalated = false;
+    if !wait_for_session_end(&state, session_id, &mut sampler, pid, FORCE_CLOSE_GRACE) {
+        escalated = true;
+        let signalled = hard_kill_tree(pid);
+        tracing::warn!(
+            session_id,
+            pid,
+            signalled,
+            "the game ignored the tree stop; hard-killed it"
+        );
+        if !wait_for_session_end(&state, session_id, &mut sampler, pid, FORCE_CLOSE_VERIFY) {
+            tracing::error!(
+                session_id,
+                pid,
+                "the game is still running after the hard kill"
+            );
+            return Err(format!(
+                "The game is still running (PID {pid}). Close it from the system task manager."
+            ));
+        }
+    }
+
+    tracing::info!(session_id, pid, escalated, "force closed the game");
+    Ok(ForceCloseResult { escalated })
+}
+
+/// True once the root PID is gone **and** the watcher removed the session, so
+/// the game page cannot keep a stale "running" row.
+fn session_ended(
+    state: &AppState,
+    session_id: &str,
+    sampler: &mut ProcessSampler,
+    pid: u32,
+) -> bool {
+    let root_alive = sampler.snapshot().iter().any(|process| process.pid == pid);
+    let registered = state
+        .processes
+        .lock()
+        .map(|processes| processes.contains_key(session_id))
+        .unwrap_or(false);
+    !root_alive && !registered
+}
+
+fn wait_for_session_end(
+    state: &AppState,
+    session_id: &str,
+    sampler: &mut ProcessSampler,
+    pid: u32,
+    timeout: Duration,
+) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if session_ended(state, session_id, sampler, pid) {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+}
+
+/// Second pass (#191): a platform-native tree kill for a game that survived
+/// [`stop`]. Returns the number of processes signalled, for the log.
+#[cfg(windows)]
+fn hard_kill_tree(root: u32) -> usize {
+    // `taskkill /F /T` also reaches helpers that sysinfo cannot enumerate.
+    let status = crate::process::command("taskkill")
+        .args(["/F", "/T", "/PID", &root.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let signalled = ProcessSampler::new().kill_tree(root);
+    match status {
+        Ok(status) if status.success() => signalled.max(1),
+        _ => signalled,
+    }
+}
+
+/// Unix: sysinfo already sends `SIGKILL`; re-snapshot so descendants spawned
+/// between the two passes are reached too.
+#[cfg(not(windows))]
+fn hard_kill_tree(root: u32) -> usize {
+    ProcessSampler::new().kill_tree(root)
+}
+
 pub async fn sync_session(
     app: &AppHandle,
     session_id: &str,

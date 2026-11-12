@@ -3387,5 +3387,14 @@
   "Remote play": "Удалённая игра",
   "Sleep keeps the session running. Press a button on the controller to wake the PC.": "Спящий режим сохраняет сеанс. Нажмите кнопку на контроллере, чтобы разбудить ПК.",
   "Sleep this PC": "Перевести этот ПК в спящий режим",
-  "The session ends and the stream returns to the host desktop.": "Сеанс завершается, а трансляция возвращается на рабочий стол хоста."
+  "The session ends and the stream returns to the host desktop.": "Сеанс завершается, а трансляция возвращается на рабочий стол хоста.",
+  "Could not close the game": "Не удалось закрыть игру",
+  "Could not resume the game": "Не удалось вернуться в игру",
+  "Force close": "Принудительно закрыть",
+  "Force close {title}?": "Принудительно закрыть {title}?",
+  "Game closed": "Игра закрыта",
+  "Game window not found": "Окно игры не найдено",
+  "The game stopped and its session was saved.": "Игра остановлена, сеанс сохранён.",
+  "Use this when the game will not exit. Unsaved progress may be lost: Ludex ends the game's whole process tree.": "Используйте, если игра не завершается. Несохранённый прогресс может быть потерян: Ludex завершает всё дерево процессов игры.",
+  "Ludex was hidden. Use Alt+Tab to switch back to the game.": "Ludex скрыт. Используйте Alt+Tab, чтобы вернуться в игру."
 }

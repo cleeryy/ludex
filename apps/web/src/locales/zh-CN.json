@@ -3387,5 +3387,14 @@
   "Remote play": "远程游玩",
   "Sleep keeps the session running. Press a button on the controller to wake the PC.": "睡眠会让会话保持运行。按控制器上的按钮唤醒电脑。",
   "Sleep this PC": "让此电脑进入睡眠",
-  "The session ends and the stream returns to the host desktop.": "会话结束，串流返回主机的桌面。"
+  "The session ends and the stream returns to the host desktop.": "会话结束，串流返回主机的桌面。",
+  "Could not close the game": "无法关闭游戏",
+  "Could not resume the game": "无法返回游戏",
+  "Force close": "强制关闭",
+  "Force close {title}?": "强制关闭 {title}？",
+  "Game closed": "游戏已关闭",
+  "Game window not found": "未找到游戏窗口",
+  "The game stopped and its session was saved.": "游戏已停止，本次游戏时长已保存。",
+  "Use this when the game will not exit. Unsaved progress may be lost: Ludex ends the game's whole process tree.": "当游戏无法退出时使用。未保存的进度可能会丢失：Ludex 会结束游戏的整个进程树。",
+  "Ludex was hidden. Use Alt+Tab to switch back to the game.": "Ludex 已隐藏。请使用 Alt+Tab 切换回游戏。"
 }

@@ -3387,5 +3387,14 @@
   "Remote play": "Uzaktan oynatma",
   "Sleep keeps the session running. Press a button on the controller to wake the PC.": "Uyku oturumu açık tutar. PC’yi uyandırmak için kumandadaki bir düğmeye basın.",
   "Sleep this PC": "Bu PC’yi uyut",
-  "The session ends and the stream returns to the host desktop.": "Oturum biter ve akış ana bilgisayarın masaüstüne döner."
+  "The session ends and the stream returns to the host desktop.": "Oturum biter ve akış ana bilgisayarın masaüstüne döner.",
+  "Could not close the game": "Oyun kapatılamadı",
+  "Could not resume the game": "Oyuna dönülemedi",
+  "Force close": "Zorla kapat",
+  "Force close {title}?": "{title} zorla kapatılsın mı?",
+  "Game closed": "Oyun kapatıldı",
+  "Game window not found": "Oyun penceresi bulunamadı",
+  "The game stopped and its session was saved.": "Oyun durduruldu ve oturum kaydedildi.",
+  "Use this when the game will not exit. Unsaved progress may be lost: Ludex ends the game's whole process tree.": "Oyun kapanmıyorsa bunu kullanın. Kaydedilmemiş ilerleme kaybolabilir: Ludex oyunun tüm işlem ağacını sonlandırır.",
+  "Ludex was hidden. Use Alt+Tab to switch back to the game.": "Ludex gizlendi. Oyuna dönmek için Alt+Tab kullanın."
 }

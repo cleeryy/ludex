@@ -2511,6 +2511,9 @@ interface RemotePlayCleanup {
 | `list_installed` | — | `InstalledGame[]` |
 | `launch_game` | `{ gameId, executable?, args? }` | `{ sessionId }` |
 | `stop_game` | `{ sessionId }` | `null` |
+| `game_session` | `{ gameId }` | `GameSession \| null`; the live session of that game (#191): `sessionId`, `gameId`, root `pid`, `startedAt`, `elapsedSeconds`, stored `executable` and `title`. Resolved from the same process registry the launch watcher owns, so it clears when the tracked tree exits; the game page polls it while open and invalidates on `game://exited` |
+| `resume_game` | `{ gameId }` | `ResumeGameResult`; brings the running game's window back without launching a second instance. Windows: `EnumWindows` + `GetWindowThreadProcessId` picks the PID's top-level window, `ShowWindow` restores it and `SetForegroundWindow` focuses it. Linux/X11: `xdotool search --pid`, then `windowmap` + `windowactivate --sync`. When no window is found or the window manager refuses focus, Ludex hides itself and returns `focused: false` with `reason` (`noWindow`/`focusRefused`) so the shell asks for Alt+Tab. macOS has no window-by-PID lookup and always takes that fallback; Wayland compositors may ignore the focus request (#191) |
+| `force_close_game` | `{ sessionId }` | `ForceCloseResult` `{ escalated }`; stops the tracked process tree (same pass as `stop_game`), waits up to 2 s for the root PID and the session row to disappear, then escalates to a hard kill (`taskkill /F /T /PID` on Windows, a second `SIGKILL` tree pass elsewhere) and verifies again for up to 3 s. Returns an actionable error when the game is still alive; a closed game always leaves the session row finished, never a ghost `running` state (#191) |
 | `uninstall_game` | `{ gameId }` | `null` |
 | `move_install` | `{ gameId, targetDir }` | `InstalledGame` (new path) |
 | `verify_install` | `{ gameId }` | `VerifyReport` |
@@ -2654,7 +2657,7 @@ Events:
 - `install://move-progress` → `{ gameId, bytesDone, bytesTotal, message }`
 - `install://verify-progress` → `{ gameId, filesDone, filesTotal, bytesDone, bytesTotal, message }`
 - `install://repair-progress` → same shape plus `phase: "downloading" | "extracting" | "restoring" | "verifying"`
-- `game://exited` → `{ sessionId, gameId, minutesPlayed, secondsPlayed, source, exitCode, immediateExit }` (#129 adds `source`; #187 adds the root process `exitCode` as an unsigned 32-bit value — NTSTATUS bits are preserved — and `immediateExit`, true when the process tree ended within 5 s; the shell shows a danger toast with the code in hex)
+- `game://exited` → `{ sessionId, gameId, minutesPlayed, secondsPlayed, source, exitCode, immediateExit }` (#129 adds `source`; #187 adds the root process `exitCode` as an unsigned 32-bit value — NTSTATUS bits are preserved — and `immediateExit`, true when the process tree ended within 5 s; the shell shows a danger toast with the code in hex; #191 invalidates the game page's `game_session` poll on it)
 - `install://manifest-progress` → `{ gameId, filesDone, filesTotal, bytesDone, bytesTotal, message }` (#129)
 - `cloud-save://synced` → `gameId` (automatic upload completed or was unchanged)
 - `cloud-save://pending` → `gameId` (automatic upload failed and was queued for retry)
@@ -2871,6 +2874,27 @@ archive by default (`keepArchives` setting false).
   one of the scanned roots.
 - **Playnite.** The plugin lives in `integrations/playnite/` and is a pure API
   client; there is no dedicated endpoint.
+
+### Resume and force close (#191)
+
+A running game appears in the game page hero as a `Running` badge with
+**Resume** as the primary action and **Force close** next to it (danger style,
+always behind a confirmation that spells out the difference from the normal
+stop). The hero derives its action from the live session, not from install
+state alone: **Resume** while running, **Play** when installed, **Install**
+when not installed on the desktop, **Download** in the browser build. The
+`game_session` poll (2.5 s) keeps the state current across navigation and a
+`game://exited` event clears it immediately, so a crashed game never leaves a
+stale **Resume**.
+
+Resume never starts a second instance and never changes the launch pipeline:
+it finds a top-level window owned by the session's root PID, restores it when
+minimised and focuses it. A launcher that owns the real game under another PID,
+an exclusive-fullscreen window or a compositor that refuses focus can defeat
+that lookup; in that case Ludex hides itself, logs the reason with the session
+id and PID, and the shell tells the user to Alt+Tab back. Force close keeps the
+normal tree stop as its first pass and only escalates when the tree survives it;
+the failure path keeps the toast, the log and the session row consistent.
 
 ### Locations (#99)
 

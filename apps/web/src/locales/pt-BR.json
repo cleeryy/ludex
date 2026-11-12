@@ -3387,5 +3387,14 @@
   "Remote play": "Jogo remoto",
   "Sleep keeps the session running. Press a button on the controller to wake the PC.": "A suspensão mantém a sessão ativa. Pressione um botão do controle para acordar o PC.",
   "Sleep this PC": "Suspender este PC",
-  "The session ends and the stream returns to the host desktop.": "A sessão termina e a transmissão volta para a área de trabalho do host."
+  "The session ends and the stream returns to the host desktop.": "A sessão termina e a transmissão volta para a área de trabalho do host.",
+  "Could not close the game": "Não foi possível fechar o jogo",
+  "Could not resume the game": "Não foi possível voltar ao jogo",
+  "Force close": "Forçar fechamento",
+  "Force close {title}?": "Forçar o fechamento de {title}?",
+  "Game closed": "Jogo fechado",
+  "Game window not found": "Janela do jogo não encontrada",
+  "The game stopped and its session was saved.": "O jogo parou e a sessão foi salva.",
+  "Use this when the game will not exit. Unsaved progress may be lost: Ludex ends the game's whole process tree.": "Use quando o jogo não fechar. O progresso não salvo pode ser perdido: o Ludex encerra toda a árvore de processos do jogo.",
+  "Ludex was hidden. Use Alt+Tab to switch back to the game.": "O Ludex foi ocultado. Use Alt+Tab para voltar ao jogo."
 }

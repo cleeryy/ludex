@@ -255,7 +255,10 @@ describe("language picker state (#188)", () => {
   it("marks below-the-gate locales disabled with a coverage reason", () => {
     const arabic = localePickerEntries("en").find((entry) => entry.meta.code === "ar");
     expect(arabic?.disabled).toBe(true);
-    expect(arabic?.reason).toContain(coveragePercent("ar").toFixed(1));
+    // The percentage is data, not copy: assert the reason names the current
+    // coverage instead of pinning a number that moves with every new id.
+    expect(arabic?.reason).toContain(`${coveragePercent("ar")}%`);
+    expect(arabic?.reason).toContain("translated");
     const french = localePickerEntries("en").find((entry) => entry.meta.code === "fr");
     expect(french?.disabled).toBe(false);
     expect(french?.reason).toBeNull();

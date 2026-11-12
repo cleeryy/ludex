@@ -2780,6 +2780,37 @@ export interface GameLaunchResult {
   source: string;
 }
 
+/** The live session of one game (#191), as the game page polls it. */
+export interface GameSession {
+  sessionId: string;
+  gameId: number;
+  /** Root PID of the launched process tree. */
+  pid: number;
+  /** RFC 3339 launch time. */
+  startedAt: string;
+  /** Seconds since the launch, as of this response. */
+  elapsedSeconds: number;
+  /** Stored executable (relative to the install folder), when known. */
+  executable: string | null;
+  title: string;
+}
+
+/** Result of bringing a running game's window back (#191). */
+export interface ResumeGameResult {
+  /** True when the game window is in the foreground. */
+  focused: boolean;
+  /** Platform window handle that was focused, when any. */
+  window: string | null;
+  /** `noWindow` / `focusRefused` when the Alt+Tab fallback was used. */
+  reason: string | null;
+}
+
+/** Result of a force close (#191). */
+export interface ForceCloseGameResult {
+  /** True when the game ignored the normal tree stop and was hard-killed. */
+  escalated: boolean;
+}
+
 export interface RuntimeProgress {
   gameId: number;
   stepId: string;

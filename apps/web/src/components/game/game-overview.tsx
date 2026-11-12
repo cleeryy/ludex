@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn";
 import { formatBytes, formatDate, formatMinutes, formatRelative, formatSeconds } from "@/lib/format";
 import { gameSectionPath } from "@/lib/game-sections";
 import { isNative } from "@/lib/native";
-import type { GameDetail, GamePlaytime, GameUpdate, GameVersion, InstalledGame } from "@/lib/types";
+import type { GameDetail, GamePlaytime, GameSession, GameUpdate, GameVersion, InstalledGame } from "@/lib/types";
 import { useAuth } from "@/state/auth";
 import { Badge, Button } from "@/components/ui/controls";
 import { SettingsGroup } from "@/components/settings/settings-section";
@@ -19,6 +19,7 @@ import { t } from "@/lib/i18n";
 export function GameOverview({
   game,
   installed,
+  session,
   update,
   preferredVersion,
   playtime,
@@ -29,6 +30,8 @@ export function GameOverview({
 }: {
   game: GameDetail;
   installed?: InstalledGame;
+  /** The live session (#191), shown in the progress group while running. */
+  session?: GameSession | null;
   update?: GameUpdate;
   preferredVersion: GameVersion | null;
   playtime?: GamePlaytime;
@@ -156,6 +159,11 @@ export function GameOverview({
             <span className="num">{totalPlayed ?? t("Not played")}</span>
           </Fact>
           <Fact label={t("Last session")}>{formatRelative(game.lastPlayedAt)}</Fact>
+          {session && (
+            <Fact label={t("Running")}>
+              <span className="num">{formatSeconds(Math.max(session.elapsedSeconds, 1))}</span>
+            </Fact>
+          )}
           {native && playtime && playtime.sessions > 0 && (
             <Fact label={t("Sessions on this device")}>
               <span className="num">{playtime.sessions}</span>

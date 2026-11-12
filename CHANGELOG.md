@@ -10,6 +10,11 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Resume and Force close on the game page (#191): while a game runs, Overview
+  shows Resume as the primary action (finds the game's top-level window by PID,
+  restores and focuses it, or tells you to alt-tab when no window can be found)
+  next to a confirmed Force close that stops the whole process tree; the running
+  session is polled and cleared on `game://exited`.
 - Big Picture is a complete console shell (#196): a top system bar (time,
   account/avatar, server and online state, downloads, pad family, battery), a
   home row (Continue, Library, Downloads, Collections, Settings, Power), an

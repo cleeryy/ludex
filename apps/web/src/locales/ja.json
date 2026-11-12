@@ -3387,5 +3387,14 @@
   "Remote play": "リモートプレイ",
   "Sleep keeps the session running. Press a button on the controller to wake the PC.": "スリープ中もセッションは維持されます。コントローラーのボタンを押すと PC が起きます。",
   "Sleep this PC": "この PC をスリープ",
-  "The session ends and the stream returns to the host desktop.": "セッションが終了し、ストリームはホストのデスクトップに戻ります。"
+  "The session ends and the stream returns to the host desktop.": "セッションが終了し、ストリームはホストのデスクトップに戻ります。",
+  "Could not close the game": "ゲームを閉じられませんでした",
+  "Could not resume the game": "ゲームに戻れませんでした",
+  "Force close": "強制終了",
+  "Force close {title}?": "{title} を強制終了しますか？",
+  "Game closed": "ゲームを閉じました",
+  "Game window not found": "ゲームのウィンドウが見つかりません",
+  "The game stopped and its session was saved.": "ゲームを停止し、セッションを保存しました。",
+  "Use this when the game will not exit. Unsaved progress may be lost: Ludex ends the game's whole process tree.": "ゲームが終了しないときに使用します。保存されていない進行状況は失われる可能性があります。Ludex がゲームのプロセスツリー全体を終了します。",
+  "Ludex was hidden. Use Alt+Tab to switch back to the game.": "Ludex を非表示にしました。Alt+Tab でゲームに戻ってください。"
 }

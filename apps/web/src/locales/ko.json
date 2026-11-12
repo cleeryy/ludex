@@ -3387,5 +3387,14 @@
   "Remote play": "원격 플레이",
   "Sleep keeps the session running. Press a button on the controller to wake the PC.": "절전 모드에서도 세션이 유지됩니다. 컨트롤러 버튼을 누르면 PC가 깨어납니다.",
   "Sleep this PC": "이 PC 절전 모드로 전환",
-  "The session ends and the stream returns to the host desktop.": "세션이 끝나고 스트림이 호스트 데스크톱으로 돌아갑니다."
+  "The session ends and the stream returns to the host desktop.": "세션이 끝나고 스트림이 호스트 데스크톱으로 돌아갑니다.",
+  "Could not close the game": "게임을 닫지 못했습니다",
+  "Could not resume the game": "게임으로 돌아가지 못했습니다",
+  "Force close": "강제 종료",
+  "Force close {title}?": "{title} 강제 종료할까요?",
+  "Game closed": "게임을 닫았습니다",
+  "Game window not found": "게임 창을 찾을 수 없습니다",
+  "The game stopped and its session was saved.": "게임이 중지되고 세션이 저장되었습니다.",
+  "Use this when the game will not exit. Unsaved progress may be lost: Ludex ends the game's whole process tree.": "게임이 종료되지 않을 때 사용하세요. 저장되지 않은 진행 상황이 손실될 수 있습니다. Ludex가 게임의 전체 프로세스 트리를 종료합니다.",
+  "Ludex was hidden. Use Alt+Tab to switch back to the game.": "Ludex가 숨겨졌습니다. Alt+Tab으로 게임으로 돌아가세요."
 }
