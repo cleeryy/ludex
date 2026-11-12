@@ -557,6 +557,9 @@ export function BigPictureScreen() {
       case "close":
         closeOverlay();
         return;
+      case "exit":
+        exit();
+        return;
       case "highlight":
         moveOverlay(command.direction);
         return;

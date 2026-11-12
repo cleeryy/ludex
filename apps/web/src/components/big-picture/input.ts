@@ -29,6 +29,7 @@ export type BigPictureCommand =
   | { type: "search"; step: SearchStep }
   | { type: "layout" }
   | { type: "game" }
+  | { type: "exit" }
   | { type: "none" };
 
 /** The hint strip follows the same context the router used. */
@@ -168,6 +169,9 @@ export function routeKey(overlay: BigPictureOverlay | null, key: string): BigPic
     case "Enter":
       return { type: "activate" };
     case "Escape":
+      // Escape leaves Big Picture directly (E2E/keyboard contract); B and
+      // Backspace open the visible exit confirmation instead.
+      return { type: "exit" };
     case "Backspace":
       return { type: "open", overlay: "exit" };
     case "[":

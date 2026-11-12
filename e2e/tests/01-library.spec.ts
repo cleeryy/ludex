@@ -30,7 +30,7 @@ test.describe("library, search, filters, detail and download", () => {
     await expect(page.getByRole("heading", { name: title, level: 1 })).toBeVisible();
     await expect(page.getByText("1 version")).toBeVisible();
     await expect(page.getByText(description)).toBeVisible();
-    await expect(page.getByText(file)).toBeVisible();
+    await expect(page.getByText(file).first()).toBeVisible();
 
     // Progress-state filter through the library UI.
     await page.goto("/#/library");

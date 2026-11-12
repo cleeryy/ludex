@@ -89,7 +89,7 @@ describe("keyboard parity", () => {
     expect(routeKey(null, "ArrowLeft")).toEqual({ type: "move", direction: "left" });
     expect(routeKey(null, "ArrowDown")).toEqual({ type: "move", direction: "down" });
     expect(routeKey(null, "Enter")).toEqual({ type: "activate" });
-    expect(routeKey(null, "Escape")).toEqual({ type: "open", overlay: "exit" });
+    expect(routeKey(null, "Escape")).toEqual({ type: "exit" });
     expect(routeKey(null, "Backspace")).toEqual({ type: "open", overlay: "exit" });
     expect(routeKey(null, "[")).toEqual({ type: "shelf", delta: -1 });
     expect(routeKey(null, "]")).toEqual({ type: "shelf", delta: 1 });
