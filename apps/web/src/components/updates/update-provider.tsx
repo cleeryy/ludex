@@ -52,6 +52,12 @@ interface UpdaterValue {
 
 const UpdaterContext = createContext<UpdaterValue | null>(null);
 
+/**
+ * One install-health notice per window load (#186). The self-check runs on
+ * every start; a page reload must not stack the same two toasts again.
+ */
+let healthNoticeShown = false;
+
 export function UpdateProvider({ children }: { children: ReactNode }) {
   const { push } = useToast();
   const [status, setStatus] = useState<UpdateStatus | null>(null);
@@ -110,6 +116,42 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       for (const off of unlisteners) off();
     };
   }, []);
+
+  // #186: an update that only replaced the web assets, or a second install the
+  // shortcut could launch, is invisible in the UI otherwise. The Rust side logs
+  // the same facts in `{appDataDir}/logs/ludex.log`.
+  useEffect(() => {
+    if (!isNative() || healthNoticeShown) return;
+    let disposed = false;
+    void native.installHealth().then((health) => {
+      if (disposed || !health || healthNoticeShown) return;
+      healthNoticeShown = true;
+      const mismatch = health.mismatch;
+      if (mismatch) {
+        push({
+          title: t("The update did not replace this Ludex install"),
+          description: t("Ludex is running {running} from {path}, but the update installed {expected}. Reinstall from the release page, then check the shortcut target.", {
+            running: mismatch.runningVersion,
+            path: mismatch.exe ?? health.runningExe ?? "",
+            expected: mismatch.expectedVersion,
+          }),
+          tone: "danger",
+        });
+      }
+      const duplicate = health.duplicates[0];
+      if (duplicate) {
+        push({
+          title: t("Another Ludex install was found"),
+          description: t("Another ludex.exe exists at {path}. Windows may start that copy instead of the updated app. Remove the extra install or update it too.", {
+            path: duplicate.path,
+          }),
+        });
+      }
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [push]);
 
   const check = useCallback(
     async (manual = true): Promise<UpdateStatus | null> => {

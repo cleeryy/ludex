@@ -422,6 +422,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # #186: stamp the commit so an installed edge build can identify itself.
+          LUDEX_BUILD_COMMIT: ${{ github.sha }}
         with:
           projectPath: apps/desktop
           tagName: edge
@@ -430,6 +432,15 @@ jobs:
           prerelease: true
           includeUpdaterJson: true
           args: "--bundles ${{ matrix.bundles }}"
+
+      # #186: the edge channel is where a Windows updater regression shows up
+      # first; fail the build when the installer does not carry this commit.
+      - name: Verify the Windows installer carries the stamped binary (#186)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          LUDEX_BUILD_COMMIT: ${{ github.sha }}
+        run: ./scripts/verify-windows-install.ps1 -Commit $env:LUDEX_BUILD_COMMIT
 
       - name: Checksums and edge upload
         shell: bash

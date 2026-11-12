@@ -2384,6 +2384,44 @@ export interface UpdateInstalled {
   restarted: boolean;
 }
 
+/** One `ludex.exe` found in a known install root (#186). */
+export interface InstallCandidate {
+  path: string;
+  root: string;
+  sizeBytes: number | null;
+  /** Modification time, RFC 3339. */
+  modifiedAt: string | null;
+  /** Build commit read from the binary; null for a build that predates the marker. */
+  commit: string | null;
+  /** True when this copy is not the running build. */
+  differs: boolean;
+}
+
+/** An update the updater reported as installed but that is not running (#186). */
+export interface InstallMismatch {
+  runningVersion: string;
+  expectedVersion: string;
+  exe: string | null;
+  detectedAt: string;
+}
+
+/** Installed-binary self-check: path, duplicates and pending update (#186). */
+export interface InstallHealth {
+  runningExe: string | null;
+  runningVersion: string;
+  buildCommit: string;
+  platform: string;
+  /** `{appDataDir}/logs/ludex.log`, whether or not it exists yet. */
+  logPath: string | null;
+  /** Windows install roots that were scanned (empty on other platforms). */
+  installRoots: string[];
+  duplicates: InstallCandidate[];
+  /** Version the updater installed, until the next start verifies it. */
+  pendingVersion: string | null;
+  /** Last update that did not replace the running binary. */
+  mismatch: InstallMismatch | null;
+}
+
 export interface DiskUsage {
   totalBytes: number;
   freeBytes: number;

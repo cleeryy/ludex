@@ -288,6 +288,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # #186: stamp the commit so an installed exe can identify itself.
+          LUDEX_BUILD_COMMIT: ${{ github.sha }}
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
@@ -298,6 +300,16 @@ jobs:
           # uploads the .sig files next to the bundles.
           includeUpdaterJson: true
           args: ${{ matrix.args }}
+
+      # #186: a release is only valid if the installer carries the binary that
+      # was just built. 7-Zip extracts the NSIS payload and the SHA-256 must
+      # match the stamped `ludex.exe`; a stale or misplaced payload fails here.
+      - name: Verify the Windows installer carries the stamped binary (#186)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          LUDEX_BUILD_COMMIT: ${{ github.sha }}
+        run: ./scripts/verify-windows-install.ps1 -Commit $env:LUDEX_BUILD_COMMIT
 
   docker:
     name: Docker image (GHCR)

@@ -63,3 +63,16 @@ done
 
 [[ "$FOUND" -eq 1 ]] || fail "no window named Ludex appeared within 30s"
 echo "PASS: Ludex desktop window opened under Xvfb"
+
+# #186: the startup self-check must name the running executable, the app
+# version and the build commit in {appDataDir}/logs/ludex.log. The check runs
+# off the window setup path, so give it a moment after the window appears.
+SELF_CHECK="${XDG_DATA_HOME:-$HOME/.local/share}/cloud.cleeryy.ludex/logs/ludex.log"
+for _ in $(seq 1 15); do
+  [[ -s "$SELF_CHECK" ]] && break
+  sleep 1
+done
+[[ -s "$SELF_CHECK" ]] || fail "startup self-check did not write $SELF_CHECK"
+grep -q "ludex version=" "$SELF_CHECK" || fail "startup self-check has no version line in $SELF_CHECK"
+grep -q 'exe="' "$SELF_CHECK" || fail "startup self-check has no executable path in $SELF_CHECK"
+echo "PASS: startup self-check logged the running executable and version"

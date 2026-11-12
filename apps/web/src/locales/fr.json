@@ -3338,5 +3338,9 @@
   "system install": "installation système",
   "Kernel-level anti-cheat (EAC/BattlEye without developer Proton support) does not run under Wine or Proton and can put accounts at risk. Ludex never bypasses anti-cheat.": "L’anti-triche au niveau du noyau (EAC/BattlEye sans prise en charge Proton du développeur) ne fonctionne pas sous Wine ou Proton et peut mettre les comptes en danger. Ludex ne contourne jamais l’anti-triche.",
   "Ludex never bundles or redistributes GPTK, CrossOver, Steam, games or GPU drivers.": "Ludex ne fournit ni ne redistribue GPTK, CrossOver, Steam, les jeux ou les pilotes GPU.",
-  "No runtime is installed without an explicit click, and every checksum mismatch aborts before anything runs.": "Aucun runtime n’est installé sans un clic explicite, et toute empreinte incorrecte interrompt l’opération avant toute exécution."
+  "No runtime is installed without an explicit click, and every checksum mismatch aborts before anything runs.": "Aucun runtime n’est installé sans un clic explicite, et toute empreinte incorrecte interrompt l’opération avant toute exécution.",
+  "The update did not replace this Ludex install": "La mise à jour n'a pas remplacé cette installation de Ludex",
+  "Ludex is running {running} from {path}, but the update installed {expected}. Reinstall from the release page, then check the shortcut target.": "Ludex s'exécute en version {running} depuis {path}, mais la mise à jour a installé {expected}. Réinstallez depuis la page de version, puis vérifiez la cible du raccourci.",
+  "Another Ludex install was found": "Une autre installation de Ludex a été trouvée",
+  "Another ludex.exe exists at {path}. Windows may start that copy instead of the updated app. Remove the extra install or update it too.": "Un autre ludex.exe existe dans {path}. Windows peut lancer cette copie au lieu de l'application mise à jour. Supprimez l'installation en trop ou mettez-la à jour également."
 }

@@ -79,6 +79,84 @@ without reading logs.
 - Switching between stable and early persists the channel and re-checks
   immediately. Early installs show the edge warning in the center.
 
+### Windows install layout (updates, #186)
+
+A Windows update only works when the installer replaces the executable the app
+actually runs. Ludex pins one layout:
+
+| Item | Value | Where |
+|---|---|---|
+| Install mode | `currentUser` (per-user) | `bundle.windows.nsis.installMode` in `tauri.windows.conf.json`, mirrored in `tauri.conf.json` |
+| Install folder | `%LOCALAPPDATA%\Ludex` | — |
+| Executable | `%LOCALAPPDATA%\Ludex\Ludex.exe` (stored as `ludex.exe`; Windows is case-insensitive) | — |
+| Shortcut | one Start Menu entry, per-user | — |
+| Update UI | `passive` (progress bar, no prompts) | `plugins.updater.windows.installMode` |
+| Startup log | `%APPDATA%\cloud.cleeryy.ludex\logs\ludex.log` | — |
+| Update record | `%APPDATA%\cloud.cleeryy.ludex\install-state.json` | — |
+
+The updater downloads the NSIS installer and launches it with `/P /R`; the Tauri
+plugin exits, NSIS replaces the binary and relaunches it. Every build carries a
+`LUDEX_BUILD_COMMIT=<sha>` marker (stamped by `apps/desktop/src-tauri/build.rs`
+from the CI variable of the same name). `install_update` records the target
+version in `install-state.json` before the installer runs. On the next start
+the app writes the running path, version and commit to the log, compares the
+running version with the recorded one, and stores an `InstallMismatch` when
+they differ. The web UI shows a toast naming both versions and
+`update_install_health` returns the typed mismatch, so a locked or partial
+update can never report "updated".
+
+#### Migrating a per-machine install
+
+An install made with `perMachine` (or a hand-made copy under `Program Files`)
+cannot be updated by the per-user installer: NSIS writes a second copy to
+`%LOCALAPPDATA%\Ludex` while the old executable keeps running from
+`C:\Program Files\Ludex`.
+
+1. Quit Ludex and check the process path:
+   `Get-Process ludex -ErrorAction SilentlyContinue | Select-Object Id, Path`
+2. Uninstall the per-machine copy (Settings → Apps → Ludex).
+3. Delete leftovers `C:\Program Files\Ludex` and `C:\Program Files (x86)\Ludex`
+   (only when they still contain `ludex.exe`).
+4. Install the current NSIS release; it lands in `%LOCALAPPDATA%\Ludex`.
+5. Point the shortcut at `%LOCALAPPDATA%\Ludex\Ludex.exe` and remove other
+   Start Menu / desktop shortcuts for Ludex.
+
+#### Recovering from a stale install
+
+Symptoms: Settings shows the new version but a fix is missing, or the startup
+toast says "The update did not replace this Ludex install".
+
+1. Read `%APPDATA%\cloud.cleeryy.ludex\logs\ludex.log`. The
+   `ludex version=… commit=… exe="…"` line is the authority; every
+   `other install:` line names a duplicate and its own commit.
+2. Confirm what is running:
+   `Get-CimInstance Win32_Process -Filter "Name='ludex.exe'" | Select-Object ProcessId, ExecutablePath, CommandLine`
+3. Normalise the layout with the migration procedure above.
+4. Reinstall the release, launch it once, and check that the log's `commit=`
+   matches the tag (`git rev-parse vX.Y.Z`).
+5. `dismiss_update_mismatch` (update center) clears the stored warning after a
+   manual repair; a later successful update clears it automatically.
+
+#### What still needs a real Windows machine
+
+The Rust helpers (install-root scanning, marker reading, version comparison,
+mismatch decision) are unit-tested on every platform, and
+`scripts/verify-windows-install.ps1` fails the release when the NSIS installer
+does not embed the stamped binary byte for byte. Not covered by Linux CI, and
+to check by hand on Windows:
+
+- [ ] Updating from the previous stable NSIS build leaves exactly one
+      `%LOCALAPPDATA%\Ludex\Ludex.exe`, and its `commit=` in the log matches the
+      release tag.
+- [ ] The Start Menu shortcut, tray autostart and Sunshine console command all
+      resolve to that same path.
+- [ ] A per-machine install migrated as above no longer appears in the
+      duplicate scan.
+- [ ] With the install folder read-only (or the executable locked), the update
+      fails loudly and the next start reports the mismatch instead of
+      "updated".
+
+
 ## macOS signing, notarization and Apple Silicon (#27)
 
 The release matrix builds a **universal** macOS DMG
@@ -195,6 +273,10 @@ curl -fsSL "https://github.com/cleeryy/ludex/releases/latest/download/latest.jso
   `platforms.windows-x86_64` / `platforms.linux-x86_64`, each with a `signature`
   and a release-download `url`.
 - Install the previous stable build, check for updates, download and install.
+- On Windows, confirm `%APPDATA%\cloud.cleeryy.ludex\logs\ludex.log` names the
+  new version and the release commit (see *Windows install layout*) and that
+  `Get-Process ludex | Select-Object Path` points at
+  `%LOCALAPPDATA%\Ludex\Ludex.exe`.
 - Truncate a copy of an artifact and confirm the updater rejects it.
 - Confirm `latest` resolves to the stable release (prereleases are skipped).
 

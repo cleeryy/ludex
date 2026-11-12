@@ -3338,5 +3338,9 @@
   "Will start when {device} is online.": "Will start when {device} is online.",
   "Windows on Arm": "Windows on Arm",
   "x64 redistributables run under Windows' emulation layer; a game that needs a native Arm build is out of scope.": "x64 redistributables run under Windows' emulation layer; a game that needs a native Arm build is out of scope.",
-  "Your PCs": "Your PCs"
+  "Your PCs": "Your PCs",
+  "The update did not replace this Ludex install": "アップデートでこの Ludex が置き換えられませんでした",
+  "Ludex is running {running} from {path}, but the update installed {expected}. Reinstall from the release page, then check the shortcut target.": "Ludex は {path} から {running} として実行中ですが、アップデートでは {expected} がインストールされました。リリースページから再インストールし、ショートカットのリンク先を確認してください。",
+  "Another Ludex install was found": "別の Ludex インストールが見つかりました",
+  "Another ludex.exe exists at {path}. Windows may start that copy instead of the updated app. Remove the extra install or update it too.": "{path} に別の ludex.exe があります。Windows が更新後のアプリではなくこのコピーを起動する可能性があります。余分なインストールを削除するか、そちらも更新してください。"
 }

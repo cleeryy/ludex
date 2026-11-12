@@ -3338,5 +3338,9 @@
   "Will start when {device} is online.": "Rozpocznie się, gdy {device} będzie online.",
   "Windows on Arm": "Okna na ramieniu",
   "x64 redistributables run under Windows' emulation layer; a game that needs a native Arm build is out of scope.": "Pakiety redystrybucyjne x64 działają w warstwie emulacji systemu Windows; gra wymagająca natywnej kompilacji Arm jest poza zakresem.",
-  "Your PCs": "Twoje komputery"
+  "Your PCs": "Twoje komputery",
+  "The update did not replace this Ludex install": "Aktualizacja nie zastąpiła tej instalacji Ludex",
+  "Ludex is running {running} from {path}, but the update installed {expected}. Reinstall from the release page, then check the shortcut target.": "Ludex działa w wersji {running} z {path}, ale aktualizacja zainstalowała {expected}. Zainstaluj ponownie ze strony wydania i sprawdź obiekt skrótu.",
+  "Another Ludex install was found": "Znaleziono inną instalację Ludex",
+  "Another ludex.exe exists at {path}. Windows may start that copy instead of the updated app. Remove the extra install or update it too.": "W {path} znajduje się inny plik ludex.exe. Windows może uruchomić tę kopię zamiast zaktualizowanej aplikacji. Usuń dodatkową instalację lub również ją zaktualizuj."
 }

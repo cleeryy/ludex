@@ -21,6 +21,11 @@
 //!
 //! Nothing here logs a token, a signing key or a password. The only values in
 //! the logs are the channel, the version and the endpoint host.
+//!
+//! Installing is not the end of the story (#186): the Windows plugin exits the
+//! process while NSIS replaces the executable, so `install` records the target
+//! version first and [`crate::install_health`] verifies on the next start that
+//! the running binary really is that version.
 
 use std::time::{Duration, Instant};
 
@@ -28,6 +33,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
+use crate::install_health;
 use crate::settings::UpdateChannel;
 use crate::state::AppState;
 use crate::util::now_rfc3339;
@@ -401,13 +407,25 @@ pub async fn install(app: AppHandle) -> Result<UpdateStatus, String> {
     };
 
     let version = update.version.clone();
-    tracing::info!(version = %version, "downloading the application update");
+    tracing::info!(
+        version = %version,
+        exe = std::env::current_exe()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default(),
+        current_version = %status.current_version,
+        commit = install_health::BUILD_COMMIT,
+        "downloading the application update"
+    );
+    // #186: persist the version before the installer runs. On Windows the
+    // plugin exits the process as soon as NSIS is launched, so the next start
+    // is the only place where the result can be checked.
+    install_health::record_pending_update(&app, &version);
 
     let progress_app = app.clone();
     let mut last_emit = Instant::now() - Duration::from_secs(1);
     let mut last_time = Instant::now();
     let mut last_bytes = 0u64;
-    update
+    let installed = update
         .download_and_install(
             move |chunk, total| {
                 if last_emit.elapsed() < Duration::from_millis(250) {
@@ -439,8 +457,13 @@ pub async fn install(app: AppHandle) -> Result<UpdateStatus, String> {
             },
             || {},
         )
-        .await
-        .map_err(|e| install_error_message(&e.to_string()))?;
+        .await;
+    if let Err(error) = installed {
+        // Nothing replaced the binary: drop the expectation so the next start
+        // does not report a mismatch that never happened (#186).
+        install_health::clear_pending_update(&app);
+        return Err(install_error_message(&error.to_string()));
+    }
 
     let restarted = cfg!(windows);
     let _ = app.emit(
