@@ -1,0 +1,78 @@
+- main [ref=f7e4]:
+  - region "Settings" [ref=f7e5]:
+    - generic [ref=f7e6]:
+      - generic [ref=f7e7]:
+        - generic [ref=f7e8]:
+          - paragraph [ref=f7e9]: System
+          - heading "Settings" [level=1] [ref=f7e10]
+        - generic [ref=f7e11]:
+          - generic [ref=f7e12]: CL
+          - generic [ref=f7e13]:
+            - generic [ref=f7e14]: Signed in as cleeryy
+            - generic [ref=f7e15]: "Server: home"
+      - paragraph [ref=f7e16]: Switch the pad setup and vibration.
+      - group "Settings" [ref=f7e17]:
+        - button "Language" [ref=f7e18] [cursor=pointer]
+        - button "Appearance" [ref=f7e24] [cursor=pointer]
+        - button "Controllers" [ref=f7e31] [cursor=pointer]
+        - button "Streaming" [ref=f7e34] [cursor=pointer]
+        - generic [ref=f7e39]:
+          - generic [ref=f7e40]: LB
+          - generic [ref=f7e41]: RB
+          - text: Tabs
+    - list [ref=f7e43]:
+      - listitem [ref=f7e44]:
+        - 'button "Controller profile: Standard" [ref=f7e45] [cursor=pointer]':
+          - generic [ref=f7e46]:
+            - generic [ref=f7e47]: Controller profile
+            - generic [ref=f7e48]: Xbox · Standard
+          - generic [ref=f7e49]: Select
+      - listitem [ref=f7e54]:
+        - 'button "Vibration: On" [ref=f7e55] [cursor=pointer]':
+          - generic [ref=f7e56]:
+            - generic [ref=f7e57]: Vibration
+            - generic [ref=f7e58]: Switch the pad setup and vibration.
+          - generic [ref=f7e59]: "On"
+      - listitem [ref=f7e61]:
+        - 'button "Haptics strength: Standard" [ref=f7e62] [cursor=pointer]':
+          - generic [ref=f7e63]:
+            - generic [ref=f7e64]: Haptics strength
+            - generic [ref=f7e65]: Standard or strong rumble on this device. Off silences the pad.
+          - generic [ref=f7e66]: Standard
+      - listitem [ref=f7e73]:
+        - 'button "UI sounds: On" [ref=f7e74] [cursor=pointer]':
+          - generic [ref=f7e75]:
+            - generic [ref=f7e76]: UI sounds
+            - generic [ref=f7e77]: Short cues for movement, confirmations and launches. Silent while a game runs.
+          - generic [ref=f7e78]: "On"
+      - listitem [ref=f7e80]:
+        - 'button "Volume: 45%" [ref=f7e81] [cursor=pointer]':
+          - generic [ref=f7e82]:
+            - generic [ref=f7e83]: Volume
+            - generic [ref=f7e84]: Applies to this device. 0 % is silent even when the cues are on.
+          - generic [ref=f7e85]: 45%
+      - listitem [ref=f7e92]:
+        - 'button "Test sound: Play" [ref=f7e93] [cursor=pointer]':
+          - generic [ref=f7e94]:
+            - generic [ref=f7e95]: Test sound
+            - generic [ref=f7e96]: Plays the confirm cue.
+          - generic [ref=f7e97]: Select
+      - listitem [ref=f7e102]:
+        - 'button "Test pulse: Play" [disabled] [ref=f7e103] [cursor=pointer]':
+          - generic [ref=f7e104]:
+            - generic [ref=f7e105]: Test pulse
+            - generic [ref=f7e106]: No controller detected.
+          - generic [ref=f7e107]: Select
+    - generic [ref=f7e112]:
+      - generic [ref=f7e113]:
+        - term [ref=f7e114]: Version
+        - definition [ref=f7e115]: v0.4.2
+      - generic [ref=f7e116]:
+        - term [ref=f7e117]: Server
+        - definition [ref=f7e118]: home
+      - generic [ref=f7e119]:
+        - term [ref=f7e120]: Account
+        - definition [ref=f7e121]: cleeryy
+      - generic [ref=f7e122]:
+        - term [ref=f7e123]: Controllers
+        - definition [ref=f7e124]: Xbox · Standard

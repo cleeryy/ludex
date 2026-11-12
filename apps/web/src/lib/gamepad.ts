@@ -1,20 +1,25 @@
 import { useEffect, useRef, useState } from "react";
 import type { ControllerProfile } from "@/lib/types";
 import { presetProfile } from "@/lib/controller-profiles";
+import type { CueId } from "@/lib/ui-sound-specs";
 import {
   applyGamepadFocus,
   collectRepeatActions,
   createRepeatTracker,
+  cueHapticPulses,
   hapticPattern,
   hasBlockingModal,
   parseGamepadDebugFlag,
   readPadPresses,
   resetRepeatTracker,
   restoreGamepadFocus,
+  sanitizeHapticsStrength,
+  scaleHapticPattern,
   selectActivePad,
   padHasInput,
   type ActionSource,
   type GamepadAction,
+  type HapticsStrength,
   type PadActivity,
   type PadLike,
   type PadSelection,
@@ -51,6 +56,12 @@ import {
  * re-scans on focus and on hot-plug events, which is what Windows/WebView2 needs
  * when a pad only reports itself after its first button press.
  *
+ * Screens that speak in cues (#198) pass `cueHaptics` and call the returned
+ * `pulse(cue)` after each command: the pattern then follows the sound instead of
+ * the logical action, `hapticsStrength` scales it, and a keyboard or mouse press
+ * never rumbles because it never calls `pulse`. The 120 ms throttle and the
+ * actuator checks are the same in both modes.
+ *
  * Add `?gamepadDebug=1` to the route to get an overlay with the pad id,
  * mapping, axes/buttons, resolved profile and the last action; the same flag
  * turns on `console.debug` lines.
@@ -81,6 +92,23 @@ export interface GamepadState {
   debug: GamepadDebugInfo | null;
 }
 
+export interface GamepadOptions {
+  enabled?: boolean;
+  profile?: ControllerProfile | null;
+  debug?: boolean;
+  /** The Big Picture haptics preference; `false` silences every pattern. */
+  haptics?: boolean;
+  /** Rumble intensity for this device (#198). */
+  hapticsStrength?: HapticsStrength;
+  /** The screen pulses per cue instead of the built-in per-action rumble. */
+  cueHaptics?: boolean;
+}
+
+export interface GamepadHandle extends GamepadState {
+  /** Plays a cue's pattern on the active pad; keyboard/mouse callers stay silent. */
+  pulse: (cue: CueId) => void;
+}
+
 /** Reads the flag from the real location, hash routing included. */
 export function gamepadDebugEnabled(search?: string | null): boolean {
   if (search !== undefined && search !== null) return parseGamepadDebugFlag(search);
@@ -88,10 +116,50 @@ export function gamepadDebugEnabled(search?: string | null): boolean {
   return parseGamepadDebugFlag(`${window.location.search}${window.location.hash}`);
 }
 
+/**
+ * Plays one cue's pulse train on a pad (#198). A pad without a
+ * `vibrationActuator`, a refused effect or a missing strength is a silent
+ * no-op; nothing here can throw. The multi-pulse case (`error`) schedules its
+ * second pulse with a timer, because each `playEffect` call replaces the
+ * previous one.
+ */
+export function pulsePad(pad: PadLike | null, cue: CueId, strength: HapticsStrength = "standard"): void {
+  if (!pad) return;
+  const actuator = (pad as unknown as Gamepad).vibrationActuator;
+  if (!actuator || typeof actuator.playEffect !== "function") return;
+  for (const pulse of cueHapticPulses(cue)) {
+    const pattern = scaleHapticPattern(pulse, sanitizeHapticsStrength(strength));
+    if (!pattern) continue;
+    const play = () => {
+      try {
+        const result = actuator.playEffect("dual-rumble", pattern) as Promise<unknown> | undefined;
+        if (result && typeof result.catch === "function") void result.catch(() => undefined);
+      } catch {
+        /* a pad that refuses the effect is a silent no-op */
+      }
+    };
+    if (pulse.delayMs > 0) setTimeout(play, pulse.delayMs);
+    else play();
+  }
+}
+
+/** The first connected pad that can actually rumble, for a settings test pulse. */
+export function firstRumblePad(): PadLike | null {
+  if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") return null;
+  try {
+    const pads = Array.from(navigator.getGamepads() ?? []).filter((pad): pad is Gamepad =>
+      Boolean(pad && pad.connected),
+    );
+    return pads.find((pad) => Boolean((pad as unknown as Gamepad).vibrationActuator)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function useGamepad(
   onAction: (action: GamepadAction, source: ActionSource | null) => void,
-  options: { enabled?: boolean; profile?: ControllerProfile | null; debug?: boolean; haptics?: boolean } = {},
-): GamepadState {
+  options: GamepadOptions = {},
+): GamepadHandle {
   const enabled = options.enabled ?? true;
   const debug = options.debug ?? gamepadDebugEnabled();
   const [state, setState] = useState<GamepadState>({
@@ -109,6 +177,11 @@ export function useGamepad(
   debugRef.current = debug;
   const hapticsRef = useRef(options.haptics ?? true);
   hapticsRef.current = options.haptics ?? true;
+  const strengthRef = useRef<HapticsStrength>(sanitizeHapticsStrength(options.hapticsStrength));
+  strengthRef.current = sanitizeHapticsStrength(options.hapticsStrength);
+  const cueHapticsRef = useRef(options.cueHaptics ?? false);
+  cueHapticsRef.current = options.cueHaptics ?? false;
+  const pulseRef = useRef<(cue: CueId) => void>(() => undefined);
 
   useEffect(() => {
     if (!enabled) return;
@@ -121,6 +194,7 @@ export function useGamepad(
     let lastDebugAt = 0;
     let lastTraceAt = 0;
     let lastRumbleAt = 0;
+    let activePad: PadLike | null = null;
     let modalOpen = false;
     let restoreWasMarked = false;
     let lastAction: GamepadAction | null = null;
@@ -204,10 +278,15 @@ export function useGamepad(
     };
 
     const vibrate = (pad: PadLike, now: number, action: GamepadAction) => {
+      // A cue-driven screen owns its own patterns; the action rumble would
+      // double the feedback.
+      if (cueHapticsRef.current) return;
       const profile = profileRef.current;
       if (!profile.vibration || !hapticsRef.current) return;
       if (now - lastRumbleAt < 120) return;
-      const pattern = hapticPattern(action);
+      const base = hapticPattern(action);
+      if (!base) return;
+      const pattern = scaleHapticPattern(base, strengthRef.current);
       if (!pattern) return;
       const actuator = (pad as unknown as Gamepad).vibrationActuator;
       if (!actuator || typeof actuator.playEffect !== "function") return;
@@ -219,6 +298,22 @@ export function useGamepad(
         /* a pad that refuses the effect is a silent no-op */
       }
     };
+
+    /**
+     * Cue haptics (#198): the screen calls this after executing a command that
+     * came from the pad. Same throttle, same actuator checks, same silence on a
+     * pad that cannot rumble.
+     */
+    const pulse = (cue: CueId) => {
+      const profile = profileRef.current;
+      if (!profile.vibration || !hapticsRef.current) return;
+      if (!activePad) return;
+      const now = performance.now();
+      if (now - lastRumbleAt < 120) return;
+      lastRumbleAt = now;
+      pulsePad(activePad, cue, strengthRef.current);
+    };
+    pulseRef.current = pulse;
 
     const debugFrame = (pad: PadLike | null, now: number) => {
       if (!debugRef.current || now - lastDebugAt < 100) return;
@@ -254,6 +349,7 @@ export function useGamepad(
     const step = (now: number) => {
       if (disposed) return;
       const pad = syncPad();
+      activePad = pad;
       debugFrame(pad, now);
       if (!pad) {
         modalOpen = false;
@@ -333,6 +429,7 @@ export function useGamepad(
 
     const rescan = () => {
       const pad = syncPad();
+      activePad = pad;
       debugFrame(pad, performance.now());
     };
 
@@ -398,6 +495,7 @@ export function useGamepad(
     return () => {
       disposed = true;
       stop();
+      pulseRef.current = () => undefined;
       window.removeEventListener("gamepadconnected", onConnected);
       window.removeEventListener("gamepaddisconnected", onDisconnected);
       window.removeEventListener("focus", rescan);
@@ -409,7 +507,7 @@ export function useGamepad(
     };
   }, [enabled]);
 
-  return state;
+  return { ...state, pulse: (cue: CueId) => pulseRef.current(cue) };
 }
 
 /**

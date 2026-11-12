@@ -1,6 +1,11 @@
 import { CONTROLLER_PRESETS, presetProfile } from "@/lib/controller-profiles";
-import type { ActionSource } from "@/lib/gamepad-core";
+import { sanitizeHapticsStrength, type ActionSource, type HapticsStrength } from "@/lib/gamepad-core";
 import { t } from "@/lib/i18n";
+import {
+  DEFAULT_SOUND_PREFS,
+  sanitizeSoundPrefs,
+  type SoundPrefs,
+} from "@/lib/ui-sound-specs";
 import type { ControllerAction, ControllerProfile, ControllerProfilesResponse } from "@/lib/types";
 import type { BigPictureLayout } from "./layout";
 
@@ -367,35 +372,51 @@ export interface BigPictureControllerPrefs {
   profileId: string | null;
   /** Optional rumble on focus and confirm (#138). */
   haptics: boolean;
+  /** Rumble intensity on this device (#198); `off` silences it. */
+  hapticsStrength: HapticsStrength;
+  /** Console cues (#198); silent while a game runs, whatever this says. */
+  sound: SoundPrefs;
 }
 
 export const DEFAULT_CONTROLLER_PREFS: BigPictureControllerPrefs = {
   profileId: null,
   haptics: true,
+  hapticsStrength: "standard",
+  sound: { ...DEFAULT_SOUND_PREFS },
 };
 
 export type ControllerStorage = Pick<Storage, "getItem" | "setItem">;
 
+/** A fresh copy: `sound` is an object, so a shallow spread would share it. */
+export function defaultControllerPrefs(): BigPictureControllerPrefs {
+  return { ...DEFAULT_CONTROLLER_PREFS, sound: { ...DEFAULT_CONTROLLER_PREFS.sound } };
+}
+
 export function sanitizeControllerPrefs(value: unknown): BigPictureControllerPrefs {
-  if (!value || typeof value !== "object") return { ...DEFAULT_CONTROLLER_PREFS };
+  if (!value || typeof value !== "object") return defaultControllerPrefs();
   const record = value as Record<string, unknown>;
   const profileId = typeof record.profileId === "string" && record.profileId.trim() ? record.profileId : null;
   const haptics = typeof record.haptics === "boolean" ? record.haptics : DEFAULT_CONTROLLER_PREFS.haptics;
-  return { profileId, haptics };
+  return {
+    profileId,
+    haptics,
+    hapticsStrength: sanitizeHapticsStrength(record.hapticsStrength),
+    sound: sanitizeSoundPrefs(record.sound),
+  };
 }
 
 export function readControllerPrefs(
   storage: ControllerStorage | null | undefined,
   key: string = BIG_PICTURE_CONTROLLER_KEY,
 ): BigPictureControllerPrefs {
-  if (!storage) return { ...DEFAULT_CONTROLLER_PREFS };
+  if (!storage) return defaultControllerPrefs();
   try {
     const raw = storage.getItem(key);
-    if (!raw) return { ...DEFAULT_CONTROLLER_PREFS };
+    if (!raw) return defaultControllerPrefs();
     return sanitizeControllerPrefs(JSON.parse(raw));
   } catch {
     // Private mode, a blocked origin or hand-edited JSON: session defaults.
-    return { ...DEFAULT_CONTROLLER_PREFS };
+    return defaultControllerPrefs();
   }
 }
 
@@ -415,6 +436,36 @@ export function writeControllerPrefs(
 }
 
 export const AUTO_PROFILE_ID = "auto";
+
+/* --------------------------- sound and haptics (#198) ---------------------- */
+
+/** Haptics only when the toggle, the strength and the profile all allow it. */
+export function hapticsActive(
+  prefs: Pick<BigPictureControllerPrefs, "haptics" | "hapticsStrength">,
+  profile: Pick<ControllerProfile, "vibration"> | null | undefined,
+): boolean {
+  return prefs.haptics && prefs.hapticsStrength !== "off" && profile?.vibration !== false;
+}
+
+/** Off / Standard / Strong, translated. */
+export function hapticsStrengthLabel(strength: HapticsStrength): string {
+  switch (strength) {
+    case "off":
+      return t("Off");
+    case "strong":
+      return t("Strong");
+    case "standard":
+      return t("Standard");
+  }
+}
+
+/** Cycles Off → Standard → Strong. Choosing a level turns the toggle on. */
+export function cycleHapticsStrength(current: HapticsStrength, delta: 1 | -1): HapticsStrength {
+  const order: readonly HapticsStrength[] = ["off", "standard", "strong"];
+  const index = order.indexOf(current);
+  const next = ((index + delta) % order.length + order.length) % order.length;
+  return order[next] ?? "standard";
+}
 
 export interface ProfileOption {
   id: string;

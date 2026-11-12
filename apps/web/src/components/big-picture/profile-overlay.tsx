@@ -1,10 +1,11 @@
 import { motion, useReducedMotion } from "motion/react";
-import { Check, Gamepad2, Vibrate } from "lucide-react";
+import { Check, Gamepad2, Gauge, Vibrate } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import type { HapticsStrength } from "@/lib/gamepad-core";
 import type { ControllerProfile } from "@/lib/types";
 import type { PadFamily, ProfileOption } from "./controller";
-import { padFamilyLabel, profileSummary } from "./controller";
+import { hapticsStrengthLabel, padFamilyLabel, profileSummary } from "./controller";
 import { OverlayRow, OverlayShell } from "./overlays";
 
 /* --------------------------------------------------------------------------
@@ -26,6 +27,7 @@ export function ProfileOverlay({
   selectedId,
   profile,
   haptics,
+  strength,
   family,
   ...shell
 }: {
@@ -37,6 +39,8 @@ export function ProfileOverlay({
   /** Effective profile for the current game, shown as the live summary. */
   profile: ControllerProfile;
   haptics: boolean;
+  /** Rumble intensity on this device (#198). */
+  strength: HapticsStrength;
   family: PadFamily;
 } & Omit<Parameters<typeof OverlayShell>[0], "children" | "title" | "subtitle">) {
   const reduce = useReducedMotion();
@@ -102,6 +106,19 @@ export function ProfileOverlay({
                 transition={{ duration: reduce ? 0 : 0.14 }}
                 className={cn("block h-3.5 w-3.5", haptics ? "bg-signal" : "bg-ink-3")}
               />
+            </span>
+          }
+        />
+        <OverlayRow
+          active={active === options.length + 1}
+          onChoose={() => onChoose(options.length + 1)}
+          onHighlight={() => onHighlight(options.length + 1)}
+          icon={<Gauge className={cn("size-4", strength !== "off" ? "text-signal-text" : "text-ink-3")} aria-hidden="true" />}
+          label={t("Haptics strength")}
+          detail={t("Standard or strong rumble on this device.")}
+          trailing={
+            <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-2">
+              {hapticsStrengthLabel(strength)}
             </span>
           }
         />

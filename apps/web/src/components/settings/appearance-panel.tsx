@@ -6,6 +6,7 @@ import { useSettings } from "@/state/settings";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Textarea } from "@/components/ui/controls";
 import { BigPictureLayoutPanel } from "@/components/big-picture/layout-panel";
+import { BigPictureSoundPanel } from "@/components/big-picture/sound-panel";
 import { AA_FOCUS, AA_TEXT, ensureContrast, normalizeHex } from "@/theme/contrast";
 import { applyAccent, applyTint } from "@/theme/derive";
 import { BUILTIN_THEMES, builtinTheme, cssVarsFor, isBuiltinThemeId } from "@/theme/registry";
@@ -599,6 +600,8 @@ export function AppearancePanel() {
       </section>
 
       <BigPictureLayoutPanel />
+
+      <BigPictureSoundPanel />
 
       <section className="border-t border-line pt-4">
         <div className="flex flex-wrap items-center justify-between gap-3">

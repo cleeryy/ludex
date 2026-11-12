@@ -14,6 +14,8 @@ import { useAllGames, useInstalledMap, useLaunchGame } from "@/lib/hooks";
 import { useGamepad, gamepadDebugEnabled, focusGamepadTarget, type ActionSource, type GamepadAction } from "@/lib/gamepad";
 import { GamepadDebugPanel } from "@/components/gamepad/gamepad-debug";
 import { useControllerProfile } from "@/lib/use-controller-profile";
+import { uiSound } from "@/lib/ui-sound";
+import { clampVolume, stepVolume, type CueId } from "@/lib/ui-sound-specs";
 import { useAuth } from "@/state/auth";
 import { useDownloads } from "@/state/downloads";
 import { useSettings } from "@/state/settings";
@@ -23,15 +25,17 @@ import { InstallDialog } from "@/components/game/install-dialog";
 import { Button } from "@/components/ui/controls";
 import { ENTRANCE_MS } from "@/components/big-picture/entrance";
 import {
+  cycleHapticsStrength,
+  hapticsActive,
+  hapticsStrengthLabel,
   padFamily,
   padFamilyLabel,
   profileOptions,
-  readControllerPrefs,
   resolveProfileChoice,
   withBigPictureDefaults,
-  writeControllerPrefs,
-  type BigPictureControllerPrefs,
 } from "@/components/big-picture/controller";
+import { cueForCommand } from "@/components/big-picture/cues";
+import { useBigPicturePrefs } from "@/components/big-picture/use-controller-prefs";
 import {
   hintContextFor,
   routeGamepadAction,
@@ -108,7 +112,6 @@ import {
   searchRows,
 } from "@/components/big-picture/search";
 import { useBigPictureLayout, useViewportWidth } from "@/components/big-picture/use-layout";
-import { scopedStorageKey } from "@/lib/server-storage";
 import { localeMeta, selectableLocales, t, tn, useI18n } from "@/lib/i18n";
 
 /** Ask the server once per open; a quick round trip through the route is free. */
@@ -129,23 +132,6 @@ const LAYOUT_VIEWS: Record<BigPictureLayout, ComponentType<BigPictureLayoutProps
   grid: GridLayout,
   compact: CompactLayout,
 };
-
-function storage(): Storage | null {
-  try {
-    return typeof localStorage === "undefined" ? null : localStorage;
-  } catch {
-    return null;
-  }
-}
-
-/** The profile preference is per device and per server, like the layout. */
-function prefsKey(): string {
-  try {
-    return scopedStorageKey("ludex.bigPicture.controller");
-  } catch {
-    return "ludex.bigPicture.controller";
-  }
-}
 
 /**
  * Does a key event match the console quit chord (#172)? The setting is a
@@ -222,6 +208,17 @@ export function BigPictureScreen() {
   const reduceMotion = useReducedMotion();
   const columns = gridColumns(useViewportWidth());
 
+  // #198: one emitter for every cue. The sound always plays; haptics only when
+  // the press came from a pad, so a keyboard or mouse never rumbles. The
+  // manager collapses a double emission inside the cue's repeat gap.
+  const padGesture = useRef(false);
+  const pulseRef = useRef<(cue: CueId) => void>(() => undefined);
+  const emit = useCallback((cue: CueId | null) => {
+    if (!cue) return;
+    uiSound.play(cue);
+    if (padGesture.current) pulseRef.current(cue);
+  }, []);
+
   // #138 controller-first state: the open overlay, its highlight, the couch
   // search query (debounced by the filter below) and the device-local profile
   // choice. None of these leave Big Picture when they change.
@@ -231,9 +228,7 @@ export function BigPictureScreen() {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
-  const [prefs, setPrefs] = useState<BigPictureControllerPrefs>(() =>
-    readControllerPrefs(storage(), prefsKey()),
-  );
+  const [prefs, updatePrefs] = useBigPicturePrefs();
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Big Picture is watched from a couch: the provider lifts text to 7:1 and
@@ -243,9 +238,35 @@ export function BigPictureScreen() {
     return () => setTv(false);
   }, [setTv]);
 
+  // The audio context is created suspended and resumed on the first gesture;
+  // a browser that refuses it simply stays silent. Every cue is decoded in
+  // parallel so the first press after mount already has its buffer.
   useEffect(() => {
-    writeControllerPrefs(storage(), prefs, prefsKey());
-  }, [prefs]);
+    void uiSound.preload();
+    const unlock = () => uiSound.resume();
+    window.addEventListener("pointerdown", unlock, { passive: true });
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+      uiSound.stopAll();
+    };
+  }, []);
+
+  useEffect(() => {
+    uiSound.setPrefs(prefs.sound);
+  }, [prefs.sound]);
+
+  // Reduced motion keeps the functional cues and drops the five decorative
+  // ones (`openGroup`, `closeGroup`, `overlayOpen`, `overlayClose`, `tabChange`).
+  useEffect(() => {
+    uiSound.setReducedMotion(Boolean(reduceMotion));
+  }, [reduceMotion]);
+
+  // No cue may play while a game is running, even if this window is visible.
+  useEffect(() => {
+    uiSound.setGameRunning(runningGame !== null);
+  }, [runningGame]);
 
   const games = data?.items ?? [];
 
@@ -324,6 +345,28 @@ export function BigPictureScreen() {
       off?.();
     };
   }, []);
+
+  // A job that reaches `done` while Big Picture is open gets the completion
+  // cue; an install that fails gets the error cue. The first non-empty list is
+  // primed silently so persisted history does not replay on mount.
+  const jobPhases = useRef<Map<string, string> | null>(null);
+  useEffect(() => {
+    if (jobPhases.current === null) {
+      if (downloads.jobs.length === 0) return;
+      jobPhases.current = new Map(downloads.jobs.map((job) => [job.jobId, job.phase]));
+      return;
+    }
+    const previous = jobPhases.current;
+    const next = new Map<string, string>();
+    for (const job of downloads.jobs) {
+      next.set(job.jobId, job.phase);
+      const before = previous.get(job.jobId);
+      if (job.phase === before) continue;
+      if (job.phase === "done") emit("installComplete");
+      else if (job.phase === "error" && before !== undefined) emit("error");
+    }
+    jobPhases.current = next;
+  }, [downloads.jobs, emit]);
 
   useEffect(() => {
     if (!isNative()) return;
@@ -412,7 +455,7 @@ export function BigPictureScreen() {
     () => withBigPictureDefaults(selectedProfile.profile),
     [selectedProfile],
   );
-  const haptics = prefs.haptics && activeProfile.vibration;
+  const haptics = hapticsActive(prefs, activeProfile);
 
   // Couch search (#138): the query is debounced so a fast typist does not
   // rebuild the result grid on every letter, and the focus grid includes the
@@ -443,7 +486,7 @@ export function BigPictureScreen() {
         : overlay === "downloads"
           ? downloads.active.length + 1
           : overlay === "profiles"
-            ? profileChoices.length + 1
+            ? profileChoices.length + 2
             : overlay === "collections"
               ? collectionsQuery.isError
                 ? 1
@@ -643,11 +686,13 @@ export function BigPictureScreen() {
   }, []);
 
   const activateAction = (index: number) => {
+    emit("confirm");
     const targets = actionTargets();
     targets[clampIndex(index, targets.length)]?.click();
   };
 
   const openApp = (id: "settings" | "power") => {
+    emit("openGroup");
     setOverlay(null);
     setZone("library");
     setAppIndex(0);
@@ -656,6 +701,7 @@ export function BigPictureScreen() {
   };
 
   const closeApp = () => {
+    emit("closeGroup");
     setPendingPower(null);
     setAppIndex(0);
     syncLevelUrl(closeSystemApp());
@@ -663,6 +709,7 @@ export function BigPictureScreen() {
   };
 
   const selectSettingsSection = (next: SettingsSectionId) => {
+    emit("tabChange");
     setSettingsSection(next);
     setAppIndex(0);
     syncLevelUrl({ kind: "app", id: "settings" }, next);
@@ -673,7 +720,8 @@ export function BigPictureScreen() {
     setHomeIndex(0);
   };
 
-  const returnToLibrary = () => {
+  const returnToLibrary = (cue: CueId | null = "back") => {
+    emit(cue);
     setZone("library");
     setOverlay(null);
     setPendingPower(null);
@@ -687,16 +735,19 @@ export function BigPictureScreen() {
    */
   const enterZone = (target: FocusZone) => {
     if (target === "home") {
+      emit("move");
       enterHome();
       return;
     }
     if (target === "actions") {
+      emit("move");
       setZone("actions");
       actionIndexRef.current = 0;
       window.setTimeout(() => focusActions(0), 0);
       return;
     }
-    returnToLibrary();
+    // A direction that points back at the games is a movement, not a "back".
+    returnToLibrary(null);
   };
 
   /**
@@ -707,17 +758,22 @@ export function BigPictureScreen() {
   const moveZone = (direction: MoveDirection) => {
     if (zone === "home") {
       if (direction === "left" || direction === "right") {
+        emit("move");
         setHomeIndex((current) => wrapIndex(current, direction === "left" ? -1 : 1, HOME_ITEM_IDS.length));
       } else if (direction === zoneExit(layout, "home")) {
-        returnToLibrary();
+        // Leaving a zone with a direction is a movement, not a "back".
+        returnToLibrary(null);
       }
       return;
     }
     if (zone === "actions") {
       if (direction === "left" || direction === "right") {
-        focusActions(actionIndexRef.current + (direction === "left" ? -1 : 1));
+        const before = actionIndexRef.current;
+        const next = clampIndex(before + (direction === "left" ? -1 : 1), actionTargets().length);
+        if (next !== before) emit("move");
+        focusActions(next);
       } else if (direction === zoneExit(layout, "actions")) {
-        returnToLibrary();
+        returnToLibrary(null);
       }
     }
   };
@@ -731,9 +787,17 @@ export function BigPictureScreen() {
         executable: executable ?? entry?.executable ?? null,
       });
       setRunningGame({ sessionId: result.sessionId, gameId: game.id, title: game.title });
+      emit("launch");
     } catch {
-      /* `useLaunchGame` already shows the failure; keep the console mounted */
+      /* `useLaunchGame` already shows the failure; the cue says it too */
+      emit("error");
     }
+  };
+
+  /** A refused action always says why: error cue plus a visible reason. */
+  const refuse = (reason?: string) => {
+    emit("error");
+    push({ title: t("Not available"), description: reason, tone: "danger" });
   };
 
   const localeChoices = useMemo(() => selectableLocales(), []);
@@ -818,6 +882,7 @@ export function BigPictureScreen() {
           return;
       }
     } catch (cause) {
+      emit("error");
       push({ title: t("Not available"), description: errorMessage(cause), tone: "danger" });
     }
   };
@@ -826,13 +891,15 @@ export function BigPictureScreen() {
     const action = power[index];
     if (!action) return;
     if (!action.enabled) {
-      push({ title: t("Not available"), description: action.reason, tone: "danger" });
+      refuse(action.reason);
       return;
     }
     if (!needsPowerConfirm(action.id)) {
+      emit("power");
       void runPower(action);
       return;
     }
+    emit("confirm");
     setPendingPower({ action, index: powerConfirmActive() });
   };
 
@@ -840,7 +907,12 @@ export function BigPictureScreen() {
     const pending = pendingPower;
     if (!pending) return;
     setPendingPower(null);
-    if (resolvePowerConfirm(index) === "confirm") void runPower(pending.action);
+    if (resolvePowerConfirm(index) === "confirm") {
+      emit("power");
+      void runPower(pending.action);
+    } else {
+      emit("back");
+    }
   };
 
   const download = useCallback(async () => {
@@ -848,24 +920,28 @@ export function BigPictureScreen() {
     try {
       await downloadGame(selected.id, version?.id);
     } catch (cause) {
+      emit("error");
       push({ title: t("Download did not start"), description: errorMessage(cause), tone: "danger" });
     }
-  }, [selected, version?.id, push]);
+  }, [selected, version?.id, push, emit]);
 
   const confirm = () => {
     if (!selected) {
-      push({ title: t("Unavailable"), description: t("No games"), tone: "danger" });
+      refuse(t("No games"));
       return;
     }
     if (installedGame) {
+      emit("confirm");
       void startGame(selected, installedGame.executable ?? detail.data?.launch.executable);
     } else if (job) {
       // The queue stays in the console now (#196): pausing and retrying live
       // on the full screen, but the progress panel does not leave Big Picture.
       openOverlay("downloads");
     } else if (isNative()) {
+      emit("confirm");
       setInstallOpen(true);
     } else {
+      emit("confirm");
       void download();
     }
   };
@@ -877,14 +953,22 @@ export function BigPictureScreen() {
     setPickerIndex(index);
   }, []);
   const openPicker = () => {
+    emit("overlayOpen");
     highlightPicker(Math.max(0, BIG_PICTURE_LAYOUTS.indexOf(layout)));
     setPickerOpen(true);
   };
-  const closePicker = () => setPickerOpen(false);
+  const closePicker = () => {
+    if (pickerOpen) emit("overlayClose");
+    setPickerOpen(false);
+  };
 
   const applyLayout = (next: BigPictureLayout) => {
     setPickerOpen(false);
-    if (next === layout) return;
+    if (next === layout) {
+      emit("back");
+      return;
+    }
+    emit("confirm");
     setLayout(next);
     // A manual switch must not replay the #142 cascade: the new view mounts
     // settled, keeping the entrance to one per open.
@@ -898,6 +982,7 @@ export function BigPictureScreen() {
   /* ------------------------------- overlays ------------------------------- */
 
   const openOverlay = (next: BigPictureOverlay) => {
+    emit("overlayOpen");
     overlayReturnRef.current =
       level.kind === "app" ? "app" : zone === "home" ? "home" : zone === "actions" ? "actions" : "library";
     setOverlay(next);
@@ -915,6 +1000,9 @@ export function BigPictureScreen() {
   };
 
   const closeOverlay = (refocus = true) => {
+    // A transition to another surface (menu → search) is not a close: the new
+    // surface plays its own open cue.
+    if (refocus && overlay) emit("overlayClose");
     setOverlay(null);
     if (!refocus) return;
     const target = overlayReturnRef.current;
@@ -926,6 +1014,14 @@ export function BigPictureScreen() {
       else if (target === "app") focusSurface("app");
       else nav.focusSelected();
     }, 0);
+  };
+
+  /** Would this direction change an overlay's highlight? Edge presses are silent. */
+  const overlayWillMove = (direction: MoveDirection): boolean => {
+    if (overlay === "search") return moveSearchTarget(rows, searchIndex, direction) !== searchIndex;
+    if (!overlay) return false;
+    const delta = direction === "up" || direction === "left" ? -1 : 1;
+    return clampIndex(overlayIndex + delta, overlayCount) !== overlayIndex;
   };
 
   const moveOverlay = (direction: "up" | "down" | "left" | "right") => {
@@ -972,6 +1068,7 @@ export function BigPictureScreen() {
             return confirm();
           case "game":
             if (!selected) return;
+            emit("confirm");
             closeOverlay(false);
             return navigate(`/game/${selected.id}`);
           case "search":
@@ -993,16 +1090,22 @@ export function BigPictureScreen() {
         return;
       }
       case "exit":
-        if (index === 0) exit();
-        else closeOverlay();
+        if (index === 0) {
+          emit("power");
+          exit();
+        } else {
+          closeOverlay();
+        }
         return;
       case "collections": {
         if (collectionsQuery.isError) {
+          emit("confirm");
           void collectionsQuery.refetch();
           return;
         }
         const collection = collections[index];
         if (!collection) return;
+        emit("confirm");
         closeOverlay(false);
         navigate(`/collections/${collection.id}`);
         return;
@@ -1010,22 +1113,35 @@ export function BigPictureScreen() {
       case "downloads":
         // Leaving the route is deliberate: pausing and retrying live there, and
         // the queue keeps running either way.
+        emit("confirm");
         navigate("/downloads");
         return;
       case "profiles": {
         const option = profileChoices[index];
         if (option) {
-          setPrefs((current) => ({ ...current, profileId: option.id === "auto" ? null : option.id }));
+          emit("confirm");
+          updatePrefs({ profileId: option.id === "auto" ? null : option.id });
           return;
         }
         if (index === profileChoices.length) {
-          setPrefs((current) => ({ ...current, haptics: !current.haptics }));
+          emit("confirm");
+          updatePrefs({
+            haptics: !prefs.haptics,
+            hapticsStrength: prefs.hapticsStrength === "off" ? "standard" : prefs.hapticsStrength,
+          });
+          return;
+        }
+        if (index === profileChoices.length + 1) {
+          const next = cycleHapticsStrength(prefs.hapticsStrength, 1);
+          emit("confirm");
+          updatePrefs({ hapticsStrength: next, haptics: next !== "off" });
         }
         return;
       }
       case "search": {
         const cell = cells[searchIndex];
         if (!cell) return;
+        emit("confirm");
         if (cell.kind === "key") return typeSearchKey(cell.key);
         return pickResult(cell.game.id);
       }
@@ -1035,6 +1151,21 @@ export function BigPictureScreen() {
   };
 
   const runCommand = (command: BigPictureCommand) => {
+    // #198: the command table decides the cue, before execution, from the
+    // state the press was made in. An edge press is silent because `moved` is
+    // false; the action a command triggers may add its own cue (confirm then
+    // launch), and the manager collapses identical repeats.
+    const view = {
+      moved:
+        command.type === "move"
+          ? nav.willMove(command.direction)
+          : command.type === "highlight"
+            ? overlayWillMove(command.direction)
+            : false,
+      overlayOpen: overlay !== null,
+      appOpen: level.kind === "app",
+    };
+    emit(cueForCommand(command, view));
     switch (command.type) {
       case "move": {
         // The step model returns the zone the press belongs to when the game
@@ -1117,7 +1248,7 @@ export function BigPictureScreen() {
 
   // Gamepad: the same commands as the keyboard, resolved from the active pad
   // action and the physical input that produced it (#138).
-  const onGamepad = (action: GamepadAction, source: ActionSource | null) => {
+  const handleGamepad = (action: GamepadAction, source: ActionSource | null) => {
     if (pickerOpen) {
       if (action === "back" || action === "menu") return closePicker();
       if (action === "confirm") return applyLayout(BIG_PICTURE_LAYOUTS[pickerIndexRef.current] ?? layout);
@@ -1127,7 +1258,10 @@ export function BigPictureScreen() {
     }
 
     if (pendingPower) {
-      if (action === "back" || action === "menu") return setPendingPower(null);
+      if (action === "back" || action === "menu") {
+        emit("back");
+        return setPendingPower(null);
+      }
       if (action === "confirm") return chooseConfirm(pendingPower.index);
       if (action === "left" || action === "up") return setPendingPower({ ...pendingPower, index: 0 });
       if (action === "right" || action === "down") return setPendingPower({ ...pendingPower, index: 1 });
@@ -1180,11 +1314,27 @@ export function BigPictureScreen() {
 
     runRef.current(routeGamepadAction(null, action, source));
   };
+
+  // A pad press owns the cue's haptics for the length of this synchronous
+  // dispatch; every other path (keyboard, mouse, a deferred event) leaves the
+  // flag false and therefore never rumbles.
+  const onGamepad = (action: GamepadAction, source: ActionSource | null) => {
+    padGesture.current = true;
+    try {
+      handleGamepad(action, source);
+    } finally {
+      padGesture.current = false;
+    }
+  };
   const gamepad = useGamepad(onGamepad, {
     profile: activeProfile,
     debug,
-    haptics: prefs.haptics,
+    haptics,
+    hapticsStrength: prefs.hapticsStrength,
+    // The cue decides the pattern; the screen calls `pulse` from `emit`.
+    cueHaptics: true,
   });
+  pulseRef.current = gamepad.pulse;
   const padFamilyName = padFamily(gamepad.id, activeProfile);
 
   // After a layout switch the ring must come back to the same surface. A zone
@@ -1283,6 +1433,45 @@ export function BigPictureScreen() {
           value: prefs.haptics ? t("On") : t("Off"),
           kind: "toggle",
         },
+        {
+          id: "haptics-strength",
+          label: t("Haptics strength"),
+          detail: t("Standard or strong rumble on this device. Off silences the pad."),
+          value: hapticsStrengthLabel(prefs.hapticsStrength),
+          kind: "choice",
+        },
+        {
+          id: "sound",
+          label: t("UI sounds"),
+          detail: t("Short cues for movement, confirmations and launches. Silent while a game runs."),
+          value: prefs.sound.enabled ? t("On") : t("Off"),
+          kind: "toggle",
+        },
+        {
+          id: "sound-volume",
+          label: t("Volume"),
+          detail: t("Applies to this device. 0 % is silent even when the cues are on."),
+          value: `${Math.round(clampVolume(prefs.sound.volume) * 100)}%`,
+          kind: "choice",
+        },
+        {
+          id: "sound-test",
+          label: t("Test sound"),
+          detail: t("Plays the confirm cue."),
+          value: t("Play"),
+          kind: "action",
+          disabled: !prefs.sound.enabled || clampVolume(prefs.sound.volume) <= 0,
+          reason: prefs.sound.enabled ? t("Volume is at 0 %.") : t("UI sounds are off."),
+        },
+        {
+          id: "haptics-test",
+          label: t("Test pulse"),
+          detail: t("Rumbles once on the connected controller."),
+          value: t("Play"),
+          kind: "action",
+          disabled: !haptics || !gamepad.connected,
+          reason: gamepad.connected ? t("Haptics are off.") : t("No controller detected."),
+        },
       ];
     }
     return [
@@ -1301,27 +1490,68 @@ export function BigPictureScreen() {
     if (!row || row.disabled) return;
     switch (row.id) {
       case "language":
+        emit("confirm");
         void cycleLocale(1);
         return;
       case "device-only":
+        emit("confirm");
         setDeviceOnly((current) => !current);
         return;
       case "account-default":
+        emit("confirm");
         void useAccountDefault();
         return;
       case "layout":
+        emit("confirm");
         cycleLayout(1);
         return;
       case "theme":
+        emit("confirm");
         cycleTheme(1);
         return;
       case "profile":
         openOverlay("profiles");
         return;
-      case "vibration":
-        setPrefs((current) => ({ ...current, haptics: !current.haptics }));
+      case "vibration": {
+        emit("confirm");
+        const next = !prefs.haptics;
+        updatePrefs({
+          haptics: next,
+          hapticsStrength: next && prefs.hapticsStrength === "off" ? "standard" : prefs.hapticsStrength,
+        });
+        return;
+      }
+      case "haptics-strength": {
+        emit("confirm");
+        const next = cycleHapticsStrength(prefs.hapticsStrength, 1);
+        updatePrefs({ hapticsStrength: next, haptics: next !== "off" });
+        return;
+      }
+      case "sound": {
+        const next = { ...prefs.sound, enabled: !prefs.sound.enabled };
+        // Apply before the cue: turning sound on should click once, turning it
+        // off should go quiet immediately.
+        uiSound.setPrefs(next);
+        emit("confirm");
+        updatePrefs({ sound: next });
+        return;
+      }
+      case "sound-volume": {
+        const next = { ...prefs.sound, volume: stepVolume(prefs.sound.volume, 1) };
+        uiSound.setPrefs(next);
+        emit("confirm");
+        updatePrefs({ sound: next });
+        return;
+      }
+      case "sound-test":
+        // The cue is the feedback; a pointer press must not rumble.
+        uiSound.play("confirm");
+        return;
+      case "haptics-test":
+        pulseRef.current("confirm");
         return;
       case "remote-play":
+        emit("confirm");
         navigate("/remote");
         return;
     }
@@ -1332,14 +1562,30 @@ export function BigPictureScreen() {
     if (!row || row.disabled) return;
     switch (row.id) {
       case "language":
+        emit("move");
         void cycleLocale(delta);
         return;
       case "layout":
+        emit("move");
         cycleLayout(delta);
         return;
       case "theme":
+        emit("move");
         cycleTheme(delta);
         return;
+      case "sound-volume": {
+        const next = { ...prefs.sound, volume: stepVolume(prefs.sound.volume, delta) };
+        uiSound.setPrefs(next);
+        emit("move");
+        updatePrefs({ sound: next });
+        return;
+      }
+      case "haptics-strength": {
+        emit("move");
+        const next = cycleHapticsStrength(prefs.hapticsStrength, delta);
+        updatePrefs({ hapticsStrength: next, haptics: next !== "off" });
+        return;
+      }
       default:
         return;
     }
@@ -1390,8 +1636,14 @@ export function BigPictureScreen() {
         const target = findGameShelf(shelves, recentGame.id);
         if (target) nav.selectGame(target.shelf, target.index);
         setZone("library");
-        if (installed.has(recentGame.id)) void startGame(recentGame);
-        else window.setTimeout(() => nav.focusSelected(), 0);
+        if (installed.has(recentGame.id)) {
+          // The launch cue plays when the mutation resolves; a second confirm
+          // here would only double the press.
+          void startGame(recentGame);
+        } else {
+          emit("confirm");
+          window.setTimeout(() => nav.focusSelected(), 0);
+        }
         return;
       }
       case "library":
@@ -1501,6 +1753,7 @@ export function BigPictureScreen() {
           chooseConfirm(pendingPower.index);
         } else if (key === "Escape" || key === "Backspace") {
           event.preventDefault();
+          emit("back");
           setPendingPower(null);
         } else if (key === "ArrowLeft" || key === "ArrowUp") {
           event.preventDefault();
@@ -1825,6 +2078,7 @@ export function BigPictureScreen() {
           selectedId={selectedProfile.id}
           profile={activeProfile}
           haptics={prefs.haptics}
+          strength={prefs.hapticsStrength}
         />
       )}
       {overlay === "search" && (

@@ -7,6 +7,8 @@ import {
   BIG_PICTURE_CONTROLLER_KEY,
   DEFAULT_CONTROLLER_PREFS,
   GUIDE_BUTTONS,
+  cycleHapticsStrength,
+  hapticsActive,
   hintsFor,
   isMenuSource,
   isPageSource,
@@ -249,31 +251,88 @@ describe("physical source discrimination", () => {
 });
 
 describe("Big Picture controller preferences", () => {
-  it("defaults to the automatic profile with haptics on", () => {
-    expect(DEFAULT_CONTROLLER_PREFS).toEqual({ profileId: null, haptics: true });
+  it("defaults to the automatic profile, haptics on and sound at 45 %", () => {
+    expect(DEFAULT_CONTROLLER_PREFS).toEqual({
+      profileId: null,
+      haptics: true,
+      hapticsStrength: "standard",
+      sound: { enabled: true, volume: 0.45 },
+    });
     expect(readControllerPrefs(null)).toEqual(DEFAULT_CONTROLLER_PREFS);
     expect(readControllerPrefs(undefined)).toEqual(DEFAULT_CONTROLLER_PREFS);
   });
 
   it("round-trips through storage and honours a scoped key", () => {
     const storage = memoryStorage();
-    const written = writeControllerPrefs(storage, { profileId: "preset:dualsense", haptics: false });
-    expect(written).toEqual({ profileId: "preset:dualsense", haptics: false });
-    expect(storage.entries.get(BIG_PICTURE_CONTROLLER_KEY)).toBe(
-      JSON.stringify({ profileId: "preset:dualsense", haptics: false }),
-    );
-    expect(readControllerPrefs(storage)).toEqual(written);
+    const prefs = {
+      profileId: "preset:dualsense",
+      haptics: false,
+      hapticsStrength: "strong" as const,
+      sound: { enabled: true, volume: 0.7 },
+    };
+    const written = writeControllerPrefs(storage, prefs);
+    expect(written).toEqual(prefs);
+    expect(JSON.parse(storage.entries.get(BIG_PICTURE_CONTROLLER_KEY) ?? "null")).toEqual(prefs);
+    expect(readControllerPrefs(storage)).toEqual(prefs);
     expect(readControllerPrefs(storage, "missing")).toEqual(DEFAULT_CONTROLLER_PREFS);
   });
 
-  it("sanitises hand-edited JSON", () => {
+  it("keeps a stored record from before the sound update working without a migration", () => {
+    const storage = memoryStorage({
+      [BIG_PICTURE_CONTROLLER_KEY]: JSON.stringify({ profileId: "account", haptics: false }),
+    });
+    expect(readControllerPrefs(storage)).toEqual({
+      profileId: "account",
+      haptics: false,
+      hapticsStrength: "standard",
+      sound: { enabled: true, volume: 0.45 },
+    });
+  });
+
+  it("sanitises hand-edited JSON field by field", () => {
     expect(sanitizeControllerPrefs(null)).toEqual(DEFAULT_CONTROLLER_PREFS);
     expect(sanitizeControllerPrefs("nope")).toEqual(DEFAULT_CONTROLLER_PREFS);
     expect(sanitizeControllerPrefs({ profileId: "  ", haptics: "yes" })).toEqual(DEFAULT_CONTROLLER_PREFS);
     expect(sanitizeControllerPrefs({ profileId: "account", haptics: false })).toEqual({
+      ...DEFAULT_CONTROLLER_PREFS,
       profileId: "account",
       haptics: false,
     });
+    expect(
+      sanitizeControllerPrefs({ hapticsStrength: "loud", sound: { enabled: "yes", volume: 4 } }),
+    ).toEqual({
+      ...DEFAULT_CONTROLLER_PREFS,
+      hapticsStrength: "standard",
+      sound: { enabled: true, volume: 1 },
+    });
+    expect(sanitizeControllerPrefs({ hapticsStrength: "off", sound: { volume: -2 } })).toEqual({
+      ...DEFAULT_CONTROLLER_PREFS,
+      hapticsStrength: "off",
+      sound: { enabled: true, volume: 0 },
+    });
+  });
+
+  it("never shares the default sound object between reads", () => {
+    const first = sanitizeControllerPrefs(null);
+    first.sound.volume = 0.1;
+    expect(sanitizeControllerPrefs(null).sound.volume).toBe(0.45);
+    expect(DEFAULT_CONTROLLER_PREFS.sound.volume).toBe(0.45);
+  });
+
+  it("gates haptics on the toggle, the strength and the profile", () => {
+    expect(hapticsActive({ haptics: true, hapticsStrength: "standard" }, { vibration: true })).toBe(true);
+    expect(hapticsActive({ haptics: true, hapticsStrength: "strong" }, { vibration: true })).toBe(true);
+    expect(hapticsActive({ haptics: true, hapticsStrength: "off" }, { vibration: true })).toBe(false);
+    expect(hapticsActive({ haptics: false, hapticsStrength: "standard" }, { vibration: true })).toBe(false);
+    expect(hapticsActive({ haptics: true, hapticsStrength: "standard" }, { vibration: false })).toBe(false);
+  });
+
+  it("cycles Off → Standard → Strong in both directions", () => {
+    expect(cycleHapticsStrength("off", 1)).toBe("standard");
+    expect(cycleHapticsStrength("standard", 1)).toBe("strong");
+    expect(cycleHapticsStrength("strong", 1)).toBe("off");
+    expect(cycleHapticsStrength("off", -1)).toBe("strong");
+    expect(cycleHapticsStrength("standard", -1)).toBe("off");
   });
 
   it("survives blocked storage and broken JSON", () => {
@@ -286,10 +345,14 @@ describe("Big Picture controller preferences", () => {
       },
     };
     expect(readControllerPrefs(blocked)).toEqual(DEFAULT_CONTROLLER_PREFS);
-    expect(writeControllerPrefs(blocked, { profileId: "account", haptics: true })).toEqual({
-      profileId: "account",
-      haptics: true,
-    });
+    expect(
+      writeControllerPrefs(blocked, {
+        profileId: "account",
+        haptics: true,
+        hapticsStrength: "standard",
+        sound: { enabled: true, volume: 0.45 },
+      }),
+    ).toEqual({ ...DEFAULT_CONTROLLER_PREFS, profileId: "account" });
     expect(readControllerPrefs(memoryStorage({ [BIG_PICTURE_CONTROLLER_KEY]: "{" }))).toEqual(
       DEFAULT_CONTROLLER_PREFS,
     );
