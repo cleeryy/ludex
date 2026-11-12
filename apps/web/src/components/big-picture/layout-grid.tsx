@@ -40,7 +40,7 @@ export function GridLayout({
         </motion.div>
         <div className="absolute inset-0 backdrop-shade" aria-hidden="true" />
 
-        <div className="relative flex min-h-[clamp(148px,19vh,320px)] items-center gap-5 px-5 py-5 lg:gap-7 lg:px-7">
+        <div className="relative flex min-h-[clamp(148px,19vh,320px)] items-center gap-5 py-5 lg:gap-7 bp-pad-x">
           <motion.div
             className="w-[clamp(78px,7vw,200px)] shrink-0"
             {...reveal(reduceMotion, HERO_CUE)}
@@ -80,7 +80,7 @@ export function GridLayout({
 
       <ShelfTabs nav={nav} />
 
-      <section className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-4 scroll-pb-8 lg:px-7" aria-label={t("Games")}>
+      <section className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6 pt-4 scroll-pb-8 bp-pad-x" aria-label={t("Games")}>
         <div
           className="grid gap-3 xl:gap-4"
           style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}

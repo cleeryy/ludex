@@ -3,17 +3,20 @@ import { motion } from "motion/react";
 import {
   Download,
   Gamepad2,
+  Layers,
   LayoutGrid,
   LogOut,
   Play,
+  Power,
+  RefreshCw,
   Search,
   Settings,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatPercent } from "@/lib/format";
-import { t } from "@/lib/i18n";
-import type { InstallJob } from "@/lib/types";
+import { t, tn } from "@/lib/i18n";
+import type { Collection, InstallJob } from "@/lib/types";
 import { Progress } from "@/components/ui/controls";
 import { reveal } from "./entrance";
 import type { HintContext, PadFamily } from "./controller";
@@ -23,7 +26,8 @@ import { HintStrip } from "./parts";
 /* --------------------------------------------------------------------------
    Big Picture overlays (#138).
 
-   One shell for the command menu, exit confirmation and the download queue: a
+   One shell for the command menu, the collection index, the download queue and
+   the power confirmation: a
    non-modal panel (never `aria-modal`, so the gamepad keeps driving it), a
    highlighted row that is also real DOM focus, and a hint strip for the
    context. Escape/B closes; there is no focus trap because a couch player must
@@ -186,13 +190,12 @@ export const COMMAND_ITEMS: readonly CommandDefinition[] = [
     id: "settings",
     icon: Settings,
     label: () => t("Settings"),
-    detail: () => t("Open the full settings screen."),
   },
   {
     id: "exit",
     icon: LogOut,
-    label: () => t("Exit Big Picture"),
-    detail: () => t("Return to the library."),
+    label: () => t("Power"),
+    detail: () => t("Quit"),
   },
 ];
 
@@ -237,34 +240,117 @@ export function CommandMenu({
   );
 }
 
-/* ------------------------------ exit confirmation --------------------------- */
+/* -------------------------------- collections ------------------------------ */
 
-export function ExitOverlay({
+/**
+ * Collections without leaving the grid (#196). A read-only shelf index: A
+ * opens the collection page, B returns to the console. The list is a system
+ * surface, so it follows the same non-modal shell as the queue.
+ */
+export function CollectionsOverlay({
   active,
   onChoose,
   onHighlight,
+  collections,
+  loading,
+  error,
+  onRetry,
   ...shell
 }: {
   active: number;
   onChoose: (index: number) => void;
   onHighlight: (index: number) => void;
+  collections: readonly Collection[];
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
 } & Omit<Parameters<typeof OverlayShell>[0], "children" | "title" | "subtitle">) {
   return (
     <OverlayShell
-      title={t("Exit Big Picture?")}
-      subtitle={t("Downloads and installs continue in the background.")}
+      title={t("Collections")}
+      subtitle={t("Your manual collections")}
       {...shell}
     >
+      {loading ? (
+        <div className="flex flex-col gap-1" aria-busy="true" aria-label={t("Loading…")}>
+          {[0, 1, 2].map((index) => (
+            <span key={index} className="h-[52px] w-full animate-pulse bg-surface-2" aria-hidden="true" />
+          ))}
+        </div>
+      ) : error ? (
+        <div className="flex flex-col gap-2 px-1 py-2">
+          <p className="text-[12.5px] leading-relaxed text-ink-3">{error}</p>
+          <OverlayRow
+            active={active === 0}
+            onChoose={onRetry}
+            onHighlight={() => onHighlight(0)}
+            icon={<RefreshCw className="size-4" aria-hidden="true" />}
+            label={t("Try again")}
+            detail={t("Unavailable")}
+          />
+        </div>
+      ) : collections.length === 0 ? (
+        <p className="px-3 py-6 text-center text-[13px] text-ink-3">{t("No collections yet.")}</p>
+      ) : (
+        <ul className="flex flex-col gap-0.5">
+          {collections.map((collection, index) => (
+            <li key={collection.id}>
+              <OverlayRow
+                active={index === active}
+                onChoose={() => onChoose(index)}
+                onHighlight={() => onHighlight(index)}
+                icon={<Layers className="size-4" aria-hidden="true" />}
+                label={collection.name}
+                detail={`${tn(collection.gameCount, "1 game", "{count} games")} · ${
+                  collection.isPublic ? t("Public") : t("Private")
+                }`}
+                trailing={collection.owned ? undefined : collection.owner.username}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </OverlayShell>
+  );
+}
+
+/* ------------------------------ confirmation ------------------------------- */
+
+/**
+ * One destructive-action confirmation for the system surfaces (#196). It is
+ * deliberately not a modal: the pad keeps driving the row highlight, and the
+ * caller starts the highlight on Cancel (index 1) so a reflex A never quits.
+ */
+export function ConfirmPanel({
+  title,
+  detail,
+  confirmLabel,
+  tone,
+  active,
+  onChoose,
+  onHighlight,
+  ...shell
+}: {
+  title: string;
+  detail: string;
+  confirmLabel: string;
+  tone?: "danger";
+  active: number;
+  onChoose: (index: number) => void;
+  onHighlight: (index: number) => void;
+} & Omit<Parameters<typeof OverlayShell>[0], "children" | "title" | "subtitle">) {
+  return (
+    <OverlayShell title={title} subtitle={detail} {...shell}>
       <ul className="flex flex-col gap-0.5">
         <li>
           <OverlayRow
             active={active === 0}
             onChoose={() => onChoose(0)}
             onHighlight={() => onHighlight(0)}
-            icon={<LogOut className="size-4" aria-hidden="true" />}
-            label={t("Exit Big Picture")}
-            detail={t("Leave the couch interface.")}
-            tone="danger"
+            icon={<Power className="size-4" aria-hidden="true" />}
+            label={confirmLabel}
+            detail={t("Confirm")}
+            tone={tone}
           />
         </li>
         <li>
@@ -272,8 +358,8 @@ export function ExitOverlay({
             active={active === 1}
             onChoose={() => onChoose(1)}
             onHighlight={() => onHighlight(1)}
-            label={t("Stay in Big Picture")}
-            detail={t("Keep browsing where you were.")}
+            label={t("Cancel")}
+            detail={t("Back")}
           />
         </li>
       </ul>

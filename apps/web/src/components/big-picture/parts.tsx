@@ -111,7 +111,7 @@ export function ShelfTabs({
       aria-label={t("Shelves")}
       className={cn(
         "nav-scroll flex shrink-0 items-stretch gap-1 overflow-x-auto",
-        dense ? "h-9 px-0" : "h-11 border-b border-line px-3 lg:px-5",
+        dense ? "h-9 px-0" : "h-11 border-b border-line bp-pad-x",
         className,
       )}
     >
@@ -340,6 +340,8 @@ const HINT_COPY: Record<HintId, () => string> = {
   open: () => t("open"),
   cancel: () => t("cancel"),
   back: () => t("back"),
+  adjust: () => t("Change"),
+  tabs: () => t("Tabs"),
 };
 
 /**
@@ -399,7 +401,7 @@ export function BigPictureFooter({
   return (
     <footer
       className={cn(
-        "relative flex min-h-10 shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-t border-line bg-bg-deep px-5 py-1.5 text-[10.5px] text-ink-3 lg:px-7",
+        "relative flex min-h-10 shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-t border-line bg-bg-deep py-1.5 bp-pad-x text-[10.5px] text-ink-3",
         className,
       )}
     >

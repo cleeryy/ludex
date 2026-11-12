@@ -10,6 +10,13 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Big Picture is a complete console shell (#196): a top system bar (time,
+  account/avatar, server and online state, downloads, pad family, battery), a
+  home row (Continue, Library, Downloads, Collections, Settings, Power), an
+  in-shell Settings app (language/account, appearance, controllers, streaming)
+  and a mode-aware power screen with confirmations. Keyboard/gamepad navigation
+  works on every surface, apps are URL-addressable, and the layout scales with
+  safe areas down to 720p.
 - Account and server default language (#188): users carry a `locale` preference
   (exposed on `/api/me`, login/OIDC responses and the account profile), admins
   set a server default published in the public config, and the web resolves

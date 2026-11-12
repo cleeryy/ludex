@@ -68,6 +68,8 @@ export type HintInput =
   | "page"
   | "menu"
   | "navigate"
+  | "vertical"
+  | "horizontal"
   | "prevTab"
   | "nextTab";
 
@@ -90,7 +92,9 @@ export type HintId =
   | "clear"
   | "open"
   | "cancel"
-  | "back";
+  | "back"
+  | "adjust"
+  | "tabs";
 
 export interface Hint {
   id: HintId;
@@ -100,11 +104,15 @@ export interface Hint {
 
 export type HintContext =
   | "library"
+  | "home"
+  | "settings"
+  | "power"
   | "picker"
   | "menu"
   | "exit"
   | "profiles"
   | "downloads"
+  | "collections"
   | "search";
 
 export interface HintOptions {
@@ -124,6 +132,8 @@ const PAD_LABELS: Record<PadFamily, Record<HintInput, string[]>> = {
     page: ["LT", "RT"],
     menu: ["Menu", "Guide"],
     navigate: ["D-pad"],
+    vertical: ["D-pad"],
+    horizontal: ["D-pad"],
     prevTab: ["LB"],
     nextTab: ["RB"],
   },
@@ -136,6 +146,8 @@ const PAD_LABELS: Record<PadFamily, Record<HintInput, string[]>> = {
     page: ["L2", "R2"],
     menu: ["Options", "PS"],
     navigate: ["D-pad"],
+    vertical: ["D-pad"],
+    horizontal: ["D-pad"],
     prevTab: ["L1"],
     nextTab: ["R1"],
   },
@@ -148,6 +160,8 @@ const PAD_LABELS: Record<PadFamily, Record<HintInput, string[]>> = {
     page: ["L2", "R2"],
     menu: ["Menu", "Steam"],
     navigate: ["D-pad"],
+    vertical: ["D-pad"],
+    horizontal: ["D-pad"],
     prevTab: ["L1"],
     nextTab: ["R1"],
   },
@@ -160,6 +174,8 @@ const PAD_LABELS: Record<PadFamily, Record<HintInput, string[]>> = {
     page: ["L2", "R2"],
     menu: ["Start", "Guide"],
     navigate: ["D-pad"],
+    vertical: ["D-pad"],
+    horizontal: ["D-pad"],
     prevTab: ["L1"],
     nextTab: ["R1"],
   },
@@ -175,6 +191,8 @@ const KEYBOARD_LABELS: Record<HintInput, string[]> = {
   page: ["PgUp", "PgDn"],
   menu: ["M"],
   navigate: ["←", "→", "↑", "↓"],
+  vertical: ["↑", "↓"],
+  horizontal: ["←", "→"],
   prevTab: ["["],
   nextTab: ["]"],
 };
@@ -212,6 +230,32 @@ export function hintsFor(context: HintContext, { layout, family, connected }: Hi
       return [
         { id: "choose", keys: keys("navigate") },
         { id: "apply", keys: keys("confirm") },
+        { id: "close", keys: keys("back") },
+      ];
+    case "home":
+      return [
+        { id: "navigate", keys: keys("navigate") },
+        { id: "select", keys: keys("confirm") },
+        { id: "back", keys: keys("back") },
+      ];
+    case "settings":
+      return [
+        { id: "navigate", keys: keys("vertical") },
+        { id: "adjust", keys: keys("horizontal") },
+        { id: "select", keys: keys("confirm") },
+        { id: "tabs", keys: keys("shelf") },
+        { id: "back", keys: keys("back") },
+      ];
+    case "power":
+      return [
+        { id: "navigate", keys: keys("navigate") },
+        { id: "select", keys: keys("confirm") },
+        { id: "back", keys: keys("back") },
+      ];
+    case "collections":
+      return [
+        { id: "choose", keys: keys("navigate") },
+        { id: "open", keys: keys("confirm") },
         { id: "close", keys: keys("back") },
       ];
     case "menu":

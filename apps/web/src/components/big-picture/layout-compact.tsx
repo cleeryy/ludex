@@ -69,7 +69,7 @@ export function CompactLayout({
         </section>
 
         <motion.aside
-          className="flex max-h-[44%] shrink-0 flex-col gap-3 overflow-y-auto border-t border-line bg-bg-deep/40 p-4 md:max-h-none md:w-[clamp(260px,30vw,420px)] md:border-t-0 lg:gap-4 lg:p-6"
+          className="flex max-h-[44%] shrink-0 flex-col gap-3 overflow-y-auto overscroll-contain border-t border-line bg-stage p-4 md:max-h-none md:w-[clamp(260px,30vw,420px)] md:border-t-0 lg:gap-4 lg:p-6"
           aria-label={t("Selected game")}
           {...reveal(reduceMotion, HERO_CUE)}
         >

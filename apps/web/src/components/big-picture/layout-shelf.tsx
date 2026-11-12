@@ -44,7 +44,7 @@ export function ShelfLayout({
         </motion.div>
         <div className="absolute inset-0 bp-shade" aria-hidden="true" />
 
-        <div className="relative flex w-full items-center gap-[clamp(1rem,2.5vw,2.5rem)] px-[clamp(1rem,3vw,3rem)] py-5">
+        <div className="relative flex w-full items-center gap-[clamp(1rem,2.5vw,2.5rem)] py-5 bp-pad-x">
           <motion.div
             className="w-[clamp(132px,12vw,420px)] shrink-0"
             {...reveal(reduceMotion, HERO_CUE)}
@@ -83,7 +83,7 @@ export function ShelfLayout({
       </section>
 
       <section
-        className="relative shrink-0 border-t border-line px-4 pb-3 pt-1.5 lg:px-6"
+        className="relative shrink-0 border-t border-line pb-3 pt-1.5 bp-pad-x"
         aria-label={t("Games")}
       >
         <div className="flex items-center justify-between gap-4">
@@ -109,7 +109,7 @@ export function ShelfLayout({
                 selected={position === nav.index}
                 nav={nav}
                 installed={installed.has(entry.id)}
-                className="w-[132px] lg:w-[148px]"
+                className="w-[var(--bp-rail-card)]"
               />
             </motion.div>
           ))}
