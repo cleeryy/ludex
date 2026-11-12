@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-12
+
 ### Added
 
 - Guided "Make it run" runtime installer (#178): diagnoses why a game cannot
