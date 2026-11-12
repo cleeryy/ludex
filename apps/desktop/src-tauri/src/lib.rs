@@ -189,6 +189,7 @@ pub fn run() {
             commands::cancel_install,
             commands::pause_install,
             commands::resume_install,
+            commands::reorder_install_job,
             commands::get_install_job,
             commands::list_install_jobs,
             commands::delete_install_job,

@@ -1,5 +1,6 @@
 import { t } from "@/lib/i18n";
 import { ALL_LAUNCHER_IDS } from "@/lib/launchers";
+import type { QueueMove } from "@/lib/install-queue";
 import type { SaveCandidateGroup, SaveCandidateOverview } from "@/lib/save-discovery";
 import type {
   AdapterReport,
@@ -346,6 +347,23 @@ export const native = {
    */
   async resumeInstall(jobId: string, mode?: InstallResumeMode | null): Promise<InstallJob> {
     return invoke<InstallJob>("resume_install", { jobId, mode: mode ?? null });
+  },
+
+  /**
+   * Move a waiting install in the queue (#202). `position` is the 0-based place
+   * inside the waiting queue and is only used by the `position` action.
+   * Resolves with the new queue order; a running or finished job is refused.
+   */
+  async reorderInstallJob(
+    jobId: string,
+    action: QueueMove,
+    position?: number | null,
+  ): Promise<InstallJob[]> {
+    return invoke<InstallJob[]>("reorder_install_job", {
+      jobId,
+      action,
+      position: position ?? null,
+    });
   },
 
   async getInstallJob(jobId: string): Promise<InstallJob> {

@@ -2460,6 +2460,12 @@ export interface InstallJob {
   lastError: string | null;
   /** Milliseconds the connection was silent when the stall was detected. */
   stalledForMs: number | null;
+  /**
+   * Position in the install queue (#202): the desktop starts the lowest one
+   * when a slot frees. `null` for a finished job and for a row written before
+   * the queue order existed.
+   */
+  queuePosition: number | null;
 }
 
 /**

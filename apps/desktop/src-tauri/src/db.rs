@@ -130,7 +130,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 17;
+const SCHEMA_VERSION: i64 = 18;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -515,6 +515,16 @@ CREATE INDEX IF NOT EXISTS install_job_params_version_idx
     ON install_job_params (game_id, version_id);
 "#;
 
+/// Install queue order (#202): a stable position per waiting/active job, so
+/// "move to top" survives a restart and the scheduler starts the lowest
+/// position when a slot frees. Terminal rows carry NULL, so a finished or
+/// cancelled job never leaves a gap in the queue.
+const SCHEMA_V18: &str = r#"
+ALTER TABLE install_jobs ADD COLUMN queue_position INTEGER;
+CREATE INDEX IF NOT EXISTS install_jobs_queue_idx
+    ON install_jobs (phase, queue_position);
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -649,6 +659,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
     if version < 17 {
         connection.execute_batch(SCHEMA_V17).map_err(|e| {
             format!("Could not add resumable install parameters to the desktop database: {e}")
+        })?;
+    }
+    if version < 18 {
+        connection.execute_batch(SCHEMA_V18).map_err(|e| {
+            format!("Could not add the install queue order to the desktop database: {e}")
         })?;
     }
 
@@ -1358,6 +1373,9 @@ pub struct InstallJobRecord {
     pub stream_completed: Option<String>,
     /// Total file entries of a per-entry stream install (#203).
     pub entries_total: Option<i64>,
+    /// Position in the install queue (#202). `None` for terminal rows: a
+    /// finished job leaves no gap behind.
+    pub queue_position: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -1369,8 +1387,9 @@ pub fn upsert_install_job(connection: &Connection, job: &InstallJobRecord) -> Re
             INSERT INTO install_jobs
                 (job_id, game_id, version_id, phase, bytes_done, bytes_total,
                  speed_bps, part_path, install_path, staging_path, error, stream,
-                 resumable, stream_completed, entries_total, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+                 resumable, stream_completed, entries_total, queue_position,
+                 created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
             ON CONFLICT(job_id) DO UPDATE SET
                 phase        = excluded.phase,
                 bytes_done   = excluded.bytes_done,
@@ -1384,6 +1403,7 @@ pub fn upsert_install_job(connection: &Connection, job: &InstallJobRecord) -> Re
                 resumable    = excluded.resumable,
                 stream_completed = excluded.stream_completed,
                 entries_total = excluded.entries_total,
+                queue_position = excluded.queue_position,
                 updated_at   = excluded.updated_at
             "#,
             params![
@@ -1402,6 +1422,7 @@ pub fn upsert_install_job(connection: &Connection, job: &InstallJobRecord) -> Re
                 i64::from(job.resumable),
                 job.stream_completed,
                 job.entries_total,
+                job.queue_position,
                 job.created_at,
                 job.updated_at,
             ],
@@ -1427,12 +1448,13 @@ fn map_install_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<InstallJobRecord
         resumable: row.get::<_, i64>(12)? != 0,
         stream_completed: row.get(13)?,
         entries_total: row.get(14)?,
-        created_at: row.get(15)?,
-        updated_at: row.get(16)?,
+        queue_position: row.get(15)?,
+        created_at: row.get(16)?,
+        updated_at: row.get(17)?,
     })
 }
 
-const INSTALL_JOB_COLUMNS: &str = "job_id, game_id, version_id, phase, bytes_done, bytes_total, speed_bps, part_path, install_path, staging_path, error, stream, resumable, stream_completed, entries_total, created_at, updated_at";
+const INSTALL_JOB_COLUMNS: &str = "job_id, game_id, version_id, phase, bytes_done, bytes_total, speed_bps, part_path, install_path, staging_path, error, stream, resumable, stream_completed, entries_total, queue_position, created_at, updated_at";
 
 pub fn get_install_job(
     connection: &Connection,
@@ -1759,6 +1781,36 @@ pub fn all_install_jobs(connection: &Connection) -> Result<Vec<InstallJobRecord>
         jobs.push(row.map_err(|e| format!("Could not read install jobs: {e}"))?);
     }
     Ok(jobs)
+}
+
+/// Writes the compacted install queue order in one transaction (#202).
+///
+/// `positions` is the full assignment produced by the scheduler: every active
+/// job keeps a unique position in `0..n`. `updated_at` is deliberately left
+/// alone, so a reorder never looks like install progress.
+pub fn set_install_queue_positions(
+    connection: &Connection,
+    positions: &[(String, i64)],
+) -> Result<(), String> {
+    if positions.is_empty() {
+        return Ok(());
+    }
+    let transaction = connection
+        .unchecked_transaction()
+        .map_err(|e| format!("Could not record the install queue order: {e}"))?;
+    {
+        let mut statement = transaction
+            .prepare("UPDATE install_jobs SET queue_position = ?2 WHERE job_id = ?1")
+            .map_err(|e| format!("Could not record the install queue order: {e}"))?;
+        for (job_id, position) in positions {
+            statement
+                .execute(params![job_id, position])
+                .map_err(|e| format!("Could not record the install queue order: {e}"))?;
+        }
+    }
+    transaction
+        .commit()
+        .map_err(|e| format!("Could not record the install queue order: {e}"))
 }
 
 /// Phases whose history row may be deleted (#100). Active and paused jobs are
@@ -3273,6 +3325,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V15).unwrap();
         connection.execute_batch(SCHEMA_V16).unwrap();
         connection.execute_batch(SCHEMA_V17).unwrap();
+        connection.execute_batch(SCHEMA_V18).unwrap();
         connection
     }
 
@@ -3539,6 +3592,7 @@ mod tests {
             resumable: false,
             stream_completed: None,
             entries_total: Some(4),
+            queue_position: Some(0),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         };
@@ -3557,6 +3611,89 @@ mod tests {
         assert_eq!(loaded.error.as_deref(), Some("interrupted"));
         assert_eq!(all_install_jobs(&connection).unwrap().len(), 1);
         assert_eq!(all_install_jobs(&connection).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn install_queue_positions_persist_and_compact() {
+        let connection = memory_database();
+
+        // Schema v18 adds the column: an existing row without a position is
+        // readable and sorts last.
+        let columns: Vec<String> = connection
+            .prepare("PRAGMA table_info(install_jobs)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .map(|name| name.unwrap())
+            .collect();
+        assert!(columns.iter().any(|name| name == "queue_position"));
+
+        for (job_id, position) in [("job-a", 0), ("job-b", 1), ("job-c", 2)] {
+            let mut record = job_record(job_id, "queued");
+            record.queue_position = Some(position);
+            upsert_install_job(&connection, &record).unwrap();
+        }
+        // The order survives a reload: this is what `list_install_jobs` reads
+        // after a restart.
+        assert_eq!(
+            get_install_job(&connection, "job-b")
+                .unwrap()
+                .unwrap()
+                .queue_position,
+            Some(1)
+        );
+
+        // Moving the third job to the top renumbers the queue without gaps.
+        set_install_queue_positions(
+            &connection,
+            &[
+                ("job-c".to_string(), 0),
+                ("job-a".to_string(), 1),
+                ("job-b".to_string(), 2),
+            ],
+        )
+        .unwrap();
+        let mut ordered: Vec<(String, i64)> = all_install_jobs(&connection)
+            .unwrap()
+            .into_iter()
+            .map(|job| (job.job_id, job.queue_position.expect("active row")))
+            .collect();
+        ordered.sort_by_key(|(_, position)| *position);
+        assert_eq!(
+            ordered,
+            vec![
+                ("job-c".to_string(), 0),
+                ("job-a".to_string(), 1),
+                ("job-b".to_string(), 2),
+            ]
+        );
+
+        // A finished row carries NULL and the remaining queue compacts to
+        // 0..n, so the next start is the new lowest position.
+        let mut done = job_record("job-c", "done");
+        done.queue_position = None;
+        upsert_install_job(&connection, &done).unwrap();
+        set_install_queue_positions(
+            &connection,
+            &[("job-a".to_string(), 0), ("job-b".to_string(), 1)],
+        )
+        .unwrap();
+        assert_eq!(
+            get_install_job(&connection, "job-c")
+                .unwrap()
+                .unwrap()
+                .queue_position,
+            None
+        );
+        assert_eq!(
+            get_install_job(&connection, "job-a")
+                .unwrap()
+                .unwrap()
+                .queue_position,
+            Some(0)
+        );
+        // An empty assignment is a no-op, not an error.
+        set_install_queue_positions(&connection, &[]).unwrap();
     }
 
     #[test]
@@ -3721,6 +3858,7 @@ mod tests {
             resumable: true,
             stream_completed: None,
             entries_total: None,
+            queue_position: None,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         };
@@ -3757,6 +3895,7 @@ mod tests {
             resumable: true,
             stream_completed: None,
             entries_total: None,
+            queue_position: None,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         }

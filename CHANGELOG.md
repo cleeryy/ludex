@@ -10,6 +10,12 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- The install/download queue can be reordered (#202): a persisted
+  `queue_position` and a real scheduler start the lowest-position queued job
+  when a slot frees, so a newly added game can jump ahead of older jobs; the
+  Downloads screen shows the queue rank with move-to-top/up/down controls
+  (running and finished jobs are refused), the queue compacts after completion,
+  and classic and stream installs share the same order.
 - Account settings sync through the server (#201): a validated per-account
   preference document (`user_preferences`, revision/If-Match, 64 KiB cap,
   allowlisted keys) carries theme, language, Big Picture layout, sound/haptics,

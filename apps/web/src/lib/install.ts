@@ -1,6 +1,7 @@
 import { USING_MOCKS } from "@/lib/flags";
 import { isNative, native } from "@/lib/native";
 import { mockInstalls } from "@/lib/mock-install";
+import type { QueueMove } from "@/lib/install-queue";
 import type { SaveCandidateGroup, SaveCandidateOverview } from "@/lib/save-discovery";
 import type {
   DiskUsage,
@@ -42,6 +43,16 @@ export const installBridge = {
 
   resume(jobId: string, mode?: InstallResumeMode | null): Promise<InstallJob | null> {
     return USING_MOCKS ? mockInstalls.resume(jobId, mode) : native.resumeInstall(jobId, mode);
+  },
+
+  /**
+   * Move a waiting install in the queue (#202). Resolves with the new order
+   * confirmed by the desktop; a running or finished job is refused.
+   */
+  reorder(jobId: string, action: QueueMove, position?: number | null): Promise<InstallJob[]> {
+    return USING_MOCKS
+      ? mockInstalls.reorder(jobId, action, position)
+      : native.reorderInstallJob(jobId, action, position);
   },
 
   /** Delete one finished job from history, never its files (#100). */

@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, Download, FolderOpen, Pause, Play, RefreshCw, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpToLine, Check, Download, FolderOpen, Pause, Play, RefreshCw, Trash2, X } from "lucide-react";
 import { installsAvailable } from "@/lib/install";
 import { isActiveJob, useDownloads, type Aggregate } from "@/state/downloads";
 import { canRetryJob, isTrulyResumable } from "@/lib/install-retry";
+import { canMoveDown, canMoveUp, isReorderableJob, waitingQueue } from "@/lib/install-queue";
 import { useAllGames } from "@/lib/hooks";
 import { formatBytes, formatDuration, formatSpeed, installPhaseLabel, formatPercent } from "@/lib/format";
 import { HISTORY_WINDOW_MS, type JobMeter, type SpeedPoint } from "@/lib/eta";
@@ -182,10 +183,21 @@ export function DownloadsScreen() {
     resume,
     retryAsDownload,
     retryStream,
+    reorder,
     remove,
     clearHistory,
     openFolder,
   } = downloads;
+
+  // #202: the waiting queue in start order; the running install is pinned
+  // above it and never reordered. Cheap enough to recompute per render (a
+  // handful of rows) and this stays below the early return.
+  const waiting = waitingQueue(active);
+  const queueRank = (job: InstallJob): number | null => {
+    if (!isReorderableJob(job)) return null;
+    const index = waiting.findIndex((entry) => entry.jobId === job.jobId);
+    return index >= 0 ? index + 1 : null;
+  };
 
   const status = aggregate ? aggregateStatus(aggregate) : null;
 
@@ -278,13 +290,23 @@ export function DownloadsScreen() {
               title={titleFor(job)}
               coverUrl={coverFor(job)}
               year={yearFor(job)}
+              queueRank={queueRank(job)}
+              reorderable={isReorderableJob(job)}
               onCancel={() => void cancel(job.jobId)}
               onPause={() => void pause(job.jobId)}
               onOpenFolder={job.installPath ? () => void openFolder(job.installPath!) : undefined}
               onResume={() => void resume(job, { title: titleFor(job) })}
               onRestart={() => requestRestart(job)}
+              onMoveTop={canMoveUp(active, job.jobId) ? () => void reorder(job.jobId, "top") : undefined}
+              onMoveUp={canMoveUp(active, job.jobId) ? () => void reorder(job.jobId, "up") : undefined}
+              onMoveDown={canMoveDown(active, job.jobId) ? () => void reorder(job.jobId, "down") : undefined}
             />
           ))}
+          {waiting.length > 1 ? (
+            <p className="py-2.5 text-[11.5px] leading-relaxed text-ink-3">
+              {t("Queued installs start in this order. The running install keeps its place until it finishes, pauses or is cancelled.")}
+            </p>
+          ) : null}
         </div>
       </section>
 
@@ -382,6 +404,8 @@ function JobRow({
   title,
   coverUrl,
   year,
+  queueRank,
+  reorderable,
   onCancel,
   onPause,
   onOpenFolder,
@@ -389,12 +413,19 @@ function JobRow({
   onRestart,
   onRetryAsDownload,
   onRemove,
+  onMoveTop,
+  onMoveUp,
+  onMoveDown,
 }: {
   job: InstallJob;
   meter?: JobMeter;
   title: string;
   coverUrl: string | null;
   year: string | null;
+  /** 1-based place in the waiting queue; null for running/finished rows. */
+  queueRank?: number | null;
+  /** True for queued/paused rows: they can be moved, running/finished cannot. */
+  reorderable?: boolean;
   onCancel: () => void;
   onPause: () => void;
   onOpenFolder?: () => void;
@@ -402,6 +433,9 @@ function JobRow({
   onRestart: () => void;
   onRetryAsDownload?: () => void;
   onRemove?: () => void;
+  onMoveTop?: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }) {
   const active = isActiveJob(job);
   const paused = job.phase === "paused";
@@ -442,9 +476,16 @@ function JobRow({
             <h3 className="truncate text-[14px] font-medium text-ink">{title}</h3>
             {year && <span className="num text-[10.5px] text-ink-3">{year.slice(0, 4)}</span>}
           </div>
-          <Badge tone={done ? "ok" : job.phase === "error" ? "danger" : paused ? "outline" : active ? "signal" : "outline"}>
-            {installPhaseLabel(job.phase)}
-          </Badge>
+          <div className="flex items-center gap-2">
+            {queueRank ? (
+              <span className="num text-[10.5px] text-ink-3" title={t("Place in the install queue")}>
+                {t("Queue #{rank}", { rank: queueRank })}
+              </span>
+            ) : null}
+            <Badge tone={done ? "ok" : job.phase === "error" ? "danger" : paused ? "outline" : active ? "signal" : "outline"}>
+              {installPhaseLabel(job.phase)}
+            </Badge>
+          </div>
         </div>
 
         <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
@@ -492,6 +533,44 @@ function JobRow({
         )}
 
         <div className="mt-2 flex flex-wrap items-center gap-x-1 gap-y-1">
+          {reorderable ? (
+            <div
+              className="flex items-center gap-0.5"
+              role="group"
+              aria-label={t("Queue order for {title}", { title })}
+            >
+              <Button
+                variant="ghost"
+                size="sm"
+                className="px-2 text-ink-2"
+                icon={<ArrowUpToLine className="size-3.5" aria-hidden="true" />}
+                disabled={!onMoveTop}
+                onClick={onMoveTop}
+                aria-label={t("Move {title} to the top of the queue", { title })}
+                title={t("Move {title} to the top of the queue", { title })}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="px-2 text-ink-2"
+                icon={<ArrowUp className="size-3.5" aria-hidden="true" />}
+                disabled={!onMoveUp}
+                onClick={onMoveUp}
+                aria-label={t("Move {title} up one place in the queue", { title })}
+                title={t("Move {title} up one place in the queue", { title })}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="px-2 text-ink-2"
+                icon={<ArrowDown className="size-3.5" aria-hidden="true" />}
+                disabled={!onMoveDown}
+                onClick={onMoveDown}
+                aria-label={t("Move {title} down one place in the queue", { title })}
+                title={t("Move {title} down one place in the queue", { title })}
+              />
+            </div>
+          ) : null}
           {active && (
             <button
               type="button"
