@@ -3444,5 +3444,12 @@
   "Why": "Perché",
   "If you cancel, nothing is changed and the manual instructions stay available.": "Se annulli, nulla viene modificato e le istruzioni manuali restano disponibili.",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "La cartella di configurazione di Sunshine si trova in Program Files, dove Windows blocca le scritture.",
-  "You can also set a Sunshine config folder your account can write to.": "Puoi anche indicare una cartella di configurazione di Sunshine in cui il tuo account può scrivere."
+  "You can also set a Sunshine config folder your account can write to.": "Puoi anche indicare una cartella di configurazione di Sunshine in cui il tuo account può scrivere.",
+  "{service} address": "Indirizzo {service}",
+  "IPv6 address": "Indirizzo IPv6",
+  "Local address": "Indirizzo locale",
+  "no address on {interfaces}": "nessun indirizzo su {interfaces}",
+  "Other addresses": "Altri indirizzi",
+  "The VPN is detected on {interfaces} but has no address. Copy the address from the VPN service; the LAN address above only works at home.": "La VPN è rilevata su {interfaces} ma non ha un indirizzo. Copia l'indirizzo dal servizio VPN; l'indirizzo LAN sopra funziona solo a casa.",
+  "this machine": "questo computer"
 }

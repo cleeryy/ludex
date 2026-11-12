@@ -3444,5 +3444,12 @@
   "Why": "理由",
   "If you cancel, nothing is changed and the manual instructions stay available.": "キャンセルしても何も変更されず、手動での手順は引き続き利用できます。",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Sunshine の構成フォルダーは Program Files 内にあり、Windows が書き込みをブロックします。",
-  "You can also set a Sunshine config folder your account can write to.": "アカウントで書き込み可能な Sunshine 構成フォルダーを指定することもできます。"
+  "You can also set a Sunshine config folder your account can write to.": "アカウントで書き込み可能な Sunshine 構成フォルダーを指定することもできます。",
+  "{service} address": "{service} アドレス",
+  "IPv6 address": "IPv6 アドレス",
+  "Local address": "ローカルアドレス",
+  "no address on {interfaces}": "{interfaces} にアドレスがありません",
+  "Other addresses": "他のアドレス",
+  "The VPN is detected on {interfaces} but has no address. Copy the address from the VPN service; the LAN address above only works at home.": "VPN は {interfaces} で検出されましたが、アドレスがありません。VPN サービスからアドレスをコピーしてください。上の LAN アドレスは自宅でのみ機能します。",
+  "this machine": "このマシン"
 }

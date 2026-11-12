@@ -3444,5 +3444,12 @@
   "Why": "Почему",
   "If you cancel, nothing is changed and the manual instructions stay available.": "При отмене ничего не изменится, а ручные инструкции останутся доступны.",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Папка конфигурации Sunshine находится в Program Files, где Windows блокирует запись.",
-  "You can also set a Sunshine config folder your account can write to.": "Можно также указать папку конфигурации Sunshine, доступную вашему аккаунту для записи."
+  "You can also set a Sunshine config folder your account can write to.": "Можно также указать папку конфигурации Sunshine, доступную вашему аккаунту для записи.",
+  "{service} address": "Адрес {service}",
+  "IPv6 address": "Адрес IPv6",
+  "Local address": "Локальный адрес",
+  "no address on {interfaces}": "нет адреса на {interfaces}",
+  "Other addresses": "Другие адреса",
+  "The VPN is detected on {interfaces} but has no address. Copy the address from the VPN service; the LAN address above only works at home.": "VPN обнаружен на {interfaces}, но у него нет адреса. Скопируйте адрес из службы VPN; адрес локальной сети выше работает только дома.",
+  "this machine": "этот компьютер"
 }

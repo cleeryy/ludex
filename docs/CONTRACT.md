@@ -2417,8 +2417,33 @@ interface RemotePlaySession {
   publicIp: string | null; lanIp: string | null; updatedAt: string | null;
 }
 
+interface RemotePlayVpnAddress {
+  address: string; interface: string; service: string;
+}
+
 interface RemotePlayVpnStatus {
-  detected: boolean; services: string[]; address: string | null; message: string;
+  detected: boolean; services: string[];
+  address: string | null;           // preferred VPN/mesh address (#206)
+  addresses: RemotePlayVpnAddress[]; // every VPN/mesh address, with interface and service
+  interfaces: string[];             // VPN adapters with no usable address (#206)
+  message: string;
+}
+
+/** One classified local address (#206). */
+interface RemotePlayLocalAddress {
+  address: string; interface: string;
+  kind: "vpn" | "lan" | "ipv6" | "cgnat" | "public" | "ula"
+      | "link_local" | "loopback" | "virtual";
+  service: string | null;           // set for a known VPN/mesh adapter only
+  prefix: number;
+}
+
+/** The address the wizard advertises, with the reason it was chosen (#206). */
+interface RemotePlayAdvertisedAddress {
+  address: string | null;
+  source: "vpn" | "lan" | "ipv6" | "none";
+  interface: string | null; service: string | null;
+  reason: string;                   // shown under the Moonlight address field
 }
 
 interface SunshineRemoteStatus {
@@ -2445,7 +2470,10 @@ interface RemotePlayDirectAssessment {
 interface RemotePlayStatus {
   platform: string; lanIp: string | null; ipv6: string | null;
   publicIp: string | null;          // public address probe, wizard only
-  vpn: RemotePlayVpnStatus; sunshine: SunshineRemoteStatus;
+  vpn: RemotePlayVpnStatus;
+  addresses: RemotePlayLocalAddress[];       // every local address, classified (#206)
+  advertised: RemotePlayAdvertisedAddress;   // address shown by the wizard (#206)
+  sunshine: SunshineRemoteStatus;
   upnp: RemotePlayUpnpStatus; direct: RemotePlayDirectAssessment;
   active: RemotePlaySession;
   leaseDefaultSecs: number; leaseMinSecs: number; leaseMaxSecs: number;
@@ -2612,7 +2640,7 @@ interface RemotePlayCleanup {
 | `stream_target` | `{ gameId }` | `StreamTarget`; whether the game is published and which hosts can stream it. The filesystem/registry probes run on the blocking pool (#159) |
 | `stream_game` | `{ gameId, host? }` | `StreamLaunch`; runs `moonlight stream <host> <app>` for a published game. Refuses unpaired hosts and missing Moonlight |
 | `moonlight_stream` | `{ host, appName }` | `StreamLaunch`; advanced/manual start of any Sunshine app |
-| `remote_play_status` | `{ probePublic? }` | `RemotePlayStatus`; LAN/IPv6 addresses, detected VPN services, Sunshine process/config (`sunshine.conf` is read, never written), SSDP/UPnP gateway, WAN-vs-public comparison and any active mapping. `probePublic: true` contacts `api.ipify.org` then `ifconfig.me` with a 4 s timeout; it is false for the Settings summary and true only when the wizard opens (#179) |
+| `remote_play_status` | `{ probePublic? }` | `RemotePlayStatus`; LAN/IPv6 addresses, every classified local address, the advertised address and its source (#206), detected VPN services and their mesh addresses, Sunshine process/config (`sunshine.conf` is read, never written), SSDP/UPnP gateway, WAN-vs-public comparison and any active mapping. `probePublic: true` contacts `api.ipify.org` then `ifconfig.me` with a 4 s timeout; it is false for the Settings summary and true only when the wizard opens (#179) |
 | `remote_play_plan` | `{ microphone?, leaseSecs? }` | `RemotePlayPortPlan`; the exact ports/protocol/lease shown on the consent screen. Clamps the lease to 600..=7200 s and never includes TCP 47990 or UDP 5353 |
 | `remote_play_enable` | `{ microphone?, leaseSecs?, confirm }` | `RemotePlayReport`; `confirm: false` is refused with `consent_required`. Re-runs detection, refuses CGNAT/double NAT/no IGD/public IGD/unsafe Sunshine settings, refuses a port owned by another program, maps with the short lease, queries every mapping back, then rolls everything back if verification fails. Refreshing a Ludex mapping is allowed. Records the session in `{appDataDir}/remote-play/session.json` before returning (#179) |
 | `remote_play_verify` | — | `RemotePlayVerification`; one row per planned port with `mapped` from the IGD query and, for TCP, a 1.5 s connect probe to the public address. UDP is `mapped` with `reachable: null` (no protocol-aware echo). Distinguishes `not_mapped`/`conflict` from a mapped port that this machine cannot hairpin (#179) |
@@ -2647,6 +2675,24 @@ file is the cleanup source of truth: disabling removes every mapping and
 verifies it, and the next app start removes leftovers from a crashed run. The
 lease is a 1 h default (600..=7200 s) and is the final fallback. No credential,
 PIN or token is read, logged or returned.
+
+**Remote play addresses (#206).** `remote_play_status` enumerates every
+interface and address (`sysinfo::Networks`, never a shell command) and
+classifies each one: `vpn` (Tailscale `tailscale*`, Netbird `wt0`/`netbird*`,
+WireGuard `wg*`/`wireguard*`, ZeroTier `zt*`/`zerotier*`, OpenVPN and
+`tun*`/`tap*`/`utun*`), `lan` (RFC 1918 on a physical adapter), `ipv6` (global
+`2000::/3`), `cgnat` (`100.64.0.0/10` on an adapter that is not a known VPN),
+`public`, `ula`, `link_local`, `loopback` and `virtual` (Docker, veth, bridges,
+VM/hypervisor adapters). The advertised address is the preferred VPN/mesh
+address when one exists, otherwise the LAN address (default-route adapter
+first), then a global IPv6 address; `advertised.source` says which and
+`advertised.reason` is shown under the Moonlight field. `vpn.addresses` lists
+every mesh address with its interface and service, and `vpn.interfaces` names a
+VPN adapter that is up without an address, so the wizard says so instead of
+silently showing the LAN address. A CGNAT WAN address, a Docker/veth bridge,
+loopback, link-local and IPv6 ULA are never advertised. The selected
+interface/address/source is logged at debug level; no credential, PIN or token
+is involved.
 
 Events:
 

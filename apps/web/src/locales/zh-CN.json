@@ -3444,5 +3444,12 @@
   "Why": "原因",
   "If you cancel, nothing is changed and the manual instructions stay available.": "如果取消，不会更改任何内容，手动操作说明仍然可用。",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Sunshine 的配置文件夹位于 Program Files 下，Windows 会阻止写入。",
-  "You can also set a Sunshine config folder your account can write to.": "你也可以指定一个你的账户可写入的 Sunshine 配置文件夹。"
+  "You can also set a Sunshine config folder your account can write to.": "你也可以指定一个你的账户可写入的 Sunshine 配置文件夹。",
+  "{service} address": "{service} 地址",
+  "IPv6 address": "IPv6 地址",
+  "Local address": "本地地址",
+  "no address on {interfaces}": "{interfaces} 上没有地址",
+  "Other addresses": "其他地址",
+  "The VPN is detected on {interfaces} but has no address. Copy the address from the VPN service; the LAN address above only works at home.": "已在 {interfaces} 上检测到 VPN，但没有地址。请从 VPN 服务复制地址；上面的局域网地址仅在家中可用。",
+  "this machine": "此设备"
 }

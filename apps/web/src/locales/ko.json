@@ -3444,5 +3444,12 @@
   "Why": "이유",
   "If you cancel, nothing is changed and the manual instructions stay available.": "취소하면 아무것도 변경되지 않으며 수동 안내를 계속 사용할 수 있습니다.",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Sunshine의 구성 폴더가 Program Files 아래에 있어 Windows가 쓰기를 차단합니다.",
-  "You can also set a Sunshine config folder your account can write to.": "계정에서 쓸 수 있는 Sunshine 구성 폴더를 지정할 수도 있습니다."
+  "You can also set a Sunshine config folder your account can write to.": "계정에서 쓸 수 있는 Sunshine 구성 폴더를 지정할 수도 있습니다.",
+  "{service} address": "{service} 주소",
+  "IPv6 address": "IPv6 주소",
+  "Local address": "로컬 주소",
+  "no address on {interfaces}": "{interfaces}에 주소 없음",
+  "Other addresses": "다른 주소",
+  "The VPN is detected on {interfaces} but has no address. Copy the address from the VPN service; the LAN address above only works at home.": "VPN이 {interfaces}에서 감지되었지만 주소가 없습니다. VPN 서비스에서 주소를 복사하세요. 위의 LAN 주소는 집에서만 작동합니다.",
+  "this machine": "이 컴퓨터"
 }

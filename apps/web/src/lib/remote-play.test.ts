@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   INITIAL_REMOTE_PLAY_WIZARD,
+  addressChoices,
   leaseNeedsRefresh,
   minutesUntilExpiry,
   moonlightAddress,
@@ -100,6 +101,39 @@ describe("remote play helpers", () => {
     expect(
       moonlightAddress({ ...status, vpn: { address: "100.101.102.103" } }),
     ).toBe("100.101.102.103");
+  });
+
+  it("uses the advertised address before the raw LAN fallback", () => {
+    expect(
+      moonlightAddress({ ...status, advertised: { address: "100.64.0.5" } }),
+    ).toBe("100.64.0.5");
+    expect(
+      moonlightAddress({ ...status, advertised: { address: null } }),
+    ).toBe("192.168.1.20");
+  });
+
+  it("offers usable addresses only, advertised first", () => {
+    const choices = addressChoices({
+      advertised: { address: "100.101.102.103" },
+      addresses: [
+        { address: "172.17.0.1", kind: "virtual" },
+        { address: "192.168.1.8", kind: "lan" },
+        { address: "100.101.102.103", kind: "vpn" },
+        { address: "fe80::1", kind: "link_local" },
+        { address: "2001:db8::8", kind: "ipv6" },
+      ],
+    });
+    expect(choices.map((entry) => entry.address)).toEqual([
+      "100.101.102.103",
+      "192.168.1.8",
+      "2001:db8::8",
+    ]);
+    expect(
+      addressChoices({
+        advertised: { address: null },
+        addresses: [{ address: "100.64.3.7", kind: "cgnat" }],
+      }),
+    ).toEqual([]);
   });
 
   it("refreshes a lease before half of it elapsed", () => {

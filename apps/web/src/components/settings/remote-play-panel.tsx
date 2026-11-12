@@ -15,6 +15,7 @@ import {
 import { isNative, native } from "@/lib/native";
 import {
   INITIAL_REMOTE_PLAY_WIZARD,
+  addressChoices,
   minutesUntilExpiry,
   moonlightAddress,
   portSummary,
@@ -26,6 +27,7 @@ import {
 } from "@/lib/remote-play";
 import type {
   RemotePlayCleanup,
+  RemotePlayLocalAddress,
   RemotePlayPortPlan,
   RemotePlayPortResult,
   RemotePlayReport,
@@ -70,6 +72,7 @@ export function RemotePlayPanel() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [probePublic, setProbePublic] = useState(false);
 
   const statusQuery = useQuery({
@@ -146,6 +149,7 @@ export function RemotePlayPanel() {
     setCleanup(null);
     setActionError(null);
     setCopied(false);
+    setSelectedAddress(null);
   };
 
   const openWizard = () => {
@@ -232,7 +236,13 @@ export function RemotePlayPanel() {
     closeWizard();
   };
 
-  const address = status ? moonlightAddress(status) : null;
+  const choices = status ? addressChoices(status) : [];
+  const address =
+    selectedAddress && choices.some((entry) => entry.address === selectedAddress)
+      ? selectedAddress
+      : status
+        ? moonlightAddress(status)
+        : null;
   const directMapped = activeCount > 0;
   const directMode = wizard.mode === "upnp" || (wizard.mode === null && directMapped);
 
@@ -383,7 +393,11 @@ export function RemotePlayPanel() {
         <div className="flex items-baseline justify-between gap-3 border-b border-line py-1.5">
           <dt className="text-[11.5px] text-ink-3">{t("VPN")}</dt>
           <dd className="truncate text-[11.5px] text-ink-2">
-            {status?.vpn.detected ? status.vpn.services.join(", ") || t("detected") : t("not detected")}
+            {status?.vpn.detected
+              ? [status.vpn.services.join(", ") || t("detected"), status.vpn.address]
+                  .filter(Boolean)
+                  .join(" · ")
+              : t("not detected")}
           </dd>
         </div>
         <div className="flex items-baseline justify-between gap-3 border-b border-line py-1.5">
@@ -473,6 +487,7 @@ export function RemotePlayPanel() {
             address={address}
             copied={copied}
             onCopy={() => void copyAddress()}
+            onSelect={setSelectedAddress}
             cleanup={cleanup}
           />
         )}
@@ -572,7 +587,13 @@ function DetectStep({
         />
         <StatusRow
           label={t("VPN")}
-          value={status.vpn.detected ? status.vpn.services.join(", ") || t("detected") : t("not detected")}
+          value={
+            status.vpn.detected
+              ? [status.vpn.services.join(", ") || t("detected"), status.vpn.address]
+                  .filter(Boolean)
+                  .join(" · ")
+              : t("not detected")
+          }
           ok={status.vpn.detected}
         />
       </div>
@@ -628,7 +649,12 @@ function ModeStep({
         </span>
         {status.vpn.detected && (
           <span className="mt-1 block font-mono text-[10.5px] text-ok">
-            {t("Detected:")} {status.vpn.services.join(", ") || status.vpn.address}
+            {t("Detected:")} {status.vpn.services.join(", ") || t("detected")}
+            {status.vpn.address
+              ? ` · ${status.vpn.address}`
+              : status.vpn.interfaces.length > 0
+                ? ` · ${t("no address on {interfaces}", { interfaces: status.vpn.interfaces.join(", ") })}`
+                : ""}
           </span>
         )}
       </button>
@@ -867,12 +893,22 @@ function PortRow({ port }: { port: RemotePlayPortResult }) {
   );
 }
 
+function addressLabel(entry: Pick<RemotePlayLocalAddress, "kind" | "service">): string {
+  if (entry.kind === "vpn") {
+    return t("{service} address", { service: entry.service ?? t("VPN") });
+  }
+  if (entry.kind === "lan") return t("LAN address");
+  if (entry.kind === "ipv6") return t("IPv6 address");
+  return t("Local address");
+}
+
 function TestStep({
   status,
   direct,
   address,
   copied,
   onCopy,
+  onSelect,
   cleanup,
 }: {
   status: RemotePlayStatus;
@@ -880,9 +916,13 @@ function TestStep({
   address: string | null;
   copied: boolean;
   onCopy: () => void;
+  onSelect: (address: string) => void;
   cleanup: RemotePlayCleanup | null;
 }) {
   const minutes = minutesUntilExpiry(status.active, Math.floor(Date.now() / 1000));
+  const choices = addressChoices(status);
+  const chosen = choices.find((entry) => entry.address === address) ?? null;
+  const advertised = status.advertised;
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="border border-line p-3">
@@ -899,12 +939,63 @@ function TestStep({
             {copied ? t("Copied") : t("Copy")}
           </Button>
         </div>
+        {chosen && (
+          <p className="mt-1 flex flex-wrap items-baseline gap-1 text-[11px] text-ink-3">
+            <span className="font-medium text-ink-2">{addressLabel(chosen)}</span>
+            <span aria-hidden="true">·</span>
+            <span className="font-mono">{chosen.interface}</span>
+          </p>
+        )}
+        {address && address === advertised.address && (
+          <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">{advertised.reason}</p>
+        )}
         {direct && minutes !== null && (
           <p className="mt-2 text-[11.5px] text-ink-3">
             {t("The mapping expires in about {count} minutes; it is refreshed while this wizard is open.", { count: minutes })}
           </p>
         )}
       </div>
+
+      {status.vpn.detected && !status.vpn.address && (
+        <p className="border-l-2 border-warn pl-3 text-[11.5px] leading-relaxed text-ink-2">
+          {t(
+            "The VPN is detected on {interfaces} but has no address. Copy the address from the VPN service; the LAN address above only works at home.",
+            {
+              interfaces:
+                status.vpn.interfaces.join(", ") ||
+                status.vpn.services.join(", ") ||
+                t("this machine"),
+            },
+          )}
+        </p>
+      )}
+
+      {choices.length > 1 && (
+        <div className="border border-line p-3">
+          <span className="text-[10px] uppercase tracking-[0.08em] text-ink-3">{t("Other addresses")}</span>
+          <ul className="mt-2 flex flex-col gap-1">
+            {choices.map((entry) => (
+              <li key={`${entry.interface}-${entry.address}`}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(entry.address)}
+                  aria-pressed={entry.address === address}
+                  className={`flex w-full flex-wrap items-baseline justify-between gap-2 border px-2 py-1 text-left transition-colors ${
+                    entry.address === address
+                      ? "border-signal/60 bg-surface-2"
+                      : "border-transparent hover:border-line hover:bg-surface-2"
+                  }`}
+                >
+                  <span className="font-mono text-[11.5px] text-ink">{entry.address}</span>
+                  <span className="text-[10.5px] text-ink-3">
+                    {addressLabel(entry)} · {entry.interface}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <ol className="flex flex-col gap-2 text-[12px] leading-relaxed text-ink-2">
         <li className="flex gap-2">

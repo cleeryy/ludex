@@ -3444,5 +3444,12 @@
   "Why": "Neden",
   "If you cancel, nothing is changed and the manual instructions stay available.": "İptal ederseniz hiçbir şey değişmez ve manuel yönergeler kullanılabilir kalır.",
   "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Sunshine yapılandırma klasörü, Windows'un yazmayı engellediği Program Files altında.",
-  "You can also set a Sunshine config folder your account can write to.": "Ayrıca hesabınızın yazabildiği bir Sunshine yapılandırma klasörü belirleyebilirsiniz."
+  "You can also set a Sunshine config folder your account can write to.": "Ayrıca hesabınızın yazabildiği bir Sunshine yapılandırma klasörü belirleyebilirsiniz.",
+  "{service} address": "{service} adresi",
+  "IPv6 address": "IPv6 adresi",
+  "Local address": "Yerel adres",
+  "no address on {interfaces}": "{interfaces} üzerinde adres yok",
+  "Other addresses": "Diğer adresler",
+  "The VPN is detected on {interfaces} but has no address. Copy the address from the VPN service; the LAN address above only works at home.": "VPN {interfaces} üzerinde algılandı ancak adresi yok. Adresi VPN hizmetinden kopyalayın; yukarıdaki LAN adresi yalnızca evde çalışır.",
+  "this machine": "bu makine"
 }
