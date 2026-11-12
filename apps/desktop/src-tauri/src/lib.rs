@@ -7,6 +7,7 @@ mod commands;
 mod compat;
 mod config_adapters;
 mod config_fields;
+mod console;
 mod db;
 mod game_config;
 mod game_executables;
@@ -73,24 +74,34 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle();
                 // Close-to-tray (#15): hide instead of quitting. Quit from the
-                // tray menu or the app menu.
-                if tray::close_to_tray(app) {
+                // tray menu or the app menu. A console session (#172) has no
+                // tray and must close for real so Moonlight sees it end.
+                if tray::close_to_tray(app) && !console::active(app) {
                     api.prevent_close();
                     tray::hide_window(app);
                 }
             }
         })
         .setup(|app| {
+            // Console mode (#172): Sunshine starts `ludex --console`. The same
+            // binary then runs Big Picture as the console shell, with no tray
+            // icon and a real close so the session returns to the desktop.
+            let console_mode = console::ConsoleMode::from_args(std::env::args());
+            app.manage(console_mode);
+
             let state = state::AppState::new(app.handle()).map_err(std::io::Error::other)?;
             let settings = state.settings_snapshot();
             app.manage(state);
 
-            // Window chrome (#111): the base config is undecorated for Windows
-            // and Linux, so this only does work when the user asked for the
-            // native title bar back. macOS keeps its native chrome.
-            chrome::apply(app.handle(), settings.native_title_bar);
-
-            tray::init(app.handle()).map_err(std::io::Error::other)?;
+            if console_mode.active {
+                console::apply_window(app.handle());
+            } else {
+                // Window chrome (#111): the base config is undecorated for Windows
+                // and Linux, so this only does work when the user asked for the
+                // native title bar back. macOS keeps its native chrome.
+                chrome::apply(app.handle(), settings.native_title_bar);
+                tray::init(app.handle()).map_err(std::io::Error::other)?;
+            }
             // Discord Rich Presence (#12): off unless enabled in settings.
             presence::start(settings.discord_presence, &settings.discord_client_id);
             // In-game overlay (#144): the global controller listener starts even
@@ -230,6 +241,8 @@ pub fn run() {
             commands::game_config_sync_prefs,
             commands::set_game_config_sync_prefs,
             commands::set_config_sync_defaults,
+            commands::console_mode,
+            commands::exit_console,
             commands::sunshine_status,
             commands::sunshine_preview,
             commands::sunshine_sync,

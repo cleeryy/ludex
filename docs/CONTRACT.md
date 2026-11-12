@@ -1322,6 +1322,11 @@ interface LocalSettings {
   moonlightBinary: string;           // Moonlight binary override (#98), empty = detect
   moonlightConfigPath: string;       // Moonlight config override (#98), empty = detect
   moonlightHost: string;             // manual host name/IP fallback (#151), empty = use saved hosts
+  consoleMode: boolean;              // publish one Ludex console app instead of one app per game (#172), default false
+  consoleAppName: string;            // Sunshine name for the console app (#172), empty/blank = "Ludex"
+  consoleFullscreen: boolean;        // console app starts fullscreen (#172), default true; off publishes --windowed
+  consoleExitShortcut: string;       // in-console quit chord back to the desktop (#172), default "f12"
+  consolePerGameApps: boolean;       // expert: also keep one Sunshine app per game (#172), default false
   gamevaultRoots: string[];          // ordered GameVault install roots (#134)
   gamevaultScanDepth: number;        // executable search depth for scans, 4-8, default 6
   launcherSources: LauncherGame["source"][]; // sources launcher_scan may read (#155); all by default, empty = none
@@ -1870,6 +1875,14 @@ interface ServerTest {
 
 /* ------------------ Sunshine host (#97) and Moonlight (#98) --------------- */
 
+/** Runtime console status (#172); active only for `ludex --console`. */
+interface ConsoleStatus {
+  active: boolean;
+  fullscreen: boolean;     // false when started with --windowed
+  appName: string;         // configured console name, or "Ludex"
+  exitShortcut: string;    // in-console quit chord, e.g. "f12"
+}
+
 interface SunshineStatus {
   detected: boolean; platform: string;
   appsPath: string | null; confPath: string | null; binary: string | null;
@@ -1882,6 +1895,7 @@ interface SunshinePreviewEntry {
   gameId: number; title: string; name: string; cmd: string;
   workingDir: string; imagePath: string | null;
   action: "add" | "update" | "unchanged"; needsLudexScheme: boolean;
+  console?: boolean;       // true for the console entry, which uses gameId 0 (#172)
 }
 
 interface SunshinePreview {
@@ -2031,9 +2045,11 @@ interface StreamTarget {
 | `game_config_sync_prefs` / `set_game_config_sync_prefs` | `{ gameId }` / `{ gameId, prefs: { enabled, language?, playerName?, applyLanguage?, applyPlayerName? } }` | `ConfigSyncPrefs`; the per-game opt-in that re-applies the values at launch without a dialog. Off by default; toggling it off stops all writes (#148) |
 | `set_config_sync_defaults` | `{ language, playerName }` | `LocalSettings`; mirrors the web locale/profile name so launch-time sync uses the current values even when the game page was never opened (#148) |
 | `sunshine_status` | — | `SunshineStatus`; Sunshine install, `apps.json`/`sunshine.conf` paths, binary and managed-entry counts (#97) |
-| `sunshine_preview` | — | `SunshinePreview`; what a sync would add, update and remove. Never writes |
-| `sunshine_sync` | `{ dryRun?, removeMissing?, downloadCovers? }` | `SunshineReport`. Every real write copies `apps.json` to `apps.json.ludex-backup-<stamp>-<id>.bak` first. `removeMissing` defaults to true |
-| `sunshine_remove_managed` | — | `SunshineReport`; removes every entry carrying the Ludex marker (all servers), user apps stay, backup first |
+| `sunshine_preview` | — | `SunshinePreview`; what a sync would add, update and remove, including the console entry and the per-game entries console mode migrates out (#172). Never writes |
+| `sunshine_sync` | `{ dryRun?, removeMissing?, downloadCovers? }` | `SunshineReport`. With `consoleMode` on it writes one managed `Ludex` entry (`console: true`, no `gameId`) and removes the per-game entries of the active server in the same write; `consolePerGameApps` keeps both. Every real write copies `apps.json` to `apps.json.ludex-backup-<stamp>-<id>.bak` first. `removeMissing` defaults to true |
+| `sunshine_remove_managed` | — | `SunshineReport`; removes every entry carrying the Ludex marker (all servers), including the console app; user apps stay, backup first |
+| `console_mode` | — | `ConsoleStatus`; whether this process is the Sunshine-launched console (`ludex --console`), its fullscreen flag, configured app name and exit shortcut (#172) |
+| `exit_console` | — | `null`; quits a console session back to the desktop. Refused when console mode is not active, so it can never close the desktop app (#172) |
 | `moonlight_status` | — | `MoonlightStatus`; binary, config source (portable `Moonlight.ini`, Windows registry, `Moonlight.conf`), parsed hosts and the manual host fallback (#98, #151) |
 | `stream_target` | `{ gameId }` | `StreamTarget`; whether the game is published and which hosts can stream it |
 | `stream_game` | `{ gameId, host? }` | `StreamLaunch`; runs `moonlight stream <host> <app>` for a published game. Refuses unpaired hosts and missing Moonlight |
@@ -2433,6 +2449,33 @@ Covers are cached under `{appDataDir}/streaming/art/<gameId>.<ext>` (8 MiB cap,
 existing file copies it to `apps.json.ludex-backup-<UTC>-<id>.bak`; a failed
 backup aborts the write. Sunshine and Moonlight are never bundled or installed
 by Ludex.
+
+**Console mode (#172).** `consoleMode` publishes a single managed entry instead
+of the per-game list. Its command is the Ludex binary itself:
+
+```json
+{
+  "name": "Ludex",
+  "cmd": "\"C:\\Program Files\\Ludex\\ludex.exe\" --console",
+  "working-dir": "C:\\Program Files\\Ludex",
+  "detached": "true",
+  "ludex": { "managed": true, "version": 1, "console": true, "serverId": "srv_3f2a1c4b" }
+}
+```
+
+The marker has `console: true` and no `gameId`, so the existing marker rules
+still apply: idempotent updates, another server's entry untouched, backups and
+encoding preserved. The first console sync removes the active server's per-game
+entries in the same write (reported as `removed`), never the user's own apps.
+`consoleAppName` (default `Ludex`), `consoleFullscreen` (off publishes
+`--windowed`) and `consoleExitShortcut` shape the entry and the in-console quit
+chord. `consolePerGameApps` is the expert opt-out that keeps one app per game
+next to the console; turning console mode back off removes the console entry on
+the next sync. An AppImage publishes the real `APPIMAGE` path rather than the
+temporary mount. The process started with `--console` writes no tray icon,
+bypasses close-to-tray, opens Big Picture fullscreen and closes for real so
+Moonlight sees the session end; `exit_console` is the same quit path from the
+UI.
 
 **Moonlight (#98, #151).** Installed Moonlight-qt on Windows keeps its Qt
 `QSettings` in `HKCU\SOFTWARE\Moonlight Game Streaming Project`, so Ludex

@@ -2648,5 +2648,22 @@
   "{rate} average": "{rate} en moyenne",
   "{size} · {count} archives · latest {when}": "{size} · {count} archives · plus récente {when}",
   "{size} · {count} snapshots": "{size} · {count} instantanés",
-  "{size} · {files} files": "{size} · {files} fichiers"
+  "{size} · {files} files": "{size} · {files} fichiers",
+  "Console app name": "Nom de l’application console",
+  "Console mode": "Mode console",
+  "Exit shortcut": "Raccourci de sortie",
+  "Fullscreen console": "Console en plein écran",
+  "Keep one Sunshine app per installed game next to the console app. Not needed for Moonlight: the console launches every game.": "Conserver une application Sunshine par jeu installé à côté de l’application console. Inutile pour Moonlight : la console lance tous les jeux.",
+  "Key combination that quits the console back to the desktop, for example f12 or ctrl+shift+q.": "Combinaison de touches qui quitte la console et revient au bureau, par exemple f12 ou ctrl+shift+q.",
+  "Moonlight lists a single app. Turn this off to go back to one Sunshine app per game.": "Moonlight affiche une seule application. Désactivez cette option pour revenir à une application Sunshine par jeu.",
+  "Name Moonlight shows for the console app. Empty uses Ludex.": "Nom affiché par Moonlight pour l’application console. Vide utilise Ludex.",
+  "Publish one Ludex console app": "Publier une seule application console Ludex",
+  "Publish one Sunshine app that opens Big Picture fullscreen on the host. Games are installed, launched and stopped from there, and quitting the console returns to the host desktop. Per-game Sunshine entries are removed by the next sync.": "Publier une seule application Sunshine qui ouvre Big Picture en plein écran sur l’hôte. Les jeux s’installent, se lancent et s’arrêtent depuis la console, et quitter la console revient au bureau de l’hôte. Les entrées Sunshine par jeu sont supprimées à la prochaine synchronisation.",
+  "Publish per-game entries too (expert)": "Publier aussi les entrées par jeu (expert)",
+  "Quit": "Quitter",
+  "Save the desktop settings first, then publish the library above. Sunshine starts the console with the Ludex binary and --console; the app must be installed on the streaming host itself.": "Enregistrez d’abord les paramètres du bureau, puis publiez la bibliothèque ci-dessus. Sunshine démarre la console avec le binaire Ludex et --console ; l’application doit être installée sur l’hôte de diffusion lui-même.",
+  "The published command opens the console fullscreen. Off passes --windowed, which is useful when testing on a desktop.": "La commande publiée ouvre la console en plein écran. Désactivé transmet --windowed, utile pour tester sur un bureau.",
+  "console": "console",
+  "off": "désactivé",
+  "on": "activé"
 }

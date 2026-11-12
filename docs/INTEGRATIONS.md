@@ -575,17 +575,37 @@ its `apps.json` after an explicit click and never bundles or installs it.
   `/etc/sunshine`. `apps.json`/`sunshine.conf` can be pointed at manually
   (`sunshineAppsPath`, `sunshineConfPath`); an override whose folder does not
   exist is a warning, not a crash.
-- **What is published.** One entry per game installed through Ludex or imported
-  from Steam: `name`, `cmd`, `working-dir`, `image-path` (the local cover cache)
-  and `detached: "true"`. The command is the Steam launch URI when the entry is
-  a Steam import, else the recorded executable, else `ludex://play/<id>`; the
-  preview marks the last case because it needs a registered `ludex://` handler.
+- **What is published.** By default one entry per game installed through Ludex
+  or imported from Steam: `name`, `cmd`, `working-dir`, `image-path` (the local
+  cover cache) and `detached: "true"`. The command is the Steam launch URI when
+  the entry is a Steam import, else the recorded executable, else
+  `ludex://play/<id>`; the preview marks the last case because it needs a
+  registered `ludex://` handler.
+- **Console mode (default for a TV host).** With `consoleMode` on, Sunshine gets
+  exactly one managed app, `Ludex` (`consoleAppName`): its command is the Ludex
+  binary in console mode (`--console`, plus `--windowed` when
+  `consoleFullscreen` is off), so Moonlight opens Big Picture and every game is
+  installed, launched and quit from there. The first console sync also removes
+  the active server's per-game Ludex entries — with the same backup and
+  encoding handling as any other write — instead of leaving two ways to launch
+  the same game. The expert `consolePerGameApps` option keeps the per-game
+  entries as well; turning console mode off removes the console entry on the
+  next sync. An AppImage publishes the real `APPIMAGE` file, not the temporary
+  mount.
+- **Console session.** `ludex --console` opens Big Picture fullscreen with no
+  tray icon and no close-to-tray: closing the window (or the configurable exit
+  shortcut, default `f12`, handled by the web shell) quits back to the desktop,
+  which is what ends the Moonlight session. Only the console window is hidden
+  from the player: Sunshine captures that same session, and the game launcher
+  still runs from the console.
 - **Marker and idempotency.** Every entry carries
-  `"ludex": { "managed": true, "version": 1, "gameId": …, "serverId": … }`.
-  Re-syncing updates the fields Ludex owns and never touches another app;
-  entries belonging to a different saved server are left alone; removing the
-  Ludex apps deletes only marked entries. A second sync with the same library
-  reports `written: false` and changes nothing.
+  `"ludex": { "managed": true, "version": 1, "gameId": …, "serverId": … }`; the
+  console entry replaces `gameId` with `"console": true`. Re-syncing updates
+  the fields Ludex owns and never touches another app; entries belonging to a
+  different saved server are left alone; removing the Ludex apps deletes only
+  marked entries. A second sync with the same library reports `written: false`
+  and changes nothing, and duplicate console entries left by hand edits collapse
+  back to one.
 - **Empty, BOM and UTF-16 files.** Sunshine starts with an empty `apps.json`
   until the first app is added, so an empty or whitespace-only file is treated
   as `{ "apps": [] }`, not as corrupt JSON. A UTF-8 BOM and UTF-16LE/BE files
@@ -676,5 +696,6 @@ backup, idempotency, config parsing and command building are unit tested on
 Linux CI. The Windows registry and `Moonlight.ini` readers are tested against
 fixtures, not a real Windows install. Not executed in CI: a real Sunshine host
 serving a stream, a real Moonlight pairing and playback, Windows and Flatpak
-path layouts, covers coming from a live server, and macOS Moonlight host
-parsing.
+path layouts, covers coming from a live server, macOS Moonlight host parsing,
+and the console flow itself (Sunshine starting `ludex --console`, the fullscreen
+window and a Moonlight client quitting back to the host desktop).

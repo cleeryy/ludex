@@ -15,6 +15,7 @@ use crate::chrome;
 use crate::compat::{self, CompatScan};
 use crate::config_adapters::{self, AdapterReport};
 use crate::config_fields::{self, CommonFieldTarget};
+use crate::console;
 use crate::db::{self, GamePlaytime, InstalledGame};
 use crate::game_config::{self, ConfigDocument, ConfigEditInput};
 use crate::game_executables::{self, GameExecutables};
@@ -3577,6 +3578,45 @@ pub fn set_config_sync_defaults(
 
 /* --------------------- Sunshine host (#97), Moonlight (#98) --------------- */
 
+/// Runtime console status for the web shell (#172).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsoleStatus {
+    /// True when this process was started by Sunshine as `Ludex --console`.
+    pub active: bool,
+    pub fullscreen: bool,
+    pub app_name: String,
+    pub exit_shortcut: String,
+}
+
+#[tauri::command]
+pub fn console_mode(
+    state: State<'_, AppState>,
+    mode: State<'_, crate::console::ConsoleMode>,
+) -> Result<ConsoleStatus, String> {
+    let settings = state.settings_snapshot();
+    Ok(ConsoleStatus {
+        active: mode.active,
+        fullscreen: mode.fullscreen,
+        app_name: console::app_name(&settings.console_app_name),
+        exit_shortcut: console::exit_shortcut(&settings.console_exit_shortcut),
+    })
+}
+
+/// Quit a console session back to the desktop (#172). Refused outside console
+/// mode so a stray call can never close the desktop app.
+#[tauri::command]
+pub fn exit_console(
+    app: AppHandle,
+    mode: State<'_, crate::console::ConsoleMode>,
+) -> Result<(), String> {
+    if !mode.active {
+        return Err("Console mode is not active.".to_string());
+    }
+    app.exit(0);
+    Ok(())
+}
+
 fn server_scope(settings: &LocalSettings) -> String {
     let active = settings.active_server_id.trim();
     if active.is_empty() {
@@ -3624,6 +3664,27 @@ fn build_published_apps(
         }
     }
     (published, skipped)
+}
+
+/// The managed console app Sunshine must start (#172): this binary with
+/// `--console`, fullscreen unless the user turned that off.
+fn console_plan(settings: &LocalSettings) -> Result<Option<streaming::ConsoleEntry>, String> {
+    if !settings.console_mode {
+        return Ok(None);
+    }
+    let current = std::env::current_exe().ok();
+    let appimage = std::env::var_os("APPIMAGE").map(PathBuf::from);
+    let executable = console::desktop_executable(current.as_deref(), appimage.as_deref())
+        .ok_or_else(|| {
+            "Ludex could not resolve its own executable, so the console Sunshine app was not generated. Nothing was changed."
+                .to_string()
+        })?;
+    Ok(Some(streaming::ConsoleEntry {
+        name: console::app_name(&settings.console_app_name),
+        cmd: console::command_line(&executable, settings.console_fullscreen),
+        working_dir: console::working_directory(&executable),
+        image_path: None,
+    }))
 }
 
 /// Download missing covers into the local art cache. Failures are ignored: a
@@ -3675,16 +3736,42 @@ pub fn sunshine_preview(app: AppHandle) -> Result<streaming::SunshinePreview, St
     let existing = streaming::read_apps_text(&status)?;
     let games = installed_games(&state)?;
     let covers = local_covers(&games, &state);
-    let (desired, skipped) = build_published_apps(&games, &covers);
+    let publishing = console::publishing(settings.console_mode, settings.console_per_game_apps);
+    let (desired, skipped) = if publishing.games {
+        build_published_apps(&games, &covers)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let console = console_plan(&settings)?;
     let scope = server_scope(&settings);
 
-    let (entries, removals) = streaming::preview_apps(existing.as_deref(), &desired, &scope)?;
+    let (mut entries, console_preview, removals) =
+        streaming::preview_entries(existing.as_deref(), &desired, console.as_ref(), &scope)?;
+    if let Some(preview) = console_preview {
+        entries.push(preview);
+    }
     let can_sync = status.apps_path.is_some();
     let message = if !can_sync {
         "Sunshine's config folder was not found. Set it in Settings → Streaming or install Sunshine first."
             .to_string()
     } else if entries.is_empty() && removals.is_empty() {
         "Nothing to publish yet: install a game in Ludex first.".to_string()
+    } else if let Some(entry) = console.as_ref() {
+        if publishing.games {
+            format!(
+                "{} to add, {} to update, {} to remove. The {} console app and per-game entries are published together; nothing is written until you confirm.",
+                entries.iter().filter(|entry| entry.action == "add").count(),
+                entries.iter().filter(|entry| entry.action == "update").count(),
+                removals.len(),
+                entry.name
+            )
+        } else {
+            format!(
+                "Console mode: the single {} app is published and {} per-game entry(ies) are removed. Nothing is written until you confirm.",
+                entry.name,
+                removals.len()
+            )
+        }
     } else {
         format!(
             "{} to add, {} to update, {} to remove. Nothing is written until you confirm.",
@@ -3731,14 +3818,25 @@ pub async fn sunshine_sync(
     let existing = streaming::read_apps_text(&status)?;
 
     let games = installed_games(&state)?;
-    let mut covers = local_covers(&games, &state);
-    if !dry_run && download_covers.unwrap_or(true) {
-        covers = fetch_missing_covers(&state, &games, covers).await;
-    }
-    let (desired, skipped) = build_published_apps(&games, &covers);
+    let publishing = console::publishing(settings.console_mode, settings.console_per_game_apps);
+    let (desired, skipped) = if publishing.games {
+        let mut covers = local_covers(&games, &state);
+        if !dry_run && download_covers.unwrap_or(true) {
+            covers = fetch_missing_covers(&state, &games, covers).await;
+        }
+        build_published_apps(&games, &covers)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let console = console_plan(&settings)?;
     let scope = server_scope(&settings);
-    let (root, report) =
-        streaming::merge_apps(existing.as_deref(), &desired, &scope, remove_missing)?;
+    let (root, report) = streaming::merge_entries(
+        existing.as_deref(),
+        &desired,
+        console.as_ref(),
+        &scope,
+        remove_missing,
+    )?;
 
     let mut backup_path = None;
     let mut written = false;
@@ -3759,10 +3857,20 @@ pub async fn sunshine_sync(
             report.added, report.updated, report.unchanged, report.removed
         )
     } else if written {
-        format!(
-            "Published {} app(s): {} added, {} updated, {} removed. A backup of apps.json was written first.",
-            report.managed_entries, report.added, report.updated, report.removed
-        )
+        match console.as_ref() {
+            Some(entry) if !publishing.games => format!(
+                "Published the {} console app: {} added, {} updated, {} per-game entry(ies) removed. A backup of apps.json was written first.",
+                entry.name, report.added, report.updated, report.removed
+            ),
+            Some(entry) => format!(
+                "Published the {} console app and {} app(s): {} added, {} updated, {} removed. A backup of apps.json was written first.",
+                entry.name, report.managed_entries, report.added, report.updated, report.removed
+            ),
+            None => format!(
+                "Published {} app(s): {} added, {} updated, {} removed. A backup of apps.json was written first.",
+                report.managed_entries, report.added, report.updated, report.removed
+            ),
+        }
     } else {
         "Sunshine already matches the Ludex library; nothing was written.".to_string()
     };

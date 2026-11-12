@@ -19,6 +19,7 @@ import type {
   ConfigSyncInput,
   ConfigSyncPrefs,
   ConfigWriteReport,
+  ConsoleStatus,
   DeleteAdoptedPreview,
   DiskUsage,
   GameConfigListing,
@@ -857,6 +858,20 @@ export const native = {
 
   /* ---------------------- Sunshine host (#97) ---------------------------- */
 
+  /** Runtime console status (#172). In a browser the console is never active. */
+  async consoleMode(): Promise<ConsoleStatus> {
+    if (!isNative()) {
+      return { active: false, fullscreen: false, appName: "Ludex", exitShortcut: "f12" };
+    }
+    return invoke<ConsoleStatus>("console_mode");
+  },
+
+  /** Quit a console session back to the desktop (#172). No-op in a browser. */
+  async exitConsole(): Promise<void> {
+    if (!isNative()) return;
+    await invoke<null>("exit_console");
+  },
+
   async sunshineStatus(): Promise<SunshineStatus> {
     return invoke<SunshineStatus>("sunshine_status");
   },
@@ -1085,6 +1100,11 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   moonlightBinary: "",
   moonlightConfigPath: "",
   moonlightHost: "",
+  consoleMode: false,
+  consoleAppName: "Ludex",
+  consoleFullscreen: true,
+  consoleExitShortcut: "f12",
+  consolePerGameApps: false,
   gamevaultRoots: [],
   gamevaultScanDepth: 6,
   launcherSources: ALL_LAUNCHER_IDS,

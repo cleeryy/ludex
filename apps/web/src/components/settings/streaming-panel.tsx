@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Eye, FolderOpen, Layers, RefreshCw, ServerOff, Trash2, Tv, Wifi } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Eye, FolderOpen, Gamepad2, Layers, RefreshCw, ServerOff, Trash2, Tv, Wifi } from "lucide-react";
 import { errorMessage } from "@/lib/http";
 import { native } from "@/lib/native";
 import type { LocalSettings, SunshinePreviewEntry } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Input, Skeleton } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
+import { SettingsSwitchRow } from "@/components/settings/settings-section";
 import { t } from "@/lib/i18n";
 
 /**
@@ -39,7 +40,90 @@ export function StreamingPanel({
         <SunshinePanel draft={draft} update={update} />
         <MoonlightPanel draft={draft} update={update} />
       </div>
+      <ConsoleModePanel draft={draft} update={update} />
     </section>
+  );
+}
+
+/**
+ * Console mode (#172): one Sunshine app that opens Big Picture, instead of one
+ * entry per game. The sync section above applies the settings on its next run.
+ */
+function ConsoleModePanel({
+  draft,
+  update,
+}: {
+  draft: LocalSettings;
+  update: (patch: Partial<LocalSettings>) => void;
+}) {
+  return (
+    <div className="mt-8 border border-line p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <Gamepad2 className="size-4 text-ink-3" aria-hidden="true" />
+          <h4 className="text-[13.5px] font-semibold text-ink">{t("Console mode")}</h4>
+          <Badge tone={draft.consoleMode ? "ok" : "outline"}>
+            {draft.consoleMode ? t("on") : t("off")}
+          </Badge>
+        </div>
+      </div>
+      <p className="mt-1 max-w-[76ch] text-[12px] leading-relaxed text-ink-3">
+        {t("Publish one Sunshine app that opens Big Picture fullscreen on the host. Games are installed, launched and stopped from there, and quitting the console returns to the host desktop. Per-game Sunshine entries are removed by the next sync.")}
+      </p>
+
+      <div className="mt-4">
+        <SettingsSwitchRow
+          title={t("Publish one Ludex console app")}
+          description={t("Moonlight lists a single app. Turn this off to go back to one Sunshine app per game.")}
+          checked={draft.consoleMode}
+          onCheckedChange={(consoleMode) => update({ consoleMode })}
+        />
+        <SettingsSwitchRow
+          title={t("Fullscreen console")}
+          description={t("The published command opens the console fullscreen. Off passes --windowed, which is useful when testing on a desktop.")}
+          checked={draft.consoleFullscreen}
+          onCheckedChange={(consoleFullscreen) => update({ consoleFullscreen })}
+        />
+        <SettingsSwitchRow
+          title={t("Publish per-game entries too (expert)")}
+          description={t("Keep one Sunshine app per installed game next to the console app. Not needed for Moonlight: the console launches every game.")}
+          checked={draft.consolePerGameApps}
+          onCheckedChange={(consolePerGameApps) => update({ consolePerGameApps })}
+        />
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[12.5px] font-medium text-ink">{t("Console app name")}</span>
+          <Input
+            value={draft.consoleAppName}
+            onChange={(event) => update({ consoleAppName: event.target.value })}
+            placeholder="Ludex"
+            spellCheck={false}
+            className="h-9"
+          />
+          <span className="text-[11px] text-ink-3">
+            {t("Name Moonlight shows for the console app. Empty uses Ludex.")}
+          </span>
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[12.5px] font-medium text-ink">{t("Exit shortcut")}</span>
+          <Input
+            value={draft.consoleExitShortcut}
+            onChange={(event) => update({ consoleExitShortcut: event.target.value })}
+            placeholder="f12"
+            spellCheck={false}
+            className="h-9 font-mono text-[11px]"
+          />
+          <span className="text-[11px] text-ink-3">
+            {t("Key combination that quits the console back to the desktop, for example f12 or ctrl+shift+q.")}
+          </span>
+        </label>
+      </div>
+      <p className="mt-3 text-[11px] leading-relaxed text-ink-3">
+        {t("Save the desktop settings first, then publish the library above. Sunshine starts the console with the Ludex binary and --console; the app must be installed on the streaming host itself.")}
+      </p>
+    </div>
   );
 }
 
@@ -250,6 +334,7 @@ function SunshinePanel({
                       <span className="min-w-0 flex-1 truncate text-[12px] text-ink" title={entry.name}>
                         {entry.name}
                       </span>
+                      {entry.console && <Badge tone="signal">{t("console")}</Badge>}
                       {entry.needsLudexScheme && (
                         <span title={t("This entry opens a ludex:// URI; add an executable to launch it directly.")}>
                           <AlertTriangle className="size-3 text-warn" aria-label={t("Needs a ludex:// handler")} />
