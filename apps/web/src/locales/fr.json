@@ -3345,7 +3345,6 @@
   "Installing uses {version} ({size}). Your progress, saves and achievements stay on the server.": "L’installation utilise {version} ({size}). Votre progression, vos sauvegardes et vos succès restent sur le serveur.",
   "Launch": "Lancement",
   "Launch the game once, then Sync now to create the first automatic snapshot.": "Lancez le jeu une fois, puis cliquez sur Synchroniser pour créer le premier instantané automatique.",
-  "Linux compatibility": "Compatibilité Linux",
   "Linux options saved": "Options Linux enregistrées",
   "Location": "Emplacement",
   "Manage files": "Gérer les fichiers",
@@ -3362,5 +3361,11 @@
   "Startup command saved": "Commande de démarrage enregistrée",
   "The facts, the install state and your progress on this account.": "Les informations, l’état de l’installation et votre progression sur ce compte.",
   "There is no archive on the server yet. An administrator can add one in the ingest screen.": "Aucune archive n’est encore sur le serveur. Un administrateur peut en ajouter une dans l’écran d’import.",
-  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "Ce dossier d’installation ne contient aucun programme setup, install ou gog. Utilisez « Choisir l’exécutable » pour pointer vers le binaire du jeu."
+  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "Ce dossier d’installation ne contient aucun programme setup, install ou gog. Utilisez « Choisir l’exécutable » pour pointer vers le binaire du jeu.",
+  "Launch options": "Options de lancement",
+  "Linux launch options": "Options de lancement Linux",
+  "Working directory": "Dossier de travail",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "Dossier dans lequel le jeu démarre. Vide utilise le dossier d’installation ; un jeu adopté démarre sinon dans le dossier de son exécutable.",
+  "The game exited immediately": "Le jeu s’est arrêté immédiatement",
+  "The game exited immediately (code {code})": "Le jeu s’est arrêté immédiatement (code {code})"
 }

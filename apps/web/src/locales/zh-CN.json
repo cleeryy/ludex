@@ -3345,7 +3345,6 @@
   "Installing uses {version} ({size}). Your progress, saves and achievements stay on the server.": "安装将使用 {version}（{size}）。你的进度、存档和成就仍保存在服务器上。",
   "Launch": "启动",
   "Launch the game once, then Sync now to create the first automatic snapshot.": "先启动一次游戏，然后点击“立即同步”创建第一个自动快照。",
-  "Linux compatibility": "Linux 兼容性",
   "Linux options saved": "Linux 选项已保存",
   "Location": "位置",
   "Manage files": "管理文件",
@@ -3362,5 +3361,11 @@
   "Startup command saved": "启动命令已保存",
   "The facts, the install state and your progress on this account.": "游戏信息、安装状态以及此账户上的进度。",
   "There is no archive on the server yet. An administrator can add one in the ingest screen.": "服务器上还没有归档。管理员可以在导入页面添加。",
-  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "此安装文件夹中没有 setup、install 或 gog 程序。使用“选择可执行文件”指向游戏程序。"
+  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "此安装文件夹中没有 setup、install 或 gog 程序。使用“选择可执行文件”指向游戏程序。",
+  "Launch options": "启动选项",
+  "Linux launch options": "Linux 启动选项",
+  "Working directory": "工作目录",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "游戏启动时所在的文件夹。留空则使用安装文件夹；已收录的游戏否则从可执行文件所在文件夹启动。",
+  "The game exited immediately": "游戏立即退出",
+  "The game exited immediately (code {code})": "游戏立即退出（代码 {code}）"
 }

@@ -48,6 +48,18 @@ fn default_source() -> String {
     SOURCE_LUDEX.to_string()
 }
 
+/// Normalise a path read from or written to the index (#187).
+///
+/// Windows `fs::canonicalize` returns the verbatim `\\?\` form, which Win32
+/// fail-fasts on when used as `lpApplicationName`; stripping it at the storage
+/// boundary keeps old rows and new writes in the same plain form. A no-op on
+/// other platforms.
+fn normalize_stored_path(value: &str) -> String {
+    crate::paths::normalize_native_path(Path::new(value))
+        .to_string_lossy()
+        .to_string()
+}
+
 /// A game installed by the Ludex installer.
 pub const SOURCE_LUDEX: &str = "ludex";
 /// A Steam game imported into the local index (#13).
@@ -118,7 +130,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 15;
+const SCHEMA_VERSION: i64 = 16;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -460,6 +472,14 @@ CREATE INDEX IF NOT EXISTS runtime_audit_game_idx
     ON runtime_audit (game_id, created_at);
 "#;
 
+/// Per-game launch working directory (#187). Empty keeps the automatic rule
+/// (adopted: the executable's folder, otherwise the install root). The stored
+/// path is normalised on read/write so a verbatim `\\?\` path from an older
+/// build never reaches `Command::current_dir`.
+const SCHEMA_V16: &str = r#"
+ALTER TABLE game_launch_options ADD COLUMN working_dir TEXT NOT NULL DEFAULT '';
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -586,6 +606,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             .execute_batch(SCHEMA_V15)
             .map_err(|e| format!("Could not add runtime installs to the desktop database: {e}"))?;
     }
+    if version < 16 {
+        connection.execute_batch(SCHEMA_V16).map_err(|e| {
+            format!("Could not add the launch working directory to the desktop database: {e}")
+        })?;
+    }
 
     if version < SCHEMA_VERSION {
         connection
@@ -606,6 +631,9 @@ pub(crate) fn open_in_memory_for_tests() -> Connection {
 }
 
 pub fn upsert_installed(connection: &Connection, game: &InstalledGame) -> Result<(), String> {
+    let install_path = normalize_stored_path(&game.install_path);
+    let executable = game.executable.as_deref().map(normalize_stored_path);
+    let install_root = game.install_root.as_deref().map(normalize_stored_path);
     connection
         .execute(
             r#"
@@ -633,13 +661,13 @@ pub fn upsert_installed(connection: &Connection, game: &InstalledGame) -> Result
                 game.version_id,
                 game.title,
                 game.version,
-                game.install_path,
-                game.executable,
+                install_path,
+                executable,
                 game.size_bytes,
                 game.installed_at,
                 game.last_launched_at,
                 game.archive_hash,
-                game.install_root,
+                install_root,
                 game.source,
                 game.launch_uri,
             ],
@@ -649,18 +677,21 @@ pub fn upsert_installed(connection: &Connection, game: &InstalledGame) -> Result
 }
 
 fn map_installed(row: &rusqlite::Row<'_>) -> rusqlite::Result<InstalledGame> {
+    let install_path: String = row.get(4)?;
+    let executable: Option<String> = row.get(5)?;
+    let install_root: Option<String> = row.get(10)?;
     Ok(InstalledGame {
         game_id: row.get(0)?,
         version_id: row.get(1)?,
         title: row.get(2)?,
         version: row.get(3)?,
-        install_path: row.get(4)?,
-        executable: row.get(5)?,
+        install_path: normalize_stored_path(&install_path),
+        executable: executable.map(|value| normalize_stored_path(&value)),
         size_bytes: row.get(6)?,
         installed_at: row.get(7)?,
         last_launched_at: row.get(8)?,
         archive_hash: row.get(9)?,
-        install_root: row.get(10)?,
+        install_root: install_root.map(|value| normalize_stored_path(&value)),
         source: row.get(11)?,
         launch_uri: row.get(12)?,
     })
@@ -777,6 +808,7 @@ pub fn set_executable(
     game_id: i64,
     executable: Option<&str>,
 ) -> Result<(), String> {
+    let executable = executable.map(normalize_stored_path);
     let affected = connection
         .execute(
             "UPDATE installed_games SET executable = ?2 WHERE game_id = ?1",
@@ -895,7 +927,7 @@ pub fn has_launch_options(connection: &Connection, game_id: i64) -> Result<bool,
 pub fn get_launch_options(connection: &Connection, game_id: i64) -> Result<LaunchOptions, String> {
     let row = connection
         .query_row(
-            "SELECT mode, tool_id, prefix_path, env, winetricks_verbs, steam_app_id
+            "SELECT mode, tool_id, prefix_path, env, winetricks_verbs, steam_app_id, working_dir
              FROM game_launch_options WHERE game_id = ?1",
             params![game_id],
             |row| {
@@ -906,13 +938,14 @@ pub fn get_launch_options(connection: &Connection, game_id: i64) -> Result<Launc
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, Option<i64>>(5)?,
+                    row.get::<_, String>(6)?,
                 ))
             },
         )
         .optional()
         .map_err(|e| format!("Could not read the launch options: {e}"))?;
 
-    let Some((mode, tool_id, prefix_path, env, verbs, app_id)) = row else {
+    let Some((mode, tool_id, prefix_path, env, verbs, app_id, working_dir)) = row else {
         return Ok(LaunchOptions::default());
     };
 
@@ -923,10 +956,13 @@ pub fn get_launch_options(connection: &Connection, game_id: i64) -> Result<Launc
     Ok(LaunchOptions {
         mode: parse_mode(&mode),
         tool_id,
-        prefix_path,
+        // #187: a prefix or working directory saved before the normalisation
+        // fix can be verbatim; strip it before it reaches a process API.
+        prefix_path: normalize_stored_path(&prefix_path),
         env,
         winetricks_verbs,
         steam_app_id: app_id.and_then(|value| u32::try_from(value).ok()),
+        working_dir: normalize_stored_path(&working_dir),
     })
 }
 
@@ -940,13 +976,16 @@ pub fn save_launch_options(
         .map_err(|e| format!("Could not encode the environment overrides: {e}"))?;
     let verbs = serde_json::to_string(&options.winetricks_verbs)
         .map_err(|e| format!("Could not encode the winetricks verbs: {e}"))?;
+    let prefix_path = normalize_stored_path(&options.prefix_path);
+    let working_dir = normalize_stored_path(&options.working_dir);
 
     connection
         .execute(
             r#"
             INSERT INTO game_launch_options
-                (game_id, mode, tool_id, prefix_path, env, winetricks_verbs, steam_app_id, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                (game_id, mode, tool_id, prefix_path, env, winetricks_verbs, steam_app_id,
+                 working_dir, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             ON CONFLICT(game_id) DO UPDATE SET
                 mode             = excluded.mode,
                 tool_id          = excluded.tool_id,
@@ -954,16 +993,18 @@ pub fn save_launch_options(
                 env              = excluded.env,
                 winetricks_verbs = excluded.winetricks_verbs,
                 steam_app_id     = excluded.steam_app_id,
+                working_dir      = excluded.working_dir,
                 updated_at       = excluded.updated_at
             "#,
             params![
                 game_id,
                 options.mode.as_str(),
                 options.tool_id,
-                options.prefix_path,
+                prefix_path,
                 env,
                 verbs,
                 options.steam_app_id.map(i64::from),
+                working_dir,
                 updated_at,
             ],
         )
@@ -3009,6 +3050,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V13).unwrap();
         connection.execute_batch(SCHEMA_V14).unwrap();
         connection.execute_batch(SCHEMA_V15).unwrap();
+        connection.execute_batch(SCHEMA_V16).unwrap();
         connection
     }
 
@@ -3606,6 +3648,7 @@ mod tests {
             mode: LaunchMode::Proton,
             tool_id: "proton:/games/GE-Proton9-20".into(),
             prefix_path: "/mnt/prefixes/nine".into(),
+            working_dir: "/mnt/games/Uncharted".into(),
             ..LaunchOptions::default()
         };
         options.env.insert("DXVK_HUD".into(), "fps".into());
@@ -3626,6 +3669,78 @@ mod tests {
         let broken = get_launch_options(&connection, 9).unwrap();
         assert!(broken.env.is_empty());
         assert_eq!(broken.mode, LaunchMode::Proton);
+    }
+
+    /// #187: every stored path is normalised at the storage boundary, so a
+    /// verbatim `\\?\` row from an older build (or a canonicalized path written
+    /// on Windows) never reaches `Command::new`. The normaliser is a no-op off
+    /// Windows, which is exactly what the expected value encodes.
+    #[test]
+    fn stored_paths_are_normalised_on_write_and_read() {
+        let connection = memory_database();
+        let raw_install = r"\\?\D:\Games\GameVault\Uncharted";
+        let raw_exe = r"\\?\D:\Games\GameVault\Uncharted\u4.exe";
+        let raw_root = r"\\?\D:\Games\GameVault";
+        let game = InstalledGame {
+            game_id: 42,
+            version_id: 0,
+            title: "Uncharted".into(),
+            version: None,
+            install_path: raw_install.into(),
+            executable: Some(raw_exe.into()),
+            size_bytes: 0,
+            installed_at: "2026-11-12T00:00:00Z".into(),
+            last_launched_at: None,
+            archive_hash: None,
+            install_root: Some(raw_root.into()),
+            source: SOURCE_ADOPTED.into(),
+            launch_uri: None,
+        };
+        upsert_installed(&connection, &game).unwrap();
+
+        let expected_install = normalize_stored_path(raw_install);
+        let expected_exe = normalize_stored_path(raw_exe);
+        let expected_root = normalize_stored_path(raw_root);
+        let stored = get_installed(&connection, 42).unwrap().unwrap();
+        assert_eq!(stored.install_path, expected_install);
+        assert_eq!(stored.executable.as_deref(), Some(expected_exe.as_str()));
+        assert_eq!(stored.install_root.as_deref(), Some(expected_root.as_str()));
+
+        // A path recorded later (#7 executable picker) goes through the same
+        // normalisation.
+        set_executable(&connection, 42, Some(raw_exe)).unwrap();
+        let stored = get_installed(&connection, 42).unwrap().unwrap();
+        assert_eq!(stored.executable.as_deref(), Some(expected_exe.as_str()));
+    }
+
+    /// #187: the launch-option paths (Wine prefix, working directory) use the
+    /// same boundary. A value that needs long-path support keeps its prefix.
+    #[test]
+    fn launch_option_paths_are_normalised() {
+        let connection = memory_database();
+        let mut options = LaunchOptions {
+            prefix_path: r"\\?\D:\Prefixes\uncharted".into(),
+            working_dir: r"\\?\D:\Games\Uncharted".into(),
+            ..LaunchOptions::default()
+        };
+        save_launch_options(&connection, 7, &options, "2026-11-12T00:00:00Z").unwrap();
+        let back = get_launch_options(&connection, 7).unwrap();
+        assert_eq!(
+            back.prefix_path,
+            normalize_stored_path(&options.prefix_path)
+        );
+        assert_eq!(
+            back.working_dir,
+            normalize_stored_path(&options.working_dir)
+        );
+
+        // Long paths keep the verbatim prefix: stripping would break >MAX_PATH.
+        let long_plain = format!(r"D:\Games\{}game.exe", "segment\\".repeat(40));
+        let long_verbatim = format!(r"\\?\{}", long_plain);
+        options.working_dir = long_verbatim.clone();
+        save_launch_options(&connection, 7, &options, "2026-11-12T00:00:01Z").unwrap();
+        let back = get_launch_options(&connection, 7).unwrap();
+        assert_eq!(back.working_dir, long_verbatim);
     }
 
     #[test]

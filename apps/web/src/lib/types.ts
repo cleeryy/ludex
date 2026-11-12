@@ -2480,6 +2480,12 @@ export interface LaunchOptions {
   winetricksVerbs: string[];
   /** Steam app id for ProtonDB and `GAMEID`. */
   steamAppId: number | null;
+  /**
+   * Folder the game process starts in (#187). Empty keeps the automatic rule:
+   * an adopted game runs from its executable's folder, an install from the
+   * install root. Stored absolute on this machine.
+   */
+  workingDir: string;
 }
 
 export interface CompatTool {

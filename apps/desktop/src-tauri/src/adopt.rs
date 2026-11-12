@@ -218,7 +218,9 @@ pub fn canonical_folder(raw: &str) -> Result<PathBuf, String> {
         return Err(format!("{} is not a folder.", path.display()));
     }
 
-    fs::canonicalize(&path).map_err(|e| format!("Could not resolve {}: {e}", path.display()))
+    fs::canonicalize(&path)
+        .map(|canonical| paths::normalize_native_path(&canonical))
+        .map_err(|e| format!("Could not resolve {}: {e}", path.display()))
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -339,23 +341,28 @@ pub fn ensure_no_symlink_escape(root: &Path) -> Result<(), String> {
 
 /// True when `stored` (an indexed install path) resolves to `canonical`.
 fn path_matches(stored: &str, canonical: &Path) -> bool {
-    if stored == canonical.to_string_lossy() {
+    let stored_plain = paths::normalize_native_path(Path::new(stored));
+    if stored_plain == canonical {
         return true;
     }
-    fs::canonicalize(stored)
-        .map(|path| path == canonical)
-        .unwrap_or(false)
+    match fs::canonicalize(&stored_plain) {
+        Ok(path) => paths::normalize_native_path(&path) == canonical,
+        Err(_) => false,
+    }
 }
 
 /// The canonical form of an indexed path, or the stored string when it is gone.
 fn indexed_path(stored: &str) -> PathBuf {
-    fs::canonicalize(stored).unwrap_or_else(|_| PathBuf::from(stored))
+    fs::canonicalize(stored)
+        .map(|path| paths::normalize_native_path(&path))
+        .unwrap_or_else(|_| paths::normalize_native_path(Path::new(stored)))
 }
 
 /// Canonical comparison key for a folder that may be missing right now (#134).
 pub fn canonical_path_key(raw: &str) -> String {
     fs::canonicalize(raw)
-        .unwrap_or_else(|_| PathBuf::from(raw))
+        .map(|path| paths::normalize_native_path(&path))
+        .unwrap_or_else(|_| paths::normalize_native_path(Path::new(raw)))
         .to_string_lossy()
         .to_string()
 }
@@ -529,6 +536,7 @@ fn resolve_executable(folder: &Path, requested: &str) -> Result<String, String> 
         ));
     }
     let canonical = fs::canonicalize(&full)
+        .map(|path| paths::normalize_native_path(&path))
         .map_err(|e| format!("Could not resolve {}: {e}", full.display()))?;
     if canonical != folder && !canonical.starts_with(folder) {
         return Err(format!(
@@ -608,8 +616,10 @@ pub enum DeletePlan {
 /// Resolve the stored path of an adopted folder, refusing a folder that became
 /// a link since adoption.
 pub fn plan_delete(stored: &Path) -> Result<DeletePlan, String> {
-    match fs::canonicalize(stored) {
+    let stored = paths::normalize_native_path(stored);
+    match fs::canonicalize(&stored) {
         Ok(canonical) => {
+            let canonical = paths::normalize_native_path(&canonical);
             if canonical != stored {
                 return Err(format!(
                     "{} is now a link to {}. Refusing to delete through a link; remove the entry instead.",
@@ -833,8 +843,10 @@ pub fn confirmation_matches(typed: &str, folder: &Path) -> bool {
     if typed.is_empty() {
         return false;
     }
-    let confirmed = fs::canonicalize(typed).unwrap_or_else(|_| PathBuf::from(typed));
-    confirmed == folder
+    let confirmed = fs::canonicalize(typed)
+        .map(|path| paths::normalize_native_path(&path))
+        .unwrap_or_else(|_| paths::normalize_native_path(Path::new(typed)));
+    confirmed == paths::normalize_native_path(folder)
 }
 
 /* ------------------------------- GameVault ------------------------------- */
@@ -1015,7 +1027,9 @@ pub fn scan_gamevault_roots(
         std::collections::HashMap::new();
 
     for raw_root in roots {
-        let canonical_root = fs::canonicalize(raw_root).unwrap_or_else(|_| raw_root.clone());
+        let canonical_root = fs::canonicalize(raw_root)
+            .map(|path| paths::normalize_native_path(&path))
+            .unwrap_or_else(|_| paths::normalize_native_path(raw_root));
         let root_key = canonical_root.to_string_lossy().to_string();
         if !seen_roots.insert(root_key.clone()) {
             warnings.push(format!(
@@ -1084,7 +1098,9 @@ pub fn scan_gamevault_roots(
                 continue;
             }
 
-            let canonical = fs::canonicalize(&folder).unwrap_or_else(|_| folder.clone());
+            let canonical = fs::canonicalize(&folder)
+                .map(|path| paths::normalize_native_path(&path))
+                .unwrap_or_else(|_| folder.clone());
             let folder_key = canonical.to_string_lossy().to_string();
 
             let metadata_title = read_metadata_title(&folder);
@@ -1368,16 +1384,14 @@ pub fn detect_gamevault_roots(configured: &[String]) -> Vec<GameVaultRootProposa
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let configured_keys: std::collections::HashSet<String> = configured
         .iter()
-        .map(|raw| {
-            fs::canonicalize(raw)
-                .unwrap_or_else(|_| PathBuf::from(raw))
-                .to_string_lossy()
-                .to_string()
-        })
+        .map(|raw| canonical_path_key(raw))
         .collect();
 
     let mut push = |path: PathBuf, reason: String| {
-        let Some(canonical) = fs::canonicalize(&path).ok() else {
+        let Some(canonical) = fs::canonicalize(&path)
+            .map(|path| paths::normalize_native_path(&path))
+            .ok()
+        else {
             return;
         };
         let key = canonical.to_string_lossy().to_string();
@@ -1457,6 +1471,7 @@ pub fn prepare_scan_root(raw: &str) -> Result<PathBuf, String> {
         return Err(format!("{} is not a folder.", path.display()));
     }
     let canonical = fs::canonicalize(&path)
+        .map(|path| paths::normalize_native_path(&path))
         .map_err(|e| format!("Could not resolve {}: {e}", path.display()))?;
     if canonical.parent().is_none() {
         return Err("Choose the games folder, not a drive root.".to_string());
@@ -2411,7 +2426,9 @@ mod tests {
         )
         .unwrap();
 
-        let expected = fs::canonicalize(edition.join("Uncharted4.exe")).unwrap();
+        let expected = paths::normalize_native_path(
+            &fs::canonicalize(edition.join("Uncharted4.exe")).unwrap(),
+        );
         assert_eq!(
             record.executable.as_deref(),
             Some(expected.to_string_lossy().as_ref())
@@ -2424,7 +2441,50 @@ mod tests {
         // from the executable's own folder.
         assert_eq!(
             PathBuf::from(&record.install_path),
-            fs::canonicalize(&folder).unwrap()
+            paths::normalize_native_path(&fs::canonicalize(&folder).unwrap())
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// #187: what adoption writes survives the index round-trip in plain form,
+    /// so the stored executable/install path can be handed to `Command` later.
+    #[test]
+    fn adoption_storage_round_trips_normalised_paths() {
+        let root = temp_dir("adopt-roundtrip");
+        let folder = root.join("Installation");
+        let edition = folder.join("Uncharted Legacy of Thieves Collection");
+        fs::create_dir_all(&edition).unwrap();
+        fs::write(edition.join("Uncharted4.exe"), b"MZ").unwrap();
+
+        let (preview, record) = prepare_adoption(
+            &[],
+            &root,
+            7,
+            "Uncharted 4",
+            None,
+            None,
+            &folder.to_string_lossy(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            PathBuf::from(&record.install_path),
+            paths::normalize_native_path(&fs::canonicalize(&folder).unwrap())
+        );
+        assert_eq!(preview.folder, record.install_path);
+
+        let connection = crate::db::open_in_memory_for_tests();
+        crate::db::upsert_installed(&connection, &record).unwrap();
+        let stored = crate::db::get_installed(&connection, 7).unwrap().unwrap();
+        assert_eq!(stored.install_path, record.install_path);
+        assert_eq!(stored.executable, record.executable);
+        let stored_exe = stored.executable.expect("an executable was detected");
+        assert_eq!(
+            stored_exe,
+            paths::normalize_native_path(Path::new(&stored_exe))
+                .to_string_lossy()
+                .to_string()
         );
 
         let _ = fs::remove_dir_all(&root);

@@ -166,13 +166,26 @@ export function useNativeEvents() {
     let cancelled = false;
 
     void (async () => {
-      const offExited = await native.onGameExited(({ gameId, minutesPlayed }) => {
+      const offExited = await native.onGameExited(({ gameId, minutesPlayed, exitCode, immediateExit }) => {
         void queryClient.invalidateQueries({ queryKey: ["installed"] });
         void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
         void queryClient.invalidateQueries({ queryKey: ["playtime", gameId] });
         void queryClient.invalidateQueries({ queryKey: ["game", gameId] });
         void queryClient.invalidateQueries({ queryKey: ["games"] });
-        if (minutesPlayed > 0) {
+        // #187: a game that dies within seconds is a failed launch, not a
+        // session; show the exit code (NTSTATUS values in hex) instead of
+        // silently doing nothing.
+        if (immediateExit) {
+          const code = exitCode !== null && exitCode !== undefined
+            ? `0x${exitCode.toString(16).toUpperCase()}`
+            : null;
+          push({
+            title: code
+              ? t("The game exited immediately (code {code})", { code })
+              : t("The game exited immediately"),
+            tone: "danger",
+          });
+        } else if (minutesPlayed > 0) {
           push({
             title: t("Session saved"),
             description: tn(minutesPlayed, "1 minute added to your playtime.", "{count} minutes added to your playtime."),

@@ -55,6 +55,11 @@ pub struct LaunchOptions {
     pub winetricks_verbs: Vec<String>,
     /// Steam app id: ProtonDB rating, `GAMEID` and the Steam match.
     pub steam_app_id: Option<u32>,
+    /// Folder the game process starts in (#187). Empty keeps the automatic
+    /// rule: adopted games run from the executable's folder, installs from the
+    /// install root. Stored as an absolute path, or relative to the install
+    /// folder when the user typed a relative one.
+    pub working_dir: String,
 }
 
 impl Default for LaunchOptions {
@@ -66,6 +71,7 @@ impl Default for LaunchOptions {
             env: BTreeMap::new(),
             winetricks_verbs: Vec::new(),
             steam_app_id: None,
+            working_dir: String::new(),
         }
     }
 }
@@ -75,6 +81,7 @@ impl LaunchOptions {
     pub fn normalize(&mut self) {
         self.tool_id = self.tool_id.trim().to_string();
         self.prefix_path = self.prefix_path.trim().to_string();
+        self.working_dir = self.working_dir.trim().to_string();
         self.env = self
             .env
             .iter()

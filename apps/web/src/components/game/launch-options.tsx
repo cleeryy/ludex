@@ -29,6 +29,7 @@ const EMPTY_OPTIONS: LaunchOptions = {
   env: {},
   winetricksVerbs: [],
   steamAppId: null,
+  workingDir: "",
 };
 
 function envToText(env: Record<string, string>): string {
@@ -52,11 +53,12 @@ function textToEnv(text: string): Record<string, string> {
 }
 
 /**
- * Per-game Linux launch options (#89, #92).
+ * Per-game launch options (#89, #92, #187).
  *
- * Mode, tool, prefix, environment overrides, winetricks verbs and the manual
- * Steam app id used by the ProtonDB badge. Only rendered on Linux; Windows and
- * macOS keep their existing launch behaviour.
+ * Linux: mode, tool, prefix, environment overrides, winetricks verbs and the
+ * manual Steam app id used by the ProtonDB badge. Every platform: the working
+ * directory override, which fixes adopted Windows games that load their data
+ * relative to the executable's folder.
  */
 export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: string }) {
   const { push } = useToast();
@@ -75,10 +77,11 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
     enabled: isNative(),
     retry: false,
   });
+  const linux = Boolean(scan.data?.linux);
   const prefixQuery = useQuery({
     queryKey: ["prefix-info", gameId],
     queryFn: () => native.winePrefixInfo(gameId),
-    enabled: isNative() && Boolean(savedQuery.data),
+    enabled: isNative() && linux && Boolean(savedQuery.data),
     staleTime: 20_000,
     retry: false,
   });
@@ -107,7 +110,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
     return tools;
   }, [draft.mode, tools]);
 
-  if (!isNative() || !scan.data?.linux) return null;
+  if (!isNative()) return null;
 
   const update = (patch: Partial<LaunchOptions>) => setDraft((current) => ({ ...current, ...patch }));
 
@@ -140,6 +143,15 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
     try {
       const path = await native.pickFolder("Choose a Wine prefix folder");
       if (path) update({ prefixPath: path });
+    } catch (cause) {
+      push({ title: t("Could not open the folder picker"), description: errorMessage(cause), tone: "danger" });
+    }
+  };
+
+  const pickWorkingDir = async () => {
+    try {
+      const path = await native.pickFolder(t("Choose a folder"));
+      if (path) update({ workingDir: path });
     } catch (cause) {
       push({ title: t("Could not open the folder picker"), description: errorMessage(cause), tone: "danger" });
     }
@@ -211,10 +223,14 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
     <div className="min-w-0">
       <SectionHeader
         level={3}
-        title={t("Linux compatibility")}
-        description={t("Proton/UMU tool, Wine prefix and environment")}
+        title={linux ? t("Linux launch options") : t("Launch options")}
+        description={
+          linux
+            ? t("Proton/UMU tool, Wine prefix and environment")
+            : t("Used by the desktop app when it starts the game")
+        }
         actions={
-          draft.steamAppId !== null ? (
+          linux && draft.steamAppId !== null ? (
             <a
               href={`https://www.protondb.com/app/${draft.steamAppId}`}
               target="_blank"
@@ -227,7 +243,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
         }
       />
       <div className="border-t border-line pt-4">
-        {scan.data && scan.data.tools.length === 0 && (
+        {linux && scan.data && scan.data.tools.length === 0 && (
           <p className="mb-4 border-l-2 border-signal/60 pl-3 text-[12.5px] leading-relaxed text-ink-2">
             {tr("No compatibility tool is installed. A Windows game cannot start until UMU, GE-Proton/Proton or Wine is available. Install one, then rescan in {settings}.", {
               settings: (
@@ -239,16 +255,18 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
           </p>
         )}
 
-        <div className="grid gap-5 sm:grid-cols-2">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-3">{t("Launch mode")}</span>
-            <Select
-              label={t("Launch mode")}
-              value={draft.mode}
-              onChange={(mode) => update({ mode })}
-              options={modeOptions()}
-            />
-          </label>
+        {linux && (
+          <>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[12px] text-ink-3">{t("Launch mode")}</span>
+                <Select
+                  label={t("Launch mode")}
+                  value={draft.mode}
+                  onChange={(mode) => update({ mode })}
+                  options={modeOptions()}
+                />
+              </label>
 
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] text-ink-3">{t("Compatibility tool")}</span>
@@ -442,19 +460,49 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
             </div>
           )}
         </div>
+          </>
+        )}
+
+        <div className="mt-6 border-t border-line pt-4">
+          <p className="text-[13px] font-medium text-ink">{t("Working directory")}</p>
+          <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+            {t("Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.")}
+          </p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Input
+              value={draft.workingDir}
+              onChange={(event) => update({ workingDir: event.target.value })}
+              placeholder={t("Automatic")}
+              spellCheck={false}
+              className="h-10 flex-1 font-mono text-[11.5px]"
+            />
+            <div className="flex shrink-0 items-center gap-2">
+              <Button variant="default" size="sm" className="h-10" icon={<FolderOpen className="size-3.5" />} onClick={() => void pickWorkingDir()}>
+                {t("Browse")}
+              </Button>
+              {draft.workingDir.trim().length > 0 && (
+                <Button variant="ghost" size="sm" className="h-10" onClick={() => update({ workingDir: "" })}>
+                  {t("Clear")}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
 
         <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-4">
           <Button variant="primary" size="sm" loading={saving} disabled={!dirty} onClick={() => void save()}>
             {t("Save Linux options")}
           </Button>
           {dirty && <span className="text-[11.5px] text-ink-3">{t("Unsaved changes")}</span>}
-          <span className="font-mono text-[10.5px] text-ink-3">
-            {scan.data?.winetricks ? t("winetricks detected") : t("no winetricks")} ·{" "}
-            {scan.data?.protonfixes ? t("protonfixes detected") : t("no protonfixes")}
-          </span>
+          {linux && (
+            <span className="font-mono text-[10.5px] text-ink-3">
+              {scan.data?.winetricks ? t("winetricks detected") : t("no winetricks")} ·{" "}
+              {scan.data?.protonfixes ? t("protonfixes detected") : t("no protonfixes")}
+            </span>
+          )}
         </div>
 
-        {scan.data && scan.data.warnings.length > 0 && (
+        {linux && scan.data && scan.data.warnings.length > 0 && (
           <ul className="mt-3 flex flex-col gap-1 text-[11.5px] text-ink-3">
             {scan.data.warnings.map((warning) => (
               <li key={warning} className="border-l-2 border-line-2 pl-2">

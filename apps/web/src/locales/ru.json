@@ -3345,7 +3345,6 @@
   "Installing uses {version} ({size}). Your progress, saves and achievements stay on the server.": "Для установки используется {version} ({size}). Прогресс, сохранения и достижения остаются на сервере.",
   "Launch": "Запуск",
   "Launch the game once, then Sync now to create the first automatic snapshot.": "Запустите игру один раз, затем нажмите «Синхронизировать», чтобы создать первый автоматический снимок.",
-  "Linux compatibility": "Совместимость с Linux",
   "Linux options saved": "Параметры Linux сохранены",
   "Location": "Расположение",
   "Manage files": "Управление файлами",
@@ -3362,5 +3361,11 @@
   "Startup command saved": "Команда запуска сохранена",
   "The facts, the install state and your progress on this account.": "Сведения, состояние установки и ваш прогресс в этой учётной записи.",
   "There is no archive on the server yet. An administrator can add one in the ingest screen.": "На сервере пока нет архива. Администратор может добавить его на экране загрузки.",
-  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "В этой папке установки нет программы setup, install или gog. Нажмите «Выберите исполняемый файл», чтобы указать двоичный файл игры."
+  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "В этой папке установки нет программы setup, install или gog. Нажмите «Выберите исполняемый файл», чтобы указать двоичный файл игры.",
+  "Launch options": "Параметры запуска",
+  "Linux launch options": "Варианты запуска Linux",
+  "Working directory": "Рабочий каталог",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "Папка, в которой запускается игра. Пусто — папка установки; для добавленной игры иначе используется папка исполняемого файла.",
+  "The game exited immediately": "Игра сразу завершилась",
+  "The game exited immediately (code {code})": "Игра сразу завершилась (код {code})"
 }

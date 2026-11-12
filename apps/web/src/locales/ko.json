@@ -3345,7 +3345,6 @@
   "Installing uses {version} ({size}). Your progress, saves and achievements stay on the server.": "설치에는 {version}({size})이 사용됩니다. 진행 상황, 세이브, 업적은 서버에 남습니다.",
   "Launch": "실행",
   "Launch the game once, then Sync now to create the first automatic snapshot.": "게임을 한 번 실행한 뒤 지금 동기화를 눌러 첫 자동 스냅샷을 만드세요.",
-  "Linux compatibility": "Linux 호환성",
   "Linux options saved": "Linux 옵션을 저장했습니다",
   "Location": "위치",
   "Manage files": "파일 관리",
@@ -3362,5 +3361,11 @@
   "Startup command saved": "실행 명령을 저장했습니다",
   "The facts, the install state and your progress on this account.": "게임 정보, 설치 상태, 이 계정의 진행 상황.",
   "There is no archive on the server yet. An administrator can add one in the ingest screen.": "서버에 아직 아카이브가 없습니다. 관리자가 가져오기 화면에서 추가할 수 있습니다.",
-  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "이 설치 폴더에는 setup, install, gog 프로그램이 없습니다. 실행 파일 선택으로 게임 실행 파일을 지정하세요."
+  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "이 설치 폴더에는 setup, install, gog 프로그램이 없습니다. 실행 파일 선택으로 게임 실행 파일을 지정하세요.",
+  "Launch options": "실행 옵션",
+  "Linux launch options": "Linux 실행 옵션",
+  "Working directory": "작업 디렉터리",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "게임이 시작되는 폴더입니다. 비워 두면 설치 폴더를 사용하며, 가져온 게임은 그렇지 않으면 실행 파일의 폴더에서 시작합니다.",
+  "The game exited immediately": "게임이 즉시 종료되었습니다",
+  "The game exited immediately (code {code})": "게임이 즉시 종료되었습니다 (코드 {code})"
 }

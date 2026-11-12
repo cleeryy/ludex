@@ -3345,7 +3345,6 @@
   "Installing uses {version} ({size}). Your progress, saves and achievements stay on the server.": "Instalacja użyje {version} ({size}). Postępy, zapisy i osiągnięcia pozostają na serwerze.",
   "Launch": "Uruchamianie",
   "Launch the game once, then Sync now to create the first automatic snapshot.": "Uruchom grę raz, a następnie wybierz Synchronizuj teraz, aby utworzyć pierwszą automatyczną migawkę.",
-  "Linux compatibility": "Zgodność z Linuksem",
   "Linux options saved": "Zapisano opcje Linuksa",
   "Location": "Lokalizacja",
   "Manage files": "Zarządzaj plikami",
@@ -3362,5 +3361,11 @@
   "Startup command saved": "Zapisano polecenie uruchamiania",
   "The facts, the install state and your progress on this account.": "Informacje, stan instalacji i Twoje postępy na tym koncie.",
   "There is no archive on the server yet. An administrator can add one in the ingest screen.": "Na serwerze nie ma jeszcze archiwum. Administrator może dodać je na ekranie importu.",
-  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "W tym folderze instalacji nie ma programu setup, install ani gog. Użyj „Wybierz plik wykonywalny”, aby wskazać plik gry."
+  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "W tym folderze instalacji nie ma programu setup, install ani gog. Użyj „Wybierz plik wykonywalny”, aby wskazać plik gry.",
+  "Launch options": "Opcje uruchamiania",
+  "Linux launch options": "Linux opcje uruchamiania",
+  "Working directory": "Katalog roboczy",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "Folder, w którym uruchamia się gra. Puste pole oznacza folder instalacji; przejęta gra startuje w przeciwnym razie z folderu pliku wykonywalnego.",
+  "The game exited immediately": "Gra zakończyła się natychmiast",
+  "The game exited immediately (code {code})": "Gra zakończyła się natychmiast (kod {code})"
 }

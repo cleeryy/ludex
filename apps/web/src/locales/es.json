@@ -3345,7 +3345,6 @@
   "Installing uses {version} ({size}). Your progress, saves and achievements stay on the server.": "La instalación usa {version} ({size}). Tu progreso, partidas y logros siguen en el servidor.",
   "Launch": "Inicio",
   "Launch the game once, then Sync now to create the first automatic snapshot.": "Inicia el juego una vez y luego pulsa Sincronizar ahora para crear la primera instantánea automática.",
-  "Linux compatibility": "Compatibilidad con Linux",
   "Linux options saved": "Opciones de Linux guardadas",
   "Location": "Ubicación",
   "Manage files": "Gestionar archivos",
@@ -3362,5 +3361,11 @@
   "Startup command saved": "Comando de inicio guardado",
   "The facts, the install state and your progress on this account.": "Los datos, el estado de la instalación y tu progreso en esta cuenta.",
   "There is no archive on the server yet. An administrator can add one in the ingest screen.": "Aún no hay ningún archivo en el servidor. Un administrador puede añadir uno en la pantalla de importación.",
-  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "Esta carpeta de instalación no tiene ningún programa setup, install o gog. Usa «Elige ejecutable» para apuntar al binario del juego."
+  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "Esta carpeta de instalación no tiene ningún programa setup, install o gog. Usa «Elige ejecutable» para apuntar al binario del juego.",
+  "Launch options": "Opciones de lanzamiento",
+  "Linux launch options": "Linux opciones de lanzamiento",
+  "Working directory": "Directorio de trabajo",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "Carpeta en la que se inicia el juego. Vacío usa la carpeta de instalación; un juego adoptado se inicia si no en la carpeta de su ejecutable.",
+  "The game exited immediately": "El juego se cerró de inmediato",
+  "The game exited immediately (code {code})": "El juego se cerró de inmediato (código {code})"
 }

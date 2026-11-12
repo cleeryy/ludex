@@ -3345,7 +3345,6 @@
   "Installing uses {version} ({size}). Your progress, saves and achievements stay on the server.": "インストールには {version}（{size}）を使用します。進行状況、セーブ、実績はサーバーに残ります。",
   "Launch": "起動",
   "Launch the game once, then Sync now to create the first automatic snapshot.": "ゲームを一度起動してから「今すぐ同期」で最初の自動スナップショットを作成します。",
-  "Linux compatibility": "Linux 互換性",
   "Linux options saved": "Linux オプションを保存しました",
   "Location": "場所",
   "Manage files": "ファイルを管理",
@@ -3362,5 +3361,11 @@
   "Startup command saved": "起動コマンドを保存しました",
   "The facts, the install state and your progress on this account.": "基本情報、インストール状態、このアカウントの進行状況。",
   "There is no archive on the server yet. An administrator can add one in the ingest screen.": "サーバーにはまだアーカイブがありません。管理者が取り込み画面で追加できます。",
-  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "このインストールフォルダーには setup、install、gog プログラムがありません。「実行可能ファイルの選択」でゲームのバイナリを指定してください。"
+  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "このインストールフォルダーには setup、install、gog プログラムがありません。「実行可能ファイルの選択」でゲームのバイナリを指定してください。",
+  "Launch options": "起動オプション",
+  "Linux launch options": "Linux 起動オプション",
+  "Working directory": "作業ディレクトリ",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "ゲームを起動するフォルダ。空の場合はインストールフォルダを使用します。取り込んだゲームは、それ以外の場合は実行ファイルのフォルダから起動します。",
+  "The game exited immediately": "ゲームが即座に終了しました",
+  "The game exited immediately (code {code})": "ゲームが即座に終了しました（コード {code}）"
 }

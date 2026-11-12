@@ -3345,7 +3345,6 @@
   "Installing uses {version} ({size}). Your progress, saves and achievements stay on the server.": "L'installazione usa {version} ({size}). Progressi, salvataggi e obiettivi restano sul server.",
   "Launch": "Avvio",
   "Launch the game once, then Sync now to create the first automatic snapshot.": "Avvia il gioco una volta, poi scegli Sincronizza ora per creare la prima istantanea automatica.",
-  "Linux compatibility": "Compatibilità Linux",
   "Linux options saved": "Opzioni Linux salvate",
   "Location": "Percorso",
   "Manage files": "Gestisci file",
@@ -3362,5 +3361,11 @@
   "Startup command saved": "Comando di avvio salvato",
   "The facts, the install state and your progress on this account.": "I dati, lo stato dell'installazione e i tuoi progressi su questo account.",
   "There is no archive on the server yet. An administrator can add one in the ingest screen.": "Non c'è ancora nessun archivio sul server. Un amministratore può aggiungerne uno dalla schermata di importazione.",
-  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "Questa cartella di installazione non contiene programmi setup, install o gog. Usa «Scegli eseguibile» per indicare il binario del gioco."
+  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "Questa cartella di installazione non contiene programmi setup, install o gog. Usa «Scegli eseguibile» per indicare il binario del gioco.",
+  "Launch options": "Opzioni di avvio",
+  "Linux launch options": "Linux opzioni di avvio",
+  "Working directory": "Directory di lavoro",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "Cartella in cui viene avviato il gioco. Vuoto usa la cartella di installazione; un gioco adottato parte altrimenti dalla cartella del suo eseguibile.",
+  "The game exited immediately": "Il gioco si è chiuso subito",
+  "The game exited immediately (code {code})": "Il gioco si è chiuso subito (codice {code})"
 }

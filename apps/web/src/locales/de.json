@@ -3345,7 +3345,6 @@
   "Installing uses {version} ({size}). Your progress, saves and achievements stay on the server.": "Die Installation nutzt {version} ({size}). Fortschritt, Spielstände und Erfolge bleiben auf dem Server.",
   "Launch": "Start",
   "Launch the game once, then Sync now to create the first automatic snapshot.": "Starte das Spiel einmal und wähle dann Jetzt synchronisieren, um den ersten automatischen Snapshot zu erstellen.",
-  "Linux compatibility": "Linux-Kompatibilität",
   "Linux options saved": "Linux-Optionen gespeichert",
   "Location": "Speicherort",
   "Manage files": "Dateien verwalten",
@@ -3362,5 +3361,11 @@
   "Startup command saved": "Startbefehl gespeichert",
   "The facts, the install state and your progress on this account.": "Die Fakten, der Installationsstatus und dein Fortschritt in diesem Konto.",
   "There is no archive on the server yet. An administrator can add one in the ingest screen.": "Auf dem Server liegt noch kein Archiv. Ein Administrator kann eines im Import-Bildschirm hinzufügen.",
-  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "Dieser Installationsordner enthält kein setup-, install- oder gog-Programm. Wähle „Wählen Sie ausführbare Datei“, um auf die Spieldatei zu zeigen."
+  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "Dieser Installationsordner enthält kein setup-, install- oder gog-Programm. Wähle „Wählen Sie ausführbare Datei“, um auf die Spieldatei zu zeigen.",
+  "Launch options": "Startoptionen",
+  "Linux launch options": "Linux Startoptionen",
+  "Working directory": "Arbeitsverzeichnis",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "Ordner, in dem das Spiel startet. Leer verwendet den Installationsordner; ein übernommenes Spiel startet sonst im Ordner seiner ausführbaren Datei.",
+  "The game exited immediately": "Das Spiel wurde sofort beendet",
+  "The game exited immediately (code {code})": "Das Spiel wurde sofort beendet (Code {code})"
 }

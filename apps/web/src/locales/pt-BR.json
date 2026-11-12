@@ -3345,7 +3345,6 @@
   "Installing uses {version} ({size}). Your progress, saves and achievements stay on the server.": "A instalação usa {version} ({size}). Seu progresso, saves e conquistas ficam no servidor.",
   "Launch": "Inicialização",
   "Launch the game once, then Sync now to create the first automatic snapshot.": "Inicie o jogo uma vez e clique em Sincronizar agora para criar o primeiro instantâneo automático.",
-  "Linux compatibility": "Compatibilidade com Linux",
   "Linux options saved": "Opções do Linux salvas",
   "Location": "Local",
   "Manage files": "Gerenciar arquivos",
@@ -3362,5 +3361,11 @@
   "Startup command saved": "Comando de inicialização salvo",
   "The facts, the install state and your progress on this account.": "Os dados, o estado da instalação e seu progresso nesta conta.",
   "There is no archive on the server yet. An administrator can add one in the ingest screen.": "Ainda não há arquivo no servidor. Um administrador pode adicionar um na tela de importação.",
-  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "Esta pasta de instalação não tem nenhum programa setup, install ou gog. Use “Escolha o executável” para apontar para o binário do jogo."
+  "This install folder has no setup, install or gog program. Use “Choose executable” to point at the game binary.": "Esta pasta de instalação não tem nenhum programa setup, install ou gog. Use “Escolha o executável” para apontar para o binário do jogo.",
+  "Launch options": "Opções de lançamento",
+  "Linux launch options": "Linux opções de lançamento",
+  "Working directory": "Diretório de trabalho",
+  "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "Pasta em que o jogo inicia. Vazio usa a pasta de instalação; um jogo adotado inicia, caso contrário, na pasta do executável.",
+  "The game exited immediately": "O jogo encerrou imediatamente",
+  "The game exited immediately (code {code})": "O jogo encerrou imediatamente (código {code})"
 }

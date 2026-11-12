@@ -59,6 +59,12 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- Adopted games on Windows launch again (#187): verbatim `\\?\` paths are
+  normalized before `Command::new`/`current_dir` (drive and UNC forms, keeping
+  the prefix only past MAX_PATH) at launch, adoption storage and DB reads, the
+  working-directory override is persisted and wins over the adopted rule, and a
+  process that dies within 5 s now surfaces a danger toast with its exit code
+  (`0x…`) instead of doing nothing.
 - The game page no longer freezes on open (#159): `list_game_configs`,
   `game_config_adapters` and `stream_target` now run on the blocking pool
   instead of the UI thread, and a scan slower than 50 ms logs one warning with
