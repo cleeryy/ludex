@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Eye, FolderOpen, Gamepad2, Layers, RefreshCw, ServerOff, Trash2, Tv, Wifi } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Eye, FolderOpen, Gamepad2, Layers, RefreshCw, ServerOff, ShieldCheck, Trash2, Tv, Wifi } from "lucide-react";
 import { errorMessage } from "@/lib/http";
-import { native } from "@/lib/native";
+import { isNative, native } from "@/lib/native";
+import { needsSunshineElevation } from "@/lib/sunshine";
 import type { LocalSettings, SunshinePreviewEntry } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Input, Skeleton } from "@/components/ui/controls";
@@ -143,8 +144,10 @@ function SunshinePanel({
   const { push } = useToast();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<"sync" | "preview" | "remove" | null>(null);
+  const [granting, setGranting] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [backupPath, setBackupPath] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<{ message: string; needsElevation: boolean } | null>(null);
 
   const status = useQuery({
     queryKey: ["sunshine-status"],
@@ -170,6 +173,7 @@ function SunshinePanel({
     setBusy(dryRun ? "preview" : "sync");
     try {
       const report = await native.sunshineSync({ dryRun });
+      setSyncError(null);
       setBackupPath(report.backupPath ?? null);
       await refresh();
       push({
@@ -178,9 +182,37 @@ function SunshinePanel({
         tone: report.written ? "success" : "default",
       });
     } catch (cause) {
+      setSyncError({ message: errorMessage(cause), needsElevation: needsSunshineElevation(cause) });
       push({ title: t("Sunshine sync failed"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setBusy(null);
+    }
+  };
+
+  /**
+   * #182: explicit one-time UAC grant for a Sunshine install under Program
+   * Files, then a single retry. Cancelling changes nothing and keeps the error
+   * with its manual alternatives.
+   */
+  const grantAccess = async () => {
+    setGranting(true);
+    try {
+      const grant = await native.grantSunshineWriteAccess();
+      if (grant.status === "granted") {
+        push({ title: t("Write access granted"), description: grant.message, tone: "success" });
+        setSyncError(null);
+        await sync(false);
+        return;
+      }
+      if (grant.status === "cancelled") {
+        push({ title: t("Elevation cancelled"), description: grant.message, tone: "default" });
+        return;
+      }
+      push({ title: t("Could not grant write access"), description: grant.message, tone: "danger" });
+    } catch (cause) {
+      push({ title: t("Could not grant write access"), description: errorMessage(cause), tone: "danger" });
+    } finally {
+      setGranting(false);
     }
   };
 
@@ -308,6 +340,30 @@ function SunshinePanel({
             </Button>
           </div>
 
+          {syncError && (
+            <div role="alert" className="mt-3 border-l-2 border-danger pl-3 text-[12px] text-danger">
+              <p className="leading-relaxed">{syncError.message}</p>
+              {syncError.needsElevation && isNative() && status.data.platform === "windows" && (
+                <div className="mt-2">
+                  <p className="max-w-[68ch] text-[11px] leading-relaxed text-ink-3">
+                    {t("This grants your Windows account modify rights on Sunshine's config folder, including sunshine.conf. Only needed for a Program Files install; Windows asks once, and cancelling changes nothing.")}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="mt-2"
+                    icon={<ShieldCheck className="size-3.5" />}
+                    loading={granting}
+                    disabled={Boolean(busy)}
+                    onClick={() => void grantAccess()}
+                  >
+                    {t("Grant write access")}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
           {backupPath && (
             <p className="mt-3 flex items-center gap-2 text-[11px] text-ink-3">
               <CheckCircle2 className="size-3 shrink-0 text-ok" aria-hidden="true" />
@@ -394,6 +450,12 @@ function SunshinePanel({
             <FolderOpen className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
             <span>
               {t("Only entries carrying the Ludex marker are updated or removed. Your own Sunshine apps are never touched, and nothing is written without this button.")}
+            </span>
+          </p>
+          <p className="mt-2 flex items-start gap-2 text-[11px] leading-relaxed text-ink-3">
+            <ShieldCheck className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+            <span>
+              {t("When Windows denies a write to a Program Files install, the publish error offers a one-time elevation that grants this account write access; nothing is elevated automatically.")}
             </span>
           </p>
         </>

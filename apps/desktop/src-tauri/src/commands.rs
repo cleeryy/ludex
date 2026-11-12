@@ -3802,7 +3802,7 @@ pub async fn sunshine_sync(
     dry_run: Option<bool>,
     remove_missing: Option<bool>,
     download_covers: Option<bool>,
-) -> Result<streaming::SunshineReport, String> {
+) -> Result<streaming::SunshineReport, streaming::SunshineError> {
     let dry_run = dry_run.unwrap_or(false);
     let remove_missing = remove_missing.unwrap_or(true);
     let state = app.state::<AppState>();
@@ -3846,8 +3846,10 @@ pub async fn sunshine_sync(
             .as_ref()
             .map(|file| file.format)
             .unwrap_or_default();
-        backup_path = streaming::write_apps_with_backup(Path::new(&apps_path), &payload, format)?
-            .map(|path| path.to_string_lossy().to_string());
+        backup_path =
+            streaming::write_apps_with_backup_status(Path::new(&apps_path), &payload, format)
+                .map_err(streaming::SunshineError::write_failure)?
+                .map(|path| path.to_string_lossy().to_string());
         written = true;
     }
 
@@ -3950,6 +3952,15 @@ pub fn sunshine_remove_managed(app: AppHandle) -> Result<streaming::SunshineRepo
             "Removed {removed} Ludex-managed app(s) from Sunshine. A backup was written first."
         ),
     })
+}
+
+/// One-time UAC elevation that grants this Windows account modify rights on the
+/// detected Sunshine config folder (#182). Never runs automatically.
+#[tauri::command]
+pub fn grant_sunshine_write_access(
+    state: State<'_, AppState>,
+) -> Result<streaming::SunshineGrant, String> {
+    streaming::grant_sunshine_write_access(&state.settings_snapshot())
 }
 
 #[tauri::command]

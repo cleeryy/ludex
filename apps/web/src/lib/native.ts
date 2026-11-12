@@ -72,6 +72,7 @@ import type {
   StorageSuggestions,
   StreamLaunch,
   StreamTarget,
+  SunshineGrant,
   SunshinePreview,
   SunshineReport,
   SunshineStatus,
@@ -104,7 +105,7 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
     // #171: failed commands are recorded locally (redacted in Rust) so the
     // user can attach one to an opt-in report. Never uploaded here.
     if (command !== "diagnostics_record_error") {
-      const summary = typeof error === "string" ? error : error instanceof Error ? error.message : "Command failed";
+      const summary = rejectionSummary(error);
       void call("diagnostics_record_error", {
         kind: commandKind(command),
         summary: `${command}: ${summary}`,
@@ -114,6 +115,17 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
     }
     throw error;
   }
+}
+
+/** Message of a command rejection: string, Error or serialized error object. */
+function rejectionSummary(error: unknown): string {
+  if (typeof error === "string" && error.trim()) return error;
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  return "Command failed";
 }
 
 /** Classifies a failed Tauri command for the local report. */
@@ -930,6 +942,11 @@ export const native = {
 
   async sunshineRemoveManaged(): Promise<SunshineReport> {
     return invoke<SunshineReport>("sunshine_remove_managed");
+  },
+
+  /** One-time UAC grant for a Sunshine install under Program Files (#182). */
+  async grantSunshineWriteAccess(): Promise<SunshineGrant> {
+    return invoke<SunshineGrant>("grant_sunshine_write_access");
   },
 
   /* --------------------- Moonlight client (#98) -------------------------- */

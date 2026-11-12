@@ -63,6 +63,9 @@ pub struct SunshineStatus {
     pub apps_found: bool,
     pub entries: usize,
     pub managed_entries: usize,
+    /// Windows denies writes to the detected `apps.json` because it lives in
+    /// `Program Files`; a one-time elevation can fix it (#182).
+    pub needs_elevation: bool,
     pub warnings: Vec<String>,
     pub message: String,
 }
@@ -159,6 +162,84 @@ pub struct SunshineReport {
     pub managed_entries: usize,
     pub skipped: Vec<SkippedGame>,
     pub message: String,
+}
+
+/// Rejection payload of a Sunshine command. The settings panel branches on
+/// `needsElevation` instead of matching the message text (#182).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SunshineError {
+    /// `sunshine_error`, `sunshine_write_failed` or `sunshine_needs_elevation`.
+    pub code: String,
+    pub message: String,
+    /// A `PermissionDenied` write under `Program Files`: the one-time grant may
+    /// fix it. Never set for other failures.
+    pub needs_elevation: bool,
+}
+
+impl SunshineError {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+            needs_elevation: false,
+        }
+    }
+
+    /// Map a failed `apps.json` write, keeping the elevation flag (#182).
+    pub fn write_failure(failure: WriteFailure) -> Self {
+        let code = if failure.needs_elevation {
+            "sunshine_needs_elevation"
+        } else {
+            "sunshine_write_failed"
+        };
+        Self {
+            code: code.to_string(),
+            message: failure.message,
+            needs_elevation: failure.needs_elevation,
+        }
+    }
+}
+
+impl From<String> for SunshineError {
+    fn from(message: String) -> Self {
+        Self::new("sunshine_error", message)
+    }
+}
+
+/// Result of the explicit, user-triggered `grant_sunshine_write_access` (#182).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SunshineGrant {
+    /// `granted`, `cancelled` (UAC declined) or `failed`.
+    pub status: String,
+    /// Config folder the permission change targeted.
+    pub path: Option<String>,
+    pub message: String,
+}
+
+/// Failed write of `apps.json`, with the flag the settings panel uses to offer
+/// the one-time elevation (#182).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteFailure {
+    pub message: String,
+    /// `PermissionDenied` on a path under `Program Files`.
+    pub needs_elevation: bool,
+}
+
+impl WriteFailure {
+    pub fn plain(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            needs_elevation: false,
+        }
+    }
+}
+
+impl From<WriteFailure> for String {
+    fn from(failure: WriteFailure) -> Self {
+        failure.message
+    }
 }
 
 /// Windows, Linux and macOS candidate folders, in priority order.
@@ -1078,6 +1159,64 @@ fn is_program_files_path(path: &Path) -> bool {
         .contains("program files")
 }
 
+/// Value of an environment variable, matching the name case-insensitively
+/// because Windows does not preserve the casing (#182).
+fn env_value<'a>(env: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
+    env.iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(key))
+        .map(|(_, value)| value.as_str())
+}
+
+/// The Windows `Program Files` roots from `env`, in detection order (#182).
+pub fn program_files_roots(env: &BTreeMap<String, String>) -> Vec<PathBuf> {
+    ["ProgramFiles", "ProgramFiles(x86)"]
+        .iter()
+        .filter_map(|key| env_value(env, key))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+/// Case-insensitive containment test below one of `roots`. The separator is
+/// normalised, so `C:/Program Files/…` matches too (#182).
+pub fn path_under_roots(path: &Path, roots: &[PathBuf]) -> bool {
+    let normalize = |value: &Path| {
+        value
+            .to_string_lossy()
+            .replace('/', "\\")
+            .trim_end_matches('\\')
+            .to_ascii_lowercase()
+    };
+    let candidate = normalize(path);
+    roots.iter().any(|root| {
+        let root = normalize(root);
+        !root.is_empty() && (candidate == root || candidate.starts_with(&(root + "\\")))
+    })
+}
+
+/// True when `error` is a `PermissionDenied` denial below `Program Files`: the
+/// case the one-time elevation can fix (#182).
+pub fn needs_elevation_at(path: &Path, error: &std::io::Error, roots: &[PathBuf]) -> bool {
+    error.kind() == std::io::ErrorKind::PermissionDenied && path_under_roots(path, roots)
+}
+
+fn needs_elevation(path: &Path, error: &std::io::Error) -> bool {
+    needs_elevation_at(path, error, &program_files_roots(&env_map()))
+}
+
+/// Probe without writing or changing ACLs: an existing `apps.json` that cannot
+/// be opened for write inside `Program Files` needs elevation (#182).
+fn sunshine_needs_elevation(apps_path: &Path) -> bool {
+    if !path_under_roots(apps_path, &program_files_roots(&env_map())) {
+        return false;
+    }
+    match std::fs::OpenOptions::new().write(true).open(apps_path) {
+        Ok(_) => false,
+        Err(error) => error.kind() == std::io::ErrorKind::PermissionDenied,
+    }
+}
+
 /// Actionable hint for a write failure caused by permissions. `Program Files`
 /// is named explicitly because that is where Sunshine installs by default;
 /// Ludex never copies `apps.json` elsewhere on its own.
@@ -1104,6 +1243,13 @@ fn write_failure(action: &str, path: &Path, error: &std::io::Error) -> String {
     message
 }
 
+fn write_failure_status(action: &str, path: &Path, error: &std::io::Error) -> WriteFailure {
+    WriteFailure {
+        message: write_failure(action, path, error),
+        needs_elevation: needs_elevation(path, error),
+    }
+}
+
 /// Explain a failed `apps.json` write; public so the message stays testable.
 #[allow(dead_code)]
 pub fn write_failure_message(path: &Path, error: &std::io::Error) -> String {
@@ -1119,10 +1265,15 @@ pub fn backup_path(apps_path: &Path) -> PathBuf {
 
 /// Copy the current `apps.json` before touching it. A failure aborts the write;
 /// the backup is a byte-exact copy of the original encoding (#150).
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn backup_apps(apps_path: &Path) -> Result<PathBuf, String> {
+    backup_apps_status(apps_path).map_err(String::from)
+}
+
+fn backup_apps_status(apps_path: &Path) -> Result<PathBuf, WriteFailure> {
     let backup = backup_path(apps_path);
     std::fs::copy(apps_path, &backup)
-        .map_err(|error| write_failure("Could not back up", apps_path, &error))?;
+        .map_err(|error| write_failure_status("Could not back up", apps_path, &error))?;
     Ok(backup)
 }
 
@@ -1135,15 +1286,25 @@ pub fn write_apps_with_backup(
     content: &str,
     format: TextFormat,
 ) -> Result<Option<PathBuf>, String> {
-    let bytes = encode_text(content, format)?;
+    write_apps_with_backup_status(apps_path, content, format).map_err(String::from)
+}
+
+/// Same as [`write_apps_with_backup`], keeping the structured flag the settings
+/// panel branches on (#182).
+pub fn write_apps_with_backup_status(
+    apps_path: &Path,
+    content: &str,
+    format: TextFormat,
+) -> Result<Option<PathBuf>, WriteFailure> {
+    let bytes = encode_text(content, format).map_err(WriteFailure::plain)?;
     if let Some(parent) = apps_path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| {
-            write_failure("Could not create the Sunshine folder", parent, &error)
+            write_failure_status("Could not create the Sunshine folder", parent, &error)
         })?;
     }
 
     let backup = if apps_path.is_file() {
-        Some(backup_apps(apps_path)?)
+        Some(backup_apps_status(apps_path)?)
     } else {
         None
     };
@@ -1152,25 +1313,33 @@ pub fn write_apps_with_backup(
     {
         use std::io::Write;
         let mut file = std::fs::File::create(&temporary)
-            .map_err(|error| write_failure("Could not write", &temporary, &error))?;
+            .map_err(|error| write_failure_status("Could not write", &temporary, &error))?;
         file.write_all(&bytes)
-            .map_err(|error| write_failure("Could not write", &temporary, &error))?;
+            .map_err(|error| write_failure_status("Could not write", &temporary, &error))?;
         file.sync_all()
-            .map_err(|error| write_failure("Could not flush", &temporary, &error))?;
+            .map_err(|error| write_failure_status("Could not flush", &temporary, &error))?;
     }
 
     if let Err(first_error) = std::fs::rename(&temporary, apps_path) {
         if apps_path.exists() {
             std::fs::remove_file(apps_path).map_err(|error| {
-                format!(
-                    "Could not replace {} (rename failed: {first_error}; remove failed: {error}). The backup is kept.",
-                    apps_path.display()
-                )
+                WriteFailure {
+                    message: format!(
+                        "Could not replace {} (rename failed: {first_error}; remove failed: {error}). The backup is kept.",
+                        apps_path.display()
+                    ),
+                    needs_elevation: needs_elevation(apps_path, &error)
+                        || needs_elevation(apps_path, &first_error),
+                }
             })?;
             std::fs::rename(&temporary, apps_path)
-                .map_err(|error| write_failure("Could not replace", apps_path, &error))?;
+                .map_err(|error| write_failure_status("Could not replace", apps_path, &error))?;
         } else {
-            return Err(write_failure("Could not write", apps_path, &first_error));
+            return Err(write_failure_status(
+                "Could not write",
+                apps_path,
+                &first_error,
+            ));
         }
     }
 
@@ -1219,6 +1388,11 @@ pub fn sunshine_status(settings: &LocalSettings) -> SunshineStatus {
     }
 
     let detected = detection.paths.is_some() || detection.binary.is_some();
+    let needs_elevation = apps_path
+        .as_deref()
+        .map(Path::new)
+        .map(sunshine_needs_elevation)
+        .unwrap_or(false);
     let message = if !detected {
         "Sunshine was not found on this machine. Install Sunshine to publish the Ludex library as streaming apps."
             .to_string()
@@ -1252,6 +1426,7 @@ pub fn sunshine_status(settings: &LocalSettings) -> SunshineStatus {
         apps_found,
         entries,
         managed_entries,
+        needs_elevation,
         warnings,
         message,
     }
@@ -1267,6 +1442,285 @@ pub fn read_apps_text(status: &SunshineStatus) -> Result<Option<AppsFile>, Strin
         return Ok(None);
     }
     read_text_file(Path::new(path)).map(Some)
+}
+
+/* ------------------- One-time elevation (#182) ---------------------------- */
+
+/// Config folder of the detected Sunshine install: the parent of `apps.json`.
+/// Detection is the same one `sunshine_status` uses, so the frontend cannot
+/// point the permission change at an arbitrary folder.
+pub fn sunshine_grant_plan(settings: &LocalSettings) -> Result<PathBuf, String> {
+    sunshine_grant_plan_for(settings, platform_name(), home_dir().as_deref(), &env_map())
+}
+
+pub fn sunshine_grant_plan_for(
+    settings: &LocalSettings,
+    platform: &str,
+    home: Option<&Path>,
+    env: &BTreeMap<String, String>,
+) -> Result<PathBuf, String> {
+    let detection = detect_sunshine(settings, platform, home, env);
+    let Some(paths) = detection.paths else {
+        return Err(
+            "Sunshine's config folder was not found. Set it in Settings → Streaming or install Sunshine first."
+                .to_string(),
+        );
+    };
+    let apps = PathBuf::from(&paths.apps_json);
+    apps.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .ok_or_else(|| {
+            format!(
+                "Sunshine's apps.json has no config folder: {}.",
+                apps.display()
+            )
+        })
+}
+
+/// Canonicalise `dir` and accept it only below a `Program Files` root. The
+/// canonical form also rejects `..` traversals and symlinks (#182).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn validate_program_files_dir(dir: &Path, roots: &[PathBuf]) -> Result<PathBuf, String> {
+    let canonical = std::fs::canonicalize(dir).map_err(|error| {
+        format!(
+            "Could not resolve the Sunshine config folder {}: {error}.",
+            dir.display()
+        )
+    })?;
+    for root in roots {
+        let Ok(root) = std::fs::canonicalize(root) else {
+            continue;
+        };
+        if canonical == root || canonical.starts_with(&root) {
+            return Ok(canonical);
+        }
+    }
+    Err(format!(
+        "Refusing to change permissions on {}: it is not inside Program Files.",
+        canonical.display()
+    ))
+}
+
+/// Grant the current Windows account modify rights on Sunshine's config folder
+/// after one UAC prompt. Never called automatically and never writes
+/// `apps.json`; the UI retries the publish afterwards (#182).
+pub fn grant_sunshine_write_access(settings: &LocalSettings) -> Result<SunshineGrant, String> {
+    if !cfg!(windows) {
+        return Err(
+            "Granting write access is only available on Windows. Point Sunshine at a user-writable config folder instead."
+                .to_string(),
+        );
+    }
+    let config_dir = sunshine_grant_plan(settings)?;
+    grant_config_write_access(&config_dir)
+}
+
+#[cfg(not(windows))]
+fn grant_config_write_access(config_dir: &Path) -> Result<SunshineGrant, String> {
+    let _ = config_dir;
+    Err(
+        "Granting write access is only available on Windows. Point Sunshine at a user-writable config folder instead."
+            .to_string(),
+    )
+}
+
+#[cfg(windows)]
+fn grant_config_write_access(config_dir: &Path) -> Result<SunshineGrant, String> {
+    let roots = program_files_roots(&env_map());
+    let config_dir = validate_program_files_dir(config_dir, &roots)?;
+    let apps_path = config_dir.join("apps.json");
+    if sunshine_config_writable(&apps_path) {
+        return Ok(SunshineGrant {
+            status: "granted".to_string(),
+            path: Some(config_dir.to_string_lossy().to_string()),
+            message: "Sunshine's config folder is already writable; nothing was changed."
+                .to_string(),
+        });
+    }
+
+    let dir = config_dir.to_string_lossy();
+    if dir.contains('"') {
+        return Err(format!(
+            "Refusing to change permissions on {dir}: the path contains an unsupported character."
+        ));
+    }
+
+    let script = windows_grant_script(&config_dir);
+    let encoded = encode_powershell(&script);
+    let output = {
+        use std::os::windows::process::CommandExt;
+        let mut command = Command::new("powershell.exe");
+        command
+            .args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &encoded])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            // CREATE_NO_WINDOW: the helper itself must not flash a console.
+            .creation_flags(0x0800_0000);
+        command.output().map_err(|error| {
+            format!("Could not start PowerShell for the permission prompt: {error}.")
+        })?
+    };
+
+    let mut detail = String::from_utf8_lossy(&output.stderr).to_string();
+    if detail.trim().is_empty() {
+        detail = String::from_utf8_lossy(&output.stdout).to_string();
+    }
+    Ok(grant_outcome(
+        output.status.code(),
+        &detail,
+        &config_dir,
+        &apps_path,
+        sunshine_config_writable(&apps_path),
+    ))
+}
+
+/// Map the elevated `icacls` exit code to the typed result (#182). Pure so the
+/// mapping is testable without running `icacls`.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn grant_outcome(
+    exit_code: Option<i32>,
+    detail: &str,
+    config_dir: &Path,
+    apps_path: &Path,
+    writable: bool,
+) -> SunshineGrant {
+    let path = Some(config_dir.to_string_lossy().to_string());
+    // ERROR_CANCELLED: the user declined the UAC prompt.
+    if exit_code == Some(1223) {
+        return SunshineGrant {
+            status: "cancelled".to_string(),
+            path,
+            message: "The elevation prompt was cancelled; nothing was changed.".to_string(),
+        };
+    }
+    if exit_code != Some(0) {
+        return SunshineGrant {
+            status: "failed".to_string(),
+            path,
+            message: format!(
+                "Windows did not grant write access: {}",
+                grant_detail(detail)
+            ),
+        };
+    }
+    if !writable {
+        return SunshineGrant {
+            status: "failed".to_string(),
+            path,
+            message: format!(
+                "Windows accepted the permission change, but {} is still not writable. Point Sunshine at a user-writable config folder instead.",
+                apps_path.display()
+            ),
+        };
+    }
+    SunshineGrant {
+        status: "granted".to_string(),
+        path,
+        message: format!(
+            "This account can now modify {}. Retry the publish.",
+            config_dir.display()
+        ),
+    }
+}
+
+/// First usable line of the helper output, bounded and single-line (#182).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn grant_detail(detail: &str) -> String {
+    let line = detail
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("the permission change failed");
+    line.chars().take(300).collect()
+}
+
+/// PowerShell script launched with `-EncodedCommand`: it starts exactly one
+/// elevated `icacls` for the current identity (#182).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn windows_grant_script(config_dir: &Path) -> String {
+    let dir = config_dir.to_string_lossy().replace('\'', "''");
+    format!(
+        "$ErrorActionPreference = 'Stop'\n\
+         $dir = '{dir}'\n\
+         $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name\n\
+         if ($dir.Contains('\"') -or $user.Contains('\"')) {{ Write-Error 'Unsupported character in the Sunshine path.'; exit 1 }}\n\
+         try {{\n\
+         \x20 $arguments = @('\"' + $dir + '\"', '/grant', '\"' + $user + ':(OI)(CI)M\"', '/Q')\n\
+         \x20 $process = Start-Process -FilePath 'icacls.exe' -ArgumentList ($arguments -join ' ') -Verb RunAs -Wait -PassThru\n\
+         \x20 exit $process.ExitCode\n\
+         }} catch {{\n\
+         \x20 if ($_.Exception.HResult -eq -2147023673) {{ exit 1223 }}\n\
+         \x20 Write-Error $_.Exception.Message\n\
+         \x20 exit 1\n\
+         }}\n"
+    )
+}
+
+/// Encode a PowerShell script for `-EncodedCommand`: UTF-16LE, base64 (#182).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn encode_powershell(script: &str) -> String {
+    let mut bytes = Vec::with_capacity(script.len() * 2);
+    for unit in script.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    base64_encode(&bytes)
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn base64_encode(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let first = chunk[0] as u32;
+        let second = *chunk.get(1).unwrap_or(&0) as u32;
+        let third = *chunk.get(2).unwrap_or(&0) as u32;
+        let triple = (first << 16) | (second << 8) | third;
+        out.push(TABLE[((triple >> 18) & 0x3f) as usize] as char);
+        out.push(TABLE[((triple >> 12) & 0x3f) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            TABLE[((triple >> 6) & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[(triple & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// True when this account can create the temp/backup files next to
+/// `apps.json` (#182). Used only after the elevated grant to report a partial
+/// success instead of letting the next publish fail again.
+#[cfg(windows)]
+fn sunshine_config_writable(apps_path: &Path) -> bool {
+    if apps_path.is_file()
+        && std::fs::OpenOptions::new()
+            .write(true)
+            .open(apps_path)
+            .is_err()
+    {
+        return false;
+    }
+    let Some(dir) = apps_path.parent() else {
+        return false;
+    };
+    let probe = dir.join(".ludex-write-test.tmp");
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+    {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 /* ------------------------------- Moonlight -------------------------------- */
@@ -2794,6 +3248,237 @@ customname=Deck
         let message = write_failure_message(Path::new("/opt/sunshine/apps.json"), &missing);
         assert!(!message.contains("elevated"));
         assert!(message.contains("Nothing was changed"));
+    }
+
+    fn program_files_roots_fixture() -> Vec<PathBuf> {
+        vec![
+            PathBuf::from("C:\\Program Files"),
+            PathBuf::from("C:\\Program Files (x86)"),
+        ]
+    }
+
+    #[test]
+    fn program_files_roots_are_read_case_insensitively() {
+        let mut env = BTreeMap::new();
+        env.insert("PROGRAMFILES".to_string(), "C:\\Program Files".to_string());
+        env.insert(
+            "programfiles(x86)".to_string(),
+            "C:\\Program Files (x86)".to_string(),
+        );
+        assert_eq!(
+            program_files_roots(&env),
+            vec![
+                PathBuf::from("C:\\Program Files"),
+                PathBuf::from("C:\\Program Files (x86)")
+            ]
+        );
+
+        let mut empty = BTreeMap::new();
+        empty.insert("ProgramFiles".to_string(), "  ".to_string());
+        assert!(program_files_roots(&empty).is_empty());
+    }
+
+    #[test]
+    fn path_containment_is_case_insensitive_and_rejects_prefix_traps() {
+        let roots = program_files_roots_fixture();
+        assert!(path_under_roots(
+            Path::new("C:\\Program Files\\Sunshine\\config\\apps.json"),
+            &roots
+        ));
+        assert!(path_under_roots(
+            Path::new("c:/program files (x86)/Sunshine/config/apps.json"),
+            &roots
+        ));
+        // `Program FilesEvil` starts with the same text but is another folder.
+        assert!(!path_under_roots(
+            Path::new("C:\\Program FilesEvil\\Sunshine\\config\\apps.json"),
+            &roots
+        ));
+        assert!(!path_under_roots(
+            Path::new("C:\\ProgramData\\Sunshine"),
+            &roots
+        ));
+    }
+
+    #[test]
+    fn needs_elevation_only_follows_denials_under_program_files() {
+        let roots = program_files_roots_fixture();
+        let denied = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
+        let missing = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
+
+        assert!(needs_elevation_at(
+            Path::new("C:\\Program Files\\Sunshine\\config\\apps.json"),
+            &denied,
+            &roots
+        ));
+        assert!(needs_elevation_at(
+            Path::new("C:\\Program Files (x86)\\Sunshine\\config\\apps.json"),
+            &denied,
+            &roots
+        ));
+        assert!(!needs_elevation_at(
+            Path::new("C:\\Program Files\\Sunshine\\config\\apps.json"),
+            &missing,
+            &roots
+        ));
+        assert!(!needs_elevation_at(
+            Path::new("C:\\Users\\me\\AppData\\Local\\Sunshine\\apps.json"),
+            &denied,
+            &roots
+        ));
+        assert!(!needs_elevation_at(
+            Path::new("/opt/sunshine/apps.json"),
+            &denied,
+            &roots
+        ));
+    }
+
+    #[test]
+    fn the_write_failure_flag_reaches_the_sync_error() {
+        let failure = WriteFailure {
+            message: "Could not back up C:\\Program Files\\Sunshine\\config\\apps.json."
+                .to_string(),
+            needs_elevation: true,
+        };
+        let error = SunshineError::write_failure(failure.clone());
+        assert!(error.needs_elevation);
+        assert_eq!(error.code, "sunshine_needs_elevation");
+        assert_eq!(error.message, failure.message);
+
+        let plain = SunshineError::write_failure(WriteFailure::plain("disk full"));
+        assert!(!plain.needs_elevation);
+        assert_eq!(plain.code, "sunshine_write_failed");
+        assert_eq!(
+            SunshineError::from("no folder".to_string()).code,
+            "sunshine_error"
+        );
+
+        // The web branch reads the camelCase field, not the message (#182).
+        let json = serde_json::to_value(&error).unwrap();
+        assert_eq!(json["needsElevation"], Value::Bool(true));
+        assert_eq!(json["code"], "sunshine_needs_elevation");
+    }
+
+    #[test]
+    fn program_files_grant_validation_accepts_only_its_own_tree() {
+        let root = temp_dir("grant-validation");
+        let program_files = root.join("Program Files");
+        let config = program_files.join("Sunshine").join("config");
+        std::fs::create_dir_all(&config).unwrap();
+        let elsewhere = root.join("Games").join("Sunshine");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let other_arch = root.join("Program Files (x86)").join("Sunshine");
+        std::fs::create_dir_all(&other_arch).unwrap();
+        let roots = vec![program_files.clone()];
+
+        let accepted = validate_program_files_dir(&config, &roots).unwrap();
+        assert_eq!(accepted, std::fs::canonicalize(&config).unwrap());
+        assert!(validate_program_files_dir(&elsewhere, &roots).is_err());
+        // The other architecture is a separate root, not a child of this one.
+        assert!(validate_program_files_dir(&other_arch, &roots).is_err());
+        // `..` traversal resolves outside Program Files and is refused.
+        let escape = program_files
+            .join("Sunshine")
+            .join("..")
+            .join("..")
+            .join("Games");
+        assert!(validate_program_files_dir(&escape, &roots).is_err());
+        // Missing folders are refused instead of being created.
+        assert!(validate_program_files_dir(&root.join("missing"), &roots).is_err());
+
+        let both = vec![program_files, root.join("Program Files (x86)")];
+        assert!(validate_program_files_dir(&other_arch, &both).is_ok());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_grant_plan_comes_from_the_detected_sunshine_config() {
+        let root = temp_dir("grant-plan");
+        let program_files = root.join("Program Files");
+        let config = program_files.join("Sunshine").join("config");
+        std::fs::create_dir_all(&config).unwrap();
+        let apps = config.join("apps.json");
+        let mut env = BTreeMap::new();
+        env.insert(
+            "ProgramFiles".to_string(),
+            program_files.to_string_lossy().to_string(),
+        );
+        let settings = LocalSettings {
+            sunshine_apps_path: apps.to_string_lossy().to_string(),
+            ..LocalSettings::default()
+        };
+
+        let plan = sunshine_grant_plan_for(&settings, "windows", None, &env).unwrap();
+        assert_eq!(plan, config);
+
+        let missing = LocalSettings::default();
+        assert!(sunshine_grant_plan_for(&missing, "linux", None, &BTreeMap::new()).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_grant_script_grants_modify_rights_to_the_current_identity() {
+        let script = windows_grant_script(Path::new("C:\\Program Files\\Sunshine\\config"));
+        assert!(script.contains("Start-Process"));
+        assert!(script.contains("icacls.exe"));
+        assert!(script.contains("-Verb RunAs"));
+        assert!(script.contains("-Wait"));
+        assert!(script.contains("-PassThru"));
+        assert!(script.contains("[System.Security.Principal.WindowsIdentity]::GetCurrent().Name"));
+        assert!(script.contains("'/grant'"));
+        assert!(script.contains(":(OI)(CI)M"));
+        assert!(script.contains("C:\\Program Files\\Sunshine\\config"));
+        assert!(script.contains("exit 1223"));
+        // A single quote in the path is doubled for the PowerShell literal.
+        let quoted = windows_grant_script(Path::new("C:\\Program Files\\O'Brien\\config"));
+        assert!(quoted.contains("O''Brien"));
+    }
+
+    #[test]
+    fn encoded_commands_are_utf16le_base64() {
+        assert_eq!(encode_powershell("A"), "QQA=");
+        assert_eq!(encode_powershell("AB"), "QQBCAA==");
+        let script = windows_grant_script(Path::new("C:\\Program Files\\Sunshine\\config"));
+        let encoded = encode_powershell(&script);
+        let utf16_bytes = script.encode_utf16().count() * 2;
+        assert_eq!(encoded.len(), (utf16_bytes + 2) / 3 * 4);
+        assert!(encoded
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '/' | '=')));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn granting_write_access_is_unsupported_off_windows() {
+        let error = grant_sunshine_write_access(&LocalSettings::default()).unwrap_err();
+        assert!(error.contains("only available on Windows"));
+        assert!(error.contains("user-writable"));
+    }
+
+    #[test]
+    fn grant_outcomes_map_to_granted_cancelled_and_failed() {
+        let dir = Path::new("C:\\Program Files\\Sunshine\\config");
+        let apps = Path::new("C:\\Program Files\\Sunshine\\config\\apps.json");
+
+        let cancelled = grant_outcome(Some(1223), "", dir, apps, false);
+        assert_eq!(cancelled.status, "cancelled");
+        assert!(cancelled.message.contains("nothing was changed"));
+
+        let failed = grant_outcome(Some(5), "Access is denied.", dir, apps, false);
+        assert_eq!(failed.status, "failed");
+        assert!(failed.message.contains("Access is denied"));
+
+        let unchanged = grant_outcome(Some(0), "", dir, apps, false);
+        assert_eq!(unchanged.status, "failed");
+        assert!(unchanged.message.contains("still not writable"));
+
+        let granted = grant_outcome(Some(0), "", dir, apps, true);
+        assert_eq!(granted.status, "granted");
+        assert_eq!(
+            granted.path.as_deref(),
+            Some("C:\\Program Files\\Sunshine\\config")
+        );
+        assert!(granted.message.contains("Retry the publish"));
     }
 
     #[cfg(unix)]

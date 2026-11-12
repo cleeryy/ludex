@@ -267,6 +267,7 @@ pub fn run() {
             commands::sunshine_preview,
             commands::sunshine_sync,
             commands::sunshine_remove_managed,
+            commands::grant_sunshine_write_access,
             commands::moonlight_status,
             commands::stream_target,
             commands::stream_game,

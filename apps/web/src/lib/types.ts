@@ -1603,6 +1603,8 @@ export interface SunshineStatus {
   appsFound: boolean;
   entries: number;
   managedEntries: number;
+  /** Windows denies writes to the detected apps.json; a one-time grant fixes it (#182). */
+  needsElevation: boolean;
   warnings: string[];
   message: string;
 }
@@ -1651,6 +1653,24 @@ export interface SunshineReport {
   removed: number;
   managedEntries: number;
   skipped: SunshineSkipped[];
+  message: string;
+}
+
+/**
+ * Rejection payload of `sunshine_sync` (#182). A plain string is still possible
+ * from older desktop builds, so read `message` with `errorMessage()`.
+ */
+export interface SunshineError {
+  code: "sunshine_error" | "sunshine_write_failed" | "sunshine_needs_elevation";
+  message: string;
+  needsElevation: boolean;
+}
+
+/** Result of `grant_sunshine_write_access` (#182). */
+export interface SunshineGrant {
+  /** `cancelled` means the user declined the one UAC prompt; nothing changed. */
+  status: "granted" | "cancelled" | "failed";
+  path: string | null;
   message: string;
 }
 

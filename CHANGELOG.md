@@ -11,6 +11,10 @@ All notable changes to Ludex are documented here. The format is based on
 - Windows desktop updates now show the new web UI immediately: Tauri no longer
   registers the PWA service worker, and the WebView2 `Service Worker`/`Cache`
   directories are reset once per app version before the window opens (#177).
+- Sunshine publishing from a Program Files install now offers an explicit
+  one-time UAC grant for the config folder instead of requiring Ludex to run as
+  administrator; cancelling changes nothing and later syncs work without a
+  prompt (#182).
 
 ## [0.4.0] - 2026-11-12
 
