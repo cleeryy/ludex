@@ -6,6 +6,39 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Backup and restore from the admin UI (#169): list/create (dry-run, media,
+  S3), verify, download, restore with checksum preview + typed confirmation and
+  a mandatory safety copy, delete; confined to `LUDEX_BACKUP_DIR`, audited.
+- Admin observability dashboard (#170): bounded 1 h/24 h snapshot of requests,
+  latency, error classes, active work, DB pool/size, storage roots/media/saves/
+  backups, audit events, webhook failures and integrity findings, with SVG
+  sparklines and Prometheus links.
+- Opt-in anonymous diagnostics (#171): default-OFF local redacted crash/error
+  reports with exact-payload preview, manual send, delete; bounded rate-limited
+  server storage with admin view; shared redaction of paths/users/IPs/tokens.
+- Ludex console mode (#172): Sunshine publishes one managed `Ludex` console app
+  whose command opens Big Picture fullscreen (`--console`), migrates per-game
+  entries on first sync, no tray/close-to-tray, configurable exit chord.
+- Shareable collections (#173): private/unlisted/public visibility, expiring
+  optional-password public token pages with no user data, copy-to-collections
+  with per-name idempotency, visibility-aware profiles/feed.
+- Mobile companion (#167): phone PWA remote-install queue (`/remote`) with
+  progress, desktop claim through the Tauri shell, status/retry/cancel, PWA
+  shortcut; documented VPN/reverse-proxy remote access (no bundled tunnel).
+- Library Health Center (#165): cached report of missing/unavailable archives,
+  orphaned media/games, duplicates, metadata gaps, count mismatches and
+  integrity findings with evidence and explicit repairs (never deletes archives).
+- Invitations and account security (#166): expiring single-use invitation links
+  and public accept page, TOTP 2FA with recovery codes and no session before
+  2FA, session/device list with revoke one/all, admin password reset that evicts
+  devices (passkeys documented as a follow-up).
+- Community phase 2 (#161): friend requests/accept/decline/remove, blocks,
+  privacy-gated presence and friends-only activity, in-app notifications
+  (read/all-read, retention) with a bell, friend achievement/collection events.
+- Public download page scrolling fix is listed below (#176).
+
 ### Fixed
 
 - Public pages scroll again (#176): `body { overflow: hidden }` (the app shell's
