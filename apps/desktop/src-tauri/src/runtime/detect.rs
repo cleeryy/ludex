@@ -9,7 +9,6 @@ use serde::Serialize;
 #[cfg(test)]
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use super::{Platform, ProviderKind, RuntimeCatalog, RuntimeInstallRow, RuntimeProvider};
 
@@ -73,7 +72,8 @@ impl HostInfo {
 fn os_version() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
-        let output = Command::new("sw_vers")
+        // #181: an internal probe; it must never open a terminal window.
+        let output = crate::process::capture("sw_vers")
             .arg("-productVersion")
             .output()
             .ok()?;
@@ -95,7 +95,7 @@ fn is_elevated() -> bool {
     {
         // A fixed call, no shell. High integrity (S-1-16-12288) or System
         // (S-1-16-16384) means the UAC prompt was already accepted.
-        match Command::new("whoami").args(["/groups"]).output() {
+        match crate::process::capture("whoami").args(["/groups"]).output() {
             Ok(output) if output.status.success() => {
                 let text = String::from_utf8_lossy(&output.stdout);
                 text.contains("S-1-16-12288") || text.contains("S-1-16-16384")
@@ -105,7 +105,7 @@ fn is_elevated() -> bool {
     }
     #[cfg(unix)]
     {
-        match Command::new("id").arg("-u").output() {
+        match crate::process::capture("id").arg("-u").output() {
             Ok(output) if output.status.success() => {
                 String::from_utf8_lossy(&output.stdout).trim() == "0"
             }

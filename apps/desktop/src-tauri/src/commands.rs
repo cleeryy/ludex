@@ -776,7 +776,7 @@ pub async fn run_installer(
     let mut prefix_used: Option<PathBuf> = None;
     let mut log_path: Option<PathBuf> = None;
 
-    let base = if cfg!(windows) {
+    let mut base = if cfg!(windows) {
         installer::Invocation::direct(installer_path.clone(), install_root.clone())
     } else if cfg!(all(unix, not(target_os = "macos"))) {
         let prefix = linux_gaming::prefix_for(&install_root, &options.prefix_path)?;
@@ -812,6 +812,10 @@ pub async fn run_installer(
                 .to_string(),
         );
     };
+
+    // #181: tell the runner explicitly whether the user asked to watch
+    // setup.exe. Only an interactive run may keep its console window.
+    base.interactive = interactive;
 
     let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     {

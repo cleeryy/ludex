@@ -470,6 +470,8 @@ fn linux_prepare_launch(
     let plan = linux_gaming::build_launch(&selection, executable, &extra, prefix, options)?;
 
     let mut command = Command::new(&plan.program);
+    // #181 user-visible: the game (here through Wine/Proton) keeps its own
+    // window; only internal probes are hidden.
     command
         .args(&plan.args)
         .current_dir(working_dir)
@@ -877,6 +879,7 @@ fn ensure_executable_permission(path: &Path) -> Result<(), String> {
 
 #[cfg(windows)]
 fn platform_command(executable: &Path) -> Result<Command, String> {
+    // #181 user-visible: the game keeps its own window.
     Ok(Command::new(executable))
 }
 
@@ -921,10 +924,12 @@ fn platform_command(executable: &Path) -> Result<Command, String> {
         .unwrap_or(false)
         || executable.is_dir();
     if is_bundle {
+        // #181 user-visible: `open` hands the bundle to LaunchServices.
         let mut command = Command::new("open");
         command.arg(executable);
         Ok(command)
     } else {
+        // #181 user-visible: the game keeps its own window.
         Ok(Command::new(executable))
     }
 }
@@ -943,15 +948,18 @@ fn platform_command(executable: &Path) -> Result<Command, String> {
                 "Wine is required to run Windows games on Linux. Install wine and try again."
                     .to_string()
             })?;
+            // #181 user-visible: the game keeps its own window.
             let mut command = Command::new(wine);
             command.arg(executable);
             Ok(command)
         }
         "sh" => {
+            // #181 user-visible: the game keeps its own window.
             let mut command = Command::new("sh");
             command.arg(executable);
             Ok(command)
         }
+        // #181 user-visible: the game keeps its own window.
         _ => Ok(Command::new(executable)),
     }
 }

@@ -302,12 +302,9 @@ pub fn launch_rom(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        process.creation_flags(CREATE_NO_WINDOW);
-    }
+    // #181: the emulator is a GUI app; only its console window is suppressed,
+    // through the same helper every other spawn uses.
+    crate::process::hide_console(&mut process);
     let child = process
         .spawn()
         .map_err(|error| format!("Could not start {}: {error}", command.program))?;

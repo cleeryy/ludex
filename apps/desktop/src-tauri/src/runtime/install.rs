@@ -803,9 +803,14 @@ fn run_installer(
     run_command(archive, &install.args, cancel)
 }
 
+/// Run one installer step with fixed arguments. Exit code 3010 means "reboot
+/// required" and is a success.
+///
+/// Every runtime installer in the catalog is silent: the shipped install spec
+/// only carries fixed switch sets (`/quiet`, `/silent`, `/Q`), so the child
+/// must never show a console window (#181).
 fn run_command(program: &Path, args: &[String], cancel: &CancellationToken) -> Result<i32, String> {
-    use std::process::Command;
-    let mut child = Command::new(program)
+    let mut child = crate::process::command(program)
         .args(args)
         .spawn()
         .map_err(|error| format!("Could not run {}: {error}", program.display()))?;
