@@ -3446,5 +3446,12 @@
   "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "Limita cada download (instalações, reparos e instalações em streaming) em Mb/s. Use 0 para sem limite.",
   "Connection recovery": "Recuperação de conexão",
   "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "O Ludex aborta uma resposta que fica silenciosa por esse número de segundos e retoma do último byte recebido. Uma transferência que continua recebendo dados nunca é interrompida.",
-  "Connection lost, resuming from {percent}": "Conexão perdida, retomando em {percent}"
+  "Connection lost, resuming from {percent}": "Conexão perdida, retomando em {percent}",
+  "{service} address": "Endereço do {service}",
+  "IPv6 address": "Endereço IPv6",
+  "Local address": "Endereço local",
+  "no address on {interfaces}": "sem endereço em {interfaces}",
+  "Other addresses": "Outros endereços",
+  "The VPN is detected on {interfaces} but has no address. Copy the address from the VPN service; the LAN address above only works at home.": "A VPN foi detectada em {interfaces}, mas não tem endereço. Copie o endereço do serviço de VPN; o endereço de LAN acima só funciona em casa.",
+  "this machine": "este computador"
 }

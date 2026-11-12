@@ -1,0 +1,244 @@
+- generic [ref=f4e2]:
+  - generic [ref=f4e2090]:
+    - link "Skip to content" [ref=f4e2091] [cursor=pointer]:
+      - /url: "#main-content"
+    - banner [ref=f4e2092]:
+      - link "Ludex home" [ref=f4e2094] [cursor=pointer]:
+        - /url: "#/"
+        - img "Ludex" [ref=f4e2095]
+      - generic [ref=f4e2104]:
+        - button "Search games ⌘K" [ref=f4e2105] [cursor=pointer]:
+          - generic [ref=f4e2109]: Search games
+          - generic [ref=f4e2110]: ⌘K
+        - generic [ref=f4e2111]:
+          - button "Pick a random game" [ref=f4e2112] [cursor=pointer]
+          - button "Big Picture mode" [ref=f4e2116] [cursor=pointer]
+          - button "Notifications" [ref=f4e2119] [cursor=pointer]
+          - 'button "Server: localhost:5199" [ref=f4e2126] [cursor=pointer]':
+            - generic [ref=f4e2128]: localhost:5199
+          - button "Account menu for mara" [ref=f4e2131] [cursor=pointer]:
+            - generic [ref=f4e2132]: MA
+            - generic [ref=f4e2134]: mara
+    - generic [ref=f4e2137]:
+      - complementary "Sidebar" [ref=f4e2138]:
+        - generic [ref=f4e2139]:
+          - navigation "Main navigation" [ref=f4e2140]:
+            - generic [ref=f4e2142]:
+              - button "Library" [expanded] [ref=f4e2143] [cursor=pointer]
+              - list "Library" [ref=f4e2147]:
+                - listitem [ref=f4e2148]:
+                  - link "Home g h" [ref=f4e2149] [cursor=pointer]:
+                    - /url: "#/"
+                    - generic [ref=f4e2153]: Home
+                    - generic [ref=f4e2154]: g h
+                - listitem [ref=f4e2155]:
+                  - link "Library g l" [ref=f4e2156] [cursor=pointer]:
+                    - /url: "#/library"
+                    - generic [ref=f4e2159]: Library
+                    - generic [ref=f4e2160]: g l
+                - listitem [ref=f4e2161]:
+                  - link "Recently played" [ref=f4e2162] [cursor=pointer]:
+                    - /url: "#/recent"
+                - listitem [ref=f4e2167]:
+                  - link "Bookmarks g b" [ref=f4e2168] [cursor=pointer]:
+                    - /url: "#/bookmarks"
+                    - generic [ref=f4e2171]: Bookmarks
+                    - generic [ref=f4e2172]: g b
+                - listitem [ref=f4e2173]:
+                  - link "Collections" [ref=f4e2174] [cursor=pointer]:
+                    - /url: "#/collections"
+            - generic [ref=f4e2178]:
+              - button "Play" [expanded] [ref=f4e2179] [cursor=pointer]
+              - list "Play" [ref=f4e2183]:
+                - listitem [ref=f4e2184]:
+                  - link "Downloads 2" [ref=f4e2185] [cursor=pointer]:
+                    - /url: "#/downloads"
+                    - generic [ref=f4e2189]: Downloads
+                    - generic [ref=f4e2190]: "2"
+                - listitem [ref=f4e2191]:
+                  - link "Remote installs" [ref=f4e2192] [cursor=pointer]:
+                    - /url: "#/remote"
+                - listitem [ref=f4e2197]:
+                  - link "Big Picture mode" [ref=f4e2198] [cursor=pointer]:
+                    - /url: "#/bigpicture"
+                - listitem [ref=f4e2202]:
+                  - link "Updates" [ref=f4e2203] [cursor=pointer]:
+                    - /url: "#/updates"
+            - generic [ref=f4e2211]:
+              - button "Community" [expanded] [ref=f4e2212] [cursor=pointer]
+              - list "Community" [ref=f4e2216]:
+                - listitem [ref=f4e2217]:
+                  - link "Community" [ref=f4e2218] [cursor=pointer]:
+                    - /url: "#/community"
+                - listitem [ref=f4e2225]:
+                  - link "News" [ref=f4e2226] [cursor=pointer]:
+                    - /url: "#/news"
+            - button "Admin" [ref=f4e2232] [cursor=pointer]
+          - generic [ref=f4e2236]:
+            - list "Settings and help" [ref=f4e2237]:
+              - listitem [ref=f4e2238]:
+                - link "Settings g s" [ref=f4e2239] [cursor=pointer]:
+                  - /url: "#/settings"
+                  - generic [ref=f4e2243]: Settings
+                  - generic [ref=f4e2244]: g s
+              - listitem [ref=f4e2245]:
+                - button "Help ?" [ref=f4e2246] [cursor=pointer]:
+                  - generic [ref=f4e2250]: Help
+                  - generic [ref=f4e2251]: "?"
+            - generic [ref=f4e2252]:
+              - generic [ref=f4e2254]: Ludex Archive
+              - generic [ref=f4e2255]: v0.1.0
+              - generic [ref=f4e2256]: Demo
+      - main [ref=f4e2257]:
+        - generic [ref=f4e2258]:
+          - generic [ref=f4e2259]:
+            - heading "Settings" [level=1] [ref=f4e2261]
+            - generic [ref=f4e2262]: Signed in as mara
+            - paragraph [ref=f4e2264]: Everything that applies to this account, this browser and this device.
+          - generic [ref=f4e2265]:
+            - navigation "Settings sections" [ref=f4e2266]:
+              - generic [ref=f4e2267]:
+                - generic [ref=f4e2268]: Find a setting
+                - searchbox "Find a setting" [ref=f4e2269]
+              - paragraph [ref=f4e2270]: Categories
+              - list [ref=f4e2271]:
+                - listitem [ref=f4e2272]:
+                  - link "Account" [ref=f4e2273] [cursor=pointer]:
+                    - /url: "#/settings?section=account"
+                - listitem [ref=f4e2279]:
+                  - link "Appearance" [ref=f4e2280] [cursor=pointer]:
+                    - /url: "#/settings?section=appearance"
+                - listitem [ref=f4e2289]:
+                  - link "Language" [ref=f4e2290] [cursor=pointer]:
+                    - /url: "#/settings?section=language"
+                - listitem [ref=f4e2297]:
+                  - link "Storage" [ref=f4e2298] [cursor=pointer]:
+                    - /url: "#/settings?section=storage"
+                - listitem [ref=f4e2303]:
+                  - link "Downloads" [ref=f4e2304] [cursor=pointer]:
+                    - /url: "#/settings?section=downloads"
+                - listitem [ref=f4e2310]:
+                  - link "Saves and cloud" [ref=f4e2311] [cursor=pointer]:
+                    - /url: "#/settings?section=saves"
+                - listitem [ref=f4e2317]:
+                  - link "Integrations" [ref=f4e2318] [cursor=pointer]:
+                    - /url: "#/settings?section=integrations"
+                - listitem [ref=f4e2323]:
+                  - link "Profiles" [ref=f4e2324] [cursor=pointer]:
+                    - /url: "#/settings?section=profiles"
+                - listitem [ref=f4e2329]:
+                  - link "Updates" [ref=f4e2330] [cursor=pointer]:
+                    - /url: "#/settings?section=updates"
+                - listitem [ref=f4e2338]:
+                  - link "Help and about" [ref=f4e2339] [cursor=pointer]:
+                    - /url: "#/settings?section=help"
+            - region [ref=f4e2346]:
+              - generic [ref=f4e2348]:
+                - heading "Account" [level=2] [ref=f4e2349]
+                - generic [ref=f4e2350]: Your sign-in, your password and the profile other members can see.
+              - generic [ref=f4e2351]:
+                - generic [ref=f4e2352]:
+                  - generic [ref=f4e2353]:
+                    - term [ref=f4e2354]: Username
+                    - definition [ref=f4e2355]: mara
+                  - generic [ref=f4e2356]:
+                    - term [ref=f4e2357]: Email
+                    - definition [ref=f4e2358]: mara@ludex.local
+                  - generic [ref=f4e2359]:
+                    - term [ref=f4e2360]: Role
+                    - definition [ref=f4e2361]: Administrator
+                  - generic [ref=f4e2362]:
+                    - term [ref=f4e2363]: Member since
+                    - definition [ref=f4e2364]: 11 Feb 2026
+                - generic [ref=f4e2365]:
+                  - generic [ref=f4e2367]:
+                    - heading "Avatar" [level=3] [ref=f4e2368]
+                    - paragraph [ref=f4e2369]: Your logo appears in the sidebar, on your public profile and next to your activity.
+                  - generic [ref=f4e2370]:
+                    - generic [ref=f4e2371]:
+                      - generic [ref=f4e2372]: MA
+                      - generic [ref=f4e2373]: Current avatar
+                    - generic [ref=f4e2374]:
+                      - generic [ref=f4e2375]:
+                        - paragraph [ref=f4e2380]: Drop an image here, or choose a file. PNG, JPEG or WebP, up to 2 MiB.
+                        - button "Choose image" [ref=f4e2381]
+                        - button "Choose image" [ref=f4e2382] [cursor=pointer]
+                      - paragraph [ref=f4e2386]: "Uploaded images are served from a public media URL: anyone with the link can view them, even when your profile is private."
+                      - generic [ref=f4e2387]: 2 MiB
+                - generic [ref=f4e2389]:
+                  - generic [ref=f4e2391]:
+                    - heading "Password" [level=3] [ref=f4e2392]
+                    - paragraph [ref=f4e2393]: Eight characters or more.
+                  - generic [ref=f4e2394]:
+                    - generic [ref=f4e2395]:
+                      - generic [ref=f4e2396]: Current password
+                      - textbox "Current password" [ref=f4e2398]
+                    - generic [ref=f4e2399]:
+                      - generic [ref=f4e2400]: New password
+                      - textbox "New password" [ref=f4e2402]
+                    - generic [ref=f4e2403]:
+                      - generic [ref=f4e2404]: Confirm new password
+                      - textbox "Confirm new password" [ref=f4e2406]
+                    - button "Change password" [ref=f4e2408] [cursor=pointer]
+                - generic [ref=f4e2409]:
+                  - generic [ref=f4e2411]:
+                    - heading "Community profile" [level=3] [ref=f4e2412]
+                    - paragraph [ref=f4e2413]: Opt in to a public page. Private accounts never appear in the feed or the member list.
+                  - paragraph [ref=f4e2414]: Loading your profile…
+                - generic [ref=f4e2415]:
+                  - generic [ref=f4e2417]:
+                    - heading "Notifications" [level=3] [ref=f4e2418]
+                    - paragraph [ref=f4e2419]: In-app notifications. Each kind can be muted without losing friend requests or the friends list itself.
+                  - paragraph [ref=f4e2420]: Loading notification preferences…
+                - generic [ref=f4e2421]:
+                  - generic [ref=f4e2422]:
+                    - generic [ref=f4e2423]:
+                      - heading "Two-factor authentication" [level=3] [ref=f4e2424]
+                      - paragraph [ref=f4e2425]: A six-digit code from an authenticator app is required after your password.
+                    - generic [ref=f4e2426]: "Off"
+                  - generic [ref=f4e2427]:
+                    - status [ref=f4e2428]: Loading…
+                    - paragraph [ref=f4e2431]: "Use any TOTP app: 1Password, Bitwarden, Aegis, Google Authenticator. Ludex shows the secret once."
+                    - button "Set up an authenticator" [ref=f4e2432] [cursor=pointer]
+                - generic [ref=f4e2436]:
+                  - generic [ref=f4e2438]:
+                    - heading "Active sessions" [level=3] [ref=f4e2439]
+                    - paragraph [ref=f4e2440]: Browsers and desktop apps signed in to this account. Revoke anything you do not recognise.
+                  - status [ref=f4e2442]: Loading…
+    - 'link "Downloads: Cat Quest II, 70 percent" [ref=f4e2445] [cursor=pointer]':
+      - /url: "#/downloads"
+      - generic [ref=f4e2451]: Cat Quest II
+      - generic [ref=f4e2452]: "+1"
+      - generic [ref=f4e2453]: 70%
+      - generic [ref=f4e2454]: 75 MB/s
+      - generic [ref=f4e2455]: 10m 23s left
+      - generic [ref=f4e2456]: Downloads
+    - dialog [active] [ref=f4e2460]:
+      - generic [ref=f4e2461]:
+        - generic [ref=f4e2462]:
+          - paragraph [ref=f4e2463]: Getting started
+          - heading "Welcome to Ludex" [level=2] [ref=f4e2467]
+        - button "Close onboarding" [ref=f4e2468] [cursor=pointer]
+      - generic [ref=f4e2473]:
+        - paragraph [ref=f4e2474]: Ludex indexes the archives on your disk and keeps progress, collections and saves per account. It never uploads your games to a third party.
+        - generic [ref=f4e2475]:
+          - generic [ref=f4e2476]:
+            - term [ref=f4e2477]: Library location
+            - definition [ref=f4e2478]: On the server
+          - generic [ref=f4e2479]:
+            - term [ref=f4e2480]: Connection
+            - definition [ref=f4e2481]: Remote server
+          - generic [ref=f4e2482]:
+            - term [ref=f4e2483]: Server
+            - definition [ref=f4e2484]: Ludex Archive
+        - paragraph [ref=f4e2485]: You can change all of this later. Nothing in this tour changes a setting for you.
+      - generic [ref=f4e2486]:
+        - generic [ref=f4e2487]:
+          - button "Skip for now" [ref=f4e2488] [cursor=pointer]
+          - button "Don’t show again" [ref=f4e2489] [cursor=pointer]
+        - generic [ref=f4e2490]:
+          - group "Step 1 of 7" [ref=f4e2491]
+          - generic [ref=f4e2499]:
+            - button "Back" [disabled]
+            - button "Next" [ref=f4e2500] [cursor=pointer]
+  - region "Notifications"

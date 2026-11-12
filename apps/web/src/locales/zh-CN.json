@@ -3446,5 +3446,12 @@
   "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "限制每次下载（安装、修复和流式安装）为 Mb/s。使用 0 表示不限制。",
   "Connection recovery": "连接恢复",
   "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex 在响应静默达到此秒数后中止，并从最后收到的字节继续。持续接收数据的传输不会被中断。",
-  "Connection lost, resuming from {percent}": "连接丢失，从 {percent} 处恢复"
+  "Connection lost, resuming from {percent}": "连接丢失，从 {percent} 处恢复",
+  "{service} address": "{service} 地址",
+  "IPv6 address": "IPv6 地址",
+  "Local address": "本地地址",
+  "no address on {interfaces}": "{interfaces} 上没有地址",
+  "Other addresses": "其他地址",
+  "The VPN is detected on {interfaces} but has no address. Copy the address from the VPN service; the LAN address above only works at home.": "已在 {interfaces} 上检测到 VPN，但没有地址。请从 VPN 服务复制地址；上面的局域网地址仅在家中可用。",
+  "this machine": "此设备"
 }

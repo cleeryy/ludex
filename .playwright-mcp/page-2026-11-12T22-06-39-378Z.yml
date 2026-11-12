@@ -1,0 +1,313 @@
+- generic [ref=f4e2]:
+  - generic [ref=f4e2090]:
+    - link "Skip to content" [ref=f4e2091] [cursor=pointer]:
+      - /url: "#main-content"
+    - banner [ref=f4e2092]:
+      - link "Ludex home" [ref=f4e2094] [cursor=pointer]:
+        - /url: "#/"
+        - img "Ludex" [ref=f4e2095]
+      - generic [ref=f4e2104]:
+        - button "Search games ⌘K" [ref=f4e2105] [cursor=pointer]:
+          - generic [ref=f4e2109]: Search games
+          - generic [ref=f4e2110]: ⌘K
+        - generic [ref=f4e2111]:
+          - button "Pick a random game" [ref=f4e2112] [cursor=pointer]
+          - button "Big Picture mode" [ref=f4e2116] [cursor=pointer]
+          - button "Notifications, 2 unread" [ref=f4e2503] [cursor=pointer]:
+            - generic [ref=f4e2120]: "2"
+          - 'button "Server: localhost:5199" [ref=f4e2126] [cursor=pointer]':
+            - generic [ref=f4e2128]: localhost:5199
+          - button "Account menu for mara" [ref=f4e2131] [cursor=pointer]:
+            - generic [ref=f4e2132]: MA
+            - generic [ref=f4e2134]: mara
+    - generic [ref=f4e2137]:
+      - complementary "Sidebar" [ref=f4e2138]:
+        - generic [ref=f4e2139]:
+          - navigation "Main navigation" [ref=f4e2140]:
+            - generic [ref=f4e2142]:
+              - button "Library" [expanded] [ref=f4e2143] [cursor=pointer]
+              - list "Library" [ref=f4e2147]:
+                - listitem [ref=f4e2148]:
+                  - link "Home g h" [ref=f4e2149] [cursor=pointer]:
+                    - /url: "#/"
+                    - generic [ref=f4e2153]: Home
+                    - generic [ref=f4e2154]: g h
+                - listitem [ref=f4e2155]:
+                  - link "Library 19" [ref=f4e2505] [cursor=pointer]:
+                    - /url: "#/library"
+                    - generic [ref=f4e2159]: Library
+                    - generic [ref=f4e2506]: "19"
+                - listitem [ref=f4e2161]:
+                  - link "Recently played" [ref=f4e2162] [cursor=pointer]:
+                    - /url: "#/recent"
+                - listitem [ref=f4e2167]:
+                  - link "Bookmarks g b" [ref=f4e2168] [cursor=pointer]:
+                    - /url: "#/bookmarks"
+                    - generic [ref=f4e2171]: Bookmarks
+                    - generic [ref=f4e2172]: g b
+                - listitem [ref=f4e2173]:
+                  - link "Collections" [ref=f4e2174] [cursor=pointer]:
+                    - /url: "#/collections"
+            - generic [ref=f4e2178]:
+              - button "Play" [expanded] [ref=f4e2179] [cursor=pointer]
+              - list "Play" [ref=f4e2183]:
+                - listitem [ref=f4e2184]:
+                  - link "Downloads 2" [ref=f4e2185] [cursor=pointer]:
+                    - /url: "#/downloads"
+                    - generic [ref=f4e2189]: Downloads
+                    - generic [ref=f4e2190]: "2"
+                - listitem [ref=f4e2191]:
+                  - link "Remote installs" [ref=f4e2192] [cursor=pointer]:
+                    - /url: "#/remote"
+                - listitem [ref=f4e2197]:
+                  - link "Big Picture mode" [ref=f4e2198] [cursor=pointer]:
+                    - /url: "#/bigpicture"
+                - listitem [ref=f4e2202]:
+                  - link "Updates" [ref=f4e2203] [cursor=pointer]:
+                    - /url: "#/updates"
+            - generic [ref=f4e2211]:
+              - button "Community" [expanded] [ref=f4e2212] [cursor=pointer]
+              - list "Community" [ref=f4e2216]:
+                - listitem [ref=f4e2217]:
+                  - link "Community" [ref=f4e2218] [cursor=pointer]:
+                    - /url: "#/community"
+                - listitem [ref=f4e2225]:
+                  - link "News" [ref=f4e2226] [cursor=pointer]:
+                    - /url: "#/news"
+            - button "Admin" [ref=f4e2232] [cursor=pointer]
+          - generic [ref=f4e2236]:
+            - list "Settings and help" [ref=f4e2237]:
+              - listitem [ref=f4e2238]:
+                - link "Settings g s" [ref=f4e2239] [cursor=pointer]:
+                  - /url: "#/settings"
+                  - generic [ref=f4e2243]: Settings
+                  - generic [ref=f4e2244]: g s
+              - listitem [ref=f4e2245]:
+                - button "Help ?" [ref=f4e2246] [cursor=pointer]:
+                  - generic [ref=f4e2250]: Help
+                  - generic [ref=f4e2251]: "?"
+            - generic [ref=f4e2252]:
+              - generic [ref=f4e2254]: Ludex Archive
+              - generic [ref=f4e2255]: v0.1.0
+              - generic [ref=f4e2256]: Demo
+      - main [ref=f4e2257]:
+        - generic [ref=f4e2258]:
+          - generic [ref=f4e2259]:
+            - heading "Settings" [level=1] [ref=f4e2261]
+            - generic [ref=f4e2262]: Signed in as mara
+            - paragraph [ref=f4e2264]: Everything that applies to this account, this browser and this device.
+          - generic [ref=f4e2265]:
+            - navigation "Settings sections" [ref=f4e2266]:
+              - generic [ref=f4e2267]:
+                - generic [ref=f4e2268]: Find a setting
+                - searchbox "Find a setting" [ref=f4e2269]
+              - paragraph [ref=f4e2270]: Categories
+              - list [ref=f4e2271]:
+                - listitem [ref=f4e2272]:
+                  - link "Account" [ref=f4e2273] [cursor=pointer]:
+                    - /url: "#/settings?section=account"
+                - listitem [ref=f4e2279]:
+                  - link "Appearance" [ref=f4e2280] [cursor=pointer]:
+                    - /url: "#/settings?section=appearance"
+                - listitem [ref=f4e2289]:
+                  - link "Language" [ref=f4e2290] [cursor=pointer]:
+                    - /url: "#/settings?section=language"
+                - listitem [ref=f4e2297]:
+                  - link "Storage" [ref=f4e2298] [cursor=pointer]:
+                    - /url: "#/settings?section=storage"
+                - listitem [ref=f4e2303]:
+                  - link "Downloads" [ref=f4e2304] [cursor=pointer]:
+                    - /url: "#/settings?section=downloads"
+                - listitem [ref=f4e2310]:
+                  - link "Saves and cloud" [ref=f4e2311] [cursor=pointer]:
+                    - /url: "#/settings?section=saves"
+                - listitem [ref=f4e2317]:
+                  - link "Integrations" [ref=f4e2318] [cursor=pointer]:
+                    - /url: "#/settings?section=integrations"
+                - listitem [ref=f4e2323]:
+                  - link "Profiles" [ref=f4e2324] [cursor=pointer]:
+                    - /url: "#/settings?section=profiles"
+                - listitem [ref=f4e2329]:
+                  - link "Updates" [ref=f4e2330] [cursor=pointer]:
+                    - /url: "#/settings?section=updates"
+                - listitem [ref=f4e2338]:
+                  - link "Help and about" [ref=f4e2339] [cursor=pointer]:
+                    - /url: "#/settings?section=help"
+            - region [ref=f4e2572]:
+              - generic [ref=f4e2348]:
+                - heading "Appearance" [active] [level=2] [ref=f4e2573]
+                - generic [ref=f4e2350]: Themes, accent colour and the shape of the window on this device.
+              - generic [ref=f4e2575]:
+                - generic [ref=f4e2576]:
+                  - generic [ref=f4e2577]:
+                    - generic [ref=f4e2578]:
+                      - paragraph [ref=f4e2579]: Theme
+                      - paragraph [ref=f4e2580]: Pick a theme. Changes apply immediately, in the library and in Big Picture.
+                    - generic [ref=f4e2581]: "Now: Follow the system"
+                  - generic [ref=f4e2582]:
+                    - button "Follow the system — Light" [pressed] [ref=f4e2584] [cursor=pointer]:
+                      - generic [ref=f4e2618]:
+                        - generic [ref=f4e2619]: Follow the system
+                        - generic [ref=f4e2620]: Light
+                    - button "Midnight — Dark" [ref=f4e2625] [cursor=pointer]:
+                      - generic [ref=f4e2646]:
+                        - generic [ref=f4e2647]: Midnight
+                        - generic [ref=f4e2648]: Dark
+                    - button "Paper — Light" [ref=f4e2653] [cursor=pointer]:
+                      - generic [ref=f4e2674]:
+                        - generic [ref=f4e2675]: Paper
+                        - generic [ref=f4e2676]: Light
+                    - button "Nord — Dark" [ref=f4e2681] [cursor=pointer]:
+                      - generic [ref=f4e2702]:
+                        - generic [ref=f4e2703]: Nord
+                        - generic [ref=f4e2704]: Dark
+                    - button "Gruvbox — Dark" [ref=f4e2709] [cursor=pointer]:
+                      - generic [ref=f4e2730]:
+                        - generic [ref=f4e2731]: Gruvbox
+                        - generic [ref=f4e2732]: Dark
+                    - button "Amber — Dark" [ref=f4e2737] [cursor=pointer]:
+                      - generic [ref=f4e2758]:
+                        - generic [ref=f4e2759]: Amber
+                        - generic [ref=f4e2760]: Dark
+                  - paragraph [ref=f4e2764]: The system option follows your OS light and dark setting and reacts when it changes.
+                - generic [ref=f4e2765]:
+                  - generic [ref=f4e2766]:
+                    - generic [ref=f4e2767]:
+                      - generic [ref=f4e2768]:
+                        - paragraph [ref=f4e2769]: Custom accent
+                        - paragraph [ref=f4e2770]: Used for buttons, selection markers and the focus ring.
+                      - generic [ref=f4e2771]:
+                        - button "Use accent 1" [ref=f4e2772] [cursor=pointer]
+                        - button "Use accent 2" [ref=f4e2773] [cursor=pointer]
+                        - button "Use accent 3" [ref=f4e2774] [cursor=pointer]
+                        - button "Use accent 4" [ref=f4e2775] [cursor=pointer]
+                        - button "Use accent 5" [ref=f4e2776] [cursor=pointer]
+                        - generic "Pick an accent colour" [ref=f4e2777] [cursor=pointer]:
+                          - textbox "Pick an accent colour" [ref=f4e2778]: "#f0c000"
+                          - generic [ref=f4e2779]: +
+                    - generic [ref=f4e2780]:
+                      - generic [ref=f4e2781]:
+                        - generic [ref=f4e2782]: "#"
+                        - textbox "Accent hex" [ref=f4e2783]:
+                          - /placeholder: rrggbb
+                      - generic [ref=f4e2784]: 5.60:1 AA
+                      - button "Clear" [disabled]
+                    - paragraph [ref=f4e2785]: Accents below 4.5:1 against the background are refused; the measured ratio is shown above.
+                  - generic [ref=f4e2786]:
+                    - generic [ref=f4e2787]:
+                      - generic [ref=f4e2788]:
+                        - paragraph [ref=f4e2789]: Background tint
+                        - paragraph [ref=f4e2790]: A subtle wash over the base theme's surfaces. Text contrast is re-checked.
+                      - generic [ref=f4e2791]:
+                        - generic "Pick a tint colour" [ref=f4e2792] [cursor=pointer]:
+                          - textbox "Pick a tint colour" [ref=f4e2793]: "#f1ede0"
+                        - button "Clear" [disabled]
+                    - generic [ref=f4e2794]:
+                      - generic [ref=f4e2795]: No tint
+                      - generic [ref=f4e2796]: Base surfaces
+                - generic [ref=f4e2797]:
+                  - generic [ref=f4e2798]:
+                    - generic [ref=f4e2799]:
+                      - paragraph [ref=f4e2800]: Theme file
+                      - paragraph [ref=f4e2801]: Export the current theme as JSON, or import one. Unknown tokens, invalid colours and low-contrast pairs are rejected with the measured value.
+                    - generic [ref=f4e2802]:
+                      - button "Export" [ref=f4e2803] [cursor=pointer]
+                      - button "Import" [ref=f4e2807] [cursor=pointer]
+                      - button "Theme file to import" [ref=f4e2811]
+                  - generic [ref=f4e2812]:
+                    - generic [ref=f4e2813]: "Base: Paper"
+                    - generic [ref=f4e2814]: ·
+                    - generic [ref=f4e2815]: "Accent: theme default"
+                  - group [ref=f4e2816]:
+                    - generic "Or paste a theme file" [ref=f4e2817] [cursor=pointer]
+                - region "Big Picture layout" [ref=f4e2818]:
+                  - generic [ref=f4e2819]:
+                    - generic [ref=f4e2820]:
+                      - paragraph [ref=f4e2821]: Big Picture layout
+                      - paragraph [ref=f4e2822]: Big Picture opens in this layout. Changes apply immediately, here and in a running screen.
+                    - generic [ref=f4e2823]: "Now: Dock"
+                  - group "Big Picture layout" [ref=f4e2824]:
+                    - 'button "Shelf One shelf at a time: a large plate, its title and a caption rail." [ref=f4e2825] [cursor=pointer]':
+                      - generic [ref=f4e2843]: Shelf
+                      - generic [ref=f4e2848]: "One shelf at a time: a large plate, its title and a caption rail."
+                    - button "Dock One large row of games over the system dock. The selected tile leads the screen." [pressed] [ref=f4e2849] [cursor=pointer]:
+                      - generic [ref=f4e2867]: Dock
+                      - generic [ref=f4e2872]: One large row of games over the system dock. The selected tile leads the screen.
+                    - button "Spotlight The selected game takes over the backdrop, with quick actions and a row underneath." [ref=f4e2873] [cursor=pointer]:
+                      - generic [ref=f4e2891]: Spotlight
+                      - generic [ref=f4e2896]: The selected game takes over the backdrop, with quick actions and a row underneath.
+                    - button "Hero A full-screen backdrop, a big title and one centred rail." [ref=f4e2897] [cursor=pointer]:
+                      - generic [ref=f4e2909]: Hero
+                      - generic [ref=f4e2914]: A full-screen backdrop, a big title and one centred rail.
+                    - button "Grid Many covers at once, under a focused header. The fastest way to browse a big library." [ref=f4e2915] [cursor=pointer]:
+                      - generic [ref=f4e2937]: Grid
+                      - generic [ref=f4e2942]: Many covers at once, under a focused header. The fastest way to browse a big library.
+                    - button "Compact Dense rows with a details pane, for large libraries and quick stepping." [ref=f4e2943] [cursor=pointer]:
+                      - generic [ref=f4e2965]: Compact
+                      - generic [ref=f4e2970]: Dense rows with a details pane, for large libraries and quick stepping.
+                  - paragraph [ref=f4e2971]: Saved on this device. Big Picture switches with L on a keyboard, or Menu → Layout on a controller.
+                - generic [ref=f4e2972]:
+                  - generic [ref=f4e2973]:
+                    - paragraph [ref=f4e2974]: Big Picture uses the same theme with TV contrast. Focus rings stay visible and decorative text is lifted to 7:1.
+                    - button "Reset appearance" [ref=f4e2975] [cursor=pointer]
+                  - generic [ref=f4e2979]:
+                    - generic [ref=f4e2980]:
+                      - generic [ref=f4e2981]: Body text
+                      - generic [ref=f4e2982]:
+                        - generic [ref=f4e2983]: 14.13:1
+                        - generic [ref=f4e2984]: AA
+                    - generic [ref=f4e2985]:
+                      - generic [ref=f4e2986]: Secondary text
+                      - generic [ref=f4e2987]:
+                        - generic [ref=f4e2988]: 6.16:1
+                        - generic [ref=f4e2989]: AA
+                    - generic [ref=f4e2990]:
+                      - generic [ref=f4e2991]: Muted text
+                      - generic [ref=f4e2992]:
+                        - generic [ref=f4e2993]: 5.07:1
+                        - generic [ref=f4e2994]: AA
+                    - generic [ref=f4e2995]:
+                      - generic [ref=f4e2996]: Focus ring
+                      - generic [ref=f4e2997]:
+                        - generic [ref=f4e2998]: 5.60:1
+                        - generic [ref=f4e2999]: AA
+    - 'link "Downloads: Cat Quest II, 70 percent" [ref=f4e2445] [cursor=pointer]':
+      - /url: "#/downloads"
+      - generic [ref=f4e2451]: Cat Quest II
+      - generic [ref=f4e2452]: "+1"
+      - generic [ref=f4e2453]: 70%
+      - generic [ref=f4e2454]: 68 MB/s
+      - generic [ref=f4e2455]: 11m 17s left
+      - generic [ref=f4e2456]: Downloads
+    - dialog [ref=f4e2460]:
+      - generic [ref=f4e2461]:
+        - generic [ref=f4e2462]:
+          - paragraph [ref=f4e2463]: Getting started
+          - heading "Welcome to Ludex" [level=2] [ref=f4e2467]
+        - button "Close onboarding" [ref=f4e2468] [cursor=pointer]
+      - generic [ref=f4e2473]:
+        - paragraph [ref=f4e2474]: Ludex indexes the archives on your disk and keeps progress, collections and saves per account. It never uploads your games to a third party.
+        - generic [ref=f4e2475]:
+          - generic [ref=f4e2476]:
+            - term [ref=f4e2477]: Library location
+            - definition [ref=f4e2478]: On the server
+          - generic [ref=f4e2479]:
+            - term [ref=f4e2480]: Connection
+            - definition [ref=f4e2481]: Remote server
+          - generic [ref=f4e2482]:
+            - term [ref=f4e2483]: Server
+            - definition [ref=f4e2484]: Ludex Archive
+          - generic [ref=f4e2569]:
+            - term [ref=f4e2570]: Games folder
+            - definition [ref=f4e2571]: /srv/ludex/games
+        - paragraph [ref=f4e2485]: You can change all of this later. Nothing in this tour changes a setting for you.
+      - generic [ref=f4e2486]:
+        - generic [ref=f4e2487]:
+          - button "Skip for now" [ref=f4e2488] [cursor=pointer]
+          - button "Don’t show again" [ref=f4e2489] [cursor=pointer]
+        - generic [ref=f4e2490]:
+          - group "Step 1 of 7" [ref=f4e2491]
+          - generic [ref=f4e2499]:
+            - button "Back" [disabled]
+            - button "Next" [ref=f4e2500] [cursor=pointer]
+  - region "Notifications"

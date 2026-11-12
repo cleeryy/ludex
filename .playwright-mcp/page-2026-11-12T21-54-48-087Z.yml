@@ -1,0 +1,653 @@
+- generic [ref=f1e2]:
+  - generic [ref=f1e3]:
+    - link "Skip to content" [ref=f1e4] [cursor=pointer]:
+      - /url: "#main-content"
+    - banner [ref=f1e5]:
+      - link "Ludex home" [ref=f1e7] [cursor=pointer]:
+        - /url: "#/"
+        - img "Ludex" [ref=f1e8]
+      - generic [ref=f1e17]:
+        - button "Search games ⌘K" [ref=f1e18] [cursor=pointer]:
+          - generic [ref=f1e22]: Search games
+          - generic [ref=f1e23]: ⌘K
+        - generic [ref=f1e24]:
+          - button "Pick a random game" [ref=f1e25] [cursor=pointer]
+          - button "Big Picture mode" [ref=f1e29] [cursor=pointer]
+          - button "Notifications, 2 unread" [ref=f1e32] [cursor=pointer]:
+            - generic [ref=f1e33]: "2"
+          - 'button "Server: 127.0.0.1:5173" [ref=f1e40] [cursor=pointer]':
+            - generic [ref=f1e42]: 127.0.0.1:5173
+          - button "Account menu for mara" [ref=f1e45] [cursor=pointer]:
+            - generic [ref=f1e46]: MA
+            - generic [ref=f1e48]: mara
+    - generic [ref=f1e51]:
+      - complementary "Sidebar" [ref=f1e52]:
+        - generic [ref=f1e53]:
+          - navigation "Main navigation" [ref=f1e54]:
+            - generic [ref=f1e56]:
+              - button "Library" [expanded] [ref=f1e57] [cursor=pointer]
+              - list "Library" [ref=f1e61]:
+                - listitem [ref=f1e62]:
+                  - link "Home g h" [ref=f1e63] [cursor=pointer]:
+                    - /url: "#/"
+                    - generic [ref=f1e67]: Home
+                    - generic [ref=f1e68]: g h
+                - listitem [ref=f1e69]:
+                  - link "Library 19" [ref=f1e70] [cursor=pointer]:
+                    - /url: "#/library"
+                    - generic [ref=f1e73]: Library
+                    - generic [ref=f1e74]: "19"
+                - listitem [ref=f1e75]:
+                  - link "Recently played" [ref=f1e76] [cursor=pointer]:
+                    - /url: "#/recent"
+                - listitem [ref=f1e81]:
+                  - link "Bookmarks g b" [ref=f1e82] [cursor=pointer]:
+                    - /url: "#/bookmarks"
+                    - generic [ref=f1e85]: Bookmarks
+                    - generic [ref=f1e86]: g b
+                - listitem [ref=f1e87]:
+                  - link "Collections" [ref=f1e88] [cursor=pointer]:
+                    - /url: "#/collections"
+            - generic [ref=f1e92]:
+              - button "Play" [expanded] [ref=f1e93] [cursor=pointer]
+              - list "Play" [ref=f1e97]:
+                - listitem [ref=f1e98]:
+                  - link "Downloads 2" [ref=f1e99] [cursor=pointer]:
+                    - /url: "#/downloads"
+                    - generic [ref=f1e103]: Downloads
+                    - generic [ref=f1e104]: "2"
+                - listitem [ref=f1e105]:
+                  - link "Remote installs" [ref=f1e106] [cursor=pointer]:
+                    - /url: "#/remote"
+                - listitem [ref=f1e111]:
+                  - link "Big Picture mode" [ref=f1e112] [cursor=pointer]:
+                    - /url: "#/bigpicture"
+                - listitem [ref=f1e116]:
+                  - link "Updates" [ref=f1e117] [cursor=pointer]:
+                    - /url: "#/updates"
+            - generic [ref=f1e125]:
+              - button "Community" [expanded] [ref=f1e126] [cursor=pointer]
+              - list "Community" [ref=f1e130]:
+                - listitem [ref=f1e131]:
+                  - link "Community" [ref=f1e132] [cursor=pointer]:
+                    - /url: "#/community"
+                - listitem [ref=f1e139]:
+                  - link "News" [ref=f1e140] [cursor=pointer]:
+                    - /url: "#/news"
+            - button "Admin" [ref=f1e146] [cursor=pointer]
+          - generic [ref=f1e150]:
+            - list "Settings and help" [ref=f1e151]:
+              - listitem [ref=f1e152]:
+                - link "Settings g s" [ref=f1e153] [cursor=pointer]:
+                  - /url: "#/settings"
+                  - generic [ref=f1e157]: Settings
+                  - generic [ref=f1e158]: g s
+              - listitem [ref=f1e159]:
+                - button "Help ?" [ref=f1e160] [cursor=pointer]:
+                  - generic [ref=f1e164]: Help
+                  - generic [ref=f1e165]: "?"
+            - generic [ref=f1e166]:
+              - generic [ref=f1e168]: Ludex Archive
+              - generic [ref=f1e169]: v0.1.0
+              - generic [ref=f1e170]: Demo
+      - main [ref=f1e171]:
+        - generic [ref=f1e172]:
+          - generic [ref=f1e173]:
+            - generic [ref=f1e174]: 19 games
+            - generic [ref=f1e175]: 3 installed
+          - generic [ref=f1e188]:
+            - generic [ref=f1e189]: Continue playing
+            - heading "HITMAN 3" [level=1] [ref=f1e191]
+            - generic [ref=f1e192]:
+              - generic [ref=f1e193]: "2021"
+              - generic [ref=f1e194]: Completed
+              - generic [ref=f1e195]: 88 / 100
+              - generic [ref=f1e196]: 31h played
+              - generic [ref=f1e197]: Last played 4 months ago
+              - generic [ref=f1e198]: Installed
+            - paragraph [ref=f1e199]: Three continents, six targets, one very patient man. A stealth sandbox where the best plan is always the one you improvise on the way out.
+            - generic [ref=f1e200]:
+              - button "Play" [ref=f1e201] [cursor=pointer]
+              - button "Game page" [ref=f1e204] [cursor=pointer]
+          - region "Outer Wilds v1.1.15 8.7 GB Steam Last played 6 months ago Play Control Ultimate Edition 34.2 GB Epic Play Epic" [ref=f1e205]:
+            - generic [ref=f1e206]:
+              - generic [ref=f1e207]:
+                - heading "On this device" [level=2] [ref=f1e208]
+                - generic [ref=f1e209]: Installed here, newest launch first.
+              - link "Manage installs" [ref=f1e210] [cursor=pointer]:
+                - /url: "#/downloads"
+            - list [ref=f1e211]:
+              - listitem [ref=f1e212]:
+                - generic [ref=f1e213]:
+                  - link "Outer Wilds" [ref=f1e214] [cursor=pointer]:
+                    - /url: "#/game/14"
+                  - paragraph [ref=f1e215]:
+                    - generic [ref=f1e216]: v1.1.15
+                    - generic [ref=f1e217]: 8.7 GB
+                    - generic [ref=f1e218]: Steam
+                    - generic [ref=f1e219]: Last played 6 months ago
+                - button "Play" [ref=f1e220] [cursor=pointer]
+              - listitem [ref=f1e223]:
+                - generic [ref=f1e224]:
+                  - text: Control Ultimate Edition
+                  - paragraph [ref=f1e225]:
+                    - generic [ref=f1e226]: 34.2 GB
+                    - generic [ref=f1e227]: Epic
+                - button "Play" [ref=f1e228] [cursor=pointer]
+                - generic [ref=f1e231]: Epic
+          - region [ref=f1e232]:
+            - generic [ref=f1e233]:
+              - heading "Recently played" [level=2] [ref=f1e235]
+              - link "See all" [ref=f1e236] [cursor=pointer]:
+                - /url: "#/recent"
+            - generic [ref=f1e237]:
+              - article [ref=f1e239]:
+                - generic [ref=f1e240]:
+                  - generic [ref=f1e241]: Marvel's Spider-Man 2
+                  - link "Open Marvel's Spider-Man 2" [ref=f1e254] [cursor=pointer]:
+                    - /url: "#/game/12"
+                - generic [ref=f1e255]:
+                  - generic [ref=f1e257]:
+                    - heading [level=3] [ref=f1e258]:
+                      - link "Marvel's Spider-Man 2" [ref=f1e259] [cursor=pointer]:
+                        - /url: "#/game/12"
+                    - generic [ref=f1e260]:
+                      - generic [ref=f1e261]: "2023"
+                      - generic [ref=f1e262]: 86.3 GB
+                      - generic [ref=f1e263]: 10h 20m
+                      - generic "Rating 90 out of 100" [ref=f1e264]: "90"
+                  - generic [ref=f1e266]:
+                    - button "Bookmark Marvel's Spider-Man 2" [ref=f1e267] [cursor=pointer]
+                    - tooltip "Bookmark"
+              - article [ref=f1e271]:
+                - generic [ref=f1e272]:
+                  - generic [ref=f1e273]: Forza Horizon 6
+                  - link "Open Forza Horizon 6" [ref=f1e284] [cursor=pointer]:
+                    - /url: "#/game/6"
+                - generic [ref=f1e285]:
+                  - generic [ref=f1e287]:
+                    - heading [level=3] [ref=f1e288]:
+                      - link "Forza Horizon 6" [ref=f1e289] [cursor=pointer]:
+                        - /url: "#/game/6"
+                    - generic [ref=f1e290]:
+                      - generic [ref=f1e291]: "2026"
+                      - generic [ref=f1e292]: 257 GB
+                      - generic [ref=f1e293]: 8h
+                      - generic "Rating 90 out of 100" [ref=f1e294]: "90"
+                  - generic [ref=f1e296]:
+                    - button "Bookmark Forza Horizon 6" [ref=f1e297] [cursor=pointer]
+                    - tooltip "Bookmark"
+              - article [ref=f1e301]:
+                - generic [ref=f1e302]:
+                  - generic [ref=f1e303]: It Takes Two
+                  - link "Open It Takes Two" [ref=f1e313] [cursor=pointer]:
+                    - /url: "#/game/8"
+                - generic [ref=f1e314]:
+                  - generic [ref=f1e316]:
+                    - heading [level=3] [ref=f1e317]:
+                      - link "It Takes Two" [ref=f1e318] [cursor=pointer]:
+                        - /url: "#/game/8"
+                    - generic [ref=f1e319]:
+                      - generic [ref=f1e320]: "2021"
+                      - generic [ref=f1e321]: 43.7 GB
+                      - generic [ref=f1e322]: 4h 20m
+                      - generic "Rating 89 out of 100" [ref=f1e323]: "89"
+                  - generic [ref=f1e325]:
+                    - button "Remove bookmark for It Takes Two" [pressed] [ref=f1e326] [cursor=pointer]
+                    - tooltip "Remove bookmark"
+              - article [ref=f1e331]:
+                - generic [ref=f1e332]:
+                  - generic [ref=f1e333]: Chrono Trigger
+                  - link "Open Chrono Trigger" [ref=f1e351] [cursor=pointer]:
+                    - /url: "#/game/1"
+                - generic [ref=f1e352]:
+                  - generic [ref=f1e354]:
+                    - heading [level=3] [ref=f1e355]:
+                      - link "Chrono Trigger" [ref=f1e356] [cursor=pointer]:
+                        - /url: "#/game/1"
+                    - generic [ref=f1e357]:
+                      - generic [ref=f1e358]: "1995"
+                      - generic [ref=f1e359]: SNES
+                      - generic [ref=f1e360]: 4.1 MB
+                      - generic [ref=f1e361]: 23h 40m
+                      - generic "Rating 96 out of 100" [ref=f1e362]: "96"
+                  - generic [ref=f1e364]:
+                    - button "Remove bookmark for Chrono Trigger" [pressed] [ref=f1e365] [cursor=pointer]
+                    - tooltip "Remove bookmark"
+              - article [ref=f1e370]:
+                - generic [ref=f1e371]:
+                  - generic [ref=f1e372]: "Call of Duty: Black Ops III"
+                  - 'link "Open Call of Duty: Black Ops III" [ref=f1e387] [cursor=pointer]':
+                    - /url: "#/game/4"
+                - generic [ref=f1e388]:
+                  - generic [ref=f1e390]:
+                    - heading [level=3] [ref=f1e391]:
+                      - 'link "Call of Duty: Black Ops III" [ref=f1e392] [cursor=pointer]':
+                        - /url: "#/game/4"
+                    - generic [ref=f1e393]:
+                      - generic [ref=f1e394]: "2015"
+                      - generic [ref=f1e395]: 98.6 GB
+                      - generic [ref=f1e396]: 20h 40m
+                      - generic "Rating 79 out of 100" [ref=f1e397]: "79"
+                  - generic [ref=f1e399]:
+                    - 'button "Bookmark Call of Duty: Black Ops III" [ref=f1e400] [cursor=pointer]'
+                    - tooltip "Bookmark"
+              - article [ref=f1e404]:
+                - generic [ref=f1e405]:
+                  - generic [ref=f1e406]: Cat Quest II
+                  - link "Open Cat Quest II" [ref=f1e427] [cursor=pointer]:
+                    - /url: "#/game/5"
+                  - generic [ref=f1e428]: Installing 73%
+                - generic [ref=f1e431]:
+                  - generic [ref=f1e433]:
+                    - heading [level=3] [ref=f1e434]:
+                      - link "Cat Quest II" [ref=f1e435] [cursor=pointer]:
+                        - /url: "#/game/5"
+                    - generic [ref=f1e436]:
+                      - generic [ref=f1e437]: "2019"
+                      - generic [ref=f1e438]: 1.1 GB
+                      - generic [ref=f1e439]: 5h 20m
+                      - generic "Rating 81 out of 100" [ref=f1e440]: "81"
+                  - generic [ref=f1e442]:
+                    - button "Bookmark Cat Quest II" [ref=f1e443] [cursor=pointer]
+                    - tooltip "Bookmark"
+              - article [ref=f1e447]:
+                - generic [ref=f1e448]:
+                  - generic [ref=f1e449]: Little Nightmares II
+                  - link "Open Little Nightmares II" [ref=f1e467] [cursor=pointer]:
+                    - /url: "#/game/10"
+                  - generic [ref=f1e468]: Installing
+                - generic [ref=f1e470]:
+                  - generic [ref=f1e472]:
+                    - heading [level=3] [ref=f1e473]:
+                      - link "Little Nightmares II" [ref=f1e474] [cursor=pointer]:
+                        - /url: "#/game/10"
+                    - generic [ref=f1e475]:
+                      - generic [ref=f1e476]: "2021"
+                      - generic [ref=f1e477]: 9.2 GB
+                      - generic [ref=f1e478]: 6h 20m
+                      - generic "Rating 84 out of 100" [ref=f1e479]: "84"
+                  - generic [ref=f1e481]:
+                    - button "Bookmark Little Nightmares II" [ref=f1e482] [cursor=pointer]
+                    - tooltip "Bookmark"
+              - article [ref=f1e486]:
+                - generic [ref=f1e487]:
+                  - generic [ref=f1e488]:
+                    - img [ref=f1e489]:
+                      - generic [ref=f1e490]: L
+                    - generic: Little Nightmares
+                  - link "Open Little Nightmares" [ref=f1e495] [cursor=pointer]:
+                    - /url: "#/game/9"
+                - generic [ref=f1e496]:
+                  - generic [ref=f1e498]:
+                    - heading [level=3] [ref=f1e499]:
+                      - link "Little Nightmares" [ref=f1e500] [cursor=pointer]:
+                        - /url: "#/game/9"
+                    - generic [ref=f1e501]:
+                      - generic [ref=f1e502]: "2017"
+                      - generic [ref=f1e503]: 6.8 GB
+                      - generic [ref=f1e504]: 6h 50m
+                      - generic "Rating 82 out of 100" [ref=f1e505]: "82"
+                  - generic [ref=f1e507]:
+                    - button "Bookmark Little Nightmares" [ref=f1e508] [cursor=pointer]
+                    - tooltip "Bookmark"
+          - region [ref=f1e511]:
+            - generic [ref=f1e512]:
+              - heading "Collections" [level=2] [ref=f1e514]
+              - link "All collections" [ref=f1e515] [cursor=pointer]:
+                - /url: "#/collections"
+            - generic [ref=f1e516]:
+              - link "Manual 4 Backlog, honestly Yours" [ref=f1e517] [cursor=pointer]:
+                - /url: "#/collections/4"
+                - generic [ref=f1e518]:
+                  - generic [ref=f1e519]: Manual
+                  - generic [ref=f1e520]: "4"
+                - generic [ref=f1e521]:
+                  - paragraph [ref=f1e522]: Backlog, honestly
+                  - paragraph [ref=f1e523]: Yours
+              - link "Manual 4 Friday night co-op Yours" [ref=f1e524] [cursor=pointer]:
+                - /url: "#/collections/1"
+                - generic [ref=f1e525]:
+                  - generic [ref=f1e526]: Manual
+                  - generic [ref=f1e527]: "4"
+                - generic [ref=f1e528]:
+                  - paragraph [ref=f1e529]: Friday night co-op
+                  - paragraph [ref=f1e530]: Yours
+              - link "Smart 2 Recent and well rated Yours" [ref=f1e531] [cursor=pointer]:
+                - /url: "#/collections/2"
+                - generic [ref=f1e532]:
+                  - generic [ref=f1e533]: Smart
+                  - generic [ref=f1e534]: "2"
+                - generic [ref=f1e535]:
+                  - paragraph [ref=f1e536]: Recent and well rated
+                  - paragraph [ref=f1e537]: Yours
+              - link "Manual 4 Horror shelf Jonas" [ref=f1e538] [cursor=pointer]:
+                - /url: "#/collections/3"
+                - generic [ref=f1e539]:
+                  - generic [ref=f1e540]: Manual
+                  - generic [ref=f1e541]: "4"
+                - generic [ref=f1e542]:
+                  - paragraph [ref=f1e543]: Horror shelf
+                  - paragraph [ref=f1e544]: Jonas
+          - region [ref=f1e545]:
+            - generic [ref=f1e546]:
+              - generic [ref=f1e547]:
+                - heading "All games" [level=2] [ref=f1e548]
+                - generic [ref=f1e549]: "19"
+              - link "Open the library" [ref=f1e550] [cursor=pointer]:
+                - /url: "#/library"
+            - generic [ref=f1e551]:
+              - article [ref=f1e552]:
+                - generic [ref=f1e553]:
+                  - generic [ref=f1e554]:
+                    - generic:
+                      - generic:
+                        - generic: Ludex
+                        - generic: No. 002
+                      - generic:
+                        - generic: Blue Prince
+                        - generic:
+                          - generic: "2025"
+                          - generic: Puzzle
+                  - link "Open Blue Prince" [ref=f1e570] [cursor=pointer]:
+                    - /url: "#/game/2"
+                - generic [ref=f1e571]:
+                  - generic [ref=f1e573]:
+                    - heading [level=3] [ref=f1e574]:
+                      - link "Blue Prince" [ref=f1e575] [cursor=pointer]:
+                        - /url: "#/game/2"
+                    - generic [ref=f1e576]:
+                      - generic [ref=f1e577]: "2025"
+                      - generic [ref=f1e578]: 3.4 GB
+                      - generic "Rating 92 out of 100" [ref=f1e579]: "92"
+                  - generic [ref=f1e581]:
+                    - button "Remove bookmark for Blue Prince" [pressed] [ref=f1e582] [cursor=pointer]
+                    - tooltip "Remove bookmark"
+              - article [ref=f1e586]:
+                - generic [ref=f1e587]:
+                  - generic [ref=f1e588]:
+                    - generic:
+                      - generic:
+                        - generic: Ludex
+                        - generic: No. 003
+                      - generic:
+                        - generic: Bodycam
+                        - generic:
+                          - generic: "2024"
+                          - generic: Shooter
+                  - link "Open Bodycam" [ref=f1e748] [cursor=pointer]:
+                    - /url: "#/game/3"
+                - generic [ref=f1e749]:
+                  - generic [ref=f1e751]:
+                    - heading [level=3] [ref=f1e752]:
+                      - link "Bodycam" [ref=f1e753] [cursor=pointer]:
+                        - /url: "#/game/3"
+                    - generic [ref=f1e754]:
+                      - generic [ref=f1e755]: "2024"
+                      - generic [ref=f1e756]: 22.8 GB
+                      - generic "Rating 68 out of 100" [ref=f1e757]: "68"
+                  - generic [ref=f1e759]:
+                    - button "Bookmark Bodycam" [ref=f1e760] [cursor=pointer]
+                    - tooltip "Bookmark"
+              - article [ref=f1e763]:
+                - generic [ref=f1e764]:
+                  - generic [ref=f1e765]:
+                    - generic:
+                      - generic:
+                        - generic: Ludex
+                        - generic: No. 004
+                      - generic:
+                        - generic: "Call of Duty: Black Ops III"
+                        - generic:
+                          - generic: "2015"
+                          - generic: Shooter
+                  - 'link "Open Call of Duty: Black Ops III" [ref=f1e780] [cursor=pointer]':
+                    - /url: "#/game/4"
+                - generic [ref=f1e781]:
+                  - generic [ref=f1e783]:
+                    - heading [level=3] [ref=f1e784]:
+                      - 'link "Call of Duty: Black Ops III" [ref=f1e785] [cursor=pointer]':
+                        - /url: "#/game/4"
+                    - generic [ref=f1e786]:
+                      - generic [ref=f1e787]: "2015"
+                      - generic [ref=f1e788]: 98.6 GB
+                      - generic [ref=f1e789]: 20h 40m
+                      - generic "Rating 79 out of 100" [ref=f1e790]: "79"
+                  - generic [ref=f1e792]:
+                    - 'button "Bookmark Call of Duty: Black Ops III" [ref=f1e793] [cursor=pointer]'
+                    - tooltip "Bookmark"
+              - article [ref=f1e796]:
+                - generic [ref=f1e797]:
+                  - generic [ref=f1e798]:
+                    - generic:
+                      - generic:
+                        - generic: Ludex
+                        - generic: No. 005
+                      - generic:
+                        - generic: Cat Quest II
+                        - generic:
+                          - generic: "2019"
+                          - generic: RPG
+                  - link "Open Cat Quest II" [ref=f1e819] [cursor=pointer]:
+                    - /url: "#/game/5"
+                  - generic [ref=f1e820]: Installing 73%
+                - generic [ref=f1e823]:
+                  - generic [ref=f1e825]:
+                    - heading [level=3] [ref=f1e826]:
+                      - link "Cat Quest II" [ref=f1e827] [cursor=pointer]:
+                        - /url: "#/game/5"
+                    - generic [ref=f1e828]:
+                      - generic [ref=f1e829]: "2019"
+                      - generic [ref=f1e830]: 1.1 GB
+                      - generic [ref=f1e831]: 5h 20m
+                      - generic "Rating 81 out of 100" [ref=f1e832]: "81"
+                  - generic [ref=f1e834]:
+                    - button "Bookmark Cat Quest II" [ref=f1e835] [cursor=pointer]
+                    - tooltip "Bookmark"
+              - article [ref=f1e838]:
+                - generic [ref=f1e839]:
+                  - generic [ref=f1e840]:
+                    - generic:
+                      - generic:
+                        - generic: Ludex
+                        - generic: No. 001
+                      - generic:
+                        - generic: Chrono Trigger
+                        - generic:
+                          - generic: "1995"
+                          - generic: Role-Playing
+                  - link "Open Chrono Trigger" [ref=f1e858] [cursor=pointer]:
+                    - /url: "#/game/1"
+                - generic [ref=f1e859]:
+                  - generic [ref=f1e861]:
+                    - heading [level=3] [ref=f1e862]:
+                      - link "Chrono Trigger" [ref=f1e863] [cursor=pointer]:
+                        - /url: "#/game/1"
+                    - generic [ref=f1e864]:
+                      - generic [ref=f1e865]: "1995"
+                      - generic [ref=f1e866]: SNES
+                      - generic [ref=f1e867]: 4.1 MB
+                      - generic [ref=f1e868]: 23h 40m
+                      - generic "Rating 96 out of 100" [ref=f1e869]: "96"
+                  - generic [ref=f1e871]:
+                    - button "Remove bookmark for Chrono Trigger" [pressed] [ref=f1e872] [cursor=pointer]
+                    - tooltip "Remove bookmark"
+              - article [ref=f1e876]:
+                - generic [ref=f1e877]:
+                  - generic [ref=f1e878]:
+                    - generic:
+                      - generic:
+                        - generic: Ludex
+                        - generic: No. 006
+                      - generic:
+                        - generic: Forza Horizon 6
+                        - generic:
+                          - generic: "2026"
+                          - generic: Racing
+                  - link "Open Forza Horizon 6" [ref=f1e889] [cursor=pointer]:
+                    - /url: "#/game/6"
+                - generic [ref=f1e890]:
+                  - generic [ref=f1e892]:
+                    - heading [level=3] [ref=f1e893]:
+                      - link "Forza Horizon 6" [ref=f1e894] [cursor=pointer]:
+                        - /url: "#/game/6"
+                    - generic [ref=f1e895]:
+                      - generic [ref=f1e896]: "2026"
+                      - generic [ref=f1e897]: 257 GB
+                      - generic [ref=f1e898]: 8h
+                      - generic "Rating 90 out of 100" [ref=f1e899]: "90"
+                  - generic [ref=f1e901]:
+                    - button "Bookmark Forza Horizon 6" [ref=f1e902] [cursor=pointer]
+                    - tooltip "Bookmark"
+              - article [ref=f1e905]:
+                - generic [ref=f1e906]:
+                  - generic [ref=f1e907]:
+                    - generic:
+                      - generic:
+                        - generic: Ludex
+                        - generic: No. 007
+                      - generic:
+                        - generic: HITMAN 3
+                        - generic:
+                          - generic: "2021"
+                          - generic: Stealth
+                  - link "Open HITMAN 3" [ref=f1e917] [cursor=pointer]:
+                    - /url: "#/game/7"
+                  - generic [ref=f1e918]: Installed
+                - generic [ref=f1e920]:
+                  - generic [ref=f1e922]:
+                    - heading [level=3] [ref=f1e923]:
+                      - link "HITMAN 3" [ref=f1e924] [cursor=pointer]:
+                        - /url: "#/game/7"
+                    - generic [ref=f1e925]:
+                      - generic [ref=f1e926]: "2021"
+                      - generic [ref=f1e927]: 125 GB
+                      - generic [ref=f1e928]: 31h
+                      - generic "Rating 88 out of 100" [ref=f1e929]: "88"
+                  - generic [ref=f1e931]:
+                    - button "Bookmark HITMAN 3" [ref=f1e932] [cursor=pointer]
+                    - tooltip "Bookmark"
+              - article [ref=f1e935]:
+                - generic [ref=f1e936]:
+                  - generic [ref=f1e937]:
+                    - generic:
+                      - generic:
+                        - generic: Ludex
+                        - generic: No. 008
+                      - generic:
+                        - generic: It Takes Two
+                        - generic:
+                          - generic: "2021"
+                          - generic: Adventure
+                  - link "Open It Takes Two" [ref=f1e947] [cursor=pointer]:
+                    - /url: "#/game/8"
+                - generic [ref=f1e948]:
+                  - generic [ref=f1e950]:
+                    - heading [level=3] [ref=f1e951]:
+                      - link "It Takes Two" [ref=f1e952] [cursor=pointer]:
+                        - /url: "#/game/8"
+                    - generic [ref=f1e953]:
+                      - generic [ref=f1e954]: "2021"
+                      - generic [ref=f1e955]: 43.7 GB
+                      - generic [ref=f1e956]: 4h 20m
+                      - generic "Rating 89 out of 100" [ref=f1e957]: "89"
+                  - generic [ref=f1e959]:
+                    - button "Remove bookmark for It Takes Two" [pressed] [ref=f1e960] [cursor=pointer]
+                    - tooltip "Remove bookmark"
+              - article [ref=f1e964]:
+                - generic [ref=f1e965]:
+                  - generic [ref=f1e966]:
+                    - img [ref=f1e967]:
+                      - generic [ref=f1e968]: L
+                    - generic:
+                      - generic:
+                        - generic: Ludex
+                        - generic: No. 009
+                      - generic:
+                        - generic: Little Nightmares
+                        - generic:
+                          - generic: "2017"
+                          - generic: Horror
+                  - link "Open Little Nightmares" [ref=f1e973] [cursor=pointer]:
+                    - /url: "#/game/9"
+                - generic [ref=f1e974]:
+                  - generic [ref=f1e976]:
+                    - heading [level=3] [ref=f1e977]:
+                      - link "Little Nightmares" [ref=f1e978] [cursor=pointer]:
+                        - /url: "#/game/9"
+                    - generic [ref=f1e979]:
+                      - generic [ref=f1e980]: "2017"
+                      - generic [ref=f1e981]: 6.8 GB
+                      - generic [ref=f1e982]: 6h 50m
+                      - generic "Rating 82 out of 100" [ref=f1e983]: "82"
+                  - generic [ref=f1e985]:
+                    - button "Bookmark Little Nightmares" [ref=f1e986] [cursor=pointer]
+                    - tooltip "Bookmark"
+              - article [ref=f1e989]:
+                - generic [ref=f1e990]:
+                  - generic [ref=f1e991]:
+                    - generic:
+                      - generic:
+                        - generic: Ludex
+                        - generic: No. 010
+                      - generic:
+                        - generic: Little Nightmares II
+                        - generic:
+                          - generic: "2021"
+                          - generic: Horror
+                  - link "Open Little Nightmares II" [ref=f1e1009] [cursor=pointer]:
+                    - /url: "#/game/10"
+                  - generic [ref=f1e1010]: Installing
+                - generic [ref=f1e1012]:
+                  - generic [ref=f1e1014]:
+                    - heading [level=3] [ref=f1e1015]:
+                      - link "Little Nightmares II" [ref=f1e1016] [cursor=pointer]:
+                        - /url: "#/game/10"
+                    - generic [ref=f1e1017]:
+                      - generic [ref=f1e1018]: "2021"
+                      - generic [ref=f1e1019]: 9.2 GB
+                      - generic [ref=f1e1020]: 6h 20m
+                      - generic "Rating 84 out of 100" [ref=f1e1021]: "84"
+                  - generic [ref=f1e1023]:
+                    - button "Bookmark Little Nightmares II" [ref=f1e1024] [cursor=pointer]
+                    - tooltip "Bookmark"
+    - 'link "Downloads: Cat Quest II, 64 percent" [ref=f1e1027] [cursor=pointer]':
+      - /url: "#/downloads"
+      - generic [ref=f1e1033]: Cat Quest II
+      - generic [ref=f1e1034]: "+1"
+      - generic [ref=f1e1035]: 64%
+      - generic [ref=f1e1036]: 46 MB/s
+      - generic [ref=f1e1037]: 13m 30s left
+      - generic [ref=f1e1038]: Downloads
+    - dialog [active] [ref=f1e1042]:
+      - generic [ref=f1e1043]:
+        - generic [ref=f1e1044]:
+          - paragraph [ref=f1e1045]: Getting started
+          - heading "Welcome to Ludex" [level=2] [ref=f1e1049]
+        - button "Close onboarding" [ref=f1e1050] [cursor=pointer]
+      - generic [ref=f1e1055]:
+        - paragraph [ref=f1e1056]: Ludex indexes the archives on your disk and keeps progress, collections and saves per account. It never uploads your games to a third party.
+        - generic [ref=f1e1057]:
+          - generic [ref=f1e1058]:
+            - term [ref=f1e1059]: Library location
+            - definition [ref=f1e1060]: On the server
+          - generic [ref=f1e1061]:
+            - term [ref=f1e1062]: Connection
+            - definition [ref=f1e1063]: Remote server
+          - generic [ref=f1e1064]:
+            - term [ref=f1e1065]: Server
+            - definition [ref=f1e1066]: Ludex Archive
+          - generic [ref=f1e1067]:
+            - term [ref=f1e1068]: Games folder
+            - definition [ref=f1e1069]: /srv/ludex/games
+        - paragraph [ref=f1e1070]: You can change all of this later. Nothing in this tour changes a setting for you.
+      - generic [ref=f1e1071]:
+        - generic [ref=f1e1072]:
+          - button "Skip for now" [ref=f1e1073] [cursor=pointer]
+          - button "Don’t show again" [ref=f1e1074] [cursor=pointer]
+        - generic [ref=f1e1075]:
+          - group "Step 1 of 7" [ref=f1e1076]
+          - generic [ref=f1e1084]:
+            - button "Back" [disabled]
+            - button "Next" [ref=f1e1085] [cursor=pointer]
+  - region "Notifications"

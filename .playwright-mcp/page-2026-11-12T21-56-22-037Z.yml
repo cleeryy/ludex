@@ -1,0 +1,52 @@
+- generic [ref=f3e2]:
+  - generic [ref=f3e35]:
+    - complementary [ref=f3e36]:
+      - generic [ref=f3e37]:
+        - img "Ludex" [ref=f3e38]
+        - generic [ref=f3e47]: Self-hosted
+      - generic [ref=f3e124]:
+        - paragraph [ref=f3e125]: The shelf you actually own.
+        - paragraph [ref=f3e126]: Ludex indexes the archives on your server and serves them to your machines. No storefront, no account anywhere else.
+    - main [ref=f3e127]:
+      - generic [ref=f3e131]:
+        - generic [ref=f3e132]:
+          - heading "Sign in" [level=1] [ref=f3e133]
+          - paragraph [ref=f3e134]:
+            - generic [ref=f3e135]: Ludex Archive
+            - generic [ref=f3e137]: v0.1.0
+        - generic [ref=f3e138]:
+          - button "Sign in with Authentik" [ref=f3e139] [cursor=pointer]
+          - generic [ref=f3e143]: or use a password
+        - generic [ref=f3e147]:
+          - generic [ref=f3e148]:
+            - generic [ref=f3e149]: Username
+            - textbox "Username" [ref=f3e151]:
+              - /placeholder: Your username
+              - text: mara
+          - generic [ref=f3e152]:
+            - generic [ref=f3e153]: Password
+            - textbox "Password" [ref=f3e155]:
+              - /placeholder: Your password
+              - text: ludex
+        - button "Sign in" [ref=f3e156] [cursor=pointer]
+        - paragraph [ref=f3e159]:
+          - link "Get the desktop app" [ref=f3e160] [cursor=pointer]:
+            - /url: "#/download"
+          - text: for installs, cloud saves and controllers.
+        - generic [ref=f3e161]:
+          - paragraph [ref=f3e162]: Demo data is on. Sign in as mara with the password ludex, or use the single sign-on button.
+          - button "Fill demo credentials" [active] [ref=f3e163] [cursor=pointer]
+      - generic [ref=f3e164]:
+        - generic [ref=f3e165]: v0.4.1
+        - link "AGPL-3.0" [ref=f3e166] [cursor=pointer]:
+          - /url: https://github.com/cleeryy/ludex/blob/main/LICENSE
+  - region "Notifications"
+  - status [ref=f3e17]:
+    - generic [ref=f3e18]:
+      - generic [ref=f3e22]:
+        - paragraph [ref=f3e23]: Install Ludex
+        - paragraph [ref=f3e24]: Keep the shell on your home screen and open the library full screen, even offline.
+        - generic [ref=f3e25]:
+          - button "Install" [ref=f3e26] [cursor=pointer]
+          - button "Not now" [ref=f3e30] [cursor=pointer]
+      - button "Dismiss" [ref=f3e31] [cursor=pointer]

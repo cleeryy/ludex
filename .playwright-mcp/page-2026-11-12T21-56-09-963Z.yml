@@ -1,0 +1,14 @@
+- generic [ref=f3e2]:
+  - generic [ref=f3e4]:
+    - img "Ludex" [ref=f3e5]
+    - paragraph [ref=f3e16]: Opening the library
+  - region "Notifications"
+  - status [ref=f3e17]:
+    - generic [ref=f3e18]:
+      - generic [ref=f3e22]:
+        - paragraph [ref=f3e23]: Install Ludex
+        - paragraph [ref=f3e24]: Keep the shell on your home screen and open the library full screen, even offline.
+        - generic [ref=f3e25]:
+          - button "Install" [ref=f3e26] [cursor=pointer]
+          - button "Not now" [ref=f3e30] [cursor=pointer]
+      - button "Dismiss" [ref=f3e31] [cursor=pointer]

@@ -520,9 +520,17 @@ pub fn is_private_ipv4(addr: Ipv4Addr) -> bool {
 }
 
 pub fn is_private_ipv6(addr: Ipv6Addr) -> bool {
-    let segments = addr.segments();
-    // fc00::/7 unique-local and fe80::/10 link-local.
-    (segments[0] & 0xfe00) == 0xfc00 || (segments[0] & 0xffc0) == 0xfe80
+    is_ula_ipv6(addr) || is_link_local_ipv6(addr)
+}
+
+/// fc00::/7 unique-local: private, but not reachable from another network.
+pub fn is_ula_ipv6(addr: Ipv6Addr) -> bool {
+    (addr.segments()[0] & 0xfe00) == 0xfc00
+}
+
+/// fe80::/10 link-local: never routed, so never advertised (#206).
+pub fn is_link_local_ipv6(addr: Ipv6Addr) -> bool {
+    (addr.segments()[0] & 0xffc0) == 0xfe80
 }
 
 /// A UPnP control endpoint must be on the LAN. A public `LOCATION` means an
@@ -1130,13 +1138,235 @@ pub fn sunshine_remote_status(
     }
 }
 
+/* --------------------------- network inventory ---------------------------- */
+
+/// One address reported by the OS for a local interface, before classification
+/// (#206). Kept separate from [`LocalAddress`] so classification and selection
+/// stay pure and can be unit-tested with fixtures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceAddress {
+    pub interface: String,
+    pub address: IpAddr,
+    pub prefix: u8,
+}
+
+/// What an address is useful for when Moonlight connects from another network.
+/// Only `vpn`, `lan` and `ipv6` are ever advertised (#206).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AddressKind {
+    Vpn,
+    Lan,
+    Ipv6,
+    Cgnat,
+    Public,
+    Ula,
+    LinkLocal,
+    Loopback,
+    Virtual,
+}
+
+/// A classified local address (#206). `service` is only set for a known
+/// VPN/mesh adapter: a CGNAT or public address on an unknown interface is never
+/// labelled as a VPN.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalAddress {
+    pub address: String,
+    pub interface: String,
+    pub kind: AddressKind,
+    pub service: Option<String>,
+    pub prefix: u8,
+}
+
+/// Every interface name and classified address the OS reports (#206).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NetworkInventory {
+    pub interfaces: Vec<String>,
+    pub addresses: Vec<LocalAddress>,
+}
+
+/// Known VPN/mesh adapter names (#206). sysinfo exposes the adapter name on
+/// every platform, so it is the only signal that also works for a tunnel which
+/// is not the default route.
+pub fn vpn_interface_service(interface: &str) -> Option<&'static str> {
+    let lower = interface.trim().to_ascii_lowercase();
+    let stem = lower.trim_end_matches(|value: char| value.is_ascii_digit());
+    if lower == "wt0" || lower.starts_with("netbird") {
+        return Some("Netbird");
+    }
+    if lower.starts_with("tailscale") {
+        return Some("Tailscale");
+    }
+    if lower.starts_with("headscale") {
+        return Some("Headscale");
+    }
+    if lower.starts_with("zerotier") || (lower.starts_with("zt") && lower.len() > 2) {
+        return Some("ZeroTier");
+    }
+    if lower.starts_with("wireguard") || (stem == "wg" && lower != "wg") {
+        return Some("WireGuard");
+    }
+    if lower.starts_with("openvpn")
+        || lower.contains("tap-windows")
+        || lower.contains("wintun")
+        || ((stem == "tun" || stem == "tap" || stem == "utun") && lower != stem)
+    {
+        return Some("Tunnel");
+    }
+    None
+}
+
+/// Bridge, container and hypervisor adapters never reach another network, so
+/// they are listed for transparency but never selected (#206).
+pub fn is_virtual_interface(interface: &str) -> bool {
+    const PREFIXES: [&str; 15] = [
+        "docker",
+        "br-",
+        "veth",
+        "virbr",
+        "vmnet",
+        "vboxnet",
+        "vbox",
+        "lxc",
+        "lxd",
+        "cni",
+        "flannel",
+        "podman",
+        "wsl",
+        "vethernet",
+        "virtualbox",
+    ];
+    const CONTAINS: [&str; 4] = ["vmware", "hyper-v", "virtual adapter", "host-only"];
+    let lower = interface.trim().to_ascii_lowercase();
+    lower == "lo"
+        || lower.starts_with("loopback")
+        || PREFIXES.iter().any(|prefix| lower.starts_with(prefix))
+        || CONTAINS.iter().any(|needle| lower.contains(needle))
+        || (lower.starts_with("bridge") && lower != "bridge")
+}
+
+pub fn classify_interface_address(
+    interface: &str,
+    address: IpAddr,
+) -> (AddressKind, Option<String>) {
+    let service = vpn_interface_service(interface);
+    match address {
+        IpAddr::V4(v4) => {
+            if v4.is_loopback() {
+                (AddressKind::Loopback, None)
+            } else if v4.is_link_local() {
+                (AddressKind::LinkLocal, None)
+            } else if let Some(service) = service {
+                (AddressKind::Vpn, Some(service.to_string()))
+            } else if is_cgnat_ipv4(v4) {
+                // 100.64.0.0/10 is also the Tailscale/Netbird range, but only
+                // an adapter that names the service is treated as a VPN. An
+                // ISP CGNAT address must never be advertised (#206).
+                (AddressKind::Cgnat, None)
+            } else if v4.is_private() {
+                if is_virtual_interface(interface) {
+                    (AddressKind::Virtual, None)
+                } else {
+                    (AddressKind::Lan, None)
+                }
+            } else {
+                (AddressKind::Public, None)
+            }
+        }
+        IpAddr::V6(v6) => {
+            if v6.is_loopback() {
+                (AddressKind::Loopback, None)
+            } else if is_link_local_ipv6(v6) {
+                (AddressKind::LinkLocal, None)
+            } else if let Some(service) = service {
+                (AddressKind::Vpn, Some(service.to_string()))
+            } else if is_ula_ipv6(v6) {
+                (AddressKind::Ula, None)
+            } else if is_global_ipv6(v6) {
+                (AddressKind::Ipv6, None)
+            } else {
+                (AddressKind::Public, None)
+            }
+        }
+    }
+}
+
+/// Classifies and de-duplicates an interface snapshot, ordered from the most to
+/// the least useful for remote play (#206).
+pub fn classify_addresses(interfaces: &[InterfaceAddress]) -> Vec<LocalAddress> {
+    let mut seen = BTreeSet::new();
+    let mut classified = Vec::new();
+    for entry in interfaces {
+        if !seen.insert((entry.interface.clone(), entry.address)) {
+            continue;
+        }
+        let (kind, service) = classify_interface_address(&entry.interface, entry.address);
+        classified.push(LocalAddress {
+            address: entry.address.to_string(),
+            interface: entry.interface.clone(),
+            kind,
+            service,
+            prefix: entry.prefix,
+        });
+    }
+    classified.sort_by(|left, right| {
+        left.kind
+            .cmp(&right.kind)
+            .then_with(|| left.interface.cmp(&right.interface))
+            .then_with(|| left.address.cmp(&right.address))
+    });
+    classified
+}
+
+/// Reads every interface and address from the OS (#206). No shelling out: the
+/// same sysinfo snapshot also lists adapters that are down or have no address,
+/// which is what lets the wizard explain a missing VPN address.
+pub fn local_network() -> NetworkInventory {
+    let Ok(networks) = sysinfo::Networks::new_with_refreshed_list() else {
+        return NetworkInventory::default();
+    };
+    let mut inventory = NetworkInventory::default();
+    let mut raw = Vec::new();
+    for (name, data) in &networks {
+        let name = name.to_string_lossy().to_string();
+        inventory.interfaces.push(name.clone());
+        for network in data.ip_networks() {
+            raw.push(InterfaceAddress {
+                interface: name.clone(),
+                address: network.addr,
+                prefix: network.prefix,
+            });
+        }
+    }
+    inventory.interfaces.sort();
+    inventory.interfaces.dedup();
+    inventory.addresses = classify_addresses(&raw);
+    inventory
+}
+
+/* --------------------------------- VPN ------------------------------------ */
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VpnAddress {
+    pub address: String,
+    pub interface: String,
+    pub service: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VpnStatus {
     pub detected: bool,
     pub services: Vec<String>,
-    /// Address the user enters in Moonlight when the VPN is up.
+    /// Address the user enters in Moonlight when the VPN is up (#206).
     pub address: Option<String>,
+    /// Every VPN/mesh address, so several active VPNs can be offered (#206).
+    pub addresses: Vec<VpnAddress>,
+    /// VPN adapters that carry no usable address, named so the wizard can
+    /// explain the LAN fallback instead of hiding it (#206).
+    pub interfaces: Vec<String>,
     pub message: String,
 }
 
@@ -1162,37 +1392,196 @@ pub fn vpn_services(process_names: &[String]) -> Vec<String> {
     found
 }
 
-pub fn vpn_status(process_names: &[String], local_ip: Option<IpAddr>) -> VpnStatus {
-    let services = vpn_services(process_names);
-    let tailnet = local_ip
-        .filter(|addr| matches!(addr, IpAddr::V4(v4) if is_cgnat_ipv4(*v4)))
-        .map(|addr| addr.to_string());
-    let detected = !services.is_empty() || tailnet.is_some();
-    let address = tailnet.clone();
-    let message = if detected {
-        match address.as_deref() {
-            Some(address) => format!(
-                "A VPN looks active ({}). Enter {address} in Moonlight from the other network.",
-                if services.is_empty() {
-                    "Tailscale address".to_string()
-                } else {
-                    services.join(", ")
-                }
-            ),
-            None => format!(
-                "{} detected. Use the VPN address shown by that service in Moonlight; no port mapping is needed.",
-                services.join(", ")
-            ),
+/// Mesh networks are the most reliable remote-play path, so their address is
+/// preferred when several VPNs are up. The order is stable for tests.
+fn service_rank(service: &str) -> u8 {
+    match service {
+        "Tailscale" => 0,
+        "Netbird" => 1,
+        "Headscale" => 2,
+        "ZeroTier" => 3,
+        "WireGuard" => 4,
+        _ => 5,
+    }
+}
+
+pub fn vpn_status(
+    process_names: &[String],
+    addresses: &[LocalAddress],
+    interfaces: &[String],
+) -> VpnStatus {
+    let mut services = vpn_services(process_names);
+    let mut vpn_addresses: Vec<VpnAddress> = addresses
+        .iter()
+        .filter(|entry| entry.kind == AddressKind::Vpn)
+        .filter_map(|entry| {
+            entry.service.as_ref().map(|service| VpnAddress {
+                address: entry.address.clone(),
+                interface: entry.interface.clone(),
+                service: service.clone(),
+            })
+        })
+        .collect();
+    vpn_addresses.sort_by(|left, right| {
+        service_rank(&left.service)
+            .cmp(&service_rank(&right.service))
+            .then_with(|| left.interface.cmp(&right.interface))
+            .then_with(|| left.address.cmp(&right.address))
+    });
+    // A tunnel can be up without its process being visible (permissions, a
+    // service account); the adapter name still names the service.
+    for service in vpn_addresses
+        .iter()
+        .map(|entry| entry.service.clone())
+        .chain(
+            interfaces
+                .iter()
+                .filter_map(|name| vpn_interface_service(name).map(str::to_string)),
+        )
+    {
+        if !services.iter().any(|value| value == &service) {
+            services.push(service);
         }
-    } else {
+    }
+    let mut vpn_interfaces: Vec<String> = interfaces
+        .iter()
+        .filter(|name| vpn_interface_service(name).is_some())
+        .filter(|name| !vpn_addresses.iter().any(|entry| &entry.interface == *name))
+        .cloned()
+        .collect();
+    vpn_interfaces.sort();
+    vpn_interfaces.dedup();
+    let detected = !services.is_empty() || !vpn_addresses.is_empty() || !vpn_interfaces.is_empty();
+    let address = vpn_addresses.first().map(|entry| entry.address.clone());
+    let message = if !detected {
         "No VPN service was detected. A VPN (Tailscale, WireGuard, ZeroTier, Netbird or Headscale) is the reliable way to play away from home without exposing ports."
             .to_string()
+    } else if let Some(entry) = vpn_addresses.first() {
+        format!(
+            "{} detected. Enter {} ({}) in Moonlight from the other network; no port mapping is needed.",
+            services.join(", "),
+            entry.address,
+            entry.service
+        )
+    } else {
+        let where_ = if vpn_interfaces.is_empty() {
+            String::new()
+        } else {
+            format!(" on {}", vpn_interfaces.join(", "))
+        };
+        format!(
+            "{}{where_} detected, but no VPN address is assigned to this machine. The LAN address works at home only; bring the tunnel up or copy the address from the VPN service.",
+            services.join(", ")
+        )
     };
     VpnStatus {
         detected,
         services,
         address,
+        addresses: vpn_addresses,
+        interfaces: vpn_interfaces,
         message,
+    }
+}
+
+/// The address the wizard advertises, with the reason it was chosen (#206).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvertisedAddress {
+    pub address: Option<String>,
+    /// `vpn`, `lan`, `ipv6` or `none`.
+    pub source: String,
+    pub interface: Option<String>,
+    pub service: Option<String>,
+    pub reason: String,
+}
+
+fn select_lan<'a>(
+    addresses: &'a [LocalAddress],
+    route: Option<Ipv4Addr>,
+) -> Option<&'a LocalAddress> {
+    let route = route.map(|addr| addr.to_string());
+    addresses
+        .iter()
+        .filter(|entry| entry.kind == AddressKind::Lan)
+        .find(|entry| route.as_deref() == Some(entry.address.as_str()))
+        .or_else(|| {
+            addresses
+                .iter()
+                .find(|entry| entry.kind == AddressKind::Lan)
+        })
+}
+
+/// VPN first, then the LAN address (preferring the default route), then a
+/// global IPv6 address. Never a Docker bridge, a CGNAT WAN address or
+/// loopback (#206).
+pub fn select_advertised(
+    addresses: &[LocalAddress],
+    vpn: &VpnStatus,
+    route: Option<Ipv4Addr>,
+) -> AdvertisedAddress {
+    if let Some(address) = &vpn.address {
+        let entry = addresses
+            .iter()
+            .find(|entry| entry.kind == AddressKind::Vpn && &entry.address == address);
+        let interface = entry.map(|entry| entry.interface.clone());
+        let service = entry.and_then(|entry| entry.service.clone());
+        let label = service.as_deref().unwrap_or("VPN");
+        let reason = match &interface {
+            Some(interface) => format!("{label} address {address} on {interface}"),
+            None => format!("{label} address {address}"),
+        };
+        return AdvertisedAddress {
+            address: Some(address.clone()),
+            source: "vpn".to_string(),
+            interface,
+            service,
+            reason,
+        };
+    }
+    if let Some(entry) = select_lan(addresses, route) {
+        let reason = if vpn.detected {
+            format!(
+                "{} detected, but no VPN address is assigned; showing the LAN address {}, which only works at home",
+                vpn.services.join(", "),
+                entry.address
+            )
+        } else {
+            format!(
+                "LAN address {} on {}; no VPN was detected, so this only works at home",
+                entry.address, entry.interface
+            )
+        };
+        return AdvertisedAddress {
+            address: Some(entry.address.clone()),
+            source: "lan".to_string(),
+            interface: Some(entry.interface.clone()),
+            service: None,
+            reason,
+        };
+    }
+    if let Some(entry) = addresses
+        .iter()
+        .find(|entry| entry.kind == AddressKind::Ipv6)
+    {
+        return AdvertisedAddress {
+            address: Some(entry.address.clone()),
+            source: "ipv6".to_string(),
+            interface: Some(entry.interface.clone()),
+            service: None,
+            reason: format!(
+                "Global IPv6 address {} on {}; no VPN or LAN address was found",
+                entry.address, entry.interface
+            ),
+        };
+    }
+    AdvertisedAddress {
+        address: None,
+        source: "none".to_string(),
+        interface: None,
+        service: None,
+        reason: "No usable local address was found. Connect to a network and detect again."
+            .to_string(),
     }
 }
 
@@ -1757,6 +2146,10 @@ pub struct RemotePlayStatus {
     pub ipv6: Option<String>,
     pub public_ip: Option<String>,
     pub vpn: VpnStatus,
+    /// Every local address, classified (#206).
+    pub addresses: Vec<LocalAddress>,
+    /// The address the wizard shows, with the reason it was chosen (#206).
+    pub advertised: AdvertisedAddress,
     pub sunshine: SunshineRemoteStatus,
     pub upnp: UpnpStatus,
     pub direct: DirectAssessment,
@@ -1795,12 +2188,32 @@ pub fn detect(
     public_ip: Option<IpAddr>,
     active: RemotePlaySession,
 ) -> RemotePlayStatus {
-    let lan = local_ipv4().map(IpAddr::V4);
-    let ipv6 = local_ipv6();
+    let inventory = local_network();
+    let route = local_ipv4();
+    let vpn = vpn_status(process_names, &inventory.addresses, &inventory.interfaces);
+    let advertised = select_advertised(&inventory.addresses, &vpn, route);
+    let lan = select_lan(&inventory.addresses, route)
+        .map(|entry| entry.address.clone())
+        .or_else(|| {
+            route
+                .filter(|addr| is_private_ipv4(*addr) && !is_cgnat_ipv4(*addr))
+                .map(|addr| addr.to_string())
+        });
+    let ipv6 = inventory
+        .addresses
+        .iter()
+        .find(|entry| entry.kind == AddressKind::Ipv6)
+        .map(|entry| entry.address.clone())
+        .or_else(|| local_ipv6().map(|addr| addr.to_string()));
+    tracing::debug!(
+        address = advertised.address.as_deref().unwrap_or("none"),
+        interface = advertised.interface.as_deref().unwrap_or("none"),
+        source = advertised.source.as_str(),
+        "remote play advertised address"
+    );
     let sunshine = sunshine_remote_status(settings, process_names, &|host, port| {
         probe_tcp(host, port, probe_timeout())
     });
-    let vpn = vpn_status(process_names, lan);
 
     let mut warnings = Vec::new();
     let igd_error_code = igd_error.as_ref().map(|error| error.code.clone());
@@ -1872,10 +2285,12 @@ pub fn detect(
 
     RemotePlayStatus {
         platform: platform_name().to_string(),
-        lan_ip: lan.map(|addr| addr.to_string()),
-        ipv6: ipv6.map(|addr| addr.to_string()),
+        lan_ip: lan,
+        ipv6,
         public_ip: public_ip.map(|addr| addr.to_string()),
         vpn,
+        addresses: inventory.addresses,
+        advertised,
         sunshine,
         upnp,
         direct,
@@ -2723,6 +3138,215 @@ mod tests {
         assert_eq!(sunshine_web_ports(8), (3, 8, 9));
     }
 
+    fn fixture(interface: &str, address: &str) -> InterfaceAddress {
+        let (addr, prefix) = address
+            .split_once('/')
+            .expect("fixture addresses carry a prefix");
+        InterfaceAddress {
+            interface: interface.to_string(),
+            address: addr.parse().expect("fixture address parses"),
+            prefix: prefix.parse().expect("fixture prefix parses"),
+        }
+    }
+
+    fn classified(entries: &[(&str, &str)]) -> Vec<LocalAddress> {
+        classify_addresses(
+            &entries
+                .iter()
+                .map(|(interface, address)| fixture(interface, address))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    fn vpn_for(entries: &[(&str, &str)], process_names: &[&str]) -> (Vec<LocalAddress>, VpnStatus) {
+        vpn_for_with_interfaces(
+            entries,
+            &entries.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+            process_names,
+        )
+    }
+
+    fn vpn_for_with_interfaces(
+        entries: &[(&str, &str)],
+        interfaces: &[&str],
+        process_names: &[&str],
+    ) -> (Vec<LocalAddress>, VpnStatus) {
+        let addresses = classified(entries);
+        let interfaces = interfaces
+            .iter()
+            .map(|name| name.to_string())
+            .collect::<Vec<_>>();
+        let names = process_names
+            .iter()
+            .map(|name| name.to_string())
+            .collect::<Vec<_>>();
+        let vpn = vpn_status(&names, &addresses, &interfaces);
+        (addresses, vpn)
+    }
+
+    fn kind_of<'a>(addresses: &'a [LocalAddress], address: &str) -> &'a AddressKind {
+        &addresses
+            .iter()
+            .find(|entry| entry.address == address)
+            .expect("fixture address is classified")
+            .kind
+    }
+
+    #[test]
+    fn interfaces_are_classified_by_name_and_range() {
+        let addresses = classified(&[
+            ("lo", "127.0.0.1/8"),
+            ("enp3s0", "192.168.1.8/24"),
+            ("docker0", "172.17.0.1/16"),
+            ("veth1a2b", "169.254.10.2/16"),
+            ("eth0", "100.64.3.7/10"),
+            ("wlan0", "2001:db8::8/64"),
+            ("wlan0", "fe80::8/64"),
+            ("enp3s0", "fd00::8/64"),
+        ]);
+        assert_eq!(kind_of(&addresses, "127.0.0.1"), &AddressKind::Loopback);
+        assert_eq!(kind_of(&addresses, "192.168.1.8"), &AddressKind::Lan);
+        assert_eq!(kind_of(&addresses, "172.17.0.1"), &AddressKind::Virtual);
+        assert_eq!(kind_of(&addresses, "169.254.10.2"), &AddressKind::LinkLocal);
+        assert_eq!(kind_of(&addresses, "100.64.3.7"), &AddressKind::Cgnat);
+        assert_eq!(kind_of(&addresses, "2001:db8::8"), &AddressKind::Ipv6);
+        assert_eq!(kind_of(&addresses, "fe80::8"), &AddressKind::LinkLocal);
+        assert_eq!(kind_of(&addresses, "fd00::8"), &AddressKind::Ula);
+        // VPN adapters are matched by name, whatever the address range.
+        assert_eq!(vpn_interface_service("wt0"), Some("Netbird"));
+        assert_eq!(vpn_interface_service("Tailscale"), Some("Tailscale"));
+        assert_eq!(vpn_interface_service("wg0"), Some("WireGuard"));
+        assert_eq!(vpn_interface_service("zt9a1b2c3"), Some("ZeroTier"));
+        assert_eq!(vpn_interface_service("utun3"), Some("Tunnel"));
+        assert_eq!(vpn_interface_service("enp3s0"), None);
+        assert!(is_virtual_interface("docker0"));
+        assert!(is_virtual_interface("vEthernet (WSL)"));
+        assert!(is_virtual_interface("virbr0"));
+        assert!(!is_virtual_interface("enp3s0"));
+    }
+
+    #[test]
+    fn netbird_address_wins_over_the_lan_address() {
+        let (addresses, vpn) = vpn_for(
+            &[("enp3s0", "192.168.1.8/24"), ("wt0", "100.101.102.103/16")],
+            &["netbird"],
+        );
+        assert!(vpn.detected);
+        assert_eq!(vpn.services, vec!["Netbird"]);
+        assert_eq!(vpn.address.as_deref(), Some("100.101.102.103"));
+        assert_eq!(vpn.addresses.len(), 1);
+        assert_eq!(vpn.addresses[0].interface, "wt0");
+        assert!(vpn.interfaces.is_empty());
+
+        let advertised = select_advertised(&addresses, &vpn, Some("192.168.1.8".parse().unwrap()));
+        assert_eq!(advertised.address.as_deref(), Some("100.101.102.103"));
+        assert_eq!(advertised.source, "vpn");
+        assert_eq!(advertised.service.as_deref(), Some("Netbird"));
+        assert!(advertised.reason.contains("Netbird"));
+        assert!(advertised.reason.contains("100.101.102.103"));
+    }
+
+    #[test]
+    fn a_tunnel_interface_is_enough_without_its_process() {
+        let (_, vpn) = vpn_for(
+            &[
+                ("enp3s0", "192.168.1.8/24"),
+                ("tailscale0", "100.64.0.5/32"),
+            ],
+            &[],
+        );
+        assert!(vpn.detected);
+        assert_eq!(vpn.services, vec!["Tailscale"]);
+        assert_eq!(vpn.address.as_deref(), Some("100.64.0.5"));
+    }
+
+    #[test]
+    fn wireguard_private_address_wins_over_the_lan() {
+        let (addresses, vpn) =
+            vpn_for(&[("enp3s0", "192.168.1.8/24"), ("wg0", "10.8.0.2/24")], &[]);
+        assert_eq!(vpn.services, vec!["WireGuard"]);
+        assert_eq!(vpn.address.as_deref(), Some("10.8.0.2"));
+        let advertised = select_advertised(&addresses, &vpn, Some("192.168.1.8".parse().unwrap()));
+        assert_eq!(advertised.address.as_deref(), Some("10.8.0.2"));
+        assert_eq!(advertised.source, "vpn");
+    }
+
+    #[test]
+    fn no_vpn_falls_back_to_the_lan_and_never_a_bridge() {
+        let (addresses, vpn) = vpn_for(
+            &[("enp3s0", "192.168.1.8/24"), ("docker0", "172.17.0.1/16")],
+            &["sunshine"],
+        );
+        assert!(!vpn.detected);
+        assert!(vpn.address.is_none());
+        let advertised = select_advertised(&addresses, &vpn, Some("192.168.1.8".parse().unwrap()));
+        assert_eq!(advertised.address.as_deref(), Some("192.168.1.8"));
+        assert_eq!(advertised.source, "lan");
+        assert!(advertised.reason.contains("only works at home"));
+        assert!(!advertised.reason.contains("172.17.0.1"));
+    }
+
+    #[test]
+    fn a_vpn_without_an_address_names_its_interface() {
+        let (addresses, vpn) = vpn_for_with_interfaces(
+            &[("enp3s0", "192.168.1.8/24")],
+            &["enp3s0", "wt0"],
+            &["netbird"],
+        );
+        assert!(vpn.detected);
+        assert!(vpn.address.is_none());
+        assert_eq!(vpn.interfaces, vec!["wt0"]);
+        assert!(vpn.message.contains("wt0"));
+        assert!(vpn.message.contains("no VPN address"));
+        let advertised = select_advertised(&addresses, &vpn, Some("192.168.1.8".parse().unwrap()));
+        assert_eq!(advertised.address.as_deref(), Some("192.168.1.8"));
+        assert_eq!(advertised.source, "lan");
+        assert!(advertised.reason.contains("no VPN address"));
+    }
+
+    #[test]
+    fn cgnat_on_an_unknown_interface_is_never_a_vpn() {
+        let (addresses, vpn) = vpn_for(&[("eth0", "100.64.3.7/10")], &[]);
+        assert_eq!(kind_of(&addresses, "100.64.3.7"), &AddressKind::Cgnat);
+        assert!(!vpn.detected);
+        assert!(vpn.address.is_none());
+        let advertised = select_advertised(&addresses, &vpn, Some("100.64.3.7".parse().unwrap()));
+        assert!(advertised.address.is_none());
+        assert_eq!(advertised.source, "none");
+    }
+
+    #[test]
+    fn ipv6_is_a_fallback_only() {
+        let (addresses, vpn) = vpn_for(
+            &[("enp3s0", "192.168.1.8/24"), ("wlan0", "2001:db8::8/64")],
+            &[],
+        );
+        let advertised = select_advertised(&addresses, &vpn, None);
+        assert_eq!(advertised.address.as_deref(), Some("192.168.1.8"));
+
+        let (only_v6, vpn) = vpn_for(&[("wlan0", "2001:db8::8/64")], &[]);
+        let advertised = select_advertised(&only_v6, &vpn, None);
+        assert_eq!(advertised.address.as_deref(), Some("2001:db8::8"));
+        assert_eq!(advertised.source, "ipv6");
+    }
+
+    #[test]
+    fn several_vpns_are_all_listed_and_the_mesh_wins() {
+        let (addresses, vpn) = vpn_for(
+            &[
+                ("enp3s0", "192.168.1.8/24"),
+                ("wg0", "10.8.0.2/24"),
+                ("wt0", "100.101.102.103/16"),
+            ],
+            &["wireguard", "netbird"],
+        );
+        assert_eq!(vpn.addresses.len(), 2);
+        assert_eq!(vpn.address.as_deref(), Some("100.101.102.103"));
+        assert_eq!(vpn.addresses[1].service, "WireGuard");
+        let advertised = select_advertised(&addresses, &vpn, Some("192.168.1.8".parse().unwrap()));
+        assert_eq!(advertised.source, "vpn");
+    }
+
     #[test]
     fn vpn_detection_names_the_services_and_tailnet_address() {
         let names = vec![
@@ -2731,13 +3355,14 @@ mod tests {
             "zerotier-one".to_string(),
             "tailscaled".to_string(),
         ];
-        let status = vpn_status(&names, Some("100.101.102.103".parse().unwrap()));
+        let addresses = classified(&[("tailscale0", "100.101.102.103/32")]);
+        let status = vpn_status(&names, &addresses, &["tailscale0".to_string()]);
         assert!(status.detected);
         assert_eq!(status.services, vec!["Tailscale", "ZeroTier"]);
         assert_eq!(status.address.as_deref(), Some("100.101.102.103"));
         assert!(status.message.contains("100.101.102.103"));
 
-        let none = vpn_status(&["sunshine".to_string()], None);
+        let none = vpn_status(&["sunshine".to_string()], &[], &[]);
         assert!(!none.detected);
         assert!(none.message.contains("VPN"));
     }

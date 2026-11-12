@@ -1,0 +1,87 @@
+- generic [ref=f4e2]:
+  - generic [ref=f4e3001]:
+    - banner "System" [ref=f4e3002]:
+      - generic [ref=f4e3003]:
+        - img "Ludex" [ref=f4e3004]
+        - generic [ref=f4e3013]: Big Picture
+      - generic [ref=f4e3021]:
+        - generic "Signed in as mara" [ref=f4e3022]:
+          - generic [ref=f4e3023]: MA
+          - generic [ref=f4e3024]:
+            - generic [ref=f4e3025]: "@mara"
+            - generic [ref=f4e3026]: localhost:5199
+        - generic [ref=f4e3027]: Online
+        - generic "2 downloading" [ref=f4e3033]:
+          - generic [ref=f4e3037]: "2"
+          - generic [ref=f4e3038]: 71%
+        - time [ref=f4e3040]: 23:07
+    - main [ref=f4e3044]:
+      - region "Settings" [ref=f4e3422]:
+        - generic [ref=f4e3423]:
+          - generic [ref=f4e3424]:
+            - generic [ref=f4e3425]:
+              - paragraph [ref=f4e3426]: System
+              - heading "Settings" [level=1] [ref=f4e3427]
+            - generic [ref=f4e3428]:
+              - generic [ref=f4e3429]: MA
+              - generic [ref=f4e3430]:
+                - generic [ref=f4e3431]: Signed in as mara
+                - generic [ref=f4e3432]: "Server: localhost:5199"
+          - paragraph [ref=f4e3433]: Applies to your account on every device. A device override stays on this device.
+          - group "Settings" [ref=f4e3434]:
+            - button "Language" [ref=f4e3435] [cursor=pointer]
+            - button "Appearance" [ref=f4e3441] [cursor=pointer]
+            - button "Controllers" [ref=f4e3448] [cursor=pointer]
+            - button "Streaming" [ref=f4e3451] [cursor=pointer]
+            - generic [ref=f4e3456]:
+              - generic [ref=f4e3457]: LB
+              - generic [ref=f4e3458]: RB
+              - text: Tabs
+        - list [ref=f4e3460]:
+          - listitem [ref=f4e3461]:
+            - 'button "Language: English" [active] [ref=f4e3462] [cursor=pointer]':
+              - generic [ref=f4e3463]:
+                - generic [ref=f4e3464]: Language
+                - generic [ref=f4e3465]: Applies to your account on every device. A device override stays on this device.
+              - generic [ref=f4e3466]: English
+          - listitem [ref=f4e3473]:
+            - 'button "Only this device: Off" [ref=f4e3474] [cursor=pointer]':
+              - generic [ref=f4e3475]:
+                - generic [ref=f4e3476]: Only this device
+                - generic [ref=f4e3477]: Changes apply immediately.
+              - generic [ref=f4e3478]: "Off"
+        - generic [ref=f4e3480]:
+          - generic [ref=f4e3481]:
+            - term [ref=f4e3482]: Version
+            - definition [ref=f4e3483]: v0.4.1
+          - generic [ref=f4e3484]:
+            - term [ref=f4e3485]: Server
+            - definition [ref=f4e3486]: localhost:5199
+          - generic [ref=f4e3487]:
+            - term [ref=f4e3488]: Account
+            - definition [ref=f4e3489]: mara
+          - generic [ref=f4e3490]:
+            - term [ref=f4e3491]: Controllers
+            - definition [ref=f4e3492]: No controller detected.
+    - contentinfo [ref=f4e3395]:
+      - generic [ref=f4e3396]:
+        - generic [ref=f4e3416]:
+          - generic [ref=f4e3493]: ↑
+          - generic [ref=f4e3494]: ↓
+          - text: navigate
+        - generic [ref=f4e3495]:
+          - generic [ref=f4e3496]: ←
+          - generic [ref=f4e3497]: →
+          - text: Change
+        - generic [ref=f4e3397]:
+          - generic [ref=f4e3419]: ↵
+          - text: select
+        - generic [ref=f4e3498]:
+          - generic [ref=f4e3499]: "["
+          - generic [ref=f4e3500]: "]"
+          - text: Tabs
+        - generic [ref=f4e3420]:
+          - generic [ref=f4e3421]: esc
+          - text: back
+      - generic [ref=f4e3413]: Keyboard only — connect a controller for couch navigation
+  - region "Notifications"

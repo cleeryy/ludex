@@ -1,0 +1,154 @@
+- generic [ref=f3e2]:
+  - generic [ref=f3e1253]:
+    - banner "System" [ref=f3e1254]:
+      - generic [ref=f3e1255]:
+        - img "Ludex" [ref=f3e1256]
+        - generic [ref=f3e1265]: Big Picture
+      - generic [ref=f3e1266]:
+        - generic "Signed in as mara" [ref=f3e1267]:
+          - generic [ref=f3e1268]: MA
+          - generic [ref=f3e1269]:
+            - generic [ref=f3e1270]: "@mara"
+            - generic [ref=f3e1271]: localhost:5199
+        - generic [ref=f3e1272]: Online
+        - generic "2 downloading" [ref=f3e1278]:
+          - generic [ref=f3e1282]: "2"
+          - generic [ref=f3e1283]: 76%
+        - time [ref=f3e1285]: 23:01
+    - main [ref=f3e1349]:
+      - navigation "System" [ref=f3e2891]:
+        - list [ref=f3e2892]:
+          - listitem [ref=f3e2893]:
+            - button "Continue playing — Marvel's Spider-Man 2 · Install" [ref=f3e2894] [cursor=pointer]:
+              - generic [ref=f3e2897]: Continue playing
+          - listitem [ref=f3e2899]:
+            - button "Library — All games" [ref=f3e2900] [cursor=pointer]:
+              - generic [ref=f3e2903]: Library
+          - listitem [ref=f3e2905]:
+            - button "Downloads — 2 downloading · 76%" [ref=f3e3248] [cursor=pointer]:
+              - generic [ref=f3e2910]: Downloads
+          - listitem [ref=f3e2912]:
+            - button "Collections — 14 games" [ref=f3e2913] [cursor=pointer]:
+              - generic [ref=f3e2918]: Collections
+          - listitem [ref=f3e2920]:
+            - button "Settings — Spotlight · Follow the system" [ref=f3e2921] [cursor=pointer]:
+              - generic [ref=f3e2925]: Settings
+          - listitem [ref=f3e2927]:
+            - button "Power — Quit" [ref=f3e2928] [cursor=pointer]:
+              - generic [ref=f3e2931]: Power
+      - region "Games" [ref=f3e2933]:
+        - generic [ref=f3e2950]:
+          - generic [ref=f3e2951]:
+            - paragraph [ref=f3e2952]:
+              - generic [ref=f3e2953]: Last played 3 days ago
+              - generic [ref=f3e2954]: 10h 20m played
+            - heading "Marvel's Spider-Man 2" [level=1] [ref=f3e2955]
+            - generic [ref=f3e2956]:
+              - generic [ref=f3e2957]: "2023"
+              - generic [ref=f3e2958]: Playing
+              - generic [ref=f3e2959]: 90 / 100
+            - group "Actions" [ref=f3e2960]:
+              - button "Download" [ref=f3e2962] [cursor=pointer]
+              - button "Game page" [ref=f3e2967] [cursor=pointer]
+              - button "Options" [ref=f3e2969] [cursor=pointer]
+          - generic "Games" [ref=f3e2971]:
+            - button "Marvel's Spider-Man 2" [ref=f3e2973] [cursor=pointer]:
+              - generic [ref=f3e2989]: 2023 · Playing
+            - button "Forza Horizon 6" [ref=f3e2991] [cursor=pointer]:
+              - generic [ref=f3e3005]: "2026"
+            - button "It Takes Two" [ref=f3e3007] [cursor=pointer]:
+              - generic [ref=f3e3020]: "2021"
+            - button "Chrono Trigger" [ref=f3e3022] [cursor=pointer]:
+              - generic [ref=f3e3043]: "1995"
+            - 'button "Call of Duty: Black Ops III" [ref=f3e3045] [cursor=pointer]':
+              - generic [ref=f3e3063]: "2015"
+            - button "Cat Quest II" [ref=f3e3065] [cursor=pointer]:
+              - generic [ref=f3e3089]: "2019"
+            - button "HITMAN 3" [ref=f3e3091] [cursor=pointer]:
+              - generic [ref=f3e3105]: "2021"
+            - button "Little Nightmares II" [ref=f3e3107] [cursor=pointer]:
+              - generic [ref=f3e3128]: "2021"
+            - button "Little Nightmares" [ref=f3e3130] [cursor=pointer]:
+              - img [ref=f3e3133]:
+                - generic [ref=f3e3134]: L
+              - generic [ref=f3e3140]: "2017"
+            - button "Outer Wilds" [ref=f3e3142] [cursor=pointer]:
+              - generic [ref=f3e3176]: "2019"
+            - 'button "Sackboy: A Big Adventure" [ref=f3e3178] [cursor=pointer]':
+              - generic [ref=f3e3202]: "2020"
+            - button "Minecraft Dungeons" [ref=f3e3204] [cursor=pointer]:
+              - generic [ref=f3e3224]: "2020"
+            - 'button "UNCHARTED: Legacy of Thieves Collection" [ref=f3e3226] [cursor=pointer]':
+              - generic [ref=f3e3247]: "2022"
+    - contentinfo [ref=f3e1685]:
+      - generic [ref=f3e1686]:
+        - generic [ref=f3e3270]:
+          - generic [ref=f3e3271]: ←
+          - generic [ref=f3e3272]: →
+          - text: choose
+        - generic [ref=f3e3273]:
+          - generic [ref=f3e3274]: ↵
+          - text: open
+        - generic [ref=f3e3275]:
+          - generic [ref=f3e3276]: esc
+          - text: close
+      - generic [ref=f3e1703]: Keyboard only — connect a controller for couch navigation
+    - group "Quick actions" [ref=f3e3277]:
+      - banner [ref=f3e3278]:
+        - heading "Quick actions" [level=2] [ref=f3e3279]
+        - paragraph [ref=f3e3280]: Everything here works with the controller. B closes this menu.
+      - list [ref=f3e3282]:
+        - listitem [ref=f3e3283]:
+          - button "Play or install" [active] [ref=f3e3284] [cursor=pointer]
+        - listitem [ref=f3e3290]:
+          - button "Game page" [ref=f3e3291] [cursor=pointer]
+        - listitem [ref=f3e3297]:
+          - button "Search the library Find a game without a keyboard." [ref=f3e3298] [cursor=pointer]:
+            - generic [ref=f3e3303]:
+              - generic [ref=f3e3304]: Search the library
+              - generic [ref=f3e3305]: Find a game without a keyboard.
+        - listitem [ref=f3e3306]:
+          - button "Downloads Downloads keep running while this is open. 2" [ref=f3e3307] [cursor=pointer]:
+            - generic [ref=f3e3312]:
+              - generic [ref=f3e3313]: Downloads
+              - generic [ref=f3e3314]: Downloads keep running while this is open.
+            - generic [ref=f3e3315]: "2"
+        - listitem [ref=f3e3316]:
+          - button "Controller profile Switch the pad setup and vibration." [ref=f3e3317] [cursor=pointer]:
+            - generic [ref=f3e3321]:
+              - generic [ref=f3e3322]: Controller profile
+              - generic [ref=f3e3323]: Switch the pad setup and vibration.
+        - listitem [ref=f3e3324]:
+          - button "Layout Change how the library is presented." [ref=f3e3325] [cursor=pointer]:
+            - generic [ref=f3e3332]:
+              - generic [ref=f3e3333]: Layout
+              - generic [ref=f3e3334]: Change how the library is presented.
+        - listitem [ref=f3e3335]:
+          - button "Settings" [ref=f3e3336] [cursor=pointer]
+        - listitem [ref=f3e3343]:
+          - button "Power Quit" [ref=f3e3344] [cursor=pointer]:
+            - generic [ref=f3e3349]:
+              - generic [ref=f3e3350]: Power
+              - generic [ref=f3e3351]: Quit
+      - contentinfo [ref=f3e3352]:
+        - generic [ref=f3e3353]:
+          - generic [ref=f3e3354]:
+            - generic [ref=f3e3355]: ←
+            - generic [ref=f3e3356]: →
+            - text: choose
+          - generic [ref=f3e3357]:
+            - generic [ref=f3e3358]: ↵
+            - text: open
+          - generic [ref=f3e3359]:
+            - generic [ref=f3e3360]: esc
+            - text: close
+  - region "Notifications"
+  - status [ref=f3e17]:
+    - generic [ref=f3e18]:
+      - generic [ref=f3e22]:
+        - paragraph [ref=f3e23]: Install Ludex
+        - paragraph [ref=f3e24]: Keep the shell on your home screen and open the library full screen, even offline.
+        - generic [ref=f3e25]:
+          - button "Install" [ref=f3e26] [cursor=pointer]
+          - button "Not now" [ref=f3e30] [cursor=pointer]
+      - button "Dismiss" [ref=f3e31] [cursor=pointer]

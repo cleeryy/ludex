@@ -3446,5 +3446,12 @@
   "Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.": "모든 다운로드(설치, 복구, 스트림 설치)를 Mb/s로 제한합니다. 0은 무제한입니다.",
   "Connection recovery": "연결 복구",
   "Ludex aborts a response that stays silent for this many seconds and resumes from the last received byte. A transfer that keeps receiving data is never interrupted.": "Ludex는 응답이 이 시간(초) 동안 조용하면 중단하고 마지막으로 받은 바이트부터 재개합니다. 계속 데이터를 받는 전송은 중단되지 않습니다.",
-  "Connection lost, resuming from {percent}": "연결이 끊어졌습니다. {percent}에서 재개합니다"
+  "Connection lost, resuming from {percent}": "연결이 끊어졌습니다. {percent}에서 재개합니다",
+  "{service} address": "{service} 주소",
+  "IPv6 address": "IPv6 주소",
+  "Local address": "로컬 주소",
+  "no address on {interfaces}": "{interfaces}에 주소 없음",
+  "Other addresses": "다른 주소",
+  "The VPN is detected on {interfaces} but has no address. Copy the address from the VPN service; the LAN address above only works at home.": "VPN이 {interfaces}에서 감지되었지만 주소가 없습니다. VPN 서비스에서 주소를 복사하세요. 위의 LAN 주소는 집에서만 작동합니다.",
+  "this machine": "이 컴퓨터"
 }

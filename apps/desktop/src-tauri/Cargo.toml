@@ -57,7 +57,7 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 rand = "0.8"
 fs2 = "0.4"
-sysinfo = { version = "0.40", default-features = false, features = ["system"] }
+sysinfo = { version = "0.40", default-features = false, features = ["network", "system"] }
 sha2 = "0.10"
 crc32fast = "1"
 hex = "0.4"

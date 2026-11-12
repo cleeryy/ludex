@@ -1,0 +1,110 @@
+- generic [ref=f4e2]:
+  - generic [ref=f4e3]:
+    - banner "System" [ref=f4e4]:
+      - generic [ref=f4e5]:
+        - img "Ludex" [ref=f4e6]
+        - generic [ref=f4e15]: Big Picture
+      - generic [ref=f4e16]:
+        - generic "Signed in as mara" [ref=f4e17]:
+          - generic [ref=f4e18]: MA
+          - generic [ref=f4e19]:
+            - generic [ref=f4e20]: "@mara"
+            - generic [ref=f4e21]: localhost:5199
+        - generic [ref=f4e22]: Online
+        - generic "2 downloading" [ref=f4e28]:
+          - generic [ref=f4e32]: "2"
+          - generic [ref=f4e33]: 69%
+        - time [ref=f4e35]: 23:06
+    - main [ref=f4e39]:
+      - region "Games" [ref=f4e703]:
+        - generic [ref=f4e719]:
+          - generic [ref=f4e720]:
+            - generic [ref=f4e721]:
+              - generic [ref=f4e722]:
+                - generic [ref=f4e723]: Continue playing
+                - generic [ref=f4e725]: Recently played · 13
+              - generic [ref=f4e726]: 01 / 13
+            - heading "Marvel's Spider-Man 2" [level=1] [ref=f4e727]
+            - generic [ref=f4e728]:
+              - generic [ref=f4e729]: "2023"
+              - generic [ref=f4e730]: Playing
+              - generic [ref=f4e731]: 90 / 100
+              - generic [ref=f4e732]: 10h 20m played
+              - generic [ref=f4e733]: Last played 3 days ago
+            - button "Download" [ref=f4e735] [cursor=pointer]
+          - generic "Games" [ref=f4e740]:
+            - button "Marvel's Spider-Man 2" [active] [ref=f4e742] [cursor=pointer]:
+              - generic [ref=f4e758]: 2023 · Playing
+            - button "Forza Horizon 6" [ref=f4e760] [cursor=pointer]:
+              - generic [ref=f4e774]: "2026"
+            - button "It Takes Two" [ref=f4e776] [cursor=pointer]:
+              - generic [ref=f4e789]: "2021"
+            - button "Chrono Trigger" [ref=f4e791] [cursor=pointer]:
+              - generic [ref=f4e812]: "1995"
+            - 'button "Call of Duty: Black Ops III" [ref=f4e814] [cursor=pointer]':
+              - generic [ref=f4e832]: "2015"
+            - button "Cat Quest II" [ref=f4e834] [cursor=pointer]:
+              - generic [ref=f4e858]: "2019"
+            - button "HITMAN 3" [ref=f4e860] [cursor=pointer]:
+              - generic [ref=f4e874]: "2021"
+            - button "Little Nightmares II" [ref=f4e876] [cursor=pointer]:
+              - generic [ref=f4e897]: "2021"
+            - button "Little Nightmares" [ref=f4e899] [cursor=pointer]:
+              - img [ref=f4e902]:
+                - generic [ref=f4e903]: L
+              - generic [ref=f4e909]: "2017"
+            - button "Outer Wilds" [ref=f4e911] [cursor=pointer]:
+              - generic [ref=f4e945]: "2019"
+            - 'button "Sackboy: A Big Adventure" [ref=f4e947] [cursor=pointer]':
+              - generic [ref=f4e971]: "2020"
+            - button "Minecraft Dungeons" [ref=f4e973] [cursor=pointer]:
+              - generic [ref=f4e993]: "2020"
+            - 'button "UNCHARTED: Legacy of Thieves Collection" [ref=f4e995] [cursor=pointer]':
+              - generic [ref=f4e1016]: "2022"
+    - navigation "System" [ref=f4e1017]:
+      - list [ref=f4e1018]:
+        - listitem [ref=f4e1019]:
+          - button "Continue playing — Marvel's Spider-Man 2 · Install" [ref=f4e1020] [cursor=pointer]:
+            - generic [ref=f4e1023]: Continue playing
+        - listitem [ref=f4e1024]:
+          - button "Library — All games" [ref=f4e1025] [cursor=pointer]:
+            - generic [ref=f4e1028]: Library
+        - listitem [ref=f4e1029]:
+          - button "Downloads — 2 downloading · 69%" [ref=f4e1053] [cursor=pointer]:
+            - generic [ref=f4e1034]: Downloads
+        - listitem [ref=f4e1035]:
+          - button "Collections — 14 games" [ref=f4e1036] [cursor=pointer]:
+            - generic [ref=f4e1041]: Collections
+        - listitem [ref=f4e1042]:
+          - button "Settings — Dock · Follow the system" [ref=f4e1043] [cursor=pointer]:
+            - generic [ref=f4e1047]: Settings
+        - listitem [ref=f4e1048]:
+          - button "Power — Quit" [ref=f4e1049] [cursor=pointer]:
+            - generic [ref=f4e1052]: Power
+    - contentinfo [ref=f4e399]:
+      - generic [ref=f4e400]:
+        - generic [ref=f4e543]:
+          - generic [ref=f4e1060]: ←
+          - generic [ref=f4e1061]: →
+          - text: select
+        - generic [ref=f4e1062]:
+          - generic [ref=f4e1063]: "["
+          - generic [ref=f4e1064]: "]"
+          - text: shelf
+        - generic [ref=f4e1065]:
+          - generic [ref=f4e1066]: ↵
+          - text: play or install
+        - generic [ref=f4e1067]:
+          - generic [ref=f4e1068]: /
+          - text: search
+        - generic [ref=f4e1069]:
+          - generic [ref=f4e1070]: D
+          - text: downloads
+        - generic [ref=f4e1071]:
+          - generic [ref=f4e1072]: M
+          - text: menu
+        - generic [ref=f4e1073]:
+          - generic [ref=f4e1074]: esc
+          - text: exit
+      - generic [ref=f4e417]: Keyboard only — connect a controller for couch navigation
+  - region "Notifications"

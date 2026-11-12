@@ -1,0 +1,149 @@
+- generic [ref=f1e2]:
+  - generic [ref=f1e1092]:
+    - banner "System" [ref=f1e1093]:
+      - generic [ref=f1e1094]:
+        - img "Ludex" [ref=f1e1095]
+        - generic [ref=f1e1104]: Big Picture
+      - generic [ref=f1e1105]:
+        - generic "Signed in as mara" [ref=f1e1106]:
+          - generic [ref=f1e1107]: MA
+          - generic [ref=f1e1108]:
+            - generic [ref=f1e1109]: "@mara"
+            - generic [ref=f1e1110]: 127.0.0.1:5173
+        - generic [ref=f1e1111]: Online
+        - generic "2 downloading" [ref=f1e1117]:
+          - generic [ref=f1e1121]: "2"
+          - generic [ref=f1e1122]: 64%
+        - time [ref=f1e1124]: 22:55
+    - navigation "System" [ref=f1e1128]:
+      - list [ref=f1e1129]:
+        - listitem [ref=f1e1130]:
+          - button "Continue playing — Marvel's Spider-Man 2 · Install" [ref=f1e1131] [cursor=pointer]:
+            - generic [ref=f1e1132]: "01"
+            - generic [ref=f1e1136]:
+              - generic [ref=f1e1137]: Continue playing
+              - generic [ref=f1e1138]: Marvel's Spider-Man 2 · Install
+        - listitem [ref=f1e1139]:
+          - button "Library — All games" [ref=f1e1140] [cursor=pointer]:
+            - generic [ref=f1e1141]: "02"
+            - generic [ref=f1e1145]:
+              - generic [ref=f1e1146]: Library
+              - generic [ref=f1e1147]: All games
+        - listitem [ref=f1e1148]:
+          - button "Downloads — 2 downloading · 64%" [ref=f1e1149] [cursor=pointer]:
+            - generic [ref=f1e1150]: "03"
+            - generic [ref=f1e1155]:
+              - generic [ref=f1e1156]: Downloads
+              - generic [ref=f1e1157]: 2 downloading · 64%
+        - listitem [ref=f1e1158]:
+          - button "Collections — 14 games" [ref=f1e1159] [cursor=pointer]:
+            - generic [ref=f1e1160]: "04"
+            - generic [ref=f1e1166]:
+              - generic [ref=f1e1167]: Collections
+              - generic [ref=f1e1168]: 14 games
+        - listitem [ref=f1e1169]:
+          - button "Settings — Shelf · Follow the system" [ref=f1e1170] [cursor=pointer]:
+            - generic [ref=f1e1171]: "05"
+            - generic [ref=f1e1176]:
+              - generic [ref=f1e1177]: Settings
+              - generic [ref=f1e1178]: Shelf · Follow the system
+        - listitem [ref=f1e1179]:
+          - button "Power — Quit" [ref=f1e1180] [cursor=pointer]:
+            - generic [ref=f1e1181]: "06"
+            - generic [ref=f1e1185]:
+              - generic [ref=f1e1186]: Power
+              - generic [ref=f1e1187]: Quit
+    - main [ref=f1e1188]:
+      - generic [ref=f1e1205]:
+        - generic [ref=f1e1208]:
+          - generic:
+            - generic:
+              - generic: Ludex
+              - generic: No. 012
+            - generic:
+              - generic: Marvel's Spider-Man 2
+              - generic:
+                - generic: "2023"
+                - generic: Action
+        - generic [ref=f1e1221]:
+          - generic [ref=f1e1222]: Continue playing
+          - heading "Marvel's Spider-Man 2" [level=1] [ref=f1e1224]
+          - generic [ref=f1e1225]:
+            - generic [ref=f1e1226]: "2023"
+            - generic [ref=f1e1227]: Playing
+            - generic [ref=f1e1228]: 90 / 100
+            - generic [ref=f1e1229]: 10h 20m played
+            - generic [ref=f1e1230]: Last played 3 days ago
+          - generic [ref=f1e1231]:
+            - button "Download" [ref=f1e1232] [cursor=pointer]
+            - button "Game page" [ref=f1e1236] [cursor=pointer]
+      - region "Games" [ref=f1e1237]:
+        - generic [ref=f1e1238]:
+          - group "Shelves" [ref=f1e1239]:
+            - button "Recently played 13" [pressed] [ref=f1e1240] [cursor=pointer]:
+              - generic [ref=f1e1241]: Recently played
+              - generic [ref=f1e1242]: "13"
+            - button "All games 19" [ref=f1e1243] [cursor=pointer]:
+              - generic [ref=f1e1244]: All games
+              - generic [ref=f1e1245]: "19"
+          - generic [ref=f1e1246]: 1 / 13
+        - generic [ref=f1e1247]:
+          - button "Marvel's Spider-Man 2" [ref=f1e1249] [cursor=pointer]:
+            - generic [ref=f1e1265]: 2023 · Playing
+          - button "Forza Horizon 6" [ref=f1e1267] [cursor=pointer]:
+            - generic [ref=f1e1281]: "2026"
+          - button "It Takes Two" [ref=f1e1283] [cursor=pointer]:
+            - generic [ref=f1e1296]: "2021"
+          - button "Chrono Trigger" [ref=f1e1298] [cursor=pointer]:
+            - generic [ref=f1e1319]: "1995"
+          - 'button "Call of Duty: Black Ops III" [ref=f1e1321] [cursor=pointer]':
+            - generic [ref=f1e1339]: "2015"
+          - button "Cat Quest II" [ref=f1e1341] [cursor=pointer]:
+            - generic [ref=f1e1365]: "2019"
+          - button "HITMAN 3" [ref=f1e1367] [cursor=pointer]:
+            - generic [ref=f1e1381]: "2021"
+          - button "Little Nightmares II" [ref=f1e1383] [cursor=pointer]:
+            - generic [ref=f1e1404]: "2021"
+          - button "Little Nightmares" [ref=f1e1406] [cursor=pointer]:
+            - img [ref=f1e1409]:
+              - generic [ref=f1e1410]: L
+            - generic [ref=f1e1416]: "2017"
+          - button "Outer Wilds" [ref=f1e1418] [cursor=pointer]:
+            - generic [ref=f1e1452]: "2019"
+          - 'button "Sackboy: A Big Adventure" [ref=f1e1454] [cursor=pointer]':
+            - generic [ref=f1e1478]: "2020"
+          - button "Minecraft Dungeons" [ref=f1e1480] [cursor=pointer]:
+            - generic [ref=f1e1500]: "2020"
+          - 'button "UNCHARTED: Legacy of Thieves Collection" [ref=f1e1502] [cursor=pointer]':
+            - generic [ref=f1e1523]: "2022"
+    - contentinfo [ref=f1e1524]:
+      - generic [ref=f1e1525]:
+        - generic [ref=f1e1526]:
+          - generic [ref=f1e1527]: ←
+          - generic [ref=f1e1528]: →
+          - text: select
+        - generic [ref=f1e1529]:
+          - generic [ref=f1e1530]: "["
+          - generic [ref=f1e1531]: "]"
+          - text: shelf
+        - generic [ref=f1e1532]:
+          - generic [ref=f1e1533]: PgUp
+          - generic [ref=f1e1534]: PgDn
+          - text: page
+        - generic [ref=f1e1535]:
+          - generic [ref=f1e1536]: ↵
+          - text: play or install
+        - generic [ref=f1e1537]:
+          - generic [ref=f1e1538]: /
+          - text: search
+        - generic [ref=f1e1539]:
+          - generic [ref=f1e1540]: D
+          - text: downloads
+        - generic [ref=f1e1541]:
+          - generic [ref=f1e1542]: M
+          - text: menu
+        - generic [ref=f1e1543]:
+          - generic [ref=f1e1544]: esc
+          - text: exit
+      - generic [ref=f1e1545]: Keyboard only — connect a controller for couch navigation
+  - region "Notifications"

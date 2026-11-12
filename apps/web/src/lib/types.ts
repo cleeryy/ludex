@@ -1909,12 +1909,53 @@ export interface RemotePlaySession {
   updatedAt: string | null;
 }
 
+export interface RemotePlayVpnAddress {
+  address: string;
+  interface: string;
+  service: string;
+}
+
 export interface RemotePlayVpnStatus {
   detected: boolean;
   services: string[];
   /** Address to enter in Moonlight when the VPN is active. */
   address: string | null;
+  /** Every VPN/mesh address, with its interface and service (#206). */
+  addresses: RemotePlayVpnAddress[];
+  /** VPN adapters with no usable address, so the wizard can explain the fallback (#206). */
+  interfaces: string[];
   message: string;
+}
+
+export type RemotePlayAddressKind =
+  | "vpn"
+  | "lan"
+  | "ipv6"
+  | "cgnat"
+  | "public"
+  | "ula"
+  | "link_local"
+  | "loopback"
+  | "virtual";
+
+/** One classified local address (#206). */
+export interface RemotePlayLocalAddress {
+  address: string;
+  interface: string;
+  kind: RemotePlayAddressKind;
+  /** Set for a known VPN/mesh adapter only. */
+  service: string | null;
+  prefix: number;
+}
+
+/** The address the wizard advertises, with the reason it was chosen (#206). */
+export interface RemotePlayAdvertisedAddress {
+  address: string | null;
+  /** `vpn`, `lan`, `ipv6` or `none`. */
+  source: "vpn" | "lan" | "ipv6" | "none";
+  interface: string | null;
+  service: string | null;
+  reason: string;
 }
 
 export interface RemotePlaySunshineStatus {
@@ -1952,6 +1993,10 @@ export interface RemotePlayStatus {
   ipv6: string | null;
   publicIp: string | null;
   vpn: RemotePlayVpnStatus;
+  /** Every local address, classified (#206). */
+  addresses: RemotePlayLocalAddress[];
+  /** The address the wizard shows, with the reason it was chosen (#206). */
+  advertised: RemotePlayAdvertisedAddress;
   sunshine: RemotePlaySunshineStatus;
   upnp: RemotePlayUpnpStatus;
   direct: RemotePlayDirectAssessment;

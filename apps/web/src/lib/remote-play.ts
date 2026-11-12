@@ -91,17 +91,39 @@ export function portSummary(plan: { tcp: number[]; udp: number[] }): string {
 
 /**
  * The address to type in Moonlight, in priority order: the VPN address, the
- * public address when direct mode is on, then the LAN address.
+ * public address when direct mode is on, then the advertised address (LAN,
+ * IPv6 or VPN when the backend picked one) and finally the LAN address.
  */
 export function moonlightAddress(status: {
   vpn: { address: string | null };
+  advertised?: { address: string | null } | null;
   publicIp: string | null;
   lanIp: string | null;
   active: { mappings: unknown[] };
 }): string | null {
   if (status.vpn.address) return status.vpn.address;
   if (status.active.mappings.length > 0 && status.publicIp) return status.publicIp;
-  return status.lanIp;
+  return status.advertised?.address ?? status.lanIp;
+}
+
+/**
+ * Addresses the wizard can offer, advertised first, usable kinds only (#206).
+ * A Docker bridge, a CGNAT WAN address, a loopback or an IPv6 ULA is listed in
+ * the detection report but never offered for Moonlight.
+ */
+export function addressChoices<T extends { address: string; kind: string }>(status: {
+  advertised: { address: string | null };
+  addresses: T[];
+}): T[] {
+  const usable = status.addresses.filter(
+    (entry) => entry.kind === "vpn" || entry.kind === "lan" || entry.kind === "ipv6",
+  );
+  const chosen = status.advertised.address;
+  if (!chosen) return usable;
+  return [
+    ...usable.filter((entry) => entry.address === chosen),
+    ...usable.filter((entry) => entry.address !== chosen),
+  ];
 }
 
 /** True when a mapping's remaining lease is under half of its duration. */

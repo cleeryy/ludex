@@ -10,6 +10,10 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Ludex artwork for the Sunshine console app (#207): the managed `Ludex` app now
+  publishes a bundled 600x900 box-art `image-path`, materialized once under the
+  app data directory with a content hash (refreshed on change, old copies
+  pruned), so Moonlight shows the logo instead of a blank tile.
 - One shared one-shot elevation flow (#192): privileged actions go through a
   whitelisted elevation module (path ACL, signed installer, service/driver,
   firewall rule, config write) that validates every path, launches a single
@@ -52,6 +56,11 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- The remote-play wizard shows the VPN/mesh address (#206): it enumerates every
+  interface, prefers Netbird/Tailscale/WireGuard/ZeroTier addresses over the
+  default-route LAN IP, never advertises CGNAT, Docker, loopback or link-local
+  addresses, lists alternatives to copy, and warns when a VPN is detected
+  without an address.
 - Large downloads survive dropped connections (#195): an idle timeout detects a
   stalled stream, the client reconnects with bounded backoff and `Range` from the
   last flushed byte, shows "Connection lost, resuming from X%", and restarts
