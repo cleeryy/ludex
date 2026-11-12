@@ -59,6 +59,12 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- Windows updates now replace the app binary (#186): every build carries a
+  `LUDEX_BUILD_COMMIT` stamp, the updater records the version it installs and
+  verifies it on the next start, startup logs the running exe/version/commit and
+  warns about a second `ludex.exe` in the usual install roots, and a mismatch
+  shows a danger toast instead of "updated". The NSIS bundle is pinned to a
+  per-user install and the release CI verifies the payload byte-for-byte.
 - Adopted games on Windows launch again (#187): verbatim `\\?\` paths are
   normalized before `Command::new`/`current_dir` (drive and UNC forms, keeping
   the prefix only past MAX_PATH) at launch, adoption storage and DB reads, the

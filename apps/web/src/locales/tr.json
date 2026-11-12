@@ -3367,5 +3367,9 @@
   "Working directory": "Çalışma dizini",
   "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "Oyunun başlatıldığı klasör. Boş bırakılırsa kurulum klasörü kullanılır; sahiplenilen bir oyun aksi halde çalıştırılabilir dosyasının klasöründen başlar.",
   "The game exited immediately": "Oyun hemen kapandı",
-  "The game exited immediately (code {code})": "Oyun hemen kapandı (kod {code})"
+  "The game exited immediately (code {code})": "Oyun hemen kapandı (kod {code})",
+  "The update did not replace this Ludex install": "Güncelleme bu Ludex kurulumunu değiştirmedi",
+  "Ludex is running {running} from {path}, but the update installed {expected}. Reinstall from the release page, then check the shortcut target.": "Ludex, {path} konumundan {running} sürümüyle çalışıyor ancak güncelleme {expected} sürümünü kurdu. Sürüm sayfasından yeniden kurun ve kısayol hedefini kontrol edin.",
+  "Another Ludex install was found": "Başka bir Ludex kurulumu bulundu",
+  "Another ludex.exe exists at {path}. Windows may start that copy instead of the updated app. Remove the extra install or update it too.": "{path} konumunda başka bir ludex.exe var. Windows, güncellenmiş uygulama yerine bu kopyayı başlatabilir. Fazladan kurulumu kaldırın veya onu da güncelleyin."
 }

@@ -35,6 +35,7 @@ import type {
   GameVaultRootProposal,
   GameVaultScan,
   InstallGameArgs,
+  InstallHealth,
   InstallJob,
   InstalledGame,
   InstallerPlan,
@@ -386,6 +387,31 @@ export const native = {
     if (!isNative()) return null;
     try {
       return await invoke<UpdateStatus>("update_status");
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * Installed-binary self-check (#186): running exe/version/build commit,
+   * other copies in the usual install roots, and a pending update that was
+   * installed but is not running. Best effort: null in the browser or when the
+   * command fails.
+   */
+  async installHealth(): Promise<InstallHealth | null> {
+    if (!isNative()) return null;
+    try {
+      return await invoke<InstallHealth>("update_install_health");
+    } catch {
+      return null;
+    }
+  },
+
+  /** Clear a stored update mismatch after the user acted on it (#186). */
+  async dismissUpdateMismatch(): Promise<InstallHealth | null> {
+    if (!isNative()) return null;
+    try {
+      return await invoke<InstallHealth>("dismiss_update_mismatch");
     } catch {
       return null;
     }

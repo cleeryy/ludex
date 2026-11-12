@@ -3367,5 +3367,9 @@
   "Working directory": "Arbeitsverzeichnis",
   "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "Ordner, in dem das Spiel startet. Leer verwendet den Installationsordner; ein übernommenes Spiel startet sonst im Ordner seiner ausführbaren Datei.",
   "The game exited immediately": "Das Spiel wurde sofort beendet",
-  "The game exited immediately (code {code})": "Das Spiel wurde sofort beendet (Code {code})"
+  "The game exited immediately (code {code})": "Das Spiel wurde sofort beendet (Code {code})",
+  "The update did not replace this Ludex install": "Das Update hat diese Ludex-Installation nicht ersetzt",
+  "Ludex is running {running} from {path}, but the update installed {expected}. Reinstall from the release page, then check the shortcut target.": "Ludex läuft als {running} aus {path}, das Update hat aber {expected} installiert. Installiere die Version erneut von der Release-Seite und prüfe das Ziel der Verknüpfung.",
+  "Another Ludex install was found": "Eine weitere Ludex-Installation wurde gefunden",
+  "Another ludex.exe exists at {path}. Windows may start that copy instead of the updated app. Remove the extra install or update it too.": "Unter {path} liegt eine weitere ludex.exe. Windows startet möglicherweise diese Kopie statt der aktualisierten App. Entferne die zusätzliche Installation oder aktualisiere sie ebenfalls."
 }

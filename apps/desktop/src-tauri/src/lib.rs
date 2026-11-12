@@ -13,6 +13,7 @@ mod diagnostics;
 mod game_config;
 mod game_executables;
 mod install;
+mod install_health;
 mod installer;
 mod launch;
 mod launchers;
@@ -137,6 +138,15 @@ pub fn run() {
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
+                // #186: log the running exe, version and build commit, resolve
+                // a pending update and scan for a second install before the
+                // rest of the startup work. Blocking filesystem reads only.
+                let health_handle = handle.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    install_health::startup_check(&health_handle);
+                })
+                .await;
+
                 let install_dir = handle
                     .state::<state::AppState>()
                     .settings_snapshot()
@@ -206,6 +216,8 @@ pub fn run() {
             updater::update_status,
             updater::set_update_channel,
             updater::set_update_skip,
+            install_health::update_install_health,
+            install_health::dismiss_update_mismatch,
             commands::open_path,
             commands::get_disk_usage,
             commands::installer_plan,

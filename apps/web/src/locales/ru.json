@@ -3367,5 +3367,9 @@
   "Working directory": "Рабочий каталог",
   "Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.": "Папка, в которой запускается игра. Пусто — папка установки; для добавленной игры иначе используется папка исполняемого файла.",
   "The game exited immediately": "Игра сразу завершилась",
-  "The game exited immediately (code {code})": "Игра сразу завершилась (код {code})"
+  "The game exited immediately (code {code})": "Игра сразу завершилась (код {code})",
+  "The update did not replace this Ludex install": "Обновление не заменило эту установку Ludex",
+  "Ludex is running {running} from {path}, but the update installed {expected}. Reinstall from the release page, then check the shortcut target.": "Ludex запущен версии {running} из {path}, но обновление установило {expected}. Переустановите приложение со страницы релиза и проверьте ярлык.",
+  "Another Ludex install was found": "Найдена другая установка Ludex",
+  "Another ludex.exe exists at {path}. Windows may start that copy instead of the updated app. Remove the extra install or update it too.": "Другой ludex.exe находится в {path}. Windows может запустить эту копию вместо обновлённого приложения. Удалите лишнюю установку или обновите и её."
 }

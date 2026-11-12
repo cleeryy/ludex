@@ -58,6 +58,11 @@
         "section": "games"
       }
     },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
     "createUpdaterArtifacts": true
   },
   "plugins": {

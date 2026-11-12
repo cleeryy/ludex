@@ -2010,6 +2010,35 @@ interface UpdateStatus {
   message: string | null;
 }
 
+/** Installed-binary self-check (#186). */
+interface InstallCandidate {
+  path: string;                     // full path of the other ludex.exe
+  root: string;                     // scanned install root
+  sizeBytes: number | null;
+  modifiedAt: string | null;        // RFC 3339
+  commit: string | null;            // build marker; null = pre-marker build
+  differs: boolean;                 // not the running build
+}
+
+interface InstallMismatch {
+  runningVersion: string;
+  expectedVersion: string;          // version the updater reported as installed
+  exe: string | null;
+  detectedAt: string;               // RFC 3339
+}
+
+interface InstallHealth {
+  runningExe: string | null;
+  runningVersion: string;
+  buildCommit: string;              // LUDEX_BUILD_COMMIT stamped at build time
+  platform: string;                 // std::env::consts::OS
+  logPath: string | null;           // {appDataDir}/logs/ludex.log
+  installRoots: string[];           // scanned roots (empty outside Windows)
+  duplicates: InstallCandidate[];
+  pendingVersion: string | null;    // installed, not yet verified by a restart
+  mismatch: InstallMismatch | null; // last update that did not take effect
+}
+
 interface InstallJob {
   jobId: string; gameId: number; versionId: number;
   phase: "queued" | "downloading" | "extracting" | "finalizing" | "paused"
@@ -2463,6 +2492,8 @@ interface RemotePlayCleanup {
 | `update_status` | — | `UpdateStatus` without a network check: current version, channel, endpoint, skipped version, last check (#163) |
 | `set_update_channel` | `{ channel }` | Persists `updateChannel` then re-checks on it; unknown values are rejected (#163) |
 | `set_update_skip` | `{ version }` | Persists `skippedUpdateVersion` (`null` clears it) and returns the status without a network check. Silences prompts/badges only (#163) |
+| `update_install_health` | — | `InstallHealth`: running exe, installed version and `LUDEX_BUILD_COMMIT`, `{appDataDir}/logs/ludex.log` path, scanned Windows install roots, other `ludex.exe` copies with their own build marker, the version a just-finished install recorded, and the last update that did not take effect (#186) |
+| `dismiss_update_mismatch` | — | `InstallHealth` after clearing a stored mismatch; a later successful update clears it automatically (#186) |
 | `installer_plan` | `{ gameId?, executable? }` | `InstallerPlan`; never runs anything. On Linux `compatTool`/`prefix` show the tool a run would use |
 | `run_installer` | `{ gameId, executable?, interactive?, args? }` | `InstallerReport`; Windows runs `setup.exe` directly, Linux through UMU/Proton/Wine (#93); interactive runs use no arguments and no timeout |
 | `cancel_installer` | `{ gameId }` | `null`; stops a running installer at the next poll |
@@ -2610,7 +2641,9 @@ desktop SQLite index at `{appDataDir}/servers/<profileId>/index.db` (installed
 games, sessions with exact seconds, install jobs, file manifests, archive
 fingerprints, resumable stream manifests); an installation without a saved
 server still uses `{appDataDir}/ludex-desktop.db`, which the first profile
-adopts by copy. Per-entry stream checkpoints live in
+adopts by copy. Update bookkeeping lives in `{appDataDir}/install-state.json`
+and the startup self-check appends to `{appDataDir}/logs/ludex.log` (#186).
+Per-entry stream checkpoints live in
 `install_stream_manifests` (one manifest per job/version) and the
 `install_jobs.stream_completed` hex bitset (schema v9). Local archive extraction
 uses `GET /api/games/{id}/versions/{vid}/local-path` when the embedded server is
@@ -2975,6 +3008,19 @@ stops every write. Each applied change appears in the Backups tab with
   mapped to specific messages. No token, signing key or password is logged.
   The browser build has no updater: `/updates` explains that updates are
   desktop-only and links to the release page.
+- **Installed-binary self-check (#186).** Every build embeds
+  `LUDEX_BUILD_COMMIT=<sha>`. `install_update` records the target version in
+  `{appDataDir}/install-state.json` before the installer runs. On the next
+  start the running version is compared with that record: a match clears it, a
+  difference stores an `InstallMismatch` that `update_install_health` reports
+  (the web toast names the running and expected versions), so a locked or
+  partial update cannot present itself as successful. The same start scans
+  `%LOCALAPPDATA%\Ludex`, `%LOCALAPPDATA%\Programs\Ludex`, `%PROGRAMFILES%\Ludex`
+  and `%PROGRAMFILES(X86)%\Ludex` for other `ludex.exe` copies, and appends the
+  running path, version, commit and every duplicate to
+  `{appDataDir}/logs/ludex.log`. Nothing is uploaded; the log is local only.
+  `dismiss_update_mismatch` clears the stored mismatch once the user acted on
+  it, and a later successful update clears it automatically.
 - **Move.** `move_install` takes a new install root and keeps the
   `{slug}/{versionLabel}` layout. Same filesystem: an atomic rename. Different
   filesystem: copy to a hidden sibling, verify the byte count, rename into
