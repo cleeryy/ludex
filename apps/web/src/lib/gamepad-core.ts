@@ -1,5 +1,6 @@
 import type { ControllerAction, ControllerProfile } from "@/lib/types";
 import { actionForAxis, actionForButton, applyStick } from "@/lib/controller-profiles";
+import type { CueId } from "@/lib/ui-sound-specs";
 
 /**
  * Pure gamepad logic (#137), kept out of the React hook so it can be tested
@@ -433,6 +434,102 @@ export function hapticPattern(action: GamepadAction): HapticPattern | null {
     default:
       return null;
   }
+}
+
+/* ------------------------------ cue haptics -------------------------------- */
+
+/**
+ * Big Picture haptics strength (#198). `off` silences the pad without touching
+ * the profile's own `vibration` flag; `strong` multiplies the magnitudes and
+ * clamps at 1, because the Gamepad API refuses anything above it.
+ */
+export type HapticsStrength = "off" | "standard" | "strong";
+
+export const HAPTICS_STRENGTHS: readonly HapticsStrength[] = ["off", "standard", "strong"];
+
+export const HAPTIC_STRENGTH_SCALE: Record<HapticsStrength, number> = {
+  off: 0,
+  standard: 1,
+  strong: 1.35,
+};
+
+/** One scheduled pulse; `delayMs` is measured from the press. */
+export interface HapticPulse extends HapticPattern {
+  delayMs: number;
+}
+
+/**
+ * Per-cue rumble (#198). The cue is the unit, not the logical action: a launch
+ * and a confirmation must not feel the same, and an install completing has no
+ * button behind it. Keyboard and mouse never call this.
+ */
+export function cueHapticPattern(cue: CueId): HapticPattern | null {
+  switch (cue) {
+    case "move":
+      return { duration: 28, strongMagnitude: 0.18, weakMagnitude: 0.12 };
+    case "tabChange":
+      return { duration: 30, strongMagnitude: 0.2, weakMagnitude: 0.14 };
+    case "confirm":
+      return { duration: 70, strongMagnitude: 0.4, weakMagnitude: 0.3 };
+    case "back":
+      return { duration: 60, strongMagnitude: 0.32, weakMagnitude: 0.22 };
+    case "openGroup":
+      return { duration: 55, strongMagnitude: 0.3, weakMagnitude: 0.2 };
+    case "closeGroup":
+      return { duration: 45, strongMagnitude: 0.22, weakMagnitude: 0.16 };
+    case "overlayOpen":
+      return { duration: 40, strongMagnitude: 0.22, weakMagnitude: 0.16 };
+    case "overlayClose":
+      return { duration: 35, strongMagnitude: 0.18, weakMagnitude: 0.12 };
+    case "error":
+      return { duration: 40, strongMagnitude: 0.55, weakMagnitude: 0.4 };
+    case "launch":
+      return { duration: 120, strongMagnitude: 0.5, weakMagnitude: 0.3 };
+    case "power":
+      return { duration: 160, strongMagnitude: 0.6, weakMagnitude: 0.35 };
+    case "installComplete":
+      return { duration: 90, strongMagnitude: 0.45, weakMagnitude: 0.3 };
+    case "notification":
+      return { duration: 60, strongMagnitude: 0.3, weakMagnitude: 0.2 };
+    case "achievement":
+      return { duration: 140, strongMagnitude: 0.5, weakMagnitude: 0.35 };
+  }
+}
+
+/**
+ * A cue's pulse train. `error` is two 40 ms pulses 60 ms apart — the interface
+ * says no twice, it never buzzes — everything else is one pulse.
+ */
+export function cueHapticPulses(cue: CueId): HapticPulse[] {
+  const pattern = cueHapticPattern(cue);
+  if (!pattern) return [];
+  if (cue === "error") {
+    return [
+      { ...pattern, delayMs: 0 },
+      { ...pattern, delayMs: pattern.duration + 60 },
+    ];
+  }
+  return [{ ...pattern, delayMs: 0 }];
+}
+
+/** Applies the strength setting; `off` returns null so callers stay no-ops. */
+export function scaleHapticPattern(
+  pattern: HapticPattern,
+  strength: HapticsStrength,
+): HapticPattern | null {
+  const scale = HAPTIC_STRENGTH_SCALE[strength];
+  if (!scale) return null;
+  const clamp = (value: number) => Math.min(1, Math.round(value * scale * 1_000) / 1_000);
+  return {
+    duration: pattern.duration,
+    strongMagnitude: clamp(pattern.strongMagnitude),
+    weakMagnitude: clamp(pattern.weakMagnitude),
+  };
+}
+
+/** Unknown stored values fall back to standard, never to "off". */
+export function sanitizeHapticsStrength(value: unknown): HapticsStrength {
+  return value === "off" || value === "strong" ? value : "standard";
 }
 
 /* ---------------------------------- debug ---------------------------------- */

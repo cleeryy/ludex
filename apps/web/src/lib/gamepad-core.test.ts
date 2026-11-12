@@ -4,6 +4,8 @@ import {
   applyGamepadFocus,
   collectRepeatActions,
   createRepeatTracker,
+  cueHapticPattern,
+  cueHapticPulses,
   FIRST_REPEAT_MS,
   hapticPattern,
   hasBlockingModal,
@@ -15,11 +17,14 @@ import {
   REPEAT_MS,
   restoreGamepadFocus,
   rowsFromRects,
+  sanitizeHapticsStrength,
+  scaleHapticPattern,
   selectActivePad,
   type GamepadAction,
   type PadLike,
   type TargetRect,
 } from "@/lib/gamepad-core";
+import { CUE_IDS } from "@/lib/ui-sound-specs";
 
 function pad(overrides: Partial<PadLike> = {}): PadLike {
   return {
@@ -232,6 +237,70 @@ describe("haptic patterns", () => {
       expect(pattern!.strongMagnitude).toBeGreaterThan(0);
       expect(pattern!.strongMagnitude).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+describe("cue haptics (#198)", () => {
+  it("has a pattern for every cue", () => {
+    for (const cue of CUE_IDS) {
+      const pattern = cueHapticPattern(cue);
+      expect(pattern, cue).not.toBeNull();
+      expect(pattern!.duration).toBeGreaterThan(0);
+      expect(pattern!.strongMagnitude).toBeGreaterThan(0);
+      expect(pattern!.strongMagnitude).toBeLessThanOrEqual(1);
+      expect(pattern!.weakMagnitude).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("feels different per cue: launch and power are heavier than a move", () => {
+    const move = cueHapticPattern("move")!;
+    const confirm = cueHapticPattern("confirm")!;
+    const launch = cueHapticPattern("launch")!;
+    const power = cueHapticPattern("power")!;
+    expect(confirm.strongMagnitude).toBeGreaterThan(move.strongMagnitude);
+    expect(launch.duration).toBeGreaterThan(confirm.duration);
+    expect(power.duration).toBeGreaterThan(launch.duration);
+    expect(power.strongMagnitude).toBeGreaterThanOrEqual(launch.strongMagnitude);
+  });
+
+  it("scales by strength, clamps at 1 and silences at off", () => {
+    const base = cueHapticPattern("confirm")!;
+    expect(scaleHapticPattern(base, "standard")).toEqual(base);
+    expect(scaleHapticPattern(base, "off")).toBeNull();
+    const strong = scaleHapticPattern(base, "strong")!;
+    expect(strong.strongMagnitude).toBeGreaterThan(base.strongMagnitude);
+    expect(strong.strongMagnitude).toBeLessThanOrEqual(1);
+    expect(strong.duration).toBe(base.duration);
+
+    const power = cueHapticPattern("power")!;
+    expect(scaleHapticPattern(power, "strong")!.strongMagnitude).toBeCloseTo(0.81, 2);
+    expect(
+      scaleHapticPattern({ duration: 50, strongMagnitude: 0.9, weakMagnitude: 0.9 }, "strong")!.strongMagnitude,
+    ).toBe(1);
+  });
+
+  it("sends error as two 40 ms pulses 60 ms apart", () => {
+    const pulses = cueHapticPulses("error");
+    expect(pulses).toHaveLength(2);
+    expect(pulses[0].duration).toBe(40);
+    expect(pulses[1].delayMs - pulses[0].duration).toBe(60);
+  });
+
+  it("keeps one pulse for every other cue", () => {
+    for (const cue of CUE_IDS) {
+      if (cue === "error") continue;
+      const pulses = cueHapticPulses(cue);
+      expect(pulses, cue).toHaveLength(1);
+      expect(pulses[0].delayMs).toBe(0);
+    }
+  });
+
+  it("falls back to standard for unknown stored strengths", () => {
+    expect(sanitizeHapticsStrength("off")).toBe("off");
+    expect(sanitizeHapticsStrength("strong")).toBe("strong");
+    expect(sanitizeHapticsStrength("standard")).toBe("standard");
+    expect(sanitizeHapticsStrength("loud")).toBe("standard");
+    expect(sanitizeHapticsStrength(undefined)).toBe("standard");
   });
 });
 

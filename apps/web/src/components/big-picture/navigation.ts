@@ -66,6 +66,8 @@ export interface BigPictureNavigation {
    * `null` — the caller owns the zone state, not this hook.
    */
   move: (direction: MoveDirection) => FocusZone | null;
+  /** Whether a direction actually changes the highlight (edge presses do not). */
+  willMove: (direction: MoveDirection) => boolean;
   /** Jumps a page in the active layout (trigger / PageUp / PageDown). */
   jump: (delta: -1 | 1) => void;
   /** Puts the gamepad ring back on the selected card (after a layout switch). */
@@ -158,6 +160,21 @@ export function useBigPictureNavigation({
     [layout, index, games.length, columns, switchShelf],
   );
 
+  /**
+   * Whether a direction changes the highlight. An edge press (the first card
+   * asked for left, the last row asked for down) returns false, which is what
+   * makes the move cue silent there (#198).
+   */
+  const willMove = useCallback(
+    (direction: MoveDirection): boolean => {
+      const step = stepForLayout({ layout, direction, index, total: games.length, columns });
+      if (step.type === "move") return step.index !== index;
+      if (step.type === "shelf") return clampIndex(shelfIndex + step.delta, shelves.length) !== shelfIndex;
+      return false;
+    },
+    [layout, index, games.length, columns, shelfIndex, shelves.length],
+  );
+
   const jump = useCallback(
     (delta: -1 | 1) => {
       const step = pageStepForLayout({
@@ -235,6 +252,7 @@ export function useBigPictureNavigation({
     selectShelf,
     selectGame,
     move,
+    willMove,
     jump,
     focusSelected,
     actions,
