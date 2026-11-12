@@ -4019,8 +4019,13 @@ fn build_published_apps(
 }
 
 /// The managed console app Sunshine must start (#172): this binary with
-/// `--console`, fullscreen unless the user turned that off.
-fn console_plan(settings: &LocalSettings) -> Result<Option<streaming::ConsoleEntry>, String> {
+/// `--console`, fullscreen unless the user turned that off. The Moonlight tile
+/// also gets the bundled Ludex artwork (#207), materialized under
+/// `{appDataDir}/sunshine/`; a failed write only drops the logo, never the app.
+fn console_plan(
+    app_data: &Path,
+    settings: &LocalSettings,
+) -> Result<Option<streaming::ConsoleEntry>, String> {
     if !settings.console_mode {
         return Ok(None);
     }
@@ -4031,11 +4036,22 @@ fn console_plan(settings: &LocalSettings) -> Result<Option<streaming::ConsoleEnt
             "Ludex could not resolve its own executable, so the console Sunshine app was not generated. Nothing was changed."
                 .to_string()
         })?;
+    let artwork_dir = app_data.join(streaming::CONSOLE_ART_DIR);
+    let image_path = match streaming::materialize_console_art(&artwork_dir) {
+        Ok(path) => Some(path),
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                "publishing the console app without artwork; Sunshine and Moonlight accept a missing image"
+            );
+            None
+        }
+    };
     Ok(Some(streaming::ConsoleEntry {
         name: console::app_name(&settings.console_app_name),
         cmd: console::command_line(&executable, settings.console_fullscreen),
         working_dir: console::working_directory(&executable),
-        image_path: None,
+        image_path,
     }))
 }
 
@@ -4094,7 +4110,7 @@ pub fn sunshine_preview(app: AppHandle) -> Result<streaming::SunshinePreview, St
     } else {
         (Vec::new(), Vec::new())
     };
-    let console = console_plan(&settings)?;
+    let console = console_plan(&state.app_data, &settings)?;
     let scope = server_scope(&settings);
 
     let (mut entries, console_preview, removals) =
@@ -4180,7 +4196,7 @@ pub async fn sunshine_sync(
     } else {
         (Vec::new(), Vec::new())
     };
-    let console = console_plan(&settings)?;
+    let console = console_plan(&state.app_data, &settings)?;
     let scope = server_scope(&settings);
     let (root, report) = streaming::merge_entries(
         existing.as_deref(),
@@ -4783,4 +4799,43 @@ pub fn diagnostics_record_error(
         &[],
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn console_plan_materializes_the_artwork_and_sets_the_image_path() {
+        let root = std::env::temp_dir().join(format!("ludex-console-plan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let mut settings = LocalSettings::for_app_data(&root);
+        settings.console_mode = true;
+
+        let entry = console_plan(&root, &settings).unwrap().unwrap();
+        let image = entry
+            .image_path
+            .expect("the console entry carries the artwork path");
+        let path = Path::new(&image);
+        assert!(path.is_file());
+        assert!(path.starts_with(root.join(streaming::CONSOLE_ART_DIR)));
+        assert_eq!(std::fs::read(path).unwrap(), streaming::CONSOLE_ART);
+
+        // A second plan reuses the materialized file instead of rewriting it.
+        let again = console_plan(&root, &settings).unwrap().unwrap();
+        assert_eq!(again.image_path.as_deref(), Some(image.as_str()));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn console_plan_is_none_when_console_mode_is_off() {
+        let root =
+            std::env::temp_dir().join(format!("ludex-console-plan-off-{}", std::process::id()));
+        let settings = LocalSettings::for_app_data(&root);
+        assert!(!settings.console_mode);
+        assert!(console_plan(&root, &settings).unwrap().is_none());
+        assert!(!root.join(streaming::CONSOLE_ART_DIR).exists());
+    }
 }

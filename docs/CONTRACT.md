@@ -2601,7 +2601,7 @@ interface RemotePlayCleanup {
 | `set_config_sync_defaults` | `{ language, playerName }` | `LocalSettings`; mirrors the web locale/profile name so launch-time sync uses the current values even when the game page was never opened (#148) |
 | `sunshine_status` | — | `SunshineStatus`; Sunshine install, `apps.json`/`sunshine.conf` paths, binary and managed-entry counts (#97) |
 | `sunshine_preview` | — | `SunshinePreview`; what a sync would add, update and remove, including the console entry and the per-game entries console mode migrates out (#172). Never writes |
-| `sunshine_sync` | `{ dryRun?, removeMissing?, downloadCovers? }` | `SunshineReport`. With `consoleMode` on it writes one managed `Ludex` entry (`console: true`, no `gameId`) and removes the per-game entries of the active server in the same write; `consolePerGameApps` keeps both. Every real write copies `apps.json` to `apps.json.ludex-backup-<stamp>-<id>.bak` first. `removeMissing` defaults to true. Rejects with `SunshineError`; `needsElevation` is set when Windows denies the write with `PermissionDenied` on a path under `Program Files`/`Program Files (x86)` (#182) |
+| `sunshine_sync` | `{ dryRun?, removeMissing?, downloadCovers? }` | `SunshineReport`. With `consoleMode` on it writes one managed `Ludex` entry (`console: true`, no `gameId`) and removes the per-game entries of the active server in the same write; `consolePerGameApps` keeps both. The console entry carries an `image-path` to the bundled artwork materialized under `{appDataDir}/sunshine/` (#207); a failed image write only drops the logo. Every real write copies `apps.json` to `apps.json.ludex-backup-<stamp>-<id>.bak` first. `removeMissing` defaults to true. Rejects with `SunshineError`; `needsElevation` is set when Windows denies the write with `PermissionDenied` on a path under `Program Files`/`Program Files (x86)` (#182) |
 | `sunshine_remove_managed` | — | `SunshineReport`; removes every entry carrying the Ludex marker (all servers), including the console app; user apps stay, backup first |
 | `grant_sunshine_write_access` | — | `SunshineGrant`; one explicit UAC prompt that grants this Windows account modify rights on the detected Sunshine config folder (`icacls "<dir>" /grant "<DOMAIN\user>:(OI)(CI)M" /Q` through the shared elevation module, #192). No path argument: the folder is the parent of the detected `apps.json` and must canonicalize inside `Program Files`/`Program Files (x86)`, otherwise it is refused. `cancelled` means the prompt was declined and nothing changed; `failed` carries the reason. Windows only; never runs automatically and never writes `apps.json` (#182) |
 | `console_mode` | — | `ConsoleStatus`; whether this process is the Sunshine-launched console (`ludex --console`), its fullscreen flag, configured app name and exit shortcut (#172) |
@@ -3124,6 +3124,22 @@ Covers are cached under `{appDataDir}/streaming/art/<gameId>.<ext>` (8 MiB cap,
 existing file copies it to `apps.json.ludex-backup-<UTC>-<id>.bak`; a failed
 backup aborts the write. Sunshine and Moonlight are never bundled or installed
 by Ludex.
+
+**Console artwork (#207).** The managed `Ludex` app also gets an `image-path`
+so Moonlight shows the Ludex logo instead of a blank tile. The asset is a
+600×900 PNG (the box-art ratio Moonlight renders) with the Ludex mark and
+wordmark, embedded in the binary with `include_bytes!` and materialized once
+under `{appDataDir}/sunshine/ludex-console-<hash>.png`. `<hash>` is the first
+16 hex characters of the asset's SHA-256: a Ludex update whose bytes differ
+writes a new file, points the console entry at it and prunes the old one, while
+a second sync with the same bytes reuses the file. `{appDataDir}` survives app
+updates. On Unix the folder is created `0755` and the PNG `0644`, so a Sunshine
+systemd unit running as another account can read it. On Windows the file lives
+under `%APPDATA%\cloud.cleeryy.ludex\sunshine\`, which the default LocalSystem
+Sunshine service can read; publishing never asks for elevation just for the
+logo. A failed image write is logged and the sync continues without
+`image-path`, so Sunshine falls back to a blank tile. Per-game covers are
+unchanged.
 
 **One-time elevation (#182).** A denied write under `Program Files` makes
 `sunshine_sync` reject with `SunshineError { needsElevation: true }`; the
