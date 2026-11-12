@@ -6,6 +6,16 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Remote play away from home (#179): a VPN-first wizard detects the LAN IP,
+  VPNs, Sunshine config/ports and the router's UPnP IGD, then offers an advanced
+  consent-gated mapping mode with a short lease, per-port verification, a
+  mapping-removal action and automatic cleanup (startup sweep included). CGNAT,
+  double NAT, public/non-private IGDs, unsafe Sunshine origins and ports owned
+  by other programs are refused; the Sunshine Web UI port and mDNS are never
+  mapped. Moonlight instructions and a cleanup summary close the flow.
+
 ### Changed
 
 - Game archive uploads keep running when you leave the Upload screen (#185): an
