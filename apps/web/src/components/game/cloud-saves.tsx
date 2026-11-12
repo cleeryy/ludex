@@ -23,10 +23,15 @@ import {
   shouldAutoDetect,
   shouldToastFailure,
 } from "@/lib/cloud-saves";
+import { installBridge } from "@/lib/install";
 import { errorMessage } from "@/lib/http";
 import { cn } from "@/lib/cn";
 import { formatBytes, formatDate, formatPercent } from "@/lib/format";
-import type { CloudSaveStatus, SaveSnapshot } from "@/lib/types";
+import type {
+  CloudSaveCandidateStatus,
+  CloudSaveStatus,
+  SaveSnapshot,
+} from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Button, IconButton, Input, Progress, Skeleton, Switch } from "@/components/ui/controls";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
@@ -88,6 +93,9 @@ export function CloudSavesPanel({
   const [conflictBusy, setConflictBusy] = useState<"remote" | "keep_local" | null>(null);
   const [searching, setSearching] = useState(false);
   const [retryBlocked, setRetryBlocked] = useState(false);
+  const [chooseTarget, setChooseTarget] = useState<string | null>(null);
+  const [choosePath, setChoosePath] = useState("");
+  const [choosing, setChoosing] = useState(false);
 
   const fileInput = useRef<HTMLInputElement>(null);
   const labelInput = useRef<HTMLInputElement>(null);
@@ -99,6 +107,61 @@ export function CloudSavesPanel({
   const rows = [...(saves.data ?? [])].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   const pct = progress && progress.total > 0 ? Math.min(100, (progress.loaded / progress.total) * 100) : null;
   const conflict = status?.conflict ?? null;
+  // #180: one automatic list instead of a confirmation step. Save paths that
+  // already exist are shown as "saving" even when no candidate row remains.
+  const autoFolders = status
+    ? [
+        ...status.candidates.map((candidate) => {
+          const saved = status.paths.find((path) => path.path === candidate.path);
+          return {
+            path: candidate.path,
+            status: saved ? ("saving" as CloudSaveCandidateStatus) : candidate.status,
+            reason: saved ? null : candidate.reason,
+            primary: saved ? saved.primary : candidate.primary,
+            sizeBytes: saved ? saved.sizeBytes : candidate.sizeBytes,
+            editable: true,
+          };
+        }),
+        ...status.paths
+          .filter((path) => !status.candidates.some((candidate) => candidate.path === path.path))
+          .map((path) => ({
+            path: path.path,
+            status: "saving" as CloudSaveCandidateStatus,
+            reason: null,
+            primary: path.primary,
+            sizeBytes: path.sizeBytes,
+            editable: false,
+          })),
+      ]
+    : [];
+
+  const openChoose = (path: string) => {
+    setChooseTarget(path);
+    setChoosePath(path);
+  };
+
+  const chooseAnother = async () => {
+    if (!chooseTarget || choosing) return;
+    setChoosing(true);
+    try {
+      await installBridge.confirmSaveCandidate(gameId, chooseTarget, choosePath.trim() || null);
+      await invalidateStatus();
+      push({
+        title: t("Save folder updated"),
+        description: t("The folder is archived automatically after each session."),
+        tone: "success",
+      });
+      setChooseTarget(null);
+    } catch (cause) {
+      push({
+        title: t("Could not use this save folder"),
+        description: errorMessage(cause),
+        tone: "danger",
+      });
+    } finally {
+      setChoosing(false);
+    }
+  };
 
   useEffect(() => {
     if (conflict) setConflictOpen(true);
@@ -465,6 +528,61 @@ export function CloudSavesPanel({
                 </p>
               )}
 
+              {autoFolders.length > 0 && (
+                <ul className="mt-4 border-y border-line/70" aria-label={t("Save folders")}>
+                  {autoFolders.map((folder) => {
+                    const label =
+                      folder.status === "saving"
+                        ? t("Saving from this folder")
+                        : folder.status === "skipped"
+                          ? t("Skipped")
+                          : t("Waiting for the first session");
+                    return (
+                      <li
+                        key={folder.path}
+                        className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2"
+                      >
+                        <span
+                          className={cn(
+                            "size-1.5 shrink-0 rounded-full",
+                            folder.status === "saving"
+                              ? "bg-signal-text"
+                              : folder.status === "skipped"
+                                ? "bg-ink-3"
+                                : "bg-warning",
+                          )}
+                          aria-hidden="true"
+                        />
+                        <span className="text-[12px] text-ink">{label}</span>
+                        {folder.status === "skipped" && folder.reason && (
+                          <span className="text-[11px] text-ink-3">{folder.reason}</span>
+                        )}
+                        <span
+                          className="min-w-0 flex-1 truncate text-right font-mono text-[10.5px] text-ink-3"
+                          title={folder.path}
+                        >
+                          {folder.path}
+                        </span>
+                        {folder.sizeBytes > 0 && (
+                          <span className="font-mono text-[10.5px] text-ink-3">
+                            {formatBytes(folder.sizeBytes)}
+                          </span>
+                        )}
+                        {folder.editable && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openChoose(folder.path)}
+                          >
+                            {t("Choose another folder")}
+                          </Button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+
               <dl className="mt-4 grid gap-x-8 gap-y-2 font-mono text-[10.5px] text-ink-3 sm:grid-cols-2">
                 <div className="flex min-w-0 items-baseline justify-between gap-3 border-b border-line/60 pb-1.5">
                   <dt>Last backup</dt>
@@ -772,6 +890,35 @@ export function CloudSavesPanel({
           </div>
         )}
       </div>
+
+      <Dialog
+        open={Boolean(chooseTarget)}
+        onOpenChange={(open) => !open && setChooseTarget(null)}
+        title={t("Choose another save folder")}
+        description={t("Ludex archives the folder you pick after each session. The original guess is ignored for this game.")}
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setChooseTarget(null)}>
+              {t("Cancel")}
+            </Button>
+            <Button variant="primary" loading={choosing} onClick={() => void chooseAnother()}>
+              {t("Use this folder")}
+            </Button>
+          </>
+        }
+      >
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[12px] text-ink-2">{t("Save folder")}</span>
+          <Input
+            value={choosePath}
+            onChange={(event) => setChoosePath(event.target.value)}
+            className="h-10 font-mono text-[12px]"
+            aria-label={t("Save folder")}
+            placeholder={chooseTarget ?? ""}
+          />
+        </label>
+      </Dialog>
 
       <ConfirmDialog
         open={Boolean(deleteTarget)}

@@ -18,6 +18,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Changed
 
+- Save folders confirm themselves (#180): high-confidence paths (manifest match,
+  Steam ground truth, already confirmed) are promoted without a prompt, the
+  pre-launch snapshot is diffed against the post-exit tree so changed candidates
+  are promoted automatically (one → that path, several → all with the largest as
+  primary, none → keep the confirmed path), and broad roots, symlinks, oversized
+  folders and folders that did not exist before are skipped with a visible
+  reason; the panel shows "Saving", "Waiting for the first session" or
+  "Skipped: too broad" instead of asking for a confirmation.
 - Game archive uploads keep running when you leave the Upload screen (#185): an
   app-wide upload provider owns the resumable chunk loop and server session, the
   screen is only a view of it, a shell indicator shows live progress from any
@@ -34,6 +42,11 @@ All notable changes to Ludex are documented here. The format is based on
   `Engine`, `Binaries`, `Paks`, `Movies`, `Audio`) and non-config files; the
   raw config editor keeps listing every supported config, including those under
   asset folders (#147).
+- The cloud-save panel no longer blocks the game page (#159): the status scan
+  runs on the blocking pool with hard caps (50,000 entries, depth 64, deadline),
+  a 45-second cache invalidated by detection or exit changes, and the section
+  mounts lazily with a skeleton; a slow or failed server call cannot freeze the
+  page, and media thumbnails load lazily.
 - Windows desktop updates now show the new web UI immediately: Tauri no longer
   registers the PWA service worker, and the WebView2 `Service Worker`/`Cache`
   directories are reset once per app version before the window opens (#177).

@@ -100,7 +100,6 @@ pub fn run() {
             let console_mode = console::ConsoleMode::from_args(std::env::args());
             app.manage(console_mode);
 
-            let state = state::AppState::new(app.handle()).map_err(std::io::Error::other)?;
             // #171: capture panics before anything else can fail. The hook is
             // local-only; nothing is uploaded from it.
             diagnostics::install_panic_hook(app.handle().clone());

@@ -3136,5 +3136,20 @@
   "VPN first. Direct mode is advanced: it exposes the Sunshine ports to the internet and is removed when you close this wizard.": "Le VPN d'abord. Le mode direct est avancé : il expose les ports Sunshine à Internet et est supprimé à la fermeture de cet assistant.",
   "VPN or mesh (recommended)": "VPN ou maillage (recommandé)",
   "Exposure and caveats": "Exposition et mises en garde",
-  "Sunshine ports": "Ports Sunshine"
+  "Sunshine ports": "Ports Sunshine",
+  "Choose another folder": "Choisir un autre dossier",
+  "Could not use this save folder": "Impossible d’utiliser ce dossier de sauvegarde",
+  "Detected save folders and what Ludex does automatically. A guessed folder is synced once a session writes to it; broad folders are skipped and stay editable.": "Dossiers de sauvegarde détectés et ce que Ludex fait automatiquement. Un dossier deviné est synchronisé dès qu’une session y écrit ; les dossiers trop larges sont ignorés et restent modifiables.",
+  "Guessed from an engine default; it starts saving after a session writes to it.": "Déduit d’un emplacement par défaut du moteur ; il commence à être sauvegardé dès qu’une session y écrit.",
+  "Paths stay on this machine. Automatic promotion never archives a drive root, your home folder, a symlink or a folder above the size limit.": "Les chemins restent sur cette machine. La promotion automatique n’archive jamais une racine de disque, votre dossier personnel, un lien symbolique ou un dossier au-delà de la limite de taille.",
+  "Save folder": "Dossier de sauvegarde",
+  "Save folder updated": "Dossier de sauvegarde mis à jour",
+  "Save folders": "Dossiers de sauvegarde",
+  "Saving": "Sauvegarde en cours",
+  "Saving from this folder": "Sauvegarde depuis ce dossier",
+  "The folder is archived automatically after each session.": "Le dossier est archivé automatiquement après chaque session.",
+  "Use this folder": "Utiliser ce dossier",
+  "Waiting for the first session": "En attente de la première session",
+  "Choose another save folder": "Choisir un autre dossier de sauvegarde",
+  "Ludex archives the folder you pick after each session. The original guess is ignored for this game.": "Ludex archive le dossier choisi après chaque session. L’estimation d’origine est ignorée pour ce jeu."
 }

@@ -276,12 +276,29 @@ pub struct SaveCandidate {
     pub confirmed: bool,
     /// True when the user dismissed the candidate; detection keeps that state.
     pub ignored: bool,
+    /// Last automatic promotion decision (#180): `saving`, `waiting` or
+    /// `skipped`. Empty on a fresh candidate, which reads as `waiting`.
+    #[serde(default)]
+    pub auto_status: String,
+    /// Readable reason when `auto_status` is `skipped` (too broad, symlink, …).
+    #[serde(default)]
+    pub auto_reason: Option<String>,
 }
 
 impl SaveCandidate {
     pub fn is_guess(&self) -> bool {
         self.confidence == CONFIDENCE_GUESS
     }
+}
+
+/// A path that is archived without waiting for a session (#180): Steam ground
+/// truth, a path the user already confirmed, and an explicit user override.
+/// Manifest and manual paths never reach this layer: they are save paths
+/// already.
+pub fn is_high_confidence(candidate: &SaveCandidate) -> bool {
+    candidate.confirmed
+        || candidate.source == SOURCE_STORE
+        || candidate.source == SOURCE_OVERRIDE
 }
 
 /// Candidates for one installed game, as returned by the Tauri commands.
@@ -1468,6 +1485,8 @@ fn candidate_from_path(
         last_verified: Some(inputs.now.to_string()),
         confirmed: false,
         ignored: false,
+        auto_status: String::new(),
+        auto_reason: None,
     })
 }
 

@@ -154,6 +154,21 @@ pub async fn launch(
         args.as_deref(),
         &options,
     )?;
+
+    // #180: record the guessed save folders before the session starts. The
+    // blocking scan is bounded (per-path caps) and a failure only means the
+    // exit hook has no proof, never that the launch is refused.
+    let snapshot_app = app.clone();
+    match tauri::async_runtime::spawn_blocking(move || {
+        crate::commands::capture_save_candidates_snapshot(&snapshot_app, game_id)
+    })
+    .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::debug!(error = %error, game_id, "save candidate snapshot failed"),
+        Err(error) => tracing::debug!(error = %error, game_id, "save candidate snapshot task failed"),
+    }
+
     let child = command.spawn().map_err(|e| match &executable_path {
         Some(path) => format!(
             "Could not launch {} (working directory {}): {e}",
