@@ -18,6 +18,7 @@ import { formatBytes, formatDate } from "@/lib/format";
 import { useAuth } from "@/state/auth";
 import { Wordmark } from "@/components/brand";
 import { SectionHeader } from "@/components/page";
+import { PublicPage } from "@/components/public-page";
 import { Badge, Skeleton } from "@/components/ui/controls";
 import { t } from "@/lib/i18n";
 import {
@@ -89,8 +90,8 @@ export function DownloadScreen() {
   const offline = data?.source === "fallback";
 
   return (
-    <div className="min-h-dvh bg-bg text-ink">
-      <header className="page flex flex-wrap items-center justify-between gap-3 py-5">
+    <PublicPage className="text-ink">
+      <header className="page flex flex-wrap items-center justify-between gap-3 pb-5 pt-[max(1.25rem,env(safe-area-inset-top))]">
         <Link to="/" aria-label={t("Ludex home")} className="py-1">
           <Wordmark height={18} />
         </Link>
@@ -374,7 +375,7 @@ export function DownloadScreen() {
         </section>
       </main>
 
-      <footer className="page flex flex-wrap items-center justify-between gap-3 border-t border-line py-5 text-[11.5px] text-ink-3">
+      <footer className="page flex flex-wrap items-center justify-between gap-3 border-t border-line pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 text-[11.5px] text-ink-3">
         <span>
           {data?.version ? `Ludex v${data.version}` : "Ludex"} · AGPL-3.0
         </span>
@@ -387,7 +388,7 @@ export function DownloadScreen() {
           </Link>
         </nav>
       </footer>
-    </div>
+    </PublicPage>
   );
 }
 

@@ -1,0 +1,137 @@
+- generic [ref=f3e2]:
+  - generic [ref=f3e3]:
+    - banner [ref=f3e4]:
+      - link "Ludex home" [ref=f3e5] [cursor=pointer]:
+        - /url: "#/"
+        - img "Ludex" [ref=f3e6]
+      - navigation "Account" [ref=f3e15]:
+        - link "Sign in" [ref=f3e16] [cursor=pointer]:
+          - /url: "#/login"
+    - main [ref=f3e17]:
+      - region [ref=f3e18]:
+        - paragraph [ref=f3e19]: Ludex desktop · stable channel
+        - heading "Play your library on your PC." [level=1] [ref=f3e20]
+        - paragraph [ref=f3e21]: The browser shows your shelf. The desktop app is what installs, launches and updates your games, keeps cloud saves in sync and talks to your controller.
+        - generic [ref=f3e22]:
+          - link "Download for Linux" [ref=f3e111] [cursor=pointer]:
+            - /url: https://github.com/cleeryy/ludex/releases/download/v0.3.2/ludex_0.3.2_amd64.AppImage
+          - link "Sign in to the server" [ref=f3e24] [cursor=pointer]:
+            - /url: "#/login"
+        - generic [ref=f3e25]:
+          - generic [ref=f3e115]: v0.3.2
+          - generic [ref=f3e116]: Released 10 Nov 2026
+          - generic [ref=f3e26]: Stable channel
+      - region [ref=f3e27]:
+        - generic [ref=f3e29]:
+          - heading "What the desktop app adds" [level=2] [ref=f3e30]
+          - generic [ref=f3e31]: Everything the browser cannot do on its own.
+        - list [ref=f3e32]:
+          - listitem [ref=f3e33]:
+            - heading "Install and launch games" [level=3] [ref=f3e38]
+            - paragraph [ref=f3e39]: Unpacks archives, runs installers and launches each game with your settings.
+          - listitem [ref=f3e40]:
+            - heading "Cloud saves" [level=3] [ref=f3e45]
+            - paragraph [ref=f3e46]: Snapshots your save folders and keeps them with your account on the server.
+          - listitem [ref=f3e47]:
+            - heading "Controllers and Big Picture" [level=3] [ref=f3e52]
+            - paragraph [ref=f3e53]: Full-screen library navigation and controller profiles for the couch.
+          - listitem [ref=f3e54]:
+            - heading "Signed updates" [level=3] [ref=f3e60]
+            - paragraph [ref=f3e61]: Updates itself from the signed release feed, without reinstalling.
+      - region [ref=f3e62]:
+        - generic [ref=f3e64]:
+          - heading "All installers" [level=2] [ref=f3e65]
+          - generic [ref=f3e66]: Version 0.3.2, published 10 Nov 2026.
+        - generic [ref=f3e117]:
+          - article [ref=f3e118]:
+            - heading "Windows" [level=3] [ref=f3e120]
+            - list [ref=f3e121]:
+              - listitem [ref=f3e122]:
+                - generic [ref=f3e123]:
+                  - link "Installer · recommended" [ref=f3e124] [cursor=pointer]:
+                    - /url: https://github.com/cleeryy/ludex/releases/download/v0.3.2/Ludex_0.3.2_x64-setup.exe
+                  - generic [ref=f3e125]: 17.5 MB
+                - code [ref=f3e126]: Ludex_0.3.2_x64-setup.exe
+                - code [ref=f3e127]: sha256 5c1f0f9a2ab0b0d1…
+          - article [ref=f3e128]:
+            - generic [ref=f3e129]:
+              - heading "Linux" [level=3] [ref=f3e130]
+              - generic [ref=f3e131]: Your system
+            - list [ref=f3e132]:
+              - listitem [ref=f3e133]:
+                - generic [ref=f3e134]:
+                  - link "AppImage · recommended" [ref=f3e135] [cursor=pointer]:
+                    - /url: https://github.com/cleeryy/ludex/releases/download/v0.3.2/ludex_0.3.2_amd64.AppImage
+                  - generic [ref=f3e136]: 68.8 MB
+                - code [ref=f3e137]: ludex_0.3.2_amd64.AppImage
+              - listitem [ref=f3e138]:
+                - generic [ref=f3e139]:
+                  - link "Debian package" [ref=f3e140] [cursor=pointer]:
+                    - /url: https://github.com/cleeryy/ludex/releases/download/v0.3.2/ludex_0.3.2_amd64.deb
+                  - generic [ref=f3e141]: 20.7 MB
+                - code [ref=f3e142]: ludex_0.3.2_amd64.deb
+          - article [ref=f3e143]:
+            - heading "macOS" [level=3] [ref=f3e145]
+            - list [ref=f3e146]:
+              - listitem [ref=f3e147]:
+                - generic [ref=f3e148]:
+                  - link "Disk image · recommended" [ref=f3e149] [cursor=pointer]:
+                    - /url: https://github.com/cleeryy/ludex/releases/download/v0.3.2/Ludex_0.3.2_universal.dmg
+                  - generic [ref=f3e150]: 23.7 MB
+                - code [ref=f3e151]: Ludex_0.3.2_universal.dmg
+        - paragraph [ref=f3e152]:
+          - text: Links point at the published release assets; this server never proxies the binaries.
+          - link "v0.3.2" [ref=f3e153] [cursor=pointer]:
+            - /url: https://github.com/cleeryy/ludex/releases/tag/v0.3.2
+      - region [ref=f3e154]:
+        - heading "Release notes" [level=2] [ref=f3e157]
+        - paragraph [ref=f3e158]: Cloud saves, controller profiles and a faster library scan.
+        - link "Read the full release notes Opens in a new tab" [ref=f3e159] [cursor=pointer]:
+          - /url: https://github.com/cleeryy/ludex/releases/tag/v0.3.2
+          - generic [ref=f3e160]:
+            - text: Read the full release notes
+            - generic [ref=f3e165]: Opens in a new tab
+      - region [ref=f3e70]:
+        - generic [ref=f3e71]:
+          - generic [ref=f3e72]:
+            - heading "Already have the desktop app?" [level=2] [ref=f3e73]
+            - paragraph [ref=f3e77]: Point it at this server and sign in with the same account; the library shows up as soon as it connects.
+            - link "Sign in" [ref=f3e78] [cursor=pointer]:
+              - /url: "#/login"
+          - generic [ref=f3e81]:
+            - heading "Just browsing?" [level=2] [ref=f3e82]
+            - paragraph [ref=f3e85]: The web app opens the same library, metadata and progress. No install, no local storage.
+            - link "Sign in to browse" [ref=f3e86] [cursor=pointer]:
+              - /url: "#/login"
+      - region [ref=f3e89]:
+        - heading "System requirements" [level=2] [ref=f3e92]
+        - generic [ref=f3e93]:
+          - generic [ref=f3e94]:
+            - term [ref=f3e95]: Windows
+            - definition [ref=f3e96]: Windows 10 or 11, 64-bit
+          - generic [ref=f3e97]:
+            - term [ref=f3e98]: Linux
+            - definition [ref=f3e99]: glibc distribution, AppImage or Debian package, 64-bit
+          - generic [ref=f3e100]:
+            - term [ref=f3e101]: macOS
+            - definition [ref=f3e102]: macOS 11 or newer, Apple Silicon and Intel
+          - generic [ref=f3e103]:
+            - term [ref=f3e104]: Server
+            - definition [ref=f3e105]: A Ludex server this computer can reach, on the LAN or over HTTPS
+    - contentinfo [ref=f3e106]:
+      - generic [ref=f3e107]: Ludex v0.3.2 · AGPL-3.0
+      - navigation "Downloads" [ref=f3e108]:
+        - link "Library" [ref=f3e109] [cursor=pointer]:
+          - /url: "#/"
+        - link "Sign in" [ref=f3e110] [cursor=pointer]:
+          - /url: "#/login"
+  - region "Notifications"
+  - status [ref=f3e166]:
+    - generic [ref=f3e167]:
+      - generic [ref=f3e171]:
+        - paragraph [ref=f3e172]: Install Ludex
+        - paragraph [ref=f3e173]: Keep the shell on your home screen and open the library full screen, even offline.
+        - generic [ref=f3e174]:
+          - button "Install" [ref=f3e175] [cursor=pointer]
+          - button "Not now" [ref=f3e179] [cursor=pointer]
+      - button "Dismiss" [ref=f3e180] [cursor=pointer]

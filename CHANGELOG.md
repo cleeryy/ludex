@@ -8,6 +8,12 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- Public pages scroll again (#176): `body { overflow: hidden }` (the app shell's
+  viewport lock) no longer propagates to account-free routes. A `PublicPage`
+  wrapper and a scoped `body:has(.public-page) { overflow-y: auto }` rule restore
+  document scrolling on `/download`, shared game/collection links, login, setup
+  and register, with iOS safe-area padding; the authenticated shell and Big
+  Picture keep their own scrollers.
 - First-run desktop sign-in now opens the server's real web login (SSO or
   password) in the system browser and hands the session back, instead of an
   in-app password form with no SSO; the auth screens show the build version

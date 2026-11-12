@@ -12,6 +12,7 @@ import { useToast } from "@/state/toasts";
 import { GameCover } from "@/components/art/cover";
 import { Wordmark } from "@/components/brand";
 import { SectionHeader } from "@/components/page";
+import { PublicPage } from "@/components/public-page";
 import { WindowControls, useWindowChrome } from "@/components/shell/window-controls";
 import { Badge, Button, Field, Input, Skeleton } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
@@ -109,7 +110,7 @@ export function CollectionShareScreen() {
   const gamesHidden = data.hasPassword && !unlocked;
 
   return (
-    <div className="min-h-dvh bg-bg">
+    <PublicPage>
       <PublicHeader marker />
 
       <main className="page pb-20 pt-6">
@@ -247,13 +248,13 @@ export function CollectionShareScreen() {
           {t("Importing the same collection twice merges missing games into the existing copy instead of creating a duplicate.")}
         </p>
       </Dialog>
-    </div>
+    </PublicPage>
   );
 }
 
 function ShareLoading() {
   return (
-    <div className="min-h-dvh bg-bg">
+    <PublicPage>
       <PublicHeader />
       <div className="page mt-8 flex flex-col gap-4">
         <Skeleton className="h-3 w-40" />
@@ -265,7 +266,7 @@ function ShareLoading() {
           ))}
         </div>
       </div>
-    </div>
+    </PublicPage>
   );
 }
 
@@ -274,7 +275,7 @@ function ShareUnavailable({ error, onRetry }: { error: unknown; onRetry: () => v
   const notFound = apiError?.status === 404;
   const rateLimited = apiError?.status === 429;
   return (
-    <div className="min-h-dvh bg-bg">
+    <PublicPage>
       <PublicHeader marker />
       <main className="page flex items-center pb-24">
         <div className="max-w-[520px]">
@@ -295,7 +296,7 @@ function ShareUnavailable({ error, onRetry }: { error: unknown; onRetry: () => v
           )}
         </div>
       </main>
-    </div>
+    </PublicPage>
   );
 }
 
@@ -304,7 +305,7 @@ function PublicHeader({ marker = false }: { marker?: boolean }) {
   return (
     <header
       data-tauri-drag-region={chrome.custom ? "deep" : undefined}
-      className="page flex flex-wrap items-center justify-between gap-3 py-5"
+      className="page flex flex-wrap items-center justify-between gap-3 pb-5 pt-[max(1.25rem,env(safe-area-inset-top))]"
     >
       <Wordmark height={18} />
       <div className="flex items-center gap-3">

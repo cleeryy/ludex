@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { GameCover } from "@/components/art/cover";
 import { Wordmark } from "@/components/brand";
+import { PublicPage } from "@/components/public-page";
 import { FloatingWindowControls } from "@/components/shell/window-controls";
 import { demoCover } from "@/lib/art";
 import { t } from "@/lib/i18n";
@@ -24,7 +25,7 @@ export function AuthLayout({
   const customChrome = useCustomTitleBar();
 
   return (
-    <div className="grid min-h-dvh grid-rows-[auto_1fr] bg-bg lg:grid-cols-[1.12fr_1fr] lg:grid-rows-1">
+    <PublicPage className="grid grid-rows-[auto_1fr] lg:grid-cols-[1.12fr_1fr] lg:grid-rows-1">
       <aside className="relative hidden overflow-hidden border-r border-line bg-bg-deep lg:flex lg:flex-col">
         <div
           data-tauri-drag-region={customChrome ? "deep" : undefined}
@@ -85,6 +86,6 @@ export function AuthLayout({
         </footer>
       </main>
       <FloatingWindowControls />
-    </div>
+    </PublicPage>
   );
 }

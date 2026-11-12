@@ -1,0 +1,82 @@
+- generic [ref=f4e2]:
+  - generic [ref=f4e1138]:
+    - banner [ref=f4e1139]:
+      - link "Ludex home" [ref=f4e1140] [cursor=pointer]:
+        - /url: "#/"
+        - img "Ludex" [ref=f4e1141]
+      - navigation "Account" [ref=f4e1150]:
+        - link "Open the web app" [ref=f4e1151] [cursor=pointer]:
+          - /url: "#/"
+    - main [ref=f4e1152]:
+      - region [ref=f4e1153]:
+        - paragraph [ref=f4e1154]: Ludex desktop · stable channel
+        - heading "Play your library on your PC." [level=1] [ref=f4e1155]
+        - paragraph [ref=f4e1156]: The browser shows your shelf. The desktop app is what installs, launches and updates your games, keeps cloud saves in sync and talks to your controller.
+        - link "Use the web app instead" [ref=f4e1159] [cursor=pointer]:
+          - /url: "#/"
+        - generic [ref=f4e1160]: Stable channel
+      - region [ref=f4e1162]:
+        - generic [ref=f4e1164]:
+          - heading "What the desktop app adds" [level=2] [ref=f4e1165]
+          - generic [ref=f4e1166]: Everything the browser cannot do on its own.
+        - list [ref=f4e1167]:
+          - listitem [ref=f4e1168]:
+            - heading "Install and launch games" [level=3] [ref=f4e1173]
+            - paragraph [ref=f4e1174]: Unpacks archives, runs installers and launches each game with your settings.
+          - listitem [ref=f4e1175]:
+            - heading "Cloud saves" [level=3] [ref=f4e1180]
+            - paragraph [ref=f4e1181]: Snapshots your save folders and keeps them with your account on the server.
+          - listitem [ref=f4e1182]:
+            - heading "Controllers and Big Picture" [level=3] [ref=f4e1187]
+            - paragraph [ref=f4e1188]: Full-screen library navigation and controller profiles for the couch.
+          - listitem [ref=f4e1189]:
+            - heading "Signed updates" [level=3] [ref=f4e1195]
+            - paragraph [ref=f4e1196]: Updates itself from the signed release feed, without reinstalling.
+      - region [ref=f4e1197]:
+        - generic [ref=f4e1199]:
+          - heading "All installers" [level=2] [ref=f4e1200]
+          - generic [ref=f4e1201]: Every platform published by the latest stable release.
+      - region [ref=f4e1205]:
+        - generic [ref=f4e1206]:
+          - generic [ref=f4e1207]:
+            - heading "Already have the desktop app?" [level=2] [ref=f4e1208]
+            - paragraph [ref=f4e1212]: Point it at this server and sign in with the same account; the library shows up as soon as it connects.
+            - link "Open the web app" [ref=f4e1213] [cursor=pointer]:
+              - /url: "#/"
+          - generic [ref=f4e1216]:
+            - heading "Just browsing?" [level=2] [ref=f4e1217]
+            - paragraph [ref=f4e1220]: The web app opens the same library, metadata and progress. No install, no local storage.
+            - link "Back to the library" [ref=f4e1221] [cursor=pointer]:
+              - /url: "#/"
+      - region [ref=f4e1224]:
+        - heading "System requirements" [level=2] [ref=f4e1227]
+        - generic [ref=f4e1228]:
+          - generic [ref=f4e1229]:
+            - term [ref=f4e1230]: Windows
+            - definition [ref=f4e1231]: Windows 10 or 11, 64-bit
+          - generic [ref=f4e1232]:
+            - term [ref=f4e1233]: Linux
+            - definition [ref=f4e1234]: glibc distribution, AppImage or Debian package, 64-bit
+          - generic [ref=f4e1235]:
+            - term [ref=f4e1236]: macOS
+            - definition [ref=f4e1237]: macOS 11 or newer, Apple Silicon and Intel
+          - generic [ref=f4e1238]:
+            - term [ref=f4e1239]: Server
+            - definition [ref=f4e1240]: A Ludex server this computer can reach, on the LAN or over HTTPS
+    - contentinfo [ref=f4e1241]:
+      - generic [ref=f4e1242]: Ludex · AGPL-3.0
+      - navigation "Downloads" [ref=f4e1243]:
+        - link "Library" [ref=f4e1244] [cursor=pointer]:
+          - /url: "#/"
+        - link "Sign in" [ref=f4e1245] [cursor=pointer]:
+          - /url: "#/login"
+  - region "Notifications"
+  - status [ref=f4e1081]:
+    - generic [ref=f4e1082]:
+      - generic [ref=f4e1086]:
+        - paragraph [ref=f4e1087]: Install Ludex
+        - paragraph [ref=f4e1088]: Keep the shell on your home screen and open the library full screen, even offline.
+        - generic [ref=f4e1089]:
+          - button "Install" [ref=f4e1090] [cursor=pointer]
+          - button "Not now" [ref=f4e1094] [cursor=pointer]
+      - button "Dismiss" [ref=f4e1095] [cursor=pointer]

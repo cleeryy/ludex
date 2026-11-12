@@ -10,6 +10,7 @@ import { ThemeScope } from "@/components/theme/theme-scope";
 import { GameBackdrop, GameCover } from "@/components/art/cover";
 import { Wordmark } from "@/components/brand";
 import { SectionHeader } from "@/components/page";
+import { PublicPage } from "@/components/public-page";
 import { WindowControls, useWindowChrome } from "@/components/shell/window-controls";
 import { Badge, Button, Field, Input, Skeleton } from "@/components/ui/controls";
 import { t } from "@/lib/i18n";
@@ -39,7 +40,7 @@ export function ShareScreen() {
   const { game, version } = view.data;
 
   return (
-    <div className="min-h-dvh bg-bg">
+    <PublicPage>
       <ShareHeader marker />
 
       <main>
@@ -152,11 +153,11 @@ export function ShareScreen() {
         </div>
       </main>
 
-      <footer className="page mt-12 flex flex-wrap items-center justify-between gap-3 border-t border-line py-6 text-[11px] leading-relaxed text-ink-3">
+      <footer className="page mt-12 flex flex-wrap items-center justify-between gap-3 border-t border-line pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-6 text-[11px] leading-relaxed text-ink-3">
         <span>{t("Served by Ludex. Anyone with this link can open this page; the library owner can revoke it at any time.")}</span>
         <span className="font-mono uppercase tracking-[0.12em]">{t("No account needed")}</span>
       </footer>
-    </div>
+    </PublicPage>
   );
 }
 
@@ -291,7 +292,7 @@ function ShareAccessPanel({ token, view }: { token: string; view: ShareView }) {
 
 function ShareLoading() {
   return (
-    <div className="min-h-dvh bg-bg">
+    <PublicPage>
       <ShareHeader />
       <div className="page mt-8 grid gap-8 lg:grid-cols-[250px_1fr] lg:gap-12">
         <Skeleton className="aspect-[3/4] w-[150px] sm:w-[190px] lg:w-full" />
@@ -306,7 +307,7 @@ function ShareLoading() {
       <p className="page mt-10 flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-3" role="status">
         {t("Opening the shared link")}
       </p>
-    </div>
+    </PublicPage>
   );
 }
 
@@ -317,7 +318,7 @@ function ShareUnavailable({ error, onRetry }: { error: unknown; onRetry: () => v
   const title = notFound ? "This link is not available" : rateLimited ? "Too many attempts" : "The link didn’t load";
 
   return (
-    <div className="grid min-h-dvh grid-rows-[auto_1fr] bg-bg">
+    <PublicPage className="grid grid-rows-[auto_1fr]">
       <ShareHeader marker />
       <main className="page flex items-center pb-24">
         <div className="max-w-[520px]">
@@ -340,7 +341,7 @@ function ShareUnavailable({ error, onRetry }: { error: unknown; onRetry: () => v
           </p>
         </div>
       </main>
-    </div>
+    </PublicPage>
   );
 }
 
@@ -354,7 +355,7 @@ function ShareHeader({ marker = false }: { marker?: boolean }) {
   return (
     <header
       data-tauri-drag-region={chrome.custom ? "deep" : undefined}
-      className="page flex flex-wrap items-center justify-between gap-3 py-5"
+      className="page flex flex-wrap items-center justify-between gap-3 pb-5 pt-[max(1.25rem,env(safe-area-inset-top))]"
     >
       <Wordmark height={18} />
       <div className="flex items-center gap-3">

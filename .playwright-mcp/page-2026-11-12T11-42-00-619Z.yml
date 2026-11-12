@@ -1,0 +1,73 @@
+- generic [ref=f3e2]:
+  - generic [ref=f3e3]:
+    - banner [ref=f3e4]:
+      - link "Ludex home" [ref=f3e5] [cursor=pointer]:
+        - /url: "#/"
+        - img "Ludex" [ref=f3e6]
+      - navigation "Account" [ref=f3e15]:
+        - link "Sign in" [ref=f3e16] [cursor=pointer]:
+          - /url: "#/login"
+    - main [ref=f3e17]:
+      - region [ref=f3e18]:
+        - paragraph [ref=f3e19]: Ludex desktop · stable channel
+        - heading "Play your library on your PC." [level=1] [ref=f3e20]
+        - paragraph [ref=f3e21]: The browser shows your shelf. The desktop app is what installs, launches and updates your games, keeps cloud saves in sync and talks to your controller.
+        - link "Sign in to the server" [ref=f3e24] [cursor=pointer]:
+          - /url: "#/login"
+        - generic [ref=f3e25]: Stable channel
+      - region [ref=f3e27]:
+        - generic [ref=f3e29]:
+          - heading "What the desktop app adds" [level=2] [ref=f3e30]
+          - generic [ref=f3e31]: Everything the browser cannot do on its own.
+        - list [ref=f3e32]:
+          - listitem [ref=f3e33]:
+            - heading "Install and launch games" [level=3] [ref=f3e38]
+            - paragraph [ref=f3e39]: Unpacks archives, runs installers and launches each game with your settings.
+          - listitem [ref=f3e40]:
+            - heading "Cloud saves" [level=3] [ref=f3e45]
+            - paragraph [ref=f3e46]: Snapshots your save folders and keeps them with your account on the server.
+          - listitem [ref=f3e47]:
+            - heading "Controllers and Big Picture" [level=3] [ref=f3e52]
+            - paragraph [ref=f3e53]: Full-screen library navigation and controller profiles for the couch.
+          - listitem [ref=f3e54]:
+            - heading "Signed updates" [level=3] [ref=f3e60]
+            - paragraph [ref=f3e61]: Updates itself from the signed release feed, without reinstalling.
+      - region [ref=f3e62]:
+        - generic [ref=f3e64]:
+          - heading "All installers" [level=2] [ref=f3e65]
+          - generic [ref=f3e66]: Every platform published by the latest stable release.
+      - region [ref=f3e70]:
+        - generic [ref=f3e71]:
+          - generic [ref=f3e72]:
+            - heading "Already have the desktop app?" [level=2] [ref=f3e73]
+            - paragraph [ref=f3e77]: Point it at this server and sign in with the same account; the library shows up as soon as it connects.
+            - link "Sign in" [ref=f3e78] [cursor=pointer]:
+              - /url: "#/login"
+          - generic [ref=f3e81]:
+            - heading "Just browsing?" [level=2] [ref=f3e82]
+            - paragraph [ref=f3e85]: The web app opens the same library, metadata and progress. No install, no local storage.
+            - link "Sign in to browse" [ref=f3e86] [cursor=pointer]:
+              - /url: "#/login"
+      - region [ref=f3e89]:
+        - heading "System requirements" [level=2] [ref=f3e92]
+        - generic [ref=f3e93]:
+          - generic [ref=f3e94]:
+            - term [ref=f3e95]: Windows
+            - definition [ref=f3e96]: Windows 10 or 11, 64-bit
+          - generic [ref=f3e97]:
+            - term [ref=f3e98]: Linux
+            - definition [ref=f3e99]: glibc distribution, AppImage or Debian package, 64-bit
+          - generic [ref=f3e100]:
+            - term [ref=f3e101]: macOS
+            - definition [ref=f3e102]: macOS 11 or newer, Apple Silicon and Intel
+          - generic [ref=f3e103]:
+            - term [ref=f3e104]: Server
+            - definition [ref=f3e105]: A Ludex server this computer can reach, on the LAN or over HTTPS
+    - contentinfo [ref=f3e106]:
+      - generic [ref=f3e107]: Ludex · AGPL-3.0
+      - navigation "Downloads" [ref=f3e108]:
+        - link "Library" [ref=f3e109] [cursor=pointer]:
+          - /url: "#/"
+        - link "Sign in" [ref=f3e110] [cursor=pointer]:
+          - /url: "#/login"
+  - region "Notifications"

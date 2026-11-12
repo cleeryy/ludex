@@ -101,9 +101,22 @@
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* The authenticated shell scrolls inside AppShell; public pages (download,
-       share, register) are normal documents and need the body to scroll. */
-    overflow-x: hidden;
+    /* The authenticated shell scrolls inside AppShell, so the viewport is
+       locked here. Account-free routes opt back in just below (#176). */
+    overflow: hidden;
+  }
+
+  /*
+   * Public routes (#176) — /download, /share/:token, /collection-share/:token,
+   * /register, /login and /setup — are ordinary documents: their height grows
+   * with release notes, platform lists and forms, and they have no internal
+   * scroll container. While one of them is mounted, `components/public-page.tsx`
+   * marks the route and the browser owns the scrollbar again (wheel, touch,
+   * PageDown/End, iOS momentum and safe areas). The authenticated shell and Big
+   * Picture never render that wrapper, so their single-scroll-container
+   * behaviour is untouched.
+   */
+  body:has(.public-page) {
     overflow-y: auto;
   }
 
