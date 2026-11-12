@@ -1,5 +1,6 @@
 //! HTTP routes, nested under `/api` by [`crate::build_router`].
 
+pub mod account;
 pub mod achievements;
 pub mod admin_oidc;
 pub mod artwork;
@@ -45,6 +46,7 @@ use crate::state::AppState;
 pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
     Router::new()
         .merge(system::router())
+        .merge(account::router())
         .merge(auth::router())
         .merge(oidc::router())
         .merge(admin_oidc::router())

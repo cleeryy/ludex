@@ -6,14 +6,10 @@ import { errorMessage } from "@/lib/http";
 import type { PublicProfile } from "@/lib/types";
 import { useAuth } from "@/state/auth";
 import { ActivityList } from "@/components/community/activity-list";
+import { UserAvatar } from "@/components/community/user-avatar";
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Skeleton } from "@/components/ui/controls";
 import { t , tn } from "@/lib/i18n";
-
-function initials(profile: PublicProfile): string {
-  const source = profile.displayName ?? profile.username;
-  return source.slice(0, 2).toUpperCase();
-}
 
 function MemberChip({ profile }: { profile: PublicProfile }) {
   return (
@@ -21,9 +17,7 @@ function MemberChip({ profile }: { profile: PublicProfile }) {
       to={`/community/u/${profile.id}`}
       className="group flex items-center gap-3 border border-line bg-surface/40 p-3 transition-colors hover:border-line-2 hover:bg-surface"
     >
-      <span className="grid size-9 shrink-0 place-items-center rounded-[2px] border border-line-2 bg-surface-2 font-mono text-[11px] text-ink">
-        {initials(profile)}
-      </span>
+      <UserAvatar name={profile.displayName ?? profile.username} src={profile.avatarUrl} size={36} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] text-ink">{profile.displayName ?? profile.username}</span>
         <span className="mt-0.5 block truncate font-mono text-[10px] text-ink-3">@{profile.username}</span>

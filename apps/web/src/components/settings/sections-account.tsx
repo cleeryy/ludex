@@ -20,6 +20,7 @@ import { OverlayPanel } from "@/components/settings/overlay-panel";
 import { AdminDiagnosticsPanel, DiagnosticsPrivacyPanel } from "@/components/settings/diagnostics-panel";
 import { RomEmulatorsPanel } from "@/components/settings/rom-emulators";
 import { SettingsGroup, SettingsSwitchRow } from "@/components/settings/settings-section";
+import { AvatarPanel } from "@/components/settings/avatar-panel";
 import { SecurityBody } from "@/components/settings/security-panel";
 import type { DesktopSettingsController } from "@/components/settings/use-desktop-settings";
 import { GettingStartedCard } from "@/components/onboarding/getting-started";
@@ -126,6 +127,8 @@ export function AccountBody() {
           </div>
         ))}
       </dl>
+
+      <AvatarPanel displayName={profileQuery.data?.displayName ?? user?.username ?? ""} />
 
       <SettingsGroup title={t("Password")} description={t("Eight characters or more.")}>
         <form onSubmit={changePassword} className="flex max-w-[420px] flex-col gap-4">

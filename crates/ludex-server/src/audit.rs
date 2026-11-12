@@ -18,6 +18,8 @@ pub mod actions {
     pub const LOGIN_FAILED: &str = "login.failed";
     /// Account created by an administrator, setup or OIDC provisioning.
     pub const USER_CREATED: &str = "user.created";
+    /// Account avatar uploaded or removed by the account holder.
+    pub const USER_AVATAR_UPDATED: &str = "user.avatar_updated";
     /// Account role, email or activation changed.
     pub const USER_UPDATED: &str = "user.updated";
     /// Account deleted.

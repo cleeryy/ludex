@@ -4,6 +4,7 @@ import type { Activity, ActivityKind } from "@/lib/types";
 import { formatRelative } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { EmptyState } from "@/components/page";
+import { UserAvatar } from "@/components/community/user-avatar";
 import { t, tn, tr } from "@/lib/i18n";
 
 const ICONS: Record<ActivityKind, React.ReactNode> = {
@@ -86,9 +87,16 @@ export function ActivityRow({ activity, showActor = true }: { activity: Activity
           <span>{formatRelative(activity.createdAt)}</span>
           {activity.game?.releaseYear ? <span>{activity.game.releaseYear}</span> : null}
           {showActor && (
-            <Link to={`/community/u/${activity.user.id}`} className="underline-offset-4 hover:text-ink-2 hover:underline">
-              {activity.user.displayName ?? activity.user.username}
-            </Link>
+            <span className="inline-flex items-center gap-1.5">
+              <UserAvatar
+                name={activity.user.displayName ?? activity.user.username}
+                src={activity.user.avatarUrl}
+                size={16}
+              />
+              <Link to={`/community/u/${activity.user.id}`} className="underline-offset-4 hover:text-ink-2 hover:underline">
+                {activity.user.displayName ?? activity.user.username}
+              </Link>
+            </span>
           )}
         </p>
       </div>

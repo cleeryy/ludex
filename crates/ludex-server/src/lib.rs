@@ -30,6 +30,7 @@ pub mod api_keys;
 pub mod artwork;
 pub mod audit;
 pub mod auth;
+pub mod avatar;
 pub mod backup;
 pub mod collection_share;
 pub mod collections;
