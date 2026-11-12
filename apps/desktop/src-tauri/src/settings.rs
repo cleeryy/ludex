@@ -312,6 +312,14 @@ pub struct LocalSettings {
     /// (#144). The list is local to this device.
     #[serde(default)]
     pub overlay_disabled_games: Vec<i64>,
+    /// Opt-in anonymous diagnostics and crash reports (#171). Off by default;
+    /// nothing is ever uploaded without this flag.
+    #[serde(default)]
+    pub diagnostics_enabled: bool,
+    /// Random install id generated locally when diagnostics are first used.
+    /// Not derived from hardware, the account or the hostname (#171).
+    #[serde(default)]
+    pub diagnostics_install_id: String,
 }
 
 /// The overlay is on by default: it is the Steam-like behaviour players expect,
@@ -463,6 +471,8 @@ impl Default for LocalSettings {
             overlay_scale: default_overlay_scale(),
             overlay_tabs: default_overlay_tabs(),
             overlay_disabled_games: Vec::new(),
+            diagnostics_enabled: false,
+            diagnostics_install_id: String::new(),
         }
     }
 }
@@ -575,6 +585,15 @@ impl LocalSettings {
             .take(500)
             .collect();
         self.overlay_disabled_games.sort_unstable();
+        // #171: the install id is local and random; keep it to the charset the
+        // server accepts so a hand-edited settings file cannot break sending.
+        self.diagnostics_install_id = self
+            .diagnostics_install_id
+            .trim()
+            .chars()
+            .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+            .take(64)
+            .collect();
         // #163: a skipped version is a display preference, never a security
         // decision; trim it and drop blanks so the field serialises cleanly.
         self.skipped_update_version = self

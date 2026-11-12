@@ -72,6 +72,8 @@ pub struct AppState {
     pub rate_limiter: Arc<crate::security::RateLimiter>,
     /// Per-IP+username login throttle and lockout.
     pub login_guard: Arc<crate::security::LoginGuard>,
+    /// Per-address throttle for anonymous diagnostics reports (#171).
+    pub diagnostics_limits: Arc<crate::security::AttemptCounter>,
     /// Last `auth_sessions.last_seen_at` refresh per token, in Unix seconds.
     pub session_touch: Arc<Mutex<HashMap<String, i64>>>,
     /// Pending desktop SSO handoffs, keyed by the desktop-generated state (#157).
@@ -188,6 +190,10 @@ impl AppState {
             config.handoff_claim_limit,
             std::time::Duration::from_secs(60),
         );
+        let diagnostics_limits = crate::security::AttemptCounter::new(
+            config.diagnostics_rate_limit,
+            std::time::Duration::from_secs(3_600),
+        );
         Self {
             config: Arc::new(config),
             pool,
@@ -213,6 +219,7 @@ impl AppState {
             ingest: None,
             rate_limiter: Arc::new(rate_limiter),
             login_guard: Arc::new(login_guard),
+            diagnostics_limits: Arc::new(diagnostics_limits),
             session_touch: Arc::new(Mutex::new(HashMap::new())),
             desktop_handoffs: Arc::new(desktop_handoffs),
             exchange_codes: Arc::new(crate::desktop_handoff::ExchangeCodes::new()),

@@ -4288,3 +4288,114 @@ pub fn open_external_url(app: AppHandle, url: String) -> Result<(), String> {
         .open_url(url.to_string(), None::<&str>)
         .map_err(|error| format!("Could not open {url}: {error}"))
 }
+
+/* --------------------- diagnostics and crash reports (#171) ------------------ */
+
+/// Local diagnostics status: consent toggle, install id and stored reports.
+#[tauri::command]
+pub fn diagnostics_status(
+    state: State<'_, AppState>,
+) -> Result<crate::diagnostics::DiagnosticsStatus, String> {
+    let mut settings = state.settings_snapshot();
+    if settings.diagnostics_install_id.is_empty() {
+        let install_id = uuid::Uuid::new_v4().simple().to_string();
+        settings = state.update_settings(|current| {
+            current.diagnostics_install_id = install_id;
+        })?;
+    }
+    Ok(state.diagnostics.status(&settings))
+}
+
+/// Turn anonymous diagnostics on or off. Turning it off deletes every stored
+/// report and forgets the install id; nothing is ever sent automatically.
+#[tauri::command]
+pub fn set_diagnostics_enabled(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<crate::diagnostics::DiagnosticsStatus, String> {
+    let settings = if enabled {
+        state.update_settings(|current| {
+            current.diagnostics_enabled = true;
+            if current.diagnostics_install_id.is_empty() {
+                current.diagnostics_install_id = uuid::Uuid::new_v4().simple().to_string();
+            }
+        })?
+    } else {
+        let saved = state.update_settings(|current| {
+            current.diagnostics_enabled = false;
+            current.diagnostics_install_id.clear();
+        })?;
+        state.diagnostics.delete_all();
+        saved
+    };
+    Ok(state.diagnostics.status(&settings))
+}
+
+/// Exact payload a send would use, redacted, for the "what will be sent" view.
+#[tauri::command]
+pub fn diagnostics_preview(
+    state: State<'_, AppState>,
+    report_id: Option<String>,
+) -> Result<crate::diagnostics::DiagnosticsPreview, String> {
+    state
+        .diagnostics
+        .preview(&state.settings_snapshot(), report_id.as_deref())
+}
+
+/// Explicitly send one stored report. Refused while the toggle is off.
+#[tauri::command]
+pub async fn diagnostics_send(
+    state: State<'_, AppState>,
+    report_id: String,
+) -> Result<crate::diagnostics::SendOutcome, String> {
+    let settings = state.settings_snapshot();
+    crate::diagnostics::ensure_consent(&settings)?;
+    let mut server_url = settings.server_url.clone();
+    if server_url.trim().is_empty() {
+        let guard = state.server.lock().await;
+        if let Some(handle) = guard.as_ref() {
+            server_url = handle.url.clone();
+        }
+    }
+    state
+        .diagnostics
+        .send(&state.http, &server_url, &settings, &report_id)
+        .await
+}
+
+/// Delete every report stored on this device.
+#[tauri::command]
+pub fn diagnostics_delete_reports(state: State<'_, AppState>) -> Result<(), String> {
+    state.diagnostics.delete_all();
+    Ok(())
+}
+
+/// Record a web-view error or a failed command locally (#171).
+///
+/// The web layer calls this from its error boundary, its unhandled-rejection
+/// listener and its invoke wrapper. Summaries are redacted again in Rust; no
+/// report is uploaded here, even when the toggle is on.
+#[tauri::command]
+pub fn diagnostics_record_error(
+    state: State<'_, AppState>,
+    kind: String,
+    summary: String,
+    command: Option<String>,
+    stack: Option<String>,
+) -> Result<(), String> {
+    let summary = summary.trim();
+    if summary.is_empty() {
+        return Ok(());
+    }
+    let summary: String = summary.chars().take(4_000).collect();
+    state.diagnostics.record(
+        &kind,
+        &summary,
+        None,
+        None,
+        command.as_deref(),
+        stack.as_deref(),
+        &[],
+    );
+    Ok(())
+}

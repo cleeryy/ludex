@@ -165,6 +165,8 @@ pub struct AppState {
     pub oidc_logins: Arc<crate::oidc_login::LoginSessions>,
     /// In-game overlay runtime (#144): open state and native listener status.
     pub overlay: crate::overlay::OverlayRuntime,
+    /// Local crash reports and opt-in diagnostics (#171).
+    pub diagnostics: crate::diagnostics::DiagnosticsStore,
 }
 
 impl AppState {
@@ -222,6 +224,19 @@ impl AppState {
             .build()
             .map_err(|e| format!("Could not create the HTTP client: {e}"))?;
 
+        let mut server_urls: Vec<String> = loaded
+            .servers
+            .iter()
+            .map(|profile| profile.url.clone())
+            .collect();
+        if !loaded.server_url.trim().is_empty() {
+            server_urls.push(loaded.server_url.clone());
+        }
+        let diagnostics = crate::diagnostics::DiagnosticsStore::new(
+            Some(crate::diagnostics::store_path(&app_data)),
+            crate::diagnostics::local_redaction_context(server_urls),
+        );
+
         Ok(Self {
             app_data,
             settings_path,
@@ -237,6 +252,7 @@ impl AppState {
             secrets,
             oidc_logins: Arc::new(crate::oidc_login::LoginSessions::new()),
             overlay: crate::overlay::OverlayRuntime::default(),
+            diagnostics,
         })
     }
 

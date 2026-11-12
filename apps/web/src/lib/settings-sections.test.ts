@@ -58,6 +58,8 @@ const REQUIRED_PANELS = [
   "getting-started",
   "shortcuts",
   "about",
+  "privacy-diagnostics",
+  "admin-diagnostics",
 ];
 
 describe("settings taxonomy", () => {

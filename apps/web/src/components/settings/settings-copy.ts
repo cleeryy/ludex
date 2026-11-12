@@ -60,6 +60,6 @@ export function settingsSectionDescription(id: SettingsSectionId): string {
     case "updates":
       return t("Which build you run, how it updates itself, and when it checks.");
     case "help":
-      return t("Version, the first-run checklist and the keyboard shortcuts.");
+      return t("Version, the first-run checklist, the keyboard shortcuts and your privacy controls.");
   }
 }

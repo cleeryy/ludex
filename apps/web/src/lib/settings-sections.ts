@@ -164,11 +164,11 @@ export const SETTINGS_SECTIONS = [
   {
     id: "help",
     labelKey: "Help and about",
-    descriptionKey: "Version, the first-run checklist and the keyboard shortcuts.",
+    descriptionKey: "Version, the first-run checklist, the keyboard shortcuts and your privacy controls.",
     icon: "help",
     availability: "always",
-    keywords: ["about", "help", "onboarding", "shortcuts", "docs", "version", "keyboard"],
-    panels: ["onboarding", "getting-started", "shortcuts", "about"],
+    keywords: ["about", "help", "onboarding", "shortcuts", "docs", "version", "keyboard", "privacy", "diagnostics", "crash", "report", "telemetry"],
+    panels: ["onboarding", "getting-started", "shortcuts", "about", "privacy-diagnostics", "admin-diagnostics"],
   },
 ] as const satisfies readonly SettingsSectionMeta[];
 

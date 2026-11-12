@@ -1097,6 +1097,47 @@ pub const ROUTES: &[RouteDoc] = &[
         ),
         &[("window", "Time window: 1h (default) or 24h")],
     ),
+    // Diagnostics (#171)
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/diagnostics",
+                "Diagnostics",
+                "Submit an explicitly sent anonymous report",
+                Auth::Public,
+                Payload::Object,
+            ),
+            202,
+        ),
+        "DiagnosticsReportInput",
+    ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/diagnostics",
+            "Diagnostics",
+            "List reports and aggregate counts",
+            Auth::Admin,
+            Payload::Schema("DiagnosticsPage"),
+        ),
+        &[
+            ("limit", "Page size (1-200, default 50)"),
+            ("before", "Cursor"),
+            ("kind", "Filter by error kind"),
+        ],
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/diagnostics/{id}",
+            "Diagnostics",
+            "Delete one stored report",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
     // Webhooks
     route(
         HttpMethod::Get,
@@ -2079,6 +2120,10 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::models::CreateApiKeyRequest>()
         .schema_from::<crate::models::CreateApiKeyResponse>()
         .schema_from::<crate::models::AuditPage>()
+        .schema_from::<crate::models::DiagnosticsReportInput>()
+        .schema_from::<crate::models::DiagnosticsReport>()
+        .schema_from::<crate::models::DiagnosticsCount>()
+        .schema_from::<crate::models::DiagnosticsPage>()
         .schema_from::<crate::models::Webhook>()
         .schema_from::<crate::models::CreateWebhookRequest>()
         .schema_from::<crate::models::CreateWebhookResponse>()
@@ -2183,6 +2228,10 @@ pub fn document() -> OpenApi {
         ("API keys", "Bearer API keys for integrations"),
         ("Audit", "Persistent audit trail"),
         ("Observability", "Admin health and activity dashboard"),
+        (
+            "Diagnostics",
+            "Opt-in anonymous crash and error reports (#171)",
+        ),
         ("Webhooks", "Outbound HMAC-signed events"),
         ("Collections", "Curated and smart collections"),
         ("Community", "Public profiles and activity"),

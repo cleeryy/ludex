@@ -303,6 +303,10 @@ async fn prepare(config: Config) -> Result<Prepared> {
             config.login_lockout,
             config.login_backoff,
         )),
+        diagnostics_limits: Arc::new(security::AttemptCounter::new(
+            config.diagnostics_rate_limit,
+            Duration::from_secs(3_600),
+        )),
         session_touch: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         desktop_handoffs: Arc::new(desktop_handoff::DesktopHandoffs::new(
             config.desktop_handoff_ttl,

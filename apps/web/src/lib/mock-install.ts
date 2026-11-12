@@ -302,6 +302,8 @@ if (USING_MOCKS) setInterval(() => {
 
 const DEFAULT_SETTINGS: LocalSettings = {
   mode: "remote",
+  diagnosticsEnabled: false,
+  diagnosticsInstallId: null,
   serverUrl: "https://ludex.mara.lan",
   token: null,
   gamesDir: "/home/mara/Games",

@@ -818,6 +818,10 @@ export interface StorageSuggestions {
 
 export interface LocalSettings {
   mode: "local" | "remote";
+  /** Opt-in anonymous diagnostics (#171). */
+  diagnosticsEnabled: boolean;
+  /** Random install id used only with the diagnostics opt-in. */
+  diagnosticsInstallId: string | null;
   serverUrl: string;
   token: string | null;
   gamesDir: string | null;
@@ -1015,6 +1019,78 @@ export interface OverlaySettingsPatch {
   scale?: number;
   tabs?: OverlayTabId[];
   disabledGames?: number[];
+  /** Opt-in anonymous diagnostics and crash reports (#171). Off by default. */
+  diagnosticsEnabled?: boolean;
+  /** Random install id generated locally when diagnostics are enabled (#171). */
+  diagnosticsInstallId?: string;
+}
+
+/* ------------------ Anonymous diagnostics and crash reports (#171) ----------------- */
+
+/** One report stored on this device by the desktop app. */
+export interface DiagnosticsReportSummary {
+  id: string;
+  createdAt: string;
+  kind: string;
+  summary: string;
+  sent: boolean;
+}
+
+/** Local diagnostics state returned by the desktop commands. */
+export interface DiagnosticsStatus {
+  enabled: boolean;
+  installId: string;
+  appVersion: string;
+  platform: string;
+  os: string;
+  locale: string;
+  channel: string;
+  reports: DiagnosticsReportSummary[];
+  unsent: number;
+}
+
+/** Exact payload a send would use, as shown in the preview. */
+export interface DiagnosticsPreview {
+  reportId: string;
+  payload: Record<string, unknown>;
+}
+
+/** Result of an explicit send. */
+export interface DiagnosticsSendOutcome {
+  reportId: string;
+  sent: boolean;
+}
+
+/** One report stored by the server for admin review. */
+export interface ServerDiagnosticsReport {
+  id: number;
+  installId: string;
+  appVersion: string;
+  platform: string;
+  os: string;
+  locale: string;
+  channel: string;
+  errorKind: string;
+  summary: string;
+  detail: Record<string, unknown>;
+  createdAt: string;
+}
+
+/** One aggregate count in the admin page. */
+export interface DiagnosticsCount {
+  value: string;
+  count: number;
+}
+
+/** Admin diagnostics page with counts and recent reports. */
+export interface DiagnosticsPage {
+  items: ServerDiagnosticsReport[];
+  nextBefore: number | null;
+  total: number;
+  byVersion: DiagnosticsCount[];
+  byKind: DiagnosticsCount[];
+  byPlatform: DiagnosticsCount[];
+  retentionDays: number;
 }
 
 /* ------------------- Ludusavi save-path manifest (#153) ------------------ */
