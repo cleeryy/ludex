@@ -4,6 +4,13 @@ How Ludex moves a game archive from the server to the desktop, where the
 ceiling can be, and how to measure it (#194). The reconnect behaviour that
 keeps a large transfer alive is documented in the same procedure (#195).
 
+The network-layer decision — direct vs Caddy, HTTP/2 vs HTTP/1.1 vs HTTP/3,
+`aria2c`, `iperf3`, BBR — lives in
+[NETWORK-ARCHITECTURE.md](NETWORK-ARCHITECTURE.md). That document owns the
+topology, the decision thresholds and the security boundaries; this page keeps
+the download-path specifics. The raw measurements stay in #194/#195: record
+new runs there, do not copy numbers into this file.
+
 ## The path
 
 ```
@@ -18,8 +25,10 @@ archive on disk ── ServeFile (512 KiB chunks) ── axum ── Caddy (TLS,
   exact `Range`/`If-Range`, a strong `ETag` (`size-mtime`), and no compression
   for archives. Each stream logs `bytes`, `elapsed_ms`, `range_start` and
   `outcome` (`complete`, `error`, `client_abort`) at info/warn level.
-- **Proxy**: Caddy terminates TLS and forwards to the server. HTTP/2 to the
-  browser/desktop, HTTP/1.1 (or h2c) to the upstream.
+- **Proxy**: Caddy terminates TLS and forwards to the server. HTTP/2 or
+  HTTP/1.1 to the browser/desktop (the native desktop client is HTTP/1.1
+  today; see [NETWORK-ARCHITECTURE.md](NETWORK-ARCHITECTURE.md)), HTTP/1.1
+  (or h2c) to the upstream.
 - **Client** (`apps/desktop/src-tauri/src/install.rs::download_into`): one
   response, one `.part`, sequential reads, 1 MiB `BufWriter`, progress every
   250 ms, `Range: bytes=<flushed>-` on every reconnect. The HTTP client sets
@@ -35,6 +44,13 @@ load without a measured gain. Revisit with per-range parts once a user can show
 `aria2c -x8 -s8` is materially faster than `curl` on the same URL.
 
 ## Measurement matrix
+
+The network rows (direct vs Caddy, HTTP/2 vs HTTP/1.1, HTTP/3, `aria2c`,
+`iperf3`) are automated by `scripts/bench-download.sh`; it prints a comparison
+table and the verdicts from
+[NETWORK-ARCHITECTURE.md](NETWORK-ARCHITECTURE.md#11-decision-thresholds). The
+rows below add the download-specific checks (cold/warm, disk, RAM disk, ZIP
+stream) that the script does not cover.
 
 Run every line from the **same client machine**, on the **same archive**, with
 the machine otherwise idle. Record seconds, MB/s, CPU (`top`), disk
@@ -142,13 +158,19 @@ ludex.home.cleeryy.cloud {
 
 On the actual setup (Proxmox host, Caddy, client), collect and record:
 
-1. Step 1 and step 2 on a large archive, cold and warm; `curl` prints MB/s.
-2. Step 3 (`aria2c -x8 -s8`) on the same URL.
-3. `iperf3` LAN and WAN, plus Wi-Fi vs Ethernet.
-4. `iostat -x 1` and `top` on the server during step 1.
+1. `scripts/bench-download.sh --direct <direct-url> --token <token>
+   --iperf3 <host> --http3 --runs 3 <caddy-url>` — the table and verdicts.
+   `--self-check` validates the script offline before using it.
+2. The same rows by hand if the script cannot reach a URL (matrix steps 1–3);
+   `curl` prints MB/s. Run the Caddy row cold and warm.
+3. `iperf3` LAN and WAN, plus Wi-Fi vs Ethernet (the script runs it with
+   `--iperf3`).
+4. `iostat -x 1` and `top` on the server during the Caddy run.
 5. Caddy access log lines for the same request (status + duration), and the
    new `download stream closed` lines from the server log.
 
 The numbers decide the next step: a faster `aria2c` means parallel ranges are
 worth implementing; equal numbers mean the link/disk/proxy is the ceiling and
-the per-stream code is already saturating it.
+the per-stream code is already saturating it. The exact thresholds (including
+"direct within 10% of Caddy" and "`aria2c` >1.5×") are in
+[NETWORK-ARCHITECTURE.md](NETWORK-ARCHITECTURE.md#11-decision-thresholds).
