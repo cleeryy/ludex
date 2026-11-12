@@ -66,7 +66,7 @@ export function HeroLayout({
         aria-label={t("Games")}
       >
         <motion.div
-          className="flex items-center justify-between gap-4 px-[clamp(1rem,5vw,5rem)]"
+          className="flex items-center justify-between gap-4 bp-pad-x"
           {...reveal(reduceMotion, { ...COPY_CUE, delay: 0.02, y: 6 })}
         >
           <ShelfTabs nav={nav} dense className="min-w-0 flex-1" />
@@ -75,7 +75,7 @@ export function HeroLayout({
           </span>
         </motion.div>
 
-        <div className="nav-scroll overflow-x-auto px-[clamp(1rem,5vw,5rem)] pb-2 pt-2.5">
+        <div className="nav-scroll overflow-x-auto pb-2 pt-2.5 bp-pad-x">
           <div className="mx-auto flex w-max gap-3">
             {nav.games.map((entry, position) => (
               <motion.div
@@ -93,7 +93,7 @@ export function HeroLayout({
                   selected={position === nav.index}
                   nav={nav}
                   installed={installed.has(entry.id)}
-                  className="w-[144px] lg:w-[164px]"
+                  className="w-[var(--bp-rail-card)]"
                 />
               </motion.div>
             ))}

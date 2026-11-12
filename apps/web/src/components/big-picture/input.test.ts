@@ -19,7 +19,7 @@ describe("library routing", () => {
   });
 
   it("opens the exit confirmation with B", () => {
-    expect(routeGamepadAction(null, "back")).toEqual({ type: "open", overlay: "exit" });
+    expect(routeGamepadAction(null, "back")).toEqual({ type: "power" });
   });
 
   it("opens search with X and the menu with Start or Guide", () => {
@@ -52,7 +52,7 @@ describe("library routing", () => {
 
 describe("overlay routing", () => {
   it("gives the pad to the overlay and never navigates behind it", () => {
-    for (const overlay of ["menu", "profiles", "downloads", "exit"] as const) {
+    for (const overlay of ["menu", "profiles", "downloads", "exit", "collections"] as const) {
       expect(routeGamepadAction(overlay, "up")).toEqual({ type: "highlight", direction: "up" });
       expect(routeGamepadAction(overlay, "left")).toEqual({ type: "highlight", direction: "up" });
       expect(routeGamepadAction(overlay, "down")).toEqual({ type: "highlight", direction: "down" });
@@ -81,6 +81,14 @@ describe("overlay routing", () => {
   it("maps each overlay to its hint context", () => {
     expect(hintContextFor("menu")).toBe("menu");
     expect(hintContextFor("downloads")).toBe("downloads");
+    expect(hintContextFor("collections")).toBe("collections");
+  });
+
+  it("closes a non-search overlay with Backspace as well as Escape", () => {
+    expect(routeKey("collections", "Backspace")).toEqual({ type: "close" });
+    expect(routeKey("menu", "Backspace")).toEqual({ type: "close" });
+    // The search overlay keeps Backspace for deleting the query.
+    expect(routeKey("search", "Backspace")).toBeNull();
   });
 });
 
@@ -90,7 +98,7 @@ describe("keyboard parity", () => {
     expect(routeKey(null, "ArrowDown")).toEqual({ type: "move", direction: "down" });
     expect(routeKey(null, "Enter")).toEqual({ type: "activate" });
     expect(routeKey(null, "Escape")).toEqual({ type: "exit" });
-    expect(routeKey(null, "Backspace")).toEqual({ type: "open", overlay: "exit" });
+    expect(routeKey(null, "Backspace")).toEqual({ type: "power" });
     expect(routeKey(null, "[")).toEqual({ type: "shelf", delta: -1 });
     expect(routeKey(null, "]")).toEqual({ type: "shelf", delta: 1 });
     expect(routeKey(null, "PageUp")).toEqual({ type: "page", delta: -1 });

@@ -59,6 +59,32 @@
   --rail-w: 236px;
   --bar-h: 60px;
   --page-x: 40px;
+
+  /* Console scale (#196). One unit is 1 px at 1920, 0.72 at 1280 and 2 at 4K:
+     the system bar, the home row and their gutters grow with the display
+     instead of staying tuned to a 1080p desktop window. */
+  --bp-u: clamp(0.72px, 0.0521vw, 2.2px);
+  --bp-bar-h: max(44px, calc(var(--bp-u) * 56));
+  --bp-home-h: max(84px, calc(var(--bp-u) * 104));
+  --bp-rail-card: 132px;
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --bp-rail-card: 148px;
+  }
+}
+
+/*
+ * A 720p television is the tight case: the bar and the home row eat 145 px of
+ * a 720 px screen. The rail gives back the difference so the hero copy and the
+ * selected cover keep their edges instead of being clipped by the stage.
+ */
+@media (max-height: 820px) {
+  :root {
+    --bp-home-h: 78px;
+    --bp-rail-card: 112px;
+  }
 }
 
 @media (max-width: 1023px) {
@@ -361,6 +387,17 @@
     font-family: var(--font-code);
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.01em;
+  }
+
+  /*
+   * Console gutters (#196): the system bar, the home row, every Big Picture
+   * layout and the hint strip share one edge, and the edge respects the TV's
+   * safe area on both sides. `max()` keeps the inset when the display reports
+   * a notch and the scale when it does not.
+   */
+  .bp-pad-x {
+    padding-inline: max(calc(var(--bp-u) * 44), env(safe-area-inset-left))
+      max(calc(var(--bp-u) * 44), env(safe-area-inset-right));
   }
 
   .label {

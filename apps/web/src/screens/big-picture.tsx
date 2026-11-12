@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useReducedMotion } from "motion/react";
-import { Download, Gamepad2, Play, RefreshCw, X } from "lucide-react";
+import { Download, Play } from "lucide-react";
 import { api } from "@/lib/api";
 import { downloadGame } from "@/lib/download";
 import { errorMessage } from "@/lib/http";
 import { formatPercent } from "@/lib/format";
 import { isNative, native } from "@/lib/native";
-import type { ConsoleStatus } from "@/lib/types";
+import { listServers } from "@/lib/servers";
+import type { ConsoleStatus, GameSummary } from "@/lib/types";
 import { useAllGames, useInstalledMap, useLaunchGame } from "@/lib/hooks";
 import { useGamepad, gamepadDebugEnabled, type ActionSource, type GamepadAction } from "@/lib/gamepad";
 import { GamepadDebugPanel } from "@/components/gamepad/gamepad-debug";
 import { useControllerProfile } from "@/lib/use-controller-profile";
+import { useAuth } from "@/state/auth";
 import { useDownloads } from "@/state/downloads";
 import { useSettings } from "@/state/settings";
 import { useToast } from "@/state/toasts";
@@ -43,17 +45,51 @@ import { GridLayout } from "@/components/big-picture/layout-grid";
 import { HeroLayout } from "@/components/big-picture/layout-hero";
 import { ShelfLayout } from "@/components/big-picture/layout-shelf";
 import { LayoutSkeleton } from "@/components/big-picture/layout-skeleton";
-import { LayoutPicker, LayoutTrigger } from "@/components/big-picture/layout-switcher";
+import { LayoutPicker } from "@/components/big-picture/layout-switcher";
 import {
   BIG_PICTURE_LAYOUTS,
   clampIndex,
   gridColumns,
   type BigPictureLayout,
 } from "@/components/big-picture/layout";
+import { layoutLabel } from "@/components/big-picture/labels";
 import { jobPercent, type BigPictureLayoutProps } from "@/components/big-picture/model";
 import { useBigPictureNavigation, type BigPictureShelf } from "@/components/big-picture/navigation";
 import { BigPictureFooter } from "@/components/big-picture/parts";
-import { CommandMenu, COMMAND_ITEMS, DownloadsOverlay, ExitOverlay } from "@/components/big-picture/overlays";
+import {
+  CollectionsOverlay,
+  CommandMenu,
+  COMMAND_ITEMS,
+  ConfirmPanel,
+  DownloadsOverlay,
+} from "@/components/big-picture/overlays";
+import { HomeRow } from "@/components/big-picture/home-row";
+import { PowerApp } from "@/components/big-picture/power-app";
+import { SettingsApp, type SettingsRow } from "@/components/big-picture/settings-app";
+import { SystemBar } from "@/components/big-picture/system-bar";
+import {
+  HOME_ITEM_IDS,
+  atLibraryTop,
+  closeSystemApp,
+  levelFromSearch,
+  openSystemApp,
+  sameLevel,
+  settingsSectionFromSearch,
+  stepSettingsSection,
+  wrapIndex,
+  type FocusZone,
+  type HomeItemId,
+  type SettingsSectionId,
+  type ShellLevel,
+} from "@/components/big-picture/system-zones";
+import {
+  needsPowerConfirm,
+  powerActions,
+  powerConfirmActive,
+  powerGridStep,
+  resolvePowerConfirm,
+  type PowerAction,
+} from "@/components/big-picture/power";
 import { ProfileOverlay } from "@/components/big-picture/profile-overlay";
 import { SearchOverlay } from "@/components/big-picture/search-overlay";
 import {
@@ -68,7 +104,7 @@ import {
 } from "@/components/big-picture/search";
 import { useBigPictureLayout, useViewportWidth } from "@/components/big-picture/use-layout";
 import { scopedStorageKey } from "@/lib/server-storage";
-import { t, tn } from "@/lib/i18n";
+import { localeMeta, selectableLocales, t, tn, useI18n } from "@/lib/i18n";
 
 /** Ask the server once per open; a quick round trip through the route is free. */
 const REFRESH_ON_OPEN_MS = 10_000;
@@ -125,8 +161,12 @@ export function BigPictureScreen() {
   const navigate = useNavigate();
   const { setTv } = useSettings();
   const location = useLocation();
+  const [, setSearchParams] = useSearchParams();
   const debug = gamepadDebugEnabled(location.search);
   const { push } = useToast();
+  const { user, updateLocale } = useAuth();
+  const { locale, deviceOverride, setLocale, clearDeviceOverride } = useI18n();
+  const { theme, resolved, setTheme } = useSettings();
   const queryClient = useQueryClient();
   const { data, isPending, isError, error, isFetching, refetch } = useAllGames();
   const installed = useInstalledMap();
@@ -134,11 +174,25 @@ export function BigPictureScreen() {
   const launch = useLaunchGame();
   const [layout, setLayout] = useBigPictureLayout();
   const [installOpen, setInstallOpen] = useState(false);
-  const [clock, setClock] = useState(() => new Date());
   const [entranceDone, setEntranceDone] = useState(false);
   const [layoutTouched, setLayoutTouched] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerIndex, setPickerIndex] = useState(0);
+  // #196: the console shell level. It lives in the URL so an in-shell language
+  // change (which remounts the provider tree) comes back to the same app.
+  const [level, setLevelState] = useState<ShellLevel>(() => levelFromSearch(location.search));
+  const [zone, setZone] = useState<FocusZone>("library");
+  const [homeIndex, setHomeIndex] = useState(0);
+  const [appIndex, setAppIndex] = useState(0);
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>(() =>
+    settingsSectionFromSearch(location.search),
+  );
+  const [deviceOnly, setDeviceOnly] = useState(() => deviceOverride !== null);
+  const [pendingPower, setPendingPower] = useState<{ action: PowerAction; index: number } | null>(null);
+  const confirmWasOpen = useRef(false);
+  const [runningGame, setRunningGame] = useState<{ sessionId: string; gameId: number; title: string } | null>(null);
+  const [online, setOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
+  const [padBattery, setPadBattery] = useState<{ level: number; charging: boolean } | null>(null);
   // #172: when Sunshine started `ludex --console`, this screen is the console
   // shell: fullscreen per the settings, no route back into the desktop shell,
   // and quitting closes the app so Moonlight returns to the host desktop.
@@ -155,6 +209,7 @@ export function BigPictureScreen() {
   // choice. None of these leave Big Picture when they change.
   const [overlay, setOverlay] = useState<BigPictureOverlay | null>(null);
   const [overlayIndex, setOverlayIndex] = useState(0);
+  const overlayReturnRef = useRef<"library" | "home" | "app">("library");
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
@@ -175,6 +230,82 @@ export function BigPictureScreen() {
   }, [prefs]);
 
   const games = data?.items ?? [];
+
+  // The shell level is URL state. A browser Back, a language remount or a
+  // deep link all arrive through `location.search`; keep the local level in
+  // step without pushing a new history entry.
+  useEffect(() => {
+    const next = levelFromSearch(location.search);
+    setLevelState((current) => (sameLevel(current, next) ? current : next));
+    if (next.kind === "app" && next.id === "settings") {
+      setSettingsSection(settingsSectionFromSearch(location.search));
+    }
+  }, [location.search]);
+
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+
+  // Pad battery only exists through the native listener; the Gamepad API does
+  // not report it. Absent (or a pad with no battery) hides the slot instead of
+  // showing a fabricated value.
+  useEffect(() => {
+    if (!isNative()) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    const load = () => {
+      void native
+        .overlayStatus()
+        .then((status) => {
+          if (cancelled) return;
+          const controllers = status?.listener.controllers ?? [];
+          const active = controllers.find((controller) => controller.active) ?? controllers[0];
+          setPadBattery(
+            active && active.battery !== null
+              ? { level: Math.round(active.battery), charging: active.charging }
+              : null,
+          );
+        })
+        .catch(() => {
+          /* the listener is optional; the bar simply omits the battery */
+        });
+    };
+    load();
+    timer = window.setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearInterval(timer);
+    };
+  }, []);
+
+  // A game launched from Big Picture is the only one this shell can stop, and
+  // the exit event clears it even when the player leaves through the game.
+  useEffect(() => {
+    if (!isNative()) return;
+    let cancelled = false;
+    let off: (() => void) | undefined;
+    void native
+      .onGameExited(({ gameId }) => {
+        setRunningGame((current) => (current && current.gameId === gameId ? null : current));
+      })
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else off = unlisten;
+      })
+      .catch(() => {
+        /* no session tracking without the desktop event bridge */
+      });
+    return () => {
+      cancelled = true;
+      off?.();
+    };
+  }, []);
 
   useEffect(() => {
     if (!isNative()) return;
@@ -221,6 +352,26 @@ export function BigPictureScreen() {
   const installedGame = selected ? installed.get(selected.id) : undefined;
   const job = selected ? downloads.jobForGame(selected.id) : undefined;
   const percent = jobPercent(job);
+
+  const serversQuery = useQuery({
+    queryKey: ["servers"],
+    queryFn: listServers,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const serverLabel = serversQuery.data?.servers.find((server) => server.active)?.label ?? null;
+
+  // Collections are a home-row surface (#196): the count is live in the tile
+  // and the list opens in the same non-modal shell as the queue. The query
+  // only runs when the row or its overlay can actually use it.
+  const collectionsQuery = useQuery({
+    queryKey: ["collections"],
+    queryFn: () => api.listCollections(),
+    enabled: level.kind === "library" || overlay === "collections",
+    staleTime: 60_000,
+    retry: 1,
+  });
+  const collections = collectionsQuery.data ?? [];
 
   // The controller profiles (#51) that drive navigation. The automatic choice
   // is what the library screen resolves (account, then per-game override); an
@@ -275,9 +426,13 @@ export function BigPictureScreen() {
           ? downloads.active.length + 1
           : overlay === "profiles"
             ? profileChoices.length + 1
-            : overlay === "search"
-              ? cells.length
-              : 0;
+            : overlay === "collections"
+              ? collectionsQuery.isError
+                ? 1
+                : collections.length
+              : overlay === "search"
+                ? cells.length
+                : 0;
 
   // A download completing or a profile list changing can shorten an overlay
   // under the highlight; never leave the ring on a row that no longer exists.
@@ -285,11 +440,6 @@ export function BigPictureScreen() {
     if (!overlay || overlay === "search") return;
     setOverlayIndex((current) => clampIndex(current, Math.max(1, overlayCount)));
   }, [overlay, overlayCount]);
-
-  useEffect(() => {
-    const timer = setInterval(() => setClock(new Date()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
 
   // #142: opening Big Picture asks the server for the current library, installs
   // and update state. The queries keep their cached data, so this happens in the
@@ -420,6 +570,191 @@ export function BigPictureScreen() {
     else navigate("/");
   };
 
+  /* ----------------------------- shell surfaces ---------------------------- */
+
+  const syncLevelUrl = (next: ShellLevel, section?: SettingsSectionId) => {
+    const params = new URLSearchParams(location.search);
+    if (next.kind === "app") {
+      params.set("app", next.id);
+      if (next.id === "settings") params.set("section", section ?? settingsSection);
+      else params.delete("section");
+    } else {
+      params.delete("app");
+      params.delete("section");
+    }
+    setSearchParams(params, { replace: true });
+    setLevelState(next);
+  };
+
+  const navRef = useRef(nav);
+  navRef.current = nav;
+
+  const focusSurface = useCallback((target: "home" | "app" | "library") => {
+    if (target === "library") {
+      navRef.current.focusSelected();
+      return;
+    }
+    const selector = target === "home" ? "[data-home-active='true']" : "[data-system-active='true']";
+    const element = document.querySelector<HTMLElement>(selector);
+    if (!element) return;
+    element.setAttribute("data-gamepad-focus", "true");
+    element.focus({ preventScroll: true });
+  }, []);
+
+  const openApp = (id: "settings" | "power") => {
+    setOverlay(null);
+    setZone("library");
+    setAppIndex(0);
+    setPendingPower(null);
+    syncLevelUrl(openSystemApp(id), id === "settings" ? settingsSection : undefined);
+  };
+
+  const closeApp = () => {
+    setPendingPower(null);
+    setAppIndex(0);
+    syncLevelUrl(closeSystemApp());
+    window.setTimeout(() => nav.focusSelected(), 0);
+  };
+
+  const selectSettingsSection = (next: SettingsSectionId) => {
+    setSettingsSection(next);
+    setAppIndex(0);
+    syncLevelUrl({ kind: "app", id: "settings" }, next);
+  };
+
+  const enterHome = () => {
+    setZone("home");
+    setHomeIndex(0);
+  };
+
+  const returnToLibrary = () => {
+    setZone("library");
+    setOverlay(null);
+    setPendingPower(null);
+    window.setTimeout(() => nav.focusSelected(), 0);
+  };
+
+  const startGame = async (game: GameSummary, executable?: string | null) => {
+    const entry = installed.get(game.id);
+    try {
+      const result = await launch.mutateAsync({
+        id: game.id,
+        title: game.title,
+        executable: executable ?? entry?.executable ?? null,
+      });
+      setRunningGame({ sessionId: result.sessionId, gameId: game.id, title: game.title });
+    } catch {
+      /* `useLaunchGame` already shows the failure; keep the console mounted */
+    }
+  };
+
+  const localeChoices = useMemo(() => selectableLocales(), []);
+  const cycleLocale = async (delta: -1 | 1) => {
+    const current = Math.max(0, localeChoices.findIndex((entry) => entry.code === locale));
+    const next = localeChoices[wrapIndex(current, delta, localeChoices.length)];
+    if (!next) return;
+    try {
+      if (!user || deviceOnly) await setLocale(next.code);
+      else await updateLocale(next.code);
+    } catch (cause) {
+      push({ title: t("Could not save the language"), description: errorMessage(cause), tone: "danger" });
+    }
+  };
+
+  const useAccountDefault = async () => {
+    try {
+      await clearDeviceOverride();
+      setDeviceOnly(false);
+    } catch (cause) {
+      push({ title: t("Could not save the language"), description: errorMessage(cause), tone: "danger" });
+    }
+  };
+
+  const themeChoices = ["system", "dark", "light"] as const;
+  const themeChoice = theme === "system" ? "system" : resolved === "dark" ? "dark" : "light";
+  const cycleTheme = (delta: -1 | 1) => {
+    const next = themeChoices[wrapIndex(themeChoices.indexOf(themeChoice), delta, themeChoices.length)];
+    setTheme(next === "system" ? "system" : next === "dark" ? "midnight" : "light");
+  };
+
+  const cycleLayout = (delta: -1 | 1) => {
+    const next = BIG_PICTURE_LAYOUTS[wrapIndex(BIG_PICTURE_LAYOUTS.indexOf(layout), delta, BIG_PICTURE_LAYOUTS.length)];
+    if (!next || next === layout) return;
+    setLayout(next);
+    setLayoutTouched(true);
+  };
+
+  const power = useMemo(
+    () =>
+      powerActions({
+        console: consoleActive,
+        native: isNative(),
+        gameTitle: runningGame?.title ?? null,
+      }),
+    [consoleActive, runningGame?.title],
+  );
+
+  const runPower = async (action: PowerAction) => {
+    try {
+      switch (action.id) {
+        case "exit":
+          exit();
+          return;
+        case "end-session":
+          await native.exitConsole();
+          return;
+        case "sleep":
+          await native.systemSleep();
+          return;
+        case "restart":
+          await native.restartApp();
+          return;
+        case "quit":
+          try {
+            await native.quitApp();
+          } catch (cause) {
+            // `quit_app` is still pending in the desktop lane. In a console
+            // session the existing exit command is the honest fallback: the
+            // player asked to end the app, not to stay trapped.
+            if (consoleActive) {
+              await native.exitConsole();
+              return;
+            }
+            throw cause;
+          }
+          return;
+        case "quit-game":
+          if (!runningGame) return;
+          await native.stopGame(runningGame.sessionId);
+          setRunningGame(null);
+          return;
+      }
+    } catch (cause) {
+      push({ title: t("Not available"), description: errorMessage(cause), tone: "danger" });
+    }
+  };
+
+  const choosePower = (index: number) => {
+    const action = power[index];
+    if (!action) return;
+    if (!action.enabled) {
+      push({ title: t("Not available"), description: action.reason, tone: "danger" });
+      return;
+    }
+    if (!needsPowerConfirm(action.id)) {
+      void runPower(action);
+      return;
+    }
+    setPendingPower({ action, index: powerConfirmActive() });
+  };
+
+  const chooseConfirm = (index: number) => {
+    const pending = pendingPower;
+    if (!pending) return;
+    setPendingPower(null);
+    if (resolvePowerConfirm(index) === "confirm") void runPower(pending.action);
+  };
+
   const download = useCallback(async () => {
     if (!selected) return;
     try {
@@ -430,15 +765,16 @@ export function BigPictureScreen() {
   }, [selected, version?.id, push]);
 
   const confirm = () => {
-    if (!selected) return;
+    if (!selected) {
+      push({ title: t("Unavailable"), description: t("No games"), tone: "danger" });
+      return;
+    }
     if (installedGame) {
-      launch.mutate({
-        id: selected.id,
-        title: selected.title,
-        executable: installedGame.executable ?? detail.data?.launch.executable,
-      });
+      void startGame(selected, installedGame.executable ?? detail.data?.launch.executable);
     } else if (job) {
-      navigate("/downloads");
+      // The queue stays in the console now (#196): pausing and retrying live
+      // on the full screen, but the progress panel does not leave Big Picture.
+      openOverlay("downloads");
     } else if (isNative()) {
       setInstallOpen(true);
     } else {
@@ -457,7 +793,6 @@ export function BigPictureScreen() {
     setPickerOpen(true);
   };
   const closePicker = () => setPickerOpen(false);
-  const togglePicker = () => (pickerOpen ? closePicker() : openPicker());
 
   const applyLayout = (next: BigPictureLayout) => {
     setPickerOpen(false);
@@ -475,6 +810,7 @@ export function BigPictureScreen() {
   /* ------------------------------- overlays ------------------------------- */
 
   const openOverlay = (next: BigPictureOverlay) => {
+    overlayReturnRef.current = level.kind === "app" ? "app" : zone === "home" ? "home" : "library";
     setOverlay(next);
     if (next === "search") {
       setSearchIndex(0);
@@ -491,11 +827,15 @@ export function BigPictureScreen() {
 
   const closeOverlay = (refocus = true) => {
     setOverlay(null);
-    if (refocus) {
-      // The card exists again after the overlay unmounts; the navigation hook's
-      // ref already holds the new selection, so the ring lands on the right one.
-      window.setTimeout(() => nav.focusSelected(), 0);
-    }
+    if (!refocus) return;
+    const target = overlayReturnRef.current;
+    // The card exists again after the overlay unmounts; the navigation hook's
+    // ref already holds the new selection, so the ring lands on the right one.
+    window.setTimeout(() => {
+      if (target === "home") focusSurface("home");
+      else if (target === "app") focusSurface("app");
+      else nav.focusSelected();
+    }, 0);
   };
 
   const moveOverlay = (direction: "up" | "down" | "left" | "right") => {
@@ -555,9 +895,10 @@ export function BigPictureScreen() {
             return openPicker();
           case "settings":
             closeOverlay(false);
-            return navigate("/settings");
+            return openApp("settings");
           case "exit":
-            return openOverlay("exit");
+            closeOverlay(false);
+            return openApp("power");
         }
         return;
       }
@@ -565,6 +906,17 @@ export function BigPictureScreen() {
         if (index === 0) exit();
         else closeOverlay();
         return;
+      case "collections": {
+        if (collectionsQuery.isError) {
+          void collectionsQuery.refetch();
+          return;
+        }
+        const collection = collections[index];
+        if (!collection) return;
+        closeOverlay(false);
+        navigate(`/collections/${collection.id}`);
+        return;
+      }
       case "downloads":
         // Leaving the route is deliberate: pausing and retrying live there, and
         // the queue keeps running either way.
@@ -595,6 +947,14 @@ export function BigPictureScreen() {
   const runCommand = (command: BigPictureCommand) => {
     switch (command.type) {
       case "move":
+        if (
+          zone === "library" &&
+          command.direction === "up" &&
+          atLibraryTop({ layout, index: nav.index, shelfIndex: nav.shelfIndex, columns })
+        ) {
+          enterHome();
+          return;
+        }
         nav.actions[command.direction]();
         return;
       case "shelf":
@@ -631,6 +991,9 @@ export function BigPictureScreen() {
       case "game":
         if (selected) navigate(`/game/${selected.id}`);
         return;
+      case "power":
+        openApp("power");
+        return;
       case "none":
         return;
     }
@@ -664,6 +1027,330 @@ export function BigPictureScreen() {
   applyPickerRef.current = () =>
     applyLayout(BIG_PICTURE_LAYOUTS[pickerIndexRef.current] ?? layout);
 
+  // Gamepad: the same commands as the keyboard, resolved from the active pad
+  // action and the physical input that produced it (#138).
+  const onGamepad = (action: GamepadAction, source: ActionSource | null) => {
+    if (pickerOpen) {
+      if (action === "back" || action === "menu") return closePicker();
+      if (action === "confirm") return applyLayout(BIG_PICTURE_LAYOUTS[pickerIndexRef.current] ?? layout);
+      if (action === "left") return movePicker(-1);
+      if (action === "right") return movePicker(1);
+      return;
+    }
+
+    if (pendingPower) {
+      if (action === "back" || action === "menu") return setPendingPower(null);
+      if (action === "confirm") return chooseConfirm(pendingPower.index);
+      if (action === "left" || action === "up") return setPendingPower({ ...pendingPower, index: 0 });
+      if (action === "right" || action === "down") return setPendingPower({ ...pendingPower, index: 1 });
+      return;
+    }
+
+    if (overlay) {
+      runRef.current(routeGamepadAction(overlay, action, source));
+      return;
+    }
+
+    if (level.kind === "app") {
+      if (action === "back") return closeApp();
+      if (level.id === "power") {
+        if (action === "confirm") return choosePower(appIndex);
+        if (action === "left" || action === "right" || action === "up" || action === "down") {
+          setAppIndex((current) => powerGridStep(current, action, power.length));
+        }
+        return;
+      }
+      if (action === "prevTab") return selectSettingsSection(stepSettingsSection(settingsSection, -1));
+      if (action === "nextTab") return selectSettingsSection(stepSettingsSection(settingsSection, 1));
+      if (action === "confirm") return activateSetting(appIndex);
+      if (action === "left") return adjustSetting(appIndex, -1);
+      if (action === "right") return adjustSetting(appIndex, 1);
+      if (action === "up") return setAppIndex((current) => clampIndex(current - 1, settingsRows.length));
+      if (action === "down") return setAppIndex((current) => clampIndex(current + 1, settingsRows.length));
+      return;
+    }
+
+    if (zone === "home") {
+      switch (action) {
+        case "left":
+          return setHomeIndex((current) => wrapIndex(current, -1, HOME_ITEM_IDS.length));
+        case "right":
+          return setHomeIndex((current) => wrapIndex(current, 1, HOME_ITEM_IDS.length));
+        case "up":
+          return;
+        case "down":
+        case "back":
+          return returnToLibrary();
+        case "confirm":
+          return activateHome(homeIndex);
+        case "menu":
+          return openOverlay("menu");
+        case "downloads":
+          return openOverlay("downloads");
+        default:
+          return;
+      }
+    }
+
+    runRef.current(routeGamepadAction(null, action, source));
+  };
+  const gamepad = useGamepad(onGamepad, {
+    profile: activeProfile,
+    debug,
+    haptics: prefs.haptics,
+  });
+  const padFamilyName = padFamily(gamepad.id, activeProfile);
+
+  // After a layout switch the ring must come back to the same game. Only when
+  // the pad owns focus: a mouse click on the switcher keeps its own focus.
+  const lastLayout = useRef(layout);
+  useEffect(() => {
+    if (lastLayout.current === layout) return;
+    lastLayout.current = layout;
+    if (!gamepad.connected) return;
+    const active = document.activeElement as HTMLElement | null;
+    const ownsFocus =
+      !active ||
+      active === document.body ||
+      active.hasAttribute("data-gamepad-focus") ||
+      active.closest("[data-gamepad-target]") !== null;
+    if (ownsFocus) nav.focusSelected();
+  }, [layout, gamepad.connected, nav]);
+
+  const recentGame = shelves.find((shelf) => shelf.id === "recent")?.games[0] ?? null;
+  const themeValue =
+    themeChoice === "system" ? t("Follow the system") : themeChoice === "dark" ? t("Dark") : t("Light");
+
+  /* ------------------------------ settings app ----------------------------- */
+
+  const settingsRows: SettingsRow[] = (() => {
+    if (settingsSection === "language") {
+      const rows: SettingsRow[] = [
+        {
+          id: "language",
+          label: t("Language"),
+          detail: t("Applies to your account on every device. A device override stays on this device."),
+          value: localeMeta(locale).label,
+          kind: "choice",
+        },
+        {
+          id: "device-only",
+          label: t("Only this device"),
+          detail: t("Changes apply immediately."),
+          value: deviceOnly ? t("On") : t("Off"),
+          kind: "toggle",
+        },
+      ];
+      if (deviceOverride) {
+        rows.push({
+          id: "account-default",
+          label: t("Use account default"),
+          detail: t("Applies to your account on every device. A device override stays on this device."),
+          value: t("Select"),
+          kind: "action",
+        });
+      }
+      return rows;
+    }
+    if (settingsSection === "appearance") {
+      return [
+        {
+          id: "layout",
+          label: t("Layout"),
+          detail: t("Change how the library is presented."),
+          value: layoutLabel(layout),
+          kind: "choice",
+        },
+        {
+          id: "theme",
+          label: t("Theme"),
+          detail: t("Theme applies to this browser; language is saved to your account."),
+          value: themeValue,
+          kind: "choice",
+        },
+      ];
+    }
+    if (settingsSection === "controllers") {
+      return [
+        {
+          id: "profile",
+          label: t("Controller profile"),
+          detail: gamepad.connected ? `${padFamilyLabel(padFamilyName)} · ${activeProfile.name}` : t("No controller detected."),
+          value: activeProfile.name,
+          kind: "action",
+        },
+        {
+          id: "vibration",
+          label: t("Vibration"),
+          detail: t("Switch the pad setup and vibration."),
+          value: prefs.haptics ? t("On") : t("Off"),
+          kind: "toggle",
+        },
+      ];
+    }
+    return [
+      {
+        id: "remote-play",
+        label: t("Remote play"),
+        detail: t("Publish the Ludex library as Sunshine apps and start streams from Moonlight. Ludex never bundles either application."),
+        value: t("Set up remote play"),
+        kind: "action",
+      },
+    ];
+  })();
+
+  const activateSetting = (index: number) => {
+    const row = settingsRows[index];
+    if (!row || row.disabled) return;
+    switch (row.id) {
+      case "language":
+        void cycleLocale(1);
+        return;
+      case "device-only":
+        setDeviceOnly((current) => !current);
+        return;
+      case "account-default":
+        void useAccountDefault();
+        return;
+      case "layout":
+        cycleLayout(1);
+        return;
+      case "theme":
+        cycleTheme(1);
+        return;
+      case "profile":
+        openOverlay("profiles");
+        return;
+      case "vibration":
+        setPrefs((current) => ({ ...current, haptics: !current.haptics }));
+        return;
+      case "remote-play":
+        navigate("/remote");
+        return;
+    }
+  };
+
+  const adjustSetting = (index: number, delta: -1 | 1) => {
+    const row = settingsRows[index];
+    if (!row || row.disabled) return;
+    switch (row.id) {
+      case "language":
+        void cycleLocale(delta);
+        return;
+      case "layout":
+        cycleLayout(delta);
+        return;
+      case "theme":
+        cycleTheme(delta);
+        return;
+      default:
+        return;
+    }
+  };
+
+  /* -------------------------------- home row ------------------------------- */
+
+  const totalCollectionGames = collections.reduce((sum, collection) => sum + collection.gameCount, 0);
+  const homeDetails: Record<HomeItemId, { detail: string; disabled?: boolean }> = {
+    continue: recentGame
+      ? {
+          detail: installed.has(recentGame.id)
+            ? recentGame.title
+            : `${recentGame.title} · ${t("Install")}`,
+        }
+      : { detail: t("Nothing played yet"), disabled: true },
+    library: { detail: t("All games") },
+    downloads:
+      downloads.activeCount > 0
+        ? {
+            detail: `${tn(downloads.activeCount, "1 downloading", "{count} downloading")}${
+              downloads.aggregate?.percent !== null && downloads.aggregate
+                ? ` · ${formatPercent(downloads.aggregate.percent)}`
+                : ""
+            }`,
+          }
+        : { detail: t("No downloads running.") },
+    collections: collectionsQuery.isPending
+      ? { detail: t("Loading…") }
+      : collectionsQuery.isError
+        ? { detail: t("Unavailable") }
+        : collections.length === 0
+          ? { detail: t("No collections yet.") }
+          : { detail: t("{count} games", { count: totalCollectionGames }) },
+    settings: { detail: `${layoutLabel(layout)} · ${themeValue}` },
+    power: { detail: consoleActive ? t("End session") : t("Quit") },
+  };
+
+  const activateHome = (index: number) => {
+    const id = HOME_ITEM_IDS[index];
+    if (!id) return;
+    switch (id) {
+      case "continue": {
+        if (!recentGame) {
+          returnToLibrary();
+          return;
+        }
+        const target = findGameShelf(shelves, recentGame.id);
+        if (target) nav.selectGame(target.shelf, target.index);
+        setZone("library");
+        if (installed.has(recentGame.id)) void startGame(recentGame);
+        else window.setTimeout(() => nav.focusSelected(), 0);
+        return;
+      }
+      case "library":
+        returnToLibrary();
+        return;
+      case "downloads":
+        openOverlay("downloads");
+        return;
+      case "collections":
+        openOverlay("collections");
+        return;
+      case "settings":
+        openApp("settings");
+        return;
+      case "power":
+        openApp("power");
+        return;
+    }
+  };
+
+  /* ------------------------------- focus sync ------------------------------ */
+
+  useEffect(() => {
+    if (level.kind !== "library" || zone !== "home" || overlay || pendingPower) return;
+    focusSurface("home");
+  }, [level, zone, homeIndex, overlay, pendingPower, focusSurface]);
+
+  useEffect(() => {
+    if (level.kind !== "app" || overlay || pendingPower) return;
+    focusSurface("app");
+  }, [level, appIndex, settingsSection, overlay, pendingPower, focusSurface]);
+
+  useEffect(() => {
+    setAppIndex((current) => {
+      if (level.kind !== "app") return 0;
+      const count = level.id === "power" ? power.length : settingsRows.length;
+      return clampIndex(current, Math.max(1, count));
+    });
+  }, [level, power.length, settingsRows.length]);
+
+  useEffect(() => {
+    if (!pendingPower) {
+      if (!confirmWasOpen.current) return;
+      confirmWasOpen.current = false;
+      // The confirm rows unmount before this runs; put the ring back on the
+      // Power tile instead of leaving DOM focus on the body.
+      window.setTimeout(() => focusSurface(level.kind === "app" ? "app" : "library"), 0);
+      return;
+    }
+    confirmWasOpen.current = true;
+    const active = document.querySelector<HTMLElement>("[data-overlay-active='true']");
+    if (!active) return;
+    active.setAttribute("data-gamepad-focus", "true");
+    active.focus({ preventScroll: true });
+  }, [pendingPower, level, focusSurface]);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
@@ -696,7 +1383,114 @@ export function BigPictureScreen() {
         return;
       }
 
-      const command = routeKey(overlay, key);
+      // Overlays keep their router; the shell only sees keys when none is open.
+      if (overlay) {
+        const command = routeKey(overlay, key);
+        if (!command) return;
+        event.preventDefault();
+        runRef.current(command);
+        return;
+      }
+
+      if (pendingPower) {
+        if (key === "Enter") {
+          event.preventDefault();
+          chooseConfirm(pendingPower.index);
+        } else if (key === "Escape" || key === "Backspace") {
+          event.preventDefault();
+          setPendingPower(null);
+        } else if (key === "ArrowLeft" || key === "ArrowUp") {
+          event.preventDefault();
+          setPendingPower({ ...pendingPower, index: 0 });
+        } else if (key === "ArrowRight" || key === "ArrowDown") {
+          event.preventDefault();
+          setPendingPower({ ...pendingPower, index: 1 });
+        }
+        return;
+      }
+
+      if (level.kind === "app") {
+        if (key === "Escape" || key === "Backspace") {
+          event.preventDefault();
+          closeApp();
+          return;
+        }
+        if (level.id === "power") {
+          if (key === "Enter") {
+            event.preventDefault();
+            choosePower(appIndex);
+          } else if (key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown") {
+            event.preventDefault();
+            setAppIndex((current) =>
+              powerGridStep(current, key.slice(5).toLowerCase() as "left" | "right" | "up" | "down", power.length),
+            );
+          }
+          return;
+        }
+        if (key === "Enter") {
+          event.preventDefault();
+          activateSetting(appIndex);
+        } else if (key === "ArrowLeft") {
+          event.preventDefault();
+          adjustSetting(appIndex, -1);
+        } else if (key === "ArrowRight") {
+          event.preventDefault();
+          adjustSetting(appIndex, 1);
+        } else if (key === "ArrowUp") {
+          event.preventDefault();
+          setAppIndex((current) => clampIndex(current - 1, settingsRows.length));
+        } else if (key === "ArrowDown") {
+          event.preventDefault();
+          setAppIndex((current) => clampIndex(current + 1, settingsRows.length));
+        } else if (key === "[" || key === "]") {
+          event.preventDefault();
+          selectSettingsSection(stepSettingsSection(settingsSection, key === "[" ? -1 : 1));
+        }
+        return;
+      }
+
+      if (zone === "home") {
+        if (key === "ArrowLeft") {
+          event.preventDefault();
+          setHomeIndex((current) => wrapIndex(current, -1, HOME_ITEM_IDS.length));
+          return;
+        }
+        if (key === "ArrowRight") {
+          event.preventDefault();
+          setHomeIndex((current) => wrapIndex(current, 1, HOME_ITEM_IDS.length));
+          return;
+        }
+        if (key === "ArrowUp") {
+          event.preventDefault();
+          return;
+        }
+        if (key === "ArrowDown" || key === "Backspace") {
+          event.preventDefault();
+          returnToLibrary();
+          return;
+        }
+        if (key === "Enter") {
+          event.preventDefault();
+          activateHome(homeIndex);
+          return;
+        }
+        if (key === "Escape") {
+          event.preventDefault();
+          if (consoleActive) openApp("power");
+          else exit();
+          return;
+        }
+      }
+
+      // In console mode Escape is a back/confirm gesture, never a silent
+      // process exit: the player gets the Power surface and a Cancel default.
+      if (consoleActive && key === "Escape") {
+        event.preventDefault();
+        openApp("power");
+        return;
+      }
+
+      const command = routeKey(null, key);
       // `null` means the DOM owns the key: printable characters and the native
       // backspace in the search input stay native.
       if (!command) return;
@@ -705,62 +1499,32 @@ export function BigPictureScreen() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [overlay, pickerOpen, consoleActive, consoleMode?.exitShortcut]);
-
-  // Gamepad: the same commands as the keyboard, resolved from the active pad
-  // action and the physical input that produced it (#138).
-  const onGamepad = (action: GamepadAction, source: ActionSource | null) => {
-    if (pickerOpen) {
-      if (action === "back" || action === "menu") return closePicker();
-      if (action === "confirm") return applyLayout(BIG_PICTURE_LAYOUTS[pickerIndexRef.current] ?? layout);
-      if (action === "left") return movePicker(-1);
-      if (action === "right") return movePicker(1);
-      return;
-    }
-    runRef.current(routeGamepadAction(overlay, action, source));
-  };
-  const gamepad = useGamepad(onGamepad, {
-    profile: activeProfile,
-    debug,
-    haptics: prefs.haptics,
-  });
-  const padFamilyName = padFamily(gamepad.id, activeProfile);
-
-  // After a layout switch the ring must come back to the same game. Only when
-  // the pad owns focus: a mouse click on the switcher keeps its own focus.
-  const lastLayout = useRef(layout);
-  useEffect(() => {
-    if (lastLayout.current === layout) return;
-    lastLayout.current = layout;
-    if (!gamepad.connected) return;
-    const active = document.activeElement as HTMLElement | null;
-    const ownsFocus =
-      !active ||
-      active === document.body ||
-      active.hasAttribute("data-gamepad-focus") ||
-      active.closest("[data-gamepad-target]") !== null;
-    if (ownsFocus) nav.focusSelected();
-  }, [layout, gamepad.connected, nav]);
-
-  const time = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(clock);
+  }, [
+    overlay,
+    pickerOpen,
+    consoleActive,
+    consoleMode?.exitShortcut,
+    pendingPower,
+    level,
+    zone,
+    homeIndex,
+    appIndex,
+    settingsSection,
+    settingsRows,
+    power,
+  ]);
 
   const primary = !selected ? null : installedGame ? (
     <Button
       variant="primary"
       size="lg"
       icon={<Play className="size-4" />}
-      onClick={() =>
-        launch.mutate({
-          id: selected.id,
-          title: selected.title,
-          executable: installedGame.executable ?? detail.data?.launch.executable,
-        })
-      }
+      onClick={() => void startGame(selected, installedGame?.executable ?? detail.data?.launch.executable)}
     >
       {t("Play")}
     </Button>
   ) : job ? (
-    <Button variant="default" size="lg" icon={<Download className="size-4" />} onClick={() => navigate("/downloads")}>
+    <Button variant="default" size="lg" icon={<Download className="size-4" />} onClick={() => openOverlay("downloads")}>
       {t("Installing {percent}", { percent: percent !== null ? formatPercent(percent) : "" })}
     </Button>
   ) : isNative() ? (
@@ -830,65 +1594,81 @@ export function BigPictureScreen() {
     onClose: () => closeOverlay(),
   };
 
+  const footerContext = pendingPower
+    ? "exit"
+    : overlay
+      ? hintContextFor(overlay)
+      : level.kind === "app"
+        ? level.id
+        : zone === "home"
+          ? "home"
+          : "library";
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-bg-deep text-ink">
       <div className="grain" aria-hidden="true" />
 
-      <header className="relative z-20 flex h-16 shrink-0 items-center gap-4 border-b border-line px-5 lg:px-7">
-        <Wordmark height={17} />
-        <span className="hidden font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3 sm:inline">{t("Big Picture")}</span>
-        {!isPending && isFetching && (
-          <span
-            role="status"
-            className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3"
-          >
-            <RefreshCw className="size-3 animate-spin [animation-duration:1.8s] motion-reduce:animate-none" aria-hidden="true" />
-            <span className="sr-only sm:not-sr-only">{t("Refreshing")}</span>
-          </span>
-        )}
-        <div className="ml-auto flex items-center gap-3">
-          {gamepad.connected && (
-            <span
-              className="hidden items-center gap-1.5 border border-line px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3 md:flex"
-              title={selectedProfile.label}
-            >
-              <Gamepad2 className="size-3.5 text-signal-text" aria-hidden="true" />
-              <span className="text-ink-2">{padFamilyLabel(padFamilyName)}</span>
-              <span aria-hidden="true">·</span>
-              <span className="max-w-[16ch] truncate normal-case tracking-normal text-ink-3">
-                {selectedProfile.profile.name}
-              </span>
-            </span>
-          )}
-          {downloads.activeCount > 0 && (
-            <button
-              type="button"
-              onClick={() => navigate("/downloads")}
-              className="flex h-8 items-center gap-2 border border-line px-2.5 text-[11.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
-            >
-              <Download className="size-3.5 text-signal-text" aria-hidden="true" />
-              <span>{tn(downloads.activeCount, "1 downloading", "{count} downloading")}</span>
-              {downloads.aggregate?.percent !== null && downloads.aggregate && (
-                <span className="num text-ink-3">{formatPercent(downloads.aggregate.percent)}</span>
-              )}
-            </button>
-          )}
-          <LayoutTrigger layout={layout} open={pickerOpen} onToggle={togglePicker} />
-          <span className="num hidden text-[12px] text-ink-2 sm:inline">{time}</span>
-          <Button variant="ghost" size="sm" icon={<X className="size-3.5" />} onClick={exit}>
-            {consoleActive ? t("Quit") : t("Exit")}
-          </Button>
-        </div>
-      </header>
+      <SystemBar
+        user={user}
+        serverLabel={serverLabel}
+        online={online}
+        padConnected={gamepad.connected}
+        padFamily={padFamilyLabel(padFamilyName)}
+        padBattery={padBattery?.level ?? null}
+        padCharging={padBattery?.charging ?? false}
+        downloads={downloads.activeCount}
+        downloadsPercent={downloads.aggregate?.percent ?? null}
+        refreshing={!isPending && isFetching}
+        consoleActive={consoleActive}
+      />
 
-      <main className="relative z-10 flex min-h-0 flex-1 flex-col">{body}</main>
+      {level.kind === "library" && (
+        <HomeRow
+          active={homeIndex}
+          focused={zone === "home"}
+          details={homeDetails}
+          onHighlight={setHomeIndex}
+          onChoose={activateHome}
+        />
+      )}
+
+      <main className="relative z-10 flex min-h-0 flex-1 flex-col">
+        {level.kind === "app" && level.id === "settings" ? (
+          <SettingsApp
+            section={settingsSection}
+            rows={settingsRows}
+            active={appIndex}
+            accountName={user?.username ?? null}
+            accountAvatar={user?.avatarUrl ?? null}
+            serverLabel={serverLabel}
+            version={__APP_VERSION__}
+            padLabel={
+              gamepad.connected
+                ? `${padFamilyLabel(padFamilyName)} · ${activeProfile.name}`
+                : t("No controller detected.")
+            }
+            onSelectSection={selectSettingsSection}
+            onHighlight={setAppIndex}
+            onActivate={activateSetting}
+          />
+        ) : level.kind === "app" && level.id === "power" ? (
+          <PowerApp
+            actions={power}
+            active={appIndex}
+            onHighlight={setAppIndex}
+            onChoose={choosePower}
+          />
+        ) : (
+          body
+        )}
+      </main>
 
       <BigPictureFooter
         layout={layout}
         connected={gamepad.connected}
         family={padFamilyName}
         profileName={selectedProfile.profile.name}
-        context={hintContextFor(overlay)}
+        context={footerContext}
         haptics={haptics}
       />
 
@@ -903,18 +1683,6 @@ export function BigPictureScreen() {
             activateOverlay(index);
           }}
           downloads={downloads.activeCount}
-        />
-      )}
-      {overlay === "exit" && (
-        <ExitOverlay
-          {...overlayShell}
-          context="exit"
-          active={overlayIndex}
-          onHighlight={setOverlayIndex}
-          onChoose={(index) => {
-            setOverlayIndex(index);
-            activateOverlay(index);
-          }}
         />
       )}
       {overlay === "downloads" && (
@@ -969,6 +1737,40 @@ export function BigPictureScreen() {
             }
             pickResult(cell.game.id);
           }}
+        />
+      )}
+
+      {overlay === "collections" && (
+        <CollectionsOverlay
+          {...overlayShell}
+          context="collections"
+          active={overlayIndex}
+          onHighlight={setOverlayIndex}
+          onChoose={(index) => {
+            setOverlayIndex(index);
+            activateOverlay(index);
+          }}
+          collections={collections}
+          loading={collectionsQuery.isPending}
+          error={collectionsQuery.isError ? errorMessage(collectionsQuery.error) : null}
+          onRetry={() => void collectionsQuery.refetch()}
+        />
+      )}
+      {pendingPower && (
+        <ConfirmPanel
+          title={pendingPower.action.label}
+          detail={pendingPower.action.detail}
+          confirmLabel={pendingPower.action.label}
+          tone={pendingPower.action.tone === "danger" ? "danger" : undefined}
+          active={pendingPower.index}
+          onHighlight={(index) => setPendingPower((current) => (current ? { ...current, index } : current))}
+          onChoose={chooseConfirm}
+          context="exit"
+          layout={layout}
+          connected={gamepad.connected}
+          family={padFamilyName}
+          reduceMotion={reduceMotion}
+          onClose={() => setPendingPower(null)}
         />
       )}
 

@@ -432,6 +432,30 @@ export const native = {
     await invoke<null>("restart_app");
   },
 
+  /**
+   * Quit the whole app from the console shell (#196).
+   *
+   * The desktop command `quit_app` is not implemented yet: this lane is the
+   * web surface and the Tauri registry is owned elsewhere. The bridge is wired
+   * now so the UI can report an honest "not available" instead of pretending
+   * the app closed; when `quit_app` lands (tray already exits with
+   * `app.exit(0)`), no web change is needed.
+   */
+  async quitApp(): Promise<void> {
+    if (!isNative()) throw nativeUnavailable();
+    await invoke<null>("quit_app");
+  },
+
+  /**
+   * Best-effort system sleep (#196). `system_sleep` is a pending desktop
+   * command with an OS capability probe; the console shows the action as
+   * unavailable rather than faking a power state until it exists.
+   */
+  async systemSleep(): Promise<void> {
+    if (!isNative()) throw nativeUnavailable();
+    await invoke<null>("system_sleep");
+  },
+
   async listInstalled(): Promise<InstalledGame[]> {
     if (!isNative()) return [];
     try {

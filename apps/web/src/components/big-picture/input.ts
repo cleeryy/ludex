@@ -12,7 +12,7 @@ import type { MoveDirection } from "./layout";
    suite covers every context without a DOM.
    -------------------------------------------------------------------------- */
 
-export type BigPictureOverlay = "menu" | "search" | "profiles" | "downloads" | "exit";
+export type BigPictureOverlay = "menu" | "search" | "profiles" | "downloads" | "exit" | "collections";
 
 /** Steps the on-screen keyboard understands beyond the printable keys. */
 export type SearchStep = "space" | "backspace" | "clear" | "submit";
@@ -29,6 +29,7 @@ export type BigPictureCommand =
   | { type: "search"; step: SearchStep }
   | { type: "layout" }
   | { type: "game" }
+  | { type: "power" }
   | { type: "exit" }
   | { type: "none" };
 
@@ -102,8 +103,9 @@ export function routeGamepadAction(
     case "confirm":
       return { type: "activate" };
     case "back":
-      // B opens the visible exit confirmation instead of leaving immediately.
-      return { type: "open", overlay: "exit" };
+      // B opens the Power surface, where the default row is Cancel. The old
+      // exit overlay remains reachable from the quick menu.
+      return { type: "power" };
     case "menu":
       return isMenuSource(source) ? { type: "open", overlay: "menu" } : { type: "open", overlay: "search" };
     case "downloads":
@@ -154,6 +156,7 @@ export function routeKey(overlay: BigPictureOverlay | null, key: string): BigPic
       case "Enter":
         return { type: "select" };
       case "Escape":
+      case "Backspace":
         return { type: "close" };
       default:
         return null;
@@ -173,7 +176,7 @@ export function routeKey(overlay: BigPictureOverlay | null, key: string): BigPic
       // Backspace open the visible exit confirmation instead.
       return { type: "exit" };
     case "Backspace":
-      return { type: "open", overlay: "exit" };
+      return { type: "power" };
     case "[":
       return { type: "shelf", delta: -1 };
     case "]":
