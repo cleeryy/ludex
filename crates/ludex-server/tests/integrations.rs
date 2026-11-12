@@ -679,20 +679,17 @@ async fn webhook_retries_with_exponential_backoff() {
         .post(
             "/api/webhooks",
             Some(&admin),
-            Some(json!({ "url": url, "events": ["user.created"] })),
+            Some(json!({ "url": url, "events": ["game.ingested"] })),
         )
         .await;
     assert_eq!(status, StatusCode::CREATED, "{hook}");
     let secret = hook["secret"].as_str().expect("secret").to_string();
 
-    let (status, _) = server
-        .post(
-            "/api/users",
-            Some(&admin),
-            Some(json!({ "username": "retry-target", "password": "password123" })),
-        )
-        .await;
-    assert_eq!(status, StatusCode::CREATED);
+    // `setup()` emits `user.created` through the async events worker: subscribing
+    // to it races with the hook creation and can deliver that stale event here.
+    // `game.ingested` is only emitted by the creation below, so the three hits
+    // are guaranteed to belong to the same delivery.
+    server.create_game(&admin).await;
     wait_for_hits(&receiver, 3).await;
 
     let hits = receiver.hits();
