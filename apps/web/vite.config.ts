@@ -51,10 +51,18 @@ function serviceWorkerPlugin(): Plugin {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, import.meta.dirname, "");
   const apiUrl = env.VITE_API_URL || "http://localhost:8080";
+  // The web build version shown on the auth screens (#175). The server has its
+  // own version endpoint; this one must match the bundle that renders it.
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(import.meta.dirname, "package.json"), "utf8"),
+  ) as { version: string };
 
   return {
     base: "./",
     plugins: [react(), tailwindcss(), serviceWorkerPlugin()],
+    define: {
+      __APP_VERSION__: JSON.stringify(pkg.version),
+    },
     resolve: {
       alias: {
         "@": fileURLToPath(new URL("./src", import.meta.url)),

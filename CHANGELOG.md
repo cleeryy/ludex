@@ -6,6 +6,13 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- First-run desktop sign-in now opens the server's real web login (SSO or
+  password) in the system browser and hands the session back, instead of an
+  in-app password form with no SSO; the auth screens show the build version
+  instead of a hard-coded `v0.1.0` (#175).
+
 ## [0.3.2] - 2026-11-11
 
 ### Added

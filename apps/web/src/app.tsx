@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import { HashRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { api } from "@/lib/api";
-import { pendingDesktopState, readDesktopStateFromSearch } from "@/lib/desktop-handoff";
+import { DESKTOP_STATE_PARAM, pendingDesktopState, readDesktopStateFromSearch } from "@/lib/desktop-handoff";
 import { isNative, native } from "@/lib/native";
 import { useAuth, useIsAdmin, useIsEditor } from "@/state/auth";
 import { SettingsProvider } from "@/state/settings";
@@ -131,11 +131,22 @@ function Gate({ children }: { children: React.ReactNode }) {
   // #157: a desktop handoff opens /login in the user's browser. It must stay
   // reachable both before signing in and when that browser already has a
   // session (the page then hands the session back immediately).
-  const desktopHandoff =
-    readDesktopStateFromSearch(location.search) !== null || pendingDesktopState() !== null;
+  const desktopState = readDesktopStateFromSearch(location.search);
+  const desktopHandoff = desktopState !== null || pendingDesktopState() !== null;
 
-  if (needsSetup && at !== "/setup") return <Navigate to="/setup" replace />;
-  if (!needsSetup && at === "/setup") return <Navigate to={user ? "/" : "/login"} replace />;
+  if (needsSetup && at !== "/setup") {
+    // #175: a first-run server reroutes the handoff page to /setup. The state
+    // must travel with it, or the browser cannot send the session back.
+    const search = desktopState
+      ? `?${new URLSearchParams({ [DESKTOP_STATE_PARAM]: desktopState }).toString()}`
+      : "";
+    return <Navigate to={`/setup${search}`} replace />;
+  }
+  if (!needsSetup && at === "/setup") {
+    // A finished setup with a pending handoff goes through /login, which binds
+    // the new session to the desktop app.
+    return <Navigate to={desktopHandoff || !user ? "/login" : "/"} replace />;
+  }
   if (!needsSetup && !user && at !== "/login") return <Navigate to="/login" replace />;
   // #157: a desktop handoff keeps the login page mounted just long enough to
   // show "Return to Ludex", even though the account is already signed in.

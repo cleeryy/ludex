@@ -934,10 +934,13 @@ export const native = {
   /**
    * Opens `{server}/#/login?desktop_state=…` in the system browser. No local
    * port is opened; the app then polls the claim endpoint.
+   *
+   * `serverUrl` signs in to a candidate server the first-run wizard has not
+   * saved yet (#175); without it the active settings URL is used.
    */
-  async oidcLoginStart(): Promise<OidcLoginStart> {
+  async oidcLoginStart(serverUrl?: string): Promise<OidcLoginStart> {
     if (!isNative()) throw nativeUnavailable();
-    return invoke<OidcLoginStart>("oidc_login_start");
+    return invoke<OidcLoginStart>("oidc_login_start", serverUrl ? { serverUrl } : {});
   },
 
   /** Waits for the web page to hand the session back (up to ~5 minutes). */

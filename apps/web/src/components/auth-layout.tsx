@@ -71,7 +71,7 @@ export function AuthLayout({
           <div className="w-full max-w-[392px] py-10 lg:mx-auto">{children}</div>
         </div>
         <footer className="flex items-center justify-between gap-4 text-[11px] text-ink-3">
-          <span className="num">v0.1.0</span>
+          <span className="num">{`v${__APP_VERSION__}`}</span>
           {footer ?? (
             <a
               href="https://github.com/cleeryy/ludex/blob/main/LICENSE"

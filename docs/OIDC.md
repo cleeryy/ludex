@@ -186,6 +186,33 @@ system browser:
    `POST /api/auth/oidc/exchange`, stores the token in the active server
    profile (OS keychain or the local secret store) and enters the library.
 
+### First run
+
+A fresh desktop install first asks where the library lives. When **Connect to a
+server** reaches a server that already has users, the app goes straight to the
+browser sign-in above, using `oidc_login_start { serverUrl }` so the candidate
+address is not written to the settings before the browser claims the session.
+
+When the server has no users yet (`needsSetup`), the wizard offers **Sign in
+with `<provider>`** next to the local administrator form:
+
+- The provider path is the same handoff, started with the candidate address, so
+  nothing is written to the settings before the browser claims the session.
+- The gate reroutes `/#/login` to `/#/setup`; the state travels with it and is
+  kept in `sessionStorage` across the provider redirect, so the setup page can
+  finish the handoff like any other login.
+- The provider must be allowed to create accounts **and** grant the
+  administrator role (an admin group in the provider settings) for the first
+  user. Otherwise the callback fails before a session exists and the local
+  administrator must be created first; the form and its explanation stay on
+  screen.
+- The browser `/setup` page only shows the provider button while a desktop
+  state is pending, so a plain web first run still creates a local
+  administrator.
+
+An existing server keeps the explanatory note that an administrator must create
+the account for an SSO-only identity before it can sign in in-app.
+
 If the browser cannot be opened, times out, the user cancels or the provider
 rejects the login, the app shows the reason plus **Open web login** (the same
 page without `desktop_state`) and **Try again**. Password sign-in stays

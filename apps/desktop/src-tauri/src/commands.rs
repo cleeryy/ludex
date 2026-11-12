@@ -4119,13 +4119,21 @@ pub async fn test_server(
 /// Generates the random state, opens `{server}/#/login?desktop_state=…` with
 /// the opener plugin and registers the attempt for `oidc_login_poll`. No local
 /// port is opened and no token is involved yet.
+///
+/// `server_url` lets the first-run wizard hand off to a candidate server before
+/// it is written to the settings (#175); without it the active settings URL is
+/// used. `start_with_opener` normalises and validates either one.
 #[tauri::command]
 pub fn oidc_login_start(
     app: AppHandle,
     state: State<'_, AppState>,
+    server_url: Option<String>,
 ) -> Result<crate::oidc_login::OidcLoginStart, String> {
     let settings = state.settings_snapshot();
-    crate::oidc_login::start_with_opener(&state.oidc_logins, &settings.server_url, |url| {
+    let server_url = crate::util::non_empty(server_url.as_deref())
+        .map(str::to_string)
+        .unwrap_or(settings.server_url);
+    crate::oidc_login::start_with_opener(&state.oidc_logins, &server_url, |url| {
         app.opener()
             .open_url(url.to_string(), None::<&str>)
             .map_err(|error| error.to_string())

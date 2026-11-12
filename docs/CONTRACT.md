@@ -296,6 +296,33 @@ interface DesktopHandoffClaim {      // POST /api/auth/desktop-handoff/claim
   `oidc.handoff_failed` (reason only). Neither the state nor the code is
   recorded.
 
+### First-run setup (#175)
+
+A server with no users still advertises `features.oidc` through the public
+`GET /api/config`. The desktop wizard reads it after `GET /api/setup/status`
+and offers two ways out when `needsSetup` is true:
+
+- **Sign in with `<provider>`** — the handoff above, started with the candidate
+  `serverUrl` (`oidc_login_start { serverUrl }`) because the address is not in
+  the settings yet. The browser opens `/#/login?desktop_state=…`; the gate
+  reroutes a no-users server to `/#/setup` and keeps the parameter, the setup
+  page stores it in `sessionStorage` and shows the provider button when a
+  desktop state is pending. A provider allowed to create accounts provisions
+  the first user, which clears `needsSetup`; the provider then returns to
+  `/#/login?oidc_code=…`, the page redeems the code and hands the session back
+  exactly as in step 3 above.
+- **Create the administrator** — the in-app form posts `POST /api/setup` and
+  persists the returned token, unchanged.
+
+The first provisioned account must receive the admin role (the provider's admin
+group); otherwise the local administrator is the only way to finish a first run
+with an administrator. When the provider cannot create accounts,
+`POST /api/auth/oidc/callback` fails before a session exists: the wizard keeps
+the local form visible and explains that a local administrator is still
+required (on a server that already has users, an existing administrator must add
+the account first). The plain browser first run never sees the provider button —
+`/setup` only shows it while a desktop state is pending — so web setup and
+password login are unchanged.
 
 ### Onboarding preferences (#119)
 
@@ -1902,7 +1929,7 @@ interface StreamTarget {
 | `remove_server` | `{ id }` | `ServerList`; deletes the saved token. When the active profile is removed the first remaining one becomes active |
 | `switch_server` | `{ id }` | `ServerList`; refused while a game runs or an install is active. Swaps the per-profile desktop index |
 | `test_server` | `{ url, token? }` | `ServerTest`; `GET {url}/api/health` with an 8 s timeout. Uses the saved token when omitted |
-| `oidc_login_start` | — | `{ sessionId, webLoginUrl, expiresAt }`; generates a 32-byte state and opens `{serverUrl}/#/login?desktop_state=…` in the system browser. A browser-open failure is a string error naming the fallback URL (#157) |
+| `oidc_login_start` | `{ serverUrl? }` | `{ sessionId, webLoginUrl, expiresAt }`; generates a 32-byte state and opens `{serverUrl}/#/login?desktop_state=…` in the system browser. A browser-open failure is a string error naming the fallback URL (#157). `serverUrl` lets the first-run wizard sign in to a candidate server before it is written to the settings; without it the active settings URL is used (#175) |
 | `oidc_login_poll` | `{ sessionId }` | `{ status: "claimed" \| "expired" \| "cancelled" \| "error", code, message }`; polls the claim endpoint every second for up to five minutes, then the webview redeems `code` through the existing exchange. `code` is `null` unless `status` is `claimed`; the app never logs the state or the code (#157) |
 | `oidc_login_cancel` | `{ sessionId }` | Stops an in-flight poll; idempotent, the attempt resolves as `cancelled` (#157) |
 | `open_external_url` | `{ url }` | Opens an `http(s)` address in the system browser (the "Open web login" fallback). Refuses any other scheme (#157) |
