@@ -39,6 +39,20 @@ const MAX_SCAN_DEPTH: usize = 5;
 /// How many history rows the UI asks for.
 pub const MAX_HISTORY: usize = 100;
 
+/// Counters from one install-folder scan, used to log slow game-page work
+/// (#159). `results` is the number of files actually returned.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ScanStats {
+    /// Folders opened.
+    pub directories: usize,
+    /// File entries examined.
+    pub files: usize,
+    /// Folders skipped without descending (hidden folders, Wine `drive_c`).
+    pub pruned: usize,
+    /// Files kept in the result.
+    pub results: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ConfigFormat {
@@ -855,20 +869,38 @@ pub fn read(install_root: &Path, relative: &str) -> Result<ConfigDocument, Strin
 
 /// List the config-like files inside an install folder. Unparseable files are
 /// still listed (editable: false) so the UI can explain why.
+///
+/// The walk is exhaustive on purpose (#147): a config under `Data/`, `Content/`,
+/// `Engine/` or `Binaries/` is still surfaced. Only hidden folders, Wine
+/// `drive_c`, symlinks and oversized files are skipped.
 pub fn list(install_root: &Path) -> Vec<ConfigFileInfo> {
-    let mut files = Vec::new();
-    walk(install_root, install_root, 0, &mut files);
-    files.sort_by(|left, right| left.path.cmp(&right.path));
-    files
+    list_with_stats(install_root).0
 }
 
-fn walk(root: &Path, directory: &Path, depth: usize, files: &mut Vec<ConfigFileInfo>) {
+/// Same as [`list`], plus the walk counters used for lag logging (#159).
+pub fn list_with_stats(install_root: &Path) -> (Vec<ConfigFileInfo>, ScanStats) {
+    let mut files = Vec::new();
+    let mut stats = ScanStats::default();
+    walk(install_root, install_root, 0, &mut files, &mut stats);
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    stats.results = files.len();
+    (files, stats)
+}
+
+fn walk(
+    root: &Path,
+    directory: &Path,
+    depth: usize,
+    files: &mut Vec<ConfigFileInfo>,
+    stats: &mut ScanStats,
+) {
     if depth > MAX_SCAN_DEPTH || files.len() >= MAX_CONFIG_FILES {
         return;
     }
     let Ok(entries) = fs::read_dir(directory) else {
         return;
     };
+    stats.directories += 1;
     let mut children: Vec<_> = entries.flatten().collect();
     children.sort_by_key(|entry| entry.file_name());
     for entry in children {
@@ -885,14 +917,19 @@ fn walk(root: &Path, directory: &Path, depth: usize, files: &mut Vec<ConfigFileI
         }
         if file_type.is_dir() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if !is_skipped_dir(&name) {
-                walk(root, &path, depth + 1, files);
+            if is_skipped_dir(&name) {
+                stats.pruned += 1;
+                continue;
             }
+            walk(root, &path, depth + 1, files, stats);
             continue;
         }
         if !file_type.is_file() {
             continue;
         }
+        stats.files += 1;
+        // The extension filter runs before any metadata call, so an asset or a
+        // log file costs one directory entry and nothing else (#159).
         let Some(format) = ConfigFormat::for_path(&path) else {
             continue;
         };
@@ -1977,6 +2014,41 @@ mod tests {
             .is_some_and(|note| note.contains("binary")));
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn configs_under_asset_folders_are_still_listed() {
+        let root = temp_dir("asset-folders");
+        // #147: the raw editor has no folder blacklist. Bulk asset folders are
+        // pruned by the engine adapters only, never here (#159).
+        write_file(&root, "Data/settings.ini", "[a]\nvalue=1\n");
+        write_file(&root, "Content/app.json", "{\"a\":1}");
+        write_file(&root, "Engine/Config/BaseEngine.ini", "[Core]\nx=1\n");
+        write_file(&root, "Binaries/win64/app.cfg", "[a]\nx=1\n");
+        write_file(&root, "Content/Paks/notes.toml", "a = 1\n");
+
+        let (files, stats) = list_with_stats(&root);
+        let paths: Vec<&str> = files.iter().map(|file| file.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec![
+                "Binaries/win64/app.cfg",
+                "Content/Paks/notes.toml",
+                "Content/app.json",
+                "Data/settings.ini",
+                "Engine/Config/BaseEngine.ini",
+            ]
+        );
+        assert!(files.iter().all(|file| file.editable));
+        assert_eq!(stats.results, files.len());
+        // The counters describe the exhaustive walk.
+        assert!(
+            stats.directories >= 5,
+            "opened {} folders",
+            stats.directories
+        );
+        assert_eq!(stats.files, 5);
+        assert_eq!(stats.pruned, 0);
     }
 
     #[cfg(unix)]

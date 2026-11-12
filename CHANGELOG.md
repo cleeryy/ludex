@@ -8,6 +8,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- The game page no longer freezes on open (#159): `list_game_configs`,
+  `game_config_adapters` and `stream_target` now run on the blocking pool
+  instead of the UI thread, and a scan slower than 50 ms logs one warning with
+  its directory/file counters so lag can be measured in the field. The
+  engine-adapter walk also skips bulk asset folders (`Content`, `Data`,
+  `Engine`, `Binaries`, `Paks`, `Movies`, `Audio`) and non-config files; the
+  raw config editor keeps listing every supported config, including those under
+  asset folders (#147).
 - Windows desktop updates now show the new web UI immediately: Tauri no longer
   registers the PWA service worker, and the WebView2 `Service Worker`/`Cache`
   directories are reset once per app version before the window opens (#177).

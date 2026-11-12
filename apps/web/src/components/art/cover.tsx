@@ -461,7 +461,13 @@ export function GameBackdrop({
           <Motif spec={spec} seed={seed} />
         </svg>
       ) : (
-        <img src={src ?? ""} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        <img
+          src={src ?? ""}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+          loading="eager"
+          decoding="async"
+        />
       )}
       <div className="absolute inset-0 bg-[var(--bg)]/30" aria-hidden="true" />
       <div className="absolute inset-0 backdrop-shade" aria-hidden="true" />

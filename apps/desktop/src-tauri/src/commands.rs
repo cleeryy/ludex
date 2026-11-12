@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -3162,6 +3162,43 @@ pub fn suggest_storage_locations(
 
 /* ---------------------- per-game config editor (#105) -------------------- */
 
+/// A game-page probe slower than this is felt by the user; log one warning
+/// line per command, never one per file (#159).
+const SLOW_GAME_PAGE_MS: u128 = 50;
+
+/// Lag logging for the game page (#159). `stats` is present for install-folder
+/// walks; `stream_target` probes the filesystem and the registry without a walk
+/// and passes `None`.
+fn log_slow_game_page(
+    command: &'static str,
+    game_id: i64,
+    started: Instant,
+    stats: Option<game_config::ScanStats>,
+) {
+    let elapsed_ms = started.elapsed().as_millis();
+    if elapsed_ms <= SLOW_GAME_PAGE_MS {
+        return;
+    }
+    match stats {
+        Some(stats) => tracing::warn!(
+            command = command,
+            game_id = game_id,
+            elapsed_ms = elapsed_ms,
+            directories = stats.directories,
+            files = stats.files,
+            pruned_dirs = stats.pruned,
+            results = stats.results,
+            "game page scan was slow"
+        ),
+        None => tracing::warn!(
+            command = command,
+            game_id = game_id,
+            elapsed_ms = elapsed_ms,
+            "game page probe was slow"
+        ),
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameConfigListing {
@@ -3180,11 +3217,18 @@ pub struct ConfigWriteReport {
 
 /// Config files inside an install folder (ini/json/cfg/toml). Read-only: the
 /// file list includes unparseable files with `editable: false` and a reason.
+///
+/// Runs off the UI thread: walking a cold install folder takes seconds on
+/// Windows and used to freeze the WebView while the game page mounted (#159).
 #[tauri::command]
-pub fn list_game_configs(
-    state: State<'_, AppState>,
-    game_id: i64,
-) -> Result<GameConfigListing, String> {
+pub async fn list_game_configs(app: AppHandle, game_id: i64) -> Result<GameConfigListing, String> {
+    tauri::async_runtime::spawn_blocking(move || list_game_configs_blocking(&app, game_id))
+        .await
+        .map_err(|error| format!("The config file scan failed: {error}"))?
+}
+
+fn list_game_configs_blocking(app: &AppHandle, game_id: i64) -> Result<GameConfigListing, String> {
+    let state = app.state::<AppState>();
     let installed = installed_or_error(&state, game_id)?;
     let root = PathBuf::from(&installed.install_path);
     if !root.is_dir() {
@@ -3193,10 +3237,13 @@ pub fn list_game_configs(
             root.display()
         ));
     }
+    let started = Instant::now();
+    let (files, stats) = game_config::list_with_stats(&root);
+    log_slow_game_page("list_game_configs", game_id, started, Some(stats));
     Ok(GameConfigListing {
         game_id,
         install_path: installed.install_path.clone(),
-        files: game_config::list(&root),
+        files,
     })
 }
 
@@ -3304,11 +3351,18 @@ pub fn list_game_config_backups(
 }
 
 /// Built-in engine adapters (#106): detection plus typed fields. Read-only.
+///
+/// Runs off the UI thread: the engine scan used to block the WebView while the
+/// game page mounted (#159).
 #[tauri::command]
-pub fn game_config_adapters(
-    state: State<'_, AppState>,
-    game_id: i64,
-) -> Result<AdapterReport, String> {
+pub async fn game_config_adapters(app: AppHandle, game_id: i64) -> Result<AdapterReport, String> {
+    tauri::async_runtime::spawn_blocking(move || game_config_adapters_blocking(&app, game_id))
+        .await
+        .map_err(|error| format!("The adapter scan failed: {error}"))?
+}
+
+fn game_config_adapters_blocking(app: &AppHandle, game_id: i64) -> Result<AdapterReport, String> {
+    let state = app.state::<AppState>();
     let installed = installed_or_error(&state, game_id)?;
     let root = PathBuf::from(&installed.install_path);
     if !root.is_dir() {
@@ -3317,7 +3371,10 @@ pub fn game_config_adapters(
             root.display()
         ));
     }
-    Ok(config_adapters::report(game_id, &root))
+    let started = Instant::now();
+    let (report, stats) = config_adapters::report_with_stats(game_id, &root);
+    log_slow_game_page("game_config_adapters", game_id, started, Some(stats));
+    Ok(report)
 }
 
 /* ------------------- common config fields (#148) ------------------------ */
@@ -3969,8 +4026,30 @@ pub fn moonlight_status(state: State<'_, AppState>) -> Result<streaming::Moonlig
 }
 
 /// Is this game published to Sunshine, and can Moonlight stream it?
+///
+/// Runs off the UI thread: it probes the Sunshine config folder and the Windows
+/// registry on every game-page mount (#159).
 #[tauri::command]
-pub fn stream_target(app: AppHandle, game_id: i64) -> Result<streaming::StreamTarget, String> {
+pub async fn stream_target(
+    app: AppHandle,
+    game_id: i64,
+) -> Result<streaming::StreamTarget, String> {
+    tauri::async_runtime::spawn_blocking(move || stream_target_blocking(&app, game_id))
+        .await
+        .map_err(|error| format!("The streaming probe failed: {error}"))?
+}
+
+fn stream_target_blocking(
+    app: &AppHandle,
+    game_id: i64,
+) -> Result<streaming::StreamTarget, String> {
+    let started = Instant::now();
+    let outcome = stream_target_inner(app, game_id);
+    log_slow_game_page("stream_target", game_id, started, None);
+    outcome
+}
+
+fn stream_target_inner(app: &AppHandle, game_id: i64) -> Result<streaming::StreamTarget, String> {
     let state = app.state::<AppState>();
     let settings = state.settings_snapshot();
     let sunshine = streaming::sunshine_status(&settings);

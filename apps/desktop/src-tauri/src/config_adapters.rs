@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::game_config::{self, ConfigDocument};
+use crate::game_config::{self, ConfigDocument, ConfigFormat};
 
 const MAX_SCAN_FILES: usize = 5_000;
 const MAX_SCAN_DEPTH: usize = 6;
@@ -91,24 +91,77 @@ fn relative(install_root: &Path, path: &Path) -> String {
 }
 
 fn is_skipped_dir(name: &str) -> bool {
-    name.starts_with('.') || name.eq_ignore_ascii_case("drive_c")
+    name.starts_with('.') || name.eq_ignore_ascii_case("drive_c") || is_bulk_asset_dir(name)
 }
 
-fn scan_files(install_root: &Path) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    walk(install_root, 0, &mut files);
-    files
+/// Engine asset/content folders. They hold thousands of textures, shaders and
+/// packages, and nothing the adapters map; descending into them is what froze
+/// the game page on a cold NTFS tree (#159). The raw config editor keeps
+/// walking them on purpose (#147).
+fn is_bulk_asset_dir(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "data" | "content" | "paks" | "engine" | "binaries" | "movies" | "audio"
+    )
 }
 
-fn walk(directory: &Path, depth: usize, files: &mut Vec<PathBuf>) {
-    if depth > MAX_SCAN_DEPTH || files.len() >= MAX_SCAN_FILES {
+/// One bounded walk over the install folder (#159).
+///
+/// Only files that can matter for detection are kept, but every folder name is
+/// recorded so markers such as `Engine/` or `Binaries/` still prove an Unreal
+/// build even though their contents are pruned.
+#[derive(Debug, Default)]
+struct Scan {
+    files: Vec<PathBuf>,
+    dirs: Vec<String>,
+    stats: game_config::ScanStats,
+}
+
+impl Scan {
+    fn has_dir(&self, name: &str) -> bool {
+        self.dirs.iter().any(|dir| dir.eq_ignore_ascii_case(name))
+    }
+}
+
+/// A file worth keeping: a supported config file, or one of the engine marker
+/// files the adapters detect. Assets, shaders and logs are dropped before they
+/// enter the list, so a cold NTFS tree stays cheap to scan (#159).
+fn is_relevant_file(path: &Path) -> bool {
+    if ConfigFormat::for_path(path).is_some() {
+        return true;
+    }
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase());
+    if matches!(extension.as_deref(), Some("uproject" | "pak" | "pck")) {
+        return true;
+    }
+    let name = file_name(path);
+    name.eq_ignore_ascii_case("UnityPlayer.dll")
+        || (name.eq_ignore_ascii_case("globalgamemanagers")
+            && path
+                .parent()
+                .map(|parent| file_name(parent).to_ascii_lowercase().ends_with("_data"))
+                .unwrap_or(false))
+}
+
+fn scan_files(install_root: &Path) -> Scan {
+    let mut scan = Scan::default();
+    walk(install_root, 0, &mut scan);
+    scan
+}
+
+fn walk(directory: &Path, depth: usize, scan: &mut Scan) {
+    if depth > MAX_SCAN_DEPTH || scan.files.len() >= MAX_SCAN_FILES {
         return;
     }
     let Ok(entries) = fs::read_dir(directory) else {
         return;
     };
+    scan.stats.directories += 1;
     for entry in entries.flatten() {
-        if files.len() >= MAX_SCAN_FILES {
+        if scan.files.len() >= MAX_SCAN_FILES {
             return;
         }
         let Ok(file_type) = entry.file_type() else {
@@ -120,11 +173,17 @@ fn walk(directory: &Path, depth: usize, files: &mut Vec<PathBuf>) {
         let path = entry.path();
         if file_type.is_dir() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if !is_skipped_dir(&name) {
-                walk(&path, depth + 1, files);
+            scan.dirs.push(name.clone());
+            if is_skipped_dir(&name) {
+                scan.stats.pruned += 1;
+            } else {
+                walk(&path, depth + 1, scan);
             }
         } else if file_type.is_file() {
-            files.push(path);
+            scan.stats.files += 1;
+            if is_relevant_file(&path) {
+                scan.files.push(path);
+            }
         }
     }
 }
@@ -156,17 +215,6 @@ fn find_extension(files: &[PathBuf], extension: &str) -> Option<PathBuf> {
                 .unwrap_or(false)
         })
         .cloned()
-}
-
-fn has_dir(files: &[PathBuf], name: &str) -> bool {
-    files.iter().any(|path| {
-        path.components().any(|component| {
-            component
-                .as_os_str()
-                .to_string_lossy()
-                .eq_ignore_ascii_case(name)
-        })
-    })
 }
 
 fn has_file_suffix(files: &[PathBuf], suffix: &str) -> bool {
@@ -240,12 +288,27 @@ fn field(
 
 /* --------------------------------- unreal -------------------------------- */
 
-fn unreal_adapter(install_root: &Path, files: &[PathBuf]) -> Adapter {
+/// `Content/Paks` is pruned from the walk, so a packaged Unreal build is proven
+/// by one cheap listing of the standard pak folder instead of a full scan.
+fn root_pak(install_root: &Path) -> Option<PathBuf> {
+    let paks = install_root.join("Content").join("Paks");
+    fs::read_dir(paks).ok()?.flatten().find_map(|entry| {
+        let is_pak = entry
+            .path()
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("pak"));
+        is_pak.then(|| entry.path())
+    })
+}
+
+fn unreal_adapter(install_root: &Path, scan: &Scan) -> Adapter {
+    let files = scan.files.as_slice();
     let mut notes = Vec::new();
     let uproject = find_extension(files, "uproject");
-    let pak = find_extension(files, "pak");
-    let engine_dir = has_dir(files, "Engine");
-    let binaries = has_dir(files, "Binaries");
+    let pak = find_extension(files, "pak").or_else(|| root_pak(install_root));
+    let engine_dir = scan.has_dir("Engine");
+    let binaries = scan.has_dir("Binaries");
     let marker = uproject
         .as_ref()
         .map(|path| relative(install_root, path))
@@ -369,7 +432,8 @@ fn unreal_adapter(install_root: &Path, files: &[PathBuf]) -> Adapter {
 
 /* ---------------------------------- gog ---------------------------------- */
 
-fn gog_adapter(install_root: &Path, files: &[PathBuf]) -> Adapter {
+fn gog_adapter(install_root: &Path, scan: &Scan) -> Adapter {
+    let files = scan.files.as_slice();
     let info = find_named(files, |name| {
         name.to_ascii_lowercase().starts_with("goggame-")
             && name.to_ascii_lowercase().ends_with(".info")
@@ -448,7 +512,8 @@ fn gog_adapter(install_root: &Path, files: &[PathBuf]) -> Adapter {
 
 /* --------------------------------- godot --------------------------------- */
 
-fn godot_adapter(install_root: &Path, files: &[PathBuf]) -> Adapter {
+fn godot_adapter(install_root: &Path, scan: &Scan) -> Adapter {
+    let files = scan.files.as_slice();
     let project = find_basename(files, "project.godot");
     let pck = find_extension(files, "pck");
     let mut notes = Vec::new();
@@ -576,7 +641,8 @@ fn godot_adapter(install_root: &Path, files: &[PathBuf]) -> Adapter {
 
 /* --------------------------------- unity --------------------------------- */
 
-fn unity_adapter(install_root: &Path, files: &[PathBuf]) -> Adapter {
+fn unity_adapter(install_root: &Path, scan: &Scan) -> Adapter {
+    let files = scan.files.as_slice();
     let marker = has_file_suffix(files, "_data/globalgamemanagers")
         .then(|| "*_Data/globalgamemanagers".to_string())
         .or_else(|| {
@@ -711,23 +777,32 @@ fn unity_adapter(install_root: &Path, files: &[PathBuf]) -> Adapter {
 }
 
 /// Detect every adapter that applies to an install and build its typed fields.
-pub fn report(game_id: i64, install_root: &Path) -> AdapterReport {
-    let files = scan_files(install_root);
+/// The walk counters come back too so the command can log a slow scan (#159).
+pub fn report_with_stats(
+    game_id: i64,
+    install_root: &Path,
+) -> (AdapterReport, game_config::ScanStats) {
+    let scan = scan_files(install_root);
     let adapters = vec![
-        unreal_adapter(install_root, &files),
-        gog_adapter(install_root, &files),
-        godot_adapter(install_root, &files),
-        unity_adapter(install_root, &files),
+        unreal_adapter(install_root, &scan),
+        gog_adapter(install_root, &scan),
+        godot_adapter(install_root, &scan),
+        unity_adapter(install_root, &scan),
     ];
-    AdapterReport {
-        game_id,
-        install_path: install_root.to_string_lossy().to_string(),
-        adapters,
-        notes: vec![
-            "Adapters never edit on their own: every change goes through the backup + diff path (#105)."
-                .to_string(),
-        ],
-    }
+    let mut stats = scan.stats;
+    stats.results = scan.files.len();
+    (
+        AdapterReport {
+            game_id,
+            install_path: install_root.to_string_lossy().to_string(),
+            adapters,
+            notes: vec![
+                "Adapters never edit on their own: every change goes through the backup + diff path (#105)."
+                    .to_string(),
+            ],
+        },
+        stats,
+    )
 }
 
 #[cfg(test)]
@@ -755,6 +830,10 @@ mod tests {
             .iter()
             .find(|adapter| adapter.id == id)
             .unwrap()
+    }
+
+    fn report(game_id: i64, install_root: &Path) -> AdapterReport {
+        report_with_stats(game_id, install_root).0
     }
 
     #[test]
@@ -916,5 +995,80 @@ mod tests {
         );
         let report = report(2, &root);
         assert!(!adapter(&report, "unreal").detected);
+    }
+
+    #[test]
+    fn large_asset_trees_are_pruned_before_entering_the_candidate_list() {
+        let root = temp_dir("pruned-assets");
+        // 300 files under data/ and 120 under Content/Paks: the adapter scan
+        // used to push every one of them (up to its 5 000-file cap) (#159).
+        for index in 0..300 {
+            write(
+                &root,
+                &format!("data/levels/pack{index}/mesh.obj"),
+                "vertex",
+            );
+        }
+        for index in 0..120 {
+            write(&root, &format!("Content/Paks/pakchunk{index}.pak"), "pak");
+        }
+        write(&root, "Game/Game.uproject", "{}");
+        write(
+            &root,
+            "Game/Saved/Config/Windows/GameUserSettings.ini",
+            "[/Script/Engine.GameUserSettings]\nResolutionSizeX=1920\nResolutionSizeY=1080\n",
+        );
+
+        let (report, stats) = report_with_stats(11, &root);
+        let unreal = adapter(&report, "unreal");
+        assert!(unreal.detected);
+        assert_eq!(unreal.evidence.as_deref(), Some("Game/Game.uproject"));
+        let width = unreal
+            .fields
+            .iter()
+            .find(|field| field.id == "resolutionWidth")
+            .unwrap();
+        assert_eq!(width.value.as_deref(), Some("1920"));
+        // Only the config and the marker survive; the asset trees are pruned
+        // before their files are considered.
+        assert!(
+            stats.files <= 4,
+            "visited {} files, expected the pruned trees to be skipped",
+            stats.files
+        );
+        assert!(stats.pruned >= 2, "pruned {} dirs", stats.pruned);
+        assert!(stats.results <= 2, "kept {} files", stats.results);
+    }
+
+    #[test]
+    fn engine_dir_still_proves_unreal_when_its_contents_are_pruned() {
+        let root = temp_dir("pruned-engine");
+        write(&root, "Engine/Config/BaseEngine.ini", "[Core]\nx=1\n");
+        write(&root, "Binaries/Win64/Game.exe", "MZ");
+
+        let (report, stats) = report_with_stats(12, &root);
+        let unreal = adapter(&report, "unreal");
+        assert!(unreal.detected);
+        assert_eq!(unreal.evidence.as_deref(), Some("Engine/"));
+        // The Engine config itself is pruned: it is not a game setting.
+        assert_eq!(stats.results, 0);
+    }
+
+    #[test]
+    fn pak_marker_still_proves_unreal_after_the_content_prune() {
+        let root = temp_dir("pruned-pak");
+        // A packaged UE build often has no Engine/ or Binaries/ folder, only
+        // Content/Paks; the pruned walk must not lose that evidence (#159).
+        write(&root, "Content/Paks/pakchunk0-WindowsNoEditor.pak", "pak");
+
+        let (report, stats) = report_with_stats(13, &root);
+        let unreal = adapter(&report, "unreal");
+        assert!(unreal.detected);
+        assert_eq!(
+            unreal.evidence.as_deref(),
+            Some("Content/Paks/pakchunk0-WindowsNoEditor.pak")
+        );
+        // The pak itself is never a config candidate.
+        assert_eq!(stats.results, 0);
     }
 }
