@@ -1,7 +1,16 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Download, RefreshCw, Smartphone, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Download,
+  Monitor,
+  RefreshCw,
+  Smartphone,
+  Trash2,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
 import { api, USING_MOCKS } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { cn } from "@/lib/cn";
@@ -16,12 +25,13 @@ import {
   remoteStatusTone,
   remoteSummary,
 } from "@/lib/mobile";
-import type { RemoteInstall } from "@/lib/types";
+import type { Device, RemoteInstall } from "@/lib/types";
 import { useAuth } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { GameCover } from "@/components/art/cover";
 import { EmptyState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Progress } from "@/components/ui/controls";
+import { DevicePicker, deviceSummary, preferredDeviceId, rememberPreferredDevice, useDevices } from "@/components/game/device-picker";
 
 /**
  * Phone-first remote install queue (#167).
@@ -47,6 +57,13 @@ export function RemoteScreen() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["remote-installs"] });
 
+  const devices = useDevices(Boolean(user));
+  const deviceList = devices.data ?? [];
+  const [defaultTarget, setDefaultTarget] = useState<string | null>(() => preferredDeviceId());
+  const chooseDefaultTarget = (id: string | null) => {
+    setDefaultTarget(id);
+    rememberPreferredDevice(id);
+  };
   const cancel = useMutation({
     mutationFn: (install: RemoteInstall) => api.cancelRemoteInstall(install.id),
     onSuccess: () => void invalidate(),
@@ -118,6 +135,68 @@ export function RemoteScreen() {
         </div>
       </section>
 
+      <section className="mt-8" aria-labelledby="remote-devices">
+        <SectionHeader
+          id="remote-devices"
+          title={t("Your PCs")}
+          count={deviceList.length}
+          description={t("Signed-in Ludex desktops on this account. A PC stays online for 60 seconds after its last heartbeat.")}
+          actions={
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<RefreshCw className={cn("size-3.5", devices.isFetching && "animate-spin")} />}
+              onClick={() => void devices.refetch()}
+            >
+              {t("Refresh")}
+            </Button>
+          }
+        />
+        {deviceList.length > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <DevicePicker
+              devices={deviceList}
+              value={deviceList.some((device) => device.id === defaultTarget) ? defaultTarget : null}
+              onChange={chooseDefaultTarget}
+            />
+            <span className="text-[11px] text-ink-3">
+              {t("Default target for new installs. Pick it on a game to install there.")}
+            </span>
+          </div>
+        )}
+        {devices.isError ? (
+          <p className="border border-danger/40 bg-danger/5 px-4 py-3 text-[12.5px] text-ink-2">
+            {errorMessage(devices.error)}
+          </p>
+        ) : devices.isPending ? (
+          <div className="h-20 animate-pulse border border-line bg-surface/40" />
+        ) : deviceList.length === 0 ? (
+          <div className="border border-line bg-surface/30 px-4 py-5 text-[12.5px] leading-relaxed text-ink-2">
+            <p className="font-medium text-ink">{t("No PC is registered yet")}</p>
+            <p className="mt-1">{t("To install on a PC, all three are required:")}</p>
+            <ol className="mt-2 list-decimal space-y-1 ps-5">
+              <li>{t("Ludex is open on the PC (the tray counts) and signed in.")}</li>
+              <li>{t("The PC uses the same server URL as this phone.")}</li>
+              <li>{t("Both devices use the same account.")}</li>
+            </ol>
+            <p className="mt-2">
+              {t("Check the server on the PC:")}{" "}
+              <Link to="/settings" className="underline underline-offset-4 hover:text-ink">
+                {t("Settings → Servers")}
+              </Link>
+              . {t("Until then, requests stay in the account-wide queue.")}
+            </p>
+            {USING_MOCKS && <p className="mt-2 text-signal-text">{t("Demo data: the demo PC is simulated in the browser.")}</p>}
+          </div>
+        ) : (
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {deviceList.map((device) => (
+              <DeviceCard key={device.id} device={device} />
+            ))}
+          </ul>
+        )}
+      </section>
+
       {isError ? (
         <div className="mt-6 flex flex-wrap items-center gap-3 border border-danger/40 bg-danger/5 p-4 text-[13px] text-ink-2">
           <AlertTriangle className="size-4 text-danger" aria-hidden="true" />
@@ -164,6 +243,7 @@ export function RemoteScreen() {
                   <RemoteInstallCard
                     key={install.id}
                     install={install}
+                    targetDevice={deviceList.find((device) => device.id === install.targetDeviceId)}
                     cancelling={cancel.isPending && cancel.variables?.id === install.id}
                     onCancel={() => cancel.mutate(install)}
                   />
@@ -185,6 +265,7 @@ export function RemoteScreen() {
                   <RemoteInstallCard
                     key={install.id}
                     install={install}
+                    targetDevice={deviceList.find((device) => device.id === install.targetDeviceId)}
                     cancelling={cancel.isPending && cancel.variables?.id === install.id}
                     onCancel={() => cancel.mutate(install)}
                   />
@@ -213,12 +294,47 @@ export function RemoteScreen() {
   );
 }
 
+function DeviceCard({ device }: { device: Device }) {
+  return (
+    <li className="flex items-start gap-3 border border-line bg-surface/40 p-3">
+      <Monitor className="mt-0.5 size-4 shrink-0 text-signal" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <p className="truncate text-[14px] font-medium text-ink">{device.name}</p>
+          <Badge tone={device.online ? "ok" : "outline"}>
+            {device.online ? t("Online") : t("Offline")}
+          </Badge>
+        </div>
+        <p className="mt-0.5 text-[11.5px] text-ink-3">{deviceSummary(device)}</p>
+        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-ink-3">
+          <span className="inline-flex items-center gap-1">
+            {device.online ? (
+              <Wifi className="size-3 text-ok" aria-hidden="true" />
+            ) : (
+              <WifiOff className="size-3" aria-hidden="true" />
+            )}
+            {device.online
+              ? t("Online now")
+              : t("Last seen {when}", { when: formatRelative(device.lastSeenAt) })}
+          </span>
+          <span>{t("{count} games installed", { count: device.installedCount })}</span>
+          {device.freeDiskBytes !== null && (
+            <span className="num">{t("{size} free", { size: formatBytes(device.freeDiskBytes) })}</span>
+          )}
+        </p>
+      </div>
+    </li>
+  );
+}
+
 function RemoteInstallCard({
   install,
+  targetDevice,
   cancelling,
   onCancel,
 }: {
   install: RemoteInstall;
+  targetDevice: Device | undefined;
   cancelling: boolean;
   onCancel: () => void;
 }) {
@@ -245,6 +361,7 @@ function RemoteInstallCard({
               {install.sizeBytes !== null && <span className="num">{formatBytes(install.sizeBytes)}</span>}
               <span>{formatRelative(year)}</span>
               {install.device && <span>{install.device}</span>}
+              {install.targetDeviceName && <span>{install.targetDeviceName}</span>}
             </p>
           </div>
           <Badge tone={remoteStatusTone(install.status)}>{remoteStatusLabel(install.status)}</Badge>
@@ -259,13 +376,17 @@ function RemoteInstallCard({
 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[11.5px] text-ink-3">
-            {offline
-              ? t("The desktop is not connected yet. It will start when the app opens.")
-              : install.message
-                ? install.message
-                : install.status === "ready"
-                  ? t("Installed on the desktop.")
-                  : t("Waiting for the desktop to pick it up.")}
+            {install.status === "queued" && install.targetDeviceName
+              ? targetDevice && !targetDevice.online
+                ? t("Will start when {device} is online.", { device: install.targetDeviceName })
+                : t("Reserved for {device}. It starts as soon as that PC claims it.", { device: install.targetDeviceName })
+              : offline
+                ? t("The desktop is not connected yet. It will start when the app opens.")
+                : install.message
+                  ? install.message
+                  : install.status === "ready"
+                    ? t("Installed on the desktop.")
+                    : t("Waiting for the desktop to pick it up.")}
           </p>
           <div className="flex items-center gap-1">
             {isRemoteActive(install.status) && (

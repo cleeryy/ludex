@@ -1242,6 +1242,8 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   cloudAutoSync: true,
   cloudDeviceId: "",
   cloudDeviceLabel: null,
+  deviceId: "",
+  deviceName: null,
   servers: [],
   activeServerId: "",
   sunshineAppsPath: "",

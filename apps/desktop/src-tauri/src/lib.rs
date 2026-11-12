@@ -150,6 +150,9 @@ pub fn run() {
                 // Cloud saves (#108): retry failed automatic uploads with
                 // bounded backoff; pending state is persisted in SQLite.
                 saves_sync::start_retry_worker(handle.clone());
+                // Device registry (#184): heartbeat every 25 s so the phone
+                // lists this PC as online even when the window is in the tray.
+                remote_install::start_heartbeat(handle.clone());
                 tray::refresh_menu(&handle);
 
                 // Save-path manifest (#153): at most one check per 24 h,

@@ -94,6 +94,8 @@ pub struct AppState {
     pub transfers: Arc<ActiveTransfers>,
     /// Per-account throttle for friend requests (#161).
     pub friend_request_limits: Arc<crate::security::AttemptCounter>,
+    /// Per-account throttle for device heartbeats (#184).
+    pub device_heartbeat_limits: Arc<crate::security::AttemptCounter>,
 }
 
 /// Counts the handlers currently reading each version's archive (#168).
@@ -248,6 +250,10 @@ impl AppState {
             friend_request_limits: Arc::new(crate::security::AttemptCounter::new(
                 crate::social::FRIEND_REQUEST_LIMIT_PER_HOUR,
                 std::time::Duration::from_secs(3600),
+            )),
+            device_heartbeat_limits: Arc::new(crate::security::AttemptCounter::new(
+                crate::devices::HEARTBEAT_LIMIT_PER_MINUTE,
+                std::time::Duration::from_secs(60),
             )),
         }
     }

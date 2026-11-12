@@ -40,6 +40,7 @@ pub mod controller_profiles;
 pub mod db;
 pub mod desktop_download;
 pub mod desktop_handoff;
+pub mod devices;
 pub mod emulators;
 pub mod error;
 pub mod events;
@@ -340,6 +341,10 @@ async fn prepare(config: Config) -> Result<Prepared> {
         friend_request_limits: Arc::new(security::AttemptCounter::new(
             social::FRIEND_REQUEST_LIMIT_PER_HOUR,
             Duration::from_secs(3600),
+        )),
+        device_heartbeat_limits: Arc::new(security::AttemptCounter::new(
+            devices::HEARTBEAT_LIMIT_PER_MINUTE,
+            Duration::from_secs(60),
         )),
     };
 

@@ -341,6 +341,8 @@ const DEFAULT_SETTINGS: LocalSettings = {
   cloudAutoSync: true,
   cloudDeviceId: "demo-device-01",
   cloudDeviceLabel: "Living room PC",
+  deviceId: "demo-remote-device",
+  deviceName: "Living room PC",
   servers: [],
   activeServerId: "",
   sunshineAppsPath: "",

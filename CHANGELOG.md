@@ -8,6 +8,12 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Server-side device registry and targeted remote installs (#184): each desktop
+  registers a stable device id and heartbeats every 25 s (platform, app version,
+  installed game count, free disk, streaming availability); the phone lists
+  "Your PCs" with online/offline state and can target an install at one device.
+  Offline targets stay queued until the PC reconnects, revoked devices are
+  rejected, and the account-wide queue still works when no device is chosen.
 - User avatars (#183): accounts can upload a PNG/JPEG/WebP logo (magic-byte
   checked, 2 MiB and 4096x4096 capped) and remove it; files are stored
   content-addressed with old-file cleanup, and the avatar shows in the sidebar,

@@ -3340,6 +3340,35 @@ interface UploadSession {
 - Unfinished uploads older than `LUDEX_UPLOAD_TTL_HOURS` (default 24 h) are
   removed lazily on the next initiate and by an hourly worker.
 
+## Devices (#184)
+
+The desktop registers itself once with a stable, locally generated client id
+(random UUID stored in `settings.json`, never a hardware fingerprint) and
+heartbeats every 25 s while it is signed in — including when the window is
+hidden to the tray. The phone lists these devices to answer "which of my PCs is
+online?" and to target a remote install at one of them. Routes require the normal
+account session or API key; `clientId` is a routing key, never a credential.
+
+- `POST /api/devices/heartbeat` with
+  `{ clientId, name?, platform?, appVersion?, capabilities? }` registers or
+  refreshes the caller's device. `capabilities` is
+  `{ installedGameIds?: number[], installedCount?: number|null,
+  freeDiskBytes?: number|null, streamingAvailable?: boolean }`; counts are
+  clamped and at most 500 game ids are kept. The endpoint always returns `200`
+  with the device row; a first registration is audited once as
+  `device.registered`. Heartbeats are limited to 30 per account per minute
+  (`429 rate_limited`). A revoked device gets `403 device_revoked`.
+- `GET /api/devices` lists the caller's active devices, newest heartbeat first:
+  `{ id, name, platform, appVersion, online, lastSeenAt, installedCount,
+  freeDiskBytes, streamingAvailable, capabilities, createdAt, revokedAt }`.
+  `online` means `lastSeenAt` is less than 60 s old. Revoked devices are hidden.
+- `DELETE /api/devices/{id}` revokes a device (`204`). The row is kept so the
+  same client id cannot silently re-register; the device can no longer
+  heartbeat or claim a remote install, and queued installs targeted at it are
+  failed with a clear message. Audited as `device.revoked`.
+- A device from another account is always `404 device_not_found`, never listed
+  and never usable as a target. No token is stored or returned by this API.
+
 ## Remote installs (#167)
 
 The mobile companion queues an install on the server; a desktop signed into the
@@ -3349,15 +3378,21 @@ warnings. Routes require `Authorization: Bearer <jwt|ldx_...>`:
 
 - `GET /api/remote-installs?status=queued,claimed&limit=100` lists the caller's
   requests, newest first. `status` accepts a comma-separated list; `limit` is
-  clamped to 1–200.
+  clamped to 1–200. `deviceId=<registry id>` additionally hides requests
+  targeted at another PC (untargeted requests stay visible to every desktop).
 - `GET /api/remote-installs/{id}` reads one request owned by the caller (404
   otherwise, including other accounts).
-- `POST /api/remote-installs` with `{ gameId, versionId?, device? }` queues an
-  install. Needs the `write` capability (a read-only API key gets
+- `POST /api/remote-installs` with `{ gameId, versionId?, device?, targetDeviceId? }`
+  queues an install. Needs the `write` capability (a read-only API key gets
   `403 insufficient_scope`). The game must exist and be within the account's
   age limit (404 `game_not_found`); `versionId` must belong to the game and not
   be missing (400 `invalid_version`); omitted, the newest available version is
   used (404 `version_not_found` if none).
+  - `targetDeviceId` optionally pins the request to one registered PC. Only that
+    device may claim it; another PC gets `409 wrong_device`, and the desktop's
+    `?deviceId=` listing hides it. Omit it for the backward-compatible
+    account-wide queue that any signed-in desktop may claim. An unknown or
+    foreign target is `404 device_not_found`; a revoked one is `400 device_revoked`.
   - **Idempotent per account and game**: a second request returns `200` with the
     existing row, including its progress; a `failed`/`cancelled` row is reset to
     `queued` (`version` and `device` refreshed) and also returns `200`. A new
@@ -3366,12 +3401,17 @@ warnings. Routes require `Authorization: Bearer <jwt|ldx_...>`:
     (`429 rate_limited`, in-memory, resets on restart).
   - Audited as `remote_install.requested` with game/version/device metadata.
 - `POST /api/remote-installs/{id}/status` with
-  `{ status, progress?, message? }` is the desktop's progress report. Allowed
-  transitions: `queued → claimed|cancelled`, `claimed → downloading|failed|cancelled`,
+  `{ status, progress?, message?, clientId? }` is the desktop's progress report.
+  `clientId` is the stable local device id; it is required to claim a targeted
+  request (the server resolves it to the registered device, `409 wrong_device`
+  otherwise) and optional for the account-wide queue, where a revoked device is
+  rejected with `403 device_revoked`. Allowed transitions: `queued → claimed|cancelled`,
+  `claimed → downloading|failed|cancelled`,
   `downloading → ready|failed|cancelled`; repeating the current status is a
   no-op so progress patches are idempotent (409 `invalid_transition` otherwise).
   `progress` is clamped to 0–100 and defaults to 100 on `ready`. Claim/terminal
-  transitions are audited as `remote_install.updated`.
+  transitions are audited as `remote_install.updated` with the target and
+  claiming device ids.
 - `DELETE /api/remote-installs/{id}` cancels an active request (it stays as
   `cancelled` history) or deletes a finished row (204). Audited as
   `remote_install.cancelled`.
@@ -3385,6 +3425,12 @@ interface RemoteInstall {
   gameId: number; gameTitle: string; coverUrl: string | null;
   versionId: number | null; version: string | null; sizeBytes: number | null;
   device: string | null;
+  /** PC the phone targeted, or `null` for the account-wide queue (#184). */
+  targetDeviceId: string | null;
+  /** Display name of the target PC, resolved by the server. */
+  targetDeviceName: string | null;
+  /** PC that actually claimed the request, when known. */
+  claimedByDeviceId: string | null;
   status: RemoteInstallStatus;
   progress: number;                 // 0-100
   message: string | null;
@@ -3393,10 +3439,12 @@ interface RemoteInstall {
 }
 ```
 
-Desktop pickup (v1): poll `?status=queued`, claim, install through the existing
-download endpoint, then report progress. The mobile UI renders `queued`,
-`claimed` and `downloading` as "in progress" and shows "ready" once the desktop
-finishes. A queued request untouched for two minutes is labelled "PC offline".
+Desktop pickup (v1): heartbeat this PC, poll `?status=queued&deviceId=<id>`,
+claim (with `clientId`), install through the existing download endpoint, then
+report progress. The mobile UI renders `queued`, `claimed` and `downloading` as
+"in progress" and shows "ready" once the desktop finishes. A queued request
+targeted at an offline PC says "will start when <PC> is online"; a queued
+request untouched for two minutes is labelled "PC offline".
 
 ## Configuration for the new features
 

@@ -379,6 +379,36 @@ export function IntegrationsBody({ desktop }: { desktop: DesktopSettingsControll
                   <PresenceStatus enabled={draft.discordPresence} />
                 </SettingsGroup>
 
+                <SettingsGroup
+                  title={t("Remote installs")}
+                  description={t("This PC appears on the phone's remote-install screen once Ludex is signed in. The name below is what you pick there.")}
+                >
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="flex flex-col gap-1.5">
+                      <span className="text-[12px] text-ink-2">{t("Device name")}</span>
+                      <Input
+                        value={draft.deviceName ?? ""}
+                        maxLength={80}
+                        placeholder={t("Gaming PC")}
+                        onChange={(event) => desktop.update({ deviceName: event.target.value || null })}
+                        className="h-11 text-[13px]"
+                      />
+                      <span className="text-[10.5px] leading-relaxed text-ink-3">
+                        {t("Shown on the phone. Leave empty to use the computer name.")}
+                      </span>
+                    </label>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[12px] text-ink-2">{t("Device identifier")}</span>
+                      <p className="truncate border border-line bg-surface px-3 py-2.5 font-mono text-[11.5px] text-ink-3">
+                        {draft.deviceId || t("Generated on first heartbeat")}
+                      </p>
+                      <span className="text-[10.5px] leading-relaxed text-ink-3">
+                        {t("A random id stored in this app's settings, not a hardware fingerprint.")}
+                      </span>
+                    </div>
+                  </div>
+                </SettingsGroup>
+
                 <DesktopSaveBar desktop={desktop} />
               </>
             ) : (

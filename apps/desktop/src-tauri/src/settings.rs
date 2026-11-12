@@ -325,6 +325,15 @@ pub struct LocalSettings {
     /// Not derived from hardware, the account or the hostname (#171).
     #[serde(default)]
     pub diagnostics_install_id: String,
+    /// Stable device-registry id (#184), generated once in local settings. It
+    /// identifies this PC to the phone's remote-install screen; it is not a
+    /// hardware fingerprint and never replaces the account token.
+    #[serde(default)]
+    pub device_id: String,
+    /// Editable display name shown on the phone ("Gaming PC", "Bureau").
+    /// Empty falls back to the host name, then "Desktop".
+    #[serde(default)]
+    pub device_name: Option<String>,
 }
 
 /// The overlay is on by default: it is the Steam-like behaviour players expect,
@@ -485,6 +494,8 @@ impl Default for LocalSettings {
             overlay_disabled_games: Vec::new(),
             diagnostics_enabled: false,
             diagnostics_install_id: String::new(),
+            device_id: String::new(),
+            device_name: None,
         }
     }
 }
@@ -606,6 +617,24 @@ impl LocalSettings {
             .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
             .take(64)
             .collect();
+        // #184: the device id is local, random and only used as a routing key.
+        // Keep the same charset the server accepts; an empty id is generated
+        // on first heartbeat, never in `normalize` (a save from the web UI must
+        // not invent identities silently).
+        self.device_id = self
+            .device_id
+            .trim()
+            .chars()
+            .filter(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.' | ':')
+            })
+            .take(128)
+            .collect();
+        self.device_name = self
+            .device_name
+            .take()
+            .map(|value| value.trim().chars().take(80).collect::<String>())
+            .filter(|value| !value.is_empty());
         // #163: a skipped version is a display preference, never a security
         // decision; trim it and drop blanks so the field serialises cleanly.
         self.skipped_update_version = self
@@ -1310,6 +1339,29 @@ mod tests {
         let json = serde_json::to_value(&settings).unwrap();
         assert_eq!(json["cloudDeviceId"], "device-123");
         assert_eq!(json["cloudAutoSync"], true);
+    }
+
+    #[test]
+    fn device_registry_identity_is_local_and_roundtrips() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.device_id = " abc-123 ".into();
+        settings.device_name = Some("  Gaming PC  ".into());
+        settings.normalize(Path::new("/data"));
+        assert_eq!(settings.device_id, "abc-123");
+        assert_eq!(settings.device_name.as_deref(), Some("Gaming PC"));
+
+        // The id is generated on first heartbeat, never invented by a save from
+        // the web UI: normalize only sanitises what is there.
+        settings.device_id.clear();
+        settings.normalize(Path::new("/data"));
+        assert!(settings.device_id.is_empty());
+
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["deviceId"], "");
+        assert_eq!(json["deviceName"], "Gaming PC");
+
+        let restored: LocalSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(restored.device_name.as_deref(), Some("Gaming PC"));
     }
 
     #[test]
