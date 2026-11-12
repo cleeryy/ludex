@@ -48,6 +48,7 @@ import { DeleteAdoptedDialog } from "@/components/game/delete-adopted";
 import { InstallerPanel } from "@/components/game/installer-panel";
 import { ExecutableField } from "@/components/game/executable-picker";
 import { LaunchOptionsPanel } from "@/components/game/launch-options";
+import { MakeItRunPanel } from "@/components/game/make-it-run";
 import { ProtonDbBadge } from "@/components/game/protondb-badge";
 import { MoveInstallDialog } from "@/components/game/move-install";
 import { MediaGallery } from "@/components/game/media-gallery";
@@ -604,6 +605,8 @@ export function GameDetailScreen() {
             {isInstalled && isNative() && (
               <InstallerPanel gameId={game.id} title={game.title} executable={isInstalled.executable} />
             )}
+
+            {isInstalled && isNative() && <MakeItRunPanel gameId={game.id} />}
 
             {isInstalled && isNative() && (
               <LaunchOptionsPanel gameId={game.id} title={game.title} />

@@ -167,6 +167,8 @@ pub struct AppState {
     pub overlay: crate::overlay::OverlayRuntime,
     /// Local crash reports and opt-in diagnostics (#171).
     pub diagnostics: crate::diagnostics::DiagnosticsStore,
+    /// In-flight "Make it run" tasks, keyed by game id (#178).
+    pub runtimes: Mutex<HashMap<i64, Arc<crate::runtime::RuntimeRun>>>,
 }
 
 impl AppState {
@@ -253,6 +255,7 @@ impl AppState {
             oidc_logins: Arc::new(crate::oidc_login::LoginSessions::new()),
             overlay: crate::overlay::OverlayRuntime::default(),
             diagnostics,
+            runtimes: Mutex::new(HashMap::new()),
         })
     }
 

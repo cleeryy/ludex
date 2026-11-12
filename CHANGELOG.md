@@ -8,6 +8,12 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Guided "Make it run" runtime installer (#178): diagnoses why a game cannot
+  launch, shows a numbered consent-gated plan, downloads and extracts from an
+  allow-listed catalog (UMU/GE-Proton on Linux, VC++/.NET/DirectX on Windows,
+  Rosetta/wrappers/GPTK import on macOS) with size/checksum limits, progress
+  events and cancel, and records installs plus per-game choices locally so a
+  runtime can be reused or removed.
 - Server-side device registry and targeted remote installs (#184): each desktop
   registers a stable device id and heartbeats every 25 s (platform, app version,
   installed game count, free disk, streaming availability); the phone lists

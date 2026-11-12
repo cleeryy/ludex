@@ -32,6 +32,7 @@ mod protondb;
 mod remote_install;
 mod remote_play;
 mod roms;
+mod runtime;
 mod saves_detect;
 mod saves_manifest;
 mod saves_registry;
@@ -236,6 +237,15 @@ pub fn run() {
             commands::wine_prefix_info,
             commands::reset_wine_prefix,
             commands::run_winetricks,
+            runtime::commands::runtime_catalog,
+            runtime::commands::make_it_run_diagnose,
+            runtime::commands::make_it_run_apply,
+            runtime::commands::make_it_run_cancel,
+            runtime::commands::make_it_run_import,
+            runtime::commands::make_it_run_pick_import,
+            runtime::commands::make_it_run_remove,
+            runtime::commands::make_it_run_select,
+            runtime::commands::set_runtime_prerequisites,
             commands::protondb_rating,
             commands::detect_save_paths,
             commands::get_save_paths,

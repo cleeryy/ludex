@@ -27,6 +27,7 @@ import type {
   DiskUsage,
   GameConfigListing,
   GameExecutables,
+  GameLaunchResult,
   GamePlaytime,
   GameUpdate,
   GameVaultAdoptEntry,
@@ -70,6 +71,12 @@ import type {
   RomEmulator,
   RomLaunchResult,
   RomSettings,
+  RuntimeApplyReport,
+  RuntimeCatalog,
+  RuntimeDiagnosis,
+  RuntimeImportReport,
+  RuntimeProgress,
+  RuntimeRemovalReport,
   ServerList,
   ServerTest,
   SteamImportReport,
@@ -408,8 +415,8 @@ export const native = {
     }
   },
 
-  async launchGame(args: { gameId: number; executable?: string | null; args?: string | null }): Promise<{ sessionId: string }> {
-    return invoke<{ sessionId: string }>("launch_game", args);
+  async launchGame(args: { gameId: number; executable?: string | null; args?: string | null }): Promise<GameLaunchResult> {
+    return invoke<GameLaunchResult>("launch_game", args);
   },
 
   async stopGame(sessionId: string): Promise<void> {
@@ -642,6 +649,57 @@ export const native = {
 
   async protondbRating(gameId: number, appId?: number | null, refresh = false): Promise<ProtonDbRating> {
     return invoke<ProtonDbRating>("protondb_rating", { gameId, appId: appId ?? null, refresh });
+  },
+
+  /* ------------------ Guided runtime installer (#178) ------------------ */
+
+  /** The shipped, version-pinned runtime manifest. */
+  async runtimeCatalog(): Promise<RuntimeCatalog> {
+    return invoke<RuntimeCatalog>("runtime_catalog");
+  },
+
+  /** Diagnose why a game may not start; downloads nothing. */
+  async makeItRunDiagnose(gameId: number): Promise<RuntimeDiagnosis> {
+    return invoke<RuntimeDiagnosis>("make_it_run_diagnose", { gameId });
+  },
+
+  /** Apply selected steps after the consent click. URLs never leave the backend. */
+  async makeItRunApply(gameId: number, stepIds: string[], consent: boolean): Promise<RuntimeApplyReport> {
+    return invoke<RuntimeApplyReport>("make_it_run_apply", { gameId, stepIds, consent });
+  },
+
+  /** Ask the running apply to stop at the next chunk. */
+  async makeItRunCancel(gameId: number): Promise<boolean> {
+    return invoke<boolean>("make_it_run_cancel", { gameId });
+  },
+
+  /** Verify a user-supplied GPTK DMG and record it without copying it. */
+  async makeItRunImport(gameId: number, providerId: string, path: string): Promise<RuntimeImportReport> {
+    return invoke<RuntimeImportReport>("make_it_run_import", { gameId, providerId, path });
+  },
+
+  /** Native .dmg picker for the GPTK import. */
+  async makeItRunPickImport(gameId: number): Promise<string | null> {
+    return invoke<string | null>("make_it_run_pick_import", { gameId });
+  },
+
+  /** Delete a runtime Ludex installed; an imported DMG is only forgotten. */
+  async makeItRunRemove(gameId: number, providerId: string): Promise<RuntimeRemovalReport> {
+    return invoke<RuntimeRemovalReport>("make_it_run_remove", { gameId, providerId });
+  },
+
+  /** Persist a wrapper the user installed outside Ludex (macOS). */
+  async makeItRunSelect(gameId: number, providerId: string): Promise<RuntimeDiagnosis> {
+    return invoke<RuntimeDiagnosis>("make_it_run_select", { gameId, providerId });
+  },
+
+  /** Record the prerequisites a game declares. */
+  async setRuntimePrerequisites(gameId: number, prerequisites: string[]): Promise<RuntimeDiagnosis> {
+    return invoke<RuntimeDiagnosis>("set_runtime_prerequisites", { gameId, prerequisites });
+  },
+
+  async onRuntimeProgress(handler: (progress: RuntimeProgress) => void): Promise<() => void> {
+    return listen<RuntimeProgress>("runtime://progress", handler);
   },
 
   /** An automatic or manual save-database update finished (#153). */
