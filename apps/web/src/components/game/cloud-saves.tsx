@@ -35,8 +35,8 @@ import type {
 import { useToast } from "@/state/toasts";
 import { Button, IconButton, Input, Progress, Skeleton, Switch } from "@/components/ui/controls";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
-import { SectionHeader } from "@/components/page";
-import { tr, t } from "@/lib/i18n";
+import { EmptyState, SectionHeader } from "@/components/page";
+import { t } from "@/lib/i18n";
 
 const MAX_SAVE_BYTES = 2 * 1024 ** 3;
 
@@ -431,7 +431,7 @@ export function CloudSavesPanel({
   };
 
   return (
-    <section className="mt-12" aria-label={t("Cloud saves")}>
+    <div className="min-w-0">
       <SectionHeader
         title={t("Cloud saves")}
         count={rows.length > 0 ? rows.length : undefined}
@@ -791,30 +791,13 @@ export function CloudSavesPanel({
             </Button>
           </div>
         ) : rows.length === 0 ? (
-          <div className="flex flex-col gap-4 border-b border-line py-7">
-            <div className="flex items-start gap-3.5">
-              <span
-                className="mt-0.5 grid size-9 shrink-0 place-items-center border border-line bg-surface/60"
-                aria-hidden="true"
-              >
-                <FileArchive className="size-4 text-ink-3" />
-              </span>
-              <div className="flex flex-col gap-1.5">
-                <p className="text-[14px] text-ink">{t("No snapshots for this game yet")}</p>
-                <p className="measure text-[13px] leading-relaxed text-ink-2">
-                  {tr("Saves belong to your account: only you can list, download or delete them. Upload a {zip} of your save folder to keep a restore point.", {
-                    zip: <span className="font-mono text-[12px] text-ink-2">.zip</span>,
-                  })}
-                </p>
-                <p className="measure font-mono text-[10.5px] leading-relaxed text-ink-3">
-                  {native
-                    ? "Launch the game once, then Sync now to create the first automatic snapshot."
-                    : "Automatic snapshots are created by the desktop app after each session."}
-                </p>
-              </div>
-            </div>
-            {!composerOpen && (
-              <div className="sm:pl-[50px]">
+          <div className="flex flex-col gap-3 border-b border-line py-5">
+            <EmptyState
+              compact
+              title={t("No snapshots for this game yet")}
+              description={t("Saves belong to your account: only you can list, download or delete them. Upload a {zip} of your save folder to keep a restore point.", { zip: ".zip" })}
+            >
+              {!composerOpen && (
                 <Button
                   variant="default"
                   size="sm"
@@ -826,8 +809,13 @@ export function CloudSavesPanel({
                 >
                   {t("Upload a save")}
                 </Button>
-              </div>
-            )}
+              )}
+            </EmptyState>
+            <p className="measure font-mono text-[10.5px] leading-relaxed text-ink-3">
+              {native
+                ? t("Launch the game once, then Sync now to create the first automatic snapshot.")
+                : t("Automatic snapshots are created by the desktop app after each session.")}
+            </p>
           </div>
         ) : (
           <div>
@@ -1008,16 +996,15 @@ export function CloudSavesPanel({
           </dl>
         )}
       </Dialog>
-    </section>
+    </div>
   );
 }
 
 /**
- * The cloud-saves panel must not be part of the game page's first paint
- * (#159): it triggers a desktop scan and a server request. It mounts only when
- * it scrolls near the viewport, and the game page renders immediately with a
- * lightweight placeholder. Explicit actions (Sync now, Restore) then behave
- * exactly as before.
+ * The Saves group mounts only when it is selected (#189), so the panel is the
+ * first paint of that group: the lazy observer that kept it out of the game
+ * page's initial load (#159) is no longer needed and would also delay the
+ * group heading the sub-nav focuses.
  */
 export function CloudSaves({
   gameId,
@@ -1029,44 +1016,5 @@ export function CloudSaves({
   /** Detection needs an installed game: an uninstalled page has no folder to scan (#158). */
   installed: boolean;
 }) {
-  const [visible, setVisible] = useState(false);
-  const anchor = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (visible) return;
-    const node = anchor.current;
-    if (!node) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setVisible(true);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "320px 0px" },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [visible]);
-
-  if (!visible) {
-    return (
-      <div ref={anchor} className="mt-12" aria-hidden="true">
-        <Skeleton className="h-5 w-40" />
-        <div className="mt-4 flex flex-col gap-2 border-t border-line pt-4">
-          <Skeleton className="h-10 w-3/4" />
-          <Skeleton className="h-10 w-1/2" />
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div ref={anchor}>
-      <CloudSavesPanel gameId={gameId} title={title} installed={installed} />
-    </div>
-  );
+  return <CloudSavesPanel gameId={gameId} title={title} installed={installed} />;
 }

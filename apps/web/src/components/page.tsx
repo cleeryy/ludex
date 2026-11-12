@@ -34,20 +34,24 @@ export function EmptyState({
   children,
   className,
   compact,
+  level = 2,
 }: {
   title: string;
   description: string;
   children?: ReactNode;
   className?: string;
   compact?: boolean;
+  /** Heading depth: `3` inside a group that already owns the `h2`. */
+  level?: 2 | 3;
 }) {
+  const Heading = level === 3 ? "h3" : "h2";
   return (
     <div className={cn("flex items-stretch gap-8 border border-line bg-surface/50", compact ? "p-6" : "p-8 sm:p-10", className)}>
       <div className="hatch hidden w-24 shrink-0 border border-line sm:block" aria-hidden="true">
         <div className="h-full w-full bg-[linear-gradient(180deg,transparent,var(--surface))]" />
       </div>
       <div className="flex flex-col justify-center gap-3">
-        <h2 className="text-[24px] font-semibold leading-tight tracking-[-0.02em]">{title}</h2>
+        <Heading className="text-[24px] font-semibold leading-tight tracking-[-0.02em]">{title}</Heading>
         <p className="measure text-[14px] leading-relaxed text-ink-2">{description}</p>
         {children && <div className="mt-2 flex flex-wrap items-center gap-2">{children}</div>}
       </div>

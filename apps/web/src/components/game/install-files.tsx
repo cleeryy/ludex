@@ -149,8 +149,9 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
   };
 
   return (
-    <section className="mt-12" aria-labelledby="installed-files-heading">
+    <div className="min-w-0">
       <SectionHeader
+        level={3}
         title={t("Installed files")}
         description={t("Checks the files on this disk against the manifest recorded at install time")}
         actions={
@@ -191,7 +192,7 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
           </div>
         }
       />
-      <div id="installed-files-heading" className="border-t border-line pt-4">
+      <div className="border-t border-line pt-4">
         {busy === "manifest" && (
           <div className="max-w-[520px]">
             <Progress value={manifestPercent} label={t("Manifest progress")} />
@@ -242,21 +243,9 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
             </div>
 
             {report.status === "noManifest" && (
-              <div className="flex flex-col gap-2">
-                <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-ink-3">{report.message}</p>
-                <div>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    icon={<FileSignature className="size-3.5" />}
-                    loading={busy === "manifest"}
-                    disabled={busy !== null}
-                    onClick={() => void buildManifest()}
-                  >
-                    {t("Build manifest")}
-                  </Button>
-                </div>
-              </div>
+              <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-ink-3">
+                {report.message} {t("Build a manifest with the action above, then verify again.")}
+              </p>
             )}
 
             {report.status === "ok" && (
@@ -295,7 +284,7 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
           </div>
         )}
       </div>
-    </section>
+    </div>
   );
 }
 
