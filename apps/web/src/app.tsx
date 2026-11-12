@@ -12,6 +12,7 @@ import { UpdateNotifier } from "@/components/updates/update-notifier";
 import { UpdatesScreen } from "@/screens/updates";
 import { ToastProvider } from "@/state/toasts";
 import { AuthProvider } from "@/state/auth";
+import { PreferencesProvider } from "@/state/preferences";
 import { DownloadsProvider } from "@/state/downloads";
 import { UploadProvider } from "@/state/upload";
 import { Wordmark } from "@/components/brand";
@@ -254,6 +255,7 @@ export function App() {
       <SettingsProvider>
         <ToastProvider>
           <AuthProvider>
+            <PreferencesProvider>
             <DownloadsProvider>
             <UploadProvider>
             <I18nProvider>
@@ -425,6 +427,7 @@ export function App() {
             </I18nProvider>
             </UploadProvider>
             </DownloadsProvider>
+            </PreferencesProvider>
           </AuthProvider>
         </ToastProvider>
       </SettingsProvider>

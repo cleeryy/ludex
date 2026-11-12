@@ -301,6 +301,29 @@ pub struct LocalSettings {
     /// (#148) for the same launch-time config sync. Empty means "not set".
     #[serde(default)]
     pub player_name: String,
+    /// Account preference mirror (#201): the theme selection, Big Picture
+    /// layout, library view, sound/haptics and update prompt the account
+    /// document carries. The web app writes these; device paths, bandwidth,
+    /// overlay settings, tokens and server profiles are never mirrored here.
+    #[serde(default)]
+    pub account_theme: String,
+    /// Big Picture layout from the account document (`shelf`, `hero`, `grid`
+    /// or `compact`); empty means "not known yet".
+    #[serde(default)]
+    pub account_big_picture_layout: String,
+    /// Default library view from the account document (`grid` or `list`).
+    #[serde(default)]
+    pub account_library_view: String,
+    /// Big Picture sound cues from the account document.
+    #[serde(default)]
+    pub account_sound: Option<bool>,
+    /// Big Picture haptics from the account document.
+    #[serde(default)]
+    pub account_haptics: Option<bool>,
+    /// Update prompt choice from the account document (`always`, `notify` or
+    /// `off`). The channel and the skipped version stay device-local.
+    #[serde(default)]
+    pub account_update_prompt: String,
     /// In-game controller overlay (#144). Enabling it never pauses the running
     /// game and sends nothing anywhere.
     #[serde(default = "default_overlay_enabled")]
@@ -498,6 +521,12 @@ impl Default for LocalSettings {
             launcher_sources: default_launcher_sources(),
             ui_language: String::new(),
             player_name: String::new(),
+            account_theme: String::new(),
+            account_big_picture_layout: String::new(),
+            account_library_view: String::new(),
+            account_sound: None,
+            account_haptics: None,
+            account_update_prompt: String::new(),
             overlay_enabled: default_overlay_enabled(),
             overlay_trigger: OverlayTrigger::DoubleHome,
             overlay_opacity: default_overlay_opacity(),

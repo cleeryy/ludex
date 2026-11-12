@@ -29,6 +29,7 @@ pub mod news;
 pub mod observability;
 pub mod oidc;
 pub mod openapi;
+pub mod preferences;
 pub mod remote_installs;
 pub mod saves;
 pub mod search;
@@ -78,6 +79,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(openapi::router())
         .merge(achievements::router())
         .merge(controllers::router())
+        .merge(preferences::router())
         .merge(desktop::router())
         .merge(diagnostics::router())
         .merge(emulators::router())

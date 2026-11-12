@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
+import { notifyPreferencesChanged } from "@/lib/preferences-events";
 import { scopedStorageKey } from "@/lib/server-storage";
 import {
   BIG_PICTURE_LAYOUT_KEY,
@@ -54,6 +55,7 @@ export function setBigPictureLayout(layout: BigPictureLayout): BigPictureLayout 
   if (next === current) return next;
   current = next;
   emit();
+  notifyPreferencesChanged();
   return next;
 }
 

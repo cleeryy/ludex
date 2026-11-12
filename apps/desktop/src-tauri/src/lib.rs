@@ -298,6 +298,7 @@ pub fn run() {
             commands::game_config_sync_prefs,
             commands::set_game_config_sync_prefs,
             commands::set_config_sync_defaults,
+            commands::apply_account_preferences,
             commands::console_mode,
             commands::exit_console,
             commands::sunshine_status,

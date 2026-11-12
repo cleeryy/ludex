@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { notifyPreferencesChanged } from "@/lib/preferences-events";
 import { scopedStorageKey } from "@/lib/server-storage";
 import { normalizeHex } from "@/theme/contrast";
 import { applyAccent, applyTint, deriveTheme, tvTokens } from "@/theme/derive";
@@ -66,6 +67,12 @@ interface SettingsValue {
   customThemes: ThemeFile[];
   contrast: ReturnType<typeof contrastReport>;
   setTheme: (theme: ThemeSelection) => void;
+  /**
+   * Applies a whole appearance at once (#201): the selection is sanitised, the
+   * accent and tint are validated against the *new* base palette, and an
+   * invalid colour is dropped instead of being written back to the account.
+   */
+  setAppearance: (config: ThemeConfig) => void;
   setAccent: (accent: string | null) => AppearanceResult;
   setTint: (tint: string | null) => AppearanceResult;
   resetAppearance: () => void;
@@ -158,6 +165,34 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setConfig((current) => ({ ...current, selection: next }));
   }, []);
 
+  const setAppearance = useCallback(
+    (next: ThemeConfig) => {
+      setConfig((current) => {
+        let selection = sanitizeSelection(next.selection);
+        if (isCustomThemeId(selection) && !customThemeById(selection, customThemes)) {
+          selection = current.selection;
+        }
+        const baseTheme = baseThemeFor(
+          selection,
+          customThemes,
+          modeForSelection(selection, customThemes, system),
+        );
+        const accent = next.accent ? normalizeHex(next.accent) : null;
+        const accentResult = accent ? applyAccent(baseTheme.tokens, accent) : null;
+        const tint = next.tint ? normalizeHex(next.tint) : null;
+        const tintResult = tint
+          ? applyTint(accentResult && !accentResult.issue ? accentResult.tokens : baseTheme.tokens, tint)
+          : null;
+        return {
+          selection,
+          accent: accent && (!accentResult || !accentResult.issue) ? accent : null,
+          tint: tint && (!tintResult || !tintResult.issue) ? tint : null,
+        };
+      });
+    },
+    [customThemes, system],
+  );
+
   const setAccent = useCallback(
     (value: string | null): AppearanceResult => {
       if (!value || value.trim() === "") {
@@ -238,6 +273,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setView = useCallback((next: LibraryView) => {
     setViewState(next);
     localStorage.setItem(scopedStorageKey(VIEW_KEY), next);
+    notifyPreferencesChanged();
   }, []);
 
   const value = useMemo(
@@ -250,6 +286,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       customThemes,
       contrast,
       setTheme,
+      setAppearance,
       setAccent,
       setTint,
       resetAppearance,
@@ -269,6 +306,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       customThemes,
       contrast,
       setTheme,
+      setAppearance,
       setAccent,
       setTint,
       resetAppearance,

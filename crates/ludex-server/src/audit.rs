@@ -22,6 +22,9 @@ pub mod actions {
     pub const USER_AVATAR_UPDATED: &str = "user.avatar_updated";
     /// Account role, email or activation changed.
     pub const USER_UPDATED: &str = "user.updated";
+    /// Account preference document written or reset (#201). Metadata records
+    /// the revision, key names and size; never the values.
+    pub const USER_PREFERENCES_UPDATED: &str = "user.preferences_updated";
     /// Account deleted.
     pub const USER_DELETED: &str = "user.deleted";
     /// Account password changed.

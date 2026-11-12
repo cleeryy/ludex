@@ -1,5 +1,10 @@
 import { CONTROLLER_PRESETS, presetProfile } from "@/lib/controller-profiles";
-import { sanitizeHapticsStrength, type ActionSource, type HapticsStrength } from "@/lib/gamepad-core";
+import { notifyPreferencesChanged } from "@/lib/preferences-events";
+import {
+  sanitizeHapticsStrength,
+  type ActionSource,
+  type HapticsStrength,
+} from "@/lib/gamepad-core";
 import { t } from "@/lib/i18n";
 import {
   DEFAULT_SOUND_PREFS,
@@ -429,6 +434,7 @@ export function writeControllerPrefs(
   const next = sanitizeControllerPrefs(prefs);
   try {
     storage?.setItem(key, JSON.stringify(next));
+    notifyPreferencesChanged();
   } catch {
     /* the preference is session-only when storage is unavailable */
   }

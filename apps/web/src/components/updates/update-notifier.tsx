@@ -10,6 +10,7 @@ import {
   shouldShowBadge,
 } from "@/lib/updates";
 import { useUpdater } from "@/components/updates/update-provider";
+import { useUpdatePrompt } from "@/state/preferences";
 import { ExternalAnchor, ReleaseNotes } from "@/components/updates/parts";
 import { Badge, Button, Progress } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
@@ -36,6 +37,7 @@ export function UpdateNotifier() {
     remindLater,
   } = useUpdater();
   const location = useLocation();
+  const promptPreference = useUpdatePrompt();
   const [open, setOpen] = useState(false);
   const [prompted, setPrompted] = useState<string | null>(() => readPromptedVersion());
 
@@ -47,6 +49,9 @@ export function UpdateNotifier() {
 
   useEffect(() => {
     if (!available || quietRoute || open) return;
+    // #201: the account preference can silence the launch prompt entirely or
+    // keep only the badge. The update center itself is never hidden.
+    if (promptPreference !== "always") return;
     if (
       !shouldPrompt({
         status,
@@ -58,7 +63,7 @@ export function UpdateNotifier() {
       return;
     }
     setOpen(true);
-  }, [available, version, quietRoute, open, remindAfter, prompted, status]);
+  }, [available, version, quietRoute, open, remindAfter, prompted, status, promptPreference]);
 
   const dismiss = () => {
     if (installing) return;
@@ -81,6 +86,7 @@ export function UpdateNotifier() {
   };
 
   const showBadge =
+    promptPreference !== "off" &&
     shouldShowBadge(status) &&
     !open &&
     !quietRoute &&

@@ -1,3 +1,4 @@
+import { notifyPreferencesChanged } from "@/lib/preferences-events";
 import {
   DEFAULT_THEME_ID,
   builtinTheme,
@@ -221,6 +222,7 @@ export function writeAppearance(
   if (!storage) return;
   try {
     storage.setItem(THEME_STORAGE_KEY, JSON.stringify(appearance));
+    notifyPreferencesChanged();
   } catch {
     // The theme applies for this session even when persistence is unavailable.
   }

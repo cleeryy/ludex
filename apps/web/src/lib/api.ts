@@ -2,6 +2,11 @@ import { ApiError } from "@/lib/http";
 import { USING_MOCKS } from "@/lib/flags";
 import { activeStorageScope, legacyTokenKey } from "@/lib/server-storage";
 import { mockApi } from "@/lib/mock";
+import {
+  PREFERENCES_SCHEMA_VERSION,
+  type AccountPreferences,
+  type PreferencesResponse,
+} from "@/lib/preferences";
 import { t } from "@/lib/i18n";
 import { CONTROLLER_PRESETS, presetProfile } from "@/lib/controller-profiles";
 import type {
@@ -159,6 +164,8 @@ type RequestOptions = {
   body?: unknown;
   query?: Record<string, string | number | boolean | undefined | null>;
   auth?: boolean;
+  /** Extra request headers, e.g. `If-Match` for the preference document. */
+  headers?: Record<string, string>;
 };
 
 function buildUrl(path: string, query?: RequestOptions["query"]): string {
@@ -174,7 +181,7 @@ function buildUrl(path: string, query?: RequestOptions["query"]): string {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = { Accept: "application/json", ...options.headers };
   const token = tokenStore.get();
   if (options.auth !== false && token) headers.Authorization = `Bearer ${token}`;
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
@@ -876,6 +883,31 @@ export const api = {
     return USING_MOCKS
       ? mockApi.revokeCollectionShare(tokenStore.get(), id, shareId)
       : request(`/collections/${id}/shares/${shareId}`, { method: "DELETE" });
+  },
+
+  /* account preferences (#201) */
+  accountPreferences(): Promise<PreferencesResponse> {
+    return USING_MOCKS
+      ? mockApi.accountPreferences(tokenStore.get())
+      : request<PreferencesResponse>("/account/preferences");
+  },
+  putAccountPreferences(
+    document: AccountPreferences,
+    revision: number | "*",
+  ): Promise<PreferencesResponse> {
+    const ifMatch = revision === "*" ? "*" : `"${revision}"`;
+    return USING_MOCKS
+      ? mockApi.putAccountPreferences(tokenStore.get(), document, revision)
+      : request<PreferencesResponse>("/account/preferences", {
+          method: "PUT",
+          body: { document, schemaVersion: PREFERENCES_SCHEMA_VERSION },
+          headers: { "If-Match": ifMatch },
+        });
+  },
+  resetAccountPreferences(): Promise<PreferencesResponse> {
+    return USING_MOCKS
+      ? mockApi.resetAccountPreferences(tokenStore.get())
+      : request<PreferencesResponse>("/account/preferences", { method: "DELETE" });
   },
 
   /* community */

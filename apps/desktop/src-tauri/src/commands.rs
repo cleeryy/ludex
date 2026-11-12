@@ -3933,6 +3933,117 @@ pub fn set_config_sync_defaults(
     })
 }
 
+/* ---------------------- Account preference mirror (#201) ----------------- */
+
+/// Mirror the account preference document into `settings.json`.
+///
+/// The web app owns the document; this command only copies the fields the
+/// desktop file owns (theme selection, Big Picture layout/sound/haptics,
+/// library view, update prompt). Device paths, bandwidth, overlay settings,
+/// tokens and server profiles are never accepted here, so a synced document
+/// cannot overwrite a machine's install root or leak a credential.
+#[tauri::command]
+pub fn apply_account_preferences(
+    state: State<'_, AppState>,
+    document: Value,
+) -> Result<LocalSettings, String> {
+    let object = document
+        .as_object()
+        .ok_or("The preference document must be a JSON object.")?;
+    for key in object.keys() {
+        if !matches!(key.as_str(), "theme" | "bigPicture" | "library" | "updates") {
+            return Err(format!("Unknown preference key {key:?}."));
+        }
+    }
+
+    let theme = account_section(object.get("theme"), "theme")?;
+    let big_picture = account_section(object.get("bigPicture"), "bigPicture")?;
+    let library = account_section(object.get("library"), "library")?;
+    let updates = account_section(object.get("updates"), "updates")?;
+
+    let selection = account_string(theme, "selection")?;
+    let layout = account_string(big_picture, "layout")?;
+    let view = account_string(library, "view")?;
+    let prompt = account_string(updates, "prompt")?;
+    let sound = account_bool(big_picture, "sound")?;
+    let haptics = account_bool(big_picture, "haptics")?;
+
+    if let Some(selection) = &selection {
+        if selection.is_empty() || selection.len() > 64 {
+            return Err("theme.selection is not a valid theme id.".to_string());
+        }
+    }
+    if let Some(layout) = &layout {
+        if !matches!(layout.as_str(), "shelf" | "hero" | "grid" | "compact") {
+            return Err("bigPicture.layout is not a known layout.".to_string());
+        }
+    }
+    if let Some(view) = &view {
+        if !matches!(view.as_str(), "grid" | "list") {
+            return Err("library.view must be grid or list.".to_string());
+        }
+    }
+    if let Some(prompt) = &prompt {
+        if !matches!(prompt.as_str(), "always" | "notify" | "off") {
+            return Err("updates.prompt must be always, notify or off.".to_string());
+        }
+    }
+
+    state.update_settings(|settings| {
+        if let Some(selection) = selection {
+            settings.account_theme = selection;
+        }
+        if let Some(layout) = layout {
+            settings.account_big_picture_layout = layout;
+        }
+        if let Some(view) = view {
+            settings.account_library_view = view;
+        }
+        if let Some(prompt) = prompt {
+            settings.account_update_prompt = prompt;
+        }
+        if let Some(sound) = sound {
+            settings.account_sound = Some(sound);
+        }
+        if let Some(haptics) = haptics {
+            settings.account_haptics = Some(haptics);
+        }
+    })
+}
+
+fn account_section<'a>(
+    value: Option<&'a Value>,
+    name: &str,
+) -> Result<Option<&'a serde_json::Map<String, Value>>, String> {
+    match value {
+        None => Ok(None),
+        Some(Value::Object(map)) => Ok(Some(map)),
+        Some(_) => Err(format!("{name} must be a JSON object.")),
+    }
+}
+
+fn account_string(
+    section: Option<&serde_json::Map<String, Value>>,
+    key: &str,
+) -> Result<Option<String>, String> {
+    match section.and_then(|map| map.get(key)) {
+        None => Ok(None),
+        Some(Value::String(text)) => Ok(Some(text.trim().to_string())),
+        Some(_) => Err(format!("{key} must be a string.")),
+    }
+}
+
+fn account_bool(
+    section: Option<&serde_json::Map<String, Value>>,
+    key: &str,
+) -> Result<Option<bool>, String> {
+    match section.and_then(|map| map.get(key)) {
+        None => Ok(None),
+        Some(Value::Bool(value)) => Ok(Some(*value)),
+        Some(_) => Err(format!("{key} must be a boolean.")),
+    }
+}
+
 /* --------------------- Sunshine host (#97), Moonlight (#98) --------------- */
 
 /// Runtime console status for the web shell (#172).
