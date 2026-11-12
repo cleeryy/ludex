@@ -1,170 +1,96 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, FileArchive, UploadCloud, X } from "lucide-react";
-import { api } from "@/lib/api";
-import { errorMessage } from "@/lib/http";
+import { CheckCircle2, FileArchive, FilePlus2, UploadCloud, X } from "lucide-react";
 import { formatBytes, formatPercent } from "@/lib/format";
-import type { CompleteUploadResponse, UploadSession } from "@/lib/types";
-import { useToast } from "@/state/toasts";
+import { useUpload } from "@/state/upload";
 import { ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Progress } from "@/components/ui/controls";
 import { t } from "@/lib/i18n";
 
-const STORAGE_KEY = "ludex.upload";
-
-type StoredUpload = { id: string; fileName: string; size: number };
-
-type Phase = "idle" | "uploading" | "verifying" | "complete" | "error";
-
-function readStored(): StoredUpload | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredUpload;
-    return parsed?.id ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function store(value: StoredUpload | null) {
-  if (value) localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
-  else localStorage.removeItem(STORAGE_KEY);
-}
-
+/**
+ * View/controller of the app-wide upload (#185). The chunk loop and the live
+ * state live in `UploadProvider`; this screen only renders them, so leaving the
+ * route never interrupts the transfer and coming back shows it unchanged.
+ */
 export function UploadScreen() {
-  const { push } = useToast();
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
-  const cancelRef = useRef(false);
-
-  const [file, setFile] = useState<File | null>(null);
-  const [session, setSession] = useState<UploadSession | null>(null);
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [uploaded, setUploaded] = useState(0);
-  const [restoring, setRestoring] = useState(true);
-  const [result, setResult] = useState<CompleteUploadResponse | null>(null);
+  const [pickError, setPickError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  /** Archive chosen while a transfer runs: the two-button choice below acts on it. */
+  const [blocked, setBlocked] = useState<File | null>(null);
+  const upload = useUpload();
+  const {
+    ready,
+    phase,
+    file,
+    session,
+    uploaded,
+    total,
+    percent,
+    error,
+    result,
+    awaitingFile,
+    active,
+    selectFile,
+    start,
+    resume,
+    cancel,
+    dismissResult,
+  } = upload;
 
-  // Resume after a reload: the server is the source of truth for the stored id.
-  useEffect(() => {
-    const stored = readStored();
-    if (!stored) {
-      setRestoring(false);
-      return;
-    }
-    let alive = true;
-    api
-      .getUpload(stored.id)
-      .then((upload) => {
-        if (!alive) return;
-        if (upload.status === "open") {
-          setSession(upload);
-          setUploaded(upload.receivedBytes);
-        } else {
-          store(null);
-        }
-      })
-      .catch(() => {
-        if (alive) store(null);
-      })
-      .finally(() => {
-        if (alive) setRestoring(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  const openPicker = () => inputRef.current?.click();
 
-  const choose = (next: File | null) => {
+  const choose = async (next: File | null) => {
     if (!next) return;
-    const name = next.name.toLowerCase();
-    if (!/\.(zip|rar|7z)$/.test(name)) {
-      setError(t("Choose a .zip, .rar or .7z archive."));
-      return;
+    // A restored session has no File: picking the same archive continues from
+    // the parts the server already holds, without a second click.
+    const outcome = awaitingFile ? await resume(next) : selectFile(next);
+    if (outcome === "invalid-type") {
+      setPickError(t("Choose a .zip, .rar or .7z archive."));
+    } else if (outcome === "mismatch") {
+      setPickError(t("This is not the file that started the upload. Pick the same archive to resume."));
+    } else if (outcome === "busy") {
+      // A transfer is already running: offer cancel/finish instead of a dead end.
+      setBlocked(next);
+    } else {
+      setPickError(null);
+      setBlocked(null);
     }
-    if (session && (next.size !== session.size || next.name !== session.fileName)) {
-      setError(t("This is not the file that started the upload. Pick the same archive to resume."));
-      return;
-    }
-    setError(null);
-    setFile(next);
-    if (!session) {
-      setPhase("idle");
-      setUploaded(0);
+    // Re-picking the same archive must fire `change` even if the value is equal.
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  /** Second-start choice: drop the running transfer, then send this archive. */
+  const replace = async () => {
+    const next = blocked;
+    if (!next) return;
+    setBlocked(null);
+    setPickError(null);
+    await cancel();
+    if (selectFile(next) === "selected") await start();
+  };
+
+  const begin = async () => {
+    const outcome = await start();
+    if (outcome === "busy") {
+      setPickError(t("An upload is already running."));
+    } else {
+      setPickError(null);
     }
   };
 
-  const start = async () => {
-    if (!file) return;
-    cancelRef.current = false;
-    setError(null);
-    setResult(null);
-    setPhase("uploading");
-    try {
-      let active = session;
-      if (!active) {
-        active = await api.initUpload({ fileName: file.name, size: file.size });
-        store({ id: active.id, fileName: active.fileName, size: active.size });
-        setSession(active);
-        setUploaded(active.receivedBytes);
-      }
-      const received = new Set(active.receivedParts);
-      for (let part = 0; part < active.totalParts; part += 1) {
-        if (cancelRef.current) throw new Error("cancelled");
-        if (received.has(part)) continue;
-        const start = part * active.chunkSize;
-        const end = Math.min((part + 1) * active.chunkSize, active.size);
-        const chunk = file.slice(start, end);
-        await api.uploadPart(active.id, part, chunk, (loaded) => {
-          setUploaded(start + loaded);
-        });
-        setUploaded(end);
-      }
-      setPhase("verifying");
-      const completed = await api.completeUpload(active.id);
-      store(null);
-      setSession(null);
-      setFile(null);
-      setResult(completed);
-      setPhase("complete");
-      void queryClient.invalidateQueries({ queryKey: ["games"] });
-      void queryClient.invalidateQueries({ queryKey: ["stats"] });
-      void queryClient.invalidateQueries({ queryKey: ["scan"] });
-      push({ title: t("Upload complete"), description: t("{file} is now in the library.", { file: completed.fileName }), tone: "success" });
-    } catch (cause) {
-      if (cause instanceof Error && cause.message === "cancelled") {
-        setPhase("idle");
-        return;
-      }
-      setPhase("error");
-      setError(errorMessage(cause));
-    }
+  const stop = async () => {
+    setPickError(null);
+    setBlocked(null);
+    await cancel();
   };
 
-  const cancel = async () => {
-    cancelRef.current = true;
-    if (session) {
-      try {
-        await api.cancelUpload(session.id);
-      } catch {
-        // The upload may already be gone; clearing local state is enough.
-      }
-    }
-    store(null);
-    setSession(null);
-    setFile(null);
-    setUploaded(0);
-    setPhase("idle");
-    setError(null);
+  const reset = () => {
+    setPickError(null);
+    setBlocked(null);
+    dismissResult();
   };
-
-  const total = session?.size ?? file?.size ?? 0;
-  const percent = total > 0 ? Math.min(100, (uploaded / total) * 100) : 0;
-  const busy = phase === "uploading" || phase === "verifying";
 
   return (
     <div className="mx-auto w-full max-w-[880px] px-4 pb-16 sm:px-6">
@@ -175,7 +101,14 @@ export function UploadScreen() {
 
       <section className="mt-8">
         <SectionHeader title={t("Archive")} description={t("ZIP, RAR or 7z")} />
-        {restoring ? (
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".zip,.rar,.7z"
+          className="hidden"
+          onChange={(event) => void choose(event.target.files?.[0] ?? null)}
+        />
+        {!ready ? (
           <p className="text-[13px] text-ink-3">{t("Checking for unfinished uploads…")}</p>
         ) : result ? (
           <div className="border border-line bg-surface p-6">
@@ -190,14 +123,32 @@ export function UploadScreen() {
                   <Button variant="primary" onClick={() => navigate(`/game/${result.gameId}`)}>
                     {t("Open game")}
                   </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      setResult(null);
-                      setPhase("idle");
-                    }}
-                  >
+                  <Button variant="ghost" onClick={reset}>
                     {t("Upload another")}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : awaitingFile && session ? (
+          <div className="border border-line bg-surface p-6">
+            <div className="flex items-start gap-3">
+              <FileArchive className="mt-0.5 size-5 text-ink-3" aria-hidden="true" />
+              <div className="min-w-0">
+                <h3 className="text-[15px] font-medium text-ink">{t("Upload did not finish")}</h3>
+                <p className="mt-1 truncate text-[13px] text-ink-2">{session.fileName}</p>
+                <p className="num mt-1 text-[11.5px] text-ink-3">
+                  {t("The server still has {received} of {size}. Pick the same archive to continue.", {
+                    received: formatBytes(session.receivedBytes),
+                    size: formatBytes(session.size),
+                  })}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button variant="primary" icon={<UploadCloud className="size-4" />} onClick={openPicker}>
+                    {t("Resume upload")}
+                  </Button>
+                  <Button variant="ghost" icon={<X className="size-4" />} onClick={() => void stop()}>
+                    {t("Cancel")}
                   </Button>
                 </div>
               </div>
@@ -208,39 +159,35 @@ export function UploadScreen() {
             <div
               role="button"
               tabIndex={0}
-              onClick={() => !busy && inputRef.current?.click()}
+              aria-disabled={active}
+              onClick={() => !active && openPicker()}
               onKeyDown={(event) => {
-                if ((event.key === "Enter" || event.key === " ") && !busy) inputRef.current?.click();
+                if ((event.key === "Enter" || event.key === " ") && !active) openPicker();
               }}
               onDragOver={(event) => {
                 event.preventDefault();
-                if (!busy) setDragging(true);
+                if (!active) setDragging(true);
               }}
               onDragLeave={() => setDragging(false)}
               onDrop={(event) => {
                 event.preventDefault();
                 setDragging(false);
-                if (!busy) choose(event.dataTransfer.files[0] ?? null);
+                if (!active) void choose(event.dataTransfer.files[0] ?? null);
               }}
-              className="flex cursor-pointer flex-col items-center justify-center gap-2 border border-dashed border-line-2 bg-surface px-6 py-12 text-center transition-colors hover:border-line-3"
+              className="flex cursor-pointer flex-col items-center justify-center gap-2 border border-dashed border-line-2 bg-surface px-6 py-12 text-center transition-colors hover:border-line-3 aria-disabled:cursor-default aria-disabled:opacity-60"
               data-dragging={dragging}
             >
               <UploadCloud className="size-6 text-ink-3" aria-hidden="true" />
               <p className="text-[14px] text-ink">
-                {session ? `Resuming ${session.fileName}` : t("Drop an archive here, or click to browse")}
+                {active ? t("Uploading") : session ? t("Resume upload") : t("Drop an archive here, or click to browse")}
               </p>
               <p className="text-[12.5px] text-ink-3">
-                {session
-                  ? t("Select the same file again to continue where the last attempt stopped.")
-                  : t("The server verifies the size and sha256 (when provided) before indexing.")}
+                {active
+                  ? t("You can leave this page; the upload keeps running.")
+                  : session
+                    ? t("Select the same file again to continue where the last attempt stopped.")
+                    : t("The server verifies the size and sha256 (when provided) before indexing.")}
               </p>
-              <input
-                ref={inputRef}
-                type="file"
-                accept=".zip,.rar,.7z"
-                className="hidden"
-                onChange={(event) => choose(event.target.files?.[0] ?? null)}
-              />
             </div>
 
             {file && (
@@ -250,27 +197,62 @@ export function UploadScreen() {
                   <p className="truncate text-[13px] text-ink">{file.name}</p>
                   <p className="num text-[11.5px] text-ink-3">
                     {formatBytes(file.size)}
-                    {session && ` · ${session.receivedParts.length}/${session.totalParts} chunks stored`}
+                    {session &&
+                      ` · ${t("{stored} of {total} chunks stored", {
+                        stored: session.receivedParts.length,
+                        total: session.totalParts,
+                      })}`}
                   </p>
                 </div>
-                <Badge tone={busy ? "signal" : "outline"}>
-                  {phase === "uploading" ? t("Uploading") : phase === "verifying" ? t("Verifying") : session ? t("Resumable") : t("Ready")}
+                <Badge tone={active ? "signal" : "outline"}>
+                  {phase === "uploading"
+                    ? t("Uploading")
+                    : phase === "verifying"
+                      ? t("Verifying")
+                      : session
+                        ? t("Resumable")
+                        : phase === "error"
+                          ? t("Upload failed")
+                          : t("Ready")}
                 </Badge>
               </div>
             )}
 
-            {(busy || (session && !file)) && (
+            {(active || (phase === "error" && session)) && (
               <div className="mt-4">
-                <Progress value={percent} label={phase === "verifying" ? t("Verifying and indexing…") : t("Uploading")} />
+                <Progress
+                  value={percent}
+                  label={phase === "verifying" ? t("Verifying and indexing…") : t("Uploading")}
+                />
                 <p className="num mt-1 text-[11.5px] text-ink-3">
                   {formatBytes(uploaded)} / {formatBytes(total)} · {formatPercent(percent, 1)}
                 </p>
               </div>
             )}
 
-            {error && (
+            {(pickError || error) && (
               <div className="mt-4">
-                <ErrorState title={t("Upload failed")} message={error} />
+                <ErrorState
+                  title={error ? t("Upload failed") : t("Cannot start this upload")}
+                  message={pickError ?? error ?? ""}
+                />
+              </div>
+            )}
+
+            {blocked && active && phase !== "verifying" && (
+              <div className="mt-4 border border-line-2 bg-surface-2 px-4 py-3">
+                <p className="text-[13px] text-ink">{t("An upload is already running.")}</p>
+                <p className="mt-1 text-[12.5px] text-ink-2">
+                  {t("Cancel it to send {file} instead, or keep the current transfer.", { file: blocked.name })}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button variant="primary" onClick={() => void replace()}>
+                    {t("Cancel current and send")}
+                  </Button>
+                  <Button variant="ghost" onClick={() => setBlocked(null)}>
+                    {t("Keep current upload")}
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -278,14 +260,28 @@ export function UploadScreen() {
               <Button
                 variant="primary"
                 icon={<UploadCloud className="size-4" />}
-                disabled={!file || busy}
-                onClick={() => void start()}
+                disabled={!file || active}
+                onClick={() => void begin()}
               >
                 {session ? t("Resume upload") : t("Start upload")}
               </Button>
               {(session || file) && (
-                <Button variant="ghost" icon={<X className="size-4" />} disabled={phase === "verifying"} onClick={() => void cancel()}>
+                <Button
+                  variant="ghost"
+                  icon={<X className="size-4" />}
+                  disabled={phase === "verifying"}
+                  onClick={() => void stop()}
+                >
                   {t("Cancel")}
+                </Button>
+              )}
+              {active && phase !== "verifying" && (
+                <Button
+                  variant="ghost"
+                  icon={<FilePlus2 className="size-4" />}
+                  onClick={openPicker}
+                >
+                  {t("Choose another archive")}
                 </Button>
               )}
             </div>

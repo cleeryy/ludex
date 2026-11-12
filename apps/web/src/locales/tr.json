@@ -3039,5 +3039,15 @@
   "Your friends": "Arkadaşların",
   "Your invitation is valid until {date}.": "Davetiyeniz {date} tarihine kadar geçerlidir.",
   "Your password alone will sign you in again. Your other devices are signed out.": "Yalnızca şifreniz tekrar oturum açmanızı sağlayacaktır. Diğer cihazlarınızda oturum kapatıldı.",
-  "Your presence is off. Turn it on in Settings to let friends see when you are online.": "Varlığınız kapalı. Arkadaşlarınızın çevrimiçi olduğunuzu görmesine izin vermek için Ayarlar'da bu özelliği açın."
+  "Your presence is off. Turn it on in Settings to let friends see when you are online.": "Varlığınız kapalı. Arkadaşlarınızın çevrimiçi olduğunuzu görmesine izin vermek için Ayarlar'da bu özelliği açın.",
+  "{stored} of {total} chunks stored": "{total} parçadan {stored} tanesi kaydedildi",
+  "An upload is already running.": "Zaten bir yükleme sürüyor.",
+  "Cancel current and send": "Mevcut yüklemeyi iptal et ve gönder",
+  "Cancel it to send {file} instead, or keep the current transfer.": "Bunun yerine {file} göndermek için iptal edin veya mevcut aktarımı sürdürün.",
+  "Cannot start this upload": "Bu yükleme başlatılamıyor",
+  "Choose another archive": "Başka bir arşiv seç",
+  "Keep current upload": "Mevcut yüklemeyi koru",
+  "The server still has {received} of {size}. Pick the same archive to continue.": "Sunucuda hâlâ {size} boyutunun {received} kadarı var. Devam etmek için aynı arşivi seçin.",
+  "Uploading {file} — {percent}%": "{file} yükleniyor — %{percent}",
+  "You can leave this page; the upload keeps running.": "Bu sayfadan ayrılabilirsiniz; yükleme arka planda devam eder."
 }

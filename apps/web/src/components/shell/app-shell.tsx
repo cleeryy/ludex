@@ -28,6 +28,7 @@ import { DropdownMenu, useDropdown, type MenuEntry } from "@/components/ui/selec
 import { CommandPalette } from "@/components/shell/command-palette";
 import { MobileBar, MoreSheet } from "@/components/shell/nav-mobile";
 import { NavRail } from "@/components/shell/nav-rail";
+import { UploadIndicator } from "@/components/shell/upload-indicator";
 import { NotificationBell } from "@/components/community/notification-bell";
 import { ServerSwitcher } from "@/components/shell/server-switcher";
 import { ShortcutsDialog } from "@/components/shell/shortcuts-dialog";
@@ -192,6 +193,7 @@ function Topbar({ onOpenPalette, chrome }: { onOpenPalette: () => void; chrome: 
             </IconButton>
           </span>
           {showSort && <SortMenu />}
+          <UploadIndicator />
           <NotificationBell />
           <div className="mx-1.5 hidden h-5 w-px bg-line sm:block" aria-hidden="true" />
           <span className="hidden sm:block">

@@ -3045,4 +3045,15 @@
   "Waiting for you": "En attente de votre réponse",
   "Wants to be friends": "Souhaite être ami",
   "Your friends": "Vos amis",
-  "Your presence is off. Turn it on in Settings to let friends see when you are online.": "Votre présence est désactivée. Activez-la dans les réglages pour que vos amis voient quand vous êtes en ligne."}
+  "Your presence is off. Turn it on in Settings to let friends see when you are online.": "Votre présence est désactivée. Activez-la dans les réglages pour que vos amis voient quand vous êtes en ligne.",
+  "{stored} of {total} chunks stored": "{stored} fragments sur {total} stockés",
+  "An upload is already running.": "Un envoi est déjà en cours.",
+  "Cancel current and send": "Annuler l’envoi en cours et envoyer",
+  "Cancel it to send {file} instead, or keep the current transfer.": "Annulez-le pour envoyer {file} à la place, ou conservez le transfert en cours.",
+  "Cannot start this upload": "Impossible de démarrer cet envoi",
+  "Choose another archive": "Choisir une autre archive",
+  "Keep current upload": "Conserver l’envoi en cours",
+  "The server still has {received} of {size}. Pick the same archive to continue.": "Le serveur a encore {received} sur {size}. Choisissez la même archive pour continuer.",
+  "Uploading {file} — {percent}%": "Envoi de {file} — {percent} %",
+  "You can leave this page; the upload keeps running.": "Vous pouvez quitter cette page ; l'envoi continue en arrière-plan."
+}

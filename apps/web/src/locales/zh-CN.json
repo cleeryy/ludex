@@ -3039,5 +3039,15 @@
   "Your friends": "Your friends",
   "Your invitation is valid until {date}.": "Your invitation is valid until {date}.",
   "Your password alone will sign you in again. Your other devices are signed out.": "Your password alone will sign you in again. Your other devices are signed out.",
-  "Your presence is off. Turn it on in Settings to let friends see when you are online.": "Your presence is off. Turn it on in Settings to let friends see when you are online."
+  "Your presence is off. Turn it on in Settings to let friends see when you are online.": "Your presence is off. Turn it on in Settings to let friends see when you are online.",
+  "{stored} of {total} chunks stored": "已保存 {stored}/{total} 个分块",
+  "An upload is already running.": "已有上传正在进行。",
+  "Cancel current and send": "取消当前上传并发送",
+  "Cancel it to send {file} instead, or keep the current transfer.": "取消它以改发送 {file}，或保留当前传输。",
+  "Cannot start this upload": "无法开始此上传",
+  "Choose another archive": "选择其他压缩包",
+  "Keep current upload": "保留当前上传",
+  "The server still has {received} of {size}. Pick the same archive to continue.": "服务器仍保留 {size} 中的 {received}。请选择同一个压缩包以继续。",
+  "Uploading {file} — {percent}%": "正在上传 {file} — {percent}%",
+  "You can leave this page; the upload keeps running.": "你可以离开此页面；上传会继续运行。"
 }

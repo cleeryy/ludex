@@ -3039,5 +3039,15 @@
   "Your friends": "Your friends",
   "Your invitation is valid until {date}.": "Your invitation is valid until {date}.",
   "Your password alone will sign you in again. Your other devices are signed out.": "Your password alone will sign you in again. Your other devices are signed out.",
-  "Your presence is off. Turn it on in Settings to let friends see when you are online.": "Your presence is off. Turn it on in Settings to let friends see when you are online."
+  "Your presence is off. Turn it on in Settings to let friends see when you are online.": "Your presence is off. Turn it on in Settings to let friends see when you are online.",
+  "{stored} of {total} chunks stored": "{total} 個中 {stored} 個のチャンクを保存済み",
+  "An upload is already running.": "すでにアップロードが実行中です。",
+  "Cancel current and send": "現在のアップロードを中止して送信",
+  "Cancel it to send {file} instead, or keep the current transfer.": "代わりに {file} を送信するにはキャンセルするか、現在の転送を続けてください。",
+  "Cannot start this upload": "このアップロードを開始できません",
+  "Choose another archive": "別のアーカイブを選択",
+  "Keep current upload": "現在のアップロードを続ける",
+  "The server still has {received} of {size}. Pick the same archive to continue.": "サーバーにはまだ {size} 中 {received} が保存されています。続行するには同じアーカイブを選択してください。",
+  "Uploading {file} — {percent}%": "{file} をアップロード中 — {percent}%",
+  "You can leave this page; the upload keeps running.": "このページを離れてもかまいません。アップロードは続行されます。"
 }
