@@ -29,6 +29,7 @@ mod process_tree;
 mod profiles;
 mod protondb;
 mod remote_install;
+mod remote_play;
 mod roms;
 mod saves_detect;
 mod saves_manifest;
@@ -110,7 +111,13 @@ pub fn run() {
                 }
             };
             let settings = state.settings_snapshot();
+            // #179: the mapping file is the source of truth for cleanup, so a
+            // crashed run cannot leave ports open. The startup sweep runs off
+            // the main thread and never blocks the window.
+            let remote_play_state = remote_play::RemotePlayState::new(&state.app_data);
+            remote_play::spawn_startup_cleanup(&state.app_data);
             app.manage(state);
+            app.manage(remote_play_state);
 
             if console_mode.active {
                 console::apply_window(app.handle());
@@ -271,6 +278,12 @@ pub fn run() {
             commands::stream_target,
             commands::stream_game,
             commands::moonlight_stream,
+            remote_play::remote_play_status,
+            remote_play::remote_play_plan,
+            remote_play::remote_play_enable,
+            remote_play::remote_play_verify,
+            remote_play::remote_play_refresh,
+            remote_play::remote_play_disable,
             commands::list_servers,
             commands::save_server,
             commands::remove_server,

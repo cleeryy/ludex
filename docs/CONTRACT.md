@@ -2263,6 +2263,115 @@ interface StreamTarget {
   hosts: MoonlightHost[]; moonlight: MoonlightStatus; sunshine: SunshineStatus;
   message: string;
 }
+
+/* ------------------------- Remote play wizard (#179) ---------------------- */
+
+type RemotePlayProtocol = "tcp" | "udp";
+
+/** The only ports the wizard can map. TCP 47990 and UDP 5353 never appear. */
+interface RemotePlayPortPlan {
+  tcp: number[];                    // [47984, 47989, 48010]
+  udp: number[];                    // [47998, 47999, 48000, 48010] (+ 48002 when microphone)
+  leaseSecs: number;                // clamped 600..=7200
+  microphone: boolean;
+  total: number;
+  neverMapped: number[];            // [47990, 5353]
+  warnings: string[];
+}
+
+/** Every remote play command rejects with this object, not a bare string. */
+interface RemotePlayFailure {
+  code: "consent_required" | "cgnat" | "double_nat" | "upnp_unavailable"
+      | "public_igd" | "sunshine_unsafe" | "sunshine_upnp_active" | "port_owned"
+      | "upnp_fault" | "mapping_failed" | "verification_failed" | "cleanup_failed"
+      | "lease_invalid" | "port_plan_invalid" | "no_lan_address"
+      | "not_mapped" | "state_unavailable" | "detection_failed";
+  message: string;
+}
+
+interface IgdDevice {
+  location: string;                 // SSDP LOCATION (description URL)
+  controlUrl: string;               // absolute WANIPConnection/WANPPPConnection control URL
+  serviceType: string;
+  friendlyName: string; model: string;
+}
+
+interface ActiveMapping {
+  protocol: RemotePlayProtocol; externalPort: number; internalPort: number;
+  internalClient: string; leaseSecs: number; description: string;
+  expiresAt: number;                // Unix seconds
+}
+
+interface RemotePlaySession {
+  gateway: IgdDevice | null;
+  mappings: ActiveMapping[];
+  publicIp: string | null; lanIp: string | null; updatedAt: string | null;
+}
+
+interface RemotePlayVpnStatus {
+  detected: boolean; services: string[]; address: string | null; message: string;
+}
+
+interface SunshineRemoteStatus {
+  running: boolean; configPath: string | null; portBase: number;
+  portsOpen: number[];              // TCP ports answering on 127.0.0.1
+  upnpEnabled: boolean;
+  originWebUiAllowed: string | null; originPinAllowed: string | null;
+  wanEncryptionMode: number | null;
+  blockers: string[];               // unsafe sunshine.conf values; mapping refuses
+  warnings: string[]; message: string;
+}
+
+interface RemotePlayUpnpStatus {
+  available: boolean; friendlyName: string | null; model: string | null;
+  message: string;
+}
+
+interface RemotePlayDirectAssessment {
+  allowed: boolean;
+  /** `ok`, `cgnat`, `double_nat`, `upnp_unavailable` or `public_igd`. */
+  code: string; message: string; vpnRecommended: boolean;
+}
+
+interface RemotePlayStatus {
+  platform: string; lanIp: string | null; ipv6: string | null;
+  publicIp: string | null;          // public address probe, wizard only
+  vpn: RemotePlayVpnStatus; sunshine: SunshineRemoteStatus;
+  upnp: RemotePlayUpnpStatus; direct: RemotePlayDirectAssessment;
+  active: RemotePlaySession;
+  leaseDefaultSecs: number; leaseMinSecs: number; leaseMaxSecs: number;
+  warnings: string[]; message: string;
+}
+
+interface RemotePlayPortResult {
+  protocol: RemotePlayProtocol; port: number;
+  status: "reachable" | "mapped" | "not_mapped" | "conflict" | "unknown";
+  mapped: boolean;
+  reachable: boolean | null;        // null for UDP: no external echo service
+  description: string | null; note: string;
+}
+
+interface RemotePlayVerification {
+  verified: boolean; publicIp: string | null; lanIp: string | null;
+  reachable: boolean | null; ports: RemotePlayPortResult[];
+  notes: string[]; message: string;
+}
+
+interface RemotePlayReport {
+  enabled: boolean; publicIp: string | null; lanIp: string | null;
+  leaseSecs: number; mappings: ActiveMapping[];
+  verification: RemotePlayVerification; message: string;
+}
+
+interface RemotePlayCleanupPort {
+  protocol: RemotePlayProtocol; port: number;
+  status: "removed" | "absent" | "failed"; note: string;
+}
+
+interface RemotePlayCleanup {
+  complete: boolean; removed: number;
+  ports: RemotePlayCleanupPort[]; message: string;
+}
 ```
 
 | Command | Args | Returns |
@@ -2377,6 +2486,12 @@ interface StreamTarget {
 | `stream_target` | `{ gameId }` | `StreamTarget`; whether the game is published and which hosts can stream it |
 | `stream_game` | `{ gameId, host? }` | `StreamLaunch`; runs `moonlight stream <host> <app>` for a published game. Refuses unpaired hosts and missing Moonlight |
 | `moonlight_stream` | `{ host, appName }` | `StreamLaunch`; advanced/manual start of any Sunshine app |
+| `remote_play_status` | `{ probePublic? }` | `RemotePlayStatus`; LAN/IPv6 addresses, detected VPN services, Sunshine process/config (`sunshine.conf` is read, never written), SSDP/UPnP gateway, WAN-vs-public comparison and any active mapping. `probePublic: true` contacts `api.ipify.org` then `ifconfig.me` with a 4 s timeout; it is false for the Settings summary and true only when the wizard opens (#179) |
+| `remote_play_plan` | `{ microphone?, leaseSecs? }` | `RemotePlayPortPlan`; the exact ports/protocol/lease shown on the consent screen. Clamps the lease to 600..=7200 s and never includes TCP 47990 or UDP 5353 |
+| `remote_play_enable` | `{ microphone?, leaseSecs?, confirm }` | `RemotePlayReport`; `confirm: false` is refused with `consent_required`. Re-runs detection, refuses CGNAT/double NAT/no IGD/public IGD/unsafe Sunshine settings, refuses a port owned by another program, maps with the short lease, queries every mapping back, then rolls everything back if verification fails. Refreshing a Ludex mapping is allowed. Records the session in `{appDataDir}/remote-play/session.json` before returning (#179) |
+| `remote_play_verify` | — | `RemotePlayVerification`; one row per planned port with `mapped` from the IGD query and, for TCP, a 1.5 s connect probe to the public address. UDP is `mapped` with `reachable: null` (no protocol-aware echo). Distinguishes `not_mapped`/`conflict` from a mapped port that this machine cannot hairpin (#179) |
+| `remote_play_refresh` | — | `RemotePlayReport`; re-adds mappings whose remaining lease is under half, then verifies. Called every 5 min while the wizard is open; a no-op when nothing is due |
+| `remote_play_disable` | — | `RemotePlayCleanup`; deletes every recorded mapping, queries each back, reports `removed`/`absent`/`failed`, and clears the state file only when every port is gone. Failed entries stay recorded for a retry or the startup sweep (#179) |
 | `list_servers` | — | `ServerList`; saved servers, active profile and token-storage backend (#24) |
 | `save_server` | `{ id?, label, url, username?, token? }` | `ServerList`; validates and normalises the URL, stores the token in the secret store |
 | `remove_server` | `{ id }` | `ServerList`; deletes the saved token. When the active profile is removed the first remaining one becomes active |
@@ -2392,6 +2507,20 @@ interface StreamTarget {
 | `diagnostics_send` | `{ reportId }` | `{ reportId, sent: true }`; refuses with a string error while the toggle is off. There is no automatic send path (#171) |
 | `diagnostics_delete_reports` | — | `null`; clears every report stored on the device (#171) |
 | `diagnostics_record_error` | `{ kind, summary, command?, stack? }` | `null`; called by the web error boundary, unhandled-rejection listener and invoke wrapper. Stored locally only (#171) |
+
+**Remote play safety (#179).** The wizard is VPN-first: direct mode is an
+advanced opt-in that shows the exact ports, protocol and lease before the user
+can confirm. TCP 47984/47989/48010 and UDP 47998/47999/48000/48010 (plus
+optional UDP 48002) are the only ports ever mapped; TCP 47990 (Sunshine Web UI)
+and UDP 5353 (mDNS) are never forwarded. Mapping is refused, with a specific
+`code`, on CGNAT (`100.64.0.0/10`), private or mismatched WAN addresses
+(double NAT), a missing or non-private UPnP IGD, or unsafe Sunshine settings
+(`origin_web_ui_allowed=wan`, `origin_pin_allowed=wan`, `wan_encryption_mode=0`).
+Ludex never disables a firewall and never writes `sunshine.conf`. The session
+file is the cleanup source of truth: disabling removes every mapping and
+verifies it, and the next app start removes leftovers from a crashed run. The
+lease is a 1 h default (600..=7200 s) and is the final fallback. No credential,
+PIN or token is read, logged or returned.
 
 Events:
 

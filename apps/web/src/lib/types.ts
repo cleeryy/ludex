@@ -1697,6 +1697,153 @@ export interface StreamTarget {
   message: string;
 }
 
+export type RemotePlayProtocol = "tcp" | "udp";
+
+/** The exact ports the remote play wizard may map (#179). */
+export interface RemotePlayPortPlan {
+  tcp: number[];
+  udp: number[];
+  leaseSecs: number;
+  microphone: boolean;
+  total: number;
+  /** Ports Sunshine has but Ludex never forwards (TCP 47990, UDP 5353). */
+  neverMapped: number[];
+  warnings: string[];
+}
+
+/** Tauri rejects a remote play command with this shape (#179). */
+export interface RemotePlayFailure {
+  code: string;
+  message: string;
+}
+
+export interface RemotePlayGateway {
+  location: string;
+  controlUrl: string;
+  serviceType: string;
+  friendlyName: string;
+  model: string;
+}
+
+export interface RemotePlayActiveMapping {
+  protocol: RemotePlayProtocol;
+  externalPort: number;
+  internalPort: number;
+  internalClient: string;
+  leaseSecs: number;
+  description: string;
+  /** Unix seconds; the router drops the mapping at or after this time. */
+  expiresAt: number;
+}
+
+export interface RemotePlaySession {
+  gateway: RemotePlayGateway | null;
+  mappings: RemotePlayActiveMapping[];
+  publicIp: string | null;
+  lanIp: string | null;
+  updatedAt: string | null;
+}
+
+export interface RemotePlayVpnStatus {
+  detected: boolean;
+  services: string[];
+  /** Address to enter in Moonlight when the VPN is active. */
+  address: string | null;
+  message: string;
+}
+
+export interface RemotePlaySunshineStatus {
+  running: boolean;
+  configPath: string | null;
+  portBase: number;
+  portsOpen: number[];
+  upnpEnabled: boolean;
+  originWebUiAllowed: string | null;
+  originPinAllowed: string | null;
+  wanEncryptionMode: number | null;
+  blockers: string[];
+  warnings: string[];
+  message: string;
+}
+
+export interface RemotePlayUpnpStatus {
+  available: boolean;
+  friendlyName: string | null;
+  model: string | null;
+  message: string;
+}
+
+export interface RemotePlayDirectAssessment {
+  allowed: boolean;
+  /** `ok`, `cgnat`, `double_nat`, `upnp_unavailable`, `public_igd`, … */
+  code: string;
+  message: string;
+  vpnRecommended: boolean;
+}
+
+export interface RemotePlayStatus {
+  platform: string;
+  lanIp: string | null;
+  ipv6: string | null;
+  publicIp: string | null;
+  vpn: RemotePlayVpnStatus;
+  sunshine: RemotePlaySunshineStatus;
+  upnp: RemotePlayUpnpStatus;
+  direct: RemotePlayDirectAssessment;
+  active: RemotePlaySession;
+  leaseDefaultSecs: number;
+  leaseMinSecs: number;
+  leaseMaxSecs: number;
+  warnings: string[];
+  message: string;
+}
+
+export interface RemotePlayPortResult {
+  protocol: RemotePlayProtocol;
+  port: number;
+  /** `reachable`, `mapped`, `not_mapped`, `conflict` or `unknown`. */
+  status: "reachable" | "mapped" | "not_mapped" | "conflict" | "unknown";
+  mapped: boolean;
+  /** null for UDP: no partner node is available to probe it. */
+  reachable: boolean | null;
+  description: string | null;
+  note: string;
+}
+
+export interface RemotePlayVerification {
+  verified: boolean;
+  publicIp: string | null;
+  lanIp: string | null;
+  reachable: boolean | null;
+  ports: RemotePlayPortResult[];
+  notes: string[];
+  message: string;
+}
+
+export interface RemotePlayReport {
+  enabled: boolean;
+  publicIp: string | null;
+  lanIp: string | null;
+  leaseSecs: number;
+  mappings: RemotePlayActiveMapping[];
+  verification: RemotePlayVerification;
+  message: string;
+}
+
+export interface RemotePlayCleanupPort {
+  protocol: RemotePlayProtocol;
+  port: number;
+  status: "removed" | "absent" | "failed";
+  note: string;
+}
+
+export interface RemotePlayCleanup {
+  complete: boolean;
+  removed: number;
+  ports: RemotePlayCleanupPort[];
+  message: string;
+}
+
 export interface InstalledGame {
   gameId: number;
   versionId: number;

@@ -8,6 +8,7 @@ import { useToast } from "@/state/toasts";
 import { Badge, Button, Input, Skeleton } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { SettingsSwitchRow } from "@/components/settings/settings-section";
+import { RemotePlayPanel } from "@/components/settings/remote-play-panel";
 import { t } from "@/lib/i18n";
 
 /**
@@ -36,7 +37,8 @@ export function StreamingPanel({
           </p>
         </div>
       </div>
-      <div className="mt-4 grid gap-8 xl:grid-cols-2">
+      <RemotePlayPanel />
+      <div className="mt-8 grid gap-8 xl:grid-cols-2">
         <SunshinePanel draft={draft} update={update} />
         <MoonlightPanel draft={draft} update={update} />
       </div>

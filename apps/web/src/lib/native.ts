@@ -59,6 +59,11 @@ import type {
   OverlayStatus,
   PrefixInfo,
   ProtonDbRating,
+  RemotePlayCleanup,
+  RemotePlayPortPlan,
+  RemotePlayReport,
+  RemotePlayStatus,
+  RemotePlayVerification,
   RepairProgress,
   RepairReport,
   RomCommandValidation,
@@ -948,6 +953,55 @@ export const native = {
 
   async moonlightStream(host: string, appName: string): Promise<StreamLaunch> {
     return invoke<StreamLaunch>("moonlight_stream", { host, appName });
+  },
+
+  /**
+   * Remote play wizard (#179): detected LAN/IPv6 addresses, VPN services,
+   * Sunshine state, UPnP gateway and whether direct mode can work. The public
+   * IP comparison contacts a public address service; only the wizard runs it.
+   */
+  async remotePlayStatus(options: { probePublic?: boolean } = {}): Promise<RemotePlayStatus> {
+    return invoke<RemotePlayStatus>("remote_play_status", {
+      probePublic: options.probePublic ?? false,
+    });
+  },
+
+  /** The exact ports, protocol and lease shown on the consent screen. */
+  async remotePlayPlan(args: { microphone?: boolean; leaseSecs?: number } = {}): Promise<RemotePlayPortPlan> {
+    return invoke<RemotePlayPortPlan>("remote_play_plan", {
+      microphone: args.microphone ?? null,
+      leaseSecs: args.leaseSecs ?? null,
+    });
+  },
+
+  /**
+   * Map the ports. `confirm` is the explicit consent the wizard collected; a
+   * false value is refused by the backend.
+   */
+  async remotePlayEnable(args: {
+    microphone?: boolean;
+    leaseSecs?: number;
+    confirm: boolean;
+  }): Promise<RemotePlayReport> {
+    return invoke<RemotePlayReport>("remote_play_enable", {
+      microphone: args.microphone ?? null,
+      leaseSecs: args.leaseSecs ?? null,
+      confirm: args.confirm,
+    });
+  },
+
+  async remotePlayVerify(): Promise<RemotePlayVerification> {
+    return invoke<RemotePlayVerification>("remote_play_verify");
+  },
+
+  /** Re-add mappings whose lease is close to expiry. */
+  async remotePlayRefresh(): Promise<RemotePlayReport> {
+    return invoke<RemotePlayReport>("remote_play_refresh");
+  },
+
+  /** Remove every Ludex mapping and verify the deletion. */
+  async remotePlayDisable(): Promise<RemotePlayCleanup> {
+    return invoke<RemotePlayCleanup>("remote_play_disable");
   },
 
   /* ------------------ multiple servers and accounts (#24) ---------------- */
