@@ -1432,6 +1432,52 @@ pub struct WebhookTestResponse {
     pub delivery_id: i64,
 }
 
+/// Who can read a collection (#173).
+///
+/// `Friends` is intentionally absent: Ludex has no friend graph yet (#161), so
+/// the server only offers private, unlisted and public. When a friend graph
+/// lands, a fourth variant can be added without changing the other three.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum CollectionVisibility {
+    /// Owner only.
+    #[default]
+    Private,
+    /// Owner plus anyone holding a live share token; hidden from listings.
+    Unlisted,
+    /// Every authenticated account, the community profile and the feed.
+    Public,
+}
+
+impl CollectionVisibility {
+    /// Stable database and API value.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Private => "private",
+            Self::Unlisted => "unlisted",
+            Self::Public => "public",
+        }
+    }
+
+    /// Parses a database or API value.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "private" => Some(Self::Private),
+            "unlisted" => Some(Self::Unlisted),
+            "public" => Some(Self::Public),
+            _ => None,
+        }
+    }
+
+    /// Whether the collection appears in directory and profile listings.
+    #[must_use]
+    pub fn is_listed(self) -> bool {
+        self == Self::Public
+    }
+}
+
 /// Kind of collection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -1527,8 +1573,11 @@ pub struct Collection {
     pub name: String,
     /// Optional description.
     pub description: Option<String>,
-    /// Whether other accounts can read it.
+    /// Whether other accounts can read it (kept for older clients; mirrors
+    /// `visibility == "public"`).
     pub is_public: bool,
+    /// Who can read it (#173).
+    pub visibility: CollectionVisibility,
     /// Manual or smart.
     pub kind: CollectionKind,
     /// Rule tree (empty for manual collections).
@@ -1554,6 +1603,8 @@ pub struct CollectionRow {
     pub name: String,
     pub description: Option<String>,
     pub is_public: i64,
+    pub visibility: String,
+    pub copied_from_id: Option<i64>,
     pub kind: String,
     pub rules_json: String,
     pub created_at: String,
@@ -1567,11 +1618,18 @@ impl CollectionRow {
     /// Public representation for `viewer_id`.
     #[must_use]
     pub fn to_public(&self, viewer_id: i64) -> Collection {
+        let visibility =
+            CollectionVisibility::parse(&self.visibility).unwrap_or(if self.is_public != 0 {
+                CollectionVisibility::Public
+            } else {
+                CollectionVisibility::Private
+            });
         Collection {
             id: self.id,
             name: self.name.clone(),
             description: self.description.clone(),
-            is_public: self.is_public != 0,
+            is_public: visibility == CollectionVisibility::Public,
+            visibility,
             kind: CollectionKind::parse(&self.kind).unwrap_or(CollectionKind::Manual),
             rules: serde_json::from_str(&self.rules_json).unwrap_or_default(),
             game_count: self.game_count,
@@ -1596,9 +1654,13 @@ pub struct CreateCollectionRequest {
     /// Optional description.
     #[serde(default)]
     pub description: Option<String>,
-    /// Whether other accounts can read it.
+    /// Whether other accounts can read it. Prefer `visibility`; `true` maps to
+    /// `public`, `false` to `private`.
     #[serde(default)]
     pub is_public: Option<bool>,
+    /// Who can read it (#173). Wins over `isPublic` when both are present.
+    #[serde(default)]
+    pub visibility: Option<CollectionVisibility>,
     /// `manual` (default) or `smart`.
     #[serde(default)]
     pub kind: Option<CollectionKind>,
@@ -1620,9 +1682,12 @@ pub struct UpdateCollectionRequest {
     /// New description (`null` clears).
     #[serde(default, deserialize_with = "deserialize_some")]
     pub description: Option<Option<String>>,
-    /// Public visibility.
+    /// Public visibility (kept for older clients; prefer `visibility`).
     #[serde(default)]
     pub is_public: Option<bool>,
+    /// New visibility (#173). Wins over `isPublic` when both are present.
+    #[serde(default)]
+    pub visibility: Option<CollectionVisibility>,
     /// Manual or smart.
     #[serde(default)]
     pub kind: Option<CollectionKind>,

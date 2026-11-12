@@ -1747,7 +1747,7 @@ async fn community_profiles_are_opt_in_and_the_feed_paginates() {
         .post(
             "/api/collections",
             Some(&admin_token),
-            Some(json!({"name": "Night shelf", "gameIds": [hades]})),
+            Some(json!({"name": "Night shelf", "visibility": "public", "gameIds": [hades]})),
         )
         .await;
     assert_eq!(status, StatusCode::CREATED, "{collection}");
@@ -1868,8 +1868,9 @@ async fn community_profiles_are_opt_in_and_the_feed_paginates() {
         admin_profile["stats"]["minutesPlayed"], 45,
         "{admin_profile}"
     );
-    // The manual shelf is private, so another account sees no collection.
-    assert_eq!(admin_profile["stats"]["collections"], 0, "{admin_profile}");
+    // The shelf was published, so other accounts see it on the profile.
+    assert_eq!(admin_profile["stats"]["collections"], 1, "{admin_profile}");
+    assert_eq!(admin_profile["collections"][0]["id"], collection_id);
     assert_eq!(admin_profile["library"][0]["title"], "Hades");
 
     let (_, own_profile) = server

@@ -138,6 +138,8 @@ interface ScanStatus {
 | GET | `/api/desktop/download` | latest stable desktop installers as links (`DesktopDownload`); optional `?platform=windows\|linux\|macos`, see *Desktop download page (#164)* |
 | GET | `/api/share/{token}` | public share page (`ShareView`); see *Share links (#9)* |
 | POST | `/api/share/{token}/access` | exchange a share link for a 15-minute download ticket; see *Share links (#9)* |
+| GET | `/api/share/collection/{token}` | public collection page (`CollectionShareView`, metadata only); see *Shareable collections (#173)* |
+| POST | `/api/share/collection/{token}/access` | unlock a password-protected collection page → `CollectionShareView`; see *Shareable collections (#173)* |
 
 ```ts
 interface HealthDetails {
@@ -560,14 +562,31 @@ Security model:
   `share.access_denied` are recorded; the token and password never appear in
   logs, audit metadata or responses.
 
-## Collections (#25)
+## Collections (#25, #173)
 
 Collections are per-user shelves. `kind=manual` stores an explicit list;
-`kind=smart` stores a rule tree and evaluates it at read time. Every account can
-read public collections; private collections return 404 to anyone but the owner.
+`kind=smart` stores a rule tree and evaluates it at read time. `visibility`
+controls who can read a shelf:
+
+| Visibility | Who can read it | Listings |
+|---|---|---|
+| `private` | owner only (default) | never listed |
+| `unlisted` | owner plus anyone holding a live share token | never listed |
+| `public` | every authenticated account | `/api/collections`, the community profile and the feed |
+
+There is no `friends` value yet: Ludex has no friend graph (#161), so the
+server only offers these three modes. When that graph lands, a fourth variant
+can be added without changing the other three.
+
+The legacy `isPublic` boolean is still accepted on write (`true` maps to
+`public`, `false` to `private`) and mirrored on read for older clients.
+`visibility` wins when both are present. Shelves created before migration 0021
+were backfilled from `is_public`. Private and unlisted collections never appear
+in another account's list, profile, feed or search; direct reads return 404.
 
 ```ts
 type CollectionKind = "manual" | "smart";
+type CollectionVisibility = "private" | "unlisted" | "public";
 type SmartField =
   | "genre" | "year" | "players" | "playtime"
   | "rating" | "installed" | "provider" | "title";
@@ -583,7 +602,8 @@ interface SmartRules { match: "all" | "any"; rules: SmartRule[] }
 
 interface Collection {
   id: number; name: string; description: string | null;
-  isPublic: boolean; kind: CollectionKind; rules: SmartRules;
+  isPublic: boolean; visibility: CollectionVisibility;
+  kind: CollectionKind; rules: SmartRules;
   gameCount: number; owner: { id: number; username: string; displayName: string | null };
   owned: boolean; createdAt: string; updatedAt: string;
 }
@@ -597,16 +617,102 @@ Unknown fields, operators or value types return `400 invalid_rules` on write.
 
 | Method | Route | Notes |
 |---|---|---|
-| GET | `/api/collections` | own collections plus public ones, own first |
-| POST | `/api/collections` | `{ name, description?, isPublic?, kind?, rules?, gameIds? }` → 201 `Collection` |
+| GET | `/api/collections` | own collections plus public ones, own first; unlisted/private excluded |
+| POST | `/api/collections` | `{ name, description?, isPublic?, visibility?, kind?, rules?, gameIds? }` → 201 `Collection` |
 | GET | `/api/collections/{id}` | owner or public, else 404 |
 | PATCH | `/api/collections/{id}` | owner; partial fields; switching manual→smart clears the explicit list |
-| DELETE | `/api/collections/{id}` | owner; 204 |
+| DELETE | `/api/collections/{id}` | owner; 204; deletes share links by cascade |
 | GET | `/api/collections/{id}/games` | `?page=&limit=` → `Paginated<GameSummary>`; smart rules evaluated live |
 | POST | `/api/collections/{id}/games` | owner, manual only; `{ gameIds: number[] }` → `{ added, total }`; smart → 409 |
 | DELETE | `/api/collections/{id}/games/{gameId}` | owner, manual only; 204 |
+| POST | `/api/collections/import` | copy a public or link-shared shelf; see below |
+| POST | `/api/collections/{id}/share` | owner; `{ expiresInHours?, password?, label? }` → 201 `CollectionShareLink` (includes `token`); 409 `collection_private` |
+| GET | `/api/collections/{id}/shares` | owner; every link, newest first, never includes `token` |
+| DELETE | `/api/collections/{id}/shares/{shareId}` | owner; 204; 404 `collection_share_not_found`; idempotent |
 
 Names are unique per owner (case-insensitive) → `409 collection_exists`.
+
+### Shareable collections (#173)
+
+A share link is a bearer capability like the game shares in *Share links (#9)*:
+only the SHA-256 of the token is stored and the plaintext URL is returned once,
+at creation. Public access never returns account data: the payload contains
+game ids, titles, covers, release years and genres only. It never joins
+progress, bookmarks, play sessions, library roots or download tickets, and a
+collection share never offers game files.
+
+```ts
+interface CollectionShareLink {
+  id: number; token?: string; collectionId: number; collectionName: string;
+  label: string | null; expiresAt: string | null; hasPassword: boolean;
+  viewCount: number; revokedAt: string | null; createdAt: string;
+}
+interface CollectionShareView {
+  collection: {
+    name: string; description: string | null; kind: CollectionKind;
+    gameCount: number; updatedAt: string;
+    owner: { displayName: string } | null; // only when the profile is public
+  };
+  games: SharedCollectionGame[];  // empty when a password is required
+  expiresAt: string | null;
+  hasPassword: boolean;
+}
+interface SharedCollectionGame {
+  id: number; title: string; coverUrl: string | null;
+  releaseYear: number | null; genres: string[];
+}
+```
+
+- **Expiry.** Optional `expiresInHours` (`1..=8760`). An expired link answers
+  404 on the public page and 410 `share_expired` on access.
+- **Password.** Optional (minimum 4 characters, Argon2id). The public page still
+  shows the name, description, owner and game count, but `games` stays empty
+  until `POST /api/share/collection/{token}/access` presents the right password
+  (`401 invalid_share_password`). One verification is spent even for
+  unprotected or unknown links, so timing cannot reveal whether a token exists.
+- **Revocation and privacy.** `DELETE /api/collections/{id}/shares/{shareId}`
+  sets `revoked_at`. Deleting the collection cascades, and switching it to
+  `private` invalidates every live token immediately (404). A private
+  collection cannot create a link in the first place (`409 collection_private`).
+- **Rate limiting.** 30 public page/access attempts per token per minute → 429
+  `rate_limited`.
+- **Views.** `viewCount` and `lastViewedAt` count successful public opens.
+- **Smart shelves.** Evaluated at view time against viewer-independent facts
+  (playtime 0, `installed` = a downloadable version exists), so every visitor
+  sees the same games.
+- **Web.** The public page lives at `#/collection-share/{token}`, outside the
+  auth gate. The owner manages links from the collection page.
+
+### Copy to library (#173)
+
+`POST /api/collections/import` copies a public or link-shared shelf into the
+caller's account. Body `{ sourceId?, token?, password?, name? }`: provide
+exactly one of `sourceId` and `token`, otherwise `400 invalid_source`.
+
+- `sourceId` only resolves **public** shelves. Private and unlisted shelves
+  answer 404; unlisted ones must be imported through their share token.
+- `token` accepts any live token whose collection is unlisted or public,
+  including password-protected links (`password` required). Expired, revoked
+  and private links answer 404/410 with the share-link codes.
+- Manual shelves copy their games, deduped by game id, skipping games that no
+  longer exist, keeping the source order. Smart shelves copy their rules as
+  rules when the tree is still valid; an empty or invalid tree falls back to an
+  empty manual shelf.
+- The target is always a new **private** collection owned by the caller. The
+  default name is the source name; `name` overrides it.
+- **Idempotent per target name.** Importing the same share again finds the
+  collection previously copied from that source and merges missing games
+  instead of duplicating the shelf (`created: false`, `added: 0`). A name that
+  already exists but was not copied from this source returns
+  `409 collection_exists`.
+- Response `201` (first import) or `200` (merge):
+  `{ collection: Collection, created: boolean, added: number, skipped: number }`.
+- Copying never exposes or transfers game files; only game ids and collection
+  metadata are read.
+- **Audit.** `collection.shared`, `collection.share_revoked`,
+  `collection.share_accessed`, `collection.share_denied` and
+  `collection.imported` are recorded. Tokens and passwords never appear in
+  audit metadata or logs.
 
 ## Community (#10)
 
@@ -626,7 +732,7 @@ interface PublicStats {
 interface PublicProfileResponse {
   user: PublicProfile; stats: PublicStats;
   library: GameSummary[];   // progress or bookmark rows, most recent first
-  collections: Collection[]; // public collections (all of them for the owner)
+  collections: Collection[]; // public collections only, for every viewer
 }
 type ActivityKind =
   | "game_added" | "game_installed" | "game_played"

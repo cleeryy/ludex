@@ -29,7 +29,13 @@ import type {
   BackupVerification,
   Collection,
   CollectionGamesResponse,
+  CollectionImportInput,
+  CollectionImportResult,
   CollectionInput,
+  CollectionShareLink,
+  CollectionShareView,
+  CreateCollectionShareInput,
+  CollectionVisibility,
   CompleteUploadResponse,
   DesktopDownload,
   DesktopHandoff,
@@ -217,6 +223,35 @@ let activities: Activity[] = clone(DEMO_ACTIVITIES);
 let nextCollectionId = Math.max(0, ...collections.map((collection) => collection.id)) + 1;
 let nextActivityId = Math.max(0, ...activities.map((activity) => activity.id)) + 1;
 
+/** Share links created in demo mode (#173), keyed by their token. */
+interface MockCollectionShare extends CollectionShareLink {
+  password: string | null;
+}
+
+let collectionShares: MockCollectionShare[] = [];
+let nextCollectionShareId = 1;
+/** Demo collections remember where they were copied from, like the server. */
+const copiedFrom = new Map<number, number>();
+
+function isListed(collection: Collection): boolean {
+  return collection.visibility === "public";
+}
+
+/** Strips the mock-only password field and keeps the API shape. */
+function publicShareLink(share: MockCollectionShare): CollectionShareLink {
+  return {
+    id: share.id,
+    collectionId: share.collectionId,
+    collectionName: share.collectionName,
+    label: share.label,
+    expiresAt: share.expiresAt,
+    hasPassword: share.hasPassword,
+    viewCount: share.viewCount,
+    revokedAt: share.revokedAt,
+    createdAt: share.createdAt,
+  };
+}
+
 function collectionGameIds(collection: Collection): number[] {
   if (collection.kind === "manual") return collectionMembers[collection.id] ?? [];
   return visibleGames()
@@ -226,7 +261,7 @@ function collectionGameIds(collection: Collection): number[] {
 
 function visibleCollections(viewer: User): Collection[] {
   return collections
-    .filter((collection) => collection.owner.id === viewer.id || collection.isPublic)
+    .filter((collection) => collection.owner.id === viewer.id || isListed(collection))
     .map((collection) => decorateCollection(collection, viewer))
     .sort((a, b) => Number(b.owned) - Number(a.owned) || a.name.localeCompare(b.name));
 }
@@ -242,7 +277,7 @@ function decorateCollection(collection: Collection, viewer: User): Collection {
 function findCollection(id: number, viewer: User): Collection {
   const collection = collections.find((entry) => entry.id === id);
   if (!collection) fail(404, "collection_not_found", "Collection not found");
-  if (collection.owner.id !== viewer.id && !collection.isPublic) {
+  if (collection.owner.id !== viewer.id && !isListed(collection)) {
     fail(404, "collection_not_found", "Collection not found");
   }
   return collection;
@@ -340,7 +375,7 @@ function activityPage(list: Activity[], limit: number, before?: number | null): 
   return { items, nextBefore };
 }
 
-function profileStats(userId: number, viewer: User): PublicProfileResponse["stats"] {
+function profileStats(userId: number): PublicProfileResponse["stats"] {
   const profile = profiles.find((entry) => entry.id === userId);
   if (!profile) return { games: 0, completed: 0, minutesPlayed: 0, bookmarked: 0, collections: 0 };
   const shelf = visibleGames().filter((game) => game.state !== "unplayed" || game.minutesPlayed > 0 || game.bookmarked);
@@ -349,7 +384,7 @@ function profileStats(userId: number, viewer: User): PublicProfileResponse["stat
     completed: shelf.filter((game) => game.state === "completed").length,
     minutesPlayed: shelf.reduce((total, game) => total + game.minutesPlayed, 0),
     bookmarked: shelf.filter((game) => game.bookmarked).length,
-    collections: collections.filter((collection) => collection.owner.id === userId && (collection.isPublic || viewer.id === userId)).length,
+    collections: collections.filter((collection) => collection.owner.id === userId && isListed(collection)).length,
   };
 }
 
@@ -1560,13 +1595,16 @@ export const mockApi = {
     const kind = body.kind ?? "manual";
     const rules = body.rules ?? { match: "all", rules: [] };
     if (kind === "smart") validateRules(rules);
+    const visibility: CollectionVisibility =
+      body.visibility ?? (body.isPublic ? "public" : "private");
     const id = nextCollectionId++;
     const now = nowIso();
     const collection: Collection = {
       id,
       name,
       description: body.description?.trim() || null,
-      isPublic: Boolean(body.isPublic),
+      isPublic: visibility === "public",
+      visibility,
       kind,
       rules,
       gameCount: 0,
@@ -1582,7 +1620,9 @@ export const mockApi = {
     } else {
       collectionMembers[id] = [];
     }
-    recordActivity(user, "collection_created", { collectionId: id, metadata: { name, kind, gameCount: collectionMembers[id]?.length ?? 0 } });
+    if (visibility === "public") {
+      recordActivity(user, "collection_created", { collectionId: id, metadata: { name, kind, gameCount: collectionMembers[id]?.length ?? 0 } });
+    }
     return clone(decorateCollection(collection, user));
   },
 
@@ -1599,7 +1639,20 @@ export const mockApi = {
       collection.name = name;
     }
     if (body.description !== undefined) collection.description = body.description?.trim() || null;
-    if (body.isPublic !== undefined) collection.isPublic = body.isPublic;
+    const beforeVisibility = collection.visibility;
+    if (body.visibility !== undefined) {
+      collection.visibility = body.visibility;
+      collection.isPublic = body.visibility === "public";
+    } else if (body.isPublic !== undefined) {
+      collection.isPublic = body.isPublic;
+      collection.visibility = body.isPublic ? "public" : "private";
+    }
+    if (collection.visibility === "public" && beforeVisibility !== "public") {
+      recordActivity(user, "collection_created", {
+        collectionId: id,
+        metadata: { name: collection.name, kind: collection.kind, gameCount: collectionGameIds(collection).length, published: true },
+      });
+    }
     if (body.rules !== undefined) {
       if (collection.kind === "smart") validateRules(body.rules);
       collection.rules = body.rules;
@@ -1623,6 +1676,7 @@ export const mockApi = {
     ownedCollection(id, user);
     collections = collections.filter((entry) => entry.id !== id);
     delete collectionMembers[id];
+    collectionShares = collectionShares.filter((entry) => entry.collectionId !== id);
     activities = activities.map((activity) =>
       activity.collection?.id === id ? { ...activity, collection: null } : activity,
     );
@@ -1671,6 +1725,194 @@ export const mockApi = {
     collection.updatedAt = nowIso();
   },
 
+  async importCollection(token: string | null, body: CollectionImportInput): Promise<CollectionImportResult> {
+    await latency();
+    const user = currentUser(token);
+    const hasSource = body.sourceId !== undefined;
+    const hasToken = Boolean(body.token?.trim());
+    if (hasSource === hasToken) fail(400, "invalid_source", "Provide exactly one of sourceId and token");
+
+    let source: Collection | null = null;
+    let share: MockCollectionShare | null = null;
+    if (body.sourceId !== undefined) {
+      source = collections.find((entry) => entry.id === body.sourceId) ?? null;
+      if (!source || source.visibility !== "public") fail(404, "collection_not_found", "Collection not found");
+    } else {
+      share = collectionShares.find((entry) => entry.token === body.token!.trim() && !entry.revokedAt) ?? null;
+      if (!share) fail(404, "share_not_found", "This share link is invalid, revoked or expired");
+      if (share.expiresAt && Date.parse(share.expiresAt) <= Date.now()) {
+        fail(410, "share_expired", "This share link has expired");
+      }
+      source = collections.find((entry) => entry.id === share!.collectionId) ?? null;
+      if (!source || source.visibility === "private") fail(404, "collection_not_found", "Collection not found");
+      if (share.password && share.password !== body.password) {
+        fail(401, "invalid_share_password", "This share link requires a password");
+      }
+    }
+    if (!source) fail(404, "collection_not_found", "Collection not found");
+
+    const name = (body.name ?? source.name).trim();
+    if (!name) fail(400, "invalid_name", "Give the collection a name");
+    const existing = collections.find(
+      (entry) => entry.owner.id === user.id && entry.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (existing && copiedFrom.get(existing.id) !== source.id) {
+      fail(409, "collection_exists", "You already have a collection with that name");
+    }
+
+    const targetKind = source.kind === "smart" && source.rules.rules.length > 0 ? "smart" : "manual";
+    let target = existing;
+    let created = false;
+    if (!target) {
+      const id = nextCollectionId++;
+      const now = nowIso();
+      target = {
+        id,
+        name,
+        description: source.description,
+        isPublic: false,
+        visibility: "private",
+        kind: targetKind,
+        rules: targetKind === "smart" ? source.rules : { match: "all", rules: [] },
+        gameCount: 0,
+        owner: { id: user.id, username: user.username, displayName: profileFor(user).displayName },
+        owned: true,
+        createdAt: now,
+        updatedAt: now,
+      };
+      collections = [...collections, target];
+      collectionMembers[id] = [];
+      copiedFrom.set(id, source.id);
+      created = true;
+    }
+
+    let added = 0;
+    let skipped = 0;
+    if (targetKind === "manual") {
+      const current = collectionMembers[target.id] ?? [];
+      const next = [...current];
+      for (const gameId of source.kind === "manual" ? collectionGameIds(source) : []) {
+        if (!visibleGames().some((game) => game.id === gameId) || next.includes(gameId)) {
+          skipped += 1;
+        } else {
+          next.push(gameId);
+          added += 1;
+        }
+      }
+      collectionMembers[target.id] = next;
+    }
+    target.updatedAt = nowIso();
+    collections = collections.map((entry) => (entry.id === target!.id ? target! : entry));
+    return clone({
+      collection: decorateCollection(target, user),
+      created,
+      added,
+      skipped,
+    });
+  },
+
+  async collectionShares(token: string | null, id: number): Promise<CollectionShareLink[]> {
+    await latency();
+    const user = currentUser(token);
+    ownedCollection(id, user);
+    return clone(
+      collectionShares
+        .filter((entry) => entry.collectionId === id)
+        .map(publicShareLink),
+    );
+  },
+
+  async createCollectionShare(
+    token: string | null,
+    id: number,
+    body: CreateCollectionShareInput,
+  ): Promise<CollectionShareLink> {
+    await latency();
+    const user = currentUser(token);
+    const collection = ownedCollection(id, user);
+    if (collection.visibility === "private") {
+      fail(409, "collection_private", "Make the collection unlisted or public before sharing it");
+    }
+    const password = body.password?.trim() ? body.password : null;
+    if (password && password.length < 4) {
+      fail(400, "invalid_password", "Share passwords must be at least 4 characters");
+    }
+    const shareId = nextCollectionShareId++;
+    const tokenValue = `lsc_demo_${shareId}_${Math.random().toString(36).slice(2, 10)}`;
+    const now = nowIso();
+    const share: MockCollectionShare = {
+      id: shareId,
+      token: tokenValue,
+      collectionId: id,
+      collectionName: collection.name,
+      label: body.label?.trim() || null,
+      expiresAt: body.expiresInHours ? new Date(Date.now() + body.expiresInHours * 3_600_000).toISOString() : null,
+      hasPassword: Boolean(password),
+      password,
+      viewCount: 0,
+      revokedAt: null,
+      createdAt: now,
+    };
+    collectionShares = [...collectionShares, share];
+    return clone({ ...publicShareLink(share), token: tokenValue });
+  },
+
+  async revokeCollectionShare(token: string | null, id: number, shareId: number): Promise<void> {
+    await latency();
+    const user = currentUser(token);
+    ownedCollection(id, user);
+    const share = collectionShares.find((entry) => entry.id === shareId && entry.collectionId === id);
+    if (!share) fail(404, "collection_share_not_found", "Share link not found");
+    if (!share!.revokedAt) share!.revokedAt = nowIso();
+  },
+
+  async getCollectionShare(token: string, password?: string): Promise<CollectionShareView> {
+    await latency();
+    const share = collectionShares.find((entry) => entry.token === token);
+    if (!share) fail(404, "share_not_found", "This share link is invalid, revoked or expired");
+    if (share!.revokedAt) fail(404, "share_not_found", "This share link is invalid, revoked or expired");
+    if (share!.expiresAt && Date.parse(share!.expiresAt) <= Date.now()) {
+      fail(404, "share_not_found", "This share link is invalid, revoked or expired");
+    }
+    const collection = collections.find((entry) => entry.id === share!.collectionId);
+    if (!collection || collection.visibility === "private") {
+      fail(404, "share_not_found", "This share link is invalid, revoked or expired");
+    }
+    const unlocked = !share!.password || share!.password === password;
+    if (share!.password && password !== undefined && !unlocked) {
+      fail(401, "invalid_share_password", "This share link requires a password");
+    }
+    const ids = collectionGameIds(collection);
+    share!.viewCount += 1;
+    const ownerProfile = profiles.find((entry) => entry.id === collection.owner.id);
+    return clone({
+      collection: {
+        name: collection.name,
+        description: collection.description,
+        kind: collection.kind,
+        gameCount: collection.kind === "smart" ? ids.length : collectionMembers[collection.id]?.length ?? 0,
+        owner:
+          ownerProfile?.publicProfile
+            ? { displayName: ownerProfile.displayName ?? ownerProfile.username }
+            : null,
+        updatedAt: collection.updatedAt,
+      },
+      games: unlocked
+        ? visibleGames()
+            .filter((game) => ids.includes(game.id))
+            .map((game) => ({
+              id: game.id,
+              title: game.title,
+              coverUrl: game.coverUrl,
+              releaseYear: game.releaseDate ? Number(game.releaseDate.slice(0, 4)) : null,
+              genres: game.genres,
+            }))
+        : [],
+      expiresAt: share!.expiresAt,
+      hasPassword: Boolean(share!.password),
+    });
+  },
+
   /* community */
   async myProfile(token: string | null): Promise<PublicProfile> {
     await latency();
@@ -1713,10 +1955,10 @@ export const mockApi = {
       .sort((a, b) => Date.parse(b.lastPlayedAt ?? "") - Date.parse(a.lastPlayedAt ?? ""));
     return clone({
       user: profile,
-      stats: profileStats(id, viewer),
+      stats: profileStats(id),
       library: shelf.slice(0, 60).map(summary),
       collections: collections
-        .filter((collection) => collection.owner.id === id && (collection.isPublic || viewer.id === id))
+        .filter((collection) => collection.owner.id === id && isListed(collection))
         .map((collection) => decorateCollection(collection, viewer)),
     });
   },

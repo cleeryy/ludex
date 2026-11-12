@@ -15,6 +15,7 @@ use serde_json::json;
 
 use crate::audit::actions;
 use crate::auth::{self, AuthUser};
+use crate::collection_share::{self, CollectionShareView};
 use crate::db;
 use crate::error::ApiError;
 use crate::events::{Actor, Event};
@@ -46,6 +47,8 @@ pub fn router() -> Router<AppState> {
         .route("/shares/{id}", delete(revoke))
         .route("/share/{token}", get(view))
         .route("/share/{token}/access", post(access))
+        .route("/share/collection/{token}", get(collection_view))
+        .route("/share/collection/{token}/access", post(collection_access))
 }
 
 async fn create(
@@ -311,6 +314,104 @@ async fn access(
     );
 
     Ok(Json(ShareAccessResponse { url, expires_at }))
+}
+
+/// Public collection page. A password-protected link returns the metadata but
+/// no games until `collection_access` supplies the password.
+async fn collection_view(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    ApiPath(token): ApiPath<String>,
+) -> Result<Json<CollectionShareView>, ApiError> {
+    let ip = Some(peer.ip());
+    let token_hash = collection_share::hash_token(&token);
+    if !share::allow_attempt(&token_hash) {
+        return Err(ApiError::too_many_requests(
+            "rate_limited",
+            "Too many access attempts; retry in a minute",
+        ));
+    }
+    let link = collection_share::find_by_token(&state.pool, &token_hash).await?;
+    let Some(link) = link else {
+        record_collection_denied(&state, None, ShareDenial::NotFound.reason(), ip);
+        return Err(ShareDenial::NotFound.not_found_error());
+    };
+    if let Err(denial) = collection_share::validate(&link, db::now()) {
+        record_collection_denied(&state, Some(&link), denial.reason(), ip);
+        return Err(denial.not_found_error());
+    }
+    let include_games = link.password_hash.is_none();
+    let view = collection_share::view(&state, &link, include_games).await?;
+    let _ = collection_share::record_view(&state.pool, link.id).await;
+    state.events.emit(
+        Event::new(actions::COLLECTION_SHARE_ACCESSED, Actor::System)
+            .target("collection", link.collection_id.to_string())
+            .metadata(json!({ "shareId": link.id, "passwordGate": !include_games }))
+            .ip(ip),
+    );
+    Ok(Json(view))
+}
+
+/// Public collection access: the password gate for protected links. Works
+/// without a password on unprotected links too, so a client can use one path.
+async fn collection_access(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    ApiPath(token): ApiPath<String>,
+    body: Bytes,
+) -> Result<Json<CollectionShareView>, ApiError> {
+    let ip = Some(peer.ip());
+    let token_hash = collection_share::hash_token(&token);
+    if !share::allow_attempt(&token_hash) {
+        return Err(ApiError::too_many_requests(
+            "rate_limited",
+            "Too many access attempts; retry in a minute",
+        ));
+    }
+    let password = parse_password(&body)?;
+    let link = collection_share::find_by_token(&state.pool, &token_hash).await?;
+    let password_ok = collection_share::verify_access(link.as_ref(), password.as_deref());
+    let Some(link) = link else {
+        record_collection_denied(&state, None, ShareDenial::NotFound.reason(), ip);
+        return Err(ShareDenial::NotFound.not_found_error());
+    };
+    if let Err(denial) = collection_share::validate(&link, db::now()) {
+        record_collection_denied(&state, Some(&link), denial.reason(), ip);
+        return Err(denial.access_error());
+    }
+    if !password_ok {
+        record_collection_denied(&state, Some(&link), "bad_password", ip);
+        return Err(ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "invalid_share_password",
+            "This share link requires a password",
+        ));
+    }
+    let view = collection_share::view(&state, &link, true).await?;
+    let _ = collection_share::record_view(&state.pool, link.id).await;
+    state.events.emit(
+        Event::new(actions::COLLECTION_SHARE_ACCESSED, Actor::System)
+            .target("collection", link.collection_id.to_string())
+            .metadata(json!({ "shareId": link.id, "passwordGate": true }))
+            .ip(ip),
+    );
+    Ok(Json(view))
+}
+
+fn record_collection_denied(
+    state: &AppState,
+    share: Option<&collection_share::CollectionShareRow>,
+    reason: &str,
+    ip: Option<IpAddr>,
+) {
+    let event = match share {
+        Some(share) => Event::new(actions::COLLECTION_SHARE_DENIED, Actor::System)
+            .target("collection", share.collection_id.to_string())
+            .metadata(json!({ "shareId": share.id, "reason": reason })),
+        None => Event::new(actions::COLLECTION_SHARE_DENIED, Actor::System)
+            .metadata(json!({ "reason": reason })),
+    };
+    state.events.emit(event.ip(ip));
 }
 
 fn parse_password(body: &Bytes) -> Result<Option<String>, ApiError> {

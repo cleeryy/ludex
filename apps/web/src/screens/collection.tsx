@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Pencil, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowLeft, Copy, Pencil, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { formatYear } from "@/lib/format";
@@ -12,6 +12,7 @@ import { isNative } from "@/lib/native";
 import { useToast } from "@/state/toasts";
 import { GameCard } from "@/components/game/game-card";
 import { CollectionDialog } from "@/components/collections/collection-dialog";
+import { CollectionSharePanel } from "@/components/collections/collection-share-panel";
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Checkbox, Input, Skeleton } from "@/components/ui/controls";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
@@ -30,6 +31,8 @@ export function CollectionScreen() {
   const [addOpen, setAddOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copying, setCopying] = useState(false);
 
   const collection = useQuery({
     queryKey: ["collection", collectionId],
@@ -51,6 +54,24 @@ export function CollectionScreen() {
       push({ title: t("Removed from the shelf"), description: title });
     } catch (cause) {
       push({ title: t("Could not remove the game"), description: errorMessage(cause), tone: "danger" });
+    }
+  };
+
+  const copyCollection = async () => {
+    setCopying(true);
+    try {
+      const result = await api.importCollection({ sourceId: collectionId });
+      void queryClient.invalidateQueries({ queryKey: ["collections"] });
+      push({
+        title: result.created ? t("Collection copied") : t("Collection is already in your library"),
+        description: t("“{collection}” is now one of your private shelves.", { collection: result.collection.name }),
+        tone: "success",
+      });
+      setCopyOpen(false);
+      navigate(`/collections/${result.collection.id}`);
+    } catch (cause) {
+      push({ title: t("Could not copy the collection"), description: errorMessage(cause), tone: "danger" });
+      setCopying(false);
     }
   };
 
@@ -127,7 +148,7 @@ export function CollectionScreen() {
             <Badge tone={data.kind === "smart" ? "signal" : "default"}>
               {data.kind === "smart" ? t("Smart") : t("Manual")}
             </Badge>
-            <Badge tone="outline">{data.isPublic ? t("Public") : t("Private")}</Badge>
+            <Badge tone="outline">{data.visibility === "public" ? t("Public") : data.visibility === "unlisted" ? t("Link only") : t("Private")}</Badge>
             <span>
               {data.gameCount} {data.gameCount === 1 ? "game" : "games"}
             </span>
@@ -158,15 +179,22 @@ export function CollectionScreen() {
               </Button>
             </>
           ) : (
-            <Link
-              to={`/community/u/${data.owner.id}`}
-              className="text-[12.5px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
-            >
-              {t("{name}’s profile", { name: data.owner.displayName ?? data.owner.username })}
-            </Link>
+            <>
+              <Button variant="default" icon={<Copy className="size-4" />} onClick={() => setCopyOpen(true)}>
+                {t("Copy to my collections")}
+              </Button>
+              <Link
+                to={`/community/u/${data.owner.id}`}
+                className="text-[12.5px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
+              >
+                {t("{name}’s profile", { name: data.owner.displayName ?? data.owner.username })}
+              </Link>
+            </>
           )
         }
       />
+
+      {isOwner && <CollectionSharePanel collection={data} />}
 
       {data.kind === "smart" && (
         <section className="mt-8 border border-line bg-surface/40 p-4" aria-labelledby="rules-heading">
@@ -279,6 +307,44 @@ export function CollectionScreen() {
 
       <CollectionDialog open={editOpen} onOpenChange={setEditOpen} collection={data} />
       <AddGamesDialog open={addOpen} onOpenChange={setAddOpen} collection={data} existing={items.map((game) => game.id)} />
+      <Dialog
+        open={copyOpen}
+        onOpenChange={setCopyOpen}
+        title={t("Copy to my collections")}
+        description={t("A private copy is created in your account. Game files are never copied or downloaded.")}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setCopyOpen(false)}>
+              {t("Cancel")}
+            </Button>
+            <Button variant="primary" loading={copying} onClick={() => void copyCollection()}>
+              {t("Copy {count} games", { count: data.kind === "smart" ? items.length : data.gameCount })}
+            </Button>
+          </>
+        }
+      >
+        <div className="border border-line">
+          <div className="border-b border-line px-3 py-2.5">
+            <p className="text-[13px] text-ink">{data.name}</p>
+            <p className="mt-0.5 text-[11.5px] text-ink-3">
+              {t("By {name}", { name: data.owner.displayName ?? data.owner.username })}
+            </p>
+          </div>
+          <dl className="divide-y divide-line">
+            <div className="flex items-baseline justify-between gap-4 px-3 py-2">
+              <dt className="text-[12px] text-ink-3">{t("Games")}</dt>
+              <dd className="num text-[12.5px] text-ink-2">{data.kind === "smart" ? items.length : data.gameCount}</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-4 px-3 py-2">
+              <dt className="text-[12px] text-ink-3">{t("Kind")}</dt>
+              <dd className="text-[12.5px] text-ink-2">{data.kind === "smart" ? t("Smart list, rules copied as rules") : t("Manual shelf")}</dd>
+            </div>
+          </dl>
+        </div>
+        <p className="mt-3 text-[11.5px] leading-relaxed text-ink-3">
+          {t("Importing the same collection twice merges missing games into the existing copy instead of creating a duplicate.")}
+        </p>
+      </Dialog>
       <ConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
