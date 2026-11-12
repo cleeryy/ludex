@@ -15,6 +15,11 @@ All notable changes to Ludex are documented here. The format is based on
   one-time UAC grant for the config folder instead of requiring Ludex to run as
   administrator; cancelling changes nothing and later syncs work without a
   prompt (#182).
+- Internal Windows helper commands (`reg`, `powershell`, `cmd`, Ludusavi,
+  winetricks, `secret-tool`, `xdotool`) no longer flash console windows: every
+  helper spawn goes through one `process::command`/`capture` helper that sets
+  `CREATE_NO_WINDOW`, while game, emulator and Moonlight launches keep their own
+  window (#181).
 
 ## [0.4.0] - 2026-11-12
 
