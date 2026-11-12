@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-11-12
+
 ### Added
 
 - Account settings sync through the server (#201): a validated per-account
