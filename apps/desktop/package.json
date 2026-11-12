@@ -1,7 +1,7 @@
 {
   "name": "@ludex/desktop",
   "private": true,
-  "version": "0.4.1",
+  "version": "0.4.2",
   "license": "AGPL-3.0-or-later",
   "description": "Ludex desktop shell (Tauri 2)",
   "type": "module",

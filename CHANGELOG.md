@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-12
+
 ### Added
 
 - One shared one-shot elevation flow (#192): privileged actions go through a
