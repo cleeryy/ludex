@@ -15,7 +15,7 @@ export interface MenuAction {
   selected?: boolean;
 }
 
-export type MenuEntry = MenuAction | "separator" | { heading: string };
+export type MenuEntry = MenuAction | "separator" | { heading: ReactNode };
 
 export function useDropdown() {
   const [open, setOpen] = useState(false);

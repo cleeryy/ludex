@@ -30,6 +30,7 @@ import { MobileBar, MoreSheet } from "@/components/shell/nav-mobile";
 import { NavRail } from "@/components/shell/nav-rail";
 import { UploadIndicator } from "@/components/shell/upload-indicator";
 import { NotificationBell } from "@/components/community/notification-bell";
+import { UserAvatar } from "@/components/community/user-avatar";
 import { ServerSwitcher } from "@/components/shell/server-switcher";
 import { ShortcutsDialog } from "@/components/shell/shortcuts-dialog";
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
@@ -94,7 +95,19 @@ function UserMenu() {
   if (!user) return null;
 
   const items: MenuEntry[] = [
-    { heading: `${user.username} — ${user.role === "admin" ? t("Administrator") : user.role === "editor" ? t("Editor") : t("Member")}` },
+    {
+      heading: (
+        <span className="flex items-center gap-2.5">
+          <UserAvatar name={user.username} src={user.avatarUrl} size={28} />
+          <span className="min-w-0">
+            <span className="block truncate text-[12.5px] text-ink">{user.username}</span>
+            <span className="block text-[10.5px] font-normal text-ink-3">
+              {user.role === "admin" ? t("Administrator") : user.role === "editor" ? t("Editor") : t("Member")}
+            </span>
+          </span>
+        </span>
+      ),
+    },
     { label: t("Settings"), icon: <Settings className="size-3.5" />, onSelect: () => navigate("/settings") },
     {
       label: resolved === "dark" ? t("Light theme") : t("Dark theme"),
@@ -112,8 +125,8 @@ function UserMenu() {
         aria-label={t("Account menu for {name}", { name: user.username })}
         className="flex h-9 items-center gap-2 rounded-[2px] pl-1 pr-1.5 transition-colors hover:bg-surface"
       >
-        <span className="grid size-7 place-items-center rounded-[2px] border border-line-2 bg-surface-2 font-mono text-[10.5px] text-ink">
-          {user.username.slice(0, 2).toUpperCase()}
+        <span className="grid size-7 place-items-center overflow-hidden rounded-[2px]">
+          <UserAvatar name={user.username} src={user.avatarUrl} size={28} />
         </span>
         <span className="hidden text-[13px] text-ink-2 sm:block">{user.username}</span>
         <ChevronDown className="hidden size-3.5 text-ink-3 sm:block" aria-hidden="true" />

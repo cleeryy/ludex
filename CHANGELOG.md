@@ -8,6 +8,11 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- User avatars (#183): accounts can upload a PNG/JPEG/WebP logo (magic-byte
+  checked, 2 MiB and 4096x4096 capped) and remove it; files are stored
+  content-addressed with old-file cleanup, and the avatar shows in the sidebar,
+  account menu, community profile, activity feed and member lists with an
+  initials fallback. Private profiles keep initials on public surfaces.
 - Remote play away from home (#179): a VPN-first wizard detects the LAN IP,
   VPNs, Sunshine config/ports and the router's UPnP IGD, then offers an advanced
   consent-gated mapping mode with a short lease, per-port verification, a

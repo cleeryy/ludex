@@ -312,7 +312,7 @@ async fn delete_user(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn fetch_user(state: &AppState, id: i64) -> Result<UserRow, ApiError> {
+pub(crate) async fn fetch_user(state: &AppState, id: i64) -> Result<UserRow, ApiError> {
     db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,

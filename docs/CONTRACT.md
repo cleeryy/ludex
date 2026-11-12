@@ -261,6 +261,28 @@ interface DesktopDownload {
 | PUT | `/api/auth/onboarding` | `{ completed?, step? }` → `{ user }`; self-service wizard preference, see *Onboarding (#119)* |
 | POST | `/api/auth/desktop-handoff` | session + `write` scope; `{ state }` → `{ expiresAt }`; binds the calling web session to a desktop sign-in, see *Desktop SSO handoff (#157)* |
 | POST | `/api/auth/desktop-handoff/claim` | public; `{ state }` → `{ code, expiresAt }` **once**; 410 `handoff_unavailable` when unknown, expired or used |
+| POST | `/api/account/avatar` | authenticated, `write` scope; multipart field `file` (PNG/JPEG/WebP, ≤2 MiB, ≤4096×4096) → updated `User`; see *Account avatars (#183)* |
+| DELETE | `/api/account/avatar` | clears `users.avatar_path`, deletes the managed file → updated `User` |
+
+### Account avatars (#183)
+
+Any authenticated account can set its own logo. The server never trusts the
+client MIME type or the file name: PNG, JPEG and WebP are recognised by their
+magic bytes, a known extension must agree with the sniffed format, and the
+pixel dimensions are read from the image header (PNG, JPEG SOF, WebP VP8/VP8L/
+VP8X). SVG, HTML, GIF and unknown payloads are rejected with 400
+`invalid_avatar_type`; payloads above 2 MiB get 413 `avatar_too_large`, and
+headers above 4096×4096 get 400 `invalid_avatar_dimensions`.
+
+The file is stored in the media directory as
+`avatar-<user-id>-<sha256>.<png|jpg|webp>` and served by the public
+`/api/media/{name}` route. The name is content-addressed, so a new upload
+changes `avatarUrl` immediately; the previous `avatar-*` file of that account
+is deleted after the row is updated. Artwork and provider images are never
+touched by the delete path. Both endpoints return the refreshed `User`
+serializer and write one `user.avatar_updated` audit event (format,
+dimensions, bytes, SHA-256 — never a path).
+
 
 ### Desktop SSO handoff (#157)
 

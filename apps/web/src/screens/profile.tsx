@@ -12,6 +12,7 @@ import { CollectionCard } from "@/components/collections/collection-card";
 import { AchievementShowcase } from "@/components/community/achievement-showcase";
 import { PresenceBadge } from "@/components/community/friend-presence";
 import { ActivityList } from "@/components/community/activity-list";
+import { UserAvatar } from "@/components/community/user-avatar";
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Skeleton } from "@/components/ui/controls";
 import { t } from "@/lib/i18n";
@@ -109,9 +110,11 @@ export function ProfileScreen() {
         className="mt-5"
         title={
           <span className="flex flex-wrap items-center gap-4">
-            <span className="grid size-12 shrink-0 place-items-center rounded-[2px] border border-line-2 bg-surface-2 font-mono text-[14px] text-ink">
-              {display.slice(0, 2).toUpperCase()}
-            </span>
+            <UserAvatar
+              name={display}
+              src={data.user.publicProfile ? data.user.avatarUrl : null}
+              size={48}
+            />
             {display}
           </span>
         }

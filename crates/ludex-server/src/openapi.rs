@@ -356,6 +356,23 @@ pub const ROUTES: &[RouteDoc] = &[
         Auth::Session,
         Payload::Schema("UserResponse"),
     ),
+    // Account avatar (#183)
+    route(
+        HttpMethod::Post,
+        "/account/avatar",
+        "Authentication",
+        "Upload an avatar (multipart field `file`, PNG/JPEG/WebP, 2 MiB, 4096×4096)",
+        Auth::Session,
+        Payload::Schema("User"),
+    ),
+    route(
+        HttpMethod::Delete,
+        "/account/avatar",
+        "Authentication",
+        "Remove the avatar and delete the managed file",
+        Auth::Session,
+        Payload::Schema("User"),
+    ),
     body(
         route(
             HttpMethod::Put,
