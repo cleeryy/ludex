@@ -49,6 +49,13 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Changed
 
+- Network architecture decision record (#200): `docs/NETWORK-ARCHITECTURE.md`
+  evaluates direct vs Caddy, port-forward/UPnP, parallel ranges, TCP/BBR tuning,
+  STUN/TURN and QUIC/HTTP3 against the measured path (and notes the desktop
+  client is HTTP/1.1 today), with explicit decision thresholds;
+  `scripts/bench-download.sh` runs the whole measurement matrix and prints
+  verdicts, and the deploy/performance docs cover Caddy, HTTP/3 and the numbers
+  to collect. No speculative protocol code.
 - Network speeds are shown in bits per second (#199): download, update, stream
   and bandwidth-cap figures now read `Kb/s`/`Mb/s`/`Gb/s` (decimal), while file
   sizes stay in bytes; the cap is edited in Mb/s and still stored as KiB.
