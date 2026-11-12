@@ -3382,5 +3382,21 @@
   "Use server default": "Użyj domyślnego serwera",
   "Used for signed-out visitors and accounts without their own language.": "Używany dla wylogowanych gości i kont bez własnego języka.",
   "Your account": "Twoje konto",
-  "What this server is running, where it keeps files, and the language new visitors see.": "Co ten serwer uruchamia, gdzie przechowuje pliki i jaki język widzą nowi goście."
+  "What this server is running, where it keeps files, and the language new visitors see.": "Co ten serwer uruchamia, gdzie przechowuje pliki i jaki język widzą nowi goście.",
+  "Grant modify rights on a folder": "Przyznaj prawo modyfikacji folderu",
+  "Run a verified installer": "Uruchom zweryfikowany instalator",
+  "Install a Windows service": "Zainstaluj usługę Windows",
+  "Install a driver": "Zainstaluj sterownik",
+  "Add a firewall rule": "Dodaj regułę zapory",
+  "Remove a firewall rule": "Usuń regułę zapory",
+  "Write a configuration file": "Zapisz plik konfiguracyjny",
+  "Run a privileged operation": "Uruchom operację uprzywilejowaną",
+  "Windows will ask for permission once. Only this operation runs as administrator; Ludex keeps running as your normal user, and cancelling changes nothing.": "Windows poprosi o zgodę tylko raz. Tylko ta operacja działa jako administrator; Ludex nadal działa na zwykłym koncie użytkownika, a anulowanie niczego nie zmienia.",
+  "Continue as administrator": "Kontynuuj jako administrator",
+  "What will change": "Co się zmieni",
+  "Target": "Cel",
+  "Why": "Dlaczego",
+  "If you cancel, nothing is changed and the manual instructions stay available.": "Anulowanie niczego nie zmienia, a instrukcje ręczne pozostają dostępne.",
+  "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Folder konfiguracji Sunshine znajduje się w Program Files, gdzie Windows blokuje zapis.",
+  "You can also set a Sunshine config folder your account can write to.": "Możesz też wskazać folder konfiguracji Sunshine, do którego Twoje konto ma prawo zapisu."
 }

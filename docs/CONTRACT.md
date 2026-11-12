@@ -2600,7 +2600,7 @@ interface RemotePlayCleanup {
 | `sunshine_preview` | — | `SunshinePreview`; what a sync would add, update and remove, including the console entry and the per-game entries console mode migrates out (#172). Never writes |
 | `sunshine_sync` | `{ dryRun?, removeMissing?, downloadCovers? }` | `SunshineReport`. With `consoleMode` on it writes one managed `Ludex` entry (`console: true`, no `gameId`) and removes the per-game entries of the active server in the same write; `consolePerGameApps` keeps both. Every real write copies `apps.json` to `apps.json.ludex-backup-<stamp>-<id>.bak` first. `removeMissing` defaults to true. Rejects with `SunshineError`; `needsElevation` is set when Windows denies the write with `PermissionDenied` on a path under `Program Files`/`Program Files (x86)` (#182) |
 | `sunshine_remove_managed` | — | `SunshineReport`; removes every entry carrying the Ludex marker (all servers), including the console app; user apps stay, backup first |
-| `grant_sunshine_write_access` | — | `SunshineGrant`; one explicit UAC prompt that grants this Windows account modify rights on the detected Sunshine config folder (`icacls "<dir>" /grant "<DOMAIN\user>:(OI)(CI)M" /Q` through `Start-Process -Verb RunAs`). No path argument: the folder is the parent of the detected `apps.json` and must canonicalize inside `Program Files`/`Program Files (x86)`, otherwise it is refused. `cancelled` means the prompt was declined and nothing changed; `failed` carries the reason. Windows only; never runs automatically and never writes `apps.json` (#182) |
+| `grant_sunshine_write_access` | — | `SunshineGrant`; one explicit UAC prompt that grants this Windows account modify rights on the detected Sunshine config folder (`icacls "<dir>" /grant "<DOMAIN\user>:(OI)(CI)M" /Q` through the shared elevation module, #192). No path argument: the folder is the parent of the detected `apps.json` and must canonicalize inside `Program Files`/`Program Files (x86)`, otherwise it is refused. `cancelled` means the prompt was declined and nothing changed; `failed` carries the reason. Windows only; never runs automatically and never writes `apps.json` (#182) |
 | `console_mode` | — | `ConsoleStatus`; whether this process is the Sunshine-launched console (`ludex --console`), its fullscreen flag, configured app name and exit shortcut (#172) |
 | `exit_console` | — | `null`; quits a console session back to the desktop. Refused when console mode is not active, so it can never close the desktop app (#172) |
 | `moonlight_status` | — | `MoonlightStatus`; binary, config source (portable `Moonlight.ini`, Windows registry, `Moonlight.conf`), parsed hosts and the manual host fallback (#98, #151) |
@@ -3107,15 +3107,54 @@ takes the parent of the detected `apps.json`, canonicalizes it (so `..` and
 symlinks cannot escape) and refuses anything outside `Program Files`/
 `Program Files (x86)`. When the folder is already writable it returns
 `granted` without a prompt. Otherwise it starts one elevated
-`icacls "<dir>" /grant "<DOMAIN\user>:(OI)(CI)M" /Q` from a
-`powershell -EncodedCommand` script (UTF-16LE base64; the identity comes from
-`WindowsIdentity::GetCurrent().Name`), maps exit code `1223` to `cancelled`,
-and verifies that `apps.json` and the folder are writable before reporting
+`icacls "<dir>" /grant "<DOMAIN\user>:(OI)(CI)M" /Q` through the shared
+elevation module (#192, see below), maps exit code `1223` to `cancelled`, and
+verifies that `apps.json` and the folder are writable before reporting
 `granted`. A successful grant does not write `apps.json`: the panel retries the
 publish once. Ludex never elevates itself, never touches the ACLs when the
 config is already writable, and non-Windows platforms return an unsupported
 error. This grants modify rights on the whole config folder, including
 `sunshine.conf`.
+
+**Shared one-shot elevation (#192).** `apps/desktop/src-tauri/src/elevate.rs`
+is the only way Ludex asks for administrator rights. A request is the typed
+`ElevationRequest { operation, arguments, reason }` where `operation` is a
+closed enum — `grantPathAcl`, `runInstaller`, `installService`,
+`installDriver`, `addFirewallRule`, `removeFirewallRule`, `writeConfigFile` —
+so the webview can never name an executable or add a command. `plan()` validates
+the reason (non-empty, ≤ 400 chars, no control characters) and every path:
+absolute, free of `.`/`..`, canonicalized, and contained in the expected root
+(`Program Files`/`Program Files (x86)` for ACLs, services, drivers and config
+writes; Ludex's SHA-256-verified runtime download cache for installers). Config
+writes are limited to `conf`/`json`/`ini`/`cfg`/`txt`/`xml`/`yaml`/`yml` files
+of at most 2 KiB, so the operation can never replace an executable. The
+command is then a fixed program plus an argument array (quoted per token, no
+string interpolation) or a UTF-16LE `-EncodedCommand`. `run()` starts exactly
+one hidden (`CREATE_NO_WINDOW`) PowerShell helper that issues
+`Start-Process -Verb RunAs -PassThru` and waits at most 30 minutes for the
+elevated child; the helper itself is not elevated. Exit code mapping:
+`0` → `completed`, `1223` (`ERROR_CANCELLED`) → `cancelled`, `1460` (the
+helper's timeout) → `failed`, anything else → `failed` with the first stderr
+line. Only one prompt can be open at a time, nothing is persisted, Ludex is
+never relaunched elevated, and non-Windows returns the typed `unsupported`
+status. The elevated helper runs only the whitelisted binary: it never reads a
+token, the user database or any Ludex file. Firewall changes only accept
+`Ludex`-prefixed rule names, and the installer/config/ACL paths are re-checked
+after canonicalization, so a symlink cannot redirect the operation. Reusable
+helpers: `grant_path_acl`, `run_verified_installer` (#178, installer roots from
+`runtime::install::elevation_roots`), `add_firewall_rule` /
+`remove_firewall_rule` (#179), each logging `elevation.requested`,
+`elevation.granted`, `elevation.cancelled` or `elevation.failed` with the
+operation, target and elapsed milliseconds.
+
+**Elevation confirmation UI (#192).** `ElevationConfirm`
+(`apps/web/src/components/ui/elevation-confirm.tsx`) is the reusable dialog: it
+names the operation (from the same whitelist), the exact target path or rule and
+the reason, offers **Continue as administrator** and **Cancel**, and keeps the
+error inside the dialog for a retry. Cancelling changes nothing and leaves the
+manual instructions (for Sunshine: set a config folder the account can write
+to) available. After `completed`, the caller retries the original action once.
+The Sunshine publish error uses it through `lib/elevation.ts`.
 
 **Console mode (#172).** `consoleMode` publishes a single managed entry instead
 of the per-game list. Its command is the Ludex binary itself:

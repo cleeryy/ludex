@@ -10,6 +10,7 @@ mod config_fields;
 mod console;
 mod db;
 mod diagnostics;
+mod elevate;
 mod game_config;
 mod game_executables;
 mod install;

@@ -15,6 +15,7 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 
 use crate::db::InstalledGame;
+use crate::elevate;
 use crate::settings::LocalSettings;
 
 /// Marker object written inside every Ludex-managed Sunshine app entry.
@@ -1479,34 +1480,20 @@ pub fn sunshine_grant_plan_for(
 }
 
 /// Canonicalise `dir` and accept it only below a `Program Files` root. The
-/// canonical form also rejects `..` traversals and symlinks (#182).
+/// canonical form also rejects `..` traversals and symlinks (#182). The path
+/// rules live in the shared elevation module so every privileged operation uses
+/// the same guard (#192).
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn validate_program_files_dir(dir: &Path, roots: &[PathBuf]) -> Result<PathBuf, String> {
-    let canonical = std::fs::canonicalize(dir).map_err(|error| {
-        format!(
-            "Could not resolve the Sunshine config folder {}: {error}.",
-            dir.display()
-        )
-    })?;
-    for root in roots {
-        let Ok(root) = std::fs::canonicalize(root) else {
-            continue;
-        };
-        if canonical == root || canonical.starts_with(&root) {
-            return Ok(canonical);
-        }
-    }
-    Err(format!(
-        "Refusing to change permissions on {}: it is not inside Program Files.",
-        canonical.display()
-    ))
+    elevate::validate_dir_in_roots(dir, roots, "Sunshine's config folder")
 }
 
 /// Grant the current Windows account modify rights on Sunshine's config folder
 /// after one UAC prompt. Never called automatically and never writes
-/// `apps.json`; the UI retries the publish afterwards (#182).
+/// `apps.json`; the UI retries the publish afterwards (#182). The prompt itself
+/// goes through the shared one-shot elevation module (#192).
 pub fn grant_sunshine_write_access(settings: &LocalSettings) -> Result<SunshineGrant, String> {
-    if !cfg!(windows) {
+    if !elevate::supported() {
         return Err(
             "Granting write access is only available on Windows. Point Sunshine at a user-writable config folder instead."
                 .to_string(),
@@ -1527,8 +1514,8 @@ fn grant_config_write_access(config_dir: &Path) -> Result<SunshineGrant, String>
 
 #[cfg(windows)]
 fn grant_config_write_access(config_dir: &Path) -> Result<SunshineGrant, String> {
-    let roots = program_files_roots(&env_map());
-    let config_dir = validate_program_files_dir(config_dir, &roots)?;
+    let roots = elevate::ElevationRoots::from_env();
+    let config_dir = validate_program_files_dir(config_dir, &roots.program_files)?;
     let apps_path = config_dir.join("apps.json");
     if sunshine_config_writable(&apps_path) {
         return Ok(SunshineGrant {
@@ -1539,37 +1526,10 @@ fn grant_config_write_access(config_dir: &Path) -> Result<SunshineGrant, String>
         });
     }
 
-    let dir = config_dir.to_string_lossy();
-    if dir.contains('"') {
-        return Err(format!(
-            "Refusing to change permissions on {dir}: the path contains an unsupported character."
-        ));
-    }
-
-    let script = windows_grant_script(&config_dir);
-    let encoded = encode_powershell(&script);
-    let output = {
-        use std::os::windows::process::CommandExt;
-        let mut command = Command::new("powershell.exe");
-        command
-            .args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &encoded])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            // CREATE_NO_WINDOW: the helper itself must not flash a console.
-            .creation_flags(0x0800_0000);
-        command.output().map_err(|error| {
-            format!("Could not start PowerShell for the permission prompt: {error}.")
-        })?
-    };
-
-    let mut detail = String::from_utf8_lossy(&output.stderr).to_string();
-    if detail.trim().is_empty() {
-        detail = String::from_utf8_lossy(&output.stdout).to_string();
-    }
+    let result = elevate::grant_path_acl(&config_dir, &roots);
     Ok(grant_outcome(
-        output.status.code(),
-        &detail,
+        result.exit_code,
+        &result.message,
         &config_dir,
         &apps_path,
         sunshine_config_writable(&apps_path),
@@ -1588,7 +1548,7 @@ pub fn grant_outcome(
 ) -> SunshineGrant {
     let path = Some(config_dir.to_string_lossy().to_string());
     // ERROR_CANCELLED: the user declined the UAC prompt.
-    if exit_code == Some(1223) {
+    if exit_code == Some(elevate::UAC_CANCELLED) {
         return SunshineGrant {
             status: "cancelled".to_string(),
             path,
@@ -1634,63 +1594,6 @@ fn grant_detail(detail: &str) -> String {
         .find(|line| !line.is_empty())
         .unwrap_or("the permission change failed");
     line.chars().take(300).collect()
-}
-
-/// PowerShell script launched with `-EncodedCommand`: it starts exactly one
-/// elevated `icacls` for the current identity (#182).
-#[cfg_attr(not(windows), allow(dead_code))]
-pub fn windows_grant_script(config_dir: &Path) -> String {
-    let dir = config_dir.to_string_lossy().replace('\'', "''");
-    format!(
-        "$ErrorActionPreference = 'Stop'\n\
-         $dir = '{dir}'\n\
-         $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name\n\
-         if ($dir.Contains('\"') -or $user.Contains('\"')) {{ Write-Error 'Unsupported character in the Sunshine path.'; exit 1 }}\n\
-         try {{\n\
-         \x20 $arguments = @('\"' + $dir + '\"', '/grant', '\"' + $user + ':(OI)(CI)M\"', '/Q')\n\
-         \x20 $process = Start-Process -FilePath 'icacls.exe' -ArgumentList ($arguments -join ' ') -Verb RunAs -Wait -PassThru\n\
-         \x20 exit $process.ExitCode\n\
-         }} catch {{\n\
-         \x20 if ($_.Exception.HResult -eq -2147023673) {{ exit 1223 }}\n\
-         \x20 Write-Error $_.Exception.Message\n\
-         \x20 exit 1\n\
-         }}\n"
-    )
-}
-
-/// Encode a PowerShell script for `-EncodedCommand`: UTF-16LE, base64 (#182).
-#[cfg_attr(not(windows), allow(dead_code))]
-pub fn encode_powershell(script: &str) -> String {
-    let mut bytes = Vec::with_capacity(script.len() * 2);
-    for unit in script.encode_utf16() {
-        bytes.extend_from_slice(&unit.to_le_bytes());
-    }
-    base64_encode(&bytes)
-}
-
-#[cfg_attr(not(windows), allow(dead_code))]
-fn base64_encode(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
-    for chunk in bytes.chunks(3) {
-        let first = chunk[0] as u32;
-        let second = *chunk.get(1).unwrap_or(&0) as u32;
-        let third = *chunk.get(2).unwrap_or(&0) as u32;
-        let triple = (first << 16) | (second << 8) | third;
-        out.push(TABLE[((triple >> 18) & 0x3f) as usize] as char);
-        out.push(TABLE[((triple >> 12) & 0x3f) as usize] as char);
-        out.push(if chunk.len() > 1 {
-            TABLE[((triple >> 6) & 0x3f) as usize] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            TABLE[(triple & 0x3f) as usize] as char
-        } else {
-            '='
-        });
-    }
-    out
 }
 
 /// True when this account can create the temp/backup files next to
@@ -3416,37 +3319,6 @@ customname=Deck
         let missing = LocalSettings::default();
         assert!(sunshine_grant_plan_for(&missing, "linux", None, &BTreeMap::new()).is_err());
         let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn the_grant_script_grants_modify_rights_to_the_current_identity() {
-        let script = windows_grant_script(Path::new("C:\\Program Files\\Sunshine\\config"));
-        assert!(script.contains("Start-Process"));
-        assert!(script.contains("icacls.exe"));
-        assert!(script.contains("-Verb RunAs"));
-        assert!(script.contains("-Wait"));
-        assert!(script.contains("-PassThru"));
-        assert!(script.contains("[System.Security.Principal.WindowsIdentity]::GetCurrent().Name"));
-        assert!(script.contains("'/grant'"));
-        assert!(script.contains(":(OI)(CI)M"));
-        assert!(script.contains("C:\\Program Files\\Sunshine\\config"));
-        assert!(script.contains("exit 1223"));
-        // A single quote in the path is doubled for the PowerShell literal.
-        let quoted = windows_grant_script(Path::new("C:\\Program Files\\O'Brien\\config"));
-        assert!(quoted.contains("O''Brien"));
-    }
-
-    #[test]
-    fn encoded_commands_are_utf16le_base64() {
-        assert_eq!(encode_powershell("A"), "QQA=");
-        assert_eq!(encode_powershell("AB"), "QQBCAA==");
-        let script = windows_grant_script(Path::new("C:\\Program Files\\Sunshine\\config"));
-        let encoded = encode_powershell(&script);
-        let utf16_bytes = script.encode_utf16().count() * 2;
-        assert_eq!(encoded.len(), (utf16_bytes + 2) / 3 * 4);
-        assert!(encoded
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '/' | '=')));
     }
 
     #[cfg(not(windows))]

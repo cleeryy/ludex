@@ -3382,5 +3382,21 @@
   "Use server default": "サーバーの既定を使用",
   "Used for signed-out visitors and accounts without their own language.": "サインアウト中の訪問者と言語未設定のアカウントに使用されます。",
   "Your account": "あなたのアカウント",
-  "What this server is running, where it keeps files, and the language new visitors see.": "このサーバーが実行している内容、ファイルの保存場所、新しい訪問者に表示される言語。"
+  "What this server is running, where it keeps files, and the language new visitors see.": "このサーバーが実行している内容、ファイルの保存場所、新しい訪問者に表示される言語。",
+  "Grant modify rights on a folder": "フォルダーの変更権限を付与",
+  "Run a verified installer": "検証済みのインストーラーを実行",
+  "Install a Windows service": "Windows サービスをインストール",
+  "Install a driver": "ドライバーをインストール",
+  "Add a firewall rule": "ファイアウォール規則を追加",
+  "Remove a firewall rule": "ファイアウォール規則を削除",
+  "Write a configuration file": "構成ファイルを書き込む",
+  "Run a privileged operation": "特権操作を実行",
+  "Windows will ask for permission once. Only this operation runs as administrator; Ludex keeps running as your normal user, and cancelling changes nothing.": "Windows が権限を一度だけ要求します。管理者として実行されるのはこの操作だけです。Ludex は通常のユーザーとして動作し続け、キャンセルしても何も変更されません。",
+  "Continue as administrator": "管理者として続行",
+  "What will change": "変更内容",
+  "Target": "対象",
+  "Why": "理由",
+  "If you cancel, nothing is changed and the manual instructions stay available.": "キャンセルしても何も変更されず、手動での手順は引き続き利用できます。",
+  "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Sunshine の構成フォルダーは Program Files 内にあり、Windows が書き込みをブロックします。",
+  "You can also set a Sunshine config folder your account can write to.": "アカウントで書き込み可能な Sunshine 構成フォルダーを指定することもできます。"
 }

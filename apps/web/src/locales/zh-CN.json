@@ -3382,5 +3382,21 @@
   "Use server default": "使用服务器默认",
   "Used for signed-out visitors and accounts without their own language.": "用于未登录的访客和没有自己语言设置的账户。",
   "Your account": "你的账户",
-  "What this server is running, where it keeps files, and the language new visitors see.": "此服务器运行的内容、文件存放位置，以及新访客看到的语言。"
+  "What this server is running, where it keeps files, and the language new visitors see.": "此服务器运行的内容、文件存放位置，以及新访客看到的语言。",
+  "Grant modify rights on a folder": "授予文件夹修改权限",
+  "Run a verified installer": "运行已验证的安装程序",
+  "Install a Windows service": "安装 Windows 服务",
+  "Install a driver": "安装驱动程序",
+  "Add a firewall rule": "添加防火墙规则",
+  "Remove a firewall rule": "删除防火墙规则",
+  "Write a configuration file": "写入配置文件",
+  "Run a privileged operation": "运行特权操作",
+  "Windows will ask for permission once. Only this operation runs as administrator; Ludex keeps running as your normal user, and cancelling changes nothing.": "Windows 只会请求一次权限。仅此操作以管理员身份运行；Ludex 仍以普通用户身份运行，取消不会更改任何内容。",
+  "Continue as administrator": "以管理员身份继续",
+  "What will change": "将要更改的内容",
+  "Target": "目标",
+  "Why": "原因",
+  "If you cancel, nothing is changed and the manual instructions stay available.": "如果取消，不会更改任何内容，手动操作说明仍然可用。",
+  "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Sunshine 的配置文件夹位于 Program Files 下，Windows 会阻止写入。",
+  "You can also set a Sunshine config folder your account can write to.": "你也可以指定一个你的账户可写入的 Sunshine 配置文件夹。"
 }

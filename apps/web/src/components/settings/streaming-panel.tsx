@@ -3,11 +3,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Eye, FolderOpen, Gamepad2, Layers, RefreshCw, ServerOff, ShieldCheck, Trash2, Tv, Wifi } from "lucide-react";
 import { errorMessage } from "@/lib/http";
 import { isNative, native } from "@/lib/native";
+import { configFolderFromAppsPath, isElevationCancelled, type ElevationPrompt } from "@/lib/elevation";
 import { needsSunshineElevation } from "@/lib/sunshine";
 import type { LocalSettings, SunshinePreviewEntry } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Input, Skeleton } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
+import { ElevationConfirm } from "@/components/ui/elevation-confirm";
 import { SettingsSwitchRow } from "@/components/settings/settings-section";
 import { RemotePlayPanel } from "@/components/settings/remote-play-panel";
 import { t } from "@/lib/i18n";
@@ -147,6 +149,8 @@ function SunshinePanel({
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<"sync" | "preview" | "remove" | null>(null);
   const [granting, setGranting] = useState(false);
+  const [grantPrompt, setGrantPrompt] = useState<ElevationPrompt | null>(null);
+  const [grantError, setGrantError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [backupPath, setBackupPath] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<{ message: string; needsElevation: boolean } | null>(null);
@@ -192,30 +196,46 @@ function SunshinePanel({
   };
 
   /**
-   * #182: explicit one-time UAC grant for a Sunshine install under Program
-   * Files, then a single retry. Cancelling changes nothing and keeps the error
-   * with its manual alternatives.
+   * #182/#192: explicit one-time UAC grant for a Sunshine install under Program
+   * Files, through the shared elevation module, then a single retry. Cancelling
+   * changes nothing and keeps the manual alternatives.
    */
   const grantAccess = async () => {
     setGranting(true);
+    setGrantError(null);
     try {
       const grant = await native.grantSunshineWriteAccess();
       if (grant.status === "granted") {
-        push({ title: t("Write access granted"), description: grant.message, tone: "success" });
+        setGrantPrompt(null);
         setSyncError(null);
+        push({ title: t("Write access granted"), description: grant.message, tone: "success" });
         await sync(false);
         return;
       }
-      if (grant.status === "cancelled") {
+      if (isElevationCancelled(grant.status)) {
+        setGrantPrompt(null);
         push({ title: t("Elevation cancelled"), description: grant.message, tone: "default" });
         return;
       }
+      setGrantError(grant.message);
       push({ title: t("Could not grant write access"), description: grant.message, tone: "danger" });
     } catch (cause) {
+      setGrantError(errorMessage(cause));
       push({ title: t("Could not grant write access"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setGranting(false);
     }
+  };
+
+  /** Open the confirmation with the exact operation and detected target. */
+  const askToGrantAccess = () => {
+    const appsPath = status.data?.appsPath;
+    setGrantError(null);
+    setGrantPrompt({
+      operation: "grantPathAcl",
+      target: configFolderFromAppsPath(appsPath) ?? appsPath ?? "",
+      reason: t("Sunshine's config folder is under Program Files, where Windows blocks writes."),
+    });
   };
 
   const removeManaged = async () => {
@@ -350,6 +370,9 @@ function SunshinePanel({
                   <p className="max-w-[68ch] text-[11px] leading-relaxed text-ink-3">
                     {t("This grants your Windows account modify rights on Sunshine's config folder, including sunshine.conf. Only needed for a Program Files install; Windows asks once, and cancelling changes nothing.")}
                   </p>
+                  <p className="mt-1 max-w-[68ch] text-[11px] leading-relaxed text-ink-3">
+                    {t("You can also set a Sunshine config folder your account can write to.")}
+                  </p>
                   <Button
                     size="sm"
                     variant="default"
@@ -357,7 +380,7 @@ function SunshinePanel({
                     icon={<ShieldCheck className="size-3.5" />}
                     loading={granting}
                     disabled={Boolean(busy)}
-                    onClick={() => void grantAccess()}
+                    onClick={askToGrantAccess}
                   >
                     {t("Grant write access")}
                   </Button>
@@ -462,6 +485,20 @@ function SunshinePanel({
           </p>
         </>
       )}
+
+      <ElevationConfirm
+        open={Boolean(grantPrompt)}
+        prompt={grantPrompt}
+        busy={granting}
+        error={grantError}
+        onOpenChange={(open) => {
+          if (!open) {
+            setGrantPrompt(null);
+            setGrantError(null);
+          }
+        }}
+        onContinue={() => void grantAccess()}
+      />
 
       <Dialog
         open={confirmRemove}

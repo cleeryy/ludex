@@ -3382,5 +3382,21 @@
   "Use server default": "Usa il predefinito del server",
   "Used for signed-out visitors and accounts without their own language.": "Usato per i visitatori non connessi e gli account senza una lingua propria.",
   "Your account": "Il tuo account",
-  "What this server is running, where it keeps files, and the language new visitors see.": "Cosa esegue questo server, dove conserva i file e la lingua che vedono i nuovi visitatori."
+  "What this server is running, where it keeps files, and the language new visitors see.": "Cosa esegue questo server, dove conserva i file e la lingua che vedono i nuovi visitatori.",
+  "Grant modify rights on a folder": "Concedi i permessi di modifica su una cartella",
+  "Run a verified installer": "Esegui un programma di installazione verificato",
+  "Install a Windows service": "Installa un servizio Windows",
+  "Install a driver": "Installa un driver",
+  "Add a firewall rule": "Aggiungi una regola del firewall",
+  "Remove a firewall rule": "Rimuovi una regola del firewall",
+  "Write a configuration file": "Scrivi un file di configurazione",
+  "Run a privileged operation": "Esegui un'operazione privilegiata",
+  "Windows will ask for permission once. Only this operation runs as administrator; Ludex keeps running as your normal user, and cancelling changes nothing.": "Windows chiederà il permesso una sola volta. Solo questa operazione viene eseguita come amministratore; Ludex continua a funzionare con il tuo utente normale e annullare non cambia nulla.",
+  "Continue as administrator": "Continua come amministratore",
+  "What will change": "Cosa cambierà",
+  "Target": "Destinazione",
+  "Why": "Perché",
+  "If you cancel, nothing is changed and the manual instructions stay available.": "Se annulli, nulla viene modificato e le istruzioni manuali restano disponibili.",
+  "Sunshine's config folder is under Program Files, where Windows blocks writes.": "La cartella di configurazione di Sunshine si trova in Program Files, dove Windows blocca le scritture.",
+  "You can also set a Sunshine config folder your account can write to.": "Puoi anche indicare una cartella di configurazione di Sunshine in cui il tuo account può scrivere."
 }
