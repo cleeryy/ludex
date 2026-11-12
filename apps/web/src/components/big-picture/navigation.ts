@@ -3,6 +3,7 @@ import { focusGamepadTarget } from "@/lib/gamepad";
 import type { GameSummary } from "@/lib/types";
 import {
   clampIndex,
+  pageStepForLayout,
   resolveIndex,
   resolveShelfIndex,
   stepForLayout,
@@ -39,6 +40,8 @@ export interface BigPictureActions {
   /** Previous shelf: shoulder, arrow pair or `[`. */
   prevShelf: () => void;
   nextShelf: () => void;
+  /** Previous/next page: trigger or PageUp/PageDown (#138). */
+  page: (delta: -1 | 1) => void;
 }
 
 export interface BigPictureNavigation {
@@ -54,7 +57,11 @@ export interface BigPictureNavigation {
   switchShelf: (delta: number) => void;
   /** Jumps to a shelf by slot, for the tabs a mouse can click. */
   selectShelf: (index: number) => void;
+  /** Selects one card across shelves, for search results (#138). */
+  selectGame: (shelfIndex: number, index: number) => void;
   move: (direction: MoveDirection) => void;
+  /** Jumps a page in the active layout (trigger / PageUp / PageDown). */
+  jump: (delta: -1 | 1) => void;
   /** Puts the gamepad ring back on the selected card (after a layout switch). */
   focusSelected: () => void;
   actions: BigPictureActions;
@@ -105,6 +112,21 @@ export function useBigPictureNavigation({
     [shelves.length, shelfIndex],
   );
 
+  /**
+   * One atomic jump used by search and by the overlay shortcuts: pick the
+   * shelf and the card in it without depending on the previous selection. A
+   * shelf change used to reset the index to zero, which would have landed the
+   * ring on the wrong game when the answer came from a query.
+   */
+  const selectGame = useCallback(
+    (nextShelf: number, nextIndex: number) => {
+      const target = clampIndex(nextShelf, shelves.length);
+      setRawShelfIndex(target);
+      setRawIndex(clampIndex(nextIndex, shelves[target]?.games.length ?? 0));
+    },
+    [shelves],
+  );
+
   const switchShelf = useCallback(
     (delta: number) => {
       if (shelves.length < 2) return;
@@ -120,6 +142,20 @@ export function useBigPictureNavigation({
       else if (step.type === "shelf") switchShelf(step.delta);
     },
     [layout, index, games.length, columns, switchShelf],
+  );
+
+  const jump = useCallback(
+    (delta: -1 | 1) => {
+      const step = pageStepForLayout({
+        layout,
+        direction: delta < 0 ? "left" : "right",
+        index,
+        total: games.length,
+        columns,
+      });
+      if (step.type === "move") setRawIndex(step.index);
+    },
+    [layout, index, games.length, columns],
   );
 
   // A refresh can reorder "Recently played" or drop a title. Follow the
@@ -167,8 +203,9 @@ export function useBigPictureNavigation({
       down: () => move("down"),
       prevShelf: () => switchShelf(-1),
       nextShelf: () => switchShelf(1),
+      page: jump,
     }),
-    [move, switchShelf],
+    [move, switchShelf, jump],
   );
 
   return {
@@ -182,7 +219,9 @@ export function useBigPictureNavigation({
     setIndex,
     switchShelf,
     selectShelf,
+    selectGame,
     move,
+    jump,
     focusSelected,
     actions,
   };

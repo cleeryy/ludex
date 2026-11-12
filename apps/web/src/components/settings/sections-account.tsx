@@ -15,6 +15,7 @@ import { useToast } from "@/state/toasts";
 import { Button, Field, Input, Switch, Textarea } from "@/components/ui/controls";
 import { AppearancePanel } from "@/components/settings/appearance-panel";
 import { ControllerPanel } from "@/components/settings/controller-panel";
+import { OverlayPanel } from "@/components/settings/overlay-panel";
 import { RomEmulatorsPanel } from "@/components/settings/rom-emulators";
 import { SettingsGroup, SettingsSwitchRow } from "@/components/settings/settings-section";
 import type { DesktopSettingsController } from "@/components/settings/use-desktop-settings";
@@ -252,6 +253,7 @@ export function ProfilesBody({ desktop }: { desktop: DesktopSettingsController }
       >
         <ControllerPanel />
       </SettingsGroup>
+      <OverlayPanel />
       {desktop.available && (
         <SettingsGroup
           title={t("Emulators")}

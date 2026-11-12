@@ -8,7 +8,7 @@ use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use chrono::Duration;
 use ludex_core::archive::{
@@ -30,8 +30,9 @@ use crate::error::ApiError;
 use crate::extract::{ApiPath, ApiQuery, JsonBody};
 use crate::media::content_disposition;
 use crate::models::{
-    BookmarkRequest, BookmarkResponse, DownloadQuery, GameDetailRow, GameListRow, GameQuery,
-    InstalledReportResponse, LocalPathResponse, PlaytimeRequest, ProgressRequest, RefreshResponse,
+    BookmarkRequest, BookmarkResponse, DeleteVersionResponse, DownloadQuery, GameDetailRow,
+    GameListRow, GameQuery, GameVersionInfo, GameVersionsResponse, InstalledReportResponse,
+    LocalPathResponse, PlaytimeRequest, ProgressRequest, RefreshResponse, SetDefaultVersionRequest,
     StreamQuery, TicketRequest, TicketResponse, UpdateGameRequest, VersionRow,
 };
 use crate::roots;
@@ -54,7 +55,7 @@ g.developers_json, g.publishers_json, g.tags_json, g.rating, g.age_rating, g.ear
 g.alt_titles_json, g.max_players, \
 g.provider_slug, g.provider_id, g.provider_url, g.launch_executable, g.launch_parameters, \
 g.installer_executable, g.installer_parameters, g.uninstaller_executable, \
-g.uninstaller_parameters, g.kind, g.platform, g.emulator_id, \
+g.uninstaller_parameters, g.kind, g.platform, g.emulator_id, g.default_version_id, \
 COALESCE(p.state, 'unplayed') AS state, \
 COALESCE(p.minutes_played, 0) AS minutes_played, \
 CAST(CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END AS BIGINT) AS bookmarked, p.last_played_at, \
@@ -74,6 +75,9 @@ pub fn router() -> Router<AppState> {
         .route("/games/{id}/refresh-metadata", post(refresh_metadata))
         .route("/games/{id}/download-ticket", post(download_ticket))
         .route("/games/{id}/download", get(download))
+        .route("/games/{id}/versions", get(list_versions))
+        .route("/games/{id}/versions/default", put(set_default_version))
+        .route("/games/{id}/versions/{version_id}", delete(delete_version))
         .route("/games/{id}/versions/latest", get(latest_version))
         .route(
             "/games/{id}/versions/{version_id}/stream",
@@ -431,7 +435,7 @@ pub(crate) async fn fetch_detail(
 
     let versions = db::query_as::<VersionRow>(
         "SELECT id, root_id, file_path, file_name, size, version, release_date,
-                early_access, missing, root_unavailable, archive_hash, updated_at,
+                early_access, missing, root_unavailable, archive_hash, indexed_at, updated_at,
                 storage_backend, object_key, etag
          FROM game_versions WHERE game_id = ? AND missing = 0
          ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC",
@@ -491,12 +495,14 @@ pub(crate) async fn fetch_detail(
                 download_url: format!("/api/games/{id}/download?versionId={}", version.id),
             })
             .collect(),
+        default_version_id: row.default_version_id,
         launch,
     })
 }
 
-/// Newest available version with the metadata desktop clients need to detect
-/// updates (version label, archive fingerprint, size, last update).
+/// Version clients should update to: the game's pinned version (#168), else the
+/// newest available one. The payload carries the metadata desktop clients need
+/// to detect updates (version label, archive fingerprint, size, last update).
 async fn latest_version(
     State(state): State<AppState>,
     _user: AuthUser,
@@ -504,18 +510,14 @@ async fn latest_version(
 ) -> Result<Json<LatestVersion>, ApiError> {
     ensure_game(&state, id).await?;
 
-    let row = db::query_as::<VersionRow>(
-        "SELECT id, root_id, file_path, file_name, size, version, release_date,
-                early_access, missing, root_unavailable, archive_hash, updated_at,
-                storage_backend, object_key, etag
-         FROM game_versions WHERE game_id = ? AND missing = 0
-         ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC LIMIT 1",
-    )
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(ApiError::from)?
-    .ok_or_else(|| ApiError::not_found("no_versions", "This game has no available version"))?;
+    let version_id = preferred_version_id(&state, id).await.map_err(|error| {
+        if error.code == "version_not_found" {
+            ApiError::not_found("no_versions", "This game has no available version")
+        } else {
+            error
+        }
+    })?;
+    let row = fetch_version(&state, id, version_id).await?;
 
     Ok(Json(LatestVersion {
         game_id: id,
@@ -528,6 +530,264 @@ async fn latest_version(
         early_access: row.early_access != 0,
         download_url: format!("/api/games/{id}/download?versionId={}", row.id),
     }))
+}
+
+/// Every version of a game with its archive state, for the editor version
+/// manager (#168). Missing rows are listed so an editor can see what happened
+/// to an archive instead of watching it disappear.
+async fn list_versions(
+    State(state): State<AppState>,
+    user: AuthUser,
+    ApiPath(id): ApiPath<i64>,
+) -> Result<Json<GameVersionsResponse>, ApiError> {
+    user.require_editor()?;
+    ensure_game(&state, id).await?;
+    Ok(Json(fetch_versions(&state, id).await?))
+}
+
+/// Pins the version used by downloads, fresh installs and the update check.
+/// Picking an older version is a rollback; newer archives stay available.
+async fn set_default_version(
+    State(state): State<AppState>,
+    user: AuthUser,
+    ApiPath(id): ApiPath<i64>,
+    JsonBody(request): JsonBody<SetDefaultVersionRequest>,
+) -> Result<Json<GameVersionsResponse>, ApiError> {
+    user.require_editor()?;
+    ensure_game(&state, id).await?;
+
+    let version = fetch_version(&state, id, request.version_id).await?;
+    if version.missing != 0 {
+        return Err(ApiError::conflict(
+            "version_missing",
+            "This archive is missing; restore it before making it the default version",
+        ));
+    }
+    if version.root_unavailable != 0 {
+        return Err(ApiError::conflict(
+            "root_unavailable",
+            "The library root holding this archive is offline",
+        ));
+    }
+
+    db::query("UPDATE games SET default_version_id = ?, updated_at = ? WHERE id = ?")
+        .bind(version.id)
+        .bind(db::db_time(db::now()))
+        .bind(id)
+        .execute(&state.pool)
+        .await
+        .map_err(ApiError::from)?;
+
+    state.events.emit(
+        crate::events::Event::new(
+            crate::audit::actions::GAME_VERSION_DEFAULT_CHANGED,
+            user.actor(),
+        )
+        .target("game", id.to_string())
+        .metadata(serde_json::json!({
+            "versionId": version.id,
+            "version": version.version,
+            "fileName": version.file_name,
+        })),
+    );
+
+    Ok(Json(fetch_versions(&state, id).await?))
+}
+
+/// Deletes one archive (file + row) after an explicit confirmation (#168).
+///
+/// The game, its metadata, saves and audit history are kept; only the archive
+/// goes away. The last available version is never deleted, nor one that is
+/// missing, on an offline root, or currently being downloaded/streamed.
+async fn delete_version(
+    State(state): State<AppState>,
+    user: AuthUser,
+    ApiPath((game_id, version_id)): ApiPath<(i64, i64)>,
+    ApiQuery(query): ApiQuery<DeleteVersionQuery>,
+) -> Result<Json<DeleteVersionResponse>, ApiError> {
+    user.require_editor()?;
+    ensure_game(&state, game_id).await?;
+    if !query.confirm.unwrap_or(false) {
+        return Err(ApiError::bad_request(
+            "confirmation_required",
+            "Pass confirm=true to delete this archive; the game itself is kept",
+        ));
+    }
+
+    let version = fetch_version(&state, game_id, version_id).await?;
+    let remaining = db::query_scalar::<i64>(
+        "SELECT COUNT(*) FROM game_versions
+         WHERE game_id = ? AND id != ? AND missing = 0 AND root_unavailable = 0",
+    )
+    .bind(game_id)
+    .bind(version_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
+    ensure_version_deletable(&state, &version, remaining)?;
+
+    // Remove the archive bytes first: a row without a file would be re-marked
+    // missing by the next scan, while a file without a row is re-indexed.
+    if is_s3_version(&version) {
+        if let Some(key) = version.object_key.as_deref() {
+            state
+                .storage
+                .delete(key)
+                .await
+                .map_err(|error| map_storage_error(error, "delete"))?;
+        }
+    }
+    if version.root_unavailable == 0 {
+        if let Some(path) = roots::resolve_version_path(
+            &state.pool,
+            &state.config,
+            version.root_id,
+            &version.file_path,
+        )
+        .await
+        {
+            match tokio::fs::remove_file(&path).await {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    tracing::error!(%error, version = version.id, "could not delete the archive");
+                    return Err(ApiError::internal());
+                }
+            }
+        }
+    }
+
+    let default_changed = game_default_version_id(&state, game_id).await? == Some(version.id);
+    let replacement = if default_changed {
+        newest_other_version(&state, game_id, version.id).await?
+    } else {
+        None
+    };
+
+    let mut transaction = state.pool.begin().await.map_err(ApiError::from)?;
+    db::query("DELETE FROM game_versions WHERE id = ? AND game_id = ?")
+        .bind(version.id)
+        .bind(game_id)
+        .execute(&mut transaction)
+        .await
+        .map_err(ApiError::from)?;
+    if default_changed {
+        db::query("UPDATE games SET default_version_id = ?, updated_at = ? WHERE id = ?")
+            .bind(replacement)
+            .bind(db::db_time(db::now()))
+            .bind(game_id)
+            .execute(&mut transaction)
+            .await
+            .map_err(ApiError::from)?;
+    }
+    transaction.commit().await.map_err(ApiError::from)?;
+
+    state.events.emit(
+        crate::events::Event::new(crate::audit::actions::GAME_VERSION_DELETED, user.actor())
+            .target("game", game_id.to_string())
+            .metadata(serde_json::json!({
+                "versionId": version.id,
+                "version": version.version,
+                "fileName": version.file_name,
+                "size": version.size,
+                "storageBackend": version.storage_backend,
+            })),
+    );
+
+    Ok(Json(DeleteVersionResponse {
+        version_id: version.id,
+        freed_bytes: version.size,
+        default_version_id: game_default_version_id(&state, game_id).await?,
+    }))
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteVersionQuery {
+    #[serde(default)]
+    confirm: Option<bool>,
+}
+
+/// Guards shared by the delete route and its unit tests.
+fn ensure_version_deletable(
+    state: &AppState,
+    version: &VersionRow,
+    remaining: i64,
+) -> Result<(), ApiError> {
+    if version.missing != 0 {
+        return Err(ApiError::conflict(
+            "version_missing",
+            "This archive is already missing; the row is kept for history",
+        ));
+    }
+    if version.root_unavailable != 0 {
+        return Err(ApiError::conflict(
+            "root_unavailable",
+            "The library root holding this archive is offline; restore it before deleting",
+        ));
+    }
+    if state.transfers.is_active(version.id) {
+        return Err(ApiError::conflict(
+            "version_in_use",
+            "A download or stream is using this archive; stop it first",
+        ));
+    }
+    if remaining <= 0 {
+        return Err(ApiError::conflict(
+            "last_version",
+            "This is the last available version; Ludex never deletes it",
+        ));
+    }
+    Ok(())
+}
+
+/// All versions (including missing rows), newest first, with the pinned id.
+async fn fetch_versions(state: &AppState, game_id: i64) -> Result<GameVersionsResponse, ApiError> {
+    let rows = db::query_as::<VersionRow>(
+        "SELECT id, root_id, file_path, file_name, size, version, release_date,
+                early_access, missing, root_unavailable, archive_hash, indexed_at, updated_at,
+                storage_backend, object_key, etag
+         FROM game_versions WHERE game_id = ?
+         ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC",
+    )
+    .bind(game_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(GameVersionsResponse {
+        game_id,
+        default_version_id: game_default_version_id(state, game_id).await?,
+        versions: rows
+            .into_iter()
+            .map(|row| GameVersionInfo {
+                id: row.id,
+                file_name: row.file_name,
+                size: row.size,
+                version: row.version,
+                release_date: row.release_date.as_deref().and_then(db::parse_time),
+                early_access: row.early_access != 0,
+                archive_hash: row.archive_hash,
+                indexed_at: row.indexed_at.as_deref().and_then(db::parse_time),
+                updated_at: row.updated_at.as_deref().and_then(db::parse_time),
+                missing: row.missing != 0,
+                root_unavailable: row.root_unavailable != 0,
+                download_url: format!("/api/games/{game_id}/download?versionId={}", row.id),
+            })
+            .collect(),
+    })
+}
+
+/// Pinned version id from `games.default_version_id`, if any.
+async fn game_default_version_id(state: &AppState, game_id: i64) -> Result<Option<i64>, ApiError> {
+    Ok(
+        db::query_scalar::<Option<i64>>("SELECT default_version_id FROM games WHERE id = ?")
+            .bind(game_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(ApiError::from)?
+            .flatten(),
+    )
 }
 
 async fn update_game(
@@ -739,7 +999,7 @@ async fn download_ticket(
             exists
                 .ok_or_else(|| ApiError::not_found("version_not_found", "Game version not found"))?
         }
-        None => newest_version(&state, game_id).await?,
+        None => preferred_version_id(&state, game_id).await?,
     };
 
     let (token, expires_at) =
@@ -796,6 +1056,43 @@ async fn newest_version(state: &AppState, game_id: i64) -> Result<i64, ApiError>
     .ok_or_else(|| ApiError::not_found("version_not_found", "No downloadable version"))
 }
 
+/// Version used when the caller does not name one: the pinned version (#168)
+/// while it still exists, otherwise the newest available one.
+async fn preferred_version_id(state: &AppState, game_id: i64) -> Result<i64, ApiError> {
+    if let Some(pinned) = game_default_version_id(state, game_id).await? {
+        let exists = db::query_scalar::<i64>(
+            "SELECT id FROM game_versions WHERE id = ? AND game_id = ? AND missing = 0",
+        )
+        .bind(pinned)
+        .bind(game_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(ApiError::from)?;
+        if let Some(id) = exists {
+            return Ok(id);
+        }
+    }
+    newest_version(state, game_id).await
+}
+
+/// Newest available version other than `exclude`, used as the fallback pin
+/// after an editor deletes the pinned archive.
+async fn newest_other_version(
+    state: &AppState,
+    game_id: i64,
+    exclude: i64,
+) -> Result<Option<i64>, ApiError> {
+    db::query_scalar::<i64>(
+        "SELECT id FROM game_versions WHERE game_id = ? AND id != ? AND missing = 0
+         ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC LIMIT 1",
+    )
+    .bind(game_id)
+    .bind(exclude)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::from)
+}
+
 async fn authorize_version(
     state: &AppState,
     headers: &HeaderMap,
@@ -831,7 +1128,7 @@ async fn authorize_version(
     }
     match requested_version {
         Some(version_id) => Ok(version_id),
-        None => newest_version(state, game_id).await,
+        None => preferred_version_id(state, game_id).await,
     }
 }
 
@@ -857,6 +1154,7 @@ async fn download(
             "This version is no longer available",
         ));
     }
+    let _lease = state.transfers.begin(version.id);
     if is_s3_version(&version) {
         if let Some(key) = version.object_key.as_deref() {
             match download_from_storage(&state, &version, key, &headers).await {
@@ -1127,6 +1425,7 @@ async fn stream_version(
             "This version is no longer available",
         ));
     }
+    let _lease = state.transfers.begin(version.id);
     let mut staged = false;
     let path = if is_s3_version(&version) && version.object_key.is_some() {
         // Stream install needs random access (ZIP central directory, RAR
@@ -1305,6 +1604,7 @@ async fn stream_manifest(
             "This version is no longer available",
         ));
     }
+    let _lease = state.transfers.begin(version.id);
     let source = resolve_stream_source(&state, &version).await?;
 
     if source.format != ArchiveFormat::Zip {
@@ -1411,6 +1711,7 @@ async fn stream_entry(
             "This version is no longer available",
         ));
     }
+    let _lease = state.transfers.begin(version.id);
     let source = resolve_stream_source(&state, &version).await?;
 
     if source.format != ArchiveFormat::Zip {
@@ -1841,7 +2142,7 @@ async fn fetch_version(
 ) -> Result<VersionRow, ApiError> {
     db::query_as::<VersionRow>(
         "SELECT id, root_id, file_path, file_name, size, version, release_date,
-                early_access, missing, root_unavailable, archive_hash, updated_at,
+                early_access, missing, root_unavailable, archive_hash, indexed_at, updated_at,
                 storage_backend, object_key, etag
          FROM game_versions WHERE id = ? AND game_id = ?",
     )
@@ -2012,6 +2313,7 @@ mod tests {
             missing: 0,
             root_unavailable: 0,
             archive_hash: None,
+            indexed_at: None,
             updated_at: None,
             storage_backend: Some(backend.to_string()),
             object_key: key,
@@ -2093,6 +2395,49 @@ mod tests {
             games_dir.join("Cat Quest II.zip")
         );
         let _ = temp;
+    }
+
+    #[tokio::test]
+    async fn version_delete_guards_cover_missing_offline_active_and_last() {
+        let (_temp, state) = state_with_memory_store().await;
+        let mut version = version_row(None, "local");
+        assert!(ensure_version_deletable(&state, &version, 1).is_ok());
+
+        version.missing = 1;
+        assert_eq!(
+            ensure_version_deletable(&state, &version, 1)
+                .expect_err("missing")
+                .code,
+            "version_missing"
+        );
+        version.missing = 0;
+
+        version.root_unavailable = 1;
+        assert_eq!(
+            ensure_version_deletable(&state, &version, 1)
+                .expect_err("offline root")
+                .code,
+            "root_unavailable"
+        );
+        version.root_unavailable = 0;
+
+        let lease = state.transfers.begin(version.id);
+        assert!(state.transfers.is_active(version.id));
+        assert_eq!(
+            ensure_version_deletable(&state, &version, 1)
+                .expect_err("in use")
+                .code,
+            "version_in_use"
+        );
+        drop(lease);
+        assert!(!state.transfers.is_active(version.id));
+
+        assert_eq!(
+            ensure_version_deletable(&state, &version, 0)
+                .expect_err("last version")
+                .code,
+            "last_version"
+        );
     }
 
     #[test]

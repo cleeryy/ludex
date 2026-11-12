@@ -41,6 +41,7 @@ function game(overrides: Partial<GameDetail> = {}): GameDetail {
     provider: { slug: "fixture", id: "peak-wrong", url: null },
     altTitles: [],
     versions: [],
+    defaultVersionId: null,
     launch: {
       executable: "PEAK.exe",
       parameters: null,

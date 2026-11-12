@@ -96,6 +96,8 @@ interface GameDetail extends GameSummary {
   provider: { slug: string; id: string; url: string | null } | null;
   altTitles: string[];
   versions: GameVersion[];
+  /** Pinned version for downloads, installs and update checks; null = newest. */
+  defaultVersionId: number | null;
   launch: {
     executable: string | null; parameters: string | null;
     installerExecutable: string | null; installerParameters: string | null;
@@ -332,8 +334,55 @@ payload are ignored. New and existing accounts default to
 | GET | `/api/games/{id}/versions/{versionId}/stream?token=` | Stream install: an uncompressed `application/x-tar` of the archive entries, no archive stored on the client. ZIP, 7z and RAR (RAR4/RAR5) are supported; unsupported files return 415 and the client falls back, encrypted archives return 409. Exact `Content-Length`. Same auth rules as download. |
 | GET | `/api/games/{id}/versions/{versionId}/stream/manifest?token=` | Ordered ZIP manifest for resumable per-entry installs (#115): `{ format: "zip", entryCount, totalBytes, totalCompressedBytes, entries: [{ index, path, size, compressedSize, mode, crc32, isDir }] }`. Same auth as `/stream` (Bearer or download ticket). Non-ZIP → `415 stream_unsupported`. |
 | GET | `/api/games/{id}/versions/{versionId}/stream/entries/{index}?token=` | Raw content of one ZIP entry, single HTTP `Range` supported (`206` + `Content-Range`, `416` + `Content-Range: bytes */size`). `Content-Length` is exact. Unknown index → `404 entry_not_found`; directories → `404 entry_not_found`. Same auth as `/stream`. |
-| GET | `/api/games/{id}/versions/latest` | newest non-missing version → `LatestVersion`; 404 `no_versions` when the game has none |
+| GET | `/api/games/{id}/versions/latest` | preferred version (`games.defaultVersionId`, else the newest non-missing version) → `LatestVersion`; 404 `no_versions` when the game has none |
+| GET | `/api/games/{id}/versions` | editor; every version, newest first, including missing archives → `GameVersionsResponse` (`gameId`, `defaultVersionId`, `versions: GameVersionInfo[]`) |
+| PUT | `/api/games/{id}/versions/default` | editor; `{ versionId }` pins the version used by downloads, fresh installs and `/versions/latest`; returns `GameVersionsResponse`. Pinning an older version is a rollback and keeps newer archives available. 404 `version_not_found`, 409 `version_missing` / `root_unavailable` |
+| DELETE | `/api/games/{id}/versions/{versionId}?confirm=true` | editor; deletes one archive file (local and object storage) and its row, keeps the game/metadata/saves and appends `game.version_deleted` to the audit log. 400 `confirmation_required`, 409 `version_missing`, `root_unavailable`, `version_in_use` (download or stream running) or `last_version`; when the deleted row was the default, the pin moves to the newest remaining version. Returns `{ versionId, freedBytes, defaultVersionId }` |
 | GET | `/api/games/{id}/versions/{versionId}/local-path` | embedded/local mode + loopback only → `{ path }`, else 404 |
+
+### Version management and rollback (#168)
+
+Every archive a game owns stays a first-class row. `GET /api/games/{id}/versions`
+returns all of them, including missing rows, so an editor can see what happened
+instead of watching an archive disappear:
+
+```ts
+interface GameVersionInfo {
+  id: number;
+  fileName: string;
+  size: number;
+  version: string | null;
+  releaseDate: string | null;
+  earlyAccess: boolean;
+  archiveHash: string | null;   // `sha256-sample:<hex>` when computed
+  indexedAt: string | null;     // first scan that indexed the row
+  updatedAt: string | null;     // last rename/re-hash/scan touch
+  missing: boolean;             // file vanished; row kept for history
+  rootUnavailable: boolean;     // library root offline
+  downloadUrl: string;
+}
+
+interface GameVersionsResponse {
+  gameId: number;
+  defaultVersionId: number | null;
+  versions: GameVersionInfo[];  // newest first
+}
+```
+
+`defaultVersionId` is the preferred version: `POST /api/games/{id}/download-ticket`
+without `versionId`, `GET /api/games/{id}/download` without `versionId`,
+`GET /api/games/{id}/versions/latest` (therefore desktop update detection and
+fresh installs) all use it. Setting an older version is a rollback: nothing is
+rewritten, and the newer archives stay downloadable by naming their
+`versionId`. When the pinned row is missing the server silently falls back to
+the newest available version, so a game is never left unlaunchable by a stale
+pin.
+
+Deletion only removes the archive: the game, metadata, progress, saves and the
+audit trail stay. The last available version, a missing archive, an archive on
+an offline root and one used by an in-flight download/stream are refused with
+a specific `409` code. Deleting the pinned archive moves the pin to the newest
+remaining version.
 
 ### Manual metadata match (#135)
 
@@ -1135,6 +1184,12 @@ interface LocalSettings {
   gamevaultRoots: string[];          // ordered GameVault install roots (#134)
   gamevaultScanDepth: number;        // executable search depth for scans, 4-8, default 6
   launcherSources: LauncherGame["source"][]; // sources launcher_scan may read (#155); all by default, empty = none
+  overlayEnabled: boolean;           // in-game overlay (#144), default true
+  overlayTrigger: "doubleHome" | "chord" | "keyboard"; // native gesture, default doubleHome
+  overlayOpacity: number;            // panel background opacity, 0.35-1.0, default 0.92
+  overlayScale: number;              // panel scale, 0.6-1.3, default 1.0
+  overlayTabs: ("game" | "library" | "downloads" | "achievements")[]; // shown tabs; "game" always drawn
+  overlayDisabledGames: number[];    // per-game opt-outs (#144), local to this device
 }
 
 interface InstallLocation {
@@ -1738,6 +1793,13 @@ interface StreamTarget {
 | `get_settings` | — | `LocalSettings` |
 | `save_settings` | `{ settings }` | `LocalSettings`; also re-applies the window decorations when `nativeTitleBar` changed (#111) |
 | `set_native_title_bar` | `{ enabled }` | `LocalSettings`; shows the OS title bar (`true`) or Ludex's own (`false`) on the live window and persists it, no restart. No-op decoration change on macOS (#111) |
+| `overlay_status` | — | `OverlayStatus`; overlay feature switch/opacity/scale/tabs, running game, presentation (`closed`, `window`, `inApp`), native listener status (backend, controllers, battery) and the platform limitation note (#144). Local only |
+| `set_overlay_settings` | `{ settings: OverlaySettingsPatch }` | `OverlayStatus`; merges any subset of `enabled`, `trigger`, `opacity`, `scale`, `tabs`, `disabledGames`, validates/clamps it, persists it and applies it live (an open overlay picks up opacity/scale/tabs; disabling closes it) (#144) |
+| `open_overlay` | — | `OverlayStatus`; opens the overlay. When the main window is focused it is drawn in-app (`presentation: "inApp"`); otherwise a transparent always-on-top `overlay` window is created on the current monitor (`presentation: "window"`). Refused when the overlay or the running game is opted out (#144) |
+| `close_overlay` | — | `OverlayStatus`; hides the overlay window and hands focus back (Windows: captured HWND; X11: `xdotool` when available). Never pauses or stops the game (#144) |
+| `overlay_game_state` | — | `OverlayGameState \| null`; session id, game id, title, launch time, elapsed seconds, total playtime and per-game disable flag of the newest running game (#144) |
+| `set_overlay_game_disabled` | `{ gameId, disabled }` | `OverlayStatus`; persists a per-game opt-out; disabling the running game closes the overlay (#144) |
+| `overlay_show_big_picture` | — | `null`; closes the overlay, brings the main window forward and emits `overlay://navigate` with `/bigpicture` (#144) |
 | `pick_folder` | `{ title? }` | `string \| null` |
 | `local_server_start` | — | `{ url, token }` |
 | `local_server_stop` | — | `null` |
@@ -2640,10 +2702,72 @@ LB/RB mean the same thing in all four.
 The layout is a **device** preference, not an account setting: it is stored in
 `localStorage` under `ludex.bigPicture.layout` (scoped per server through
 `scopedStorageKey`, like `ludex.libraryView`) and shared by a module store, so
-the header control, the quick switcher (`L` on a keyboard, X on a controller)
-and Settings → Appearance all apply it to a running screen without a reload.
+the header control, the quick switcher (`L` on a keyboard, the Layout entry in
+the Start/Guide menu on a controller) and Settings → Appearance all apply it to
+a running screen without a reload.
 Unknown or missing values fall back to `shelf`. Switching layouts preserves the
 selected game and shelf; the ring is restored to that game.
+
+### Big Picture controller-first operation (#138)
+
+`/bigpicture` is operable with a controller alone. Input is routed by
+`components/big-picture/input.ts` as a pure action → command table shared by the
+keyboard and the pad, so the two can never drift:
+
+| Input | Library | Overlay open |
+|---|---|---|
+| D-pad / left stick | `left/right/up/down` (per `stepForLayout`) | move the overlay highlight |
+| A / Cross | activate (play, install, download) | select |
+| B / Circle | open the exit confirmation | close the overlay |
+| X / Square | search keyboard | — |
+| Y / Triangle | download queue | — |
+| LB/RB (L1/R1) | previous/next shelf | — |
+| LT/RT (L2/R2) | previous/next page (`pageStepForLayout`) | — |
+| Start/Options, Guide | quick actions menu | close the overlay |
+
+LB and LT both produce the logical `prevTab` action, and Start and X both
+produce `menu`: Big Picture reads the physical source (`ActionSource` in
+`lib/gamepad-core.ts`) to split them, so a remapped button still fires the
+logical action. `withBigPictureDefaults` only adds the inputs a stored profile
+leaves unmapped — Start (9) and Guide (16/17) → `menu`, LT/RT (6/7) →
+`prevTab`/`nextTab` — and never overrides a remap, which is why switching
+profiles cannot break navigation.
+
+The hint strip (`components/big-picture/parts.tsx`) is generated from the same
+context registry (`hintsFor` in `components/big-picture/controller.ts`):
+library, quick switcher, menu, exit confirmation, controller profiles, download
+queue and search each advertise their own actions, and the labels follow the pad
+family detected from the Gamepad id (Xbox, DualSense, Steam Deck, generic).
+Without a pad the same list is expressed as keys, so keyboard/mouse parity is
+explicit rather than implied.
+
+Overlays are non-modal panels (`role="group"`, never `aria-modal`) so the
+gamepad keeps driving them; Escape/B closes them, there is no focus trap, and
+the queue overlay only reads `state/downloads` — installs keep running behind
+it. The controller overlay lists the automatic resolution, the saved account
+profile, per-game overrides and the four built-in presets; the choice is a
+device preference stored in `localStorage` under
+`ludex.bigPicture.controller` (scoped per server, JSON
+`{ profileId, haptics }`, `profileId: null` = automatic). The screen hands the
+selected profile straight to `useGamepad`, so deadzone, curve, sensitivity,
+inversion, trigger threshold and remapping apply on the next press without
+leaving Big Picture. The active profile and pad family are shown in the header
+and in the footer indicator.
+
+Couch search (`components/big-picture/search.ts` + `search-overlay.tsx`) is a
+real text input plus an on-screen QWERTY and one result row per match inside
+one focus grid, so the d-pad reaches both. The query is debounced
+(`SEARCH_DEBOUNCE_MS = 140`), matching is accent/case insensitive over title,
+genres and release year, and selecting a result resolves its shelf slot and
+moves the ring to that card. An empty query suggests recently played titles.
+
+Haptics are optional: `hapticPattern` in `lib/gamepad-core.ts` gives focus moves
+a light tick and confirm/back a stronger pulse; `useGamepad` plays it through
+`vibrationActuator.playEffect("dual-rumble", …)` only when the profile's
+`vibration` flag, the Big Picture haptics preference and a supporting pad are all
+present — otherwise it is a silent no-op. The haptics switch lives in the
+controller overlay. Focus, overlay and card rings use the `data-gamepad-focus`
+attribute, so the TV-sized `--focus` ring stays visible for non-keyboard input.
 
 ## Emulators and ROMs (#52)
 
@@ -2707,3 +2831,77 @@ sets `<html lang>` and `<html dir>` from the locale manifest. The app uses
 `Intl` for dates, numbers, relative times and plural categories. The service worker only caches the app shell and the public
 `/api/media/` image route; every other `/api/` request, including auth and JSON,
 bypasses the cache. See `docs/I18N.md`.
+
+### In-game overlay (#144)
+
+The overlay is the Steam-like panel over a running game. It is **not** injected
+into the game and never hooks a process: Ludex only draws its own window above
+a borderless/windowed-fullscreen game. A game in exclusive fullscreen usually
+cannot show any non-injected overlay, and that limitation is reported verbatim
+by `platformNote` in `OverlayStatus`.
+
+```ts
+interface OverlayStatus {
+  enabled: boolean;
+  open: boolean;
+  trigger: "doubleHome" | "chord" | "keyboard";
+  opacity: number;            // 0.35-1.0
+  scale: number;              // 0.6-1.3
+  tabs: ("game" | "library" | "downloads" | "achievements")[];
+  disabledGames: number[];
+  game: OverlayGameState | null;
+  gameDisabled: boolean;
+  presentation: "closed" | "window" | "inApp";
+  listener: {
+    backend: "gilrs" | "unsupported" | "failed" | "none";
+    available: boolean;
+    platform: string;
+    reason: string | null;
+    controllers: { id: string; name: string; active: boolean; battery: number | null; charging: boolean }[];
+  };
+  platformNote: string;
+  keyboardShortcut: string;   // "Shift+Tab"
+}
+
+interface OverlayGameState {
+  sessionId: string;
+  gameId: number;
+  title: string;
+  startedAt: string;          // RFC 3339
+  elapsedSeconds: number;     // this session
+  totalSeconds: number;       // finished sessions + this one
+  disabled: boolean;
+}
+
+type OverlaySettingsPatch = Partial<Pick<OverlayStatus,
+  "enabled" | "trigger" | "opacity" | "scale" | "tabs"> & { disabledGames: number[] }>;
+```
+
+- **Triggers.** Phase 1 is the in-app overlay opened by `Shift+Tab` while Ludex
+  is focused. Phase 2 adds a native, OS-level gamepad listener (`gilrs`) in a
+  background thread: a double Guide/Home/PS press inside 400 ms toggles the
+  overlay, a single press is never swallowed, and the LB+RB+Start chord is the
+  fallback for pads whose Guide button is not exposed (Windows XInput/WGI do not
+  expose it). `trigger: "chord"` disables the Guide gesture so Steam/OS keeps
+  it; `trigger: "keyboard"` disables both pad gestures. Hot-plug, controller id
+  and a 0.25 deadzone for activity reporting are handled by the listener.
+  Each controller reports `battery`/`charging` when the host exposes it.
+- **Window.** When a game owns the focus, `open_overlay` creates the `overlay`
+  webview window: transparent (Windows/Linux), always-on-top, undecorated,
+  focusable, skipped from the taskbar, sized to cover the monitor the main
+  window is on, and focused without stopping the game. When the main window is
+  focused the same panel is drawn in-app. `close_overlay` hides the window and
+  restores focus: the captured foreground HWND on Windows; `xdotool` on X11
+  when installed (Wayland delegates to the compositor); otherwise no other
+  window is focused while a game is running.
+- **Content.** Current game and playtime, Resume/Exit, Library quick launch,
+  Downloads progress (the Rust install queue keeps running), achievements of
+  the running game, controller status/battery in the footer and a Big Picture
+  link. Gamepad-first navigation with a focus trap; `Esc` and B close it.
+- **Privacy and behaviour.** No telemetry, no network call beyond the user's own
+  server (achievements/cover), no injection or anti-cheat bypass. The game is
+  never paused. Per-game disable lives in `overlayDisabledGames` and can be set
+  from the overlay footer or Settings → Profiles.
+- **Electron/web overlay windows.** The `overlay` label is declared in
+  `capabilities/default.json`; the web entry is `index.html?overlay=1`, which
+  mounts a router-free provider tree instead of the main app shell.

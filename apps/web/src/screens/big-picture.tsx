@@ -2,14 +2,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useReducedMotion } from "motion/react";
-import { Download, Play, RefreshCw, X } from "lucide-react";
+import { Download, Gamepad2, Play, RefreshCw, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { downloadGame } from "@/lib/download";
 import { errorMessage } from "@/lib/http";
 import { formatPercent } from "@/lib/format";
 import { isNative } from "@/lib/native";
 import { useAllGames, useInstalledMap, useLaunchGame } from "@/lib/hooks";
-import { useGamepad, gamepadDebugEnabled, type GamepadAction } from "@/lib/gamepad";
+import { useGamepad, gamepadDebugEnabled, type ActionSource, type GamepadAction } from "@/lib/gamepad";
 import { GamepadDebugPanel } from "@/components/gamepad/gamepad-debug";
 import { useControllerProfile } from "@/lib/use-controller-profile";
 import { useDownloads } from "@/state/downloads";
@@ -19,6 +19,24 @@ import { Wordmark } from "@/components/brand";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { Button } from "@/components/ui/controls";
 import { ENTRANCE_MS } from "@/components/big-picture/entrance";
+import {
+  padFamily,
+  padFamilyLabel,
+  profileOptions,
+  readControllerPrefs,
+  resolveProfileChoice,
+  withBigPictureDefaults,
+  writeControllerPrefs,
+  type BigPictureControllerPrefs,
+} from "@/components/big-picture/controller";
+import {
+  hintContextFor,
+  routeGamepadAction,
+  routeKey,
+  type BigPictureCommand,
+  type BigPictureOverlay,
+  type SearchStep,
+} from "@/components/big-picture/input";
 import { CompactLayout } from "@/components/big-picture/layout-compact";
 import { GridLayout } from "@/components/big-picture/layout-grid";
 import { HeroLayout } from "@/components/big-picture/layout-hero";
@@ -27,13 +45,28 @@ import { LayoutSkeleton } from "@/components/big-picture/layout-skeleton";
 import { LayoutPicker, LayoutTrigger } from "@/components/big-picture/layout-switcher";
 import {
   BIG_PICTURE_LAYOUTS,
+  clampIndex,
   gridColumns,
   type BigPictureLayout,
 } from "@/components/big-picture/layout";
 import { jobPercent, type BigPictureLayoutProps } from "@/components/big-picture/model";
 import { useBigPictureNavigation, type BigPictureShelf } from "@/components/big-picture/navigation";
 import { BigPictureFooter } from "@/components/big-picture/parts";
+import { CommandMenu, COMMAND_ITEMS, DownloadsOverlay, ExitOverlay } from "@/components/big-picture/overlays";
+import { ProfileOverlay } from "@/components/big-picture/profile-overlay";
+import { SearchOverlay } from "@/components/big-picture/search-overlay";
+import {
+  SEARCH_DEBOUNCE_MS,
+  applySearchKey,
+  clampSearchIndex,
+  filterGames,
+  findGameShelf,
+  flattenSearchRows,
+  moveSearchTarget,
+  searchRows,
+} from "@/components/big-picture/search";
 import { useBigPictureLayout, useViewportWidth } from "@/components/big-picture/use-layout";
+import { scopedStorageKey } from "@/lib/server-storage";
 import { t, tn } from "@/lib/i18n";
 
 /** Ask the server once per open; a quick round trip through the route is free. */
@@ -42,12 +75,31 @@ const REFRESH_ON_OPEN_MS = 10_000;
 const REFRESH_ON_FOCUS_MS = 30_000;
 let lastRefreshAt = 0;
 
+function storage(): Storage | null {
+  try {
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** The profile preference is per device and per server, like the layout. */
+function prefsKey(): string {
+  try {
+    return scopedStorageKey("ludex.bigPicture.controller");
+  } catch {
+    return "ludex.bigPicture.controller";
+  }
+}
+
 /**
- * Big Picture: the same archive language at ten feet (#141). One screen, four
- * layouts — shelf, hero, cover grid and compact list — driven by the same
- * selection model, the same keys and the same gamepad buttons. The layout is a
- * device preference: it lives in `localStorage` (see `use-layout.ts`) and
- * applies from here, from the quick switcher or from Settings → Appearance.
+ * Big Picture: the same archive language at ten feet (#141), operated with the
+ * controller first (#138). One screen, four layouts — shelf, hero, cover grid
+ * and compact list — driven by the same selection model, the same keys and the
+ * same gamepad actions. Every overlay (quick actions, search keyboard, download
+ * queue, controller profiles, exit confirmation) is reached and dismissed with
+ * the pad; the hint strip always names the buttons of the connected family
+ * (Xbox, DualSense, Steam Deck, generic) and the keyboard equivalent.
  */
 export function BigPictureScreen() {
   const navigate = useNavigate();
@@ -73,12 +125,29 @@ export function BigPictureScreen() {
   const reduceMotion = useReducedMotion();
   const columns = gridColumns(useViewportWidth());
 
+  // #138 controller-first state: the open overlay, its highlight, the couch
+  // search query (debounced by the filter below) and the device-local profile
+  // choice. None of these leave Big Picture when they change.
+  const [overlay, setOverlay] = useState<BigPictureOverlay | null>(null);
+  const [overlayIndex, setOverlayIndex] = useState(0);
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [searchIndex, setSearchIndex] = useState(0);
+  const [prefs, setPrefs] = useState<BigPictureControllerPrefs>(() =>
+    readControllerPrefs(storage(), prefsKey()),
+  );
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   // Big Picture is watched from a couch: the provider lifts text to 7:1 and
   // widens the focus ring while this screen is mounted (#140).
   useLayoutEffect(() => {
     setTv(true);
     return () => setTv(false);
   }, [setTv]);
+
+  useEffect(() => {
+    writeControllerPrefs(storage(), prefs, prefsKey());
+  }, [prefs]);
 
   const games = data?.items ?? [];
 
@@ -111,6 +180,70 @@ export function BigPictureScreen() {
   const installedGame = selected ? installed.get(selected.id) : undefined;
   const job = selected ? downloads.jobForGame(selected.id) : undefined;
   const percent = jobPercent(job);
+
+  // The controller profiles (#51) that drive navigation. The automatic choice
+  // is what the library screen resolves (account, then per-game override); an
+  // explicit choice is a device preference and applies to the next press.
+  const accountProfile = useControllerProfile(selected?.id ?? null);
+  const profilesQuery = useQuery({
+    queryKey: ["controller-profiles"],
+    queryFn: () => api.controllerProfiles(),
+    staleTime: 5 * 60_000,
+  });
+  const profileChoices = useMemo(
+    () => profileOptions(profilesQuery.data, accountProfile),
+    [profilesQuery.data, accountProfile],
+  );
+  const selectedProfile = useMemo(
+    () => resolveProfileChoice(profileChoices, prefs.profileId, accountProfile),
+    [profileChoices, prefs.profileId, accountProfile],
+  );
+  const activeProfile = useMemo(
+    () => withBigPictureDefaults(selectedProfile.profile),
+    [selectedProfile],
+  );
+  const haptics = prefs.haptics && activeProfile.vibration;
+
+  // Couch search (#138): the query is debounced so a fast typist does not
+  // rebuild the result grid on every letter, and the focus grid includes the
+  // on-screen keyboard rows plus one row per result.
+  useEffect(() => {
+    if (overlay !== "search") return;
+    if (debouncedQuery === query) return;
+    const timer = window.setTimeout(() => setDebouncedQuery(query), SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [query, debouncedQuery, overlay]);
+
+  const searchResults = useMemo(
+    () => filterGames(games, debouncedQuery),
+    [games, debouncedQuery],
+  );
+  const rows = useMemo(() => searchRows(searchResults), [searchResults]);
+  const cells = useMemo(() => flattenSearchRows(rows), [rows]);
+
+  useEffect(() => {
+    setSearchIndex((current) => clampSearchIndex(current, cells.length));
+  }, [cells.length]);
+
+  const overlayCount =
+    overlay === "menu"
+      ? COMMAND_ITEMS.length
+      : overlay === "exit"
+        ? 2
+        : overlay === "downloads"
+          ? downloads.active.length + 1
+          : overlay === "profiles"
+            ? profileChoices.length + 1
+            : overlay === "search"
+              ? cells.length
+              : 0;
+
+  // A download completing or a profile list changing can shorten an overlay
+  // under the highlight; never leave the ring on a row that no longer exists.
+  useEffect(() => {
+    if (!overlay || overlay === "search") return;
+    setOverlayIndex((current) => clampIndex(current, Math.max(1, overlayCount)));
+  }, [overlay, overlayCount]);
 
   useEffect(() => {
     const timer = setInterval(() => setClock(new Date()), 30_000);
@@ -283,102 +416,231 @@ export function BigPictureScreen() {
     highlightPicker((((pickerIndexRef.current + delta) % count) + count) % count);
   };
 
-  // One action map for the keyboard and the pad. Movement and shelf changes go
-  // through the navigation hook, so a layout switch never re-wires them.
-  const controls = useRef({
-    left: () => {},
-    right: () => {},
-    up: () => {},
-    down: () => {},
-    prevShelf: () => {},
-    nextShelf: () => {},
-    confirm: () => {},
-    back: () => {},
-    downloads: () => {},
-    menu: () => {},
-    applyPicker: () => {},
-    movePicker: (_delta: number) => {},
-    closePicker: () => {},
-  });
-  controls.current = {
-    left: nav.actions.left,
-    right: nav.actions.right,
-    up: nav.actions.up,
-    down: nav.actions.down,
-    prevShelf: nav.actions.prevShelf,
-    nextShelf: nav.actions.nextShelf,
-    confirm,
-    back: exit,
-    downloads: () => navigate("/downloads"),
-    menu: openPicker,
-    applyPicker: () => applyLayout(BIG_PICTURE_LAYOUTS[pickerIndexRef.current] ?? layout),
-    movePicker,
-    closePicker,
+  /* ------------------------------- overlays ------------------------------- */
+
+  const openOverlay = (next: BigPictureOverlay) => {
+    setOverlay(next);
+    if (next === "search") {
+      setSearchIndex(0);
+    } else if (next === "profiles") {
+      const current = profileChoices.findIndex((option) => option.id === selectedProfile.id);
+      setOverlayIndex(Math.max(0, current));
+    } else if (next === "exit") {
+      // Default to "Stay": a reflex A press must never quit the app.
+      setOverlayIndex(1);
+    } else {
+      setOverlayIndex(0);
+    }
   };
+
+  const closeOverlay = (refocus = true) => {
+    setOverlay(null);
+    if (refocus) {
+      // The card exists again after the overlay unmounts; the navigation hook's
+      // ref already holds the new selection, so the ring lands on the right one.
+      window.setTimeout(() => nav.focusSelected(), 0);
+    }
+  };
+
+  const moveOverlay = (direction: "up" | "down" | "left" | "right") => {
+    if (overlay === "search") {
+      setSearchIndex((current) => moveSearchTarget(rows, current, direction));
+      return;
+    }
+    const delta = direction === "up" || direction === "left" ? -1 : 1;
+    setOverlayIndex((current) => clampIndex(current + delta, overlayCount));
+  };
+
+  const pickResult = (gameId: number) => {
+    const target = findGameShelf(shelves, gameId);
+    if (target) nav.selectGame(target.shelf, target.index);
+    closeOverlay();
+  };
+
+  const typeSearchKey = (key: string) => {
+    setQuery((current) => applySearchKey(current, key));
+    searchInputRef.current?.focus({ preventScroll: true });
+  };
+
+  const applySearchStep = (step: SearchStep) => {
+    if (step === "submit") {
+      // Enter/RB opens the result under the ring, or the best match when the
+      // ring is still on the keyboard.
+      const current = cells[searchIndex];
+      if (current?.kind === "result") return pickResult(current.game.id);
+      const first = cells.find((cell) => cell.kind === "result");
+      if (first && first.kind === "result") pickResult(first.game.id);
+      return;
+    }
+    typeSearchKey(step);
+  };
+
+  const activateOverlay = (index = overlayIndex) => {
+    switch (overlay) {
+      case "menu": {
+        const item = COMMAND_ITEMS[index];
+        if (!item) return;
+        switch (item.id) {
+          case "play":
+            closeOverlay(false);
+            return confirm();
+          case "game":
+            if (!selected) return;
+            closeOverlay(false);
+            return navigate(`/game/${selected.id}`);
+          case "search":
+            return openOverlay("search");
+          case "downloads":
+            return openOverlay("downloads");
+          case "profiles":
+            return openOverlay("profiles");
+          case "layout":
+            closeOverlay(false);
+            return openPicker();
+          case "settings":
+            closeOverlay(false);
+            return navigate("/settings");
+          case "exit":
+            return openOverlay("exit");
+        }
+        return;
+      }
+      case "exit":
+        if (index === 0) exit();
+        else closeOverlay();
+        return;
+      case "downloads":
+        // Leaving the route is deliberate: pausing and retrying live there, and
+        // the queue keeps running either way.
+        navigate("/downloads");
+        return;
+      case "profiles": {
+        const option = profileChoices[index];
+        if (option) {
+          setPrefs((current) => ({ ...current, profileId: option.id === "auto" ? null : option.id }));
+          return;
+        }
+        if (index === profileChoices.length) {
+          setPrefs((current) => ({ ...current, haptics: !current.haptics }));
+        }
+        return;
+      }
+      case "search": {
+        const cell = cells[searchIndex];
+        if (!cell) return;
+        if (cell.kind === "key") return typeSearchKey(cell.key);
+        return pickResult(cell.game.id);
+      }
+      default:
+        return;
+    }
+  };
+
+  const runCommand = (command: BigPictureCommand) => {
+    switch (command.type) {
+      case "move":
+        nav.actions[command.direction]();
+        return;
+      case "shelf":
+        if (command.delta < 0) nav.actions.prevShelf();
+        else nav.actions.nextShelf();
+        return;
+      case "page":
+        nav.actions.page(command.delta);
+        return;
+      case "activate":
+        confirm();
+        return;
+      case "open":
+        openOverlay(command.overlay);
+        return;
+      case "close":
+        closeOverlay();
+        return;
+      case "highlight":
+        moveOverlay(command.direction);
+        return;
+      case "select":
+        activateOverlay();
+        return;
+      case "search":
+        applySearchStep(command.step);
+        return;
+      case "layout":
+        openPicker();
+        return;
+      case "game":
+        if (selected) navigate(`/game/${selected.id}`);
+        return;
+      case "none":
+        return;
+    }
+  };
+  const runRef = useRef(runCommand);
+  runRef.current = runCommand;
+
+  // Focus follows the highlight in every list overlay. The search overlay is
+  // the exception: its real input keeps focus so physical typing works, and the
+  // ring is the highlighted cell.
+  useEffect(() => {
+    if (!overlay) return;
+    const active = document.querySelector<HTMLElement>("[data-overlay-active='true']");
+    if (!active) return;
+    // `pointerdown` clears every mark, and React will not rewrite an unchanged
+    // attribute; re-marking here keeps the ring visible after a mouse click.
+    active.setAttribute("data-gamepad-focus", "true");
+    if (overlay !== "search") active.focus({ preventScroll: true });
+  }, [overlay, overlayIndex]);
+
+  useEffect(() => {
+    if (overlay !== "search") return;
+    searchInputRef.current?.focus({ preventScroll: true });
+  }, [overlay]);
+
+  // Picker (the quick layout switcher) keeps its own arrows: the overlays below
+  // never see input while it is open.
+  const movePickerRef = useRef(movePicker);
+  movePickerRef.current = movePicker;
+  const applyPickerRef = useRef<() => void>(() => {});
+  applyPickerRef.current = () =>
+    applyLayout(BIG_PICTURE_LAYOUTS[pickerIndexRef.current] ?? layout);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       const key = event.key;
 
-      // The quick switcher owns the arrows while it is open, so a stray Enter
-      // never launches a game behind it.
       if (pickerOpen) {
         if (key === "ArrowLeft") {
           event.preventDefault();
-          controls.current.movePicker(-1);
+          movePickerRef.current(-1);
         } else if (key === "ArrowRight") {
           event.preventDefault();
-          controls.current.movePicker(1);
+          movePickerRef.current(1);
         } else if (key === "Enter") {
           event.preventDefault();
-          controls.current.applyPicker();
+          applyPickerRef.current();
         } else if (key === "Escape" || key.toLowerCase() === "l") {
           event.preventDefault();
-          controls.current.closePicker();
+          closePicker();
         }
         return;
       }
 
-      if (key === "ArrowLeft") {
-        event.preventDefault();
-        controls.current.left();
-      } else if (key === "ArrowRight") {
-        event.preventDefault();
-        controls.current.right();
-      } else if (key === "ArrowUp") {
-        event.preventDefault();
-        controls.current.up();
-      } else if (key === "ArrowDown") {
-        event.preventDefault();
-        controls.current.down();
-      } else if (key === "Enter") {
-        event.preventDefault();
-        controls.current.confirm();
-      } else if (key === "Escape" || key === "Backspace") {
-        event.preventDefault();
-        controls.current.back();
-      } else if (key === "[") {
-        event.preventDefault();
-        controls.current.prevShelf();
-      } else if (key === "]") {
-        event.preventDefault();
-        controls.current.nextShelf();
-      } else if (key.toLowerCase() === "d") {
-        controls.current.downloads();
-      } else if (key.toLowerCase() === "l") {
-        event.preventDefault();
-        controls.current.menu();
-      }
+      const command = routeKey(overlay, key);
+      // `null` means the DOM owns the key: printable characters and the native
+      // backspace in the search input stay native.
+      if (!command) return;
+      event.preventDefault();
+      runRef.current(command);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pickerOpen]);
+  }, [overlay, pickerOpen]);
 
-  // Gamepad: d-pad/stick moves, A confirms, B exits, X opens the layout
-  // switcher, Y opens downloads and the shoulders change shelf (the same
-  // actions as the arrows). Back, X and downloads stay live on an empty shelf.
-  const onGamepad = (action: GamepadAction) => {
+  // Gamepad: the same commands as the keyboard, resolved from the active pad
+  // action and the physical input that produced it (#138).
+  const onGamepad = (action: GamepadAction, source: ActionSource | null) => {
     if (pickerOpen) {
       if (action === "back" || action === "menu") return closePicker();
       if (action === "confirm") return applyLayout(BIG_PICTURE_LAYOUTS[pickerIndexRef.current] ?? layout);
@@ -386,21 +648,14 @@ export function BigPictureScreen() {
       if (action === "right") return movePicker(1);
       return;
     }
-
-    if (action === "back") return exit();
-    if (action === "downloads") return navigate("/downloads");
-    if (action === "menu") return openPicker();
-    if (action === "prevTab") return nav.actions.prevShelf();
-    if (action === "nextTab") return nav.actions.nextShelf();
-    if (!selected) return;
-    if (action === "left") nav.actions.left();
-    else if (action === "right") nav.actions.right();
-    else if (action === "up") nav.actions.up();
-    else if (action === "down") nav.actions.down();
-    else if (action === "confirm") confirm();
+    runRef.current(routeGamepadAction(overlay, action, source));
   };
-  const controllerProfile = useControllerProfile(selected?.id ?? null);
-  const gamepad = useGamepad(onGamepad, { profile: controllerProfile, debug });
+  const gamepad = useGamepad(onGamepad, {
+    profile: activeProfile,
+    debug,
+    haptics: prefs.haptics,
+  });
+  const padFamilyName = padFamily(gamepad.id, activeProfile);
 
   // After a layout switch the ring must come back to the same game. Only when
   // the pad owns focus: a mouse click on the switcher keeps its own focus.
@@ -498,6 +753,14 @@ export function BigPictureScreen() {
     <ShelfLayout {...viewProps} />
   );
 
+  const overlayShell = {
+    layout,
+    connected: gamepad.connected,
+    family: padFamilyName,
+    reduceMotion,
+    onClose: () => closeOverlay(),
+  };
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-bg-deep text-ink">
       <div className="grain" aria-hidden="true" />
@@ -515,6 +778,19 @@ export function BigPictureScreen() {
           </span>
         )}
         <div className="ml-auto flex items-center gap-3">
+          {gamepad.connected && (
+            <span
+              className="hidden items-center gap-1.5 border border-line px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3 md:flex"
+              title={selectedProfile.label}
+            >
+              <Gamepad2 className="size-3.5 text-signal-text" aria-hidden="true" />
+              <span className="text-ink-2">{padFamilyLabel(padFamilyName)}</span>
+              <span aria-hidden="true">·</span>
+              <span className="max-w-[16ch] truncate normal-case tracking-normal text-ink-3">
+                {selectedProfile.profile.name}
+              </span>
+            </span>
+          )}
           {downloads.activeCount > 0 && (
             <button
               type="button"
@@ -538,7 +814,94 @@ export function BigPictureScreen() {
 
       <main className="relative z-10 flex min-h-0 flex-1 flex-col">{body}</main>
 
-      <BigPictureFooter layout={layout} connected={gamepad.connected} />
+      <BigPictureFooter
+        layout={layout}
+        connected={gamepad.connected}
+        family={padFamilyName}
+        profileName={selectedProfile.profile.name}
+        context={hintContextFor(overlay)}
+        haptics={haptics}
+      />
+
+      {overlay === "menu" && (
+        <CommandMenu
+          {...overlayShell}
+          context="menu"
+          active={overlayIndex}
+          onHighlight={setOverlayIndex}
+          onChoose={(index) => {
+            setOverlayIndex(index);
+            activateOverlay(index);
+          }}
+          downloads={downloads.activeCount}
+        />
+      )}
+      {overlay === "exit" && (
+        <ExitOverlay
+          {...overlayShell}
+          context="exit"
+          active={overlayIndex}
+          onHighlight={setOverlayIndex}
+          onChoose={(index) => {
+            setOverlayIndex(index);
+            activateOverlay(index);
+          }}
+        />
+      )}
+      {overlay === "downloads" && (
+        <DownloadsOverlay
+          {...overlayShell}
+          context="downloads"
+          active={overlayIndex}
+          onHighlight={setOverlayIndex}
+          onChoose={(index) => {
+            setOverlayIndex(index);
+            activateOverlay(index);
+          }}
+          jobs={downloads.active}
+          titleFor={downloads.titleFor}
+        />
+      )}
+      {overlay === "profiles" && (
+        <ProfileOverlay
+          {...overlayShell}
+          context="profiles"
+          active={overlayIndex}
+          onHighlight={setOverlayIndex}
+          onChoose={(index) => {
+            setOverlayIndex(index);
+            activateOverlay(index);
+          }}
+          options={profileChoices}
+          selectedId={selectedProfile.id}
+          profile={activeProfile}
+          haptics={prefs.haptics}
+        />
+      )}
+      {overlay === "search" && (
+        <SearchOverlay
+          {...overlayShell}
+          context="search"
+          inputRef={searchInputRef}
+          query={query}
+          onQuery={setQuery}
+          rows={rows}
+          active={searchIndex}
+          onHighlight={setSearchIndex}
+          onChoose={(index) => {
+            setSearchIndex(index);
+            // The highlight may still be the previous index inside this handler;
+            // choose the cell that was actually clicked.
+            const cell = cells[index];
+            if (!cell) return;
+            if (cell.kind === "key") {
+              typeSearchKey(cell.key);
+              return;
+            }
+            pickResult(cell.game.id);
+          }}
+        />
+      )}
 
       {version && detail.data && (
         <InstallDialog open={installOpen} onOpenChange={setInstallOpen} game={detail.data} version={version} />

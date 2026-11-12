@@ -5,13 +5,15 @@ import {
   applyGamepadFocus,
   collectRepeatActions,
   createRepeatTracker,
+  hapticPattern,
   hasBlockingModal,
   parseGamepadDebugFlag,
-  readPadActions,
+  readPadPresses,
   resetRepeatTracker,
   restoreGamepadFocus,
   selectActivePad,
   padHasInput,
+  type ActionSource,
   type GamepadAction,
   type PadActivity,
   type PadLike,
@@ -37,19 +39,24 @@ import {
  * | Y (3) | `downloads` |
  * | LB / RB (4/5) | `prevTab` / `nextTab` |
  *
- * Directions repeat after a short delay; face and shoulder buttons fire once
- * per press. Input is ignored while a real modal dialog is open and focus is
- * returned to the gamepad target when it closes. Polling is rAF-based, starts
- * and stops with the route and the page visibility, and re-scans on focus and
- * on hot-plug events, which is what Windows/WebView2 needs when a pad only
- * reports itself after its first button press.
+ * The handler also receives the physical {@link ActionSource} behind the action
+ * (#138): Big Picture tells a shoulder from a trigger and X from Start/Guide
+ * without changing the logical action set. Directions repeat after a short
+ * delay; face and shoulder buttons fire once per press. Optional haptics play a
+ * `dual-rumble` pattern for each accepted input, gated on the profile's
+ * `vibration` flag, the `haptics` option and a supporting `vibrationActuator`;
+ * otherwise they are a silent no-op. Input is ignored while a real modal dialog
+ * is open and focus is returned to the gamepad target when it closes. Polling is
+ * rAF-based, starts and stops with the route and the page visibility, and
+ * re-scans on focus and on hot-plug events, which is what Windows/WebView2 needs
+ * when a pad only reports itself after its first button press.
  *
  * Add `?gamepadDebug=1` to the route to get an overlay with the pad id,
  * mapping, axes/buttons, resolved profile and the last action; the same flag
  * turns on `console.debug` lines.
  */
 
-export type { GamepadAction } from "@/lib/gamepad-core";
+export type { ActionSource, GamepadAction } from "@/lib/gamepad-core";
 
 export interface GamepadDebugInfo {
   connected: boolean;
@@ -82,8 +89,8 @@ export function gamepadDebugEnabled(search?: string | null): boolean {
 }
 
 export function useGamepad(
-  onAction: (action: GamepadAction) => void,
-  options: { enabled?: boolean; profile?: ControllerProfile | null; debug?: boolean } = {},
+  onAction: (action: GamepadAction, source: ActionSource | null) => void,
+  options: { enabled?: boolean; profile?: ControllerProfile | null; debug?: boolean; haptics?: boolean } = {},
 ): GamepadState {
   const enabled = options.enabled ?? true;
   const debug = options.debug ?? gamepadDebugEnabled();
@@ -100,6 +107,8 @@ export function useGamepad(
   profileRef.current = options.profile ?? presetProfile("xbox");
   const debugRef = useRef(debug);
   debugRef.current = debug;
+  const hapticsRef = useRef(options.haptics ?? true);
+  hapticsRef.current = options.haptics ?? true;
 
   useEffect(() => {
     if (!enabled) return;
@@ -194,16 +203,21 @@ export function useGamepad(
       return list;
     };
 
-    const vibrate = (pad: PadLike, now: number) => {
+    const vibrate = (pad: PadLike, now: number, action: GamepadAction) => {
       const profile = profileRef.current;
-      if (!profile.vibration) return;
+      if (!profile.vibration || !hapticsRef.current) return;
       if (now - lastRumbleAt < 120) return;
+      const pattern = hapticPattern(action);
+      if (!pattern) return;
       const actuator = (pad as unknown as Gamepad).vibrationActuator;
       if (!actuator || typeof actuator.playEffect !== "function") return;
       lastRumbleAt = now;
-      void actuator
-        .playEffect("dual-rumble", { duration: 70, strongMagnitude: 0.35, weakMagnitude: 0.25 })
-        .catch(() => undefined);
+      try {
+        const result = actuator.playEffect("dual-rumble", pattern) as Promise<unknown> | undefined;
+        if (result && typeof result.catch === "function") void result.catch(() => undefined);
+      } catch {
+        /* a pad that refuses the effect is a silent no-op */
+      }
     };
 
     const debugFrame = (pad: PadLike | null, now: number) => {
@@ -262,7 +276,9 @@ export function useGamepad(
       }
 
       const profile = profileRef.current;
-      const pressed = readPadActions(profile, pad);
+      const presses = readPadPresses(profile, pad);
+      const pressed = new Set<GamepadAction>(presses.map((press) => press.action));
+      const sourceFor = new Map(presses.map((press) => [press.action, press.source]));
       const backEdge = pressed.has("back") && !repeat.pressed.has("back");
       const actions = collectRepeatActions(repeat, pressed, now, modal);
       if (modal && backEdge) {
@@ -278,8 +294,8 @@ export function useGamepad(
         );
       }
       for (const action of actions) {
-        handlerRef.current(action);
-        vibrate(pad, now);
+        handlerRef.current(action, sourceFor.get(action) ?? null);
+        vibrate(pad, now, action);
         lastAction = action;
         lastActionAt = now;
         if (debugRef.current) {

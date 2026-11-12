@@ -17,6 +17,7 @@ import {
   type LayoutStorage,
 } from "./layout";
 import { jobPercent } from "./model";
+import { LIST_PAGE_STEP, RAIL_PAGE_STEP, pageStepForLayout } from "./layout";
 
 /* --------------------------------------------------------------------------
    #141: the layout registry, the persisted preference and the direction model
@@ -179,6 +180,63 @@ describe("layout direction model", () => {
       for (const direction of ["left", "right", "up", "down"] as const) {
         expect(stepForLayout({ layout, direction, index: 0, total: 0, columns: 6 })).toEqual({ type: "none" });
       }
+    }
+  });
+});
+
+describe("page jumps", () => {
+  const base = { index: 6, total: 30, columns: 7 };
+
+  it("skips a rail page without wrapping", () => {
+    expect(pageStepForLayout({ ...base, layout: "shelf", direction: "right" })).toEqual({
+      type: "move",
+      index: 6 + RAIL_PAGE_STEP,
+    });
+    expect(pageStepForLayout({ ...base, layout: "hero", direction: "left" })).toEqual({
+      type: "move",
+      index: 6 - RAIL_PAGE_STEP,
+    });
+    expect(pageStepForLayout({ ...base, layout: "shelf", direction: "left", index: 1 })).toEqual({
+      type: "move",
+      index: 0,
+    });
+    expect(pageStepForLayout({ ...base, layout: "shelf", direction: "right", index: 28 })).toEqual({
+      type: "move",
+      index: 29,
+    });
+  });
+
+  it("skips two grid rows", () => {
+    expect(pageStepForLayout({ ...base, layout: "grid", direction: "right" })).toEqual({
+      type: "move",
+      index: 6 + 14,
+    });
+    expect(pageStepForLayout({ ...base, layout: "grid", direction: "up", index: 20, columns: 5 })).toEqual({
+      type: "move",
+      index: 10,
+    });
+    expect(pageStepForLayout({ ...base, layout: "grid", direction: "down", index: 25 })).toEqual({
+      type: "move",
+      index: 29,
+    });
+  });
+
+  it("skips a dense-list page and clamps", () => {
+    expect(pageStepForLayout({ ...base, layout: "compact", direction: "down" })).toEqual({
+      type: "move",
+      index: 6 + LIST_PAGE_STEP,
+    });
+    expect(pageStepForLayout({ ...base, layout: "compact", direction: "up", index: 3 })).toEqual({
+      type: "move",
+      index: 0,
+    });
+  });
+
+  it("does nothing on an empty shelf", () => {
+    for (const layout of BIG_PICTURE_LAYOUTS) {
+      expect(pageStepForLayout({ layout, direction: "right", index: 0, total: 0, columns: 6 })).toEqual({
+        type: "none",
+      });
     }
   });
 });

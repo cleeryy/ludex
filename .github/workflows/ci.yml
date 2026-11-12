@@ -154,13 +154,13 @@ jobs:
           for attempt in 1 2 3; do
             sudo apt-get update && sudo apt-get install -y --no-install-recommends \
               libwebkit2gtk-4.1-dev librsvg2-dev patchelf libgtk-3-dev \
-              libxdo-dev libssl-dev libayatana-appindicator3-dev && break
+              libxdo-dev libssl-dev libudev-dev libayatana-appindicator3-dev && break
             echo "apt attempt $attempt failed; retrying in 15s" >&2
             sleep 15
           done
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev librsvg2-dev patchelf libgtk-3-dev \
-            libxdo-dev libssl-dev libayatana-appindicator3-dev
+            libxdo-dev libssl-dev libudev-dev libayatana-appindicator3-dev
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -289,6 +289,7 @@ jobs:
             libxdo-dev \
             libssl-dev \
             libayatana-appindicator3-dev \
+            libudev-dev \
             xvfb \
             xdotool
 
@@ -356,7 +357,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev librsvg2-dev patchelf libgtk-3-dev \
-            libxdo-dev libssl-dev libfuse2t64 libayatana-appindicator3-dev
+            libxdo-dev libssl-dev libudev-dev libfuse2t64 libayatana-appindicator3-dev
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4

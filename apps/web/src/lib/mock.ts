@@ -34,6 +34,8 @@ import type {
   GamePatch,
   GameSuggestion,
   GameSummary,
+  GameVersionsResponse,
+  DeleteVersionResponse,
   IngestJob,
   IngestStats,
   InstalledGame,
@@ -962,6 +964,64 @@ export const mockApi = {
     if (user.role === "user") fail(403, "forbidden", "Editor role required");
     if (!games.some((g) => g.id === id)) fail(404, "game_not_found", "That game is not in the library");
     return { queued: true };
+  },
+
+  /** Every version, including missing rows (demo rows never go missing). */
+  async gameVersions(token: string | null, id: number): Promise<GameVersionsResponse> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role === "user") fail(403, "forbidden", "Editor role required");
+    const game = games.find((g) => g.id === id);
+    if (!game) fail(404, "game_not_found", "That game is not in the library");
+    return {
+      gameId: id,
+      defaultVersionId: game.defaultVersionId ?? game.versions[0]?.id ?? null,
+      versions: game.versions.map((version) => ({
+        ...clone(version),
+        indexedAt: version.updatedAt ?? version.releaseDate,
+        missing: false,
+        rootUnavailable: false,
+      })),
+    };
+  },
+
+  async setDefaultGameVersion(
+    token: string | null,
+    id: number,
+    versionId: number,
+  ): Promise<GameVersionsResponse> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role === "user") fail(403, "forbidden", "Editor role required");
+    const game = games.find((g) => g.id === id);
+    if (!game) fail(404, "game_not_found", "That game is not in the library");
+    if (!game.versions.some((version) => version.id === versionId)) {
+      fail(404, "version_not_found", "Game version not found");
+    }
+    game.defaultVersionId = versionId;
+    return this.gameVersions(token, id);
+  },
+
+  async deleteGameVersion(
+    token: string | null,
+    id: number,
+    versionId: number,
+  ): Promise<DeleteVersionResponse> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role === "user") fail(403, "forbidden", "Editor role required");
+    const game = games.find((g) => g.id === id);
+    if (!game) fail(404, "game_not_found", "That game is not in the library");
+    const version = game.versions.find((entry) => entry.id === versionId);
+    if (!version) fail(404, "version_not_found", "Game version not found");
+    if (game.versions.length <= 1) fail(409, "last_version", "This is the last available version; Ludex never deletes it");
+    game.versions = game.versions.filter((entry) => entry.id !== versionId);
+    game.versionCount = game.versions.length;
+    game.totalSize = game.versions.reduce((sum, entry) => sum + entry.size, 0);
+    if (game.defaultVersionId === versionId) {
+      game.defaultVersionId = game.versions[0]?.id ?? null;
+    }
+    return { versionId, freedBytes: version.size, defaultVersionId: game.defaultVersionId };
   },
 
   /** Manual metadata match (#135): demo candidates derived from the game. */

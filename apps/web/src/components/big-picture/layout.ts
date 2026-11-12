@@ -162,6 +162,36 @@ export function stepForLayout({ layout, direction, index, total, columns }: Step
   }
 }
 
+/* -------------------------------- page jumps ------------------------------- */
+
+/** A rail page skips five covers; the dense list skips ten rows. */
+export const RAIL_PAGE_STEP = 5;
+export const LIST_PAGE_STEP = 10;
+
+/**
+ * LT/RT (and PageUp/PageDown) jump a page instead of one step (#138). The
+ * rails move along the shelf by {@link RAIL_PAGE_STEP} covers, the list by
+ * {@link LIST_PAGE_STEP} rows, and the grid by two full rows — one screenful at
+ * ten feet. Every jump clamps, so the ring never wraps behind the player's
+ * back.
+ */
+export function pageStepForLayout({ layout, direction, index, total, columns }: StepInput): LayoutStep {
+  if (total <= 0) return { type: "none" };
+  const delta: -1 | 1 = direction === "left" || direction === "up" ? -1 : 1;
+  switch (layout) {
+    case "grid":
+      return {
+        type: "move",
+        index: clampIndex(index + delta * Math.max(1, Math.trunc(columns)) * 2, total),
+      };
+    case "compact":
+      return { type: "move", index: stepIndex(index, delta * LIST_PAGE_STEP, total) };
+    case "shelf":
+    case "hero":
+      return { type: "move", index: stepIndex(index, delta * RAIL_PAGE_STEP, total) };
+  }
+}
+
 /* -------------------------------- selection -------------------------------- */
 
 /**

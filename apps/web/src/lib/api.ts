@@ -28,6 +28,8 @@ import type {
   GameListQuery,
   GamePatch,
   GameSummary,
+  GameVersionsResponse,
+  DeleteVersionResponse,
   IngestJob,
   IngestStats,
   LibraryFile,
@@ -339,6 +341,30 @@ export const api = {
     return USING_MOCKS
       ? mockApi.refreshMetadata(tokenStore.get(), id)
       : request<{ queued: boolean }>(`/games/${id}/refresh-metadata`, { method: "POST" });
+  },
+  /** Every version of a game, including missing rows (editor, #168). */
+  gameVersions(id: number): Promise<GameVersionsResponse> {
+    return USING_MOCKS
+      ? mockApi.gameVersions(tokenStore.get(), id)
+      : request<GameVersionsResponse>(`/games/${id}/versions`);
+  },
+  /** Pins the version used by downloads, installs and update checks (#168). */
+  setDefaultGameVersion(id: number, versionId: number): Promise<GameVersionsResponse> {
+    return USING_MOCKS
+      ? mockApi.setDefaultGameVersion(tokenStore.get(), id, versionId)
+      : request<GameVersionsResponse>(`/games/${id}/versions/default`, {
+          method: "PUT",
+          body: { versionId },
+        });
+  },
+  /** Deletes one archive (not the game) after explicit confirmation (#168). */
+  deleteGameVersion(id: number, versionId: number): Promise<DeleteVersionResponse> {
+    return USING_MOCKS
+      ? mockApi.deleteGameVersion(tokenStore.get(), id, versionId)
+      : request<DeleteVersionResponse>(`/games/${id}/versions/${versionId}`, {
+          method: "DELETE",
+          query: { confirm: true },
+        });
   },
   /**
    * Manual metadata match (#135): searches the configured providers. Runs

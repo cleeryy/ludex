@@ -19,6 +19,7 @@ mod locations;
 mod maintenance;
 mod manifest;
 mod oidc_login;
+mod overlay;
 mod paths;
 mod prefix;
 mod presence;
@@ -92,6 +93,9 @@ pub fn run() {
             tray::init(app.handle()).map_err(std::io::Error::other)?;
             // Discord Rich Presence (#12): off unless enabled in settings.
             presence::start(settings.discord_presence, &settings.discord_client_id);
+            // In-game overlay (#144): the global controller listener starts even
+            // when no pad is connected, so hot-plug works without a restart.
+            overlay::start(app.handle());
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -243,6 +247,13 @@ pub fn run() {
             commands::oidc_login_start,
             commands::oidc_login_poll,
             commands::oidc_login_cancel,
+            overlay::overlay_status,
+            overlay::set_overlay_settings,
+            overlay::open_overlay,
+            overlay::close_overlay,
+            overlay::overlay_game_state,
+            overlay::set_overlay_game_disabled,
+            overlay::overlay_show_big_picture,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Ludex application");

@@ -72,6 +72,8 @@ pub struct GameDetailRow {
     pub kind: String,
     pub platform: Option<String>,
     pub emulator_id: Option<i64>,
+    /// Pinned version for downloads and updates (#168).
+    pub default_version_id: Option<i64>,
 }
 
 /// Row of the `game_versions` table.
@@ -88,6 +90,7 @@ pub struct VersionRow {
     pub missing: i64,
     pub root_unavailable: i64,
     pub archive_hash: Option<String>,
+    pub indexed_at: Option<String>,
     pub updated_at: Option<String>,
     /// `local` or `s3` (#47).
     pub storage_backend: Option<String>,
@@ -95,6 +98,68 @@ pub struct VersionRow {
     pub object_key: Option<String>,
     /// ETag reported by the object store on upload.
     pub etag: Option<String>,
+}
+
+/// One archive in the editor version manager (#168).
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GameVersionInfo {
+    /// Database identifier.
+    pub id: i64,
+    /// File name on the library volume.
+    pub file_name: String,
+    /// Archive size in bytes.
+    pub size: i64,
+    /// Parsed version label, e.g. `1.2.3`.
+    pub version: Option<String>,
+    /// Release date attached to this version.
+    pub release_date: Option<DateTime<Utc>>,
+    /// Whether this is an early-access build.
+    pub early_access: bool,
+    /// Cheap archive fingerprint, `null` until computed.
+    pub archive_hash: Option<String>,
+    /// When the scanner first indexed the row.
+    pub indexed_at: Option<DateTime<Utc>>,
+    /// Last time the row changed.
+    pub updated_at: Option<DateTime<Utc>>,
+    /// The archive disappeared from its root; the row is kept for audit.
+    pub missing: bool,
+    /// The library root holding the archive is offline.
+    pub root_unavailable: bool,
+    /// Download URL for this version.
+    pub download_url: String,
+}
+
+/// `GET /api/games/{id}/versions` and `PUT .../versions/default` response.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GameVersionsResponse {
+    /// Game these versions belong to.
+    pub game_id: i64,
+    /// Pinned version, `null` when the newest available one is used.
+    pub default_version_id: Option<i64>,
+    /// Every row, newest first, including missing archives.
+    pub versions: Vec<GameVersionInfo>,
+}
+
+/// `PUT /api/games/{id}/versions/default` request.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SetDefaultVersionRequest {
+    /// Version to pin. It must belong to the game and still exist.
+    pub version_id: i64,
+}
+
+/// `DELETE /api/games/{id}/versions/{version_id}` response.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteVersionResponse {
+    /// Deleted version row.
+    pub version_id: i64,
+    /// Bytes freed on disk (and removed from object storage, when used).
+    pub freed_bytes: i64,
+    /// Pinned version after the deletion; `null` when the game has none.
+    pub default_version_id: Option<i64>,
 }
 
 /// Where an account's identity comes from.

@@ -69,8 +69,21 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # Known-folder resolution (#146): SHGetKnownFolderPath is the only correct way
 # to read Documents (OneDrive KFM/GPO), Saved Games and LocalLow on Windows.
+# The overlay (#144) also needs GetForegroundWindow/SetForegroundWindow to hand
+# input back to the game when it closes.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_System_Com", "Win32_UI_Shell"] }
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+# Native global gamepad listener (#144). `gilrs` reads controllers directly so
+# the overlay can open while a game owns the focus; it never injects into the
+# game. Linux builds link libudev (build dependency: libudev-dev).
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+gilrs = "0.11"
 
 [profile.release]
 codegen-units = 1

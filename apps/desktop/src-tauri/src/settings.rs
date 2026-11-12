@@ -30,6 +30,21 @@ pub enum UpdateChannel {
     Early,
 }
 
+/// Gesture that opens the in-game overlay (#144).
+///
+/// `doubleHome` is the Steam-like double press of Guide/Home/PS; the LB+RB+Start
+/// chord stays available as a fallback for pads whose Guide button never reaches
+/// the host. `chord` leaves the Guide button to the OS/Steam. `keyboard` turns
+/// both pad gestures off and keeps Shift+Tab only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum OverlayTrigger {
+    #[default]
+    DoubleHome,
+    Chord,
+    Keyboard,
+}
+
 impl UpdateChannel {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -258,6 +273,82 @@ pub struct LocalSettings {
     /// (#148) for the same launch-time config sync. Empty means "not set".
     #[serde(default)]
     pub player_name: String,
+    /// In-game controller overlay (#144). Enabling it never pauses the running
+    /// game and sends nothing anywhere.
+    #[serde(default = "default_overlay_enabled")]
+    pub overlay_enabled: bool,
+    /// Gesture recognised by the native global gamepad listener (#144).
+    #[serde(default)]
+    pub overlay_trigger: OverlayTrigger,
+    /// Opacity of the overlay panel background, 0.35..=1.0 (#144).
+    #[serde(default = "default_overlay_opacity")]
+    pub overlay_opacity: f64,
+    /// Size of the overlay panel relative to the screen, 0.6..=1.3 (#144).
+    #[serde(default = "default_overlay_scale")]
+    pub overlay_scale: f64,
+    /// Content tabs shown in the overlay, in canonical order (#144). The game
+    /// tab is always drawn; an empty list therefore means "game tab only".
+    #[serde(default = "default_overlay_tabs")]
+    pub overlay_tabs: Vec<String>,
+    /// Games where the overlay stays off, for anti-cheat-sensitive titles
+    /// (#144). The list is local to this device.
+    #[serde(default)]
+    pub overlay_disabled_games: Vec<i64>,
+}
+
+/// The overlay is on by default: it is the Steam-like behaviour players expect,
+/// and it never touches the running game process.
+pub const fn default_overlay_enabled() -> bool {
+    true
+}
+
+pub const fn default_overlay_opacity() -> f64 {
+    0.92
+}
+
+pub const fn default_overlay_scale() -> f64 {
+    1.0
+}
+
+/// Every tab enabled for a fresh install.
+pub fn default_overlay_tabs() -> Vec<String> {
+    OVERLAY_TABS.iter().map(|tab| (*tab).to_string()).collect()
+}
+
+/// Canonical overlay tab ids, in display order.
+pub const OVERLAY_TABS: [&str; 4] = ["game", "library", "downloads", "achievements"];
+
+/// Keep known tab ids, deduplicated and in display order.
+///
+/// An empty input stays empty ("game tab only"); an unknown id is dropped
+/// instead of being persisted, so a future tab can be added without breaking an
+/// older settings file.
+pub fn canonical_overlay_tabs(tabs: &[String]) -> Vec<String> {
+    let mut kept: Vec<String> = Vec::new();
+    for id in OVERLAY_TABS {
+        if tabs.iter().any(|tab| tab.trim().eq_ignore_ascii_case(id)) {
+            kept.push(id.to_string());
+        }
+    }
+    kept
+}
+
+/// Clamp the overlay background opacity and replace non-finite values.
+pub fn sanitize_overlay_opacity(value: f64) -> f64 {
+    if !value.is_finite() {
+        return default_overlay_opacity();
+    }
+    let clamped = value.clamp(0.35, 1.0);
+    (clamped * 100.0).round() / 100.0
+}
+
+/// Clamp the overlay window scale and replace non-finite values.
+pub fn sanitize_overlay_scale(value: f64) -> f64 {
+    if !value.is_finite() {
+        return default_overlay_scale();
+    }
+    let clamped = value.clamp(0.6, 1.3);
+    (clamped * 100.0).round() / 100.0
 }
 
 /// Default executable search depth for folder scans (#134).
@@ -333,6 +424,12 @@ impl Default for LocalSettings {
             launcher_sources: default_launcher_sources(),
             ui_language: String::new(),
             player_name: String::new(),
+            overlay_enabled: default_overlay_enabled(),
+            overlay_trigger: OverlayTrigger::DoubleHome,
+            overlay_opacity: default_overlay_opacity(),
+            overlay_scale: default_overlay_scale(),
+            overlay_tabs: default_overlay_tabs(),
+            overlay_disabled_games: Vec::new(),
         }
     }
 }
@@ -420,6 +517,21 @@ impl LocalSettings {
             .collect::<String>()
             .to_lowercase();
         self.player_name = self.player_name.trim().chars().take(60).collect();
+        // #144: the overlay panel cannot be fully transparent (the game would
+        // be unreachable) or so large that it hides the game; clamp both and
+        // drop bad floats from a hand-edited settings file.
+        self.overlay_opacity = sanitize_overlay_opacity(self.overlay_opacity);
+        self.overlay_scale = sanitize_overlay_scale(self.overlay_scale);
+        self.overlay_tabs = canonical_overlay_tabs(&self.overlay_tabs);
+        let mut seen_games = std::collections::HashSet::new();
+        self.overlay_disabled_games = self
+            .overlay_disabled_games
+            .drain(..)
+            .filter(|game_id| *game_id > 0)
+            .filter(|game_id| seen_games.insert(*game_id))
+            .take(500)
+            .collect();
+        self.overlay_disabled_games.sort_unstable();
         // #163: a skipped version is a display preference, never a security
         // decision; trim it and drop blanks so the field serialises cleanly.
         self.skipped_update_version = self
@@ -1515,5 +1627,95 @@ mod tests {
         settings.gamevault_scan_depth = 42;
         settings.normalize(Path::new("/data"));
         assert_eq!(settings.gamevault_depth(), 8);
+    }
+
+    #[test]
+    fn overlay_settings_default_and_roundtrip() {
+        let dir = Path::new("/tmp/ludex-overlay");
+        let mut settings = LocalSettings::for_app_data(dir);
+        settings.normalize(dir);
+
+        assert!(settings.overlay_enabled);
+        assert_eq!(settings.overlay_trigger, OverlayTrigger::DoubleHome);
+        assert!((settings.overlay_opacity - 0.92).abs() < f64::EPSILON);
+        assert!((settings.overlay_scale - 1.0).abs() < f64::EPSILON);
+        assert_eq!(
+            settings.overlay_tabs,
+            vec!["game", "library", "downloads", "achievements"]
+        );
+        assert!(settings.overlay_disabled_games.is_empty());
+
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["overlayEnabled"], true);
+        assert_eq!(json["overlayTrigger"], "doubleHome");
+        assert_eq!(json["overlayOpacity"], 0.92);
+        assert_eq!(json["overlayScale"], 1.0);
+        assert_eq!(
+            json["overlayTabs"],
+            serde_json::json!(["game", "library", "downloads", "achievements"])
+        );
+        assert_eq!(json["overlayDisabledGames"], serde_json::json!([]));
+
+        let restored: LocalSettings = serde_json::from_value(json).unwrap();
+        assert!(restored.overlay_enabled);
+        assert_eq!(restored.overlay_trigger, OverlayTrigger::DoubleHome);
+        assert_eq!(restored.overlay_tabs, settings.overlay_tabs);
+    }
+
+    #[test]
+    fn overlay_settings_are_normalized_and_survive_a_partial_file() {
+        // A settings file written before #144 has no overlay key at all.
+        let raw = serde_json::json!({ "installDir": "/games", "streamInstall": false });
+        let mut settings: LocalSettings = serde_json::from_value(raw).unwrap();
+        assert!(settings.overlay_enabled);
+        assert_eq!(settings.overlay_trigger, OverlayTrigger::DoubleHome);
+        assert_eq!(settings.overlay_tabs, default_overlay_tabs());
+
+        settings.overlay_enabled = false;
+        settings.overlay_trigger = OverlayTrigger::Chord;
+        settings.overlay_opacity = 4.5;
+        settings.overlay_scale = 0.1;
+        settings.overlay_tabs = vec![
+            "downloads".into(),
+            "unknown".into(),
+            " GAME ".into(),
+            "Downloads".into(),
+        ];
+        settings.overlay_disabled_games = vec![42, -1, 42, 0, 7];
+        settings.normalize(Path::new("/data"));
+
+        assert!(!settings.overlay_enabled);
+        assert_eq!(settings.overlay_trigger, OverlayTrigger::Chord);
+        assert!((settings.overlay_opacity - 1.0).abs() < f64::EPSILON);
+        assert!((settings.overlay_scale - 0.6).abs() < f64::EPSILON);
+        // Canonical order, deduplicated, unknown ids dropped.
+        assert_eq!(settings.overlay_tabs, vec!["game", "downloads"]);
+        assert_eq!(settings.overlay_disabled_games, vec![7, 42]);
+
+        settings.overlay_opacity = f64::NAN;
+        settings.overlay_scale = f64::INFINITY;
+        settings.normalize(Path::new("/data"));
+        assert!((settings.overlay_opacity - 0.92).abs() < f64::EPSILON);
+        assert!((settings.overlay_scale - 1.0).abs() < f64::EPSILON);
+
+        // An empty tab list is meaningful: the game tab only, never "all".
+        settings.overlay_tabs = Vec::new();
+        settings.normalize(Path::new("/data"));
+        assert!(settings.overlay_tabs.is_empty());
+    }
+
+    #[test]
+    fn overlay_trigger_values_roundtrip_as_camel_case() {
+        for (trigger, expected) in [
+            (OverlayTrigger::DoubleHome, "doubleHome"),
+            (OverlayTrigger::Chord, "chord"),
+            (OverlayTrigger::Keyboard, "keyboard"),
+        ] {
+            let json = serde_json::to_value(trigger).unwrap();
+            assert_eq!(json, expected);
+            let restored: OverlayTrigger = serde_json::from_value(json).unwrap();
+            assert_eq!(restored, trigger);
+        }
+        assert!(serde_json::from_value::<OverlayTrigger>(serde_json::json!("nope")).is_err());
     }
 }

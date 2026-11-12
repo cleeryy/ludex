@@ -17,6 +17,8 @@ import { Wordmark } from "@/components/brand";
 import { Button } from "@/components/ui/controls";
 import { ToastViewport } from "@/components/ui/toast";
 import { PwaPrompts } from "@/components/pwa-prompts";
+import { OverlayHost } from "@/components/overlay/overlay-host";
+import { isOverlayEntry, OverlayWindowApp } from "@/components/overlay/overlay-window";
 import { AppShell } from "@/components/shell/app-shell";
 import { FloatingWindowControls } from "@/components/shell/window-controls";
 import { useCustomTitleBar } from "@/lib/window-chrome";
@@ -191,6 +193,10 @@ function ConfigSyncDefaults() {
 }
 
 export function App() {
+  // The floating overlay window (#144) loads this same bundle with `?overlay=1`:
+  // it gets a tiny provider tree instead of the full app shell and auth gate.
+  if (isOverlayEntry()) return <OverlayWindowApp />;
+
   return (
     <QueryClientProvider client={queryClient}>
       <SettingsProvider>
@@ -319,6 +325,7 @@ export function App() {
                   <Route path="*" element={<NotFoundScreen />} />
                 </Route>
               </Routes>
+              <OverlayHost />
             </HashRouter>
             <ToastViewport />
             <PwaPrompts />

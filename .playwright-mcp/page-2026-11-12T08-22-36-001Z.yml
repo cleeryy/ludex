@@ -1,0 +1,142 @@
+- generic [ref=e2]:
+  - generic [ref=e17]:
+    - banner [ref=e18]:
+      - img "Ludex" [ref=e19]
+      - generic [ref=e28]: Big Picture
+      - generic [ref=e29]:
+        - button "2 downloading 65%" [ref=e500] [cursor=pointer]:
+          - generic [ref=e34]: 2 downloading
+          - generic [ref=e35]: 65%
+        - button "Big Picture layout — Shelf" [ref=e36] [cursor=pointer]:
+          - generic [ref=e39]: Shelf
+        - generic [ref=e42]: 09:22
+        - button "Exit" [ref=e43] [cursor=pointer]
+    - main [ref=e47]:
+      - generic [ref=e64]:
+        - generic [ref=e67]:
+          - generic:
+            - generic:
+              - generic: Ludex
+              - generic: No. 012
+            - generic:
+              - generic: Marvel's Spider-Man 2
+              - generic:
+                - generic: "2023"
+                - generic: Action
+        - generic [ref=e80]:
+          - generic [ref=e81]: Continue playing
+          - heading "Marvel's Spider-Man 2" [level=1] [ref=e83]
+          - generic [ref=e84]:
+            - generic [ref=e85]: "2023"
+            - generic [ref=e86]: Playing
+            - generic [ref=e87]: 90 / 100
+            - generic [ref=e88]: 10h 20m played
+            - generic [ref=e89]: Last played 3 days ago
+          - paragraph [ref=e90]: Two spider-people, one city, and a symbiote that makes every fight worse for everyone involved. Swinging is still the point.
+          - generic [ref=e91]:
+            - button "Download" [ref=e92] [cursor=pointer]
+            - button "Game page" [ref=e96] [cursor=pointer]
+      - region "Games" [ref=e97]:
+        - generic [ref=e98]:
+          - group "Shelves" [ref=e99]:
+            - button "Recently played 13" [pressed] [ref=e100] [cursor=pointer]:
+              - generic [ref=e101]: Recently played
+              - generic [ref=e102]: "13"
+            - button "All games 19" [ref=e103] [cursor=pointer]:
+              - generic [ref=e104]: All games
+              - generic [ref=e105]: "19"
+          - generic [ref=e106]: 1 / 13
+        - generic [ref=e107]:
+          - button "Marvel's Spider-Man 2" [ref=e109] [cursor=pointer]:
+            - generic [ref=e125]: 2023 · Playing
+          - button "Forza Horizon 6" [ref=e127] [cursor=pointer]:
+            - generic [ref=e141]: "2026"
+          - button "It Takes Two" [ref=e143] [cursor=pointer]:
+            - generic [ref=e156]: "2021"
+          - button "Chrono Trigger" [ref=e158] [cursor=pointer]:
+            - generic [ref=e179]: "1995"
+          - 'button "Call of Duty: Black Ops III" [ref=e181] [cursor=pointer]':
+            - generic [ref=e199]: "2015"
+          - button "Cat Quest II" [ref=e201] [cursor=pointer]:
+            - generic [ref=e225]: "2019"
+          - button "HITMAN 3" [ref=e227] [cursor=pointer]:
+            - generic [ref=e241]: "2021"
+          - button "Little Nightmares II" [ref=e243] [cursor=pointer]:
+            - generic [ref=e264]: "2021"
+          - button "Little Nightmares" [ref=e266] [cursor=pointer]:
+            - img [ref=e269]:
+              - generic [ref=e270]: L
+            - generic [ref=e276]: "2017"
+          - button "Outer Wilds" [ref=e278] [cursor=pointer]:
+            - generic [ref=e312]: "2019"
+          - 'button "Sackboy: A Big Adventure" [ref=e314] [cursor=pointer]':
+            - generic [ref=e338]: "2020"
+          - button "Minecraft Dungeons" [ref=e340] [cursor=pointer]:
+            - generic [ref=e360]: "2020"
+          - 'button "UNCHARTED: Legacy of Thieves Collection" [ref=e362] [cursor=pointer]':
+            - generic [ref=e383]: "2022"
+    - contentinfo [ref=e384]:
+      - generic [ref=e385]:
+        - generic [ref=e408]:
+          - generic [ref=e409]: ←
+          - generic [ref=e410]: →
+          - text: choose
+        - generic [ref=e501]:
+          - generic [ref=e502]: ↵
+          - text: apply
+        - generic [ref=e413]:
+          - generic [ref=e414]: esc
+          - text: close
+      - generic [ref=e405]: Keyboard only — connect a controller for couch navigation
+    - group "Controller profile" [ref=e503]:
+      - banner [ref=e504]:
+        - heading "Controller profile" [level=2] [ref=e505]
+        - paragraph [ref=e506]: "Applies immediately. Remapping never takes navigation away: directions, A and B are always routed by action."
+      - generic [ref=e507]:
+        - paragraph [ref=e508]:
+          - generic [ref=e511]: DualSense
+          - generic [ref=e512]: ·
+          - generic [ref=e513]: Deadzone 0.18 · Curve 1.00 · Triggers 0.25
+        - list [ref=e514]:
+          - listitem [ref=e515]:
+            - button "Automatic Xbox · Deadzone 0.18 · Curve 1.00 · Triggers 0.35" [ref=e516] [cursor=pointer]:
+              - generic [ref=e517]:
+                - generic [ref=e518]: Automatic
+                - generic [ref=e519]: Xbox · Deadzone 0.18 · Curve 1.00 · Triggers 0.35
+          - listitem [ref=e523]:
+            - button "Xbox Preset · Deadzone 0.18 · Curve 1.00 · Triggers 0.35" [ref=e524] [cursor=pointer]:
+              - generic [ref=e525]:
+                - generic [ref=e526]: Xbox
+                - generic [ref=e527]: Preset · Deadzone 0.18 · Curve 1.00 · Triggers 0.35
+          - listitem [ref=e528]:
+            - button "DualSense Preset · Deadzone 0.18 · Curve 1.00 · Triggers 0.25" [active] [ref=e529] [cursor=pointer]:
+              - generic [ref=e530]:
+                - generic [ref=e531]: DualSense
+                - generic [ref=e532]: Preset · Deadzone 0.18 · Curve 1.00 · Triggers 0.25
+          - listitem [ref=e533]:
+            - button "Steam Deck Preset · Deadzone 0.18 · Curve 1.00 · Triggers 0.35" [ref=e534] [cursor=pointer]:
+              - generic [ref=e535]:
+                - generic [ref=e536]: Steam Deck
+                - generic [ref=e537]: Preset · Deadzone 0.18 · Curve 1.00 · Triggers 0.35
+          - listitem [ref=e538]:
+            - button "Generic Preset · Deadzone 0.18 · Curve 1.00 · Triggers 0.35" [ref=e539] [cursor=pointer]:
+              - generic [ref=e540]:
+                - generic [ref=e541]: Generic
+                - generic [ref=e542]: Preset · Deadzone 0.18 · Curve 1.00 · Triggers 0.35
+        - button "Vibration Vibrate on focus and confirm when the pad supports it." [ref=e544] [cursor=pointer]:
+          - generic [ref=e550]:
+            - generic [ref=e551]: Vibration
+            - generic [ref=e552]: Vibrate on focus and confirm when the pad supports it.
+      - contentinfo [ref=e556]:
+        - generic [ref=e557]:
+          - generic [ref=e558]:
+            - generic [ref=e559]: ←
+            - generic [ref=e560]: →
+            - text: choose
+          - generic [ref=e561]:
+            - generic [ref=e562]: ↵
+            - text: apply
+          - generic [ref=e563]:
+            - generic [ref=e564]: esc
+            - text: close
+  - region "Notifications"

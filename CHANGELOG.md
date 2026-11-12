@@ -10,6 +10,24 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Game version management and rollback (#168): versions can be listed,
+  pinned as preferred/default (downloads, tickets, latest/update detection and
+  the install dialog follow it), rolled back explicitly, downloaded per version
+  and deleted (archive bytes only, confirmed, refuses missing/offline/in-use
+  archives and the last available version; audit `game.version_*`). Game page
+  gains a Versions manager with read-only states for users and editor actions.
+- Big Picture controller-first operation (#138): one input→command router for
+  keyboard and pad, Xbox/DualSense/Steam Deck hint strips, Start/Guide/trigger
+  discrimination, gamepad-operable quick actions/downloads/profiles/exit
+  overlays, on-screen QWERTY search sharing the d-pad grid, live profile switch
+  and optional haptics.
+- In-game controller overlay (#144): native global `gilrs` listener (hot-plug,
+  battery, 400 ms double-Home detector, LB+RB+Start chord, Shift+Tab), an
+  always-on-top transparent overlay over the running game (or in-app when
+  focused) with Now playing, Resume/Exit, quick launch, downloads, achievements,
+  controller status and Big Picture link; focus is restored to the game, no
+  injection, downloads continue. Settings for trigger/opacity/scale/tabs and
+  per-game opt-out.
 - Manual metadata matching (#135): editors can search IGDB/configured providers/
   Steam from the game page, compare candidates and apply the right record;
   applies by provider id, caches artwork, updates metadata and provider refs,

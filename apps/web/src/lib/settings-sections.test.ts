@@ -49,6 +49,7 @@ const REQUIRED_PANELS = [
   "discord-presence",
   "servers",
   "controllers",
+  "in-game-overlay",
   "emulators",
   "update-channel",
   "update-startup",

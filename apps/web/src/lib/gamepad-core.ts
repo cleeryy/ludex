@@ -109,20 +109,42 @@ function buttonValue(button: PadButtonLike | undefined): number {
 }
 
 /**
- * Reads every pressed logical action. Sticks are decomposed per component:
- * `axis0`/`axis1` are the left stick X/Y and `axis2`/`axis3` the right stick
- * X/Y, so the default profile maps `axis1-` to `up` (previously the vertical
- * component was read from the wrong slots and up/down were swapped with the
- * right stick). A diagonal only moves the dominant direction, like the Rust
- * mirror. Axes 4-7 keep working for remapped profiles.
+ * Where a logical action came from. Big Picture needs this beyond the logical
+ * action set (#138): LB and LT both map to `prevTab`, but the shoulders switch
+ * shelves while the triggers jump a page, and Start/X both press `menu` but one
+ * opens the command overlay and the other the search keyboard.
  */
-export function readPadActions(profile: ControllerProfile, pad: PadLike): Set<GamepadAction> {
-  const pressed = new Set<GamepadAction>();
+export type ActionSource =
+  | { kind: "button"; index: number }
+  | { kind: "axis"; index: number; direction: -1 | 1 };
+
+export interface PadPress {
+  action: GamepadAction;
+  source: ActionSource;
+}
+
+/**
+ * Reads every pressed logical action together with the physical input that
+ * produced it, one entry per action (the first source wins, so a d-pad press
+ * beats a drifting stick for the same direction).
+ *
+ * Sticks are decomposed per component: `axis0`/`axis1` are the left stick X/Y
+ * and `axis2`/`axis3` the right stick X/Y, so the default profile maps `axis1-`
+ * to `up` (previously the vertical component was read from the wrong slots and
+ * up/down were swapped with the right stick). A diagonal only moves the
+ * dominant direction, like the Rust mirror. Axes 4-7 keep working for remapped
+ * profiles.
+ */
+export function readPadPresses(profile: ControllerProfile, pad: PadLike): PadPress[] {
+  const sources = new Map<GamepadAction, ActionSource>();
+  const remember = (action: GamepadAction, source: ActionSource) => {
+    if (!sources.has(action)) sources.set(action, source);
+  };
 
   const buttons = Math.min(pad.buttons.length, MAX_BUTTONS);
   for (let index = 0; index < buttons; index += 1) {
     const action = actionForButton(profile, index, buttonValue(pad.buttons[index]));
-    if (action) pressed.add(action);
+    if (action) remember(action, { kind: "button", index });
   }
 
   const axes = pad.axes;
@@ -136,11 +158,19 @@ export function readPadActions(profile: ControllerProfile, pad: PadLike): Set<Ga
     // move, not two.
     const horizontal = applyStick(profile, x, y, true);
     const vertical = applyStick(profile, x, y, false);
-    const action =
-      Math.abs(horizontal) >= Math.abs(vertical)
-        ? actionForAxis(profile, xAxis, x, 0)
-        : actionForAxis(profile, yAxis, 0, y);
-    if (action) pressed.add(action);
+    const dominantHorizontal = Math.abs(horizontal) >= Math.abs(vertical);
+    const action = dominantHorizontal
+      ? actionForAxis(profile, xAxis, x, 0)
+      : actionForAxis(profile, yAxis, 0, y);
+    if (action) {
+      // The shaped component already carries inversion, so the reported
+      // direction matches the key that produced the action.
+      remember(action, {
+        kind: "axis",
+        index: dominantHorizontal ? xAxis : yAxis,
+        direction: (dominantHorizontal ? horizontal : vertical) >= 0 ? 1 : -1,
+      });
+    }
   }
 
   // Remapped axes 4-7 are read as single components; the defaults map none of
@@ -153,10 +183,15 @@ export function readPadActions(profile: ControllerProfile, pad: PadLike): Set<Ga
   ];
   for (const [axis, value] of components) {
     const action = actionForAxis(profile, axis, value, 0);
-    if (action) pressed.add(action);
+    if (action) remember(action, { kind: "axis", index: axis, direction: value >= 0 ? 1 : -1 });
   }
 
-  return pressed;
+  return [...sources].map(([action, source]) => ({ action, source }));
+}
+
+/** The logical action set for this frame. Source-agnostic callers use this. */
+export function readPadActions(profile: ControllerProfile, pad: PadLike): Set<GamepadAction> {
+  return new Set(readPadPresses(profile, pad).map((press) => press.action));
 }
 
 /* ---------------------------------- repeat --------------------------------- */
@@ -362,6 +397,42 @@ export function restoreGamepadFocus(
   target.setAttribute("data-gamepad-focus", "true");
   target.focus({ preventScroll: true });
   return target;
+}
+
+/* --------------------------------- haptics --------------------------------- */
+
+export interface HapticPattern {
+  duration: number;
+  strongMagnitude: number;
+  weakMagnitude: number;
+}
+
+/**
+ * Optional rumble on focus and confirm (#138). Every logical action the
+ * interface accepts is either a focus move or a confirm-like press, so each one
+ * gets a short pattern: confirms thump, directions tick. Callers gate this on
+ * the profile's `vibration` flag, the Big Picture haptics preference and the
+ * presence of a `vibrationActuator`; without all three it is a no-op.
+ */
+export function hapticPattern(action: GamepadAction): HapticPattern | null {
+  switch (action) {
+    case "confirm":
+    case "back":
+      return { duration: 70, strongMagnitude: 0.4, weakMagnitude: 0.3 };
+    case "menu":
+    case "downloads":
+      return { duration: 45, strongMagnitude: 0.28, weakMagnitude: 0.2 };
+    case "prevTab":
+    case "nextTab":
+      return { duration: 30, strongMagnitude: 0.2, weakMagnitude: 0.14 };
+    case "left":
+    case "right":
+    case "up":
+    case "down":
+      return { duration: 28, strongMagnitude: 0.18, weakMagnitude: 0.12 };
+    default:
+      return null;
+  }
 }
 
 /* ---------------------------------- debug ---------------------------------- */

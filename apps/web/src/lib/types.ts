@@ -75,6 +75,32 @@ export interface GameVersion {
   downloadUrl: string;
 }
 
+/** One archive in the editor version manager (#168). */
+export interface GameVersionInfo extends GameVersion {
+  /** First scan that indexed this row. */
+  indexedAt: string | null;
+  /** The archive vanished from its root; the row is kept for history. */
+  missing: boolean;
+  /** The library root holding the archive is offline. */
+  rootUnavailable: boolean;
+}
+
+export interface GameVersionsResponse {
+  gameId: number;
+  /** Pinned version for downloads/updates; null = newest available. */
+  defaultVersionId: number | null;
+  /** Every row, newest first, including missing archives. */
+  versions: GameVersionInfo[];
+}
+
+export interface DeleteVersionResponse {
+  versionId: number;
+  /** Bytes freed on disk and in object storage. */
+  freedBytes: number;
+  /** Pin after the deletion; null when the game has none. */
+  defaultVersionId: number | null;
+}
+
 export interface GameLaunchOptions {
   executable: string | null;
   parameters: string | null;
@@ -109,6 +135,8 @@ export interface GameDetail extends GameSummary {
   /** Provider aliases used by fuzzy search. */
   altTitles: string[];
   versions: GameVersion[];
+  /** Pinned version for downloads, installs and update checks (#168). */
+  defaultVersionId: number | null;
   launch: GameLaunchOptions;
 }
 
@@ -885,6 +913,92 @@ export interface LocalSettings {
   uiLanguage?: string;
   /** Ludex profile display name mirrored from the web profile (#148). */
   playerName?: string;
+  /** In-game controller overlay (#144). On by default. */
+  overlayEnabled?: boolean;
+  /** Gesture recognised by the native listener (#144). */
+  overlayTrigger?: OverlayTrigger;
+  /** Overlay panel background opacity, 0.35-1.0 (#144). */
+  overlayOpacity?: number;
+  /** Overlay panel scale, 0.6-1.3 (#144). */
+  overlayScale?: number;
+  /** Tabs shown in the overlay (#144); the game tab is always drawn. */
+  overlayTabs?: OverlayTabId[];
+  /** Games where the overlay stays off (#144). Local to this device. */
+  overlayDisabledGames?: number[];
+}
+
+/* --------------------- in-game overlay (#144) ---------------------------- */
+
+/** Gesture that opens the overlay. */
+export type OverlayTrigger = "doubleHome" | "chord" | "keyboard";
+
+/** Content tab of the overlay, in canonical display order. */
+export type OverlayTabId = "game" | "library" | "downloads" | "achievements";
+
+/** One controller as reported by the native global listener. */
+export interface OverlayController {
+  /** Process-local id, stable while the pad stays connected. */
+  id: string;
+  name: string;
+  /** True for the pad that produced input most recently. */
+  active: boolean;
+  battery: number | null;
+  charging: boolean;
+}
+
+/** Native listener state shown in the overlay and in Settings. */
+export interface OverlayListenerStatus {
+  /** `gilrs`, `unsupported` or `failed`. */
+  backend: string;
+  available: boolean;
+  platform: string;
+  reason: string | null;
+  controllers: OverlayController[];
+}
+
+/** The game currently running, as shown in the overlay. */
+export interface OverlayGameState {
+  sessionId: string;
+  gameId: number;
+  title: string;
+  /** RFC 3339 launch time. */
+  startedAt: string;
+  /** Seconds since the launch. */
+  elapsedSeconds: number;
+  /** Finished playtime plus the current session, in seconds. */
+  totalSeconds: number;
+  /** True when the overlay is disabled for this game. */
+  disabled: boolean;
+}
+
+/** Everything the overlay UI and the settings panel need. */
+export interface OverlayStatus {
+  enabled: boolean;
+  open: boolean;
+  trigger: OverlayTrigger;
+  opacity: number;
+  scale: number;
+  tabs: OverlayTabId[];
+  disabledGames: number[];
+  game: OverlayGameState | null;
+  gameDisabled: boolean;
+  /** `window` = floating window over the game, `inApp` = inside the main window. */
+  presentation: "closed" | "window" | "inApp";
+  listener: OverlayListenerStatus;
+  /** Platform limitation, shown verbatim in Settings. */
+  platformNote: string;
+  /** Shortcut that works while Ludex is focused. */
+  keyboardShortcut: string;
+}
+
+/** Partial update accepted by `set_overlay_settings`. */
+export interface OverlaySettingsPatch {
+  enabled?: boolean;
+  trigger?: OverlayTrigger;
+  opacity?: number;
+  scale?: number;
+  tabs?: OverlayTabId[];
+  disabledGames?: number[];
 }
 
 /* ------------------- Ludusavi save-path manifest (#153) ------------------ */

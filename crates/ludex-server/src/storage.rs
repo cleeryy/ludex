@@ -1,9 +1,10 @@
 //! Game archive storage: local library roots or an S3-compatible bucket (#47).
 //!
 //! The abstraction is deliberately small: archives are uploaded once, then read
-//! with HTTP Range semantics. The local library file is never deleted, so it
-//! remains the fallback for rows that were indexed before S3 was enabled or
-//! whose upload failed.
+//! with HTTP Range semantics. The local library file is never deleted by a scan,
+//! so it remains the fallback for rows that were indexed before S3 was enabled
+//! or whose upload failed; only the explicit editor deletion route (#168)
+//! removes a version's local file and object.
 //!
 //! Metadata, artwork and cloud saves stay on local disk: only the game archives
 //! travel to object storage. See `docs/STORAGE.md`.
@@ -241,6 +242,20 @@ impl ArchiveStorage {
             etag: meta.e_tag.clone(),
             size: meta.size,
         }))
+    }
+
+    /// Deletes an archive object from the bucket (#168).
+    ///
+    /// Only called by the version deletion route, with an explicit editor
+    /// confirmation: a missing object is treated as already deleted so the
+    /// database row can still be removed.
+    pub async fn delete(&self, key: &str) -> Result<(), StorageError> {
+        let store = self.inner.store.as_ref().ok_or(StorageError::Disabled)?;
+        let location = ObjectPath::from(key);
+        match store.delete(&location).await {
+            Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
+            Err(error) => Err(unavailable(error)),
+        }
     }
 
     /// Opens an object, optionally bounded by an HTTP Range.

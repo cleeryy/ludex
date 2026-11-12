@@ -629,9 +629,42 @@ pub const ROUTES: &[RouteDoc] = &[
     ),
     route(
         HttpMethod::Get,
+        "/games/{id}/versions",
+        "Games",
+        "List every version with its archive state (editor)",
+        Auth::Editor,
+        Payload::Schema("GameVersionsResponse"),
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/games/{id}/versions/default",
+            "Games",
+            "Pin the version used by downloads and updates (editor)",
+            Auth::Editor,
+            Payload::Schema("GameVersionsResponse"),
+        ),
+        "SetDefaultVersionRequest",
+    ),
+    query(
+        route(
+            HttpMethod::Delete,
+            "/games/{id}/versions/{version_id}",
+            "Games",
+            "Delete one archive while keeping the game (editor)",
+            Auth::Editor,
+            Payload::Schema("DeleteVersionResponse"),
+        ),
+        &[(
+            "confirm",
+            "Must be true; the game, its metadata and its saves are kept",
+        )],
+    ),
+    route(
+        HttpMethod::Get,
         "/games/{id}/versions/latest",
         "Games",
-        "Newest version for update checks",
+        "Preferred version for update checks",
         Auth::Session,
         Payload::Schema("LatestVersion"),
     ),
@@ -1859,6 +1892,10 @@ pub fn document() -> OpenApi {
         .schema_from::<ludex_core::models::GameDetail>()
         .schema_from::<ludex_core::models::GameVersion>()
         .schema_from::<ludex_core::models::LatestVersion>()
+        .schema_from::<crate::models::GameVersionInfo>()
+        .schema_from::<crate::models::GameVersionsResponse>()
+        .schema_from::<crate::models::SetDefaultVersionRequest>()
+        .schema_from::<crate::models::DeleteVersionResponse>()
         .schema_from::<ludex_core::archive::StreamManifest>()
         .schema_from::<ludex_core::archive::StreamEntry>()
         .schema_from::<ludex_core::models::LaunchInfo>()

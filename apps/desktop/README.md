@@ -12,7 +12,8 @@ server, game launching and playtime tracking.
 
 - Rust stable (edition 2021) and the Tauri 2 system dependencies.
 - Linux: `webkit2gtk-4.1`, `libappindicator3`/`libayatana-appindicator3`, `librsvg2`,
-  `patchelf` for bundling.
+  `patchelf` for bundling, and `libudev-dev` for the native controller listener
+  (`gilrs`). The packaged `.deb`/AppImage resolve libudev at runtime.
 - Node 22 + pnpm 9 (workspace root).
 - Windows: WebView2 runtime (installed by the NSIS installer if missing).
 - macOS: Xcode command line tools.
@@ -109,6 +110,12 @@ mode 0600 on Unix because it holds the JWT). Defaults:
 | `moonlightBinary` | empty → Moonlight auto-detection (#98) |
 | `moonlightConfigPath` | empty → portable `Moonlight.ini`, Windows registry or the Qt config location (#98, #151) |
 | `moonlightHost` | empty → use Moonlight's saved hosts; otherwise a manual host name/IP fallback (#151) |
+| `overlayEnabled` | `true` (in-game controller overlay, #144) |
+| `overlayTrigger` | `doubleHome` (also `chord`, `keyboard`) |
+| `overlayOpacity` | `0.92` (0.35–1.0) |
+| `overlayScale` | `1.0` (0.6–1.3) |
+| `overlayTabs` | all four: `game`, `library`, `downloads`, `achievements` |
+| `overlayDisabledGames` | `[]` (per-game opt-outs; local to this device) |
 
 `save_settings` deep-merges partial payloads, so a wizard can save one field at
 a time. An empty `downloadDir` is meaningful: the effective directory is
@@ -689,6 +696,10 @@ everything the catalog does not recognise.
 | `game://exited` | `{ sessionId, gameId, minutesPlayed, secondsPlayed }` |
 | `local-server://status` | `{ running, url }` |
 | `ui://navigate` | route string requested by the tray |
+| `overlay://state` | full `OverlayStatus` after every open/close/settings change (#144) |
+| `overlay://open` / `overlay://close` | main window: show/hide the in-app overlay (#144) |
+| `overlay://settings` | live `OverlayStatus` for the open overlay and the settings panel |
+| `overlay://navigate` | path the main window must open (Big Picture from the overlay) |
 | `ui://launch` | `gameId` from the tray's Recent games |
 | `update://available` | `UpdateStatus` |
 | `update://progress` | `{ downloaded, total, percent }` |
@@ -711,6 +722,63 @@ plus minutes rounded to the nearest minute for the server), updates
 `/api/games/{id}/playtime`. Failures leave `sessions.synced = 0` and are retried
 at the next launch/exit. `stop_game` kills the whole process tree and the
 watchdog still reports the session.
+
+## In-game overlay (#144)
+
+A Steam-like panel over the running game, opened from the controller. Ludex
+never injects a DLL into a game and never pauses it: the overlay is Ludex's own
+window drawn above a borderless or windowed-fullscreen game.
+
+- **Phase 1 — in-app.** `Shift+Tab` while Ludex is focused opens the same panel
+  inside the main window. Works on every platform, including macOS and the
+  browser preview.
+- **Phase 2 — global.** `src/overlay/global_listener.rs` runs `gilrs` on its own
+  thread and reads controllers even while another window owns the keyboard and
+  mouse focus. A double Guide/Home/PS press inside 400 ms toggles the overlay; a
+  single press is ignored so the OS/Steam menu keeps working. The **LB+RB+Start**
+  chord is the fallback for pads whose Guide button is not exposed (Windows
+  XInput/WGI does not expose it). Hot-plug, controller ids and a 0.25 deadzone
+  for the activity indicator are handled by the listener. Set
+  `overlayTrigger` to `chord` to leave Guide entirely to Steam, or `keyboard`
+  to disable both pad gestures.
+- **Window.** When a game owns the focus, `open_overlay` creates the `overlay`
+  webview: transparent (Windows/Linux), always-on-top, undecorated, focusable,
+  skipped from the taskbar, covering the monitor the main window is on. Closing
+  hides it and restores focus to the window captured before opening (Windows
+  HWND; X11 through `xdotool` when installed). When Ludex itself is focused the
+  panel is drawn in-app instead.
+- **Content.** Current game and playtime, Resume/Exit, Library quick launch,
+  Downloads progress (installs keep running), achievements of the running game,
+  controller status/battery and a Big Picture link. Gamepad-first navigation
+  with a focus trap; Esc and B close.
+- **Settings.** Settings → Profiles → In-game overlay: enable/disable, trigger,
+  opacity, scale, tabs and the per-game opt-out list. Every change saves on its
+  own through `set_overlay_settings` and applies live. The runner footer can
+  disable the overlay for the current game.
+- **Privacy.** No telemetry; the only network calls are the user's own server
+  (achievements). The overlay never reads or writes the game process.
+
+### Overlay limitations
+
+- **Exclusive fullscreen.** A game in exclusive fullscreen generally hides every
+  non-injected overlay. Use borderless or windowed fullscreen; this is what the
+  platform note reports.
+- **Windows Guide button.** XInput and Windows.Gaming.Input do not expose the
+  Guide button, so double-Home works only with drivers that do (for example
+  some DualSense/Steam configurations); use the chord otherwise.
+- **Linux permissions.** `/dev/input/event*` must be readable: add the user to
+  the `input` group or install a udev rule. Wayland compositors may ignore
+  focus restoration; the overlay still closes and the compositor decides which
+  window gets focus.
+- **No anti-cheat bypass.** Nothing is injected, so a kernel anti-cheat that
+  blocks external overlays will also block this one. Disable the overlay per
+  game when needed.
+- **Manual matrix still required.** The automated tests cover the detector with
+  a fake pad, settings round-trip and the web state/focus helpers. A physical
+  Xbox pad, DualSense and Steam Deck must still be checked on Windows and Linux:
+  single vs double Home, the chord, hot-plug, overlay over borderless
+  fullscreen, focus/input return to the game, downloads continuing and no input
+  leaking to the game while the overlay is closed.
 
 ## Safety
 

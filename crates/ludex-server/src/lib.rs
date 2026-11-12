@@ -314,6 +314,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
             config.handoff_claim_limit,
             Duration::from_secs(60),
         )),
+        transfers: Arc::new(state::ActiveTransfers::default()),
     };
 
     let watcher_handle = watcher::start(&state).await;

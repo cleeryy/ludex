@@ -366,6 +366,10 @@ pub struct GameDetail {
     pub alt_titles: Vec<String>,
     /// Files backing this game.
     pub versions: Vec<GameVersion>,
+    /// Version used by downloads, fresh installs and the update check. When
+    /// `null`, the newest available version is used (#168).
+    #[serde(default)]
+    pub default_version_id: Option<i64>,
     /// Launch configuration.
     pub launch: LaunchInfo,
 }
@@ -542,6 +546,7 @@ mod tests {
                 updated_at: None,
                 download_url: "/api/games/1/download?versionId=7".into(),
             }],
+            default_version_id: Some(7),
             launch: LaunchInfo {
                 executable: Some("HITMAN3.exe".into()),
                 ..LaunchInfo::default()

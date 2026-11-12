@@ -80,6 +80,60 @@ pub struct AppState {
     pub handoff_create_limits: Arc<crate::security::AttemptCounter>,
     /// Per-address throttle for handoff claims (#157).
     pub handoff_claim_limits: Arc<crate::security::AttemptCounter>,
+    /// In-flight archive reads, used to refuse deleting a version in use (#168).
+    pub transfers: Arc<ActiveTransfers>,
+}
+
+/// Counts the handlers currently reading each version's archive (#168).
+///
+/// A `DELETE` is refused while a download or stream still holds a lease. The
+/// registry is process-local: a multi-instance deployment would need a shared
+/// store, but the file also stays readable through the open handle on Unix.
+#[derive(Debug, Default)]
+pub struct ActiveTransfers {
+    inner: Mutex<HashMap<i64, usize>>,
+}
+
+impl ActiveTransfers {
+    /// Registers one reader and returns a lease that deregisters on drop.
+    pub fn begin(self: &Arc<Self>, version_id: i64) -> TransferLease {
+        if let Ok(mut active) = self.inner.lock() {
+            *active.entry(version_id).or_insert(0) += 1;
+        }
+        TransferLease {
+            registry: Arc::clone(self),
+            version_id,
+        }
+    }
+
+    /// Whether any handler currently reads this version.
+    #[must_use]
+    pub fn is_active(&self, version_id: i64) -> bool {
+        self.inner
+            .lock()
+            .map(|active| active.get(&version_id).is_some_and(|count| *count > 0))
+            .unwrap_or(false)
+    }
+}
+
+/// RAII lease handed out by [`ActiveTransfers::begin`].
+#[derive(Debug)]
+pub struct TransferLease {
+    registry: Arc<ActiveTransfers>,
+    version_id: i64,
+}
+
+impl Drop for TransferLease {
+    fn drop(&mut self) {
+        if let Ok(mut active) = self.registry.inner.lock() {
+            if let Some(count) = active.get_mut(&self.version_id) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    active.remove(&self.version_id);
+                }
+            }
+        }
+    }
 }
 
 impl AppState {
@@ -161,6 +215,7 @@ impl AppState {
             exchange_codes: Arc::new(crate::desktop_handoff::ExchangeCodes::new()),
             handoff_create_limits: Arc::new(handoff_create_limits),
             handoff_claim_limits: Arc::new(handoff_claim_limits),
+            transfers: Arc::new(ActiveTransfers::default()),
         }
     }
 }

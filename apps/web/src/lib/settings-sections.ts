@@ -149,8 +149,8 @@ export const SETTINGS_SECTIONS = [
     descriptionKey: "Controller mapping and the emulator commands used to launch ROMs.",
     icon: "profiles",
     availability: "always",
-    keywords: ["controller", "gamepad", "deadzone", "vibration", "emulator", "rom"],
-    panels: ["controllers", "emulators"],
+    keywords: ["controller", "gamepad", "deadzone", "vibration", "emulator", "rom", "overlay", "shift+tab", "home button"],
+    panels: ["controllers", "in-game-overlay", "emulators"],
   },
   {
     id: "updates",

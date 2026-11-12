@@ -27,11 +27,14 @@ export function InstallDialog({
   onOpenChange,
   game,
   version,
+  rollback = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   game: GameDetail;
   version: GameVersion;
+  /** Installing an older version than the one on this device (#168). */
+  rollback?: boolean;
 }) {
   const downloads = useDownloads();
   const job = downloads.jobForGame(game.id) ?? downloads.resumableForGame(game.id);
@@ -199,7 +202,7 @@ export function InstallDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title={t("Install {title}", { title: game.title })}
+      title={rollback ? t("Roll back {title}?", { title: game.title }) : t("Install {title}", { title: game.title })}
       description={version.version ? `Version ${version.version} · ${formatBytes(version.size)}` : formatBytes(version.size)}
       size="sm"
       footer={
@@ -261,7 +264,7 @@ export function InstallDialog({
               onClick={() => void start()}
               icon={<Download className="size-4" />}
             >
-              {t("Install")}
+              {rollback ? t("Roll back and install") : t("Install")}
             </Button>
           </>
         )
@@ -324,6 +327,14 @@ export function InstallDialog({
             <dd className="truncate font-mono text-[11px] text-ink-2">{version.fileName}</dd>
           </div>
         </dl>
+
+        {rollback && (
+          <p className="border-l-2 border-signal pl-3 text-[12px] leading-relaxed text-signal-text">
+            {t(
+              "This version is older than the one installed. Ludex installs it alongside the current files and switches the launch path to it; the previous folder is left on disk. Saves live outside the install folder and are not modified. Older builds may not read saves written by a newer one.",
+            )}
+          </p>
+        )}
 
         {job && (
           <div className="flex flex-col gap-2 border-t border-line pt-4">

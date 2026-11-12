@@ -5,11 +5,13 @@ import {
   collectRepeatActions,
   createRepeatTracker,
   FIRST_REPEAT_MS,
+  hapticPattern,
   hasBlockingModal,
   moveTargetIndex,
   padHasInput,
   parseGamepadDebugFlag,
   readPadActions,
+  readPadPresses,
   REPEAT_MS,
   restoreGamepadFocus,
   rowsFromRects,
@@ -169,8 +171,71 @@ describe("gamepad input decoding", () => {
   });
 });
 
-describe("gamepad repeat timing", () => {
-  it("fires once per press, then repeats after the initial delay", () => {
+describe("gamepad action sources", () => {
+  const profile = presetProfile("xbox");
+
+  it("reports the physical button behind each action", () => {
+    const presses = readPadPresses(profile, pad({ buttons: buttons({ 0: 1, 2: 1, 4: 1 }) }));
+    const source = (action: GamepadAction) => presses.find((press) => press.action === action)?.source;
+    expect(source("confirm")).toEqual({ kind: "button", index: 0 });
+    expect(source("prevTab")).toEqual({ kind: "button", index: 4 });
+    expect(source("menu")).toEqual({ kind: "button", index: 2 });
+  });
+
+  it("reports the stick axis and the push direction", () => {
+    const presses = readPadPresses(profile, pad({ axes: [0, -0.9, 0, 0] }));
+    expect(presses).toEqual([{ action: "up", source: { kind: "axis", index: 1, direction: -1 } }]);
+    expect(readPadPresses(profile, pad({ axes: [0.9, 0, 0, 0] }))).toEqual([
+      { action: "right", source: { kind: "axis", index: 0, direction: 1 } },
+    ]);
+  });
+
+  it("keeps one entry per action, preferring the first physical source", () => {
+    const presses = readPadPresses(profile, pad({ axes: [0.95, 0, 0, 0], buttons: buttons({ 15: 1 }) }));
+    expect(presses.filter((press) => press.action === "right")).toHaveLength(1);
+    expect(presses.find((press) => press.action === "right")?.source).toEqual({ kind: "button", index: 15 });
+  });
+
+  it("never reports a source for an action the profile does not map", () => {
+    const presses = readPadPresses(profile, pad({ buttons: buttons({ 8: 1, 10: 1, 11: 1 }) }));
+    expect(presses).toEqual([]);
+  });
+});
+
+describe("haptic patterns", () => {
+  it("gives confirms a stronger pattern than focus moves", () => {
+    const confirm = hapticPattern("confirm");
+    const move = hapticPattern("left");
+    expect(confirm).not.toBeNull();
+    expect(move).not.toBeNull();
+    expect(confirm!.duration).toBeGreaterThan(move!.duration);
+    expect(confirm!.strongMagnitude).toBeGreaterThan(move!.strongMagnitude);
+  });
+
+  it("covers every logical action the interface accepts", () => {
+    const actions: GamepadAction[] = [
+      "left",
+      "right",
+      "up",
+      "down",
+      "confirm",
+      "back",
+      "menu",
+      "downloads",
+      "prevTab",
+      "nextTab",
+    ];
+    for (const action of actions) {
+      const pattern = hapticPattern(action);
+      expect(pattern).not.toBeNull();
+      expect(pattern!.duration).toBeGreaterThan(0);
+      expect(pattern!.strongMagnitude).toBeGreaterThan(0);
+      expect(pattern!.strongMagnitude).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+describe("gamepad repeat timing", () => {  it("fires once per press, then repeats after the initial delay", () => {
     const tracker = createRepeatTracker();
     expect(collectRepeatActions(tracker, press("right"), 1_000)).toEqual(["right"]);
     expect(collectRepeatActions(tracker, press("right"), 1_050)).toEqual([]);

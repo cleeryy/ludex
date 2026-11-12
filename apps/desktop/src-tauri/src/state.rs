@@ -163,6 +163,8 @@ pub struct AppState {
     pub secrets: SecretStore,
     /// Pending desktop SSO sign-ins (#157), keyed by the generated state.
     pub oidc_logins: Arc<crate::oidc_login::LoginSessions>,
+    /// In-game overlay runtime (#144): open state and native listener status.
+    pub overlay: crate::overlay::OverlayRuntime,
 }
 
 impl AppState {
@@ -234,6 +236,7 @@ impl AppState {
             install_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_INSTALLS)),
             secrets,
             oidc_logins: Arc::new(crate::oidc_login::LoginSessions::new()),
+            overlay: crate::overlay::OverlayRuntime::default(),
         })
     }
 

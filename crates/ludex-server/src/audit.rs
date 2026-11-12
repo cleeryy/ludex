@@ -98,6 +98,10 @@ pub mod actions {
     pub const METADATA_PROVIDER_UPDATED: &str = "settings.metadata_provider_updated";
     /// An editor picked a metadata provider record for a game (#135).
     pub const GAME_METADATA_MATCHED: &str = "game.metadata_matched";
+    /// An editor pinned another version as the download/update default (#168).
+    pub const GAME_VERSION_DEFAULT_CHANGED: &str = "game.version_default_changed";
+    /// An editor deleted one version's archive while keeping the game (#168).
+    pub const GAME_VERSION_DELETED: &str = "game.version_deleted";
 }
 
 /// Writes one event to `audit_logs`. Failures are logged, never propagated:

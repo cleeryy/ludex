@@ -14,6 +14,13 @@ import { t } from "@/lib/i18n";
 import type { GameSummary, InstallJob } from "@/lib/types";
 import { GameCover } from "@/components/art/cover";
 import { Kbd } from "@/components/ui/controls";
+import {
+  hintsFor,
+  padFamilyLabel,
+  type HintContext,
+  type HintId,
+  type PadFamily,
+} from "./controller";
 import type { BigPictureLayout } from "./layout";
 import type { BigPictureNavigation } from "./navigation";
 
@@ -313,38 +320,102 @@ function Hint({ keys, children }: { keys: ReactNode; children: ReactNode }) {
   );
 }
 
+const HINT_COPY: Record<HintId, () => string> = {
+  navigate: () => t("navigate"),
+  select: () => t("select"),
+  play: () => t("play or install"),
+  shelf: () => t("shelf"),
+  page: () => t("page"),
+  search: () => t("search"),
+  downloads: () => t("downloads"),
+  menu: () => t("menu"),
+  exit: () => t("exit"),
+  choose: () => t("choose"),
+  apply: () => t("apply"),
+  close: () => t("close"),
+  type: () => t("type"),
+  delete: () => t("delete"),
+  space: () => t("space"),
+  clear: () => t("clear"),
+  open: () => t("open"),
+  cancel: () => t("cancel"),
+  back: () => t("back"),
+};
+
 /**
- * The hint strip. It reads from the same layout registry as the navigation, so
- * a layout can never advertise keys it does not honour.
+ * The hint strip (#138). It reads the same registry as the input router, so a
+ * context can never advertise a button it does not honour: the library, the
+ * quick switcher and every overlay pass their own context, and a DualSense
+ * names Cross where an Xbox names A.
+ */
+export function HintStrip({
+  context,
+  layout,
+  connected,
+  family,
+  className,
+}: {
+  context: HintContext;
+  layout: BigPictureLayout;
+  connected: boolean;
+  family: PadFamily;
+  className?: string;
+}) {
+  const hints = hintsFor(context, { layout, family, connected });
+  return (
+    <div className={cn("flex flex-wrap items-center gap-x-4 gap-y-1", className)}>
+      {hints.map((hint) => (
+        <Hint key={hint.id} keys={hint.keys.map((key) => <Kbd key={key}>{key}</Kbd>)}>
+          {HINT_COPY[hint.id]()}
+        </Hint>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The Big Picture footer: contextual hints on the left, the active pad and
+ * profile on the right — the profile indicator a player needs to know which
+ * mapping is driving the screen (#138).
  */
 export function BigPictureFooter({
   layout,
   connected,
+  family,
+  profileName,
+  context,
+  haptics,
   className,
 }: {
   layout: BigPictureLayout;
   connected: boolean;
+  family: PadFamily;
+  /** Active controller profile name, shown as the indicator. */
+  profileName: string;
+  context: HintContext;
+  haptics: boolean;
   className?: string;
 }) {
-  const rail = layout === "shelf" || layout === "hero";
   return (
     <footer
       className={cn(
-        "relative flex h-10 shrink-0 flex-wrap items-center gap-x-5 gap-y-1 overflow-hidden border-t border-line bg-bg-deep px-5 text-[10.5px] text-ink-3 lg:px-7",
+        "relative flex min-h-10 shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-t border-line bg-bg-deep px-5 py-1.5 text-[10.5px] text-ink-3 lg:px-7",
         className,
       )}
     >
-      <Hint keys={<><Kbd>←</Kbd><Kbd>→</Kbd></>}>{rail ? t("select") : t("shelf")}</Hint>
-      <Hint keys={<><Kbd>↑</Kbd><Kbd>↓</Kbd></>}>{rail ? t("shelf") : t("select")}</Hint>
-      {!rail && <Hint keys={<><Kbd>[</Kbd><Kbd>]</Kbd></>}>{t("shelf")}</Hint>}
-      <Hint keys={<Kbd>↵</Kbd>}>{t("play or install")}</Hint>
-      <Hint keys={<Kbd>L</Kbd>}>{t("layout")}</Hint>
-      <Hint keys={<Kbd>esc</Kbd>}>{t("exit")}</Hint>
-      <span className="ms-auto hidden items-center gap-1.5 xl:flex">
+      <HintStrip context={context} layout={layout} connected={connected} family={family} />
+      <span className="ms-auto hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] xl:flex">
         <Gamepad2 className="size-3.5" aria-hidden="true" />
-        {connected
-          ? t("Gamepad: stick or d-pad, A, B, X layout, Y downloads, LB/RB shelf")
-          : t("Keyboard only — connect a controller for couch navigation")}
+        {connected ? (
+          <>
+            <span className="text-ink-2">{padFamilyLabel(family)}</span>
+            <span aria-hidden="true">·</span>
+            <span className="max-w-[18ch] truncate normal-case tracking-normal text-ink-3">{profileName}</span>
+            {haptics && <span className="text-signal-text">{t("vibration")}</span>}
+          </>
+        ) : (
+          t("Keyboard only — connect a controller for couch navigation")
+        )}
       </span>
     </footer>
   );

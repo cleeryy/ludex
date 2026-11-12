@@ -501,6 +501,7 @@ export const DEMO_GAMES: GameDetail[] = seeds.map((seed, i) => {
     platform: seed.platform ?? null,
     emulatorId: null,
     versions,
+    defaultVersionId: versions[0]?.id ?? null,
     launch: {
       executable: seed.executable,
       parameters: null,

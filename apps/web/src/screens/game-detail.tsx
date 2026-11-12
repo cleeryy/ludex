@@ -28,8 +28,9 @@ import { parseServerGameId } from "@/lib/game-route";
 import { cn } from "@/lib/cn";
 import { formatBytes, formatDate, formatEta, formatMinutes, formatRating, formatRelative, formatSeconds, formatSpeed, formatYear, stateLabel, formatPercent } from "@/lib/format";
 import { isNative, native } from "@/lib/native";
-import type { GameDetail, InstalledGame, ProgressState } from "@/lib/types";
+import type { GameDetail, GameVersion, InstalledGame, ProgressState } from "@/lib/types";
 import { useBookmark, useGamePlaytime, useInstalledMap, useLaunchGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
+import { isRollbackInstall } from "@/lib/game-versions";
 import { useDownloads } from "@/state/downloads";
 import { AchievementsPanel } from "@/components/game/achievements";
 import { RomPanel } from "@/components/game/rom-panel";
@@ -40,6 +41,7 @@ import { MatchMetadataDialog } from "@/components/game/match-metadata";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { InstallFiles } from "@/components/game/install-files";
 import { GameSettingsPanel } from "@/components/game/game-settings";
+import { VersionManager } from "@/components/game/version-manager";
 import { AdoptInstallDialog } from "@/components/game/adopt-install";
 import { DeleteAdoptedDialog } from "@/components/game/delete-adopted";
 import { InstallerPanel } from "@/components/game/installer-panel";
@@ -88,6 +90,7 @@ export function GameDetailScreen() {
   const updates = useUpdateMap();
   const updateGame = useUpdateGame();
   const [installOpen, setInstallOpen] = useState(false);
+  const [installTarget, setInstallTarget] = useState<GameVersion | null>(null);
   const [adoptOpen, setAdoptOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -119,7 +122,14 @@ export function GameDetailScreen() {
   const [versionId, setVersionId] = useState<number | null>(null);
   const version = useMemo(() => {
     if (!game) return null;
-    return game.versions.find((v) => v.id === versionId) ?? game.versions[0] ?? null;
+    // The pinned version is the default for downloads, installs and updates
+    // (#168); the picker above the fold can override it for this page.
+    return (
+      game.versions.find((v) => v.id === versionId) ??
+      game.versions.find((v) => v.id === game.defaultVersionId) ??
+      game.versions[0] ??
+      null
+    );
   }, [game, versionId]);
 
   const back = () => {
@@ -157,6 +167,11 @@ export function GameDetailScreen() {
   const installPct = activeJob?.bytesTotal ? Math.min(100, (activeJob.bytesDone / activeJob.bytesTotal) * 100) : null;
   const canPlay = isNative() && Boolean(isInstalled);
   const spec = artFromUrl(game.backgroundUrl, game.title);
+  const dialogVersion = installTarget ?? version;
+  const dialogRollback =
+    dialogVersion && isInstalled
+      ? isRollbackInstall(dialogVersion.id, isInstalled.versionId, game.versions)
+      : false;
   const totalPlayed = formatSeconds(playtime.data?.totalSeconds) ?? formatMinutes(game.minutesPlayed);
 
   const setProgress = async (state: ProgressState) => {
@@ -170,13 +185,13 @@ export function GameDetailScreen() {
     }
   };
 
-  const download = async () => {
+  const download = async (target?: GameVersion) => {
     if (USING_MOCKS) {
       push({ title: t("Demo build"), description: t("Downloads and installs need the real server. The browser flow is wired.") });
       return;
     }
     try {
-      const ticket = await api.downloadTicket(game.id, version?.id);
+      const ticket = await api.downloadTicket(game.id, (target ?? version)?.id);
       const url = assetUrl(ticket.url);
       if (!url) throw new Error(t("The server returned an empty download URL"));
       const anchor = document.createElement("a");
@@ -232,7 +247,15 @@ export function GameDetailScreen() {
       {t("Resume install")}
     </Button>
   ) : isNative() ? (
-    <Button variant="primary" size="lg" icon={<Download className="size-4" />} onClick={() => setInstallOpen(true)}>
+    <Button
+      variant="primary"
+      size="lg"
+      icon={<Download className="size-4" />}
+      onClick={() => {
+        setInstallTarget(null);
+        setInstallOpen(true);
+      }}
+    >
       {t("Install")}
     </Button>
   ) : (
@@ -563,33 +586,16 @@ export function GameDetailScreen() {
 
         <div className="mt-14 grid gap-12 lg:grid-cols-[1fr_320px]">
           <div>
-            <section aria-labelledby="files-heading">
-              <SectionHeader title={t("Files")} count={game.versions.length} description={t("Archives on the server")} />
-              <div className="border-t border-line" id="files-heading">
-                {game.versions.map((v) => (
-                  <div key={v.id} className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line py-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-[13.5px] text-ink">{v.fileName}</p>
-                      <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 font-mono text-[10.5px] text-ink-3">
-                        <span>{v.version ? `v${v.version}` : "unversioned"}</span>
-                        <span>{formatBytes(v.size)}</span>
-                        <span>{formatDate(v.releaseDate)}</span>
-                        {v.earlyAccess && <span className="text-signal-text">{t("early access")}</span>}
-                      </p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<Download className="size-3.5" />}
-                      onClick={() => void download()}
-                      className="text-ink-2"
-                    >
-                      {t("Download")}
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </section>
+            <VersionManager
+              game={game}
+              installed={isInstalled}
+              isEditor={isEditor}
+              onDownload={(entry) => void download(entry)}
+              onInstall={(entry) => {
+                setInstallTarget(entry);
+                setInstallOpen(true);
+              }}
+            />
 
             {isInstalled && isNative() && <InstallFiles gameId={game.id} title={game.title} />}
 
@@ -720,8 +726,14 @@ export function GameDetailScreen() {
         </div>
       </div>
 
-      {version && (
-        <InstallDialog open={installOpen} onOpenChange={setInstallOpen} game={game} version={version} />
+      {dialogVersion && (
+        <InstallDialog
+          open={installOpen}
+          onOpenChange={setInstallOpen}
+          game={game}
+          version={dialogVersion}
+          rollback={dialogRollback}
+        />
       )}
 
       <AdoptInstallDialog

@@ -50,6 +50,9 @@ import type {
   MoonlightStatus,
   OidcLoginPoll,
   OidcLoginStart,
+  OverlayGameState,
+  OverlaySettingsPatch,
+  OverlayStatus,
   PrefixInfo,
   ProtonDbRating,
   RepairProgress,
@@ -957,6 +960,76 @@ export const native = {
     if (!isNative()) throw nativeUnavailable();
     await invoke<null>("open_external_url", { url });
   },
+
+  /* -------------------------- in-game overlay (#144) ----------------------- */
+
+  /** Current overlay settings, running game and native listener status. */
+  async overlayStatus(): Promise<OverlayStatus | null> {
+    if (!isNative()) return null;
+    try {
+      return await invoke<OverlayStatus>("overlay_status");
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * Persist a partial overlay change and apply it live (no restart). Only the
+   * named fields are touched, so two panels cannot overwrite each other.
+   */
+  async setOverlaySettings(patch: OverlaySettingsPatch): Promise<OverlayStatus> {
+    return invoke<OverlayStatus>("set_overlay_settings", { settings: patch });
+  },
+
+  /** Open the floating overlay (or the in-app overlay when it is unavailable). */
+  async openOverlay(): Promise<OverlayStatus> {
+    return invoke<OverlayStatus>("open_overlay");
+  },
+
+  /** Close the overlay and hand focus back to the game/main window. */
+  async closeOverlay(): Promise<OverlayStatus> {
+    return invoke<OverlayStatus>("close_overlay");
+  },
+
+  /** The game currently running, or null. */
+  async overlayGameState(): Promise<OverlayGameState | null> {
+    if (!isNative()) return null;
+    try {
+      return await invoke<OverlayGameState | null>("overlay_game_state");
+    } catch {
+      return null;
+    }
+  },
+
+  /** Turn the overlay off (or back on) for one game. */
+  async setOverlayGameDisabled(gameId: number, disabled: boolean): Promise<OverlayStatus> {
+    return invoke<OverlayStatus>("set_overlay_game_disabled", { gameId, disabled });
+  },
+
+  /** Bring the main window forward on Big Picture and close the overlay. */
+  async overlayShowBigPicture(): Promise<void> {
+    if (!isNative()) return;
+    await invoke<null>("overlay_show_big_picture");
+  },
+
+  /** The desktop asked the main window to show the in-app overlay. */
+  async onOverlayOpen(handler: () => void): Promise<() => void> {
+    return listen<null>("overlay://open", () => handler());
+  },
+
+  async onOverlayClose(handler: () => void): Promise<() => void> {
+    return listen<null>("overlay://close", () => handler());
+  },
+
+  /** Live settings/status update after `set_overlay_settings`. */
+  async onOverlaySettings(handler: (status: OverlayStatus) => void): Promise<() => void> {
+    return listen<OverlayStatus>("overlay://settings", handler);
+  },
+
+  /** "Open Big Picture" from the overlay: the path the main window must open. */
+  async onOverlayNavigate(handler: (path: string) => void): Promise<() => void> {
+    return listen<string>("overlay://navigate", handler);
+  },
 };
 
 async function listen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
@@ -1012,4 +1085,10 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   gamevaultRoots: [],
   gamevaultScanDepth: 6,
   launcherSources: ALL_LAUNCHER_IDS,
+  overlayEnabled: true,
+  overlayTrigger: "doubleHome",
+  overlayOpacity: 0.92,
+  overlayScale: 1,
+  overlayTabs: ["game", "library", "downloads", "achievements"],
+  overlayDisabledGames: [],
 };
