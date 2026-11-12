@@ -61,6 +61,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- Stream installs resume instead of restarting (#203, #204, #205, #208):
+  retries reuse the same job id and history row, the desktop persists the job
+  request and rebuilds a worker for paused/failed/interrupted jobs (including
+  from a previous app run) at the exact `.part`/entry checkpoint, the per-entry
+  stream gained a stall timeout with bounded backoff and exact-byte Range
+  resume, non-resumable formats fall back to the classic resumable download
+  before writing anything, and the UI distinguishes Resume from Restart with an
+  explicit confirmation.
 - The remote-play wizard shows the VPN/mesh address (#206): it enumerates every
   interface, prefers Netbird/Tailscale/WireGuard/ZeroTier addresses over the
   default-route LAN IP, never advertises CGNAT, Docker, loopback or link-local

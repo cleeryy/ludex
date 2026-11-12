@@ -1609,7 +1609,6 @@
   "Resumed {count} file already on disk.": "すでにディスク上にある {count} ファイルを再開しました。",
   "Resumed {count} files already on disk.": "すでにディスク上にある {count} ファイルを再開しました。",
   "Retry as download": "ダウンロードとして再試行",
-  "Retry stream": "ストリームの再試行",
   "Return to Ludex; you can close this tab.": "Ludex に戻ります。このタブは閉じても構いません。",
   "Revoke": "取り消す",
   "Revoke link": "リンクを取り消す",
@@ -2023,8 +2022,6 @@
   "This shelf is empty": "この棚は空です",
   "This shelf is empty.": "この棚は空です。",
   "This stream has no per-file checkpoint and cannot be resumed; retrying as a download keeps the archive so it can resume.": "このストリームにはファイルごとのチェックポイントがないため、再開できません。ダウンロードとして再試行するとアーカイブが保持されるため、再開できます。",
-  "This stream has no per-file checkpoint; retrying restarts it from zero": "このストリームにはファイルごとのチェックポイントがありません。再試行するとゼロからやり直します",
-  "This stream has no per-file checkpoint; retrying restarts it. A download can resume.": "このストリームにはファイルごとのチェックポイントがありません。再試行すると再起動されます。ダウンロードを再開できます。",
   "This tint drops text contrast to {ratio}:1 on the surfaces. Pick a darker or lighter tint; {min}:1 is required.": "この色合いにより、表面上のテキストのコントラストが {ratio}:1 に低下します。暗いまたは明るい色合いを選択します。 {min}:1が必要です。",
   "This token is saved for the profile, not in the settings file: the desktop uses the OS keychain when available and a local SQLite file otherwise.": "このトークンは、設定ファイルではなくプロファイル用に保存されます。デスクトップは、利用可能な場合は OS キーチェーンを使用し、それ以外の場合はローカル SQLite ファイルを使用します。",
   "this user": "このユーザー",
@@ -3459,5 +3456,13 @@
   "no address on {interfaces}": "{interfaces} にアドレスがありません",
   "Other addresses": "他のアドレス",
   "The VPN is detected on {interfaces} but has no address. Copy the address from the VPN service; the LAN address above only works at home.": "VPN は {interfaces} で検出されましたが、アドレスがありません。VPN サービスからアドレスをコピーしてください。上の LAN アドレスは自宅でのみ機能します。",
-  "this machine": "このマシン"
+  "this machine": "このマシン",
+  "Continues from the saved checkpoint with the same job": "保存されたチェックポイントから同じジョブで再開します",
+  "Downloads the archive instead and resumes with the same job": "代わりにアーカイブをダウンロードし、同じジョブで続行します",
+  "No saved checkpoint: restarting starts from zero and keeps one Downloads row.": "保存されたチェックポイントがありません。再開すると最初からになり、ダウンロードの行は 1 つのままです。",
+  "Restart": "最初からやり直す",
+  "Restart stream": "ストリームをやり直す",
+  "Restart the install?": "インストールをやり直しますか？",
+  "Starts from zero and reuses the same Downloads row": "最初からやり直し、同じダウンロード行を使います",
+  "{title} has no saved checkpoint, so restarting starts it from zero. The same Downloads row is reused; no second job is created.": "{title} には保存されたチェックポイントがないため、やり直すと最初からになります。同じダウンロード行が再利用され、2 つ目のジョブは作成されません。"
 }

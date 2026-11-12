@@ -1609,7 +1609,6 @@
   "Resumed {count} file already on disk.": "Archivo {count} reanudado que ya está en el disco.",
   "Resumed {count} files already on disk.": "Reanudó {count} archivos que ya están en el disco.",
   "Retry as download": "Reintentar como descarga",
-  "Retry stream": "Reintentar transmisión",
   "Return to Ludex; you can close this tab.": "Volver a Ludex; puedes cerrar esta pestaña.",
   "Revoke": "Revocar",
   "Revoke link": "Revocar enlace",
@@ -2023,8 +2022,6 @@
   "This shelf is empty": "Este estante está vacío",
   "This shelf is empty.": "Este estante está vacío.",
   "This stream has no per-file checkpoint and cannot be resumed; retrying as a download keeps the archive so it can resume.": "Esta transmisión no tiene un punto de control por archivo y no se puede reanudar; volver a intentarlo como descarga mantiene el archivo para que pueda reanudarse.",
-  "This stream has no per-file checkpoint; retrying restarts it from zero": "Esta transmisión no tiene ningún punto de control por archivo; reintentarlo lo reinicia desde cero",
-  "This stream has no per-file checkpoint; retrying restarts it. A download can resume.": "Esta transmisión no tiene ningún punto de control por archivo; al volver a intentarlo se reinicia. Se puede reanudar una descarga.",
   "This tint drops text contrast to {ratio}:1 on the surfaces. Pick a darker or lighter tint; {min}:1 is required.": "Este tinte reduce el contraste del texto a {ratio}:1 en las superficies. Elija un tinte más oscuro o más claro; Se requiere {min}:1.",
   "This token is saved for the profile, not in the settings file: the desktop uses the OS keychain when available and a local SQLite file otherwise.": "Este token se guarda para el perfil, no en el archivo de configuración: el escritorio usa el llavero del sistema operativo cuando está disponible y, en caso contrario, un archivo SQLite local.",
   "this user": "este usuario",
@@ -3459,5 +3456,13 @@
   "no address on {interfaces}": "sin dirección en {interfaces}",
   "Other addresses": "Otras direcciones",
   "The VPN is detected on {interfaces} but has no address. Copy the address from the VPN service; the LAN address above only works at home.": "La VPN se detecta en {interfaces} pero no tiene dirección. Copia la dirección desde el servicio VPN; la dirección LAN de arriba solo funciona en casa.",
-  "this machine": "este equipo"
+  "this machine": "este equipo",
+  "Continues from the saved checkpoint with the same job": "Continúa desde el punto de control guardado con el mismo trabajo",
+  "Downloads the archive instead and resumes with the same job": "Descarga el archivo en su lugar y continúa con el mismo trabajo",
+  "No saved checkpoint: restarting starts from zero and keeps one Downloads row.": "No hay punto de control guardado: reiniciar empieza desde cero y conserva una sola fila en Descargas.",
+  "Restart": "Reiniciar",
+  "Restart stream": "Reiniciar el flujo",
+  "Restart the install?": "¿Reiniciar la instalación?",
+  "Starts from zero and reuses the same Downloads row": "Empieza desde cero y reutiliza la misma fila en Descargas",
+  "{title} has no saved checkpoint, so restarting starts it from zero. The same Downloads row is reused; no second job is created.": "{title} no tiene punto de control guardado, así que reiniciar empieza desde cero. Se reutiliza la misma fila de Descargas; no se crea un segundo trabajo."
 }

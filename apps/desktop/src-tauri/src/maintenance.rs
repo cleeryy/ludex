@@ -820,6 +820,7 @@ fn failure_message(failure: &Failure) -> String {
         Failure::Cancelled => "the download was cancelled".to_string(),
         Failure::Paused => "the download was paused".to_string(),
         Failure::Failed(message) => message.clone(),
+        Failure::StreamUnavailable(message) => message.clone(),
     }
 }
 

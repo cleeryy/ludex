@@ -192,10 +192,11 @@ export function InstallDialog({
   const paused = job?.phase === "paused";
   const active = job && ["queued", "downloading", "extracting", "finalizing"].includes(job.phase);
   const failed = job && ["error", "cancelled", "interrupted"].includes(job.phase);
-  // A stream install cannot resume: offer a normal download retry instead of a
-  // Resume button that would restart the stream from zero (#114).
+  // "Resume" only when a checkpoint really continues the job; a legacy stream
+  // without one gets an explicit "Restart stream" (#205/#208).
   const streamFailed = job ? isStreamFailedJob(job) : false;
-  const resumable = !streamFailed && (paused || failed);
+  const resumable = paused || (failed && job?.resumable === true);
+  const needsRestart = failed && job?.resumable !== true && !streamFailed;
   const eta = job && active && job.bytesTotal ? formatEta(job.bytesDone, job.bytesTotal, job.speedBps) : null;
 
   return (
@@ -237,7 +238,7 @@ export function InstallDialog({
                 void downloads.retryStream(job, { title: game.title, version: version.version, executable: game.launch.executable })
               }
             >
-              {t("Retry stream")}
+              {t("Restart stream")}
             </Button>
             <Button variant="primary" loading={starting} onClick={() => void retryAsDownload()} icon={<Download className="size-4" />}>
               {t("Retry as download")}
@@ -261,10 +262,10 @@ export function InstallDialog({
               variant="primary"
               loading={starting}
               disabled={blocked}
-              onClick={() => void start()}
+              onClick={() => void (needsRestart ? resume() : start())}
               icon={<Download className="size-4" />}
             >
-              {rollback ? t("Roll back and install") : t("Install")}
+              {needsRestart ? t("Restart") : rollback ? t("Roll back and install") : t("Install")}
             </Button>
           </>
         )

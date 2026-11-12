@@ -225,8 +225,13 @@ pub fn pause_install(app: AppHandle, job_id: String) -> Result<InstallJob, Strin
 }
 
 #[tauri::command]
-pub fn resume_install(app: AppHandle, job_id: String) -> Result<InstallJob, String> {
-    install::resume(&app, &job_id)
+pub fn resume_install(
+    app: AppHandle,
+    job_id: String,
+    mode: Option<String>,
+) -> Result<InstallJob, String> {
+    let mode = install::ResumeMode::parse(mode.as_deref())?;
+    install::resume_with_mode(&app, &job_id, mode)
 }
 
 #[tauri::command]

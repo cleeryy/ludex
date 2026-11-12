@@ -1609,7 +1609,6 @@
   "Resumed {count} file already on disk.": "已恢复磁盘上已存在的 {count} 文件。",
   "Resumed {count} files already on disk.": "恢复磁盘上已有的 {count} 文件。",
   "Retry as download": "重试下载",
-  "Retry stream": "重试流",
   "Return to Ludex; you can close this tab.": "返回Ludex；您可以关闭此选项卡。",
   "Revoke": "撤销",
   "Revoke link": "撤销链接",
@@ -2023,8 +2022,6 @@
   "This shelf is empty": "这个架子是空的",
   "This shelf is empty.": "这个架子是空的。",
   "This stream has no per-file checkpoint and cannot be resumed; retrying as a download keeps the archive so it can resume.": "该流没有每个文件检查点并且无法恢复；重试下载会保留存档，以便可以恢复。",
-  "This stream has no per-file checkpoint; retrying restarts it from zero": "该流没有每个文件的检查点；重试会从零重新启动",
-  "This stream has no per-file checkpoint; retrying restarts it. A download can resume.": "该流没有每个文件的检查点；重试会重新启动它。可以继续下载。",
   "This tint drops text contrast to {ratio}:1 on the surfaces. Pick a darker or lighter tint; {min}:1 is required.": "此色调会降低表面上与 {ratio}:1 的文本对比度。选择较深或较浅的色调；需要 {min}:1。",
   "This token is saved for the profile, not in the settings file: the desktop uses the OS keychain when available and a local SQLite file otherwise.": "此令牌是为配置文件保存的，而不是在设置文件中：桌面使用操作系统钥匙串（如果可用），否则使用本地 SQLite 文件。",
   "this user": "该用户",
@@ -3459,5 +3456,13 @@
   "no address on {interfaces}": "{interfaces} 上没有地址",
   "Other addresses": "其他地址",
   "The VPN is detected on {interfaces} but has no address. Copy the address from the VPN service; the LAN address above only works at home.": "已在 {interfaces} 上检测到 VPN，但没有地址。请从 VPN 服务复制地址；上面的局域网地址仅在家中可用。",
-  "this machine": "此设备"
+  "this machine": "此设备",
+  "Continues from the saved checkpoint with the same job": "从已保存的检查点继续，使用同一个任务",
+  "Downloads the archive instead and resumes with the same job": "改为下载压缩包，并使用同一个任务继续",
+  "No saved checkpoint: restarting starts from zero and keeps one Downloads row.": "没有已保存的检查点：重新开始会从零开始，并保留一条下载记录。",
+  "Restart": "重新开始",
+  "Restart stream": "重新开始流式安装",
+  "Restart the install?": "重新开始安装？",
+  "Starts from zero and reuses the same Downloads row": "从零开始并复用同一条下载记录",
+  "{title} has no saved checkpoint, so restarting starts it from zero. The same Downloads row is reused; no second job is created.": "{title} 没有已保存的检查点，重新开始会从零开始。将复用同一条下载记录；不会创建第二个任务。"
 }

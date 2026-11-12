@@ -2,7 +2,8 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, Download, FolderOpen, Pause, Play, RefreshCw, Trash2, X } from "lucide-react";
 import { installsAvailable } from "@/lib/install";
-import { isActiveJob, isStreamFailedJob, useDownloads, type Aggregate } from "@/state/downloads";
+import { isActiveJob, useDownloads, type Aggregate } from "@/state/downloads";
+import { canRetryJob, isTrulyResumable } from "@/lib/install-retry";
 import { useAllGames } from "@/lib/hooks";
 import { formatBytes, formatDuration, formatSpeed, installPhaseLabel, formatPercent } from "@/lib/format";
 import { HISTORY_WINDOW_MS, type JobMeter, type SpeedPoint } from "@/lib/eta";
@@ -139,6 +140,8 @@ export function DownloadsScreen() {
   // Failed entries ask first: removing them is the only way to lose sight of
   // the resume/retry action, even though the files stay on disk.
   const [removeTarget, setRemoveTarget] = useState<InstallJob | null>(null);
+  // A retry without a checkpoint restarts from zero: say so and confirm (#205).
+  const [restartTarget, setRestartTarget] = useState<InstallJob | null>(null);
 
   const coverFor = (job: InstallJob) => gamesById.get(job.gameId)?.coverUrl ?? null;
   const yearFor = (job: InstallJob) => gamesById.get(job.gameId)?.releaseDate ?? null;
@@ -210,6 +213,20 @@ export function DownloadsScreen() {
     if (target) void remove(target.jobId);
   };
 
+  const requestRestart = (job: InstallJob) => setRestartTarget(job);
+
+  const confirmRestart = () => {
+    const target = restartTarget;
+    setRestartTarget(null);
+    if (!target) return;
+    // Same job id, same history row: only the transport is chosen here.
+    if (target.stream) {
+      void retryStream(target, { title: titleFor(target) });
+    } else {
+      void resume(target, { title: titleFor(target) });
+    }
+  };
+
   return (
     <div className="page page-in">
       <PageHeader
@@ -265,6 +282,7 @@ export function DownloadsScreen() {
               onPause={() => void pause(job.jobId)}
               onOpenFolder={job.installPath ? () => void openFolder(job.installPath!) : undefined}
               onResume={() => void resume(job, { title: titleFor(job) })}
+              onRestart={() => requestRestart(job)}
             />
           ))}
         </div>
@@ -301,8 +319,8 @@ export function DownloadsScreen() {
               onPause={() => void pause(job.jobId)}
               onOpenFolder={job.installPath ? () => void openFolder(job.installPath!) : undefined}
               onResume={() => void resume(job, { title: titleFor(job) })}
+              onRestart={() => requestRestart(job)}
               onRetryAsDownload={() => void retryAsDownload(job, { title: titleFor(job) })}
-              onRetryStream={() => void retryStream(job, { title: titleFor(job) })}
               onRemove={REMOVABLE_PHASES.has(job.phase) ? () => requestRemove(job) : undefined}
             />
           ))}
@@ -314,6 +332,23 @@ export function DownloadsScreen() {
           part: <span className="font-mono">.part</span>,
         })}
       </p>
+
+      <ConfirmDialog
+        open={restartTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRestartTarget(null);
+        }}
+        title={t("Restart the install?")}
+        description={
+          restartTarget
+            ? t("{title} has no saved checkpoint, so restarting starts it from zero. The same Downloads row is reused; no second job is created.", {
+                title: titleFor(restartTarget),
+              })
+            : ""
+        }
+        confirmLabel={t("Restart")}
+        onConfirm={confirmRestart}
+      />
 
       <ConfirmDialog
         open={removeTarget !== null}
@@ -351,8 +386,8 @@ function JobRow({
   onPause,
   onOpenFolder,
   onResume,
+  onRestart,
   onRetryAsDownload,
-  onRetryStream,
   onRemove,
 }: {
   job: InstallJob;
@@ -364,8 +399,8 @@ function JobRow({
   onPause: () => void;
   onOpenFolder?: () => void;
   onResume: () => void;
+  onRestart: () => void;
   onRetryAsDownload?: () => void;
-  onRetryStream?: () => void;
   onRemove?: () => void;
 }) {
   const active = isActiveJob(job);
@@ -382,12 +417,12 @@ function JobRow({
     (job.phase === "extracting" || job.phase === "finalizing") && meter
       ? formatDuration(meter.elapsedMs / 1000)
       : null;
-  // Stream installs cannot resume: a failed one gets a normal download retry
-  // instead of a Resume button that would silently restart from zero.
-  const streamFailed = isStreamFailedJob(job);
-  const resumable = !streamFailed && (paused || job.phase === "error" || job.phase === "cancelled" || job.phase === "interrupted");
+  // "Resume" only when the checkpoint really continues the job; a failed job
+  // without one is an explicit "Restart" with a confirmation (#205/#208).
+  const retryable = canRetryJob(job);
+  const resumes = isTrulyResumable(job);
+  const restartLabel = job.stream ? t("Restart stream") : t("Restart");
   const pausable =
-    !streamFailed &&
     (job.phase === "queued" || job.phase === "downloading") &&
     (job.stream !== true || job.resumable);
   const done = job.phase === "done";
@@ -432,6 +467,9 @@ function JobRow({
               {eta && <span>{eta}</span>}
               {phaseElapsed && <span>{t("{phase} for {duration}", { phase: installPhaseLabel(job.phase), duration: phaseElapsed })}</span>}
               {pct !== null && <span>{formatPercent(pct, 1)}</span>}
+              {job.entriesTotal ? (
+                <span>{t("{done}/{total} files", { done: job.entriesDone ?? 0, total: job.entriesTotal })}</span>
+              ) : null}
             </>
           )}
           {job.phase === "interrupted" && <span className="text-signal-text">{t("resume keeps the bytes already received")}</span>}
@@ -469,43 +507,37 @@ function JobRow({
               {t("Pause")}
             </Button>
           )}
-          {resumable && (
+          {retryable && (
             <Button
               variant="ghost"
               size="sm"
               className="text-signal-text"
               icon={paused ? <Play className="size-3.5" /> : <RefreshCw className="size-3.5" />}
-              onClick={onResume}
+              onClick={resumes ? onResume : onRestart}
+              title={
+                resumes
+                  ? t("Continues from the saved checkpoint with the same job")
+                  : t("Starts from zero and reuses the same Downloads row")
+              }
             >
-              {t("Resume")}
+              {resumes ? t("Resume") : restartLabel}
             </Button>
           )}
-          {streamFailed && onRetryAsDownload && (
+          {retryable && job.stream && onRetryAsDownload && (
             <Button
               variant="ghost"
               size="sm"
               className="text-signal-text"
               icon={<Download className="size-3.5" />}
               onClick={onRetryAsDownload}
+              title={t("Downloads the archive instead and resumes with the same job")}
             >
               {t("Retry as download")}
             </Button>
           )}
-          {streamFailed && onRetryStream && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-ink-2"
-              icon={<RefreshCw className="size-3.5" />}
-              onClick={onRetryStream}
-              title={t("This stream has no per-file checkpoint; retrying restarts it from zero")}
-            >
-              {t("Retry stream")}
-            </Button>
-          )}
-          {streamFailed && (
+          {retryable && !resumes && (
             <span className="px-1 text-[11px] leading-snug text-ink-3">
-              {t("This stream has no per-file checkpoint; retrying restarts it. A download can resume.")}
+              {t("No saved checkpoint: restarting starts from zero and keeps one Downloads row.")}
             </span>
           )}
           {onOpenFolder && (

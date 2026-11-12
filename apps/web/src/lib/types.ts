@@ -2428,7 +2428,11 @@ export interface InstallJob {
   installPath: string | null;
   /** True when the job used a stream install instead of download+extract (#114). */
   stream: boolean;
-  /** True when the stream install has per-entry checkpoints and can resume (#115). */
+  /**
+   * True when a real checkpoint exists (`.part` file, completed stream entries,
+   * or a paused job). The UI labels the action "Resume" only then; otherwise it
+   * is an explicit "Restart" (#205/#208).
+   */
   resumable: boolean;
   /** Completed / total file entries of a per-entry stream install. */
   entriesDone: number | null;
@@ -2446,6 +2450,13 @@ export interface InstallJob {
   /** Milliseconds the connection was silent when the stall was detected. */
   stalledForMs: number | null;
 }
+
+/**
+ * Transport of a retry (#205/#208). `null`/omitted keeps the job's own mode;
+ * `download` and `stream` are the explicit "retry as download" and "restart
+ * stream" actions. Every mode reuses the same job id and history row.
+ */
+export type InstallResumeMode = "download" | "stream";
 
 /** A game with a newer version on the server (#30). */
 export interface GameUpdate {

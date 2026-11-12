@@ -3,9 +3,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, getApiBase, tokenStore } from "@/lib/api";
 import { installBridge, installsAvailable } from "@/lib/install";
 import { isNative, native } from "@/lib/native";
-import { USING_MOCKS } from "@/lib/flags";
 import { errorMessage } from "@/lib/http";
-import type { InstallJob, InstallPhase } from "@/lib/types";
+import { planRetry } from "@/lib/install-retry";
+import type { InstallJob, InstallPhase, InstallResumeMode } from "@/lib/types";
 import { useAuth } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { formatDuration } from "@/lib/format";
@@ -421,85 +421,44 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     [refresh, push],
   );
 
-  const resume = useCallback(
-    async (job: InstallJob, info: ResumeInfo) => {
-      const existing = active.find((entry) => entry.gameId === job.gameId && entry.jobId !== job.jobId);
-      if (existing) return existing;
+  /**
+   * Every retry resumes the existing job (#205/#208): the desktop rebuilds the
+   * worker from the persisted parameters and continues at the checkpoint.
+   * `mode` only switches the transport; it never creates a new row.
+   */
+  const runRetry = useCallback(
+    async (job: InstallJob, mode: InstallResumeMode | null, failureTitle: string): Promise<InstallJob | null> => {
+      const plan = planRetry(job, active, mode);
+      if (plan.action === "focus") {
+        return active.find((entry) => entry.jobId === plan.jobId) ?? null;
+      }
       try {
-        if (USING_MOCKS) {
-          const next = await installBridge.resume(job.jobId);
-          await refresh();
-          return next;
-        }
-        if (job.phase === "paused") {
-          try {
-            // The worker still holds the `.part` offset and the original params.
-            const next = await installBridge.resume(job.jobId);
-            await refresh();
-            return next;
-          } catch {
-            // A job persisted by a previous app run has no worker: restart it.
-          }
-        }
-        return await startInstall({
-          gameId: job.gameId,
-          versionId: job.versionId,
-          title: info.title,
-          version: info.version,
-          executable: info.executable,
-        });
+        const next = await installBridge.resume(plan.jobId, plan.mode);
+        await refresh();
+        return next;
       } catch (cause) {
-        push({ title: t("Could not resume the install"), description: errorMessage(cause), tone: "danger" });
+        push({ title: failureTitle, description: errorMessage(cause), tone: "danger" });
         return null;
       }
     },
-    [active, refresh, startInstall, push],
+    [active, refresh, push],
+  );
+
+  const resume = useCallback(
+    (job: InstallJob, _info: ResumeInfo) => runRetry(job, null, t("Could not resume the install")),
+    [runRetry],
   );
 
   const retryAsDownload = useCallback(
-    async (job: InstallJob, info: ResumeInfo): Promise<InstallJob | null> => {
-      const existing = active.find((entry) => entry.gameId === job.gameId && entry.jobId !== job.jobId);
-      if (existing) return existing;
-      try {
-        // A failed stream install cannot be resumed; restart it through the
-        // normal download path so the archive lands on disk and can resume.
-        return await startInstall({
-          gameId: job.gameId,
-          versionId: job.versionId,
-          title: info.title,
-          version: info.version,
-          executable: info.executable,
-          stream: false,
-        });
-      } catch (cause) {
-        push({ title: t("Could not retry the install as a download"), description: errorMessage(cause), tone: "danger" });
-        return null;
-      }
-    },
-    [active, startInstall, push],
+    (job: InstallJob, _info: ResumeInfo): Promise<InstallJob | null> =>
+      runRetry(job, "download", t("Could not retry the install as a download")),
+    [runRetry],
   );
 
   const retryStream = useCallback(
-    async (job: InstallJob, info: ResumeInfo): Promise<InstallJob | null> => {
-      const existing = active.find((entry) => entry.gameId === job.gameId && entry.jobId !== job.jobId);
-      if (existing) return existing;
-      try {
-        // Explicit, warned-about restart of the stream path: it starts from
-        // zero and cannot resume after another drop.
-        return await startInstall({
-          gameId: job.gameId,
-          versionId: job.versionId,
-          title: info.title,
-          version: info.version,
-          executable: info.executable,
-          stream: true,
-        });
-      } catch (cause) {
-        push({ title: t("Could not retry the stream install"), description: errorMessage(cause), tone: "danger" });
-        return null;
-      }
-    },
-    [active, startInstall, push],
+    (job: InstallJob, _info: ResumeInfo): Promise<InstallJob | null> =>
+      runRetry(job, "stream", t("Could not retry the stream install")),
+    [runRetry],
   );
 
   const remove = useCallback(
