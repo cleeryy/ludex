@@ -32,6 +32,7 @@ mod profiles;
 mod protondb;
 mod remote_install;
 mod remote_play;
+mod resume;
 mod roms;
 mod runtime;
 mod saves_detect;
@@ -197,6 +198,9 @@ pub fn run() {
             commands::get_game_playtime,
             commands::launch_game,
             commands::stop_game,
+            commands::force_close_game,
+            resume::game_session,
+            resume::resume_game,
             roms::get_rom_settings,
             roms::save_rom_emulator,
             roms::delete_rom_emulator,

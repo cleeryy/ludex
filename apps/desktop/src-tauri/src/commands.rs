@@ -21,7 +21,7 @@ use crate::game_config::{self, ConfigDocument, ConfigEditInput};
 use crate::game_executables::{self, GameExecutables};
 use crate::install::{self, InstallJob, InstallParams};
 use crate::installer::{self, AttemptReport};
-use crate::launch::{self, LaunchResult};
+use crate::launch::{self, ForceCloseResult, LaunchResult};
 use crate::launchers::{self, DiscoveredGame, ImportEntry, Launcher, LauncherScan};
 use crate::linux_gaming::{self, LaunchMode, LaunchOptions};
 use crate::locations::{self, LocationStatus};
@@ -387,6 +387,19 @@ pub async fn launch_game(
 #[tauri::command]
 pub fn stop_game(app: AppHandle, session_id: String) -> Result<(), String> {
     launch::stop(&app, &session_id)
+}
+
+/// Force close a running game (#191): the normal tree stop, then a verified
+/// hard kill when the game ignores it. Runs off the main thread because it
+/// waits for the process tree to disappear.
+#[tauri::command]
+pub async fn force_close_game(
+    app: AppHandle,
+    session_id: String,
+) -> Result<ForceCloseResult, String> {
+    tauri::async_runtime::spawn_blocking(move || launch::force_close(&app, &session_id))
+        .await
+        .map_err(|error| format!("The force close task failed: {error}"))?
 }
 
 #[tauri::command]

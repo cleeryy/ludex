@@ -3382,5 +3382,14 @@
   "Use server default": "Użyj domyślnego serwera",
   "Used for signed-out visitors and accounts without their own language.": "Używany dla wylogowanych gości i kont bez własnego języka.",
   "Your account": "Twoje konto",
-  "What this server is running, where it keeps files, and the language new visitors see.": "Co ten serwer uruchamia, gdzie przechowuje pliki i jaki język widzą nowi goście."
+  "What this server is running, where it keeps files, and the language new visitors see.": "Co ten serwer uruchamia, gdzie przechowuje pliki i jaki język widzą nowi goście.",
+  "Could not close the game": "Nie udało się zamknąć gry",
+  "Could not resume the game": "Nie udało się wrócić do gry",
+  "Force close": "Wymuś zamknięcie",
+  "Force close {title}?": "Wymusić zamknięcie {title}?",
+  "Game closed": "Gra zamknięta",
+  "Game window not found": "Nie znaleziono okna gry",
+  "The game stopped and its session was saved.": "Gra została zatrzymana, a sesja zapisana.",
+  "Use this when the game will not exit. Unsaved progress may be lost: Ludex ends the game's whole process tree.": "Użyj, gdy gra nie chce się zamknąć. Niezapisany postęp może zostać utracony: Ludex kończy całe drzewo procesów gry.",
+  "Ludex was hidden. Use Alt+Tab to switch back to the game.": "Ludex został ukryty. Użyj Alt+Tab, aby wrócić do gry."
 }

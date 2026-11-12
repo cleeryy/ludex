@@ -13,10 +13,12 @@ import {
   Cast,
   Link2,
   ListPlus,
+  MonitorUp,
   MoreHorizontal,
   Pencil,
   Palette,
   Play,
+  Power,
   RefreshCw,
   Search,
   Share2,
@@ -37,7 +39,8 @@ import { cn } from "@/lib/cn";
 import { formatBytes, formatEta, formatMinutes, formatPercent, formatRating, formatRelative, formatSpeed, formatYear, stateLabel } from "@/lib/format";
 import { isNative, native } from "@/lib/native";
 import type { GameVersion, ProgressState } from "@/lib/types";
-import { useBookmark, useGamePlaytime, useInstalledGames, useLaunchGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
+import { useBookmark, useForceCloseGame, useGamePlaytime, useGameSession, useInstalledGames, useLaunchGame, useResumeGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
+import { heroAction, nextForceClosePhase, sessionForGame, type ForceClosePhase } from "@/lib/game-session";
 import { isRollbackInstall } from "@/lib/game-versions";
 import { useDownloads } from "@/state/downloads";
 import { AchievementsPanel } from "@/components/game/achievements";
@@ -75,6 +78,7 @@ import { STATE_TONE } from "@/components/game/state";
 import { ErrorState } from "@/components/page";
 import { NotFoundScreen } from "@/screens/not-found";
 import { Badge, Button, IconButton, Progress, Skeleton } from "@/components/ui/controls";
+import { ConfirmDialog } from "@/components/ui/dialog";
 import { DropdownMenu, Select, useDropdown } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
 
@@ -145,6 +149,20 @@ export function GameDetailScreen() {
 
   // Desktop playtime for this game (#26): totals and recent sessions.
   const playtime = useGamePlaytime(gameId);
+  // #191: the live session of this game, polled while the page is open.
+  const sessionQuery = useGameSession(gameId);
+  const running = sessionForGame(sessionQuery.data, gameId);
+  const resume = useResumeGame();
+  const forceClose = useForceCloseGame(gameId);
+  const [forceClosePhase, setForceClosePhase] = useState<ForceClosePhase>("idle");
+  // A game that exits (or crashes) dismisses the force-close dialog; a later
+  // launch starts from `idle` again instead of a stale `closing`.
+  const runningSessionId = running?.sessionId ?? null;
+  useEffect(() => {
+    if (!runningSessionId) {
+      setForceClosePhase((phase) => nextForceClosePhase(phase, "done"));
+    }
+  }, [runningSessionId]);
 
   // #98: the Stream action only appears once Sunshine has the game.
   const streamTarget = useQuery({
@@ -231,7 +249,6 @@ export function GameDetailScreen() {
   const activeJob = downloads.jobForGame(game.id);
   const resumableJob = downloads.resumableForGame(game.id);
   const installPct = activeJob?.bytesTotal ? Math.min(100, (activeJob.bytesDone / activeJob.bytesTotal) * 100) : null;
-  const canPlay = desktop && Boolean(isInstalled);
   const spec = artFromUrl(game.backgroundUrl, game.title);
   const dialogVersion = installTarget ?? version;
   const dialogRollback =
@@ -273,58 +290,66 @@ export function GameDetailScreen() {
     setInstallOpen(true);
   };
 
-  const primary = canPlay ? (
-    <Button
-      variant="primary"
-      size="lg"
-      icon={<Play className="size-4" />}
-      onClick={() => launch.mutate({ id: game.id, title: game.title, executable: isInstalled?.executable ?? game.launch.executable })}
-    >
-      {t("Play")}
-    </Button>
-  ) : activeJob?.phase === "paused" ? (
-    <Button
-      variant="default"
-      size="lg"
-      icon={<Download className="size-4" />}
-      onClick={() =>
-        void downloads.resume(activeJob, {
-          title: game.title,
-          version: version?.version,
-          executable: game.launch.executable,
-        })
-      }
-    >
-      {t("Resume install")}
-    </Button>
-  ) : activeJob ? (
-    <Button variant="default" size="lg" icon={<Download className="size-4" />} onClick={() => navigate("/downloads")}>
-      {t("Installing {percent}", { percent: installPct !== null ? formatPercent(installPct) : "…" })}
-    </Button>
-  ) : resumableJob ? (
-    <Button
-      variant="default"
-      size="lg"
-      icon={<Download className="size-4" />}
-      onClick={() =>
-        void downloads.resume(resumableJob, {
-          title: game.title,
-          version: version?.version,
-          executable: game.launch.executable,
-        })
-      }
-    >
-      {t("Resume install")}
-    </Button>
-  ) : desktop ? (
-    <Button variant="primary" size="lg" icon={<Download className="size-4" />} onClick={requestInstall}>
-      {t("Install")}
-    </Button>
-  ) : (
-    <Button variant="primary" size="lg" icon={<Download className="size-4" />} onClick={() => void download()}>
-      {t("Download")}
-    </Button>
-  );
+  const action = heroAction({
+    running: Boolean(running),
+    desktop,
+    installed: Boolean(isInstalled),
+    activeJobPhase: activeJob?.phase ?? null,
+    hasActiveJob: Boolean(activeJob),
+    hasResumableJob: Boolean(resumableJob),
+  });
+  // Same rule as the pre-#191 hero: a paused active job first, then a
+  // resumable history entry.
+  const resumeJob = activeJob?.phase === "paused" ? activeJob : resumableJob;
+
+  const primary =
+    action === "resume" ? (
+      <Button
+        variant="primary"
+        size="lg"
+        icon={<MonitorUp className="size-4" />}
+        loading={resume.isPending}
+        onClick={() => resume.mutate(game.id)}
+      >
+        {t("Resume")}
+      </Button>
+    ) : action === "play" ? (
+      <Button
+        variant="primary"
+        size="lg"
+        icon={<Play className="size-4" />}
+        onClick={() => launch.mutate({ id: game.id, title: game.title, executable: isInstalled?.executable ?? game.launch.executable })}
+      >
+        {t("Play")}
+      </Button>
+    ) : action === "resumeInstall" ? (
+      <Button
+        variant="default"
+        size="lg"
+        icon={<Download className="size-4" />}
+        onClick={() =>
+          void downloads.resume(resumeJob!, {
+            title: game.title,
+            version: version?.version,
+            executable: game.launch.executable,
+          })
+        }
+      >
+        {t("Resume install")}
+      </Button>
+    ) : action === "installing" ? (
+      <Button variant="default" size="lg" icon={<Download className="size-4" />} onClick={() => navigate("/downloads")}>
+        {t("Installing {percent}", { percent: installPct !== null ? formatPercent(installPct) : "…" })}
+      </Button>
+    ) : desktop ? (
+      <Button variant="primary" size="lg" icon={<Download className="size-4" />} onClick={requestInstall}>
+        {t("Install")}
+      </Button>
+    ) : (
+      <Button variant="primary" size="lg" icon={<Download className="size-4" />} onClick={() => void download()}>
+        {t("Download")}
+      </Button>
+    );
 
   const removeFromLudex = () => {
     void native
@@ -495,6 +520,7 @@ export function GameDetailScreen() {
           <GameOverview
             game={game}
             installed={isInstalled}
+            session={running}
             update={update}
             preferredVersion={version}
             playtime={playtime.data ?? undefined}
@@ -583,6 +609,7 @@ export function GameDetailScreen() {
               <span>{game.genres.join(" / ")}</span>
               <ProtonDbBadge gameId={game.id} />
               {game.earlyAccess && <Badge tone="signal">{t("Early access")}</Badge>}
+              {running && <Badge tone="ok">{t("Running")}</Badge>}
               {game.kind === "rom" && <Badge tone="outline">{t("ROM")}</Badge>}
             </div>
 
@@ -612,6 +639,16 @@ export function GameDetailScreen() {
 
             <div className="mt-7 flex flex-wrap items-center gap-2">
               {primary}
+              {running && (
+                <Button
+                  variant="danger"
+                  size="lg"
+                  icon={<Power className="size-4" />}
+                  onClick={() => setForceClosePhase((phase) => nextForceClosePhase(phase, "ask"))}
+                >
+                  {t("Force close")}
+                </Button>
+              )}
               {update && isInstalled && !activeJob && (
                 <Button
                   variant="default"
@@ -747,6 +784,27 @@ export function GameDetailScreen() {
       <StreamDialog gameId={game.id} title={game.title} open={streamOpen} onOpenChange={setStreamOpen} />
       <ArtworkDialog open={artworkOpen} onOpenChange={setArtworkOpen} game={game} />
       <MatchMetadataDialog open={matchOpen} onOpenChange={setMatchOpen} game={game} />
+
+      {/* #191: the destructive path always asks first and spells out how it
+          differs from the normal stop. */}
+      {running && (
+        <ConfirmDialog
+          open={forceClosePhase !== "idle"}
+          onOpenChange={(open) =>
+            setForceClosePhase((phase) => nextForceClosePhase(phase, open ? "ask" : "cancel"))
+          }
+          title={t("Force close {title}?", { title: game.title })}
+          description={t("Use this when the game will not exit. Unsaved progress may be lost: Ludex ends the game's whole process tree.")}
+          confirmLabel={t("Force close")}
+          loading={forceClosePhase === "closing"}
+          onConfirm={() => {
+            setForceClosePhase((phase) => nextForceClosePhase(phase, "confirm"));
+            forceClose.mutate(running.sessionId, {
+              onSettled: () => setForceClosePhase((phase) => nextForceClosePhase(phase, "done")),
+            });
+          }}
+        />
+      )}
     </div>
   );
 }

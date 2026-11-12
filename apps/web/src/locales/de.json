@@ -3382,5 +3382,14 @@
   "Use server default": "Serverstandard verwenden",
   "Used for signed-out visitors and accounts without their own language.": "Wird für abgemeldete Besucher und Konten ohne eigene Sprache verwendet.",
   "Your account": "Dein Konto",
-  "What this server is running, where it keeps files, and the language new visitors see.": "Was dieser Server ausführt, wo er Dateien speichert und welche Sprache neue Besucher sehen."
+  "What this server is running, where it keeps files, and the language new visitors see.": "Was dieser Server ausführt, wo er Dateien speichert und welche Sprache neue Besucher sehen.",
+  "Could not close the game": "Das Spiel konnte nicht geschlossen werden",
+  "Could not resume the game": "Das Spiel konnte nicht in den Vordergrund geholt werden",
+  "Force close": "Erzwungen schließen",
+  "Force close {title}?": "{title} erzwungen schließen?",
+  "Game closed": "Spiel geschlossen",
+  "Game window not found": "Spielfenster nicht gefunden",
+  "The game stopped and its session was saved.": "Das Spiel wurde beendet und die Sitzung gespeichert.",
+  "Use this when the game will not exit. Unsaved progress may be lost: Ludex ends the game's whole process tree.": "Verwenden, wenn das Spiel nicht beendet wird. Ungespeicherter Fortschritt kann verloren gehen: Ludex beendet den gesamten Prozessbaum des Spiels.",
+  "Ludex was hidden. Use Alt+Tab to switch back to the game.": "Ludex wurde ausgeblendet. Mit Alt+Tab zum Spiel zurückwechseln."
 }
