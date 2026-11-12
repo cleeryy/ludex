@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { HashRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 import { api } from "@/lib/api";
 import { pendingDesktopState, readDesktopStateFromSearch } from "@/lib/desktop-handoff";
@@ -190,6 +190,33 @@ function ConfigSyncDefaults() {
   return null;
 }
 
+/**
+ * Console mode entry point (#172): Sunshine starts `ludex --console`, and the
+ * first authenticated screen must be Big Picture, never the desktop shell.
+ * Only the root route redirects, so sign-in, setup and Big Picture itself keep
+ * their own navigation.
+ */
+function ConsoleEntry() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  useEffect(() => {
+    if (!isNative() || location.pathname !== "/") return;
+    let cancelled = false;
+    void native
+      .consoleMode()
+      .then((status) => {
+        if (!cancelled && status.active) navigate("/bigpicture", { replace: true });
+      })
+      .catch(() => {
+        /* a failed probe stays in the desktop shell */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, location.pathname]);
+  return null;
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -202,6 +229,7 @@ export function App() {
             <ConfigSyncDefaults />
             <HashRouter>
               <UpdateNotifier />
+              <ConsoleEntry />
               <Routes>
                 {/* Public and account-free: must stay outside the Gate (#9). */}
                 <Route path="/share/:token" element={<ShareScreen />} />

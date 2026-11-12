@@ -229,6 +229,24 @@ pub struct LocalSettings {
     /// Empty = use the hosts Moonlight saved.
     #[serde(default)]
     pub moonlight_host: String,
+    /// Publish one `Ludex` console app to Sunshine instead of one app per game
+    /// (#172). Off by default so an existing per-game setup is unchanged.
+    #[serde(default)]
+    pub console_mode: bool,
+    /// Sunshine name of the console app (#172). Empty = `Ludex`.
+    #[serde(default)]
+    pub console_app_name: String,
+    /// Start the console app fullscreen (default). Off publishes `--windowed`.
+    #[serde(default = "default_console_fullscreen")]
+    pub console_fullscreen: bool,
+    /// In-console chord that quits back to the desktop (#172), e.g. `f12`.
+    #[serde(default = "default_console_exit_shortcut")]
+    pub console_exit_shortcut: String,
+    /// Expert option: keep publishing one Sunshine app per game in addition to
+    /// the console app (#172). Off by default; ignored while `consoleMode` is
+    /// off (per-game publishing is then always on).
+    #[serde(default)]
+    pub console_per_game_apps: bool,
     /// Ordered GameVault install roots (#134). One entry per install location,
     /// e.g. `C:\Games\GameVault` and `D:\Games\GameVault`.
     #[serde(default)]
@@ -281,6 +299,16 @@ pub const fn default_ludusavi_manifest_auto_update() -> bool {
     true
 }
 
+/// A console session is meant for a TV: fullscreen by default (#172).
+pub const fn default_console_fullscreen() -> bool {
+    true
+}
+
+/// The default way out of a console session (#172).
+pub fn default_console_exit_shortcut() -> String {
+    crate::console::DEFAULT_EXIT_SHORTCUT.to_string()
+}
+
 impl Default for LocalSettings {
     fn default() -> Self {
         Self {
@@ -327,6 +355,11 @@ impl Default for LocalSettings {
             moonlight_binary: String::new(),
             moonlight_config_path: String::new(),
             moonlight_host: String::new(),
+            console_mode: false,
+            console_app_name: crate::console::DEFAULT_APP_NAME.to_string(),
+            console_fullscreen: default_console_fullscreen(),
+            console_exit_shortcut: default_console_exit_shortcut(),
+            console_per_game_apps: false,
             gamevault_roots: Vec::new(),
             gamevault_root: None,
             gamevault_scan_depth: default_gamevault_scan_depth(),
@@ -408,6 +441,16 @@ impl LocalSettings {
         self.moonlight_binary = self.moonlight_binary.trim().to_string();
         self.moonlight_config_path = self.moonlight_config_path.trim().to_string();
         self.moonlight_host = self.moonlight_host.trim().to_string();
+        // #172: the console app name is a Sunshine label, not free-form copy;
+        // keep it short and fall back to the default when blank.
+        self.console_app_name = crate::console::app_name(&self.console_app_name)
+            .chars()
+            .take(48)
+            .collect();
+        self.console_exit_shortcut = crate::console::exit_shortcut(&self.console_exit_shortcut)
+            .chars()
+            .take(32)
+            .collect();
         self.normalize_gamevault_roots();
         // Keep known sources only, deduplicated and in display order; an empty
         // set stays empty ("none enabled"), it never silently becomes "all".
@@ -980,8 +1023,55 @@ mod tests {
         assert_eq!(json["moonlightBinary"], "");
         assert_eq!(json["moonlightConfigPath"], "");
         assert_eq!(json["moonlightHost"], "");
+        assert_eq!(json["consoleMode"], false);
+        assert_eq!(json["consoleAppName"], "Ludex");
+        assert_eq!(json["consoleFullscreen"], true);
+        assert_eq!(json["consoleExitShortcut"], "f12");
+        assert_eq!(json["consolePerGameApps"], false);
         // #145: old settings files and fresh installs are both unconfirmed.
         assert_eq!(json["installRootConfirmed"], false);
+    }
+
+    #[test]
+    fn console_mode_settings_round_trip_and_normalize() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.console_mode = true;
+        settings.console_app_name = "  Saloon  ".into();
+        settings.console_fullscreen = false;
+        settings.console_exit_shortcut = " Ctrl+Shift+Q ".into();
+        settings.console_per_game_apps = true;
+        settings.normalize(Path::new("/data"));
+
+        assert!(settings.console_mode);
+        assert_eq!(settings.console_app_name, "Saloon");
+        assert!(!settings.console_fullscreen);
+        assert_eq!(settings.console_exit_shortcut, "ctrl+shift+q");
+        assert!(settings.console_per_game_apps);
+
+        let json = serde_json::to_value(&settings).unwrap();
+        let back: LocalSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(back.console_mode, settings.console_mode);
+        assert_eq!(back.console_app_name, settings.console_app_name);
+        assert_eq!(back.console_fullscreen, settings.console_fullscreen);
+        assert_eq!(back.console_exit_shortcut, settings.console_exit_shortcut);
+        assert_eq!(back.console_per_game_apps, settings.console_per_game_apps);
+
+        // A blank name and an empty shortcut fall back to the defaults, and a
+        // settings file written before #172 has no keys at all.
+        let mut blank = LocalSettings::for_app_data(Path::new("/data"));
+        blank.console_app_name = "   ".into();
+        blank.console_exit_shortcut = String::new();
+        blank.normalize(Path::new("/data"));
+        assert_eq!(blank.console_app_name, "Ludex");
+        assert_eq!(blank.console_exit_shortcut, "f12");
+
+        let legacy: LocalSettings = serde_json::from_value(serde_json::json!({
+            "installDir": "D:\\Games",
+        }))
+        .unwrap();
+        assert!(!legacy.console_mode);
+        assert!(legacy.console_fullscreen);
+        assert!(!legacy.console_per_game_apps);
     }
 
     #[test]

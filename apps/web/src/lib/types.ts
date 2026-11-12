@@ -871,6 +871,22 @@ export interface LocalSettings {
   moonlightConfigPath: string;
   /** Manual Moonlight host name or IP (#151) for builds Ludex cannot read. */
   moonlightHost: string;
+  /**
+   * Publish one `Ludex` console app to Sunshine instead of one entry per game
+   * (#172). Off by default so an existing per-game setup is unchanged.
+   */
+  consoleMode: boolean;
+  /** Sunshine name of the console app (#172); empty means `Ludex`. */
+  consoleAppName: string;
+  /** Start the console app fullscreen (default); off publishes `--windowed`. */
+  consoleFullscreen: boolean;
+  /** In-console chord that quits back to the desktop (#172), e.g. `f12`. */
+  consoleExitShortcut: string;
+  /**
+   * Expert option: keep publishing one Sunshine app per game in addition to
+   * the console app (#172). Ignored while `consoleMode` is off.
+   */
+  consolePerGameApps: boolean;
   /** Ordered GameVault install roots (#134). */
   gamevaultRoots: string[];
   /** Folder depth used by GameVault scans (#134), 4-8, default 6. */
@@ -957,6 +973,14 @@ export interface ServerTest {
 
 /* --------------------- Sunshine host and Moonlight (#97, #98) ------------ */
 
+/** Runtime console status (#172); `active` only when `ludex --console` ran. */
+export interface ConsoleStatus {
+  active: boolean;
+  fullscreen: boolean;
+  appName: string;
+  exitShortcut: string;
+}
+
 export interface SunshineStatus {
   detected: boolean;
   platform: string;
@@ -981,6 +1005,8 @@ export interface SunshinePreviewEntry {
   imagePath: string | null;
   action: "add" | "update" | "unchanged";
   needsLudexScheme: boolean;
+  /** True for the single console entry, which uses `gameId: 0` (#172). */
+  console?: boolean;
 }
 
 export interface SunshineRemoval {

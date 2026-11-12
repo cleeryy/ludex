@@ -6,7 +6,7 @@
 //! user picked. Everything here is best-effort filesystem inspection; a missing
 //! install is a clear status, never an error.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -19,6 +19,8 @@ use crate::settings::LocalSettings;
 
 /// Marker object written inside every Ludex-managed Sunshine app entry.
 pub const MANAGED_KEY: &str = "ludex";
+/// Marker field that identifies the single console entry (#172).
+pub const CONSOLE_MARKER: &str = "console";
 /// Marker version, bumped if the shape ever changes.
 const MANAGED_VERSION: i64 = 1;
 /// Prefix of the launch URI used when a game has no local command.
@@ -86,6 +88,18 @@ pub struct SkippedGame {
     pub reason: String,
 }
 
+/// The single managed Sunshine app that starts Ludex in console mode (#172).
+///
+/// It has no game id: it opens Big Picture, and games are launched from there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsoleEntry {
+    pub name: String,
+    pub cmd: String,
+    pub working_dir: String,
+    pub image_path: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewEntry {
@@ -98,6 +112,8 @@ pub struct PreviewEntry {
     /// `add`, `update` or `unchanged`.
     pub action: String,
     pub needs_ludex_scheme: bool,
+    /// True for the console entry, which uses `game_id: 0` (#172).
+    pub console: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -616,6 +632,17 @@ fn managed_server(app: &Value) -> Option<String> {
     managed_marker(app).and_then(|(_, server)| server)
 }
 
+/// True for the managed console entry (#172). It carries the Ludex marker with
+/// `console: true` and no `gameId`.
+pub fn is_console_app(app: &Value) -> bool {
+    managed_marker(app).is_some()
+        && app
+            .get(MANAGED_KEY)
+            .and_then(|marker| marker.get(CONSOLE_MARKER))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+}
+
 fn quote_path(path: &Path) -> String {
     let raw = path.to_string_lossy();
     if raw.contains([' ', '\t', '"']) {
@@ -699,6 +726,37 @@ fn generated_app(app: &PublishedApp, server_id: &str) -> Value {
     Value::Object(map)
 }
 
+/// Sunshine entry for the console app (#172). Same fields as a game entry, but
+/// the marker says `console: true` and carries no game id.
+pub fn generated_console_app(entry: &ConsoleEntry, server_id: &str) -> Value {
+    let mut map = Map::new();
+    map.insert("name".to_string(), Value::String(entry.name.clone()));
+    map.insert("cmd".to_string(), Value::String(entry.cmd.clone()));
+    map.insert(
+        "working-dir".to_string(),
+        Value::String(entry.working_dir.clone()),
+    );
+    if let Some(image) = entry
+        .image_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        map.insert("image-path".to_string(), Value::String(image.to_string()));
+    }
+    map.insert("detached".to_string(), Value::String("true".to_string()));
+    map.insert(
+        MANAGED_KEY.to_string(),
+        json!({
+            "managed": true,
+            "version": MANAGED_VERSION,
+            "console": true,
+            "serverId": server_id,
+        }),
+    );
+    Value::Object(map)
+}
+
 fn app_matches(existing: &Value, generated: &Value) -> bool {
     const FIELDS: [&str; 6] = [
         "name",
@@ -728,9 +786,29 @@ fn same_server(existing: &Value, server_id: &str) -> bool {
 /// - Managed entries for another server are left alone.
 /// - Re-running with the same input returns `changed: false` and counts them
 ///   as unchanged, so a second sync does not rewrite the file.
+///
+/// This is the per-game-only form kept for callers and tests; a console sync
+/// uses [`merge_entries`].
+#[allow(dead_code)]
 pub fn merge_apps(
     existing: Option<&str>,
     desired: &[PublishedApp],
+    server_id: &str,
+    remove_missing: bool,
+) -> Result<(Value, MergeReport), String> {
+    merge_entries(existing, desired, None, server_id, remove_missing)
+}
+
+/// Merge games and, optionally, the single console app (#172).
+///
+/// The console entry is identified by `ludex.console = true`, not by a game id,
+/// so enabling console mode adds one `Ludex` app and removes every per-game
+/// entry of the active server in the same write (one backup, one file). A
+/// second run is a no-op, and duplicates left by hand edits collapse to one.
+pub fn merge_entries(
+    existing: Option<&str>,
+    desired: &[PublishedApp],
+    console: Option<&ConsoleEntry>,
     server_id: &str,
     remove_missing: bool,
 ) -> Result<(Value, MergeReport), String> {
@@ -745,14 +823,20 @@ pub fn merge_apps(
         let apps = apps_mut(&mut root)?;
 
         let mut existing_index: BTreeMap<i64, usize> = BTreeMap::new();
+        let mut console_indices: Vec<usize> = Vec::new();
         for (index, app) in apps.iter().enumerate() {
             if !is_managed_app(app) || !same_server(app, server_id) {
+                continue;
+            }
+            if is_console_app(app) {
+                console_indices.push(index);
                 continue;
             }
             if let Some(game_id) = managed_game_id(app) {
                 existing_index.entry(game_id).or_insert(index);
             }
         }
+        let existing_len = apps.len();
 
         for app in desired {
             let generated = generated_app(app, server_id);
@@ -772,18 +856,58 @@ pub fn merge_apps(
             }
         }
 
-        if remove_missing {
-            let keep: Vec<i64> = desired.iter().map(|app| app.game_id).collect();
-            let mut kept = Vec::with_capacity(apps.len());
-            for app in apps.drain(..) {
-                if is_managed_app(&app)
-                    && same_server(&app, server_id)
-                    && managed_game_id(&app)
-                        .map(|game_id| !keep.contains(&game_id))
-                        .unwrap_or(true)
-                {
-                    report.removed += 1;
-                } else {
+        if let Some(entry) = console {
+            let generated = generated_console_app(entry, server_id);
+            match console_indices.first().copied() {
+                Some(index) => {
+                    if app_matches(&apps[index], &generated) {
+                        report.unchanged += 1;
+                    } else {
+                        apps[index] = generated;
+                        report.updated += 1;
+                    }
+                }
+                None => {
+                    apps.push(generated);
+                    report.added += 1;
+                }
+            }
+        }
+
+        // Entries to drop: stale games when the caller asked for a full sync,
+        // and duplicate console entries (always collapsed when a console entry
+        // is desired). Only pre-existing indices are candidates; entries pushed
+        // above live past `existing_len`.
+        let keep: Vec<i64> = desired.iter().map(|app| app.game_id).collect();
+        let mut drop: BTreeSet<usize> = BTreeSet::new();
+        for (index, app) in apps.iter().take(existing_len).enumerate() {
+            let managed = is_managed_app(app) && same_server(app, server_id);
+            if !managed {
+                continue;
+            }
+            if is_console_app(app) {
+                let is_primary = console.is_some() && console_indices.first() == Some(&index);
+                if !is_primary && (remove_missing || console.is_some()) {
+                    drop.insert(index);
+                }
+                continue;
+            }
+            if remove_missing {
+                match managed_game_id(app) {
+                    Some(game_id) if keep.contains(&game_id) => {}
+                    // A managed entry with no game id is stale; remove it so a
+                    // corrupted marker cannot pin an app forever.
+                    _ => {
+                        drop.insert(index);
+                    }
+                }
+            }
+        }
+        report.removed = drop.len();
+        if !drop.is_empty() {
+            let mut kept = Vec::with_capacity(apps.len() - drop.len());
+            for (index, app) in apps.drain(..).enumerate() {
+                if !drop.contains(&index) {
                     kept.push(app);
                 }
             }
@@ -817,11 +941,30 @@ pub fn remove_managed_apps(existing: &str) -> Result<(Value, usize), String> {
 }
 
 /// Per-entry preview: what a sync would add, update and remove.
+///
+/// The per-game-only form; a console preview uses [`preview_entries`].
+#[allow(dead_code)]
 pub fn preview_apps(
     existing: Option<&str>,
     desired: &[PublishedApp],
     server_id: &str,
 ) -> Result<(Vec<PreviewEntry>, Vec<PreviewRemoval>), String> {
+    let (entries, _, removals) = preview_entries(existing, desired, None, server_id)?;
+    Ok((entries, removals))
+}
+
+/// Preview a sync that may publish the console app (#172).
+///
+/// Returns the game entries, the console entry when it would be written, and
+/// the removals. Per-game entries of the active server become removals when
+/// console mode replaced them, which is how the UI explains the migration
+/// before it happens.
+pub fn preview_entries(
+    existing: Option<&str>,
+    desired: &[PublishedApp],
+    console: Option<&ConsoleEntry>,
+    server_id: &str,
+) -> Result<(Vec<PreviewEntry>, Option<PreviewEntry>, Vec<PreviewRemoval>), String> {
     let root = match existing.map(str::trim).filter(|text| !text.is_empty()) {
         Some(text) => parse_apps_json(text)?,
         None => json!({ "env": {}, "apps": [] }),
@@ -855,18 +998,60 @@ pub fn preview_apps(
             image_path: app.image_path.clone(),
             action: action.to_string(),
             needs_ludex_scheme: app.needs_ludex_scheme,
+            console: false,
         });
     }
 
+    let console_preview = console.map(|entry| {
+        let generated = generated_console_app(entry, server_id);
+        let action = apps
+            .iter()
+            .find(|existing| {
+                is_managed_app(existing)
+                    && same_server(existing, server_id)
+                    && is_console_app(existing)
+            })
+            .map(|existing| {
+                if app_matches(existing, &generated) {
+                    "unchanged"
+                } else {
+                    "update"
+                }
+            })
+            .unwrap_or("add");
+        PreviewEntry {
+            game_id: 0,
+            title: entry.name.clone(),
+            name: entry.name.clone(),
+            cmd: entry.cmd.clone(),
+            working_dir: entry.working_dir.clone(),
+            image_path: entry.image_path.clone(),
+            action: action.to_string(),
+            needs_ludex_scheme: false,
+            console: true,
+        }
+    });
+
     let keep: Vec<i64> = desired.iter().map(|app| app.game_id).collect();
+    let mut console_seen = false;
     let removals = apps
         .iter()
         .filter(|app| {
-            is_managed_app(app)
-                && same_server(app, server_id)
-                && managed_game_id(app)
-                    .map(|game_id| !keep.contains(&game_id))
-                    .unwrap_or(true)
+            if !is_managed_app(app) || !same_server(app, server_id) {
+                return false;
+            }
+            if is_console_app(app) {
+                // The first console entry is the one a sync would reuse; any
+                // other is a duplicate and the one a per-game sync removes.
+                if console.is_some() && !console_seen {
+                    console_seen = true;
+                    return false;
+                }
+                return true;
+            }
+            managed_game_id(app)
+                .map(|game_id| !keep.contains(&game_id))
+                .unwrap_or(true)
         })
         .map(|app| PreviewRemoval {
             name: as_string(app.get("name")).unwrap_or_else(|| "Ludex entry".to_string()),
@@ -874,7 +1059,7 @@ pub fn preview_apps(
         })
         .collect();
 
-    Ok((entries, removals))
+    Ok((entries, console_preview, removals))
 }
 
 /// Serialize an apps database for writing.
@@ -2645,6 +2830,180 @@ customname=Deck
         let exe = root.join("Moonlight.exe");
         std::fs::write(&exe, b"").unwrap();
         exe.to_string_lossy().to_string()
+    }
+
+    fn console(name: &str) -> ConsoleEntry {
+        ConsoleEntry {
+            name: name.to_string(),
+            cmd: "/usr/bin/ludex --console".to_string(),
+            working_dir: "/usr/bin".to_string(),
+            image_path: None,
+        }
+    }
+
+    #[test]
+    fn console_entry_is_marked_and_detached() {
+        let entry = console("Ludex");
+        let app = generated_console_app(&entry, "srv_1");
+        assert_eq!(as_string(app.get("name")).as_deref(), Some("Ludex"));
+        assert_eq!(
+            as_string(app.get("cmd")).as_deref(),
+            Some("/usr/bin/ludex --console")
+        );
+        assert_eq!(as_string(app.get("detached")).as_deref(), Some("true"));
+        assert!(is_managed_app(&app));
+        assert!(is_console_app(&app));
+        assert_eq!(managed_game_id(&app), None);
+        assert_eq!(
+            app.get(MANAGED_KEY)
+                .and_then(|marker| marker.get(CONSOLE_MARKER))
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn console_mode_merge_replaces_per_game_entries_and_is_idempotent() {
+        let games = vec![
+            publish_app(&game(1, "One", Some("one.exe")), None).unwrap(),
+            publish_app(&game(2, "Two", Some("two.exe")), None).unwrap(),
+        ];
+        let (root, first) = merge_apps(Some(USER_APPS), &games, "srv_1", true).unwrap();
+        assert_eq!(first.added, 2);
+
+        let (root, migrated) = merge_entries(
+            Some(&render_apps(&root).unwrap()),
+            &[],
+            Some(&console("Ludex")),
+            "srv_1",
+            true,
+        )
+        .unwrap();
+        assert_eq!(migrated.added, 1);
+        assert_eq!(migrated.removed, 2);
+        assert_eq!(migrated.managed_entries, 1);
+        assert!(migrated.changed);
+
+        let list = apps_ref(&root).unwrap();
+        assert_eq!(list.len(), 3);
+        assert_eq!(list.iter().filter(|app| is_console_app(app)).count(), 1);
+        assert!(!list.iter().any(|app| managed_game_id(app).is_some()));
+        // User apps survive the migration.
+        assert!(list
+            .iter()
+            .any(|app| as_string(app.get("name")).as_deref() == Some("Desktop")));
+
+        let text = render_apps(&root).unwrap();
+        let (root, second) =
+            merge_entries(Some(&text), &[], Some(&console("Ludex")), "srv_1", true).unwrap();
+        assert!(!second.changed);
+        assert_eq!(second.unchanged, 1);
+        assert_eq!(second.added, 0);
+        assert_eq!(second.removed, 0);
+        assert_eq!(second.managed_entries, 1);
+        assert_eq!(render_apps(&root).unwrap(), text);
+    }
+
+    #[test]
+    fn console_merge_collapses_duplicate_console_entries() {
+        let duplicate = r#"{"apps":[
+          {"name":"Ludex","cmd":"/usr/bin/ludex --console","ludex":{"managed":true,"version":1,"console":true,"serverId":"srv_1"}},
+          {"name":"Ludex (copy)","cmd":"/usr/bin/ludex --console","ludex":{"managed":true,"version":1,"console":true,"serverId":"srv_1"}}
+        ]}"#;
+        let (root, report) =
+            merge_entries(Some(duplicate), &[], Some(&console("Ludex")), "srv_1", true).unwrap();
+        assert_eq!(report.removed, 1);
+        assert_eq!(report.managed_entries, 1);
+        let list = apps_ref(&root).unwrap();
+        assert_eq!(list.iter().filter(|app| is_console_app(app)).count(), 1);
+        assert_eq!(as_string(list[0].get("name")).as_deref(), Some("Ludex"));
+    }
+
+    #[test]
+    fn console_entry_updates_in_place_when_the_name_changes() {
+        let (root, _) =
+            merge_entries(Some(USER_APPS), &[], Some(&console("Ludex")), "srv_1", true).unwrap();
+        let text = render_apps(&root).unwrap();
+
+        let (root, report) =
+            merge_entries(Some(&text), &[], Some(&console("Saloon")), "srv_1", true).unwrap();
+        assert_eq!(report.updated, 1);
+        assert_eq!(report.added, 0);
+        let list = apps_ref(&root).unwrap();
+        assert_eq!(list.iter().filter(|app| is_console_app(app)).count(), 1);
+        assert_eq!(
+            list.iter()
+                .find(|app| is_console_app(app))
+                .and_then(|app| as_string(app.get("name")))
+                .as_deref(),
+            Some("Saloon")
+        );
+    }
+
+    #[test]
+    fn going_back_to_per_game_publishing_removes_the_console_entry() {
+        let (root, _) =
+            merge_entries(Some(USER_APPS), &[], Some(&console("Ludex")), "srv_1", true).unwrap();
+        let text = render_apps(&root).unwrap();
+
+        let games = vec![publish_app(&game(1, "One", Some("one.exe")), None).unwrap()];
+        let (root, report) = merge_apps(Some(&text), &games, "srv_1", true).unwrap();
+        assert_eq!(report.removed, 1);
+        assert_eq!(report.added, 1);
+        assert_eq!(report.managed_entries, 1);
+        let list = apps_ref(&root).unwrap();
+        assert!(!list.iter().any(|app| is_console_app(app)));
+        assert!(list.iter().any(|app| managed_game_id(app) == Some(1)));
+    }
+
+    #[test]
+    fn console_entry_from_another_server_is_left_alone() {
+        let (root, _) = merge_entries(
+            Some(USER_APPS),
+            &[],
+            Some(&console("Ludex")),
+            "server-a",
+            true,
+        )
+        .unwrap();
+        let text = render_apps(&root).unwrap();
+
+        let (root, report) =
+            merge_entries(Some(&text), &[], Some(&console("Saloon")), "server-b", true).unwrap();
+        assert_eq!(report.added, 1);
+        assert_eq!(report.removed, 0);
+        let list = apps_ref(&root).unwrap();
+        assert_eq!(list.iter().filter(|app| is_console_app(app)).count(), 2);
+        assert_eq!(report.managed_entries, 2);
+    }
+
+    #[test]
+    fn console_preview_explains_the_migration_before_writing() {
+        let games = vec![publish_app(&game(1, "One", Some("one.exe")), None).unwrap()];
+        let (root, _) = merge_apps(Some(USER_APPS), &games, "srv_1", true).unwrap();
+        let text = render_apps(&root).unwrap();
+
+        let (entries, console_preview, removals) =
+            preview_entries(Some(&text), &[], Some(&console("Ludex")), "srv_1").unwrap();
+        assert!(entries.is_empty());
+        let preview = console_preview.expect("console preview");
+        assert!(preview.console);
+        assert_eq!(preview.game_id, 0);
+        assert_eq!(preview.action, "add");
+        assert_eq!(removals.len(), 1);
+        assert_eq!(removals[0].name, "One");
+
+        let (root, _) =
+            merge_entries(Some(&text), &[], Some(&console("Ludex")), "srv_1", true).unwrap();
+        let (_, console_preview, removals) = preview_entries(
+            Some(&render_apps(&root).unwrap()),
+            &[],
+            Some(&console("Ludex")),
+            "srv_1",
+        )
+        .unwrap();
+        assert_eq!(console_preview.unwrap().action, "unchanged");
+        assert!(removals.is_empty());
     }
 
     struct FixtureRegistry(Vec<QtSettingEntry>);

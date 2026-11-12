@@ -7,7 +7,8 @@ import { api } from "@/lib/api";
 import { downloadGame } from "@/lib/download";
 import { errorMessage } from "@/lib/http";
 import { formatPercent } from "@/lib/format";
-import { isNative } from "@/lib/native";
+import { isNative, native } from "@/lib/native";
+import type { ConsoleStatus } from "@/lib/types";
 import { useAllGames, useInstalledMap, useLaunchGame } from "@/lib/hooks";
 import { useGamepad, gamepadDebugEnabled, type GamepadAction } from "@/lib/gamepad";
 import { GamepadDebugPanel } from "@/components/gamepad/gamepad-debug";
@@ -43,6 +44,27 @@ const REFRESH_ON_FOCUS_MS = 30_000;
 let lastRefreshAt = 0;
 
 /**
+ * Does a key event match the console quit chord (#172)? The setting is a
+ * `+`-joined combination such as `f12` or `ctrl+shift+q`.
+ */
+function matchesExitShortcut(event: KeyboardEvent, shortcut: string | undefined): boolean {
+  const parts = (shortcut ?? "f12")
+    .toLowerCase()
+    .split("+")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return false;
+  const modifiers = new Set(parts.slice(0, -1));
+  const key = parts[parts.length - 1];
+  if (modifiers.has("ctrl") !== event.ctrlKey) return false;
+  if (modifiers.has("alt") !== event.altKey) return false;
+  if (modifiers.has("shift") !== event.shiftKey) return false;
+  if (modifiers.has("meta") !== event.metaKey) return false;
+  const pressed = event.key.toLowerCase();
+  return pressed === key || event.code.toLowerCase() === key;
+}
+
+/**
  * Big Picture: the same archive language at ten feet (#141). One screen, four
  * layouts — shelf, hero, cover grid and compact list — driven by the same
  * selection model, the same keys and the same gamepad buttons. The layout is a
@@ -67,6 +89,11 @@ export function BigPictureScreen() {
   const [layoutTouched, setLayoutTouched] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerIndex, setPickerIndex] = useState(0);
+  // #172: when Sunshine started `ludex --console`, this screen is the console
+  // shell: fullscreen per the settings, no route back into the desktop shell,
+  // and quitting closes the app so Moonlight returns to the host desktop.
+  const [consoleMode, setConsoleMode] = useState<ConsoleStatus | null>(null);
+  const consoleActive = consoleMode?.active === true;
   // Mirror of the highlight that is always in step with the last key press:
   // a fast A after two d-pad clicks must apply the card that is on screen.
   const pickerIndexRef = useRef(0);
@@ -81,6 +108,22 @@ export function BigPictureScreen() {
   }, [setTv]);
 
   const games = data?.items ?? [];
+
+  useEffect(() => {
+    if (!isNative()) return;
+    let cancelled = false;
+    void native
+      .consoleMode()
+      .then((status) => {
+        if (!cancelled) setConsoleMode(status);
+      })
+      .catch(() => {
+        /* the desktop build always answers; a failure stays in normal mode */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const shelves = useMemo<BigPictureShelf[]>(() => {
     const recent = games
@@ -183,8 +226,14 @@ export function BigPictureScreen() {
   // Big Picture owns the OS window in the desktop app: enter real fullscreen on
   // mount and hand the window back on the way out. The browser build only gets
   // the full-viewport layout, and a refused fullscreen never traps the user.
+  // In console mode (#172) the native window is already fullscreen — or was
+  // deliberately started windowed — so this only fills in for a manual visit.
   useEffect(() => {
     if (!isNative()) return;
+    // Wait for the native console status so a windowed console session is not
+    // forced fullscreen for a frame first.
+    if (consoleMode === null) return;
+    if (consoleActive && !consoleMode.fullscreen) return;
     let unmounted = false;
     let entered = false;
 
@@ -224,9 +273,18 @@ export function BigPictureScreen() {
         }
       });
     };
-  }, [push]);
+  }, [push, consoleMode, consoleActive]);
 
   const exit = () => {
+    // A console session (#172) has one exit: quit back to the host desktop.
+    if (consoleActive) {
+      void native.exitConsole().catch((cause) => {
+        console.warn("Console mode could not quit", cause);
+        if (window.history.length > 1) navigate(-1);
+        else navigate("/");
+      });
+      return;
+    }
     if (window.history.length > 1) navigate(-1);
     else navigate("/");
   };
@@ -321,6 +379,14 @@ export function BigPictureScreen() {
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       const key = event.key;
 
+      // The console quit chord (#172) wins over every screen shortcut: it is
+      // the only way back to the desktop when Sunshine owns the session.
+      if (consoleActive && matchesExitShortcut(event, consoleMode?.exitShortcut)) {
+        event.preventDefault();
+        exit();
+        return;
+      }
+
       // The quick switcher owns the arrows while it is open, so a stray Enter
       // never launches a game behind it.
       if (pickerOpen) {
@@ -373,7 +439,7 @@ export function BigPictureScreen() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pickerOpen]);
+  }, [pickerOpen, consoleActive, consoleMode?.exitShortcut]);
 
   // Gamepad: d-pad/stick moves, A confirms, B exits, X opens the layout
   // switcher, Y opens downloads and the shoulders change shelf (the same
@@ -531,7 +597,7 @@ export function BigPictureScreen() {
           <LayoutTrigger layout={layout} open={pickerOpen} onToggle={togglePicker} />
           <span className="num hidden text-[12px] text-ink-2 sm:inline">{time}</span>
           <Button variant="ghost" size="sm" icon={<X className="size-3.5" />} onClick={exit}>
-            {t("Exit")}
+            {consoleActive ? t("Quit") : t("Exit")}
           </Button>
         </div>
       </header>
