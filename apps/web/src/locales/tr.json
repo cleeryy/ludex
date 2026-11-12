@@ -3428,5 +3428,21 @@
   "Why the overlay does not open": "Yer paylaşımı neden açılmıyor",
   "Windows does not deliver the Guide/Home button to apps. LB+RB+Start still opens the overlay, or switch the gesture to LB+RB+Start.": "Windows Guide/Home düğmesini uygulamalara iletmez. LB+RB+Start yer paylaşımını yine açar; hareketi LB+RB+Start olarak değiştirebilirsiniz.",
   "unknown reason": "bilinmeyen neden",
-  "{shortcut} always works while Ludex is focused.": "Ludex odaktayken {shortcut} her zaman çalışır."
+  "{shortcut} always works while Ludex is focused.": "Ludex odaktayken {shortcut} her zaman çalışır.",
+  "Grant modify rights on a folder": "Bir klasörde değiştirme izni ver",
+  "Run a verified installer": "Doğrulanmış bir yükleyici çalıştır",
+  "Install a Windows service": "Bir Windows hizmeti yükle",
+  "Install a driver": "Bir sürücü yükle",
+  "Add a firewall rule": "Güvenlik duvarı kuralı ekle",
+  "Remove a firewall rule": "Güvenlik duvarı kuralını kaldır",
+  "Write a configuration file": "Bir yapılandırma dosyası yaz",
+  "Run a privileged operation": "Ayrıcalıklı bir işlem çalıştır",
+  "Windows will ask for permission once. Only this operation runs as administrator; Ludex keeps running as your normal user, and cancelling changes nothing.": "Windows bir kez izin isteyecek. Yalnızca bu işlem yönetici olarak çalışır; Ludex normal kullanıcınız olarak çalışmaya devam eder ve iptal etmek hiçbir şeyi değiştirmez.",
+  "Continue as administrator": "Yönetici olarak devam et",
+  "What will change": "Neler değişecek",
+  "Target": "Hedef",
+  "Why": "Neden",
+  "If you cancel, nothing is changed and the manual instructions stay available.": "İptal ederseniz hiçbir şey değişmez ve manuel yönergeler kullanılabilir kalır.",
+  "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Sunshine yapılandırma klasörü, Windows'un yazmayı engellediği Program Files altında.",
+  "You can also set a Sunshine config folder your account can write to.": "Ayrıca hesabınızın yazabildiği bir Sunshine yapılandırma klasörü belirleyebilirsiniz."
 }

@@ -3428,5 +3428,21 @@
   "Why the overlay does not open": "Por qué no se abre la superposición",
   "Windows does not deliver the Guide/Home button to apps. LB+RB+Start still opens the overlay, or switch the gesture to LB+RB+Start.": "Windows no entrega el botón Guide/Home a las aplicaciones. LB+RB+Start sigue abriendo la superposición, o cambia el gesto a LB+RB+Start.",
   "unknown reason": "motivo desconocido",
-  "{shortcut} always works while Ludex is focused.": "{shortcut} siempre funciona mientras Ludex tiene el foco."
+  "{shortcut} always works while Ludex is focused.": "{shortcut} siempre funciona mientras Ludex tiene el foco.",
+  "Grant modify rights on a folder": "Conceder permiso de modificación en una carpeta",
+  "Run a verified installer": "Ejecutar un instalador verificado",
+  "Install a Windows service": "Instalar un servicio de Windows",
+  "Install a driver": "Instalar un controlador",
+  "Add a firewall rule": "Añadir una regla de firewall",
+  "Remove a firewall rule": "Eliminar una regla de firewall",
+  "Write a configuration file": "Escribir un archivo de configuración",
+  "Run a privileged operation": "Ejecutar una operación privilegiada",
+  "Windows will ask for permission once. Only this operation runs as administrator; Ludex keeps running as your normal user, and cancelling changes nothing.": "Windows pedirá permiso una sola vez. Solo esta operación se ejecuta como administrador; Ludex sigue ejecutándose con tu usuario normal y cancelar no cambia nada.",
+  "Continue as administrator": "Continuar como administrador",
+  "What will change": "Qué cambiará",
+  "Target": "Destino",
+  "Why": "Por qué",
+  "If you cancel, nothing is changed and the manual instructions stay available.": "Si cancelas, no se cambia nada y las instrucciones manuales siguen disponibles.",
+  "Sunshine's config folder is under Program Files, where Windows blocks writes.": "La carpeta de configuración de Sunshine está en Program Files, donde Windows bloquea las escrituras.",
+  "You can also set a Sunshine config folder your account can write to.": "También puedes indicar una carpeta de configuración de Sunshine en la que tu cuenta pueda escribir."
 }

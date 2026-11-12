@@ -3428,5 +3428,21 @@
   "Why the overlay does not open": "Почему оверлей не открывается",
   "Windows does not deliver the Guide/Home button to apps. LB+RB+Start still opens the overlay, or switch the gesture to LB+RB+Start.": "Windows не передаёт кнопку Guide/Home приложениям. LB+RB+Start по-прежнему открывает оверлей, либо выберите этот жест.",
   "unknown reason": "причина неизвестна",
-  "{shortcut} always works while Ludex is focused.": "{shortcut} всегда работает, когда Ludex в фокусе."
+  "{shortcut} always works while Ludex is focused.": "{shortcut} всегда работает, когда Ludex в фокусе.",
+  "Grant modify rights on a folder": "Предоставить права на изменение папки",
+  "Run a verified installer": "Запустить проверенный установщик",
+  "Install a Windows service": "Установить службу Windows",
+  "Install a driver": "Установить драйвер",
+  "Add a firewall rule": "Добавить правило брандмауэра",
+  "Remove a firewall rule": "Удалить правило брандмауэра",
+  "Write a configuration file": "Записать файл конфигурации",
+  "Run a privileged operation": "Выполнить привилегированную операцию",
+  "Windows will ask for permission once. Only this operation runs as administrator; Ludex keeps running as your normal user, and cancelling changes nothing.": "Windows запросит разрешение один раз. Повышенные права получает только эта операция; Ludex продолжает работать от имени обычного пользователя, а отмена ничего не меняет.",
+  "Continue as administrator": "Продолжить как администратор",
+  "What will change": "Что изменится",
+  "Target": "Цель",
+  "Why": "Почему",
+  "If you cancel, nothing is changed and the manual instructions stay available.": "При отмене ничего не изменится, а ручные инструкции останутся доступны.",
+  "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Папка конфигурации Sunshine находится в Program Files, где Windows блокирует запись.",
+  "You can also set a Sunshine config folder your account can write to.": "Можно также указать папку конфигурации Sunshine, доступную вашему аккаунту для записи."
 }

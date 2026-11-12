@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 use super::catalog::check_download_url;
 use super::detect::HostInfo;
 use super::{ArchiveKind, InstallKind, Platform, RuntimeInstallRow, RuntimeProvider};
+use crate::elevate;
 use crate::paths;
 
 /// Hard cap on an imported user file (GPTK DMG). Ludex never copies it.
@@ -241,6 +242,15 @@ pub fn cached_artifact(host: &HostInfo, provider: &RuntimeProvider) -> PathBuf {
         .unwrap_or_else(|| "runtime.bin".to_string());
     host.cache_dir
         .join(format!("{}-{}-{}", provider.id, digest, name))
+}
+
+/// Elevation roots for a machine-wide runtime step (#192). Only an artifact
+/// from Ludex's cache — whose size and SHA-256 matched the catalog before it
+/// was written — may be executed elevated; the Program Files roots still gate
+/// the service/driver and config helpers.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn elevation_roots(host: &HostInfo) -> elevate::ElevationRoots {
+    elevate::ElevationRoots::from_env().with_installers(vec![host.cache_dir.clone()])
 }
 
 /// Download to a `.part` file, hashing while writing, then atomically rename.

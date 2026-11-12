@@ -3428,5 +3428,21 @@
   "Why the overlay does not open": "叠加层为什么无法打开",
   "Windows does not deliver the Guide/Home button to apps. LB+RB+Start still opens the overlay, or switch the gesture to LB+RB+Start.": "Windows 不会将 Guide/Home 按钮传给应用。LB+RB+Start 仍可打开叠加层，或将手势切换为 LB+RB+Start。",
   "unknown reason": "原因未知",
-  "{shortcut} always works while Ludex is focused.": "Ludex 获得焦点时，{shortcut} 始终可用。"
+  "{shortcut} always works while Ludex is focused.": "Ludex 获得焦点时，{shortcut} 始终可用。",
+  "Grant modify rights on a folder": "授予文件夹修改权限",
+  "Run a verified installer": "运行已验证的安装程序",
+  "Install a Windows service": "安装 Windows 服务",
+  "Install a driver": "安装驱动程序",
+  "Add a firewall rule": "添加防火墙规则",
+  "Remove a firewall rule": "删除防火墙规则",
+  "Write a configuration file": "写入配置文件",
+  "Run a privileged operation": "运行特权操作",
+  "Windows will ask for permission once. Only this operation runs as administrator; Ludex keeps running as your normal user, and cancelling changes nothing.": "Windows 只会请求一次权限。仅此操作以管理员身份运行；Ludex 仍以普通用户身份运行，取消不会更改任何内容。",
+  "Continue as administrator": "以管理员身份继续",
+  "What will change": "将要更改的内容",
+  "Target": "目标",
+  "Why": "原因",
+  "If you cancel, nothing is changed and the manual instructions stay available.": "如果取消，不会更改任何内容，手动操作说明仍然可用。",
+  "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Sunshine 的配置文件夹位于 Program Files 下，Windows 会阻止写入。",
+  "You can also set a Sunshine config folder your account can write to.": "你也可以指定一个你的账户可写入的 Sunshine 配置文件夹。"
 }

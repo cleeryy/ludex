@@ -3428,5 +3428,21 @@
   "Why the overlay does not open": "Por que a sobreposição não abre",
   "Windows does not deliver the Guide/Home button to apps. LB+RB+Start still opens the overlay, or switch the gesture to LB+RB+Start.": "O Windows não entrega o botão Guide/Home aos aplicativos. LB+RB+Start ainda abre a sobreposição, ou mude o gesto para LB+RB+Start.",
   "unknown reason": "motivo desconhecido",
-  "{shortcut} always works while Ludex is focused.": "{shortcut} sempre funciona enquanto o Ludex estiver em foco."
+  "{shortcut} always works while Ludex is focused.": "{shortcut} sempre funciona enquanto o Ludex estiver em foco.",
+  "Grant modify rights on a folder": "Conceder permissão de modificação em uma pasta",
+  "Run a verified installer": "Executar um instalador verificado",
+  "Install a Windows service": "Instalar um serviço do Windows",
+  "Install a driver": "Instalar um driver",
+  "Add a firewall rule": "Adicionar uma regra de firewall",
+  "Remove a firewall rule": "Remover uma regra de firewall",
+  "Write a configuration file": "Gravar um arquivo de configuração",
+  "Run a privileged operation": "Executar uma operação privilegiada",
+  "Windows will ask for permission once. Only this operation runs as administrator; Ludex keeps running as your normal user, and cancelling changes nothing.": "O Windows pedirá permissão uma vez. Somente esta operação é executada como administrador; o Ludex continua rodando com seu usuário normal, e cancelar não altera nada.",
+  "Continue as administrator": "Continuar como administrador",
+  "What will change": "O que vai mudar",
+  "Target": "Destino",
+  "Why": "Por quê",
+  "If you cancel, nothing is changed and the manual instructions stay available.": "Se você cancelar, nada é alterado e as instruções manuais continuam disponíveis.",
+  "Sunshine's config folder is under Program Files, where Windows blocks writes.": "A pasta de configuração do Sunshine fica em Program Files, onde o Windows bloqueia gravações.",
+  "You can also set a Sunshine config folder your account can write to.": "Você também pode definir uma pasta de configuração do Sunshine em que sua conta possa gravar."
 }

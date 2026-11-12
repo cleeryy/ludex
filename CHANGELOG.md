@@ -8,6 +8,13 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- One shared one-shot elevation flow (#192): privileged actions go through a
+  whitelisted elevation module (path ACL, signed installer, service/driver,
+  firewall rule, config write) that validates every path, launches a single
+  hidden helper with one UAC prompt and maps cancellation, timeout and failure;
+  the Sunshine grant now uses it, the runtime installer and remote-play wizard
+  reuse it, and a reusable confirmation dialog shows the exact operation,
+  target and reason before asking.
 - Resume and Force close on the game page (#191): while a game runs, Overview
   shows Resume as the primary action (finds the game's top-level window by PID,
   restores and focuses it, or tells you to alt-tab when no window can be found)

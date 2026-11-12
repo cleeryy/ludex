@@ -3428,5 +3428,21 @@
   "Why the overlay does not open": "Pourquoi la surcouche ne s’ouvre pas",
   "Windows does not deliver the Guide/Home button to apps. LB+RB+Start still opens the overlay, or switch the gesture to LB+RB+Start.": "Windows ne transmet pas le bouton Guide/Home aux applications. LB+RB+Start ouvre toujours la surcouche, ou choisissez ce geste.",
   "unknown reason": "raison inconnue",
-  "{shortcut} always works while Ludex is focused.": "{shortcut} fonctionne toujours quand Ludex a le focus."
+  "{shortcut} always works while Ludex is focused.": "{shortcut} fonctionne toujours quand Ludex a le focus.",
+  "Grant modify rights on a folder": "Accorder le droit de modifier un dossier",
+  "Run a verified installer": "Exécuter un installateur vérifié",
+  "Install a Windows service": "Installer un service Windows",
+  "Install a driver": "Installer un pilote",
+  "Add a firewall rule": "Ajouter une règle de pare-feu",
+  "Remove a firewall rule": "Supprimer une règle de pare-feu",
+  "Write a configuration file": "Écrire un fichier de configuration",
+  "Run a privileged operation": "Exécuter une opération privilégiée",
+  "Windows will ask for permission once. Only this operation runs as administrator; Ludex keeps running as your normal user, and cancelling changes nothing.": "Windows demandera l’autorisation une seule fois. Seule cette opération s’exécute en tant qu’administrateur ; Ludex continue de fonctionner avec votre compte normal, et annuler ne change rien.",
+  "Continue as administrator": "Continuer en tant qu’administrateur",
+  "What will change": "Ce qui va changer",
+  "Target": "Cible",
+  "Why": "Pourquoi",
+  "If you cancel, nothing is changed and the manual instructions stay available.": "Si vous annulez, rien n’est modifié et les instructions manuelles restent disponibles.",
+  "Sunshine's config folder is under Program Files, where Windows blocks writes.": "Le dossier de configuration de Sunshine se trouve dans Program Files, où Windows bloque les écritures.",
+  "You can also set a Sunshine config folder your account can write to.": "Vous pouvez aussi définir un dossier de configuration Sunshine accessible en écriture à votre compte."
 }
