@@ -2,18 +2,20 @@
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::routing::{delete, get, patch};
+use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use ludex_core::models::Role;
 use serde_json::json;
 
 use crate::audit::actions;
-use crate::auth::{hash_password, AuthUser};
+use crate::auth::{generate_password, hash_password, AuthUser};
 use crate::db;
 use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, JsonBody};
-use crate::models::{CreateUserRequest, UpdateUserRequest, User, UserRow};
+use crate::models::{
+    CreateUserRequest, ResetPasswordRequest, ResetPasswordResult, UpdateUserRequest, User, UserRow,
+};
 use crate::sql::{bind_query, Bind};
 use crate::state::AppState;
 
@@ -23,6 +25,7 @@ pub fn router() -> Router<AppState> {
         .route("/users", get(list).post(create))
         .route("/users/{id}", patch(update).delete(delete_user))
         .route("/users/{id}/sessions", delete(revoke_sessions))
+        .route("/users/{id}/reset-password", post(reset_password))
 }
 
 /// Admin: revoke every session of an account (sign out all devices).
@@ -54,7 +57,9 @@ async fn list(State(state): State<AppState>, user: AuthUser) -> Result<Json<Vec<
     let rows = db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
-                onboarding_completed_at, onboarding_step
+                onboarding_completed_at, onboarding_step,
+         CAST(COALESCE((SELECT 1 FROM user_mfa m WHERE m.user_id = users.id AND m.enabled_at IS NOT NULL), 0) AS BIGINT) AS mfa_enabled,
+         must_change_password
          FROM users ORDER BY id",
     )
     .fetch_all(&state.pool)
@@ -100,7 +105,9 @@ async fn create(
     let created = db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
-                onboarding_completed_at, onboarding_step
+                onboarding_completed_at, onboarding_step,
+         CAST(COALESCE((SELECT 1 FROM user_mfa m WHERE m.user_id = users.id AND m.enabled_at IS NOT NULL), 0) AS BIGINT) AS mfa_enabled,
+         must_change_password
          FROM users WHERE id = ?",
     )
     .bind(user_id)
@@ -245,6 +252,11 @@ async fn update(
             }
         })?;
 
+    if password_changed {
+        // The old password must stop working everywhere, not only for the
+        // account holder who happens to sign in next (#166).
+        crate::auth::revoke_all_sessions(&state, id, "password_reset").await?;
+    }
     let updated = fetch_user(&state, id).await?;
     if password_changed {
         state.events.emit(
@@ -304,7 +316,9 @@ async fn fetch_user(state: &AppState, id: i64) -> Result<UserRow, ApiError> {
     db::query_as::<UserRow>(
         "SELECT id, username, password_hash, email, role, activated, avatar_path,
                 age_limit, created_at, updated_at, oidc_issuer, oidc_subject,
-                onboarding_completed_at, onboarding_step
+                onboarding_completed_at, onboarding_step,
+         CAST(COALESCE((SELECT 1 FROM user_mfa m WHERE m.user_id = users.id AND m.enabled_at IS NOT NULL), 0) AS BIGINT) AS mfa_enabled,
+         must_change_password
          FROM users WHERE id = ?",
     )
     .bind(id)
@@ -329,4 +343,64 @@ async fn ensure_other_active_admin(state: &AppState, excluded_id: i64) -> Result
         ));
     }
     Ok(())
+}
+
+/// Admin: reset an account password and sign every device out (#166).
+///
+/// Without a `password` the server generates one and returns it once; the
+/// account is flagged `mustChangePassword` by default so the administrator
+/// hands over a temporary credential, not a permanent one.
+async fn reset_password(
+    State(state): State<AppState>,
+    caller: AuthUser,
+    ApiPath(id): ApiPath<i64>,
+    JsonBody(request): JsonBody<ResetPasswordRequest>,
+) -> Result<Json<ResetPasswordResult>, ApiError> {
+    caller.require_admin_access()?;
+    let target = fetch_user(&state, id).await?;
+    if target.is_oidc_managed() {
+        return Err(ApiError::conflict(
+            "managed_by_idp",
+            "This account signs in through the identity provider; reset the password there",
+        ));
+    }
+    let require_change = request.require_change.unwrap_or(true);
+    let (password, generated) = match request.password {
+        Some(password) => {
+            super::validate_password(&password)?;
+            (password, None)
+        }
+        None => {
+            let password = generate_password();
+            (password.clone(), Some(password))
+        }
+    };
+    let password_hash = hash_password(&password)?;
+    db::query(
+        "UPDATE users SET password_hash = ?, must_change_password = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(password_hash)
+    .bind(i64::from(u8::from(require_change)))
+    .bind(db::db_time(db::now()))
+    .bind(id)
+    .execute(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    let revoked = crate::auth::revoke_all_sessions(&state, id, "admin_password_reset").await?;
+    state.events.emit(
+        Event::new(actions::USER_PASSWORD_RESET, caller.actor())
+            .target("user", id.to_string())
+            .metadata(json!({
+                "username": target.username,
+                "mustChangePassword": require_change,
+                "sessions": revoked,
+            })),
+    );
+    Ok(Json(ResetPasswordResult {
+        username: target.username,
+        password: generated,
+        revoked: i64::try_from(revoked).unwrap_or(i64::MAX),
+        must_change_password: require_change,
+    }))
 }

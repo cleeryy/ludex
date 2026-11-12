@@ -178,6 +178,8 @@ async fn setup(
         oidc_issuer: None,
         onboarding_completed_at: None,
         onboarding_step: 0,
+        mfa_enabled: false,
+        must_change_password: false,
     };
     state.events.emit(
         Event::new(actions::USER_CREATED, Actor::System)
@@ -196,11 +198,7 @@ async fn setup(
             })),
     );
     let token = issue_access_token(&state.jwt_secret, user.id, user.role)?;
-    Ok(Json(AuthResponse {
-        token,
-        user,
-        expires_at: None,
-    }))
+    Ok(Json(AuthResponse::session(token, user, None)))
 }
 
 async fn config(State(state): State<AppState>) -> Result<Json<ServerConfig>, ApiError> {

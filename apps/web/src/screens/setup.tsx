@@ -210,6 +210,7 @@ function DesktopWizard() {
   const remoteCreate = async (body: { username: string; password: string; serverName?: string }) => {
     const url = normalizeUrl(remoteUrl);
     const result = await api.setup(body);
+    if (!result.token || !result.user) throw new Error(t("The server did not return a session."));
     await saveRemote(url, result.token);
     await adoptSession({ serverUrl: url, token: result.token, user: result.user });
     navigate("/", { replace: true });
@@ -218,6 +219,7 @@ function DesktopWizard() {
   const remoteLogin = async (body: { username: string; password: string }) => {
     const url = normalizeUrl(remoteUrl);
     const result = await api.login(body);
+    if (!result.token || !result.user) throw new Error(t("The server did not return a session."));
     await saveRemote(url, result.token);
     await adoptSession({ serverUrl: url, token: result.token, user: result.user });
     navigate("/", { replace: true });

@@ -147,6 +147,13 @@ pub struct User {
     pub onboarding_completed_at: Option<DateTime<Utc>>,
     /// Canonical step the wizard resumes at (#119), 0..=20.
     pub onboarding_step: i64,
+    /// Whether a TOTP second factor is active for this account (#166).
+    #[serde(default)]
+    pub mfa_enabled: bool,
+    /// Whether an administrator reset the password and the account should
+    /// choose a new one (#166). Advisory for clients.
+    #[serde(default)]
+    pub must_change_password: bool,
 }
 
 impl User {
@@ -174,6 +181,8 @@ pub struct UserRow {
     pub age_limit: Option<i64>,
     pub onboarding_completed_at: Option<String>,
     pub onboarding_step: i64,
+    pub mfa_enabled: i64,
+    pub must_change_password: i64,
 }
 
 impl UserRow {
@@ -200,6 +209,8 @@ impl UserRow {
                 .as_deref()
                 .and_then(crate::db::parse_time),
             onboarding_step: self.onboarding_step,
+            mfa_enabled: self.mfa_enabled != 0,
+            must_change_password: self.must_change_password != 0,
         }
     }
 
@@ -315,16 +326,61 @@ pub struct ScanStatus {
 }
 
 /// `POST /api/auth/login` and `POST /api/setup` response.
+///
+/// When the account has a second factor, the password step returns
+/// `mfaRequired: true` with a short-lived `challengeToken` instead of a session:
+/// `token` and `user` are absent, so a client cannot mistake the challenge for
+/// a signed-in state (#166).
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthResponse {
-    /// Signed access token.
-    pub token: String,
-    /// Authenticated account.
-    pub user: User,
+    /// Signed access token; absent until every factor is verified.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    /// Authenticated account; absent while a second factor is pending.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<User>,
     /// Token expiry, when the token belongs to a tracked session.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<DateTime<Utc>>,
+    /// True when the password was accepted but a TOTP or recovery code is
+    /// still required.
+    #[serde(default)]
+    pub mfa_required: bool,
+    /// Single-use challenge to submit to `POST /api/auth/login/mfa`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub challenge_token: Option<String>,
+    /// When the challenge expires.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub challenge_expires_at: Option<DateTime<Utc>>,
+}
+
+impl AuthResponse {
+    /// Response for a completed sign-in.
+    #[must_use]
+    pub fn session(token: String, user: User, expires_at: Option<DateTime<Utc>>) -> Self {
+        Self {
+            token: Some(token),
+            user: Some(user),
+            expires_at,
+            mfa_required: false,
+            challenge_token: None,
+            challenge_expires_at: None,
+        }
+    }
+
+    /// Response that asks for the second factor.
+    #[must_use]
+    pub fn challenge(token: String, expires_at: DateTime<Utc>) -> Self {
+        Self {
+            token: None,
+            user: None,
+            expires_at: None,
+            mfa_required: true,
+            challenge_token: Some(token),
+            challenge_expires_at: Some(expires_at),
+        }
+    }
 }
 
 /// Login request.
@@ -1771,6 +1827,8 @@ pub struct AuthSession {
     pub revoked_at: Option<DateTime<Utc>>,
     /// Whether this is the session used by the current request.
     pub current: bool,
+    /// Readable device label derived from the `User-Agent` (#166).
+    pub device: Option<String>,
 }
 
 /// Row of the `auth_sessions` table.
@@ -1799,6 +1857,7 @@ impl AuthSessionRow {
             expires_at: crate::db::parse_time(&self.expires_at).unwrap_or_else(Utc::now),
             revoked_at: self.revoked_at.as_deref().and_then(crate::db::parse_time),
             current: current_jti == Some(self.jti.as_str()),
+            device: crate::security::describe_user_agent(self.user_agent.as_deref()),
         }
     }
 }
@@ -1950,4 +2009,295 @@ pub struct CompleteUploadResponse {
     pub size: i64,
     /// Verified SHA-256, when the client provided one.
     pub sha256: Option<String>,
+}
+
+/* ---------------------- invitations and account security (#166) ---------- */
+
+/// Lifecycle state of an invitation, computed at read time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum InvitationStatus {
+    /// Still redeemable.
+    Pending,
+    /// Every allowed use was consumed.
+    Used,
+    /// Past its expiry timestamp.
+    Expired,
+    /// Revoked by an administrator.
+    Revoked,
+}
+
+impl InvitationStatus {
+    /// Stable wire identifier.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InvitationStatus::Pending => "pending",
+            InvitationStatus::Used => "used",
+            InvitationStatus::Expired => "expired",
+            InvitationStatus::Revoked => "revoked",
+        }
+    }
+}
+
+/// `GET /api/invitations` item. The token is never included: only its hash is
+/// stored, and the plaintext link is shown once at creation.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Invitation {
+    /// Database identifier.
+    pub id: i64,
+    /// Role granted on redemption.
+    pub role: Role,
+    /// Optional e-mail label, shown to the invitee and copied into the account.
+    pub email: Option<String>,
+    /// Optional note for the administrator.
+    pub note: Option<String>,
+    /// Account that created the invitation.
+    pub created_by: Option<i64>,
+    /// Username of the creator, when the account still exists.
+    pub created_by_username: Option<String>,
+    /// Creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Expiry timestamp.
+    pub expires_at: DateTime<Utc>,
+    /// Maximum redemptions.
+    pub max_uses: i64,
+    /// Redemptions so far.
+    pub uses: i64,
+    /// Last redemption, if any.
+    pub last_used_at: Option<DateTime<Utc>>,
+    /// Revocation timestamp, if revoked.
+    pub revoked_at: Option<DateTime<Utc>>,
+    /// Computed lifecycle state.
+    pub status: InvitationStatus,
+    /// Client route the administrator shares: `/register?invite=…`.
+    pub path: String,
+}
+
+/// Row of the `invitations` table.
+#[derive(Debug, sqlx::FromRow)]
+pub struct InvitationRow {
+    pub id: i64,
+    pub role: String,
+    pub email: Option<String>,
+    pub note: Option<String>,
+    pub created_by: Option<i64>,
+    pub created_by_username: Option<String>,
+    pub created_at: String,
+    pub expires_at: String,
+    pub max_uses: i64,
+    pub uses: i64,
+    pub last_used_at: Option<String>,
+    pub revoked_at: Option<String>,
+}
+
+impl InvitationRow {
+    /// Public representation with the lifecycle state computed at `now`.
+    #[must_use]
+    pub fn to_public(&self, now: DateTime<Utc>) -> Invitation {
+        let expires_at = crate::db::parse_time(&self.expires_at).unwrap_or(now);
+        let revoked_at = self.revoked_at.as_deref().and_then(crate::db::parse_time);
+        let status = if revoked_at.is_some() {
+            InvitationStatus::Revoked
+        } else if self.uses >= self.max_uses {
+            InvitationStatus::Used
+        } else if expires_at <= now {
+            InvitationStatus::Expired
+        } else {
+            InvitationStatus::Pending
+        };
+        Invitation {
+            id: self.id,
+            role: self.role.parse::<Role>().unwrap_or(Role::User),
+            email: self.email.clone(),
+            note: self.note.clone(),
+            created_by: self.created_by,
+            created_by_username: self.created_by_username.clone(),
+            created_at: crate::db::parse_time(&self.created_at).unwrap_or(now),
+            expires_at,
+            max_uses: self.max_uses,
+            uses: self.uses,
+            last_used_at: self.last_used_at.as_deref().and_then(crate::db::parse_time),
+            revoked_at,
+            status,
+            // The token is unknown at read time; the client builds the URL with
+            // the token it received once at creation.
+            path: "/register".to_string(),
+        }
+    }
+}
+
+/// `POST /api/invitations` request.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateInvitationRequest {
+    /// Role granted on redemption, defaults to `user`.
+    #[serde(default)]
+    pub role: Option<Role>,
+    /// Optional e-mail label.
+    #[serde(default)]
+    pub email: Option<String>,
+    /// Optional note for administrators.
+    #[serde(default)]
+    pub note: Option<String>,
+    /// Days until the link expires, defaults to 7 (1..=90).
+    #[serde(default)]
+    pub expires_in_days: Option<i64>,
+    /// Maximum redemptions, defaults to 1 (1..=100).
+    #[serde(default)]
+    pub max_uses: Option<i64>,
+}
+
+/// `POST /api/invitations` response: the invitation plus the plaintext token,
+/// returned exactly once.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatedInvitation {
+    /// Created invitation.
+    pub invitation: Invitation,
+    /// Plaintext token. Not stored, not retrievable.
+    pub token: String,
+    /// Client route to share: `/register?invite=<token>`.
+    pub path: String,
+}
+
+/// `GET /api/invitations/{token}` response, public.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InvitationPreview {
+    /// Role the account will receive.
+    pub role: Role,
+    /// E-mail label, prefilled into the form.
+    pub email: Option<String>,
+    /// Note left by the administrator.
+    pub note: Option<String>,
+    /// Expiry timestamp.
+    pub expires_at: DateTime<Utc>,
+    /// Always true today: redeeming sets a password. Reserved for SSO-only
+    /// invitations.
+    pub requires_password: bool,
+}
+
+/// `POST /api/invitations/{token}/accept` request.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptInvitationRequest {
+    /// Login name for the new account.
+    pub username: String,
+    /// Initial password.
+    pub password: String,
+}
+
+/// `GET /api/auth/mfa` response.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MfaStatus {
+    /// True once a TOTP secret is confirmed.
+    pub enabled: bool,
+    /// Unused recovery codes left.
+    pub recovery_codes_remaining: i64,
+    /// When the second factor was enabled.
+    pub enabled_at: Option<DateTime<Utc>>,
+    /// Enabled methods, in display order.
+    pub methods: Vec<String>,
+    /// True when an enrolment is in progress but not confirmed.
+    pub pending: bool,
+}
+
+/// `POST /api/auth/mfa/totp/enroll` response. The secret is returned once.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TotpEnrollment {
+    /// Base32 secret for manual entry.
+    pub secret: String,
+    /// `otpauth://` URI for a QR encoder.
+    pub otpauth_uri: String,
+    /// Issuer label baked into the URI (the server name).
+    pub issuer: String,
+    /// Account label baked into the URI.
+    pub account: String,
+    /// Code length.
+    pub digits: u32,
+    /// Seconds per code.
+    pub period: i64,
+}
+
+/// `POST /api/auth/mfa/totp/activate` request.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TotpActivationRequest {
+    /// Six-digit code from the authenticator app.
+    pub code: String,
+}
+
+/// `POST /api/auth/mfa/totp/activate` response: the recovery codes, once.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TotpActivated {
+    /// Refreshed second-factor state.
+    pub mfa: MfaStatus,
+    /// Single-use recovery codes. Not retrievable later.
+    pub recovery_codes: Vec<String>,
+}
+
+/// `POST /api/auth/mfa/disable` request.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MfaDisableRequest {
+    /// Current account password, re-checked before removing the factor.
+    pub password: String,
+}
+
+/// `POST /api/auth/mfa/recovery-codes` request.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryCodesRequest {
+    /// Current account password.
+    pub password: String,
+}
+
+/// `POST /api/auth/mfa/recovery-codes` response.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryCodes {
+    /// Freshly generated single-use codes; the previous set stops working.
+    pub codes: Vec<String>,
+}
+
+/// `POST /api/auth/login/mfa` request.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MfaLoginRequest {
+    /// Challenge returned by the password step.
+    pub challenge_token: String,
+    /// Six-digit TOTP code, or a recovery code.
+    pub code: String,
+}
+
+/// `POST /api/users/{id}/reset-password` request.
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetPasswordRequest {
+    /// Replacement password. Omit to let the server generate one; a generated
+    /// password is returned once so the administrator can hand it over.
+    #[serde(default)]
+    pub password: Option<String>,
+    /// Ask the account to choose a new password after signing in (default true).
+    #[serde(default)]
+    pub require_change: Option<bool>,
+}
+
+/// `POST /api/users/{id}/reset-password` response.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetPasswordResult {
+    /// Account whose password was reset.
+    pub username: String,
+    /// Generated password, returned once. `null` when the administrator chose it.
+    pub password: Option<String>,
+    /// Sessions revoked by the reset.
+    pub revoked: i64,
+    /// Whether the account is asked to choose a new password.
+    pub must_change_password: bool,
 }

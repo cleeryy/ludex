@@ -13,6 +13,7 @@ pub mod emulators;
 pub mod game_metadata;
 pub mod games;
 pub mod integrity;
+pub mod invitations;
 pub mod keys;
 pub mod library;
 pub mod media;
@@ -50,6 +51,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(community::router())
         .merge(search::router())
         .merge(users::router())
+        .merge(invitations::router())
         .merge(library::router())
         .merge(news::router())
         .merge(media::router())

@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, EyeOff, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Copy, Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { formatDate, initials } from "@/lib/format";
-import type { Role, User } from "@/lib/types";
+import type { ResetPasswordResult, Role, User } from "@/lib/types";
 import { useAuth } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { ErrorState, PageHeader } from "@/components/page";
 import { Badge, Button, Field, IconButton, Input, Skeleton, Switch } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
-import { tr, t , tn } from "@/lib/i18n";
+import { tr, tn, t } from "@/lib/i18n";
 
 function roleOptions(): { value: Role; label: string }[] {
   return [
@@ -65,6 +65,9 @@ export function UsersScreen() {
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [editTarget, setEditTarget] = useState<User | null>(null);
+  // #166: an administrator can reset a password without knowing the old one.
+  const [resetTarget, setResetTarget] = useState<User | null>(null);
+  const [resetResult, setResetResult] = useState<ResetPasswordResult | null>(null);
 
   const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ["users"],
@@ -72,6 +75,19 @@ export function UsersScreen() {
   });
 
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["users"] });
+
+  const resetPassword = useMutation({
+    mutationFn: (id: number) => api.resetUserPassword(id),
+    onSuccess: (result) => {
+      setResetTarget(null);
+      setResetResult(result);
+      invalidate();
+    },
+    onError: (cause: Error) => {
+      setResetTarget(null);
+      push({ title: t("Could not reset the password"), description: errorMessage(cause), tone: "danger" });
+    },
+  });
 
   const update = useMutation({
     mutationFn: ({ id, patch }: { id: number; patch: UserPatch }) => api.updateUser(id, patch),
@@ -175,6 +191,15 @@ export function UsersScreen() {
                 <Pencil className="size-3.5" />
               </IconButton>
               <IconButton
+                label={t("Reset the password for {name}", { name: user.username })}
+                variant="ghost"
+                className="size-8 text-ink-3 hover:text-ink"
+                disabled={user.source === "oidc"}
+                onClick={() => setResetTarget(user)}
+              >
+                <KeyRound className="size-3.5" />
+              </IconButton>
+              <IconButton
                 label={t("Delete {name}", { name: user.username })}
                 variant="ghost"
                 className="size-8 text-ink-3 hover:text-danger"
@@ -199,6 +224,52 @@ export function UsersScreen() {
         onOpenChange={(open) => !open && setEditTarget(null)}
         onUpdated={invalidate}
       />
+      <ConfirmDialog
+        open={Boolean(resetTarget)}
+        onOpenChange={(open) => !open && setResetTarget(null)}
+        title={t("Reset the password for {name}?", { name: resetTarget?.username ?? t("this user") })}
+        description={t("Ludex generates a temporary password, signs every device out and asks the account to choose a new password. The password is shown once.")}
+        confirmLabel={t("Reset password")}
+        loading={resetPassword.isPending}
+        onConfirm={() => resetTarget && resetPassword.mutate(resetTarget.id)}
+      />
+      <Dialog
+        open={resetResult !== null}
+        onOpenChange={(open) => !open && setResetResult(null)}
+        title={t("Temporary password")}
+        description={t("Hand it to the account holder through a channel you trust. It cannot be shown again.")}
+        footer={
+          <Button variant="primary" onClick={() => setResetResult(null)}>
+            {t("Done")}
+          </Button>
+        }
+      >
+        {resetResult && (
+          <div className="flex flex-col gap-3">
+            <code className="break-all border border-line-2 bg-surface px-3 py-2 font-mono text-[13px] text-ink">
+              {resetResult.password ?? t("No password was generated")}
+            </code>
+            {resetResult.password && (
+              <Button
+                variant="default"
+                size="sm"
+                icon={<Copy className="size-3.5" />}
+                onClick={() => {
+                  void navigator.clipboard
+                    .writeText(resetResult.password ?? "")
+                    .then(() => push({ title: t("Password copied"), tone: "success" }))
+                    .catch(() => push({ title: t("Could not copy to the clipboard"), tone: "danger" }));
+                }}
+              >
+                {t("Copy password")}
+              </Button>
+            )}
+            <p className="text-[12px] leading-relaxed text-ink-3">
+              {tr("{count} sessions were signed out.", { count: <span className="num">{resetResult.revoked}</span> })}
+            </p>
+          </div>
+        )}
+      </Dialog>
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => !open && setDeleteTarget(null)}

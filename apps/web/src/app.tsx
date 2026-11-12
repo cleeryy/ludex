@@ -42,8 +42,10 @@ import { ServerScreen } from "@/screens/admin/server";
 import { AuthenticationScreen } from "@/screens/admin/authentication";
 import { MetadataProvidersScreen } from "@/screens/admin/metadata";
 import { UploadScreen } from "@/screens/admin/upload";
+import { InvitationsScreen } from "@/screens/admin/invitations";
 import { ShareScreen } from "@/screens/share";
 import { DownloadScreen } from "@/screens/download";
+import { RegisterScreen } from "@/screens/register";
 import { t } from "@/lib/i18n";
 
 const queryClient = new QueryClient({
@@ -207,6 +209,8 @@ export function App() {
                 <Route path="/share/:token" element={<ShareScreen />} />
                 {/* Public download page (#164): reachable logged out, never gated. */}
                 <Route path="/download" element={<DownloadScreen />} />
+                {/* Invitation landing page (#166): the invitee has no account yet. */}
+                <Route path="/register" element={<RegisterScreen />} />
                 <Route
                   path="/setup"
                   element={
@@ -281,6 +285,14 @@ export function App() {
                     element={
                       <RequireAdmin>
                         <UsersScreen />
+                      </RequireAdmin>
+                    }
+                  />
+                  <Route
+                    path="admin/invitations"
+                    element={
+                      <RequireAdmin>
+                        <InvitationsScreen />
                       </RequireAdmin>
                     }
                   />

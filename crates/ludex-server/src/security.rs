@@ -324,6 +324,56 @@ impl AttemptCounter {
     }
 }
 
+/// Readable device label for a `User-Agent` string, used by the session list
+/// (#166). Best effort: an unknown agent still gets a label instead of a raw
+/// header dump, and the full header stays available separately for support.
+#[must_use]
+pub fn describe_user_agent(user_agent: Option<&str>) -> Option<String> {
+    let ua = user_agent?.trim();
+    if ua.is_empty() {
+        return None;
+    }
+    let browser = if ua.contains("Ludex") || ua.contains("Tauri") {
+        "Ludex app"
+    } else if ua.contains("Edg/") {
+        "Edge"
+    } else if ua.contains("OPR/") || ua.contains("Opera") {
+        "Opera"
+    } else if ua.contains("Firefox/") {
+        "Firefox"
+    } else if ua.contains("Chrome/") || ua.contains("Chromium/") {
+        "Chrome"
+    } else if ua.contains("Safari/") {
+        "Safari"
+    } else if ua.starts_with("curl/") {
+        "curl"
+    } else if ua.contains("LudexDesktop") {
+        "Ludex app"
+    } else {
+        "Unknown browser"
+    };
+    let system = if ua.contains("iPhone") {
+        "iOS"
+    } else if ua.contains("iPad") {
+        "iPadOS"
+    } else if ua.contains("Android") {
+        "Android"
+    } else if ua.contains("Windows") {
+        "Windows"
+    } else if ua.contains("Mac OS X") || ua.contains("Macintosh") {
+        "macOS"
+    } else if ua.contains("Linux") || ua.contains("X11") {
+        "Linux"
+    } else {
+        ""
+    };
+    Some(if system.is_empty() {
+        browser.to_string()
+    } else {
+        format!("{browser} on {system}")
+    })
+}
+
 /// Global API rate-limit middleware.
 ///
 /// Health checks, OpenAPI discovery and CORS preflights are exempt so probes
@@ -441,6 +491,51 @@ mod tests {
         for _ in 0..10_000 {
             assert!(disabled.check("ip").is_ok());
         }
+    }
+
+    #[test]
+    fn user_agents_become_readable_device_labels() {
+        assert_eq!(
+            describe_user_agent(Some(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 \
+                 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            ))
+            .as_deref(),
+            Some("Chrome on macOS")
+        );
+        assert_eq!(
+            describe_user_agent(Some(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+                 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
+            ))
+            .as_deref(),
+            Some("Edge on Windows")
+        );
+        assert_eq!(
+            describe_user_agent(Some(
+                "Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101 Firefox/133.0"
+            ))
+            .as_deref(),
+            Some("Firefox on Linux")
+        );
+        assert_eq!(
+            describe_user_agent(Some(
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 \
+                 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1"
+            ))
+            .as_deref(),
+            Some("Safari on iOS")
+        );
+        assert_eq!(
+            describe_user_agent(Some("Ludex/0.3.2 (Tauri; Windows)")).as_deref(),
+            Some("Ludex app on Windows")
+        );
+        assert_eq!(describe_user_agent(Some("  ")), None);
+        assert_eq!(describe_user_agent(None), None);
+        assert_eq!(
+            describe_user_agent(Some("something-else")).as_deref(),
+            Some("Unknown browser")
+        );
     }
 
     #[test]

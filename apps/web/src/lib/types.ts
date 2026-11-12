@@ -27,6 +27,10 @@ export interface User {
   onboardingCompletedAt: string | null;
   /** Canonical wizard step this account resumes at (#119), 0..=20. */
   onboardingStep: number;
+  /** Whether a TOTP second factor is active (#166). */
+  mfaEnabled: boolean;
+  /** Set by an administrator password reset; the account should choose a new one (#166). */
+  mustChangePassword: boolean;
 }
 
 export interface GameSummary {
@@ -496,10 +500,99 @@ export interface LibraryStats {
 }
 
 export interface AuthResult {
-  token: string;
-  user: User;
+  /** Present once every factor is verified. */
+  token?: string;
+  /** Present once every factor is verified. */
+  user?: User;
   /** Token expiry, when the server tracks the session. */
   expiresAt?: string;
+  /** The password was accepted but a second factor is still required (#166). */
+  mfaRequired?: boolean;
+  /** Single-use challenge for `POST /api/auth/login/mfa`. */
+  challengeToken?: string;
+  /** When the challenge stops being redeemable. */
+  challengeExpiresAt?: string;
+}
+
+/** `GET /api/auth/mfa` (#166). */
+export interface MfaStatus {
+  enabled: boolean;
+  recoveryCodesRemaining: number;
+  enabledAt: string | null;
+  methods: string[];
+  /** An enrolment was started but not confirmed yet. */
+  pending: boolean;
+}
+
+/** `POST /api/auth/mfa/totp/enroll` response (#166). */
+export interface TotpEnrollment {
+  /** Base32 secret for manual entry; shown once. */
+  secret: string;
+  /** `otpauth://` URI a QR encoder renders. */
+  otpauthUri: string;
+  issuer: string;
+  account: string;
+  digits: number;
+  period: number;
+}
+
+/** `POST /api/auth/mfa/recovery-codes` response (#166). */
+export interface RecoveryCodes {
+  codes: string[];
+}
+
+/** `POST /api/auth/mfa/totp/activate` response (#166). */
+export interface TotpActivated {
+  mfa: MfaStatus;
+  /** Single-use recovery codes; not retrievable later. */
+  recoveryCodes: string[];
+}
+
+/** Invitation lifecycle state (#166). */
+export type InvitationStatus = "pending" | "used" | "expired" | "revoked";
+
+/** `GET /api/invitations` item (#166). Never carries the token. */
+export interface Invitation {
+  id: number;
+  role: Role;
+  email: string | null;
+  note: string | null;
+  createdBy: number | null;
+  createdByUsername: string | null;
+  createdAt: string;
+  expiresAt: string;
+  maxUses: number;
+  uses: number;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  status: InvitationStatus;
+  /** Client route to share once the token is known. */
+  path: string;
+}
+
+/** `POST /api/invitations` response: the only time the token is returned. */
+export interface CreatedInvitation {
+  invitation: Invitation;
+  token: string;
+  path: string;
+}
+
+/** `GET /api/invitations/{token}` (#166). */
+export interface InvitationPreview {
+  role: Role;
+  email: string | null;
+  note: string | null;
+  expiresAt: string;
+  requiresPassword: boolean;
+}
+
+/** `POST /api/users/{id}/reset-password` response (#166). */
+export interface ResetPasswordResult {
+  username: string;
+  /** Generated password, returned once. `null` when the admin chose it. */
+  password: string | null;
+  revoked: number;
+  mustChangePassword: boolean;
 }
 
 /** `POST /api/auth/desktop-handoff` (#157). Never contains a code or a token. */
@@ -1699,6 +1792,8 @@ export interface AuthSession {
   revokedAt: string | null;
   /** True for the session used by the current request. */
   current: boolean;
+  /** Readable device label derived from the user agent (#166). */
+  device: string | null;
 }
 
 /* ------------------------------- uploads --------------------------------- */

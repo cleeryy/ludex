@@ -80,6 +80,10 @@ pub struct AppState {
     pub handoff_create_limits: Arc<crate::security::AttemptCounter>,
     /// Per-address throttle for handoff claims (#157).
     pub handoff_claim_limits: Arc<crate::security::AttemptCounter>,
+    /// Per-address throttle for invitation redemption (#166).
+    pub invitation_limits: Arc<crate::security::AttemptCounter>,
+    /// Per-address-and-account throttle for second-factor attempts (#166).
+    pub mfa_attempt_limits: Arc<crate::security::AttemptCounter>,
 }
 
 impl AppState {
@@ -132,6 +136,14 @@ impl AppState {
             config.handoff_claim_limit,
             std::time::Duration::from_secs(60),
         );
+        let invitation_limits = crate::security::AttemptCounter::new(
+            config.invitation_attempt_limit,
+            std::time::Duration::from_secs(600),
+        );
+        let mfa_attempt_limits = crate::security::AttemptCounter::new(
+            config.mfa_attempt_limit,
+            std::time::Duration::from_secs(300),
+        );
         Self {
             config: Arc::new(config),
             pool,
@@ -161,6 +173,8 @@ impl AppState {
             exchange_codes: Arc::new(crate::desktop_handoff::ExchangeCodes::new()),
             handoff_create_limits: Arc::new(handoff_create_limits),
             handoff_claim_limits: Arc::new(handoff_claim_limits),
+            invitation_limits: Arc::new(invitation_limits),
+            mfa_attempt_limits: Arc::new(mfa_attempt_limits),
         }
     }
 }

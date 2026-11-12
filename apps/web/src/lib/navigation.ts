@@ -23,6 +23,7 @@ export type NavIconName =
   | "community"
   | "news"
   | "users"
+  | "invitations"
   | "ingest"
   | "upload"
   | "metadata"
@@ -196,6 +197,14 @@ export const NAV_DESTINATIONS = [
     labelKey: "Users",
     group: "admin",
     icon: "users",
+    visibility: "admin",
+  },
+  {
+    id: "invitations",
+    to: "/admin/invitations",
+    labelKey: "Invitations",
+    group: "admin",
+    icon: "invitations",
     visibility: "admin",
   },
   {

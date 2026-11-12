@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { api, setApiBase, tokenStore, UNAUTHORIZED_EVENT } from "@/lib/api";
 import { isNative, native } from "@/lib/native";
 import { bootstrapBrowserServer } from "@/lib/servers";
-import type { SetupStatus, User } from "@/lib/types";
+import type { AuthResult, SetupStatus, User } from "@/lib/types";
 import { t } from "@/lib/i18n";
 
 interface AuthValue {
@@ -19,7 +19,18 @@ interface AuthValue {
   holdLogin: boolean;
   setHoldLogin: (hold: boolean) => void;
   adoptSession: (args: { serverUrl: string; token: string; user?: User }) => Promise<void>;
-  signIn: (username: string, password: string) => Promise<void>;
+  /**
+   * Password step. Returns `{ mfaRequired: true }` without signing in when the
+   * account has a second factor (#166); the caller then asks for the code.
+   */
+  signIn: (username: string, password: string) => Promise<AuthResult>;
+  /** Second step of a 2FA login (#166). */
+  completeMfaSignIn: (challengeToken: string, code: string) => Promise<void>;
+  /** Redeems an invitation link and signs the new account in (#166). */
+  acceptInvitation: (
+    token: string,
+    body: { username: string; password: string },
+  ) => Promise<void>;
   signInWithOidc: (code: string) => Promise<void>;
   completeSetup: (body: { username: string; password: string; serverName?: string }) => Promise<void>;
   signOut: () => Promise<void>;
@@ -120,40 +131,91 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   }, []);
 
-  const signIn = useCallback(async (username: string, password: string) => {
-    const result = await api.login({ username, password });
-    tokenStore.set(result.token);
-    setToken(result.token);
-    setUser(result.user);
+  /** Stores a completed sign-in in the token store and in memory. */
+  const adoptAuthResult = useCallback((result: AuthResult) => {
+    const { token: nextToken, user: nextUser } = result;
+    if (!nextToken || !nextUser) return false;
+    tokenStore.set(nextToken);
+    setToken(nextToken);
+    setUser(nextUser);
     setSetup((current) => (current ? { ...current, needsSetup: false } : current));
+    return true;
   }, []);
 
-  const signInWithOidc = useCallback(async (code: string) => {
-    const result = await api.oidcExchange(code);
-    tokenStore.set(result.token);
-    setToken(result.token);
-    setUser(result.user);
-    setSetup((current) => (current ? { ...current, needsSetup: false } : current));
-    // Desktop SSO (#157): the exchanged session must reach the active server
-    // profile (its token goes to the OS keychain or the local secret store), so
-    // signing in on the login screen survives a restart.
-    if (isNative()) {
-      try {
-        const current = await native.getSettings();
-        if (current) await native.saveSettings({ ...current, token: result.token });
-      } catch {
-        // The session still works for this run; the next save persists it.
+  const signIn = useCallback(
+    async (username: string, password: string) => {
+      const result = await api.login({ username, password });
+      adoptAuthResult(result);
+      return result;
+    },
+    [adoptAuthResult],
+  );
+
+  const completeMfaSignIn = useCallback(
+    async (challengeToken: string, code: string) => {
+      const result = await api.loginMfa({ challengeToken, code });
+      if (!adoptAuthResult(result)) {
+        throw new Error(t("The sign-in challenge was not accepted. Start again."));
       }
-    }
-  }, []);
+      const issuedToken = result.token;
+      if (isNative() && issuedToken) {
+        try {
+          const current = await native.getSettings();
+          if (current) await native.saveSettings({ ...current, token: issuedToken });
+        } catch {
+          // The session still works for this run.
+        }
+      }
+    },
+    [adoptAuthResult],
+  );
 
-  const completeSetup = useCallback(async (body: { username: string; password: string; serverName?: string }) => {
-    const result = await api.setup(body);
-    tokenStore.set(result.token);
-    setToken(result.token);
-    setUser(result.user);
-    setSetup((current) => (current ? { ...current, needsSetup: false, serverName: body.serverName || current.serverName } : current));
-  }, []);
+  const acceptInvitation = useCallback(
+    async (inviteToken: string, body: { username: string; password: string }) => {
+      const result = await api.acceptInvitation(inviteToken, body);
+      if (!adoptAuthResult(result)) {
+        throw new Error(t("The invitation was not accepted."));
+      }
+    },
+    [adoptAuthResult],
+  );
+
+  const signInWithOidc = useCallback(
+    async (code: string) => {
+      const result = await api.oidcExchange(code);
+      if (!adoptAuthResult(result)) {
+        throw new Error(t("The server did not return a session."));
+      }
+      // Desktop SSO (#157): the exchanged session must reach the active server
+      // profile (its token goes to the OS keychain or the local secret store), so
+      // signing in on the login screen survives a restart.
+      const issuedToken = result.token;
+      if (isNative() && issuedToken) {
+        try {
+          const current = await native.getSettings();
+          if (current) await native.saveSettings({ ...current, token: issuedToken });
+        } catch {
+          // The session still works for this run; the next save persists it.
+        }
+      }
+    },
+    [adoptAuthResult],
+  );
+
+  const completeSetup = useCallback(
+    async (body: { username: string; password: string; serverName?: string }) => {
+      const result = await api.setup(body);
+      if (!adoptAuthResult(result)) {
+        throw new Error(t("The server did not return a session."));
+      }
+      setSetup((current) =>
+        current
+          ? { ...current, needsSetup: false, serverName: body.serverName || current.serverName }
+          : current,
+      );
+    },
+    [adoptAuthResult],
+  );
 
   const signOut = useCallback(async () => {
     try {
@@ -209,8 +271,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, token, ready, bootError, setup, nativeFirstRun, holdLogin, setHoldLogin, adoptSession, signIn, signInWithOidc, completeSetup, signOut, refreshUser, updateOnboarding, retryBoot }),
-    [user, token, ready, bootError, setup, nativeFirstRun, holdLogin, adoptSession, signIn, signInWithOidc, completeSetup, signOut, refreshUser, updateOnboarding, retryBoot],
+    () => ({ user, token, ready, bootError, setup, nativeFirstRun, holdLogin, setHoldLogin, adoptSession, signIn, completeMfaSignIn, acceptInvitation, signInWithOidc, completeSetup, signOut, refreshUser, updateOnboarding, retryBoot }),
+    [user, token, ready, bootError, setup, nativeFirstRun, holdLogin, adoptSession, signIn, completeMfaSignIn, acceptInvitation, signInWithOidc, completeSetup, signOut, refreshUser, updateOnboarding, retryBoot],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

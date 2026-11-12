@@ -17,6 +17,7 @@ import { AppearancePanel } from "@/components/settings/appearance-panel";
 import { ControllerPanel } from "@/components/settings/controller-panel";
 import { RomEmulatorsPanel } from "@/components/settings/rom-emulators";
 import { SettingsGroup, SettingsSwitchRow } from "@/components/settings/settings-section";
+import { SecurityBody } from "@/components/settings/security-panel";
 import type { DesktopSettingsController } from "@/components/settings/use-desktop-settings";
 import { GettingStartedCard } from "@/components/onboarding/getting-started";
 
@@ -207,6 +208,9 @@ export function AccountBody() {
           </div>
         )}
       </SettingsGroup>
+
+      {/* #166: second factor and session management live with the account. */}
+      <SecurityBody />
     </div>
   );
 }

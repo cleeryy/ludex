@@ -98,6 +98,22 @@ pub mod actions {
     pub const METADATA_PROVIDER_UPDATED: &str = "settings.metadata_provider_updated";
     /// An editor picked a metadata provider record for a game (#135).
     pub const GAME_METADATA_MATCHED: &str = "game.metadata_matched";
+    /// An invitation link was created (#166).
+    pub const INVITATION_CREATED: &str = "invitation.created";
+    /// An invitation link was revoked (#166).
+    pub const INVITATION_REVOKED: &str = "invitation.revoked";
+    /// An invitation link was redeemed and the account created (#166).
+    pub const INVITATION_REDEEMED: &str = "invitation.redeemed";
+    /// A password was accepted but the second factor is still pending (#166).
+    pub const LOGIN_CHALLENGE: &str = "login.challenge";
+    /// TOTP enrolment started (the secret was issued once) (#166).
+    pub const MFA_ENROLLMENT_STARTED: &str = "mfa.enrollment_started";
+    /// Two-factor authentication turned on (#166).
+    pub const MFA_ENABLED: &str = "mfa.enabled";
+    /// Two-factor authentication turned off (#166).
+    pub const MFA_DISABLED: &str = "mfa.disabled";
+    /// Recovery codes replaced (#166).
+    pub const MFA_RECOVERY_CODES_ROTATED: &str = "mfa.recovery_codes_rotated";
 }
 
 /// Writes one event to `audit_logs`. Failures are logged, never propagated:

@@ -91,6 +91,8 @@ async fn main() -> Result<()> {
         exchange_codes: Arc::new(ludex_server::desktop_handoff::ExchangeCodes::new()),
         handoff_create_limits: Arc::new(ludex_server::security::AttemptCounter::disabled()),
         handoff_claim_limits: Arc::new(ludex_server::security::AttemptCounter::disabled()),
+        invitation_limits: Arc::new(ludex_server::security::AttemptCounter::disabled()),
+        mfa_attempt_limits: Arc::new(ludex_server::security::AttemptCounter::disabled()),
     };
 
     let ids = ludex_server::db::query_scalar::<i64>("SELECT id FROM games ORDER BY id")

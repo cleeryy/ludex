@@ -49,6 +49,7 @@ pub mod media;
 pub mod media_gc;
 pub mod metadata;
 pub mod metrics;
+pub mod mfa;
 pub mod models;
 pub mod oidc;
 pub mod openapi;
@@ -64,6 +65,7 @@ pub mod sql;
 pub mod state;
 pub mod storage;
 pub mod stream;
+pub mod totp;
 pub mod uploads;
 pub mod watcher;
 pub mod web;
@@ -313,6 +315,14 @@ async fn prepare(config: Config) -> Result<Prepared> {
         handoff_claim_limits: Arc::new(security::AttemptCounter::new(
             config.handoff_claim_limit,
             Duration::from_secs(60),
+        )),
+        invitation_limits: Arc::new(security::AttemptCounter::new(
+            config.invitation_attempt_limit,
+            Duration::from_secs(600),
+        )),
+        mfa_attempt_limits: Arc::new(security::AttemptCounter::new(
+            config.mfa_attempt_limit,
+            Duration::from_secs(300),
         )),
     };
 
