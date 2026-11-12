@@ -143,6 +143,38 @@ is revoked or hits its cap. It does not grant library browsing, metadata edits,
 progress changes or access to other games. A weak password is equivalent to no
 password; prefer expiry/cap or a strong password.
 
+## Collection share links (#173)
+
+Collections are metadata shelves: a share link never transfers game files,
+download tickets or archive paths. The public payload (`CollectionShareView`)
+is built from a dedicated query and contains only game ids, titles, cover URLs,
+release years and genres, plus the collection name/description and the owner's
+display name when that profile is public.
+
+- **Visibility.** `private` shelves cannot create a link (`409
+  collection_private`) and are never reachable by token, listing, profile or
+  feed. `unlisted` shelves are reachable only through a live token. `public`
+  shelves are also listed in `/api/collections` and on the community profile.
+  Switching a collection to `private` invalidates every existing token.
+- **Lifecycle.** Optional expiry (`1..=8760` hours), optional Argon2id
+  password, soft revocation (`revoked_at`), cascade on collection deletion.
+  Expired/revoked/private links answer 404 on the public page and 410 on the
+  access route where applicable.
+- **Rate limiting.** Public page and access attempts share the game-share
+  limiter (30 attempts per token per minute → 429 `rate_limited`).
+- **Passwords.** The public page shows metadata but hides the game list until
+  `POST /api/share/collection/{token}/access` verifies the password. A dummy
+  Argon2 verification is spent for unprotected and unknown tokens, so response
+  timing does not reveal whether a token exists.
+- **Copy/import.** Only public shelves (by id) or live tokens (unlisted/public)
+  can be imported. The copy is a new private collection owned by the caller;
+  game files are never touched. Importing the same share twice merges missing
+  games into the existing copy (`created: false`) instead of duplicating it.
+- **Audit events.** `collection.shared`, `collection.share_revoked`,
+  `collection.share_accessed`, `collection.share_denied` and
+  `collection.imported` record ids and denial reasons; tokens and passwords
+  never appear in audit metadata or logs.
+
 ## Resumable uploads (#21)
 
 - Admin/editor only (`require_editor`, which also enforces the API-key `write`

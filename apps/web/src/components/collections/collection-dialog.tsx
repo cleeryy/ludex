@@ -5,10 +5,10 @@ import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { defaultOperator, defaultRule, evaluateRules, operatorsFor, smartFields } from "@/lib/collections";
 import { formatYear } from "@/lib/format";
-import type { Collection, CollectionKind, SmartField, SmartRule, SmartRules } from "@/lib/types";
+import type { Collection, CollectionKind, CollectionVisibility, SmartField, SmartRule, SmartRules } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { useAllGames } from "@/lib/hooks";
-import { Badge, Button, Checkbox, Field, Input, Segmented, Switch, Textarea } from "@/components/ui/controls";
+import { Button, Checkbox, Field, Input, Segmented, Switch, Textarea } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
@@ -32,7 +32,7 @@ export function CollectionDialog({
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [isPublic, setIsPublic] = useState(false);
+  const [visibility, setVisibility] = useState<CollectionVisibility>("private");
   const [kind, setKind] = useState<CollectionKind>("manual");
   const [rules, setRules] = useState<SmartRules>(EMPTY_RULES);
   const [selected, setSelected] = useState<number[]>([]);
@@ -50,7 +50,7 @@ export function CollectionDialog({
     if (!open) return;
     setName(collection?.name ?? "");
     setDescription(collection?.description ?? "");
-    setIsPublic(collection?.isPublic ?? false);
+    setVisibility(collection?.visibility ?? (collection?.isPublic ? "public" : "private"));
     setKind(collection?.kind ?? "manual");
     setRules(collection?.rules ?? EMPTY_RULES);
     setSelected([]);
@@ -103,7 +103,7 @@ export function CollectionDialog({
         await api.updateCollection(collection.id, {
           name: name.trim(),
           description: description.trim() || null,
-          isPublic,
+          visibility,
           kind,
           rules: kind === "smart" ? rules : undefined,
         });
@@ -123,7 +123,7 @@ export function CollectionDialog({
         const created = await api.createCollection({
           name: name.trim(),
           description: description.trim() || null,
-          isPublic,
+          visibility,
           kind,
           rules: kind === "smart" ? rules : undefined,
           gameIds: kind === "manual" ? selected : undefined,
@@ -172,11 +172,26 @@ export function CollectionDialog({
               maxLength={80}
             />
           </Field>
-          <Field label={t("Visibility")} hint={isPublic ? t("Anyone on the server can read it") : t("Only you")}>
-            <div className="flex h-11 items-center gap-2">
-              <Switch checked={isPublic} onCheckedChange={setIsPublic} label={t("Public collection")} />
-              <Badge tone={isPublic ? "signal" : "outline"}>{isPublic ? t("Public") : t("Private")}</Badge>
-            </div>
+          <Field
+            label={t("Visibility")}
+            hint={
+              visibility === "public"
+                ? t("Everyone on this server, on your public profile and in the feed")
+                : visibility === "unlisted"
+                  ? t("Anyone with a share link; hidden from listings and your profile")
+                  : t("Only you")
+            }
+          >
+            <Segmented
+              value={visibility}
+              onChange={setVisibility}
+              label={t("Collection visibility")}
+              options={[
+                { value: "private", label: t("Private") },
+                { value: "unlisted", label: t("Link only") },
+                { value: "public", label: t("Public") },
+              ]}
+            />
           </Field>
         </div>
 

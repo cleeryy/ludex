@@ -2,39 +2,57 @@
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use ludex_core::models::{GameSummary, Paginated};
 use serde_json::json;
 
 use crate::api_keys::Scope;
+use crate::audit::actions;
 use crate::auth::AuthUser;
+use crate::collection_share::{
+    self, CollectionShareLink, CreateCollectionShareRequest, ImportCollectionRequest,
+    ImportCollectionResponse, NewCollectionShare,
+};
 use crate::collections::{self, Candidate};
 use crate::community;
 use crate::db;
 use crate::error::ApiError;
+use crate::events::Event;
 use crate::extract::{ApiPath, ApiQuery, JsonBody};
 use crate::models::{
     Collection, CollectionGamesQuery, CollectionGamesRequest, CollectionGamesResponse,
-    CollectionKind, CollectionRow, CreateCollectionRequest, GameListRow, SmartRules,
-    UpdateCollectionRequest,
+    CollectionKind, CollectionRow, CollectionVisibility, CreateCollectionRequest, GameListRow,
+    SmartRules, UpdateCollectionRequest,
 };
 use crate::routes::games::{summary_from_list, FROM_JOINS, LIST_COLUMNS};
+use crate::share::ShareDenial;
 use crate::sql::{bind_query, bind_query_as, bind_query_scalar, Bind};
 use crate::state::AppState;
 
 pub(crate) const COLLECTION_COLUMNS: &str =
-    "c.id, c.user_id, c.name, c.description, c.is_public, c.kind, \
+    "c.id, c.user_id, c.name, c.description, c.is_public, c.visibility, c.copied_from_id, c.kind, \
 c.rules_json, c.created_at, c.updated_at, \
 (SELECT COUNT(*) FROM collection_games cg WHERE cg.collection_id = c.id) AS game_count, \
 u.username AS owner_username, u.display_name AS owner_display_name";
 
 pub(crate) const COLLECTION_FROM: &str = " FROM collections c JOIN users u ON u.id = c.user_id";
 
+/// Longest accepted share label.
+const MAX_LABEL_CHARS: usize = 100;
+/// Longest accepted password, to bound the Argon2 cost.
+const MAX_PASSWORD_CHARS: usize = 1024;
+/// Smallest accepted share password.
+const MIN_PASSWORD_CHARS: usize = 4;
+/// Expiry bounds, in hours (one hour to one year).
+const MIN_EXPIRY_HOURS: i64 = 1;
+const MAX_EXPIRY_HOURS: i64 = 8_760;
+
 /// Collection routes.
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/collections", get(list).post(create))
+        .route("/collections/import", post(import))
         .route(
             "/collections/{id}",
             get(detail).patch(update).delete(delete),
@@ -44,6 +62,12 @@ pub fn router() -> Router<AppState> {
             "/collections/{id}/games/{game_id}",
             axum::routing::delete(remove_game),
         )
+        .route("/collections/{id}/share", post(create_share))
+        .route("/collections/{id}/shares", get(list_shares))
+        .route(
+            "/collections/{id}/shares/{share_id}",
+            axum::routing::delete(revoke_share),
+        )
 }
 
 async fn list(
@@ -52,7 +76,7 @@ async fn list(
 ) -> Result<Json<Vec<Collection>>, ApiError> {
     let sql = format!(
         "SELECT {COLLECTION_COLUMNS}{COLLECTION_FROM}
-         WHERE c.user_id = ? OR c.is_public = 1
+         WHERE c.user_id = ? OR c.visibility = 'public'
          ORDER BY (c.user_id = ?) DESC, lower(c.name) ASC, c.id ASC"
     );
     let rows = bind_query_as(
@@ -77,7 +101,8 @@ async fn create(
     let name = validate_name(&request.name)?;
     let description = clean_optional(request.description, 2000, "description")?;
     let kind = request.kind.unwrap_or(CollectionKind::Manual);
-    let is_public = request.is_public.unwrap_or(false);
+    let visibility = resolve_visibility(request.visibility, request.is_public);
+    let is_public = visibility.is_listed();
     let rules = request.rules.unwrap_or_default();
     if kind == CollectionKind::Smart {
         collections::validate(&rules)
@@ -87,13 +112,15 @@ async fn create(
     let now = db::db_time(db::now());
 
     let id = db::query(
-        "INSERT INTO collections (user_id, name, description, is_public, kind, rules_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO collections
+            (user_id, name, description, is_public, visibility, kind, rules_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(user.id)
     .bind(&name)
     .bind(&description)
     .bind(i64::from(is_public))
+    .bind(visibility.as_str())
     .bind(kind.as_str())
     .bind(&rules_json)
     .bind(&now)
@@ -118,19 +145,24 @@ async fn create(
     }
 
     let row = load(&state, id).await?;
-    community::record(
-        &state,
-        user.id,
-        community::kinds::COLLECTION_CREATED,
-        None,
-        Some(id),
-        json!({
-            "name": name,
-            "kind": kind.as_str(),
-            "gameCount": row.game_count,
-        }),
-    )
-    .await;
+    // Private and unlisted shelves stay out of the public feed: their name and
+    // existence must never leak through a profile (#173).
+    if visibility.is_listed() {
+        community::record(
+            &state,
+            user.id,
+            community::kinds::COLLECTION_CREATED,
+            None,
+            Some(id),
+            json!({
+                "name": name,
+                "kind": kind.as_str(),
+                "gameCount": row.game_count,
+                "visibility": visibility.as_str(),
+            }),
+        )
+        .await;
+    }
     Ok((StatusCode::CREATED, Json(row.to_public(user.id))))
 }
 
@@ -153,6 +185,9 @@ async fn update(
     user.require_scope(Scope::Write)?;
     let current = owned_collection(&state, user.id, id).await?;
     let current_kind = CollectionKind::parse(&current.kind).unwrap_or(CollectionKind::Manual);
+    let current_visibility =
+        CollectionVisibility::parse(&current.visibility).unwrap_or(CollectionVisibility::Private);
+    let mut next_visibility = current_visibility;
 
     let mut sets = Vec::new();
     let mut binds = Vec::new();
@@ -167,9 +202,12 @@ async fn update(
         sets.push("description = ?");
         binds.push(Bind::OptText(description));
     }
-    if let Some(is_public) = request.is_public {
+    if let Some(visibility) = resolve_optional_visibility(request.visibility, request.is_public) {
+        next_visibility = visibility;
+        sets.push("visibility = ?");
+        binds.push(Bind::Text(visibility.as_str().to_string()));
         sets.push("is_public = ?");
-        binds.push(Bind::Int(i64::from(is_public)));
+        binds.push(Bind::Int(i64::from(visibility.is_listed())));
     }
 
     let next_kind = request.kind.unwrap_or(current_kind);
@@ -218,6 +256,24 @@ async fn update(
     }
 
     let row = load(&state, id).await?;
+    // Publishing an existing shelf is a feed event; unpublishing it is not.
+    if next_visibility.is_listed() && !current_visibility.is_listed() {
+        community::record(
+            &state,
+            user.id,
+            community::kinds::COLLECTION_CREATED,
+            None,
+            Some(id),
+            json!({
+                "name": row.name,
+                "kind": row.kind,
+                "gameCount": row.game_count,
+                "visibility": next_visibility.as_str(),
+                "published": true,
+            }),
+        )
+        .await;
+    }
     Ok(Json(row.to_public(user.id)))
 }
 
@@ -370,6 +426,335 @@ async fn remove_game(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn create_share(
+    State(state): State<AppState>,
+    user: AuthUser,
+    ApiPath(id): ApiPath<i64>,
+    JsonBody(request): JsonBody<CreateCollectionShareRequest>,
+) -> Result<(StatusCode, Json<CollectionShareLink>), ApiError> {
+    user.require_scope(Scope::Write)?;
+    let row = owned_collection(&state, user.id, id).await?;
+    if CollectionVisibility::parse(&row.visibility).unwrap_or(CollectionVisibility::Private)
+        == CollectionVisibility::Private
+    {
+        return Err(ApiError::conflict(
+            "collection_private",
+            "Make the collection unlisted or public before sharing it",
+        ));
+    }
+
+    let expires_at = match request.expires_in_hours {
+        Some(hours) if (MIN_EXPIRY_HOURS..=MAX_EXPIRY_HOURS).contains(&hours) => {
+            Some(db::now() + chrono::Duration::hours(hours))
+        }
+        Some(_) => {
+            return Err(ApiError::bad_request(
+                "invalid_expiry",
+                format!("expiresInHours must be between {MIN_EXPIRY_HOURS} and {MAX_EXPIRY_HOURS}"),
+            ))
+        }
+        None => None,
+    };
+    let password = validate_share_password(request.password.as_deref())?;
+    let label = validate_share_label(request.label.as_deref())?;
+
+    let token = collection_share::generate_token();
+    let token_hash = collection_share::hash_token(&token);
+    let password_hash = password
+        .as_deref()
+        .map(crate::auth::hash_password)
+        .transpose()
+        .map_err(ApiError::from)?;
+
+    let share_id = collection_share::insert(
+        &state.pool,
+        &NewCollectionShare {
+            token_hash: &token_hash,
+            collection_id: id,
+            label: label.as_deref(),
+            created_by: user.id,
+            expires_at,
+            password_hash: password_hash.as_deref(),
+        },
+    )
+    .await?;
+
+    state.events.emit(
+        Event::new(actions::COLLECTION_SHARED, user.actor())
+            .target("collection", id.to_string())
+            .metadata(json!({
+                "shareId": share_id,
+                "hasPassword": password.is_some(),
+                "expiresAt": expires_at.map(db::db_time),
+            })),
+    );
+
+    let row = collection_share::get(&state.pool, share_id)
+        .await?
+        .ok_or_else(ApiError::internal)?;
+    Ok((StatusCode::CREATED, Json(row.to_link(Some(token)))))
+}
+
+async fn list_shares(
+    State(state): State<AppState>,
+    user: AuthUser,
+    ApiPath(id): ApiPath<i64>,
+) -> Result<Json<Vec<CollectionShareLink>>, ApiError> {
+    let _ = owned_collection(&state, user.id, id).await?;
+    let rows = collection_share::list_for_collection(&state.pool, id).await?;
+    Ok(Json(rows.iter().map(|row| row.to_link(None)).collect()))
+}
+
+async fn revoke_share(
+    State(state): State<AppState>,
+    user: AuthUser,
+    ApiPath((id, share_id)): ApiPath<(i64, i64)>,
+) -> Result<StatusCode, ApiError> {
+    user.require_scope(Scope::Write)?;
+    let _ = owned_collection(&state, user.id, id).await?;
+    let row = collection_share::get(&state.pool, share_id)
+        .await?
+        .filter(|row| row.collection_id == id)
+        .ok_or_else(|| ApiError::not_found("collection_share_not_found", "Share link not found"))?;
+    if row.revoked_at.is_none() {
+        collection_share::revoke(&state.pool, share_id).await?;
+        state.events.emit(
+            Event::new(actions::COLLECTION_SHARE_REVOKED, user.actor())
+                .target("collection", id.to_string())
+                .metadata(json!({ "shareId": share_id })),
+        );
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Copies a public or link-shared collection into the caller's account.
+///
+/// Private collections are never importable, even by their owner's token. The
+/// target name is unique per account: importing the same share twice merges
+/// missing games into the existing copy instead of duplicating the shelf.
+async fn import(
+    State(state): State<AppState>,
+    user: AuthUser,
+    JsonBody(request): JsonBody<ImportCollectionRequest>,
+) -> Result<(StatusCode, Json<ImportCollectionResponse>), ApiError> {
+    user.require_scope(Scope::Write)?;
+    let source_id = match (request.source_id, request.token.as_deref()) {
+        (Some(id), None) => {
+            let row = load(&state, id).await?;
+            if CollectionVisibility::parse(&row.visibility).unwrap_or(CollectionVisibility::Private)
+                != CollectionVisibility::Public
+            {
+                return Err(ApiError::not_found(
+                    "collection_not_found",
+                    "Collection not found",
+                ));
+            }
+            row.id
+        }
+        (None, Some(token)) if !token.trim().is_empty() => {
+            let token_hash = collection_share::hash_token(token.trim());
+            if !crate::share::allow_attempt(&token_hash) {
+                return Err(ApiError::too_many_requests(
+                    "rate_limited",
+                    "Too many access attempts; retry in a minute",
+                ));
+            }
+            let link = collection_share::find_by_token(&state.pool, &token_hash).await?;
+            // One password verification per attempt, whatever the token state.
+            let password_ok =
+                collection_share::verify_access(link.as_ref(), request.password.as_deref());
+            let Some(link) = link else {
+                return Err(ShareDenial::NotFound.not_found_error());
+            };
+            if let Err(denial) = collection_share::validate(&link, db::now()) {
+                return Err(denial.access_error());
+            }
+            if !password_ok {
+                return Err(ApiError::new(
+                    StatusCode::UNAUTHORIZED,
+                    "invalid_share_password",
+                    "This share link requires a password",
+                ));
+            }
+            link.collection_id
+        }
+        _ => {
+            return Err(ApiError::bad_request(
+                "invalid_source",
+                "Provide exactly one of sourceId and token",
+            ))
+        }
+    };
+
+    let source = load(&state, source_id).await?;
+    if CollectionVisibility::parse(&source.visibility).unwrap_or(CollectionVisibility::Private)
+        == CollectionVisibility::Private
+    {
+        // A link created before the collection was made private must not keep
+        // working; private shelves are never reachable by any import path.
+        return Err(ApiError::not_found(
+            "collection_not_found",
+            "Collection not found",
+        ));
+    }
+
+    let source_kind = CollectionKind::parse(&source.kind).unwrap_or(CollectionKind::Manual);
+    let source_rules: SmartRules = serde_json::from_str(&source.rules_json).unwrap_or_default();
+    // Smart rules are copied as rules when they are still valid; a broken tree
+    // falls back to an empty manual shelf instead of importing an error.
+    let target_kind = if source_kind == CollectionKind::Smart
+        && collections::validate(&source_rules).is_ok()
+        && !source_rules.rules.is_empty()
+    {
+        CollectionKind::Smart
+    } else {
+        CollectionKind::Manual
+    };
+    let rules_json = if target_kind == CollectionKind::Smart {
+        serde_json::to_string(&source_rules).map_err(ApiError::from)?
+    } else {
+        "{}".to_string()
+    };
+
+    let name = validate_name(request.name.as_deref().unwrap_or(&source.name))?;
+    let existing = db::query_as::<CollectionRow>(&format!(
+        "SELECT {COLLECTION_COLUMNS}{COLLECTION_FROM}
+         WHERE c.user_id = ? AND lower(c.name) = lower(?)"
+    ))
+    .bind(user.id)
+    .bind(&name)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    let now = db::db_time(db::now());
+    let (target_id, created) = match existing {
+        Some(row) => {
+            if row.copied_from_id != Some(source.id) {
+                return Err(ApiError::conflict(
+                    "collection_exists",
+                    "You already have a collection with that name",
+                ));
+            }
+            (row.id, false)
+        }
+        None => {
+            let id = db::query(
+                "INSERT INTO collections
+                    (user_id, name, description, is_public, visibility, copied_from_id, kind,
+                     rules_json, created_at, updated_at)
+                 VALUES (?, ?, ?, 0, 'private', ?, ?, ?, ?, ?)",
+            )
+            .bind(user.id)
+            .bind(&name)
+            .bind(&source.description)
+            .bind(source.id)
+            .bind(target_kind.as_str())
+            .bind(&rules_json)
+            .bind(&now)
+            .bind(&now)
+            .returning_id(&state.pool)
+            .await
+            .map_err(|error| {
+                if super::system::is_unique_violation(&error) {
+                    ApiError::conflict(
+                        "collection_exists",
+                        "You already have a collection with that name",
+                    )
+                } else {
+                    ApiError::from(error)
+                }
+            })?;
+            (id, true)
+        }
+    };
+
+    let (added, skipped) = if target_kind == CollectionKind::Manual {
+        let source_games = db::query_scalar::<i64>(
+            "SELECT game_id FROM collection_games
+              WHERE collection_id = ? ORDER BY added_at ASC, game_id ASC",
+        )
+        .bind(source.id)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(ApiError::from)?;
+        copy_games(&state, target_id, &source_games).await?
+    } else {
+        (0, 0)
+    };
+
+    let row = load(&state, target_id).await?;
+    state.events.emit(
+        Event::new(actions::COLLECTION_IMPORTED, user.actor())
+            .target("collection", target_id.to_string())
+            .metadata(json!({
+                "sourceId": source.id,
+                "sourceKind": source_kind.as_str(),
+                "created": created,
+                "added": added,
+                "skipped": skipped,
+            })),
+    );
+    let status = if created {
+        StatusCode::CREATED
+    } else {
+        StatusCode::OK
+    };
+    Ok((
+        status,
+        Json(ImportCollectionResponse {
+            collection: row.to_public(user.id),
+            created,
+            added,
+            skipped,
+        }),
+    ))
+}
+
+/// Inserts source games into a manual target, skipping rows that are already
+/// present or that no longer exist in the library.
+async fn copy_games(
+    state: &AppState,
+    target_id: i64,
+    game_ids: &[i64],
+) -> Result<(i64, i64), ApiError> {
+    let mut unique = Vec::new();
+    for id in game_ids {
+        if !unique.contains(id) {
+            unique.push(*id);
+        }
+    }
+    let now = db::db_time(db::now());
+    let mut added = 0;
+    let mut skipped = 0;
+    for game_id in &unique {
+        let result = db::query(
+            "INSERT INTO collection_games (collection_id, game_id, added_at)
+             SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM games WHERE id = ?)
+             ON CONFLICT(collection_id, game_id) DO NOTHING",
+        )
+        .bind(target_id)
+        .bind(game_id)
+        .bind(&now)
+        .bind(game_id)
+        .execute(&state.pool)
+        .await
+        .map_err(ApiError::from)?;
+        if result.rows_affected() == 1 {
+            added += 1;
+        } else {
+            skipped += 1;
+        }
+    }
+    db::query("UPDATE collections SET updated_at = ? WHERE id = ?")
+        .bind(&now)
+        .bind(target_id)
+        .execute(&state.pool)
+        .await
+        .map_err(ApiError::from)?;
+    Ok((added, skipped))
+}
+
 async fn insert_games(
     state: &AppState,
     collection_id: i64,
@@ -435,16 +820,13 @@ pub(crate) async fn collections_for(
 ) -> Result<Vec<Collection>, ApiError> {
     let sql = format!(
         "SELECT {COLLECTION_COLUMNS}{COLLECTION_FROM}
-         WHERE c.user_id = ? AND (c.is_public = 1 OR c.user_id = ?)
+         WHERE c.user_id = ? AND c.visibility = 'public'
          ORDER BY lower(c.name) ASC, c.id ASC"
     );
-    let rows = bind_query_as(
-        db::query_as::<CollectionRow>(&sql),
-        &[Bind::Int(owner_id), Bind::Int(viewer_id)],
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(ApiError::from)?;
+    let rows = bind_query_as(db::query_as::<CollectionRow>(&sql), &[Bind::Int(owner_id)])
+        .fetch_all(&state.pool)
+        .await
+        .map_err(ApiError::from)?;
     let rows = decorate_counts(state, viewer_id, rows).await?;
     Ok(rows.iter().map(|row| row.to_public(viewer_id)).collect())
 }
@@ -500,10 +882,14 @@ async fn visible_collection(
     id: i64,
 ) -> Result<CollectionRow, ApiError> {
     let row = load(state, id).await?;
-    if row.user_id == viewer_id || row.is_public != 0 {
+    let visible = CollectionVisibility::parse(&row.visibility)
+        .unwrap_or(CollectionVisibility::Private)
+        .is_listed();
+    if row.user_id == viewer_id || visible {
         Ok(row)
     } else {
-        // Private collections are indistinguishable from missing ones.
+        // Private and unlisted collections are indistinguishable from missing
+        // ones: an unlisted shelf is reachable only through its share token.
         Err(ApiError::not_found(
             "collection_not_found",
             "Collection not found",
@@ -538,6 +924,69 @@ fn candidate_from_row(row: &GameListRow) -> Candidate {
         provider_slug: row.provider_slug.clone(),
         version_count: row.version_count,
     }
+}
+
+fn resolve_visibility(
+    explicit: Option<CollectionVisibility>,
+    legacy: Option<bool>,
+) -> CollectionVisibility {
+    explicit.unwrap_or_else(|| {
+        if legacy.unwrap_or(false) {
+            CollectionVisibility::Public
+        } else {
+            CollectionVisibility::Private
+        }
+    })
+}
+
+fn resolve_optional_visibility(
+    explicit: Option<CollectionVisibility>,
+    legacy: Option<bool>,
+) -> Option<CollectionVisibility> {
+    explicit.or_else(|| {
+        legacy.map(|public| {
+            if public {
+                CollectionVisibility::Public
+            } else {
+                CollectionVisibility::Private
+            }
+        })
+    })
+}
+
+fn validate_share_password(raw: Option<&str>) -> Result<Option<String>, ApiError> {
+    match raw {
+        Some(value) if value.trim().is_empty() => Ok(None),
+        Some(value) if value.chars().count() < MIN_PASSWORD_CHARS => Err(ApiError::bad_request(
+            "invalid_password",
+            format!("Share passwords must be at least {MIN_PASSWORD_CHARS} characters"),
+        )),
+        Some(value) if value.chars().count() > MAX_PASSWORD_CHARS => Err(ApiError::bad_request(
+            "invalid_password",
+            format!("Share passwords are limited to {MAX_PASSWORD_CHARS} characters"),
+        )),
+        Some(value) => Ok(Some(value.to_string())),
+        None => Ok(None),
+    }
+}
+
+fn validate_share_label(raw: Option<&str>) -> Result<Option<String>, ApiError> {
+    let Some(label) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    if label.chars().count() > MAX_LABEL_CHARS {
+        return Err(ApiError::bad_request(
+            "invalid_label",
+            format!("Share labels are limited to {MAX_LABEL_CHARS} characters"),
+        ));
+    }
+    if label.chars().any(char::is_control) {
+        return Err(ApiError::bad_request(
+            "invalid_label",
+            "Share labels contain invalid characters",
+        ));
+    }
+    Ok(Some(label.to_string()))
 }
 
 fn validate_name(name: &str) -> Result<String, ApiError> {

@@ -600,6 +600,9 @@ export interface GamePatch {
 
 export type CollectionKind = "manual" | "smart";
 
+/** Who can read a collection (#173). */
+export type CollectionVisibility = "private" | "unlisted" | "public";
+
 export type SmartField =
   | "genre"
   | "year"
@@ -635,6 +638,7 @@ export interface Collection {
   name: string;
   description: string | null;
   isPublic: boolean;
+  visibility: CollectionVisibility;
   kind: CollectionKind;
   rules: SmartRules;
   gameCount: number;
@@ -648,9 +652,71 @@ export interface CollectionInput {
   name: string;
   description?: string | null;
   isPublic?: boolean;
+  visibility?: CollectionVisibility;
   kind?: CollectionKind;
   rules?: SmartRules;
   gameIds?: number[];
+}
+
+/** Owners can copy a public shelf by id or an unlisted one through its token. */
+export interface CollectionImportInput {
+  sourceId?: number;
+  token?: string;
+  password?: string;
+  name?: string;
+}
+
+export interface CollectionImportResult {
+  collection: Collection;
+  created: boolean;
+  added: number;
+  skipped: number;
+}
+
+export interface CollectionShareLink {
+  id: number;
+  token?: string;
+  collectionId: number;
+  collectionName: string;
+  label: string | null;
+  expiresAt: string | null;
+  hasPassword: boolean;
+  viewCount: number;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+export interface CreateCollectionShareInput {
+  expiresInHours?: number;
+  password?: string;
+  label?: string;
+}
+
+/** Public collection page (#173): metadata only, no account data. */
+export interface CollectionShareOwner {
+  displayName: string;
+}
+
+export interface CollectionShareGame {
+  id: number;
+  title: string;
+  coverUrl: string | null;
+  releaseYear: number | null;
+  genres: string[];
+}
+
+export interface CollectionShareView {
+  collection: {
+    name: string;
+    description: string | null;
+    kind: CollectionKind;
+    gameCount: number;
+    owner: CollectionShareOwner | null;
+    updatedAt: string;
+  };
+  games: CollectionShareGame[];
+  expiresAt: string | null;
+  hasPassword: boolean;
 }
 
 export interface CollectionGamesResponse {

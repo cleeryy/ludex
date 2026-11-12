@@ -11,7 +11,11 @@ import type {
   AuthSession,
   Collection,
   CollectionGamesResponse,
+  CollectionImportInput,
+  CollectionImportResult,
   CollectionInput,
+  CollectionShareLink,
+  CreateCollectionShareInput,
   CompleteUploadResponse,
   ControllerProfile,
   ControllerProfileEntry,
@@ -629,6 +633,30 @@ export const api = {
     return USING_MOCKS
       ? mockApi.removeCollectionGame(tokenStore.get(), id, gameId)
       : request(`/collections/${id}/games/${gameId}`, { method: "DELETE" });
+  },
+
+  importCollection(body: CollectionImportInput): Promise<CollectionImportResult> {
+    return USING_MOCKS
+      ? mockApi.importCollection(tokenStore.get(), body)
+      : request<CollectionImportResult>("/collections/import", { method: "POST", body });
+  },
+
+  collectionShares(id: number): Promise<CollectionShareLink[]> {
+    return USING_MOCKS
+      ? mockApi.collectionShares(tokenStore.get(), id)
+      : request<CollectionShareLink[]>(`/collections/${id}/shares`);
+  },
+
+  createCollectionShare(id: number, body: CreateCollectionShareInput): Promise<CollectionShareLink> {
+    return USING_MOCKS
+      ? mockApi.createCollectionShare(tokenStore.get(), id, body)
+      : request<CollectionShareLink>(`/collections/${id}/share`, { method: "POST", body });
+  },
+
+  revokeCollectionShare(id: number, shareId: number): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.revokeCollectionShare(tokenStore.get(), id, shareId)
+      : request(`/collections/${id}/shares/${shareId}`, { method: "DELETE" });
   },
 
   /* community */

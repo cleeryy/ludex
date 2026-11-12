@@ -30,6 +30,7 @@ import { GameDetailRoute } from "@/screens/game-detail";
 import { NewsScreen } from "@/screens/news";
 import { CollectionsScreen } from "@/screens/collections";
 import { CollectionScreen } from "@/screens/collection";
+import { CollectionShareScreen } from "@/screens/collection-share";
 import { CommunityScreen } from "@/screens/community";
 import { ProfileScreen } from "@/screens/profile";
 import { SettingsScreen } from "@/screens/settings";
@@ -205,6 +206,8 @@ export function App() {
               <Routes>
                 {/* Public and account-free: must stay outside the Gate (#9). */}
                 <Route path="/share/:token" element={<ShareScreen />} />
+                {/* Public collection page (#173): account-free, outside the Gate. */}
+                <Route path="/collection-share/:token" element={<CollectionShareScreen />} />
                 {/* Public download page (#164): reachable logged out, never gated. */}
                 <Route path="/download" element={<DownloadScreen />} />
                 <Route

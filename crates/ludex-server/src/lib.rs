@@ -31,6 +31,7 @@ pub mod artwork;
 pub mod audit;
 pub mod auth;
 pub mod backup;
+pub mod collection_share;
 pub mod collections;
 pub mod community;
 pub mod config;

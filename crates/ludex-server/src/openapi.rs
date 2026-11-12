@@ -1055,6 +1055,17 @@ pub const ROUTES: &[RouteDoc] = &[
         ),
         "CreateCollectionRequest",
     ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/collections/import",
+            "Collections",
+            "Copy a public or link-shared collection into your account",
+            Auth::Session,
+            Payload::Schema("ImportCollectionResponse"),
+        ),
+        "ImportCollectionRequest",
+    ),
     route(
         HttpMethod::Get,
         "/collections/{id}",
@@ -1113,6 +1124,36 @@ pub const ROUTES: &[RouteDoc] = &[
             "/collections/{id}/games/{game_id}",
             "Collections",
             "Remove a game from a collection",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/collections/{id}/share",
+            "Collections",
+            "Create a share link for a collection",
+            Auth::Session,
+            Payload::Schema("CollectionShareLink"),
+        ),
+        "CreateCollectionShareRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/collections/{id}/shares",
+        "Collections",
+        "List a collection's share links",
+        Auth::Session,
+        Payload::Array("CollectionShareLink"),
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/collections/{id}/shares/{share_id}",
+            "Collections",
+            "Revoke a collection share link",
             Auth::Session,
             Payload::None,
         ),
@@ -1251,6 +1292,25 @@ pub const ROUTES: &[RouteDoc] = &[
             Payload::Schema("ShareAccessResponse"),
         ),
         "ShareAccessRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/share/collection/{token}",
+        "Shares",
+        "Public metadata for a collection share link",
+        Auth::Public,
+        Payload::Schema("CollectionShareView"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/share/collection/{token}/access",
+            "Shares",
+            "Unlock a password-protected collection share link",
+            Auth::Public,
+            Payload::Schema("CollectionShareView"),
+        ),
+        "CollectionShareAccessRequest",
     ),
     // Resumable uploads
     body(
@@ -1952,10 +2012,20 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::models::WebhookTestResponse>()
         .schema_from::<crate::models::Collection>()
         .schema_from::<crate::models::CollectionKind>()
+        .schema_from::<crate::models::CollectionVisibility>()
         .schema_from::<crate::models::CreateCollectionRequest>()
         .schema_from::<crate::models::UpdateCollectionRequest>()
         .schema_from::<crate::models::CollectionGamesRequest>()
         .schema_from::<crate::models::CollectionGamesResponse>()
+        .schema_from::<crate::collection_share::CreateCollectionShareRequest>()
+        .schema_from::<crate::collection_share::CollectionShareAccessRequest>()
+        .schema_from::<crate::collection_share::CollectionShareLink>()
+        .schema_from::<crate::collection_share::CollectionShareView>()
+        .schema_from::<crate::collection_share::SharedCollection>()
+        .schema_from::<crate::collection_share::SharedCollectionOwner>()
+        .schema_from::<crate::collection_share::SharedCollectionGame>()
+        .schema_from::<crate::collection_share::ImportCollectionRequest>()
+        .schema_from::<crate::collection_share::ImportCollectionResponse>()
         .schema_from::<crate::models::PublicProfile>()
         .schema_from::<crate::models::PublicProfileResponse>()
         .schema_from::<crate::models::UpdateProfileRequest>()

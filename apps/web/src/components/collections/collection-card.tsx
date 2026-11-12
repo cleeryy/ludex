@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Lock, Sparkles, Users } from "lucide-react";
+import { Link2, Lock, Sparkles, Users } from "lucide-react";
 import type { Collection } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { Badge } from "@/components/ui/controls";
@@ -26,11 +26,18 @@ export function CollectionCard({ collection, className }: { collection: Collecti
               "Manual"
             )}
           </Badge>
-          {collection.isPublic ? (
+          {collection.visibility === "public" ? (
             <Badge tone="outline">
               <span className="flex items-center gap-1">
                 <Users className="size-2.5" aria-hidden="true" />
                 {t("Public")}
+              </span>
+            </Badge>
+          ) : collection.visibility === "unlisted" ? (
+            <Badge tone="outline">
+              <span className="flex items-center gap-1">
+                <Link2 className="size-2.5" aria-hidden="true" />
+                {t("Link only")}
               </span>
             </Badge>
           ) : (

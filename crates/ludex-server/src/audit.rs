@@ -80,6 +80,16 @@ pub mod actions {
     pub const SHARE_ACCESS: &str = "share.access";
     /// A public share access attempt was rejected.
     pub const SHARE_ACCESS_DENIED: &str = "share.access_denied";
+    /// A collection share link was created (#173).
+    pub const COLLECTION_SHARED: &str = "collection.shared";
+    /// A collection share link was revoked (#173).
+    pub const COLLECTION_SHARE_REVOKED: &str = "collection.share_revoked";
+    /// A public collection page was opened (#173).
+    pub const COLLECTION_SHARE_ACCESSED: &str = "collection.share_accessed";
+    /// A public collection page view was rejected (#173).
+    pub const COLLECTION_SHARE_DENIED: &str = "collection.share_denied";
+    /// A collection was imported into another account (#173).
+    pub const COLLECTION_IMPORTED: &str = "collection.imported";
     /// Session revoked (logout or admin action).
     pub const SESSION_REVOKED: &str = "session.revoked";
     /// Resumable archive upload completed and indexed.

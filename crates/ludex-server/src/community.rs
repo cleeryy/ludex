@@ -111,7 +111,12 @@ pub async fn feed(
     query: &ActivityQuery,
 ) -> Result<ActivityPage, ApiError> {
     let limit = query.limit.unwrap_or(20).clamp(1, 100);
-    let mut clauses = vec!["u.public_profile = 1".to_string()];
+    let mut clauses = vec![
+        "u.public_profile = 1".to_string(),
+        // Private and unlisted shelves never appear in the public feed, even
+        // if an older build recorded a row before visibility existed (#173).
+        "(a.kind <> 'collection_created' OR c.visibility = 'public')".to_string(),
+    ];
     let mut binds = Vec::new();
     if let Some(user_id) = user_id {
         clauses.push("a.user_id = ?".to_string());
