@@ -210,8 +210,33 @@ export function useNativeEvents() {
       // prompt, the badge and the skip decision, so no duplicate toast here.
     })();
 
+    // Mobile companion (#167): claim installs queued from a phone and mirror
+    // their progress. The first pass waits for the window to settle; later
+    // passes are cheap no-ops when nothing is queued.
+    const syncRemote = () => {
+      if (cancelled) return;
+      void native.remoteInstallsSync().then((result) => {
+        if (cancelled || result.claimed.length === 0) return;
+        void queryClient.invalidateQueries({ queryKey: ["remote-installs"] });
+        void queryClient.invalidateQueries({ queryKey: ["install-jobs"] });
+        push({
+          title: t("Remote install started"),
+          description: tn(
+            result.claimed.length,
+            "1 install queued from your phone is now running on this PC.",
+            "{count} installs queued from your phone are now running on this PC.",
+          ),
+          tone: "success",
+        });
+      });
+    };
+    const remoteDelay = window.setTimeout(syncRemote, 8_000);
+    const remoteTimer = window.setInterval(syncRemote, 30_000);
+
     return () => {
       cancelled = true;
+      window.clearTimeout(remoteDelay);
+      window.clearInterval(remoteTimer);
       for (const off of unlisteners) off();
     };
   }, [queryClient, push, navigate]);

@@ -120,7 +120,7 @@ describe("navigation visibility", () => {
     expect(mobileBar(BROWSER).map((destination) => destination.id)).toEqual([
       "home",
       "library",
-      "community",
+      "remote",
       "settings",
     ]);
   });
@@ -137,7 +137,7 @@ describe("navigation visibility", () => {
 
 describe("active state", () => {
   it("lights exactly one destination per path", () => {
-    for (const path of ["/", "/library", "/all", "/recent", "/bookmarks", "/collections/7", "/downloads", "/settings", "/news", "/community/u/2", "/admin/ingest"]) {
+    for (const path of ["/", "/library", "/all", "/recent", "/bookmarks", "/collections/7", "/downloads", "/remote", "/settings", "/news", "/community/u/2", "/admin/ingest"]) {
       const matches = visibleNav(ADMIN).filter((destination) => isNavActive(destination, path));
       expect(matches.length, `two destinations match ${path}`).toBe(1);
       expect(activeNavId(path, ADMIN)).toBe(matches[0].id);

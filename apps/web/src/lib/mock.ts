@@ -72,6 +72,7 @@ import type {
   ProviderTestResult,
   PublicProfile,
   PublicProfileResponse,
+  RemoteInstall,
   Role,
   SaveSnapshot,
   ScanStatus,
@@ -212,6 +213,55 @@ let saves: SaveSnapshot[] = [
   },
 ];
 let nextSaveId = 4;
+
+/* --------------------------- remote installs ----------------------------- */
+
+const demoRemoteQueued = DEMO_GAMES[0];
+const demoRemoteReady = DEMO_GAMES[1];
+let remoteInstalls: RemoteInstall[] = [
+  ...(demoRemoteQueued
+    ? [
+        {
+          id: "ri_demo_queued",
+          gameId: demoRemoteQueued.id,
+          gameTitle: demoRemoteQueued.title,
+          coverUrl: demoRemoteQueued.coverUrl,
+          versionId: demoRemoteQueued.versions[0]?.id ?? null,
+          version: demoRemoteQueued.versions[0]?.version ?? null,
+          sizeBytes: demoRemoteQueued.versions[0]?.size ?? null,
+          device: "Pixel 8",
+          status: "queued" as const,
+          progress: 0,
+          message: null,
+          requestedAt: new Date(Date.now() - 1000 * 60 * 3).toISOString(),
+          updatedAt: new Date(Date.now() - 1000 * 60 * 3).toISOString(),
+          claimedAt: null,
+          completedAt: null,
+        },
+      ]
+    : []),
+  ...(demoRemoteReady
+    ? [
+        {
+          id: "ri_demo_ready",
+          gameId: demoRemoteReady.id,
+          gameTitle: demoRemoteReady.title,
+          coverUrl: demoRemoteReady.coverUrl,
+          versionId: demoRemoteReady.versions[0]?.id ?? null,
+          version: demoRemoteReady.versions[0]?.version ?? null,
+          sizeBytes: demoRemoteReady.versions[0]?.size ?? null,
+          device: "Pixel 8",
+          status: "ready" as const,
+          progress: 100,
+          message: null,
+          requestedAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
+          updatedAt: new Date(Date.now() - 1000 * 60 * 48).toISOString(),
+          claimedAt: new Date(Date.now() - 1000 * 60 * 60 * 5 + 40_000).toISOString(),
+          completedAt: new Date(Date.now() - 1000 * 60 * 48).toISOString(),
+        },
+      ]
+    : []),
+];
 
 
 /* ------------------------------ collections ------------------------------ */
@@ -1342,6 +1392,75 @@ export const mockApi = {
     const user = currentUser(token);
     if (user.role !== "admin") fail(403, "forbidden", "Admin role required");
     return { gamesDir: "/srv/ludex/games", mediaDir: "/srv/ludex/media", dataDir: "/srv/ludex/data" };
+  },
+
+  /* Remote installs (#167). The demo seeds two rows so the mobile screen can
+     be reviewed without a paired desktop; a real desktop claims and reports
+     them through the server. */
+  async listRemoteInstalls(
+    token: string | null,
+    options: { status?: string; limit?: number } = {},
+  ): Promise<RemoteInstall[]> {
+    await latency();
+    currentUser(token);
+    const statuses = (options.status ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const rows = remoteInstalls.filter(
+      (row) => statuses.length === 0 || statuses.includes(row.status),
+    );
+    return clone(rows.slice(0, options.limit ?? 100));
+  },
+
+  async createRemoteInstall(
+    token: string | null,
+    body: { gameId: number; versionId?: number | null; device?: string | null },
+  ): Promise<RemoteInstall> {
+    await latency();
+    const user = currentUser(token);
+    const game = games.find((entry) => entry.id === body.gameId);
+    if (!game) fail(404, "game_not_found", "Game not found");
+    const existing = remoteInstalls.find((row) => row.gameId === body.gameId);
+    if (existing && existing.status !== "failed" && existing.status !== "cancelled") {
+      return clone(existing);
+    }
+    const version = game.versions.find((entry) => entry.id === body.versionId) ?? game.versions[0];
+    const now = nowIso();
+    const row: RemoteInstall = {
+      id: existing?.id ?? `ri_${Math.random().toString(16).slice(2, 10)}`,
+      gameId: body.gameId,
+      gameTitle: game.title,
+      coverUrl: game.coverUrl,
+      versionId: version?.id ?? null,
+      version: version?.version ?? null,
+      sizeBytes: version?.size ?? null,
+      device: body.device?.trim() || `${user.username}'s phone`,
+      status: "queued",
+      progress: 0,
+      message: null,
+      requestedAt: now,
+      updatedAt: now,
+      claimedAt: null,
+      completedAt: null,
+    };
+    remoteInstalls = [row, ...remoteInstalls.filter((entry) => entry.gameId !== body.gameId)];
+    return clone(row);
+  },
+
+  async cancelRemoteInstall(token: string | null, id: string): Promise<void> {
+    await latency();
+    currentUser(token);
+    const row = remoteInstalls.find((entry) => entry.id === id);
+    if (!row) fail(404, "remote_install_not_found", "Remote install not found");
+    if (row.status === "queued" || row.status === "claimed" || row.status === "downloading") {
+      row.status = "cancelled";
+      row.progress = 0;
+      row.updatedAt = nowIso();
+      row.completedAt = nowIso();
+    } else {
+      remoteInstalls = remoteInstalls.filter((entry) => entry.id !== id);
+    }
   },
 
   async listJobs(token: string | null): Promise<IngestJob[]> {

@@ -118,6 +118,12 @@ pub mod actions {
     pub const BACKUP_RESTORED: &str = "backup.restored";
     /// An administrator deleted a backup archive (#169).
     pub const BACKUP_DELETED: &str = "backup.deleted";
+    /// A phone queued a remote install for a desktop (#167).
+    pub const REMOTE_INSTALL_REQUESTED: &str = "remote_install.requested";
+    /// A desktop reported progress or a terminal state for a remote install.
+    pub const REMOTE_INSTALL_UPDATED: &str = "remote_install.updated";
+    /// A remote install was cancelled or cleared (#167).
+    pub const REMOTE_INSTALL_CANCELLED: &str = "remote_install.cancelled";
 }
 
 /// Writes one event to `audit_logs`. Failures are logged, never propagated:

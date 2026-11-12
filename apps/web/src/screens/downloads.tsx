@@ -8,6 +8,7 @@ import { formatBytes, formatDuration, formatSpeed, installPhaseLabel, formatPerc
 import { HISTORY_WINDOW_MS, type JobMeter, type SpeedPoint } from "@/lib/eta";
 import type { InstallJob } from "@/lib/types";
 import { useToast } from "@/state/toasts";
+import { RemoteQueueStrip } from "@/components/game/remote-queue-strip";
 import { EmptyState, PageHeader, SectionHeader } from "@/components/page";
 import { GameCover } from "@/components/art/cover";
 import { Badge, Button, Progress } from "@/components/ui/controls";
@@ -146,13 +147,17 @@ export function DownloadsScreen() {
     return (
       <div className="page page-in">
         <PageHeader title={t("Downloads")} description={t("Install jobs run inside the Ludex desktop app.")} />
+        <RemoteQueueStrip />
         <div className="mt-8">
           <EmptyState
             title={t("Downloads live on the desktop")}
             description={t("The browser build can browse the library and download archives. Installing, launching and playtime need the Ludex desktop app.")}
           >
+            <Link to="/remote">
+              <Button variant="default">{t("Queue an install on the desktop")}</Button>
+            </Link>
             <Link to="/library">
-              <Button variant="default">{t("Open the library")}</Button>
+              <Button variant="ghost">{t("Open the library")}</Button>
             </Link>
           </EmptyState>
         </div>

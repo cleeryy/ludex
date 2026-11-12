@@ -28,6 +28,7 @@ mod presence;
 mod process_tree;
 mod profiles;
 mod protondb;
+mod remote_install;
 mod roms;
 mod saves_detect;
 mod saves_manifest;
@@ -162,6 +163,7 @@ pub fn run() {
             commands::list_install_jobs,
             commands::delete_install_job,
             commands::clear_finished_install_jobs,
+            remote_install::remote_installs_sync,
             commands::list_installed,
             commands::list_recent_games,
             commands::get_game_playtime,
