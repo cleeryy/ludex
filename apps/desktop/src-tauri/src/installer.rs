@@ -73,6 +73,10 @@ pub struct Invocation {
     pub env: Vec<(String, String)>,
     /// Capture stdout/stderr to this file instead of discarding them.
     pub log_path: Option<PathBuf>,
+    /// The user chose to run setup.exe interactively and watch it. An
+    /// interactive installer keeps its own console window (#181); a silent one
+    /// runs hidden. Set explicitly by `run_installer`, never inferred.
+    pub interactive: bool,
 }
 
 impl Invocation {
@@ -84,6 +88,9 @@ impl Invocation {
             working_dir,
             env: Vec::new(),
             log_path: None,
+            // Silent by default: automation never shows a window unless the
+            // caller opts in.
+            interactive: false,
         }
     }
 }
@@ -101,6 +108,9 @@ pub fn compat_invocation(
         working_dir: working_dir.to_path_buf(),
         env: plan.env_pairs(),
         log_path,
+        // Linux has no console-window concept; the game installer runs through
+        // the compatibility tool regardless.
+        interactive: false,
     }
 }
 
@@ -176,9 +186,10 @@ impl Runner for SystemRunner {
             .current_dir(&invocation.working_dir)
             .envs(invocation.env.iter().map(|(key, value)| (key, value)))
             .stdin(Stdio::null());
-        // #181: silent automation runs hidden; an interactive run (timeout
-        // zero) keeps its own window so the user can follow the prompts.
-        if !timeout.is_zero() {
+        // #181: the interactive/silent split is explicit on the invocation.
+        // The user-visible run keeps its own console window; every silent
+        // automation attempt runs hidden.
+        if !invocation.interactive {
             crate::process::hide_console(&mut command);
         }
 
@@ -280,6 +291,7 @@ pub fn run_plan(
             working_dir: base.working_dir.clone(),
             env: base.env.clone(),
             log_path: base.log_path.clone(),
+            interactive: base.interactive,
         };
         let started = Instant::now();
         let outcome = runner.run(&invocation, timeout, cancel);
@@ -709,6 +721,37 @@ mod tests {
         assert!(report.success);
         assert_eq!(runner.calls().len(), 1);
         assert!(runner.calls()[0].args.is_empty());
+    }
+
+    #[test]
+    fn the_window_decision_is_explicit_on_every_attempt() {
+        // Silent automation: every invocation stays hidden (#181).
+        let runner = MockRunner::new(vec![ok(Some(1)), ok(Some(0))]);
+        let cancel = AtomicBool::new(false);
+        let base = base();
+        assert!(!base.interactive);
+        run_plan(
+            &runner,
+            &base,
+            &[vec!["/S".into()], vec!["/silent".into()]],
+            Duration::from_secs(5),
+            &cancel,
+        );
+        assert!(runner.calls().iter().all(|call| !call.interactive));
+
+        // The user chose to watch setup.exe: the flag reaches every attempt
+        // instead of being inferred from the timeout.
+        let runner = MockRunner::new(vec![ok(Some(1)), ok(Some(0))]);
+        let mut base = base;
+        base.interactive = true;
+        run_plan(
+            &runner,
+            &base,
+            &[vec!["/S".into()], vec!["/silent".into()]],
+            Duration::ZERO,
+            &cancel,
+        );
+        assert!(runner.calls().iter().all(|call| call.interactive));
     }
 
     #[test]

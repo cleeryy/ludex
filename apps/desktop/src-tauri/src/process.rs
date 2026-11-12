@@ -7,9 +7,22 @@
 //! window in the user's face.
 //!
 //! Processes that are *meant* to be seen stay on plain
-//! `std::process::Command::new`: the game and its emulator, an interactive
-//! installer, Moonlight, and the `open`/`xdg-open`/`cmd start` URI handlers.
-//! They keep their own window.
+//! `std::process::Command::new`: the game, an interactive installer, Moonlight,
+//! and the `open`/`xdg-open`/`cmd start` URI handlers. They keep their own
+//! window and carry a `#181 user-visible` marker so the source scan below does
+//! not mistake them for a forgotten internal probe.
+//!
+//! ## Windows validation
+//!
+//! CI runs on Linux, so the window behaviour itself cannot be asserted here:
+//! `std::process::Command` has no getter for creation flags. Two checks stand
+//! in for it: the source scan proves no literal internal spawn bypasses the
+//! helper, and the `#[cfg(windows)]` test proves the flag value the helper
+//! applies. A real Windows build still needs a manual pass over Settings →
+//! Saves scan, Settings → Streaming test, a Library scan, "Make it run" on a
+//! missing redistributable (silent MSI/EXE), a silent game installer, and a ROM
+//! launch. No console may flash; only the deliberately interactive game
+//! installer may show its own window.
 
 use std::ffi::OsStr;
 use std::process::{Command, Stdio};
@@ -103,15 +116,33 @@ mod tests {
         );
     }
 
-    /// Internal `reg`/`powershell`/`cmd` probes must use [`command`]/[`capture`].
-    /// A new `Command::new("powershell")` would silently reintroduce a console
-    /// flash on Windows, so this scan fails the build instead.
+    /// Internal helper and installer probes must use [`command`]/[`capture`]
+    /// (or [`hide_console`]). A new `Command::new("powershell")` or
+    /// `Command::new("msiexec")` would silently reintroduce a console flash on
+    /// Windows, so this scan fails the build instead.
     ///
-    /// User-visible spawns opt out with a `#181 user-visible` marker on the same
-    /// line or the line above.
+    /// User-visible spawns opt out with a `#181 user-visible` marker on the
+    /// same line or the line above. Comment-only lines are ignored: they cannot
+    /// spawn anything.
     #[test]
     fn internal_probes_go_through_the_helper() {
-        const INTERNAL: [&str; 3] = ["reg", "powershell", "cmd"];
+        // Every program Ludex may run in the background: registry and shell
+        // probes, plus the installers and service/network tools an internal
+        // helper could reach for.
+        const INTERNAL: [&str; 12] = [
+            "reg",
+            "powershell",
+            "cmd",
+            "msiexec",
+            "winget",
+            "choco",
+            "scoop",
+            "dism",
+            "sc",
+            "netsh",
+            "schtasks",
+            "taskkill",
+        ];
 
         let mut files = Vec::new();
         source_files(
@@ -130,12 +161,15 @@ mod tests {
             };
             let lines: Vec<&str> = text.lines().collect();
             for (index, line) in lines.iter().enumerate() {
-                let Some(needle) = INTERNAL
-                    .iter()
-                    .find(|program| line.contains(&format!("Command::new(\"{program}\")")))
-                else {
+                if line.trim_start().starts_with("//") {
+                    continue;
+                }
+                let Some(program) = literal_program(line) else {
                     continue;
                 };
+                if !INTERNAL.contains(&program.as_str()) {
+                    continue;
+                }
                 let previous = index
                     .checked_sub(1)
                     .and_then(|index| lines.get(index))
@@ -145,10 +179,9 @@ mod tests {
                     continue;
                 }
                 offenders.push(format!(
-                    "{}:{}: {} (use crate::process::command/capture)",
+                    "{}:{}: Command::new(\"{program}\") (use crate::process::command/capture)",
                     file.display(),
-                    index + 1,
-                    needle
+                    index + 1
                 ));
             }
         }
@@ -158,6 +191,21 @@ mod tests {
             "internal probe bypasses the no-window helper:\n{}",
             offenders.join("\n")
         );
+    }
+
+    /// Program name of a literal `Command::new("…")` call on this line.
+    ///
+    /// Paths are reduced to their file name and a trailing `.exe` is dropped,
+    /// so `Command::new("C:\\Windows\\System32\\reg.exe")` is caught too.
+    fn literal_program(line: &str) -> Option<String> {
+        const PREFIX: &str = "Command::new(\"";
+        let start = line.find(PREFIX)? + PREFIX.len();
+        let rest = &line[start..];
+        let end = rest.find('"')?;
+        let raw = rest[..end].to_ascii_lowercase();
+        let name = raw.rsplit(['\\', '/']).next().unwrap_or(&raw);
+        let name = name.trim_end_matches(".exe");
+        (!name.is_empty()).then(|| name.to_string())
     }
 
     fn source_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -180,7 +228,17 @@ mod tests {
         let flags = internal_creation_flags();
         assert_eq!(flags, CREATE_NO_WINDOW);
         assert_ne!(flags & CREATE_NO_WINDOW, 0);
-        // Building must keep the program while setting the flag.
+        // Every helper path the audit migrated must keep the program and be
+        // built through the flag-setting constructors.
         assert_eq!(command("reg").get_program(), OsStr::new("reg"));
+        assert_eq!(
+            capture("powershell").get_program(),
+            OsStr::new("powershell")
+        );
+        assert_eq!(capture("msiexec").get_program(), OsStr::new("msiexec"));
+        assert_eq!(capture("winget").get_program(), OsStr::new("winget"));
+        let mut installer = Command::new("setup.exe");
+        hide_console(&mut installer);
+        assert_eq!(installer.get_program(), OsStr::new("setup.exe"));
     }
 }

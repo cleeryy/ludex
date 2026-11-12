@@ -1548,20 +1548,14 @@ fn grant_config_write_access(config_dir: &Path) -> Result<SunshineGrant, String>
 
     let script = windows_grant_script(&config_dir);
     let encoded = encode_powershell(&script);
-    let output = {
-        use std::os::windows::process::CommandExt;
-        let mut command = Command::new("powershell.exe");
-        command
-            .args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &encoded])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            // CREATE_NO_WINDOW: the helper itself must not flash a console.
-            .creation_flags(0x0800_0000);
-        command.output().map_err(|error| {
+    // #181: the elevation helper is internal; `capture` keeps its console
+    // window away and pipes both streams.
+    let output = crate::process::capture("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &encoded])
+        .output()
+        .map_err(|error| {
             format!("Could not start PowerShell for the permission prompt: {error}.")
-        })?
-    };
+        })?;
 
     let mut detail = String::from_utf8_lossy(&output.stderr).to_string();
     if detail.trim().is_empty() {
