@@ -87,6 +87,7 @@ application backed by PostgreSQL. Ludex takes a different route:
 | i18n: English + French official, German/Spanish/Arabic community, RTL | v0.3 |
 | Installable PWA: offline shell, install prompt, update prompt | v0.3 |
 | Responsive mobile web with safe-area and PWA polish | v0.3 |
+| Mobile companion: remote install queue, desktop pickup, OpenTunnel guidance | v0.5 (`docs/REMOTE-ACCESS.md`) |
 | Multiple profiles | roadmap |
 | macOS desktop build | v0.2.2+ universal DMG; signed/notarized when the release secrets are configured, unsigned otherwise |
 
@@ -98,8 +99,10 @@ The API is documented in [`docs/CONTRACT.md`](docs/CONTRACT.md), integrations
 [`docs/ACHIEVEMENTS.md`](docs/ACHIEVEMENTS.md), ROM libraries and emulators in
 [`docs/EMULATORS.md`](docs/EMULATORS.md), the design in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), translations, themes and the
-PWA in [`docs/I18N.md`](docs/I18N.md), and the honest GameVault comparison in
-[`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md).
+PWA in [`docs/I18N.md`](docs/I18N.md), the honest GameVault comparison in
+[`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md), and remote access (VPN,
+reverse proxy, tunnel warnings) in
+[`docs/REMOTE-ACCESS.md`](docs/REMOTE-ACCESS.md).
 
 ## Quick start (Docker)
 

@@ -134,6 +134,14 @@ export const NAV_DESTINATIONS = [
     kbd: "g d",
   },
   {
+    id: "remote",
+    to: "/remote",
+    labelKey: "Remote installs",
+    group: "play",
+    icon: "download",
+    visibility: "everyone",
+  },
+  {
     id: "bigpicture",
     to: "/bigpicture",
     labelKey: "Big Picture mode",
@@ -330,10 +338,11 @@ export function navShortcuts(context: NavContext): { kbd: string; to: string; la
 
 /**
  * The four destinations in the mobile bottom bar, plus More. Downloads needs a
- * desktop bridge; the slot falls back to Community instead of leaving a hole.
+ * desktop bridge; the phone slot becomes the remote install queue instead of
+ * leaving a hole (#167).
  */
 export function mobileBar(context: NavContext): NavDestination[] {
-  const ids = ["home", "library", context.desktop ? "downloads" : "community", "settings"];
+  const ids = ["home", "library", context.desktop ? "downloads" : "remote", "settings"];
   return ids.flatMap((id) => {
     const destination = navDestination(id);
     return destination && canSeeNav(destination, context) ? [destination] : [];

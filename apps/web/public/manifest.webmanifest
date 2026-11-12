@@ -45,6 +45,12 @@
       "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }]
     },
     {
+      "name": "Remote installs",
+      "short_name": "Remote",
+      "url": "./#/remote",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
       "name": "Settings",
       "short_name": "Settings",
       "url": "./#/settings",

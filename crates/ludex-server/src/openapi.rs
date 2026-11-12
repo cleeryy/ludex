@@ -1618,6 +1618,71 @@ pub const ROUTES: &[RouteDoc] = &[
         ),
         204,
     ),
+    // Mobile companion (#167)
+    query(
+        route(
+            HttpMethod::Get,
+            "/remote-installs",
+            "Remote installs",
+            "List the caller's remote install requests",
+            Auth::Session,
+            Payload::Array("RemoteInstall"),
+        ),
+        &[
+            (
+                "status",
+                "queued, claimed, downloading, ready, failed or cancelled; comma-separate several",
+            ),
+            ("limit", "1-200, default 100"),
+        ],
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/remote-installs",
+                "Remote installs",
+                "Queue an install for a signed-in desktop (idempotent per game)",
+                Auth::Session,
+                Payload::Schema("RemoteInstall"),
+            ),
+            "CreateRemoteInstallRequest",
+        ),
+        201,
+    ),
+    route(
+        HttpMethod::Get,
+        "/remote-installs/{id}",
+        "Remote installs",
+        "Read one remote install request",
+        Auth::Session,
+        Payload::Schema("RemoteInstall"),
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/remote-installs/{id}",
+            "Remote installs",
+            "Cancel an active request or clear a finished one",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/remote-installs/{id}/status",
+                "Remote installs",
+                "Report desktop progress for a remote install",
+                Auth::Session,
+                Payload::Schema("RemoteInstall"),
+            ),
+            "RemoteInstallStatusRequest",
+        ),
+        200,
+    ),
 ];
 
 /// Concrete list shape used by `GET /api/games`.
@@ -1987,6 +2052,10 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::models::UploadSession>()
         .schema_from::<crate::models::UploadPartResponse>()
         .schema_from::<crate::models::CompleteUploadResponse>()
+        .schema_from::<crate::remote_installs::RemoteInstall>()
+        .schema_from::<crate::remote_installs::RemoteInstallStatus>()
+        .schema_from::<crate::remote_installs::CreateRemoteInstallRequest>()
+        .schema_from::<crate::remote_installs::RemoteInstallStatusRequest>()
         .schema_from::<crate::ingest::IngestStatus>()
         .schema_from::<crate::ingest::IngestJob>()
         .schema_from::<crate::ingest::IngestFile>()
@@ -2042,6 +2111,10 @@ pub fn document() -> OpenApi {
         ("Shares", "Public, unauthenticated share links"),
         ("Uploads", "Resumable archive uploads"),
         ("Ingest", "URL download manager"),
+        (
+            "Remote installs",
+            "Phone-queued installs for a signed-in desktop",
+        ),
         (
             "Achievements",
             "Definitions, unlocks and local provider scans",

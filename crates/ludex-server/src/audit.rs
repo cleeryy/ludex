@@ -98,6 +98,12 @@ pub mod actions {
     pub const METADATA_PROVIDER_UPDATED: &str = "settings.metadata_provider_updated";
     /// An editor picked a metadata provider record for a game (#135).
     pub const GAME_METADATA_MATCHED: &str = "game.metadata_matched";
+    /// A phone queued a remote install for a desktop (#167).
+    pub const REMOTE_INSTALL_REQUESTED: &str = "remote_install.requested";
+    /// A desktop reported progress or a terminal state for a remote install.
+    pub const REMOTE_INSTALL_UPDATED: &str = "remote_install.updated";
+    /// A remote install was cancelled or cleared (#167).
+    pub const REMOTE_INSTALL_CANCELLED: &str = "remote_install.cancelled";
 }
 
 /// Writes one event to `audit_logs`. Failures are logged, never propagated:

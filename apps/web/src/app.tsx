@@ -25,6 +25,7 @@ import { SetupScreen } from "@/screens/setup";
 import { HomeScreen } from "@/screens/home";
 import { LibraryScreen } from "@/screens/library";
 import { DownloadsScreen } from "@/screens/downloads";
+import { RemoteScreen } from "@/screens/remote";
 import { BigPictureScreen } from "@/screens/big-picture";
 import { GameDetailRoute } from "@/screens/game-detail";
 import { NewsScreen } from "@/screens/news";
@@ -241,6 +242,7 @@ export function App() {
                   <Route index element={<HomeScreen />} />
                   <Route path="library" element={<LibraryScreen mode="library" />} />
                   <Route path="downloads" element={<DownloadsScreen />} />
+                  <Route path="remote" element={<RemoteScreen />} />
                   <Route path="recent" element={<LibraryScreen mode="recent" />} />
                   <Route path="bookmarks" element={<LibraryScreen mode="bookmarks" />} />
                   <Route path="all" element={<LibraryScreen mode="index" />} />

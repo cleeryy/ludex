@@ -1750,6 +1750,7 @@ interface StreamTarget {
 | `list_install_jobs` | — | `InstallJob[]` (active + persisted, newest first) |
 | `delete_install_job` | `{ jobId }` | `null`; removes one terminal (`done`, `cancelled`, `error`, `interrupted`) row from Downloads history. Refuses active and paused jobs. Never deletes the install folder, archives or `.part` files |
 | `clear_finished_install_jobs` | — | `number` (rows removed); deletes every terminal history row, keeps active/paused jobs and all files on disk |
+| `remote_installs_sync` | — | `{ claimed: string[], skipped: number, error: string \| null }`; picks up phone-queued installs (#167) via `GET /api/remote-installs?status=queued`, claims each row, starts the normal `install_game` pipeline and mirrors progress (`claimed` → `downloading` → `ready`/`failed`/`cancelled`) every 2 s. Safe to call repeatedly; two desktops racing get `409` on the loser |
 | `list_installed` | — | `InstalledGame[]` |
 | `launch_game` | `{ gameId, executable?, args? }` | `{ sessionId }` |
 | `stop_game` | `{ sessionId }` | `null` |
@@ -2469,6 +2470,64 @@ interface UploadSession {
 - `DELETE /api/uploads/{id}` abandons the upload and removes its chunks.
 - Unfinished uploads older than `LUDEX_UPLOAD_TTL_HOURS` (default 24 h) are
   removed lazily on the next initiate and by an hourly worker.
+
+## Remote installs (#167)
+
+The mobile companion queues an install on the server; a desktop signed into the
+same account claims it. V1 uses the normal account session on both devices (no
+pairing code yet) — see `docs/REMOTE-ACCESS.md` for the transport and OpenTunnel
+warnings. Routes require `Authorization: Bearer <jwt|ldx_...>`:
+
+- `GET /api/remote-installs?status=queued,claimed&limit=100` lists the caller's
+  requests, newest first. `status` accepts a comma-separated list; `limit` is
+  clamped to 1–200.
+- `GET /api/remote-installs/{id}` reads one request owned by the caller (404
+  otherwise, including other accounts).
+- `POST /api/remote-installs` with `{ gameId, versionId?, device? }` queues an
+  install. Needs the `write` capability (a read-only API key gets
+  `403 insufficient_scope`). The game must exist and be within the account's
+  age limit (404 `game_not_found`); `versionId` must belong to the game and not
+  be missing (400 `invalid_version`); omitted, the newest available version is
+  used (404 `version_not_found` if none).
+  - **Idempotent per account and game**: a second request returns `200` with the
+    existing row, including its progress; a `failed`/`cancelled` row is reset to
+    `queued` (`version` and `device` refreshed) and also returns `200`. A new
+    row returns `201`.
+  - Queueing is limited to 20 requests per account per rolling 60 s
+    (`429 rate_limited`, in-memory, resets on restart).
+  - Audited as `remote_install.requested` with game/version/device metadata.
+- `POST /api/remote-installs/{id}/status` with
+  `{ status, progress?, message? }` is the desktop's progress report. Allowed
+  transitions: `queued → claimed|cancelled`, `claimed → downloading|failed|cancelled`,
+  `downloading → ready|failed|cancelled`; repeating the current status is a
+  no-op so progress patches are idempotent (409 `invalid_transition` otherwise).
+  `progress` is clamped to 0–100 and defaults to 100 on `ready`. Claim/terminal
+  transitions are audited as `remote_install.updated`.
+- `DELETE /api/remote-installs/{id}` cancels an active request (it stays as
+  `cancelled` history) or deletes a finished row (204). Audited as
+  `remote_install.cancelled`.
+
+```ts
+type RemoteInstallStatus =
+  | "queued" | "claimed" | "downloading" | "ready" | "failed" | "cancelled";
+
+interface RemoteInstall {
+  id: string;
+  gameId: number; gameTitle: string; coverUrl: string | null;
+  versionId: number | null; version: string | null; sizeBytes: number | null;
+  device: string | null;
+  status: RemoteInstallStatus;
+  progress: number;                 // 0-100
+  message: string | null;
+  requestedAt: string; updatedAt: string;
+  claimedAt: string | null; completedAt: string | null;
+}
+```
+
+Desktop pickup (v1): poll `?status=queued`, claim, install through the existing
+download endpoint, then report progress. The mobile UI renders `queued`,
+`claimed` and `downloading` as "in progress" and shows "ready" once the desktop
+finishes. A queued request untouched for two minutes is labelled "PC offline".
 
 ## Configuration for the new features
 

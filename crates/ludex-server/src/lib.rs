@@ -53,6 +53,7 @@ pub mod models;
 pub mod oidc;
 pub mod openapi;
 pub mod providers;
+pub mod remote_installs;
 pub mod roots;
 pub mod routes;
 pub mod saves;

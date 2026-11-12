@@ -38,6 +38,7 @@ import { CloudSaves } from "@/components/game/cloud-saves";
 import { ArtworkDialog } from "@/components/game/artwork-dialog";
 import { MatchMetadataDialog } from "@/components/game/match-metadata";
 import { InstallDialog } from "@/components/game/install-dialog";
+import { RemoteInstallAction } from "@/components/game/remote-install";
 import { InstallFiles } from "@/components/game/install-files";
 import { GameSettingsPanel } from "@/components/game/game-settings";
 import { AdoptInstallDialog } from "@/components/game/adopt-install";
@@ -441,6 +442,7 @@ export function GameDetailScreen() {
 
             <div className="mt-7 flex flex-wrap items-center gap-2">
               {primary}
+              <RemoteInstallAction gameId={game.id} versionId={version?.id} title={game.title} />
               {isNative() && !isInstalled && !activeJob && (
                 <Button
                   variant="default"

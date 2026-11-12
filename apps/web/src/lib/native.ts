@@ -236,6 +236,20 @@ export const native = {
     return invoke<InstallJob>("install_game", { ...args });
   },
 
+  /**
+   * Claim phone-queued installs and mirror their progress (#167). Safe to call
+   * on a timer; returns an empty result outside Tauri or when the server is
+   * unreachable.
+   */
+  async remoteInstallsSync(): Promise<{ claimed: string[]; skipped: number; error: string | null }> {
+    if (!isNative()) return { claimed: [], skipped: 0, error: null };
+    try {
+      return await invoke<{ claimed: string[]; skipped: number; error: string | null }>("remote_installs_sync");
+    } catch (cause) {
+      return { claimed: [], skipped: 0, error: String(cause) };
+    }
+  },
+
   async listInstallJobs(): Promise<InstallJob[]> {
     if (!isNative()) return [];
     try {

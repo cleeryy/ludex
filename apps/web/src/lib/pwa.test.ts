@@ -36,6 +36,12 @@ describe("PWA assets", () => {
     }
   });
 
+  it("exposes the remote install queue as a shortcut (#167)", () => {
+    const urls = manifest.shortcuts.map((shortcut: { url: string }) => shortcut.url);
+    expect(urls).toContain("./#/remote");
+    expect(manifest.shortcuts.some((shortcut: { name: string }) => shortcut.name === "Remote installs")).toBe(true);
+  });
+
   it("precaches the shell but never API/auth responses", () => {
     const worker = fs.readFileSync(new URL("sw.js", publicDir), "utf8");
     expect(worker).toContain("const VERSION = \"__CACHE_VERSION__\";");

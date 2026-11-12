@@ -46,6 +46,7 @@ import type {
   ProviderTestResult,
   PublicProfile,
   PublicProfileResponse,
+  RemoteInstall,
   Role,
   SaveSnapshot,
   ScanStatus,
@@ -493,6 +494,26 @@ export const api = {
     return USING_MOCKS
       ? Promise.reject(new Error("not available in demo mode"))
       : request<EmulatorLaunch>(`/games/${id}/launch-command`, { method: "POST" });
+  },
+
+  /* remote installs (#167) */
+  listRemoteInstalls(options: { status?: string; limit?: number } = {}): Promise<RemoteInstall[]> {
+    if (USING_MOCKS) return mockApi.listRemoteInstalls(tokenStore.get(), options);
+    return request<RemoteInstall[]>("/remote-installs", { query: options });
+  },
+  createRemoteInstall(body: {
+    gameId: number;
+    versionId?: number | null;
+    device?: string | null;
+  }): Promise<RemoteInstall> {
+    return USING_MOCKS
+      ? mockApi.createRemoteInstall(tokenStore.get(), body)
+      : request<RemoteInstall>("/remote-installs", { method: "POST", body });
+  },
+  cancelRemoteInstall(id: string): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.cancelRemoteInstall(tokenStore.get(), id)
+      : request<void>(`/remote-installs/${id}`, { method: "DELETE" });
   },
 
   /* ingest */

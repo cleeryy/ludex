@@ -235,6 +235,41 @@ export interface ScanStatus {
   errors: string[];
 }
 
+/* --------------------------- Remote installs ----------------------------- */
+
+/** Lifecycle of an install queued from a phone (#167). */
+export type RemoteInstallStatus =
+  | "queued"
+  | "claimed"
+  | "downloading"
+  | "ready"
+  | "failed"
+  | "cancelled";
+
+/**
+ * An install requested from the mobile companion and picked up by a desktop
+ * signed into the same account. One row per account and game.
+ */
+export interface RemoteInstall {
+  id: string;
+  gameId: number;
+  gameTitle: string;
+  coverUrl: string | null;
+  versionId: number | null;
+  version: string | null;
+  sizeBytes: number | null;
+  /** Free-form label supplied by the phone; never used for authorization. */
+  device: string | null;
+  status: RemoteInstallStatus;
+  /** 0-100. */
+  progress: number;
+  message: string | null;
+  requestedAt: string;
+  updatedAt: string;
+  claimedAt: string | null;
+  completedAt: string | null;
+}
+
 export interface LibraryFile {
   name: string;
   size: number;
