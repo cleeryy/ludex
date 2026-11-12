@@ -6,6 +6,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- Game archive uploads keep running when you leave the Upload screen (#185): an
+  app-wide upload provider owns the resumable chunk loop and server session, the
+  screen is only a view of it, a shell indicator shows live progress from any
+  route, completion refreshes games/stats/scan with a toast, cancel deletes the
+  server session, and a reload offers to resume from the received parts.
+
 ### Fixed
 
 - The game page no longer freezes on open (#159): `list_game_configs`,
