@@ -4,6 +4,7 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { Kbd } from "@/components/ui/controls";
 import { reveal } from "./entrance";
+import { MOTION_DURATION, REDUCED_FADE, exitOf } from "./motion";
 import { layoutDescription, layoutLabel } from "./labels";
 import { BIG_PICTURE_LAYOUTS, type BigPictureLayout } from "./layout";
 import { LayoutPreview } from "./layout-preview";
@@ -75,17 +76,22 @@ export function LayoutPicker({
   onClose: () => void;
 }) {
   return (
-    <div
+    <motion.div
       className="fixed inset-0 z-50 grid place-items-center bg-scrim/85 p-6"
       onClick={onClose}
       role="presentation"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, pointerEvents: "none", transition: { duration: reduceMotion ? REDUCED_FADE : MOTION_DURATION.fast } }}
+      transition={{ duration: reduceMotion ? REDUCED_FADE : MOTION_DURATION.fast }}
     >
       <motion.div
         className="w-[min(1000px,94vw)] border border-line-2 bg-bg-deep p-5 shadow-palette"
         onClick={(event) => event.stopPropagation()}
         role="group"
         aria-label={t("Big Picture layout")}
-        {...reveal(reduceMotion, { y: 10, duration: 0.18 })}
+        {...reveal(reduceMotion, { y: 10, duration: MOTION_DURATION.base })}
+        {...exitOf("overlayOpen", { reduce: reduceMotion })}
       >
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
           <p className="text-[13px] font-medium text-ink">{t("Big Picture layout")}</p>
@@ -135,6 +141,6 @@ export function LayoutPicker({
           })}
         </div>
       </motion.div>
-    </div>
+    </motion.div>
   );
 }

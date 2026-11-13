@@ -1,22 +1,20 @@
 import type { MotionProps } from "motion/react";
+import { EASE_OUT, MOTION_DURATION, MOTION_STAGGER, REDUCED_FADE } from "./motion";
 
 /* --------------------------------------------------------------------------
-   Big Picture entrance (#142).
+   Big Picture entrance (#142, tokens from #220).
 
    One orchestrated reveal per open, then the screen holds still: changing the
    selection or the shelf keeps its existing micro-interactions and never
-   replays this cascade. Numbers follow the house tokens in styles/index.css:
+   replays this cascade. Numbers follow the shared motion table in `motion.ts`:
    --dur-3 (240ms) for the readable cue, --ease-out for every curve. Only
    opacity and transform animate; the backdrop artwork gets a fade and nothing
    else. Every cue has finished before 450ms, and the card stagger is capped
    the same way .stagger-in caps its grid.
    -------------------------------------------------------------------------- */
 
-/** cubic-bezier(0.16, 1, 0.3, 1) — the `--ease-out` token. */
-const EASE_OUT: [number, number, number, number] = [0.16, 1, 0.3, 1];
-
 /** Same 22ms rhythm as `.stagger-in`; eight cards get distinct delays. */
-export const CARD_STAGGER = 0.022;
+export const CARD_STAGGER = MOTION_STAGGER;
 export const CARD_STAGGER_CAP = 7;
 
 export const BACKDROP_CUE = { opacity: 0.25, duration: 0.42 };
@@ -54,14 +52,22 @@ export function cardDelay(position: number): number {
 
 /**
  * Motion props for one cue. With `prefers-reduced-motion` the element only
- * fades in place: no travel, no scale, no stagger.
+ * fades in place: no travel, no scale, no stagger. The fade length is the
+ * shared reduced-motion token, not a local number.
  */
 export function reveal(reduce: boolean | null | undefined, options: RevealOptions = {}): Reveal {
-  const { y = 0, scale = 1, opacity = 1, delay = 0, duration = 0.24, settled = false } = options;
+  const {
+    y = 0,
+    scale = 1,
+    opacity = 1,
+    delay = 0,
+    duration = MOTION_DURATION.slow,
+    settled = false,
+  } = options;
   const target = { opacity, y: 0, scale: 1 };
 
   if (settled) return { initial: false, animate: target, transition: { duration: 0 } };
-  if (reduce) return { initial: { opacity: 0 }, animate: { opacity }, transition: { duration: 0.12 } };
+  if (reduce) return { initial: { opacity: 0 }, animate: { opacity }, transition: { duration: REDUCED_FADE } };
   return {
     initial: { opacity: 0, y, scale },
     animate: target,

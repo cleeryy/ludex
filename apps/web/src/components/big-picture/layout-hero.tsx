@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/controls";
 import { t } from "@/lib/i18n";
 import { BACKDROP_CUE, CARD_CUE, COPY_CUE, HERO_CUE, cardDelay, reveal } from "./entrance";
 import type { BigPictureLayoutProps } from "./model";
+import { transitionOf } from "./motion";
+import { useChangeWitness } from "./use-change-witness";
 import { ActionRow, MetaLine, ProgressLine, RailCard, SelectedEyebrow, ShelfTabs } from "./parts";
 
 /**
@@ -14,6 +16,7 @@ import { ActionRow, MetaLine, ProgressLine, RailCard, SelectedEyebrow, ShelfTabs
 export function HeroLayout({
   nav,
   reduceMotion,
+  instant,
   settled,
   detail,
   installed,
@@ -22,8 +25,15 @@ export function HeroLayout({
   primary,
   onOpenGame,
 }: BigPictureLayoutProps) {
+  const shelfChanged = useChangeWitness(nav.shelf?.id);
   const game = nav.selected;
   if (!game) return null;
+
+  const shelfFrame = transitionOf("shelf", {
+    reduce: reduceMotion,
+    instant,
+    direction: nav.shelfDirection,
+  });
 
   return (
     <>
@@ -76,7 +86,12 @@ export function HeroLayout({
         </motion.div>
 
         <div className="bp-pad-x">
-          <div className="bp-rail bp-rail-shelf nav-scroll overflow-x-auto">
+          <motion.div
+            key={nav.shelf?.id ?? "shelf"}
+            className="bp-rail bp-rail-shelf nav-scroll overflow-x-auto"
+            {...shelfFrame}
+            initial={shelfChanged ? shelfFrame.initial : false}
+          >
             <div className="mx-auto flex w-max gap-3">
               {nav.games.map((entry, position) => (
                 <motion.div
@@ -99,7 +114,7 @@ export function HeroLayout({
                 </motion.div>
               ))}
             </div>
-          </div>
+          </motion.div>
         </div>
       </section>
     </>

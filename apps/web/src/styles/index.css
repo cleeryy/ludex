@@ -47,11 +47,18 @@
   --font-ui: "Instrument Sans Variable", "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
   --font-code: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
+  /*
+   * Big Picture motion tokens (#220). `components/big-picture/motion.ts` holds
+   * the same numbers for the JS-driven transitions; the token test reads both
+   * so a retune cannot land in one place only. Durations stay in the 120–320ms
+   * band, --ease-out enters, --ease moves.
+   */
   --dur-1: 120ms;
   --dur-2: 180ms;
   --dur-3: 240ms;
   --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --bp-lift: calc(var(--bp-u) * -2);
 
   --focus-width: 2px;
   --focus-offset: 2px;
@@ -473,6 +480,57 @@
   .bp-rail-shelf {
     --bp-rail-top: calc(var(--bp-u) * 28);
     --bp-rail-bottom: calc(var(--bp-u) * 16);
+  }
+
+  /*
+   * One focus move (#220). Transform and opacity only, at --dur-1: the
+   * highlight starts on the same frame as the press, then settles. Cards,
+   * home tiles and power tiles share it so a d-pad step feels identical
+   * everywhere. `data-bp-instant` is set for one commit by a held or repeated
+   * key; the state lands on the final frame instead of restarting the move.
+   */
+  .bp-focus-move {
+    /* Tailwind v4 writes `scale`/`translate`, not `transform`; list them
+       explicitly or the selected tile would snap instead of settling. */
+    transition:
+      transform var(--dur-1) var(--ease-out),
+      translate var(--dur-1) var(--ease-out),
+      scale var(--dur-1) var(--ease-out),
+      opacity var(--dur-1) var(--ease);
+  }
+
+  [data-bp-zone-item] {
+    transition:
+      transform var(--dur-1) var(--ease-out),
+      opacity var(--dur-1) var(--ease),
+      background-color var(--dur-1) var(--ease),
+      border-color var(--dur-1) var(--ease),
+      color var(--dur-1) var(--ease);
+  }
+
+  [data-bp-zone-item][data-bp-zone-active="true"] {
+    transform: translate3d(0, var(--bp-lift), 0);
+  }
+
+  /* The Spotlight system row draws its underline instead of swapping colour. */
+  [data-bp-zone-item] [data-bp-zone-underline] {
+    transform: scaleX(0.35);
+    opacity: 0;
+    transition:
+      transform var(--dur-1) var(--ease-out),
+      opacity var(--dur-1) var(--ease);
+  }
+
+  [data-bp-zone-item][data-bp-zone-active="true"] [data-bp-zone-underline] {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+
+  /* A held key or a repeated pad direction lands instantly (no tween at all). */
+  [data-bp-instant="true"] *,
+  [data-bp-instant="true"] *::before,
+  [data-bp-instant="true"] *::after {
+    transition-duration: 0ms !important;
   }
 
   /*
@@ -992,5 +1050,14 @@ a,
 
   .cover-sheen {
     display: none;
+  }
+
+  /* Reduced motion keeps the highlight, drops the travel (#220). */
+  [data-bp-zone-item][data-bp-zone-active="true"] {
+    transform: none;
+  }
+
+  [data-bp-zone-item] [data-bp-zone-underline] {
+    transform: none;
   }
 }

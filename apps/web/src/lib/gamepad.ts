@@ -157,7 +157,8 @@ export function firstRumblePad(): PadLike | null {
 }
 
 export function useGamepad(
-  onAction: (action: GamepadAction, source: ActionSource | null) => void,
+  /** `repeated` is true when the action comes from the pad's auto-repeat. */
+  onAction: (action: GamepadAction, source: ActionSource | null, repeated?: boolean) => void,
   options: GamepadOptions = {},
 ): GamepadHandle {
   const enabled = options.enabled ?? true;
@@ -390,7 +391,9 @@ export function useGamepad(
         );
       }
       for (const action of actions) {
-        handlerRef.current(action, sourceFor.get(action) ?? null);
+        // #220: the direction was already held, so this is the repeat path.
+        // The screen lands the focus move instantly instead of re-animating.
+        handlerRef.current(action, sourceFor.get(action) ?? null, repeat.pressed.has(action));
         vibrate(pad, now, action);
         lastAction = action;
         lastActionAt = now;

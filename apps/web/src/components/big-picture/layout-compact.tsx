@@ -5,6 +5,8 @@ import { formatYear } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { COPY_CUE, HERO_CUE, cardDelay, reveal } from "./entrance";
 import { jobPercent, type BigPictureLayoutProps } from "./model";
+import { transitionOf } from "./motion";
+import { useChangeWitness } from "./use-change-witness";
 import {
   ActionRow,
   CompactRow,
@@ -22,6 +24,7 @@ import {
 export function CompactLayout({
   nav,
   reduceMotion,
+  instant,
   settled,
   detail,
   installed,
@@ -31,17 +34,27 @@ export function CompactLayout({
   onOpenGame,
   jobFor,
 }: BigPictureLayoutProps) {
+  const shelfChanged = useChangeWitness(nav.shelf?.id);
   const game = nav.selected;
   if (!game) return null;
+
+  const shelfFrame = transitionOf("shelf", {
+    reduce: reduceMotion,
+    instant,
+    direction: nav.shelfDirection,
+  });
 
   return (
     <>
       <ShelfTabs nav={nav} />
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <section
+        <motion.section
+          key={nav.shelf?.id ?? "shelf"}
           className="nav-scroll min-h-0 flex-1 overflow-y-auto md:border-e md:border-line"
           aria-label={t("Games")}
+          {...shelfFrame}
+          initial={shelfChanged ? shelfFrame.initial : false}
         >
           {nav.games.map((entry, position) => {
             const entryJob = jobFor(entry.id);
@@ -66,7 +79,7 @@ export function CompactLayout({
               </motion.div>
             );
           })}
-        </section>
+        </motion.section>
 
         <motion.aside
           className="flex max-h-[44%] shrink-0 flex-col gap-3 overflow-y-auto overscroll-contain border-t border-line bg-stage p-4 md:max-h-none md:w-[clamp(260px,30vw,420px)] md:border-t-0 lg:gap-4 lg:p-6"

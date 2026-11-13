@@ -18,9 +18,9 @@ import { formatPercent } from "@/lib/format";
 import { t, tn } from "@/lib/i18n";
 import type { Collection, InstallJob } from "@/lib/types";
 import { Progress } from "@/components/ui/controls";
-import { reveal } from "./entrance";
 import type { HintContext, PadFamily } from "./controller";
 import type { BigPictureLayout } from "./layout";
+import { MOTION_DURATION, REDUCED_FADE, exitOf, transitionOf } from "./motion";
 import { HintStrip } from "./parts";
 
 /* --------------------------------------------------------------------------
@@ -42,6 +42,8 @@ export function OverlayShell({
   connected,
   family,
   reduceMotion,
+  instant = false,
+  kind = "overlayOpen",
   onClose,
   wide = false,
   children,
@@ -53,15 +55,26 @@ export function OverlayShell({
   connected: boolean;
   family: PadFamily;
   reduceMotion: boolean | null;
+  /** A held key opened it: land on the final frame. */
+  instant?: boolean;
+  /** The power confirmation has its own rhythm and cue. */
+  kind?: "overlayOpen" | "powerConfirm";
   onClose: () => void;
   wide?: boolean;
   children: ReactNode;
 }) {
+  const enter = transitionOf(kind, { reduce: reduceMotion, instant });
+  const leave = exitOf(kind, { reduce: reduceMotion, instant });
+  const scrim = reduceMotion ? REDUCED_FADE : MOTION_DURATION.fast;
   return (
-    <div
+    <motion.div
       className="fixed inset-0 z-40 flex items-end justify-center bg-scrim/70 p-3 sm:items-center sm:p-6"
       role="presentation"
       onClick={onClose}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, pointerEvents: "none", transition: { duration: scrim } }}
+      transition={{ duration: scrim }}
     >
       <motion.section
         role="group"
@@ -72,7 +85,8 @@ export function OverlayShell({
           "flex max-h-[86dvh] w-full flex-col border border-line-2 bg-bg-deep shadow-palette",
           wide ? "max-w-[900px]" : "max-w-[560px]",
         )}
-        {...reveal(reduceMotion, { y: 14, duration: 0.2 })}
+        {...enter}
+        {...leave}
       >
         <header className="shrink-0 border-b border-line px-4 py-3 sm:px-5">
           <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
@@ -83,7 +97,7 @@ export function OverlayShell({
           <HintStrip context={context} layout={layout} connected={connected} family={family} />
         </footer>
       </motion.section>
-    </div>
+    </motion.div>
   );
 }
 
@@ -340,7 +354,7 @@ export function ConfirmPanel({
   onHighlight: (index: number) => void;
 } & Omit<Parameters<typeof OverlayShell>[0], "children" | "title" | "subtitle">) {
   return (
-    <OverlayShell title={title} subtitle={detail} {...shell}>
+    <OverlayShell title={title} subtitle={detail} {...shell} kind="powerConfirm">
       <ul className="flex flex-col gap-0.5">
         <li>
           <OverlayRow
