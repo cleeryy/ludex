@@ -19,6 +19,13 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- Launching a game brings its window to the foreground (#219): after spawn,
+  Ludex grants foreground rights, waits up to 30 s for the game's own top-level
+  window (skipping tool windows), then restores and focuses it (Windows
+  `SetForegroundWindow` + `AttachThreadInput` workaround, Linux `xdotool`),
+  hides Ludex only after a confirmed success, and reports a failure through
+  `game://focus` with a toast pointing at the game page's Resume / Force close
+  actions; macOS is a documented no-op and Wayland falls back to the toast.
 - Field-report fixes from the v0.4.7 campaign (#211, #217):
   `bench-download.sh` sends the real bearer token, parses iperf3 `[SUM]` for
   `-P8`, and its direct-vs-Caddy verdict has three bands; the server logs
