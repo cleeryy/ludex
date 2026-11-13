@@ -46,7 +46,8 @@ The lessons that matter for a self-hosted archive server:
   size/CRC32 and verify each entry; do not build a chunk store for one server.
 - **Plain HTTP, several requests.** Parallelism comes from multiple Range
   requests, not an exotic protocol. Only worth it when measured (#217): the
-  `aria2c -x8 ≥ 1.5×` rule in NETWORK-ARCHITECTURE.
+  `aria2c -x8 ≥ 1.5×` rule in NETWORK-ARCHITECTURE. Measured 1.12× (WAN) and
+  0.64× (cold LAN), so it is **not** implemented and Ludex stays single-stream.
 - **Staging + commit.** Keep versions as immutable archives; never re-zip or
   patch an archive in place. Replacing a 40 GB archive for a one-file fix is a
   Steam-documented anti-pattern.
@@ -95,6 +96,14 @@ tar-stream responses.
 - **Legacy rows:** a version without a hash (backfill pending, or indexed before
   #216) logs a warning and installs without strong verification. It stays
   downloadable; the server backfills it on the next scan.
+- **Coverage on the field host (2026-11-13):** only **10 of 59 versions** carry
+  a `content_sha256` (49 missing, i.e. every archive indexed before #216 and not
+  re-scanned since). The strong-verification path therefore proved itself on 10
+  archives, not all of them. Backfill with one sequential read per archive
+  (`POST /api/integrity/content-hashes`, single-flight, ~1.7 TB on that host) —
+  run it off-peak, it saturates the pool; the scan-time backfill only chips
+  away at 50 rows per scan. Until then, a version with `contentSha256: null` is
+  downloadable but only size/CRC-verified.
 - **Stream:** no archive is retained, so the full hash is not applicable. Each
   entry is size- and CRC-32-verified before rename and the manifest is recorded
   (the per-entry checkpoint already proves completion).
@@ -130,8 +139,13 @@ tar-stream responses.
   (`waitingForNetwork`) without counting a failed attempt and resume on the next
   `online` event.
 - The server rate-limits reconnect abuse per address/version (`429` +
-  `Retry-After`) and logs `bytes`, `elapsed_ms`, `range_start` and `outcome`
-  (`complete`, `error`, `client_abort`) for each stream.
+  `Retry-After`) and logs `bytes`, `elapsed_ms`, `range_start`, `range_end` and
+  `outcome` (`complete`, `error`, `client_abort`) for each stream. `complete`
+  means the bytes sent equal the announced window (`Content-Range` length, or
+  the archive size for a full `200`); `client_abort` is the residual case, i.e.
+  the client stopped early. A dropped response after the last byte is a
+  complete transfer, not an abort — that distinction is what makes the log
+  usable for diagnosis.
 
 ## Stream retry and the 524 budget (#211/#212)
 
@@ -151,7 +165,52 @@ tar-stream responses.
   the body, and `download stream closed` (`status`, `bytes`, `elapsed_ms`,
   `outcome`) when the body ends or the client aborts. Use those two lines to
   tell a proxy timeout (no entry response) from a client abort (entry response,
-  then `client_abort`).
+  then `client_abort` **with `bytes` below the announced range**).
+
+## Tickets and proxy logs
+
+The download ticket is a 15-minute capability. Ludex never logs it, but the
+**path** it travels in does:
+
+| Client | How it authenticates | Ticket in a URL? |
+|---|---|---|
+| Desktop (Tauri) | `Authorization: Bearer <session token>` on every request | **No** — `install.rs`, `maintenance.rs` (repair) and `stream_install.rs` build `/api/games/{id}/download?versionId=…` and attach the header |
+| Browser / web shell | `POST /api/games/{id}/download-ticket` then a plain `<a href>` navigation | **Yes**, `?token=…` — a browser download cannot set a header |
+| Share link | same ticket flow, scoped to one version | **Yes**, `?token=…` |
+
+So the desktop path is already clean; the leak comes from browser downloads
+hitting a proxy that logs the full URI. `/var/log/caddy/access.log` on the
+field host recorded `"uri":"/api/games/7/download?versionId=7&token=eyJ…"`, i.e.
+a live capability in clear text. Filter it at the proxy rather than relying on
+the 15-minute TTL:
+
+```caddyfile
+log {
+    output file /var/log/caddy/access.log
+    format filter {
+        wrap json
+        fields {
+            # `query` parses request>uri as a map so one key can be dropped
+            # (Caddy >= 2.6 log filters). `replace token REDACTED` also works.
+            request>uri query {
+                delete token
+            }
+        }
+    }
+}
+```
+
+`query` is parsed as a map in the Caddy log encoder, so `delete` removes only
+that key and keeps the rest (`versionId`, `jobId`, `partIndex`) — that is what
+makes the log useful. On a Caddy older than the log filter module, redact at
+collection time (Vector/filebeat) instead of leaving the URI intact. Verify with
+one ranged request and `grep token` on the log: it must show no `token=eyJ`.
+Rotate the log as usual; an unfiltered historical log contains expired tickets
+and should be purged.
+
+If a future browser flow can afford it, the same `fetch` + streaming
+`FileSystemWritableFileStream` trick avoids the URL entirely, but it cannot
+replace the anchor for a 40 GB download today.
 
 ## Resume on launch (#212)
 
@@ -202,6 +261,20 @@ serve/decompress the requested entry. Consequences:
   Cloudflare's protection; use it deliberately, keep TLS/auth, and never expose
   the Sunshine web UI or the internal Ludex port.
 
+**Field caveat (2026-11-13).** `ludex.cleeryy.cloud` resolves **directly** to
+the origin (90.14.215.218, `server: Caddy`, no `cf-ray`): there is no Cloudflare
+in front of it, so a 524 cannot occur and the "burst 524" scenario is not
+reproducible there. It needs a separate orange-cloud hostname, or the fallback
+must be tested by injecting a timeout at the proxy instead. Two related
+consequences:
+
+- **h3 from the WAN does not work**: `alt-svc: h3` is advertised, but OPNsense
+  forwards TCP 80/443 only — no UDP 443. Remote clients stay on h2; the +18%
+  measured for h3 is LAN-only. Either add the UDP 443 NAT rule (and the Caddy
+  `443:443/udp` publish) or stop presenting h3 as a remote option.
+- **No proxy buffering to blame**: a stalled classic download on that hostname
+  is a disk/CPU/server problem, not a proxy budget. Check the server first.
+
 ## Troubleshooting
 
 | Symptom | Check |
@@ -225,30 +298,45 @@ This is the matrix that closes #211 items 1 and 4. It must be run on the real
 Proxmox/Caddy/Cloudflare setup and on a second connection; automated tests
 cannot prove a WAN path.
 
-| # | Scenario | Steps | Pass criteria |
-|---|---|---|---|
-| 1 | Classic 40 GB, LAN | Install the 40 GB archive from a LAN client | Completes; `sha256`/size match; one Downloads row; elapsed time recorded |
-| 2 | Classic 40 GB, WAN | Same over the real WAN/proxy path | Same hash/size; note throughput in Mb/s |
-| 3 | 20 drops | Drop the client link 20 times during a classic install (or script `nmcli`/router toggles) | Same job id and offset after each drop; no manual Resume; completes |
-| 4 | 10-minute outage | Offline for 10 min mid-download, then restore | Retry waits (countdown visible), resumes at the same offset, completes |
-| 5 | App restart at 50 % | Kill the app at ~50 %, relaunch | Job auto-resumes at the same offset, same job id, one history row |
-| 6 | Paused across restart | Pause, quit, relaunch | Job stays paused (no auto-resume) and Resumes from the checkpoint on click |
-| 7 | Stream, 524 burst | Stream install through Cloudflare, force a 524 burst on one entry | Entries resume at the byte; after exhaustion the job retries itself; if zero bytes ever arrived it falls back to classic once, with no duplicate row |
-| 8 | Stream restart | Kill the app mid-stream, relaunch | Completed entries are skipped, the interrupted entry resumes, same job id |
-| 9 | Queue reorder | Add a second install, move it to the top, let it start | Order changes; positions survive a restart; no second row |
-| 10 | Wrong version | Install a version deleted/replaced on the server (404) | Stops immediately with a clear message; `.part` kept; no retry loop |
-| 11 | Throughput decision | Run `scripts/bench-download.sh` and the PERFORMANCE matrix; compare `aria2c -x8` | Either parallel ranges are worth a flag, or the link/disk ceiling is recorded and optimisation stops |
+**Run 2026-11-13 on v0.4.7** — "It Takes Two", 47 935 843 067 bytes, server CT
+258 (`gamevault`), Caddy v2.11.7 on CT 2010, LAN client CT 125, WAN client on a
+VPS (OVH, distinct link). Evidence is in the issue; the archive's recorded
+`content_sha256` was `7c793676…21ea`.
 
-Record for each row: job id, final offset, retry count, final hash/size,
-elapsed time, client and server/Caddy log excerpts (never a token). Close #211
-only after the table is filled in the issue.
+| # | Scenario | Status | Evidence |
+|---|---|---|---|
+| 1 | Classic 40 GB, LAN | **PASS** | 47 935 843 067 B, sha256 identical, 216 s (211.6 MB/s, half warm) |
+| 2 | Classic 40 GB, WAN | **PASS** | 47 935 843 067 B, sha256 identical, 953 s, 402 Mb/s |
+| 3 | 20 drops | **PASS** | 20 kills, 0 offset regression, exact-byte resume, final 256 s, sha256 identical |
+| 4 | 10-minute outage | **PASS** | offset frozen at 6 400 044 056 B for 600 s, same offset on resume, 310 s, sha256 identical |
+| 5 | App restart at 50 % | **NOT RUN** | needs the desktop app |
+| 6 | Paused across restart | **NOT RUN** | needs the desktop app |
+| 7 | Stream, 524 burst | **NOT REPRODUCIBLE** | hostname is DNS-direct (no Cloudflare) and no UDP 443 forward; needs a proxied test hostname |
+| 8 | Stream restart | **PARTIAL** | stream endpoints validated server-side (manifest 6 678 entries, tar 2.08 GB, entry ranges 206/416 exact); the client checkpoint needs the desktop app |
+| 9 | Queue reorder | **NOT RUN** | needs the desktop app |
+| 10 | Wrong version | **PASS** | coherent ticket + unknown `versionId` → `404 version_not_found` |
+| 11 | Throughput decision | **PASS** | LAN + cold A/B matrices; see [NETWORK-ARCHITECTURE.md](NETWORK-ARCHITECTURE.md#verdict-217-not-implemented) |
+
+Protocol checks that also passed on the same run: strong `ETag` +
+`X-Ludex-Archive-Sha256` match, `416` past EOF with `bytes */size`, matching
+`If-Range` → 206, no ticket → 401, wrong-version ticket → 403 `ticket_mismatch`,
+`invalid_job_id`/`invalid_part_index` → 400, exactly 240 requests/min then 429
+with `Retry-After`, the 9th concurrent part → 429 (`parallelPartsMax` = 8),
+ZIP manifest and entry ranges exact. The one defect found there — a bogus
+`If-Range` returned 206 — is fixed in this batch.
+
+Rows 5, 6, 8 and 9 are desktop-only; automated protocol tests cover the server
+half and the remaining half is a manual run of the app. Record for each row: job
+id, final offset, retry count, final hash/size, elapsed time, client and
+server/Caddy log excerpts (never a token). Close #211 only after the table is
+filled in the issue.
 
 ## Related
 
-- [PERFORMANCE.md](PERFORMANCE.md) — buffers, 512 KiB server chunks, Caddy
+- [PERFORMANCE.md](PERFORMANCE.md) — buffers, 1 MiB server chunks, Caddy
   config, benchmark matrix, BBR/HTTP2 notes.
 - [NETWORK-ARCHITECTURE.md](NETWORK-ARCHITECTURE.md) — direct vs proxy, VPN,
-  decision thresholds.
+  decision thresholds, the #217 verdict.
 - [CONTRACT.md](CONTRACT.md) — upload/download/stream endpoints and fields.
 - Issues: #202 queue, #203 stream resume, #204 stream drops, #205/#208 same-job
   resume, #211 field acceptance, #216 full archive SHA-256, #217 parallel

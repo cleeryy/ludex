@@ -386,7 +386,60 @@ async fn download_stream_logs_job_part_bytes_and_range() {
     assert_eq!(logged.field("range_start"), Some("100"));
     assert_eq!(logged.field("range_end"), Some("Some(199)"));
     assert_eq!(logged.field("bytes"), Some("100"));
+    // The client read every byte, so this is a completed transfer, not an
+    // abort: hyper stops polling the body after the last byte (#211, 7.4).
+    assert_eq!(
+        logged.field("outcome"),
+        Some("\"complete\""),
+        "a fully delivered range must not be logged as client_abort"
+    );
     assert!(!logged.fields.iter().any(|(name, _)| name.contains("token")));
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn a_full_archive_download_is_logged_complete() {
+    let events = captured();
+    let (server, token, game_id, version_id) = fixture().await;
+
+    let response = server
+        .client
+        .get(download_url(&server, game_id, version_id))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .expect("download");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.bytes().await.expect("body");
+    assert_eq!(body.len(), 2 * 1024 * 1024);
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let logged = loop {
+        let found = events
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|event| {
+                event.message.contains("download stream closed")
+                    && event.field("version") == Some(&format!("{}", version_id))
+                    && event.field("status") == Some("200")
+            })
+            .cloned();
+        if let Some(event) = found {
+            break event;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no complete download stream log for version {version_id}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+
+    assert_eq!(logged.field("range_start"), Some("0"));
+    assert_eq!(logged.field("range_end"), Some("Some(2097151)"));
+    assert_eq!(logged.field("bytes"), Some("2097152"));
+    assert_eq!(logged.field("outcome"), Some("\"complete\""));
 
     server.stop().await;
 }

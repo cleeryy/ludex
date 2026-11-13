@@ -9,7 +9,7 @@ use ludex_server::{start, Config, ServerHandle};
 use rand::RngCore;
 use reqwest::header::{
     ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
-    ETAG, RANGE,
+    ETAG, IF_RANGE, RANGE,
 };
 use reqwest::{Client, Method, StatusCode};
 use serde_json::{json, Value};
@@ -799,6 +799,46 @@ async fn downloads_support_tickets_ranges_and_media_cache() {
         Some(etag.as_str())
     );
     assert_eq!(response.bytes().await.expect("resumed body").len(), 100);
+
+    // `If-Range` is honoured (#211 7.5): a matching validator keeps the 206,
+    // a stale/bogus one must return the full body instead of splicing the new
+    // archive at the old offset (RFC 9110 §13.1.5).
+    let response = server
+        .client
+        .get(format!("{}{}", server.url, url))
+        .header(RANGE, "bytes=100-199")
+        .header(IF_RANGE, etag.as_str())
+        .send()
+        .await
+        .expect("if-range match");
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(response.bytes().await.expect("matched body").len(), 100);
+
+    let response = server
+        .client
+        .get(format!("{}{}", server.url, url))
+        .header(RANGE, "bytes=100-199")
+        .header(IF_RANGE, "\"bogus-etag-xyz\"")
+        .send()
+        .await
+        .expect("if-range mismatch");
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "a stale If-Range must restart from zero, not splice"
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok()),
+        None,
+        "a full 200 has no Content-Range"
+    );
+    assert_eq!(
+        response.bytes().await.expect("full body").len() as u64,
+        file_size
+    );
 
     let response = server
         .client
