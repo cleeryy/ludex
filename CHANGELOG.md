@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-11-13
+
 ### Documentation
 
 - Added [docs/DOWNLOADS.md](docs/DOWNLOADS.md): classic vs stream installs,
