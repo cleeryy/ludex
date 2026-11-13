@@ -55,13 +55,15 @@ export function PowerApp({
                 type="button"
                 data-system-active={selected ? "true" : undefined}
                 data-gamepad-target="true"
+                data-bp-zone-item="true"
+                data-bp-zone-active={selected ? "true" : undefined}
                 aria-current={selected ? "true" : undefined}
                 aria-disabled={action.enabled ? undefined : "true"}
                 aria-label={`${action.label} — ${action.enabled ? action.detail : action.reason ?? action.detail}`}
                 onPointerEnter={() => onHighlight(index)}
                 onClick={() => onChoose(index)}
                 className={cn(
-                  "group relative flex min-h-[128px] w-full flex-col justify-between gap-4 border p-4 text-start transition-[background-color,border-color,opacity] duration-150",
+                  "group relative flex min-h-[128px] w-full flex-col justify-between gap-4 border p-4 text-start",
                   selected
                     ? danger
                       ? "border-danger bg-surface-2"

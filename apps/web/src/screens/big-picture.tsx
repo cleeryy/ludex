@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Download, Play } from "lucide-react";
 import { api } from "@/lib/api";
 import { downloadGame } from "@/lib/download";
@@ -36,6 +36,16 @@ import {
 } from "@/components/big-picture/controller";
 import { cueForCommand } from "@/components/big-picture/cues";
 import { useBigPicturePrefs } from "@/components/big-picture/use-controller-prefs";
+import {
+  createTransitionHub,
+  cueForMotion,
+  exitOf,
+  INSTANT_HOLD_MS,
+  motionDebugEnabled,
+  transitionOf,
+  type MotionKind,
+} from "@/components/big-picture/motion";
+import { MotionProbe } from "@/components/big-picture/motion-probe";
 import {
   hintContextFor,
   routeGamepadAction,
@@ -209,6 +219,20 @@ export function BigPictureScreen() {
   const reduceMotion = useReducedMotion();
   const columns = gridColumns(useViewportWidth());
 
+  // #220: one motion hub for the whole screen. Every transition announces
+  // itself here before the state change, so the next press can cut the old
+  // tween and the dev probe can report what actually ran. The hub never gates
+  // input: `accepts()` is always true and the animation is replaced on the
+  // next frame.
+  const transitions = useRef(createTransitionHub()).current;
+  // A held key or a repeated pad direction lands on the final frame instead of
+  // restarting the move. The ref is set by the input handler before the state
+  // update that renders the transition; the effect clears it after the commit.
+  const heldInput = useRef(false);
+  const instantTimer = useRef<number | undefined>(undefined);
+  // `?motionDebug=1`: the probe reads the top-level query and the hash query.
+  const debugMotion = motionDebugEnabled();
+
   // #198: one emitter for every cue. The sound always plays; haptics only when
   // the press came from a pad, so a keyboard or mouse never rumbles. The
   // manager collapses a double emission inside the cue's repeat gap.
@@ -219,6 +243,19 @@ export function BigPictureScreen() {
     uiSound.play(cue);
     if (padGesture.current) pulseRef.current(cue);
   }, []);
+
+  /**
+   * Starts a transition and speaks its cue exactly once, at the motion start
+   * the cue describes (#220). Surfaces own their cue now; the command router
+   * only speaks for movement.
+   */
+  const beginMotion = useCallback(
+    (kind: MotionKind, instant = heldInput.current) => {
+      transitions.begin(kind, { instant });
+      emit(cueForMotion(kind));
+    },
+    [emit, transitions],
+  );
 
   // #138 controller-first state: the open overlay, its highlight, the couch
   // search query (debounced by the filter below) and the device-local profile
@@ -244,6 +281,30 @@ export function BigPictureScreen() {
   // it only ever applies inside this screen.
   const rootRef = useRef<HTMLDivElement>(null);
   usePointerIdle(rootRef);
+
+  // #220: the held/repeat flag is read during the render the input caused, then
+  // cleared once that commit is on screen. `data-bp-instant` lives until the
+  // fallback timer removes it: it must outlive the commit's style resolution,
+  // so a held direction lands at its final scale instead of starting a tween.
+  const instantMotion = heldInput.current;
+  useEffect(() => {
+    heldInput.current = false;
+  });
+  useEffect(
+    () => () => {
+      if (instantTimer.current !== undefined) window.clearTimeout(instantTimer.current);
+    },
+    [],
+  );
+
+  // A layout switch animates; a remount with the same layout (returning from an
+  // app, a language change) must not. The witness is read during render and
+  // advanced after commit.
+  const layoutSeen = useRef(layout);
+  const layoutSwitched = layoutSeen.current !== layout;
+  useLayoutEffect(() => {
+    layoutSeen.current = layout;
+  }, [layout]);
 
   // The audio context is created suspended and resumed on the first gesture;
   // a browser that refuses it simply stays silent. Every cue is decoded in
@@ -407,6 +468,7 @@ export function BigPictureScreen() {
     columns,
     data: data?.items,
     reduceMotion,
+    instant: instantMotion,
   });
   const selected = nav.selected;
 
@@ -699,7 +761,7 @@ export function BigPictureScreen() {
   };
 
   const openApp = (id: "settings" | "power") => {
-    emit("openGroup");
+    beginMotion("screenPush");
     setOverlay(null);
     setZone("library");
     setAppIndex(0);
@@ -708,7 +770,7 @@ export function BigPictureScreen() {
   };
 
   const closeApp = () => {
-    emit("closeGroup");
+    beginMotion("screenPop");
     setPendingPower(null);
     setAppIndex(0);
     syncLevelUrl(closeSystemApp());
@@ -716,7 +778,7 @@ export function BigPictureScreen() {
   };
 
   const selectSettingsSection = (next: SettingsSectionId) => {
-    emit("tabChange");
+    beginMotion("settings");
     setSettingsSection(next);
     setAppIndex(0);
     syncLevelUrl({ kind: "app", id: "settings" }, next);
@@ -906,7 +968,7 @@ export function BigPictureScreen() {
       void runPower(action);
       return;
     }
-    emit("confirm");
+    beginMotion("powerConfirm");
     setPendingPower({ action, index: powerConfirmActive() });
   };
 
@@ -960,12 +1022,12 @@ export function BigPictureScreen() {
     setPickerIndex(index);
   }, []);
   const openPicker = () => {
-    emit("overlayOpen");
+    beginMotion("overlayOpen");
     highlightPicker(Math.max(0, BIG_PICTURE_LAYOUTS.indexOf(layout)));
     setPickerOpen(true);
   };
   const closePicker = () => {
-    if (pickerOpen) emit("overlayClose");
+    if (pickerOpen) beginMotion("overlayClose");
     setPickerOpen(false);
   };
 
@@ -975,7 +1037,7 @@ export function BigPictureScreen() {
       emit("back");
       return;
     }
-    emit("confirm");
+    beginMotion("layout");
     setLayout(next);
     // A manual switch must not replay the #142 cascade: the new view mounts
     // settled, keeping the entrance to one per open.
@@ -989,7 +1051,7 @@ export function BigPictureScreen() {
   /* ------------------------------- overlays ------------------------------- */
 
   const openOverlay = (next: BigPictureOverlay) => {
-    emit("overlayOpen");
+    beginMotion("overlayOpen");
     overlayReturnRef.current =
       level.kind === "app" ? "app" : zone === "home" ? "home" : zone === "actions" ? "actions" : "library";
     setOverlay(next);
@@ -1009,7 +1071,7 @@ export function BigPictureScreen() {
   const closeOverlay = (refocus = true) => {
     // A transition to another surface (menu → search) is not a close: the new
     // surface plays its own open cue.
-    if (refocus && overlay) emit("overlayClose");
+    if (refocus && overlay) beginMotion("overlayClose");
     setOverlay(null);
     if (!refocus) return;
     const target = overlayReturnRef.current;
@@ -1158,21 +1220,24 @@ export function BigPictureScreen() {
   };
 
   const runCommand = (command: BigPictureCommand) => {
-    // #198: the command table decides the cue, before execution, from the
-    // state the press was made in. An edge press is silent because `moved` is
-    // false; the action a command triggers may add its own cue (confirm then
-    // launch), and the manager collapses identical repeats.
-    const view = {
-      moved:
-        command.type === "move"
-          ? nav.willMove(command.direction)
-          : command.type === "highlight"
-            ? overlayWillMove(command.direction)
-            : false,
-      overlayOpen: overlay !== null,
-      appOpen: level.kind === "app",
-    };
-    emit(cueForCommand(command, view));
+    // #198: the command table decides the movement cue, before execution, from
+    // the state the press was made in. An edge press is silent because `moved`
+    // is false. #220: surfaces own their own cue now, so the router no longer
+    // announces an overlay or an app; it only records the motion it starts.
+    const moved =
+      command.type === "move"
+        ? nav.willMove(command.direction)
+        : command.type === "highlight"
+          ? overlayWillMove(command.direction)
+          : false;
+    emit(cueForCommand(command, { moved }));
+    if (moved && (command.type === "move" || command.type === "highlight")) {
+      transitions.begin("focus", { instant: heldInput.current });
+    } else if (command.type === "shelf") {
+      transitions.begin("shelf", { instant: heldInput.current });
+    } else if (command.type === "page") {
+      transitions.begin("page", { instant: heldInput.current });
+    }
     switch (command.type) {
       case "move": {
         // The step model returns the zone the press belongs to when the game
@@ -1325,8 +1390,24 @@ export function BigPictureScreen() {
   // A pad press owns the cue's haptics for the length of this synchronous
   // dispatch; every other path (keyboard, mouse, a deferred event) leaves the
   // flag false and therefore never rumbles.
-  const onGamepad = (action: GamepadAction, source: ActionSource | null) => {
+  const onGamepad = (action: GamepadAction, source: ActionSource | null, repeated = false) => {
     padGesture.current = true;
+    // #220: the pad's auto-repeat is a held direction, not a new press.
+    heldInput.current = repeated;
+    if (repeated) {
+      rootRef.current?.setAttribute("data-bp-instant", "true");
+      if (instantTimer.current !== undefined) window.clearTimeout(instantTimer.current);
+      instantTimer.current = window.setTimeout(() => {
+        heldInput.current = false;
+        rootRef.current?.removeAttribute("data-bp-instant");
+      }, INSTANT_HOLD_MS);
+    } else {
+      rootRef.current?.removeAttribute("data-bp-instant");
+      if (instantTimer.current !== undefined) {
+        window.clearTimeout(instantTimer.current);
+        instantTimer.current = undefined;
+      }
+    }
     try {
       handleGamepad(action, source);
     } finally {
@@ -1644,8 +1725,9 @@ export function BigPictureScreen() {
         if (target) nav.selectGame(target.shelf, target.index);
         setZone("library");
         if (installed.has(recentGame.id)) {
-          // The launch cue plays when the mutation resolves; a second confirm
-          // here would only double the press.
+          // The launch cue plays when the mutation resolves; the press itself
+          // gets its confirm, not a second open.
+          emit("confirm");
           void startGame(recentGame);
         } else {
           emit("confirm");
@@ -1734,6 +1816,26 @@ export function BigPictureScreen() {
     const onKey = (event: KeyboardEvent) => {
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       const key = event.key;
+
+      // #220: a held key (auto-repeat) lands on the final frame; a fresh press
+      // animates. The attribute covers the CSS focus move for this commit only.
+      heldInput.current = event.repeat;
+      if (event.repeat) {
+        rootRef.current?.setAttribute("data-bp-instant", "true");
+        if (instantTimer.current !== undefined) window.clearTimeout(instantTimer.current);
+        instantTimer.current = window.setTimeout(() => {
+          // A key the DOM owns (typing) never commits; clear the flag anyway so
+          // the next click or selection is not treated as a hold.
+          heldInput.current = false;
+          rootRef.current?.removeAttribute("data-bp-instant");
+        }, INSTANT_HOLD_MS);
+      } else {
+        rootRef.current?.removeAttribute("data-bp-instant");
+        if (instantTimer.current !== undefined) {
+          window.clearTimeout(instantTimer.current);
+          instantTimer.current = undefined;
+        }
+      }
 
       // The console quit chord (#172) wins over every screen shortcut: it is
       // the only way back to the desktop when Sunshine owns the session.
@@ -1917,6 +2019,7 @@ export function BigPictureScreen() {
     layout,
     columns,
     reduceMotion,
+    instant: instantMotion,
     settled: entranceDone || layoutTouched,
     detail: detail.data,
     installed,
@@ -1964,6 +2067,7 @@ export function BigPictureScreen() {
     connected: gamepad.connected,
     family: padFamilyName,
     reduceMotion,
+    instant: instantMotion,
     onClose: () => closeOverlay(),
   };
 
@@ -1991,6 +2095,7 @@ export function BigPictureScreen() {
       onHighlight={setHomeIndex}
       onChoose={activateHome}
       placement={homePlacement}
+      settled={entranceDone || layoutTouched}
     />
   );
 
@@ -2020,34 +2125,75 @@ export function BigPictureScreen() {
             <div className="pointer-events-auto">{homeRow}</div>
           </div>
         )}
-        {level.kind === "app" && level.id === "settings" ? (
-          <SettingsApp
-            section={settingsSection}
-            rows={settingsRows}
-            active={appIndex}
-            accountName={user?.username ?? null}
-            accountAvatar={user?.avatarUrl ?? null}
-            serverLabel={serverLabel}
-            version={__APP_VERSION__}
-            padLabel={
-              gamepad.connected
-                ? `${padFamilyLabel(padFamilyName)} · ${activeProfile.name}`
-                : t("No controller detected.")
-            }
-            onSelectSection={selectSettingsSection}
-            onHighlight={setAppIndex}
-            onActivate={activateSetting}
-          />
-        ) : level.kind === "app" && level.id === "power" ? (
-          <PowerApp
-            actions={power}
-            active={appIndex}
-            onHighlight={setAppIndex}
-            onChoose={choosePower}
-          />
-        ) : (
-          body
-        )}
+        {/*
+          #220: two stacking layers, not a remount. The library stays mounted
+          under a system app, so a push slides the opaque app screen over it and
+          a pop reveals the same selection without rebuilding the covers. The
+          library is `inert` while an app owns the ring; the exiting app has
+          `pointer-events: none`, so the next press lands on the library at once.
+        */}
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div
+            className="absolute inset-0 flex min-h-0 flex-col"
+            data-bp-screen="library"
+            aria-hidden={level.kind === "app" ? true : undefined}
+            inert={level.kind === "app" ? true : undefined}
+          >
+            <motion.div
+              key={layout}
+              className="flex min-h-0 flex-1 flex-col"
+              data-bp-layout={layout}
+              {...transitionOf("layout", { reduce: reduceMotion, instant: instantMotion })}
+              initial={
+                layoutSwitched
+                  ? transitionOf("layout", { reduce: reduceMotion, instant: instantMotion }).initial
+                  : false
+              }
+            >
+              {body}
+            </motion.div>
+          </div>
+          <AnimatePresence initial={false}>
+            {level.kind === "app" && (
+              <motion.div
+                key={level.id}
+                className="absolute inset-0 z-10 flex min-h-0 flex-col bg-bg-deep"
+                data-bp-screen={level.id}
+                {...transitionOf("screenPush", { reduce: reduceMotion, instant: instantMotion })}
+                {...exitOf("screenPop", { reduce: reduceMotion, instant: instantMotion })}
+              >
+                {level.id === "settings" ? (
+                  <SettingsApp
+                    section={settingsSection}
+                    rows={settingsRows}
+                    active={appIndex}
+                    accountName={user?.username ?? null}
+                    accountAvatar={user?.avatarUrl ?? null}
+                    serverLabel={serverLabel}
+                    version={__APP_VERSION__}
+                    padLabel={
+                      gamepad.connected
+                        ? `${padFamilyLabel(padFamilyName)} · ${activeProfile.name}`
+                        : t("No controller detected.")
+                    }
+                    reduceMotion={reduceMotion}
+                    instant={instantMotion}
+                    onSelectSection={selectSettingsSection}
+                    onHighlight={setAppIndex}
+                    onActivate={activateSetting}
+                  />
+                ) : (
+                  <PowerApp
+                    actions={power}
+                    active={appIndex}
+                    onHighlight={setAppIndex}
+                    onChoose={choosePower}
+                  />
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </main>
 
       {level.kind === "library" && homePlacement === "dock" && homeRow}
@@ -2061,123 +2207,138 @@ export function BigPictureScreen() {
         haptics={haptics}
       />
 
-      {overlay === "menu" && (
-        <CommandMenu
-          {...overlayShell}
-          context="menu"
-          active={overlayIndex}
-          onHighlight={setOverlayIndex}
-          onChoose={(index) => {
-            setOverlayIndex(index);
-            activateOverlay(index);
-          }}
-          downloads={downloads.activeCount}
-        />
-      )}
-      {overlay === "downloads" && (
-        <DownloadsOverlay
-          {...overlayShell}
-          context="downloads"
-          active={overlayIndex}
-          onHighlight={setOverlayIndex}
-          onChoose={(index) => {
-            setOverlayIndex(index);
-            activateOverlay(index);
-          }}
-          jobs={downloads.active}
-          titleFor={downloads.titleFor}
-        />
-      )}
-      {overlay === "profiles" && (
-        <ProfileOverlay
-          {...overlayShell}
-          context="profiles"
-          active={overlayIndex}
-          onHighlight={setOverlayIndex}
-          onChoose={(index) => {
-            setOverlayIndex(index);
-            activateOverlay(index);
-          }}
-          options={profileChoices}
-          selectedId={selectedProfile.id}
-          profile={activeProfile}
-          haptics={prefs.haptics}
-          strength={prefs.hapticsStrength}
-        />
-      )}
-      {overlay === "search" && (
-        <SearchOverlay
-          {...overlayShell}
-          context="search"
-          inputRef={searchInputRef}
-          query={query}
-          onQuery={setQuery}
-          rows={rows}
-          active={searchIndex}
-          onHighlight={setSearchIndex}
-          onChoose={(index) => {
-            setSearchIndex(index);
-            // The highlight may still be the previous index inside this handler;
-            // choose the cell that was actually clicked.
-            const cell = cells[index];
-            if (!cell) return;
-            if (cell.kind === "key") {
-              typeSearchKey(cell.key);
-              return;
-            }
-            pickResult(cell.game.id);
-          }}
-        />
-      )}
+      <AnimatePresence initial={false}>
+        {overlay === "menu" && (
+          <CommandMenu
+            key="menu"
+            {...overlayShell}
+            context="menu"
+            active={overlayIndex}
+            onHighlight={setOverlayIndex}
+            onChoose={(index) => {
+              setOverlayIndex(index);
+              activateOverlay(index);
+            }}
+            downloads={downloads.activeCount}
+          />
+        )}
+        {overlay === "downloads" && (
+          <DownloadsOverlay
+            key="downloads"
+            {...overlayShell}
+            context="downloads"
+            active={overlayIndex}
+            onHighlight={setOverlayIndex}
+            onChoose={(index) => {
+              setOverlayIndex(index);
+              activateOverlay(index);
+            }}
+            jobs={downloads.active}
+            titleFor={downloads.titleFor}
+          />
+        )}
+        {overlay === "profiles" && (
+          <ProfileOverlay
+            key="profiles"
+            {...overlayShell}
+            context="profiles"
+            active={overlayIndex}
+            onHighlight={setOverlayIndex}
+            onChoose={(index) => {
+              setOverlayIndex(index);
+              activateOverlay(index);
+            }}
+            options={profileChoices}
+            selectedId={selectedProfile.id}
+            profile={activeProfile}
+            haptics={prefs.haptics}
+            strength={prefs.hapticsStrength}
+          />
+        )}
+        {overlay === "search" && (
+          <SearchOverlay
+            key="search"
+            {...overlayShell}
+            context="search"
+            inputRef={searchInputRef}
+            query={query}
+            onQuery={setQuery}
+            rows={rows}
+            active={searchIndex}
+            onHighlight={setSearchIndex}
+            onChoose={(index) => {
+              setSearchIndex(index);
+              // The highlight may still be the previous index inside this handler;
+              // choose the cell that was actually clicked.
+              const cell = cells[index];
+              if (!cell) return;
+              if (cell.kind === "key") {
+                typeSearchKey(cell.key);
+                return;
+              }
+              pickResult(cell.game.id);
+            }}
+          />
+        )}
 
-      {overlay === "collections" && (
-        <CollectionsOverlay
-          {...overlayShell}
-          context="collections"
-          active={overlayIndex}
-          onHighlight={setOverlayIndex}
-          onChoose={(index) => {
-            setOverlayIndex(index);
-            activateOverlay(index);
-          }}
-          collections={collections}
-          loading={collectionsQuery.isPending}
-          error={collectionsQuery.isError ? errorMessage(collectionsQuery.error) : null}
-          onRetry={() => void collectionsQuery.refetch()}
-        />
-      )}
-      {pendingPower && (
-        <ConfirmPanel
-          title={pendingPower.action.label}
-          detail={pendingPower.action.detail}
-          confirmLabel={pendingPower.action.label}
-          tone={pendingPower.action.tone === "danger" ? "danger" : undefined}
-          active={pendingPower.index}
-          onHighlight={(index) => setPendingPower((current) => (current ? { ...current, index } : current))}
-          onChoose={chooseConfirm}
-          context="exit"
-          layout={layout}
-          connected={gamepad.connected}
-          family={padFamilyName}
-          reduceMotion={reduceMotion}
-          onClose={() => setPendingPower(null)}
-        />
-      )}
+        {overlay === "collections" && (
+          <CollectionsOverlay
+            key="collections"
+            {...overlayShell}
+            context="collections"
+            active={overlayIndex}
+            onHighlight={setOverlayIndex}
+            onChoose={(index) => {
+              setOverlayIndex(index);
+              activateOverlay(index);
+            }}
+            collections={collections}
+            loading={collectionsQuery.isPending}
+            error={collectionsQuery.isError ? errorMessage(collectionsQuery.error) : null}
+            onRetry={() => void collectionsQuery.refetch()}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence initial={false}>
+        {pendingPower && (
+          <ConfirmPanel
+            key="power-confirm"
+            title={pendingPower.action.label}
+            detail={pendingPower.action.detail}
+            confirmLabel={pendingPower.action.label}
+            tone={pendingPower.action.tone === "danger" ? "danger" : undefined}
+            active={pendingPower.index}
+            onHighlight={(index) => setPendingPower((current) => (current ? { ...current, index } : current))}
+            onChoose={chooseConfirm}
+            context="exit"
+            layout={layout}
+            connected={gamepad.connected}
+            family={padFamilyName}
+            reduceMotion={reduceMotion}
+            instant={instantMotion}
+            onClose={() => setPendingPower(null)}
+          />
+        )}
+      </AnimatePresence>
 
       {version && detail.data && (
         <InstallDialog open={installOpen} onOpenChange={setInstallOpen} game={detail.data} version={version} />
       )}
       {debug && <GamepadDebugPanel info={gamepad.debug} />}
-      {pickerOpen && (
-        <LayoutPicker
-          layout={layout}
-          highlight={pickerIndex}
-          reduceMotion={reduceMotion}
-          onHighlight={highlightPicker}
-          onSelect={applyLayout}
-          onClose={closePicker}
-        />
-      )}
+      {debugMotion && <MotionProbe transitions={transitions} />}
+      <AnimatePresence initial={false}>
+        {pickerOpen && (
+          <LayoutPicker
+            key="layout-picker"
+            layout={layout}
+            highlight={pickerIndex}
+            reduceMotion={reduceMotion}
+            onHighlight={highlightPicker}
+            onSelect={applyLayout}
+            onClose={closePicker}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

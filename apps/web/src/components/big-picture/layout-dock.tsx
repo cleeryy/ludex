@@ -3,6 +3,8 @@ import { ArtPlate } from "@/components/art/cover";
 import { t } from "@/lib/i18n";
 import { BACKDROP_CUE, CARD_CUE, COPY_CUE, cardDelay, reveal } from "./entrance";
 import type { BigPictureLayoutProps } from "./model";
+import { transitionOf } from "./motion";
+import { useChangeWitness } from "./use-change-witness";
 import { ActionRow, MetaLine, ProgressLine, RailCard, SelectedEyebrow } from "./parts";
 
 /**
@@ -14,6 +16,7 @@ import { ActionRow, MetaLine, ProgressLine, RailCard, SelectedEyebrow } from "./
 export function DockLayout({
   nav,
   reduceMotion,
+  instant,
   settled,
   detail,
   installed,
@@ -21,8 +24,15 @@ export function DockLayout({
   percent,
   primary,
 }: BigPictureLayoutProps) {
+  const shelfChanged = useChangeWitness(nav.shelf?.id);
   const game = nav.selected;
   if (!game) return null;
+
+  const shelfFrame = transitionOf("shelf", {
+    reduce: reduceMotion,
+    instant,
+    direction: nav.shelfDirection,
+  });
 
   return (
     <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden" aria-label={t("Games")}>
@@ -60,7 +70,12 @@ export function DockLayout({
         </motion.div>
 
         <div className="bp-pad-x">
-          <div className="bp-rail bp-rail-dock nav-scroll flex items-end gap-[clamp(0.75rem,1.5vw,1.75rem)] overflow-x-auto">
+          <motion.div
+            key={nav.shelf?.id ?? "shelf"}
+            className="bp-rail bp-rail-dock nav-scroll flex items-end gap-[clamp(0.75rem,1.5vw,1.75rem)] overflow-x-auto"
+            {...shelfFrame}
+            initial={shelfChanged ? shelfFrame.initial : false}
+          >
             {nav.games.map((entry, position) => (
               <motion.div
                 key={entry.id}
@@ -82,7 +97,7 @@ export function DockLayout({
                 />
               </motion.div>
             ))}
-          </div>
+          </motion.div>
         </div>
       </div>
     </section>

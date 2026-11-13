@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { Gamepad2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
@@ -22,7 +23,9 @@ import {
   type HintId,
   type PadFamily,
 } from "./controller";
+import { reveal } from "./entrance";
 import type { BigPictureLayout } from "./layout";
+import { BOOT_DELAY, BOOT_DURATION } from "./motion";
 import type { BigPictureNavigation } from "./navigation";
 
 /* --------------------------------------------------------------------------
@@ -230,7 +233,7 @@ export function RailCard({
       aria-current={selected ? "true" : undefined}
       aria-label={game.title}
       className={cn(
-        "group relative shrink-0 rounded-[2px] text-start transition-[transform,opacity] duration-150",
+        "group relative shrink-0 rounded-[2px] text-start bp-focus-move",
         selected ? look.selected : look.idle,
         className,
       )}
@@ -287,7 +290,11 @@ export function GridCard({
       aria-label={game.title}
       className="group relative flex w-full min-w-0 flex-col gap-1.5 text-start"
     >
-      <div className="relative block">
+      <div
+        className="relative block"
+        data-bp-zone-item="true"
+        data-bp-zone-active={selected ? "true" : undefined}
+      >
         <GameCover title={game.title} coverUrl={game.coverUrl} index={game.id} showType={false} />
         {selected && <FocusRing />}
         {installed && <InstalledDot />}
@@ -454,12 +461,14 @@ export function BigPictureFooter({
   haptics: boolean;
   className?: string;
 }) {
+  const reduceMotion = useReducedMotion();
   return (
-    <footer
+    <motion.footer
       className={cn(
         "relative flex min-h-10 shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-t border-line bg-bg-deep py-1.5 bp-pad-x text-[10.5px] text-ink-3",
         className,
       )}
+      {...reveal(reduceMotion, { y: 6, delay: BOOT_DELAY.footer, duration: BOOT_DURATION })}
     >
       <HintStrip context={context} layout={layout} connected={connected} family={family} />
       <span className="ms-auto hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] xl:flex">
@@ -475,6 +484,6 @@ export function BigPictureFooter({
           t("Keyboard only — connect a controller for couch navigation")
         )}
       </span>
-    </footer>
+    </motion.footer>
   );
 }

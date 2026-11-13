@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import {
   BatteryCharging,
   BatteryFull,
@@ -17,6 +18,8 @@ import { t, useI18n } from "@/lib/i18n";
 import type { User } from "@/lib/types";
 import { Wordmark } from "@/components/brand";
 import { UserAvatar } from "@/components/community/user-avatar";
+import { reveal } from "./entrance";
+import { BOOT_DELAY, BOOT_DURATION } from "./motion";
 
 /* --------------------------------------------------------------------------
    The console system bar (#196).
@@ -111,11 +114,13 @@ export function SystemBar({
   const { meta } = useI18n();
   const clock = useMinuteClock(meta.intl);
   const name = user?.username ?? null;
+  const reduceMotion = useReducedMotion();
 
   return (
-    <header
+    <motion.header
       aria-label={t("System")}
       className="relative z-20 flex h-[var(--bp-bar-h)] shrink-0 items-stretch border-b border-line bg-bg-deep bp-pad-x"
+      {...reveal(reduceMotion, { y: 6, delay: BOOT_DELAY.bar, duration: BOOT_DURATION })}
     >
       <div className="flex min-w-0 items-center gap-3">
         <Wordmark height={17} />
@@ -187,6 +192,6 @@ export function SystemBar({
           <Power className="size-3.5 text-signal-text" aria-hidden="true" />
         </Slot>
       </div>
-    </header>
+    </motion.header>
   );
 }

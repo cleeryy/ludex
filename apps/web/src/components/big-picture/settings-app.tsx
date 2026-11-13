@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { motion } from "motion/react";
 import {
   Cast,
   ChevronLeft,
@@ -12,6 +13,7 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { UserAvatar } from "@/components/community/user-avatar";
 import { Kbd } from "@/components/ui/controls";
+import { transitionOf } from "./motion";
 import { SETTINGS_SECTIONS, type SettingsSectionId } from "./system-zones";
 
 /* --------------------------------------------------------------------------
@@ -74,6 +76,8 @@ export function SettingsApp({
   serverLabel,
   version,
   padLabel,
+  reduceMotion,
+  instant,
   onSelectSection,
   onHighlight,
   onActivate,
@@ -86,6 +90,9 @@ export function SettingsApp({
   serverLabel: string | null;
   version: string;
   padLabel: string;
+  reduceMotion: boolean | null;
+  /** A held shoulder switched sections: land on the final frame. */
+  instant: boolean;
   onSelectSection: (section: SettingsSectionId) => void;
   onHighlight: (index: number) => void;
   onActivate: (index: number) => void;
@@ -157,70 +164,75 @@ export function SettingsApp({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1 bp-pad-x">
-        {rows.length === 0 ? (
-          <p className="px-1 py-8 text-center text-[13px] text-ink-3">{t("Unavailable")}</p>
-        ) : (
-          <ul>
-            {rows.map((row, index) => {
-              const selected = row === current;
-              const disabled = row.disabled === true;
-              return (
-                <li key={row.id}>
-                  <button
-                    type="button"
-                    data-system-active={selected ? "true" : undefined}
-                    data-gamepad-target="true"
-                    aria-current={selected ? "true" : undefined}
-                    aria-disabled={disabled ? "true" : undefined}
-                    aria-label={row.value ? `${row.label}: ${row.value}` : row.label}
-                    onPointerEnter={() => onHighlight(index)}
-                    onClick={() => onActivate(index)}
-                    className={cn(
-                      "flex min-h-[58px] w-full items-center gap-4 border-b border-line px-2 py-2.5 text-start transition-colors duration-100 sm:min-h-[64px] sm:px-3",
-                      selected && "border-signal bg-surface-2",
-                      !selected && "hover:bg-surface/50",
-                      disabled && "opacity-55",
-                    )}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[14px] font-medium text-ink">{row.label}</span>
-                      <span className="mt-0.5 block truncate text-[11px] leading-relaxed text-ink-3">
-                        {disabled && row.reason ? row.reason : row.detail}
+        <motion.div
+          key={section}
+          {...transitionOf("settings", { reduce: reduceMotion, instant })}
+        >
+          {rows.length === 0 ? (
+            <p className="px-1 py-8 text-center text-[13px] text-ink-3">{t("Unavailable")}</p>
+          ) : (
+            <ul>
+              {rows.map((row, index) => {
+                const selected = row === current;
+                const disabled = row.disabled === true;
+                return (
+                  <li key={row.id}>
+                    <button
+                      type="button"
+                      data-system-active={selected ? "true" : undefined}
+                      data-gamepad-target="true"
+                      aria-current={selected ? "true" : undefined}
+                      aria-disabled={disabled ? "true" : undefined}
+                      aria-label={row.value ? `${row.label}: ${row.value}` : row.label}
+                      onPointerEnter={() => onHighlight(index)}
+                      onClick={() => onActivate(index)}
+                      className={cn(
+                        "flex min-h-[58px] w-full items-center gap-4 border-b border-line px-2 py-2.5 text-start transition-colors duration-100 sm:min-h-[64px] sm:px-3",
+                        selected && "border-signal bg-surface-2",
+                        !selected && "hover:bg-surface/50",
+                        disabled && "opacity-55",
+                      )}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[14px] font-medium text-ink">{row.label}</span>
+                        <span className="mt-0.5 block truncate text-[11px] leading-relaxed text-ink-3">
+                          {disabled && row.reason ? row.reason : row.detail}
+                        </span>
                       </span>
-                    </span>
-                    <span className="flex shrink-0 items-center justify-end gap-2">
-                      {row.kind === "choice" && (
-                        <span className="flex items-center gap-1.5 border border-line bg-bg-deep px-2 py-1 text-[12px] text-ink-2">
-                          <ChevronLeft className={cn("size-3.5", disabled ? "text-ink-3/50" : "text-ink-3")} aria-hidden="true" />
-                          <span className="min-w-[9ch] max-w-[18ch] truncate text-center">{row.value}</span>
-                          <ChevronRight className={cn("size-3.5", disabled ? "text-ink-3/50" : "text-ink-3")} aria-hidden="true" />
-                        </span>
-                      )}
-                      {row.kind === "toggle" && (
-                        <span
-                          className={cn(
-                            "border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.1em]",
-                            row.value === t("On")
-                              ? "border-signal text-signal-text"
-                              : "border-line text-ink-3",
-                          )}
-                        >
-                          {row.value}
-                        </span>
-                      )}
-                      {row.kind === "action" && (
-                        <span className="flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-ink-3">
-                          {t("Select")}
-                          <CornerDownLeft className="size-3.5" aria-hidden="true" />
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+                      <span className="flex shrink-0 items-center justify-end gap-2">
+                        {row.kind === "choice" && (
+                          <span className="flex items-center gap-1.5 border border-line bg-bg-deep px-2 py-1 text-[12px] text-ink-2">
+                            <ChevronLeft className={cn("size-3.5", disabled ? "text-ink-3/50" : "text-ink-3")} aria-hidden="true" />
+                            <span className="min-w-[9ch] max-w-[18ch] truncate text-center">{row.value}</span>
+                            <ChevronRight className={cn("size-3.5", disabled ? "text-ink-3/50" : "text-ink-3")} aria-hidden="true" />
+                          </span>
+                        )}
+                        {row.kind === "toggle" && (
+                          <span
+                            className={cn(
+                              "border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.1em]",
+                              row.value === t("On")
+                                ? "border-signal text-signal-text"
+                                : "border-line text-ink-3",
+                            )}
+                          >
+                            {row.value}
+                          </span>
+                        )}
+                        {row.kind === "action" && (
+                          <span className="flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-ink-3">
+                            {t("Select")}
+                            <CornerDownLeft className="size-3.5" aria-hidden="true" />
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </motion.div>
       </div>
 
       <dl className="grid shrink-0 grid-cols-2 gap-x-6 gap-y-2 border-t border-line bg-bg-deep/40 py-3 bp-pad-x md:grid-cols-4">

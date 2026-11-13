@@ -15,6 +15,8 @@ export interface BigPictureLayoutProps {
   /** `gridColumns(viewport width)`: also the grid's up/down step. */
   columns: number;
   reduceMotion: boolean | null;
+  /** A held or auto-repeated input: transitions land on the final frame. */
+  instant: boolean;
   /** The #142 cascade already played: a layout switch mounts settled. */
   settled: boolean;
   /** Detail for the selected game only; other cards use the summary fields. */

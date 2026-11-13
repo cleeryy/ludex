@@ -1,7 +1,10 @@
 import type { ComponentType } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { Download, Layers, Library, Play, Power, Settings } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { reveal } from "./entrance";
+import { BOOT_DELAY, BOOT_DURATION } from "./motion";
 import { HOME_ITEM_IDS, type HomeItemId } from "./system-zones";
 
 /* --------------------------------------------------------------------------
@@ -56,6 +59,8 @@ function HomeButton({
     type: "button" as const,
     "data-home-active": selected ? "true" : undefined,
     "data-gamepad-target": "true",
+    "data-bp-zone-item": "true",
+    "data-bp-zone-active": selected ? "true" : undefined,
     "aria-current": selected ? ("true" as const) : undefined,
     "aria-disabled": item.disabled ? ("true" as const) : undefined,
     "aria-label": `${label()} — ${item.detail}`,
@@ -68,7 +73,7 @@ function HomeButton({
       <button
         {...common}
         className={cn(
-          "inline-flex h-[max(40px,calc(var(--bp-u)*48))] w-full items-center gap-2 border px-3 text-start transition-colors duration-150",
+          "inline-flex h-[max(40px,calc(var(--bp-u)*48))] w-full items-center gap-2 border px-3 text-start",
           selected
             ? "border-signal bg-surface-2 text-ink"
             : "border-transparent text-ink-2 hover:border-line hover:bg-surface/60",
@@ -86,14 +91,18 @@ function HomeButton({
       <button
         {...common}
         className={cn(
-          "group flex min-w-[64px] flex-col items-center gap-1 px-2 py-1.5 transition-colors duration-150",
+          "group flex min-w-[64px] flex-col items-center gap-1 px-2 py-1.5",
           selected ? "text-signal-text" : "text-stage-ink-2 hover:text-stage-ink",
           item.disabled && "opacity-60",
         )}
       >
         <Icon className="size-[22px] shrink-0" aria-hidden="true" />
         <span className="max-w-[14ch] truncate font-mono text-[10px] uppercase tracking-[0.08em]">{shortLabel()}</span>
-        <span aria-hidden="true" className={cn("h-[2px] w-6", selected ? "bg-signal" : "bg-transparent")} />
+        <span
+          aria-hidden="true"
+          data-bp-zone-underline="true"
+          className="h-[2px] w-6 origin-center bg-signal"
+        />
       </button>
     );
   }
@@ -102,7 +111,7 @@ function HomeButton({
     <button
       {...common}
       className={cn(
-        "group relative flex h-[var(--bp-home-h)] w-full min-w-0 flex-col justify-between border p-2.5 text-start transition-[background-color,border-color,opacity] duration-150 sm:p-3",
+        "group relative flex h-[var(--bp-home-h)] w-full min-w-0 flex-col justify-between border p-2.5 text-start sm:p-3",
         selected ? "border-signal bg-surface-2" : "border-line bg-bg-deep/60 hover:border-line-2 hover:bg-surface/60",
         item.disabled && "opacity-60",
       )}
@@ -121,7 +130,11 @@ function HomeButton({
           {item.detail}
         </span>
       </span>
-      {selected && <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] bg-signal" />}
+      <span
+        aria-hidden="true"
+        data-bp-zone-underline="true"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] origin-center bg-signal"
+      />
     </button>
   );
 }
@@ -133,6 +146,7 @@ export function HomeRow({
   onHighlight,
   onChoose,
   placement = "row",
+  settled = false,
 }: {
   active: number;
   focused: boolean;
@@ -141,10 +155,18 @@ export function HomeRow({
   onChoose: (index: number) => void;
   /** Where the shell draws the row; the layout decides, not the row. */
   placement?: HomeRowVariant;
+  /** The #142 cascade already played: re-enter without replaying it. */
+  settled?: boolean;
 }) {
+  const reduceMotion = useReducedMotion();
+  const boot = reveal(reduceMotion, { y: 6, delay: BOOT_DELAY.home, duration: BOOT_DURATION, settled });
   if (placement === "dock") {
     return (
-      <nav aria-label={t("System")} className="relative z-10 shrink-0 border-t border-line bg-bg-deep bp-pad-x">
+      <motion.nav
+        aria-label={t("System")}
+        className="relative z-10 shrink-0 border-t border-line bg-bg-deep bp-pad-x"
+        {...boot}
+      >
         <ul className="nav-scroll flex items-stretch gap-1 overflow-x-auto py-1.5">
           {HOME_ITEM_IDS.map((id, index) => (
             <li key={id} className="min-w-0 shrink-0">
@@ -160,13 +182,13 @@ export function HomeRow({
             </li>
           ))}
         </ul>
-      </nav>
+      </motion.nav>
     );
   }
 
   if (placement === "overlay") {
     return (
-      <nav aria-label={t("System")} className="relative z-10">
+      <motion.nav aria-label={t("System")} className="relative z-10" {...boot}>
         <ul className="flex items-center gap-0.5">
           {HOME_ITEM_IDS.map((id, index) => (
             <li key={id} className="min-w-0">
@@ -182,12 +204,16 @@ export function HomeRow({
             </li>
           ))}
         </ul>
-      </nav>
+      </motion.nav>
     );
   }
 
   return (
-    <nav aria-label={t("System")} className="relative z-10 shrink-0 border-b border-line bg-bg-deep pb-2 pt-2 bp-pad-x">
+    <motion.nav
+      aria-label={t("System")}
+      className="relative z-10 shrink-0 border-b border-line bg-bg-deep pb-2 pt-2 bp-pad-x"
+      {...boot}
+    >
       <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {HOME_ITEM_IDS.map((id, index) => (
           <li key={id} className="min-w-0">
@@ -203,6 +229,6 @@ export function HomeRow({
           </li>
         ))}
       </ul>
-    </nav>
+    </motion.nav>
   );
 }

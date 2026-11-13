@@ -52,6 +52,8 @@ export interface BigPictureNavigation {
   games: GameSummary[];
   index: number;
   selected: GameSummary | undefined;
+  /** Travel sign of the last shelf jump, for the shared shelf transition. */
+  shelfDirection: 1 | -1;
   /** Registers a card in the active layout; positions are per shelf. */
   cardRef: (position: number) => (element: HTMLButtonElement | null) => void;
   setIndex: (index: number) => void;
@@ -83,6 +85,8 @@ export interface BigPictureNavigationOptions {
   /** Query identity for the game list; a refresh re-resolves the selected slot. */
   data: unknown;
   reduceMotion: boolean | null;
+  /** A held key or repeated pad direction scrolls instantly, not smoothly. */
+  instant?: boolean;
 }
 
 export function useBigPictureNavigation({
@@ -91,9 +95,11 @@ export function useBigPictureNavigation({
   columns,
   data,
   reduceMotion,
+  instant = false,
 }: BigPictureNavigationOptions): BigPictureNavigation {
   const [rawShelfIndex, setRawShelfIndex] = useState(0);
   const [rawIndex, setRawIndex] = useState(0);
+  const [shelfDirection, setShelfDirection] = useState<1 | -1>(1);
 
   const shelfIndex = resolveShelfIndex(rawShelfIndex, shelves.length);
   const shelf = shelves[shelfIndex];
@@ -114,6 +120,7 @@ export function useBigPictureNavigation({
     (next: number) => {
       const clamped = clampIndex(next, shelves.length);
       if (clamped === shelfIndex) return;
+      setShelfDirection(clamped > shelfIndex ? 1 : -1);
       setRawShelfIndex(clamped);
       setRawIndex(0);
     },
@@ -129,10 +136,11 @@ export function useBigPictureNavigation({
   const selectGame = useCallback(
     (nextShelf: number, nextIndex: number) => {
       const target = clampIndex(nextShelf, shelves.length);
+      if (target !== shelfIndex) setShelfDirection(target > shelfIndex ? 1 : -1);
       setRawShelfIndex(target);
       setRawIndex(clampIndex(nextIndex, shelves[target]?.games.length ?? 0));
     },
-    [shelves],
+    [shelves, shelfIndex],
   );
 
   const switchShelf = useCallback(
@@ -208,11 +216,13 @@ export function useBigPictureNavigation({
   // only scrolls the container that actually clips the card.
   useEffect(() => {
     cardRefs.current[index]?.scrollIntoView({
-      behavior: reduceMotion ? "auto" : "smooth",
+      // A held direction repeats faster than a smooth scroll can settle; land
+      // on the card instead of chasing the highlight frame by frame.
+      behavior: reduceMotion || instant ? "auto" : "smooth",
       inline: "center",
       block: "nearest",
     });
-  }, [index, shelfIndex, layout, reduceMotion]);
+  }, [index, shelfIndex, layout, reduceMotion, instant]);
 
   const cardRef = useCallback(
     (position: number) => (element: HTMLButtonElement | null) => {
@@ -246,6 +256,7 @@ export function useBigPictureNavigation({
     games,
     index,
     selected,
+    shelfDirection,
     cardRef,
     setIndex,
     switchShelf,
