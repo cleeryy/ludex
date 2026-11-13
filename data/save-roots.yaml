@@ -23,9 +23,15 @@
 #   {company} {publisher} {windows_user} {bundle}
 #     Enumerated one level below the current directory, bounded by `limits`.
 #     `{bundle}` only keeps names that contain a title token (macOS containers).
+#
+# An engine is either title-scoped by a placeholder in each of its patterns, or
+# gated with `titles:`. A title-less pattern (`{home}/.minecraft/saves`) applies
+# to one game family only, so it must name the games it belongs to and is not
+# expanded for any other title (#215). Validation rejects a title-less engine
+# without `titles`.
 
 version: 1
-updated: "2026-11-11"
+updated: "2026-11-13"
 
 # Provenance tags accepted on candidates, highest priority first. `manifest` and
 # `manual` are produced by saves_detect; the resolver produces the others.
@@ -280,7 +286,12 @@ engines:
   - id: minecraft
     label: Minecraft
     provenance: engine
-    confidence: likely
+    # Java/Bedrock share one launcher folder, so the layout is not per-game and
+    # has no title placeholder. It is only expanded for the titles below, and it
+    # stays a guess: the folder belongs to the launcher, not to one save slot
+    # (#215).
+    confidence: guess
+    titles: ["Minecraft"]
     patterns:
       windows:
         - "{roaming_app_data}/.minecraft/saves"

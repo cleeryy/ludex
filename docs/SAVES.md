@@ -73,6 +73,21 @@ segments or placeholders:
 | `{windows_user}` | A user folder inside a Proton prefix. |
 | `{bundle}` | A macOS container whose bundle id contains the title. |
 
+An engine is title-scoped by construction: every pattern contains a title
+placeholder (`{product}`, `{project}`, `{game}`, or a title-bearing `{bundle}`).
+A layout shared by a whole game family instead of a single title — the
+Minecraft launcher (`{home}/.minecraft/saves`,
+`{roaming_app_data}/.minecraft/saves`,
+`{flatpak_apps}/com.mojang.Minecraft/.minecraft/saves`) — declares
+`titles: ["Minecraft"]` and is only expanded when the game title matches one of
+them. Edition words such as "Java Edition" or "Bedrock Edition" match; spin-offs
+with their own save layout ("Minecraft Dungeons", "Minecraft Legends") do not.
+Registry validation rejects a pattern without a title placeholder when its
+engine does not declare `titles` (#215), so one shared folder can never become a
+candidate for every installed game again. The Minecraft layout stays a `guess`:
+the folder belongs to the launcher, not to one save slot, so it waits for a
+confirmation or a session.
+
 Steam `remotecache.vdf` is the store ground truth when the game has an app id
 and a Steam userdata folder. Its `WinSavedGames`, `WinMyDocuments`,
 `WinAppDataLocal`, `WinAppDataLocalLow`, `WinAppDataRoaming`,
@@ -117,7 +132,8 @@ behaviour, and a confirmed candidate is folded into the next snapshot.
 1. Edit `data/save-roots.yaml`. Windows folders need a `FOLDERID_*` id and a
    GUID when `api: true`; never add an `env` entry for Saved Games or LocalLow.
 2. Keep every pattern at most `max_depth` segments below its root and use only
-   the placeholders above.
+   the placeholders above. A pattern without a title placeholder must declare
+   the `titles` it belongs to; there is no untitled fallback.
 3. Add a fixture in `saves_registry.rs` that creates the layout and asserts the
    root id, source and confidence. A malformed registry fails the test suite
    before a release build.

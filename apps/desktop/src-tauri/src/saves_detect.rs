@@ -3465,6 +3465,95 @@ mod tests {
     }
 
     #[test]
+    fn a_minecraft_folder_is_not_offered_to_another_game() {
+        let fixture = fixture("saves-minecraft-guard");
+        let minecraft = fixture.home.join(".minecraft/saves/world");
+        fs::create_dir_all(&minecraft).unwrap();
+        fs::write(minecraft.join("level.dat"), b"level").unwrap();
+
+        // Hades: the shared launcher folder is neither a save path nor a
+        // candidate, and it produces no warning (#215).
+        let detection = detect(&fixture.env, &fixture.game, &[]);
+        assert!(
+            detection
+                .candidates
+                .iter()
+                .all(|candidate| !candidate.path.contains(".minecraft")),
+            "{:?}",
+            detection
+                .candidates
+                .iter()
+                .map(|candidate| candidate.path.clone())
+                .collect::<Vec<_>>()
+        );
+        assert!(detection
+            .warnings
+            .iter()
+            .all(|warning| !warning.contains("Minecraft")));
+        assert!(detection.saves.is_empty());
+
+        // Minecraft itself still gets it, as a labelled guess that waits.
+        let mut game = fixture.game.clone();
+        game.title = "Minecraft: Java Edition".to_string();
+        let detection = detect(&fixture.env, &game, &[]);
+        let candidate = detection
+            .candidates
+            .iter()
+            .find(|candidate| candidate.path.contains(".minecraft"))
+            .expect("Minecraft candidate");
+        assert_eq!(candidate.source, saves_registry::SOURCE_ENGINE);
+        assert_eq!(candidate.confidence, saves_registry::CONFIDENCE_GUESS);
+        assert!(detection.saves.is_empty(), "{:?}", detection.saves);
+    }
+
+    #[test]
+    fn an_ignored_candidate_is_never_promoted() {
+        let root = temp_root("promote-ignored");
+        let guard = guard_for(&root, 0);
+        let saves = root.join("home/.minecraft/saves");
+        fs::create_dir_all(saves.join("world")).unwrap();
+        fs::write(saves.join("world/level.dat"), b"level").unwrap();
+
+        // A path the user confirmed is high confidence and would be promoted.
+        let candidate = || SaveCandidate {
+            path: saves.to_string_lossy().to_string(),
+            kind: "directory".to_string(),
+            root_id: "home".to_string(),
+            subpath: ".minecraft/saves".to_string(),
+            source: saves_registry::SOURCE_OVERRIDE.to_string(),
+            confidence: saves_registry::CONFIDENCE_CERTAIN.to_string(),
+            evidence: "Observed override for Minecraft".to_string(),
+            confirmed: true,
+            ..SaveCandidate::default()
+        };
+
+        let mut detection = Detection {
+            candidates: vec![candidate()],
+            ..Detection::default()
+        };
+        assert_eq!(auto_promote_detected(&mut detection, &guard, &[]), 1);
+
+        // Once dismissed, the candidate is skipped and never becomes a save
+        // path, even though its evidence did not change (#215).
+        let mut dismissed = Detection {
+            candidates: vec![candidate()],
+            ..Detection::default()
+        };
+        let ignored = vec![saves.to_string_lossy().to_string()];
+        assert_eq!(auto_promote_detected(&mut dismissed, &guard, &ignored), 0);
+        assert!(dismissed.saves.is_empty());
+        assert_eq!(
+            dismissed.candidates[0].auto_status,
+            CANDIDATE_STATUS_SKIPPED
+        );
+        assert_eq!(
+            dismissed.candidates[0].auto_reason.as_deref(),
+            Some("You ignored this folder.")
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn a_manifest_save_is_not_repeated_as_a_candidate() {
         let fixture = fixture("saves-candidate-dedupe");
         let save_dir = fixture.home.join(".config/Hades");
@@ -3793,6 +3882,27 @@ mod tests {
         fs::create_dir_all(&save).unwrap();
         let measured = measure_path(&save, SNAPSHOT_BUDGET);
         assert!(guard.check(&save, "directory", &measured).is_ok());
+
+        // A dotfolder that is a known folder root is rejected by name, so a
+        // broad `.config`/`.local/share` can never be auto-promoted (#180,
+        // #215).
+        fs::create_dir_all(root.join("home/.config")).unwrap();
+        fs::create_dir_all(root.join("home/.local/share")).unwrap();
+        let dot_root = PromotionGuard::from_parts(
+            root.join("home"),
+            vec![root.join("home/.config"), root.join("home/.local/share")],
+            None,
+            0,
+        );
+        let dot_error = dot_root
+            .check(&root.join("home/.config"), "directory", &empty)
+            .unwrap_err();
+        assert!(dot_error.contains(".config"), "{dot_error}");
+        let xdg_error = dot_root
+            .check(&root.join("home/.local/share"), "directory", &empty)
+            .unwrap_err();
+        assert!(xdg_error.contains("known"), "{xdg_error}");
+        assert!(xdg_error.contains("share"), "{xdg_error}");
 
         // A missing folder is never promoted.
         assert!(guard
