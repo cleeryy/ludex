@@ -41,8 +41,9 @@ application backed by PostgreSQL. Ludex takes a different route:
 - **One binary.** Rust + axum + SQLite. No Node runtime, no PostgreSQL,
   no Redis. `docker run` with three volumes is the whole deployment.
 - **Fast where it matters.** Scanning is a `stat` + extension walk, metadata is
-  fetched in the background, and downloads use HTTP Range so a dropped
-  connection resumes instead of restarting.
+  fetched in the background, and downloads use HTTP Range with stall detection,
+  automatic reconnect and a resumable queue. A dropped connection resumes at
+  the last byte instead of restarting, and the queue can be reordered.
 - **The same UI everywhere.** The web app and the Tauri desktop app share one
   React codebase; native install/launch/playtime are detected at runtime.
 - **Your files stay yours.** The library is a folder of `.zip`, `.rar`, `.7z`
@@ -62,17 +63,18 @@ application backed by PostgreSQL. Ludex takes a different route:
 | Search, genre/state/bookmark filters, sorting, pagination | v0.1 |
 | Bookmarks, progress states, playtime, last played | v0.1 |
 | Multiple versions per game | v0.1 |
-| Download with HTTP Range, resumable, short-lived tickets | v0.1 |
+| Classic download: HTTP Range, `.part` resume, stall detection, bounded reconnect | v0.4 |
 | Ingest queue: URL download only (no web upload in v0.1), resume, magic-byte detection, verify | v0.1 |
-| Downloads manager: queue/history, background installs, cancel/resume | v0.2 |
+| Downloads manager: persisted queue, reorder/priority, pause/resume/cancel, one active install | v0.4 |
 | Custom install and download folders | v0.2 |
-| Stream install for ZIP and 7z (no archive retained) | v0.2 |
+| Stream install: per-entry ZIP resume, retries, automatic classic fallback | v0.4 |
 | Big Picture mode (keyboard/gamepad) | v0.2 |
 | SSO OIDC (Authentik/Keycloak) | v0.2 |
 | Higher-resolution IGDB covers/backgrounds | v0.2 |
 | Web UI served by the server | v0.1 |
 | Users and roles (`admin`, `editor`, `user`) | v0.1 |
 | News posts | v0.1 |
+| Admin: games manager, library health, observability, backups | v0.4 |
 | Desktop app: Windows and Linux, install/launch/playtime | v0.1 (beta) |
 | Local mode: desktop runs the server in-process | v0.1 |
 | Docker image and Compose example | v0.1 |
@@ -97,7 +99,8 @@ The API is documented in [`docs/CONTRACT.md`](docs/CONTRACT.md), integrations
 [`docs/STORAGE.md`](docs/STORAGE.md), backup/restore in
 [`docs/BACKUP.md`](docs/BACKUP.md), achievements and local providers in
 [`docs/ACHIEVEMENTS.md`](docs/ACHIEVEMENTS.md), ROM libraries and emulators in
-[`docs/EMULATORS.md`](docs/EMULATORS.md), the design in
+[`docs/EMULATORS.md`](docs/EMULATORS.md), downloads and resume in
+[`docs/DOWNLOADS.md`](docs/DOWNLOADS.md), the design in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), translations, themes and the
 PWA in [`docs/I18N.md`](docs/I18N.md), the honest GameVault comparison in
 [`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md), and remote access (VPN,

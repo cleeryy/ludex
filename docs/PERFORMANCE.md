@@ -3,6 +3,8 @@
 How Ludex moves a game archive from the server to the desktop, where the
 ceiling can be, and how to measure it (#194). The reconnect behaviour that
 keeps a large transfer alive is documented in the same procedure (#195).
+User-facing behaviour, resume semantics and the 524 troubleshooting are in
+[DOWNLOADS.md](DOWNLOADS.md).
 
 The network-layer decision — direct vs Caddy, HTTP/2 vs HTTP/1.1 vs HTTP/3,
 `aria2c`, `iperf3`, BBR — lives in

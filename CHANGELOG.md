@@ -6,6 +6,13 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Documentation
+
+- Added [docs/DOWNLOADS.md](docs/DOWNLOADS.md): classic vs stream installs,
+  `.part`/per-entry resume, queue ordering, stall/backoff behavior, Cloudflare
+  524 troubleshooting and the 40 GB field acceptance matrix; the README feature
+  table and `docs/PERFORMANCE.md` link to it (#211).
+
 ## [0.4.4] - 2026-11-13
 
 ### Added
