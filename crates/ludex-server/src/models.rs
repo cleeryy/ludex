@@ -94,6 +94,8 @@ pub struct VersionRow {
     pub missing: i64,
     pub root_unavailable: i64,
     pub archive_hash: Option<String>,
+    /// Full SHA-256 of the archive (#216); `None` until the background job ran.
+    pub content_sha256: Option<String>,
     pub indexed_at: Option<String>,
     pub updated_at: Option<String>,
     /// `local` or `s3` (#47).
@@ -122,6 +124,10 @@ pub struct GameVersionInfo {
     pub early_access: bool,
     /// Cheap archive fingerprint, `null` until computed.
     pub archive_hash: Option<String>,
+    /// Full SHA-256 of the archive (#216), `null` while a legacy row awaits
+    /// the background hash job.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_sha256: Option<String>,
     /// When the scanner first indexed the row.
     pub indexed_at: Option<DateTime<Utc>>,
     /// Last time the row changed.
@@ -629,6 +635,9 @@ pub struct FeatureFlags {
     pub local_mode: bool,
     /// OIDC SSO available.
     pub oidc: bool,
+    /// Full archive SHA-256 published per version (#216). Always true in this
+    /// build; clients use it to know the header/field can be trusted.
+    pub archive_sha256: bool,
 }
 
 /// `GET /api/config` response.

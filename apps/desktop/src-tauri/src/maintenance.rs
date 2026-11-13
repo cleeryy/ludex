@@ -637,9 +637,51 @@ pub async fn repair_install(app: &AppHandle, game_id: i64) -> Result<RepairRepor
         .await;
 
         match result {
-            Ok(()) => {
-                archive = Some(part.clone());
-                downloaded = true;
+            Ok(report) => {
+                // Repair extracts over the install: verify the replacement
+                // archive first, using the digest the server advertised on the
+                // response (#216).
+                match crate::archive_verify::verify_download(
+                    &part,
+                    report.served_sha256.as_deref(),
+                    report.sha256.as_deref(),
+                    report.served_sha256.as_deref(),
+                ) {
+                    Ok(crate::archive_verify::ArchiveVerdict::Verified(digest)) => {
+                        tracing::info!(
+                            game_id,
+                            sha256 = %digest,
+                            "repair archive verified against the server SHA-256"
+                        );
+                        archive = Some(part.clone());
+                        downloaded = true;
+                    }
+                    Ok(crate::archive_verify::ArchiveVerdict::Unverified) => {
+                        archive = Some(part.clone());
+                        downloaded = true;
+                    }
+                    Ok(crate::archive_verify::ArchiveVerdict::Mismatch(mismatch)) => {
+                        let _ = tokio::fs::remove_file(&part).await;
+                        return Ok(fallback_report(
+                            game_id,
+                            verify,
+                            format!(
+                                "The downloaded repair archive failed SHA-256 verification ({}). Reinstall the game instead.",
+                                mismatch.message(&installed.title)
+                            ),
+                        ));
+                    }
+                    Err(error) => {
+                        let _ = tokio::fs::remove_file(&part).await;
+                        return Ok(fallback_report(
+                            game_id,
+                            verify,
+                            format!(
+                                "The downloaded repair archive could not be verified ({error}). Reinstall the game instead."
+                            ),
+                        ));
+                    }
+                }
             }
             Err(failure) => {
                 return Ok(fallback_report(

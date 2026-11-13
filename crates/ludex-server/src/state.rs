@@ -64,6 +64,8 @@ pub struct AppState {
     pub achievement_busy: Arc<AtomicBool>,
     /// Guards against two concurrent backup, verify or restore runs (#169).
     pub backup_busy: Arc<AtomicBool>,
+    /// Full archive SHA-256 backfill state (#216).
+    pub content_hashes: Arc<crate::content_hash::ContentHasher>,
     /// Game archive storage (local disk or S3-compatible bucket).
     pub storage: ArchiveStorage,
     /// In-process Prometheus registry.
@@ -237,6 +239,7 @@ impl AppState {
             library_health_busy: Arc::new(AtomicBool::new(false)),
             achievement_busy: Arc::new(AtomicBool::new(false)),
             backup_busy: Arc::new(AtomicBool::new(false)),
+            content_hashes: Arc::new(crate::content_hash::ContentHasher::default()),
             storage,
             metrics: Arc::new(Metrics::default()),
             ingest: None,

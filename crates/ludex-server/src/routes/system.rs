@@ -217,6 +217,7 @@ async fn config(State(state): State<AppState>) -> Result<Json<ServerConfig>, Api
             ingest: true,
             local_mode: state.config.local_mode,
             oidc: oidc.is_some(),
+            archive_sha256: true,
         },
         max_upload_bytes: MAX_JSON_BYTES as u64,
         oidc_display_name: oidc.as_ref().map_or_else(

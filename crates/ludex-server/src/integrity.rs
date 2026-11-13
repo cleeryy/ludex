@@ -313,12 +313,18 @@ async fn check_archives(
         };
         match expected_hash {
             None => {
-                db::query("UPDATE game_versions SET content_hash = ? WHERE id = ?")
-                    .bind(&digest)
-                    .bind(version_id)
-                    .execute(&state.pool)
-                    .await
-                    .context("record archive hash baseline")?;
+                // The integrity pass already read every byte: store the full
+                // SHA-256 too so the background job (#216) has nothing to do.
+                db::query(
+                    "UPDATE game_versions SET content_hash = ?,
+                        content_sha256 = COALESCE(content_sha256, ?) WHERE id = ?",
+                )
+                .bind(&digest)
+                .bind(&digest)
+                .bind(version_id)
+                .execute(&state.pool)
+                .await
+                .context("record archive hash baseline")?;
             }
             Some(expected) if expected != digest => {
                 record_finding(

@@ -479,8 +479,8 @@ pub(crate) async fn fetch_detail(
     // Only available ones are offered for download.
     let versions = db::query_as::<VersionRow>(
         "SELECT id, root_id, file_path, file_name, size, version, release_date,
-                early_access, missing, root_unavailable, archive_hash, indexed_at, updated_at,
-                storage_backend, object_key, etag
+                early_access, missing, root_unavailable, archive_hash, content_sha256,
+                indexed_at, updated_at, storage_backend, object_key, etag
          FROM game_versions WHERE game_id = ?
          ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC",
     )
@@ -500,6 +500,7 @@ pub(crate) async fn fetch_detail(
             release_date: version.release_date.as_deref().and_then(db::parse_time),
             early_access: version.early_access != 0,
             archive_hash: version.archive_hash,
+            content_sha256: version.content_sha256,
             updated_at: version.updated_at.as_deref().and_then(db::parse_time),
             missing: version.missing != 0,
             root_unavailable: version.root_unavailable != 0,
@@ -580,6 +581,7 @@ async fn latest_version(
         version_label: row.version,
         file_name: row.file_name,
         archive_hash: row.archive_hash,
+        content_sha256: row.content_sha256,
         archive_size: row.size,
         updated_at: row.updated_at.as_deref().and_then(db::parse_time),
         early_access: row.early_access != 0,
@@ -922,8 +924,8 @@ pub(crate) async fn remove_game(
 
     let versions = db::query_as::<VersionRow>(
         "SELECT id, root_id, file_path, file_name, size, version, release_date,
-                early_access, missing, root_unavailable, archive_hash, indexed_at, updated_at,
-                storage_backend, object_key, etag
+                early_access, missing, root_unavailable, archive_hash, content_sha256,
+                indexed_at, updated_at, storage_backend, object_key, etag
          FROM game_versions WHERE game_id = ? ORDER BY id",
     )
     .bind(game_id)
@@ -1102,8 +1104,8 @@ pub(crate) async fn delete_game_rows(state: &AppState, game_id: i64) -> Result<(
 async fn fetch_versions(state: &AppState, game_id: i64) -> Result<GameVersionsResponse, ApiError> {
     let rows = db::query_as::<VersionRow>(
         "SELECT id, root_id, file_path, file_name, size, version, release_date,
-                early_access, missing, root_unavailable, archive_hash, indexed_at, updated_at,
-                storage_backend, object_key, etag
+                early_access, missing, root_unavailable, archive_hash, content_sha256,
+                indexed_at, updated_at, storage_backend, object_key, etag
          FROM game_versions WHERE game_id = ?
          ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC",
     )
@@ -1125,6 +1127,7 @@ async fn fetch_versions(state: &AppState, game_id: i64) -> Result<GameVersionsRe
                 release_date: row.release_date.as_deref().and_then(db::parse_time),
                 early_access: row.early_access != 0,
                 archive_hash: row.archive_hash,
+                content_sha256: row.content_sha256,
                 indexed_at: row.indexed_at.as_deref().and_then(db::parse_time),
                 updated_at: row.updated_at.as_deref().and_then(db::parse_time),
                 missing: row.missing != 0,
@@ -1606,6 +1609,7 @@ async fn download_local(
             parts.headers.insert(header::ETAG, value);
         }
     }
+    insert_archive_sha256(&mut parts.headers, version);
     let status = parts.status.as_u16();
     let range_start = parts
         .headers
@@ -1626,6 +1630,23 @@ fn file_etag(metadata: &std::fs::Metadata) -> Option<String> {
     let modified = metadata.modified().ok()?;
     let since = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
     Some(format!("\"{:x}-{:x}\"", metadata.len(), since.as_nanos()))
+}
+
+/// Publishes the full archive SHA-256 on a download or stream response (#216).
+///
+/// The value is the one stored in `game_versions.content_sha256`; a legacy row
+/// without one simply omits the header, and clients fall back to the payload
+/// field (also `null`) to decide whether verification is possible.
+fn insert_archive_sha256(headers: &mut HeaderMap, version: &VersionRow) {
+    let Some(digest) = version.content_sha256.as_deref() else {
+        return;
+    };
+    if let Ok(value) = HeaderValue::from_str(digest) {
+        headers.insert(
+            HeaderName::from_static(crate::content_hash::ARCHIVE_SHA256_HEADER),
+            value,
+        );
+    }
 }
 
 /// Start offset of `Content-Range: bytes <start>-<end>/<total>`.
@@ -1824,6 +1845,9 @@ async fn download_from_storage(
     if let Ok(value) = HeaderValue::from_str(&disposition) {
         builder = builder.header(header::CONTENT_DISPOSITION, value);
     }
+    if let Some(digest) = version.content_sha256.as_deref() {
+        builder = builder.header(crate::content_hash::ARCHIVE_SHA256_HEADER, digest);
+    }
     let length = match object.range {
         Some((start, end)) => {
             builder = builder.header(
@@ -2016,7 +2040,7 @@ async fn stream_version(
     let disposition = HeaderValue::from_str(&content_disposition(&file_name))
         .map_err(|_| ApiError::internal())?;
 
-    Response::builder()
+    let mut builder = Response::builder()
         .status(StatusCode::OK)
         .header(
             header::CONTENT_TYPE,
@@ -2033,7 +2057,11 @@ async fn stream_version(
         .header(
             HeaderName::from_static("x-accel-buffering"),
             HeaderValue::from_static("no"),
-        )
+        );
+    if let Some(digest) = version.content_sha256.as_deref() {
+        builder = builder.header(crate::content_hash::ARCHIVE_SHA256_HEADER, digest);
+    }
+    builder
         .body(archive_tar_body(path, tar_size, cleanup))
         .map_err(|_| ApiError::internal())
 }
@@ -2689,8 +2717,8 @@ async fn fetch_version(
 ) -> Result<VersionRow, ApiError> {
     db::query_as::<VersionRow>(
         "SELECT id, root_id, file_path, file_name, size, version, release_date,
-                early_access, missing, root_unavailable, archive_hash, indexed_at, updated_at,
-                storage_backend, object_key, etag
+                early_access, missing, root_unavailable, archive_hash, content_sha256,
+                indexed_at, updated_at, storage_backend, object_key, etag
          FROM game_versions WHERE id = ? AND game_id = ?",
     )
     .bind(version_id)
@@ -2882,6 +2910,7 @@ mod tests {
             missing: 0,
             root_unavailable: 0,
             archive_hash: None,
+            content_sha256: None,
             indexed_at: None,
             updated_at: None,
             storage_backend: Some(backend.to_string()),

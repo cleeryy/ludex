@@ -1,6 +1,7 @@
 //! Ludex desktop application (Tauri 2).
 
 mod adopt;
+mod archive_verify;
 mod bridge;
 mod chrome;
 mod commands;

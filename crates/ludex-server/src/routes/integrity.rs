@@ -8,6 +8,7 @@ use serde::Deserialize;
 
 use crate::audit::actions;
 use crate::auth::AuthUser;
+use crate::content_hash::{self, ContentHashStatus};
 use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, ApiQuery, JsonBody};
@@ -21,6 +22,42 @@ pub fn router() -> Router<AppState> {
         .route("/integrity/check", post(check))
         .route("/integrity/reports", get(list))
         .route("/integrity/reports/{id}", get(read))
+        .route(
+            "/integrity/content-hashes",
+            get(content_hashes).post(start_content_hashes),
+        )
+}
+
+/// `GET /api/integrity/content-hashes` — full archive hash backfill state
+/// (#216). Admin only: it exposes nothing beyond counts, but it belongs with
+/// the other integrity screens.
+async fn content_hashes(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<Json<ContentHashStatus>, ApiError> {
+    user.require_admin_access()?;
+    let mut status = state.content_hashes.status();
+    status.pending = content_hash::pending_count(&state).await;
+    Ok(Json(status))
+}
+
+/// Starts a full backfill in the background. `202` when the run was queued;
+/// `200` with the live status when a run was already active (nothing is lost:
+/// the active run keeps picking up pending rows).
+async fn start_content_hashes(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<(StatusCode, Json<ContentHashStatus>), ApiError> {
+    user.require_admin_access()?;
+    let started = content_hash::schedule(&state, 0);
+    let mut status = state.content_hashes.status();
+    status.pending = content_hash::pending_count(&state).await;
+    let code = if started {
+        StatusCode::ACCEPTED
+    } else {
+        StatusCode::OK
+    };
+    Ok((code, Json(status)))
 }
 
 async fn check(

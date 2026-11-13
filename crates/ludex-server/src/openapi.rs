@@ -1207,6 +1207,22 @@ pub const ROUTES: &[RouteDoc] = &[
         Auth::Session,
         Payload::Schema("IntegrityReportDetail"),
     ),
+    route(
+        HttpMethod::Get,
+        "/integrity/content-hashes",
+        "Integrity",
+        "Read the full archive hash backfill state (#216)",
+        Auth::Admin,
+        Payload::Schema("ContentHashStatus"),
+    ),
+    route(
+        HttpMethod::Post,
+        "/integrity/content-hashes",
+        "Integrity",
+        "Start a full archive hash backfill (#216)",
+        Auth::Admin,
+        Payload::Schema("ContentHashStatus"),
+    ),
     // Backups (#169)
     route(
         HttpMethod::Get,
@@ -2828,6 +2844,7 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::models::IntegrityReportDetail>()
         .schema_from::<crate::integrity::IntegrityReport>()
         .schema_from::<crate::integrity::IntegrityFinding>()
+        .schema_from::<crate::content_hash::ContentHashStatus>()
         .schema_from::<crate::models::CreateNewsRequest>()
         .schema_from::<crate::models::UpdateNewsRequest>()
         .schema_from::<crate::models::SaveSnapshot>()

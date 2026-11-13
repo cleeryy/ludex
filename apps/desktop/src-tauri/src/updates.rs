@@ -258,6 +258,7 @@ mod tests {
             version_label: Some("1.1".into()),
             file_name: "Hades (2020) v1.1.zip".into(),
             archive_hash: hash.map(str::to_string),
+            content_sha256: None,
             archive_size: 10,
             updated_at: None,
             early_access: false,

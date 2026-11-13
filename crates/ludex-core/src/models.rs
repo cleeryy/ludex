@@ -269,6 +269,10 @@ pub struct GameVersion {
     /// [`crate::fingerprint`]. `null` until the server has computed it.
     #[serde(default)]
     pub archive_hash: Option<String>,
+    /// Full SHA-256 of the archive bytes (#216). `null` for legacy rows the
+    /// background job has not reached yet; those stay downloadable unverified.
+    #[serde(default)]
+    pub content_sha256: Option<String>,
     /// Last time this version row changed (indexed, renamed or re-hashed).
     #[serde(default)]
     pub updated_at: Option<DateTime<Utc>>,
@@ -298,6 +302,9 @@ pub struct LatestVersion {
     pub file_name: String,
     /// Cheap archive fingerprint, `null` until computed.
     pub archive_hash: Option<String>,
+    /// Full SHA-256 of the archive bytes (#216), `null` while pending.
+    #[serde(default)]
+    pub content_sha256: Option<String>,
     /// Archive size in bytes.
     pub archive_size: i64,
     /// When the version row was last updated.
@@ -571,6 +578,7 @@ mod tests {
                 release_date: None,
                 early_access: false,
                 archive_hash: Some("sha256-sample:abc".into()),
+                content_sha256: None,
                 updated_at: None,
                 missing: false,
                 root_unavailable: false,

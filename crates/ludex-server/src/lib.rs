@@ -15,7 +15,7 @@ use axum::http::header::{
     ACCEPT, ACCEPT_RANGES, AUTHORIZATION, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE,
     CONTENT_TYPE, IF_RANGE, RANGE,
 };
-use axum::http::{HeaderValue, Request};
+use axum::http::{HeaderName, HeaderValue, Request};
 use axum::Router;
 use ludex_core::models::Role;
 use rand::RngCore;
@@ -36,6 +36,7 @@ pub mod collection_share;
 pub mod collections;
 pub mod community;
 pub mod config;
+pub mod content_hash;
 pub mod controller_profiles;
 pub mod db;
 pub mod desktop_download;
@@ -301,6 +302,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
         library_health_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         achievement_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         backup_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        content_hashes: Arc::new(content_hash::ContentHasher::default()),
         storage: ArchiveStorage::from_config(&config),
         metrics: Arc::new(metrics::Metrics::default()),
         ingest: Some(ingest_handle),
@@ -472,6 +474,9 @@ fn cors_layer() -> CorsLayer {
             ACCEPT_RANGES,
             CONTENT_LENGTH,
             CONTENT_DISPOSITION,
+            // Full archive SHA-256 (#216): browser clients verify downloads
+            // from the same origin they already fetched the version from.
+            HeaderName::from_static(content_hash::ARCHIVE_SHA256_HEADER),
         ])
 }
 
