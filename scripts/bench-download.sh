@@ -72,6 +72,26 @@ redact_url() {
   printf '%s' "$1" | sed -E 's/([?&]token=)[^&]*/\1<redacted>/'
 }
 
+# `Authorization: Bearer <token>` from the variable, never a literal
+# placeholder: `--token` must reach curl and aria2c verbatim (#211, 7.1).
+auth_header() {
+  local value=${1:-}
+  [ -n "$value" ] || return 1
+  printf 'Authorization: Bearer %s' "$value"
+}
+
+# Base headers for both clients, plus the bearer header when a token is set.
+# Kept in one function so `--self-check` exercises the exact call site.
+set_headers() {
+  local value=${1:-} header
+  curl_headers=(-H "User-Agent: ludex-bench/1")
+  aria_headers=(--user-agent=ludex-bench/1)
+  [ -n "$value" ] || return 0
+  header=$(auth_header "$value") || return 1
+  curl_headers+=(-H "$header")
+  aria_headers+=(--header="$header")
+}
+
 url=""
 token=""
 direct=""
@@ -152,8 +172,7 @@ rows="$tmp/rows.tsv"
 curl_headers=(-H "User-Agent: ludex-bench/1")
 aria_headers=(--user-agent=ludex-bench/1)
 if [ -n "$token" ]; then
-  curl_headers+=(-H "Authorization: Bearer $token")
-  aria_headers+=(--header="Authorization: Bearer $token")
+  set_headers "$token" || die "--token is empty"
 fi
 
 add_row() {
@@ -241,6 +260,64 @@ iperf_single=0
 iperf_parallel=0
 iperf_seconds=15
 
+# Aggregate bitrate of an iperf3 run, in Mbit/s.
+#
+# `-P8` prints one `sender` line per stream plus a `[SUM]` aggregate. Taking
+# the first `sender` line reported one stream and made `-P8/-P1` look <1x
+# (#211, 7.2). Prefer the `[SUM]` line, and fall back to summing the sender
+# lines of the last block, because a single-stream run prints no `[SUM]`.
+parse_iperf_mbps() {
+  awk '
+    { line[NR] = $0 }
+    END {
+      block = 0
+      for (i = 1; i <= NR; i++) {
+        if (line[i] ~ /^- - - - /) {
+          block++
+          continue
+        }
+        blocks[block] = blocks[block] "\n" line[i]
+      }
+      for (b = block; b >= 0; b--) {
+        if (blocks[b] !~ /sender/) continue
+        rows = split(blocks[b], row, "\n")
+        sum = 0
+        found = 0
+        for (r = 1; r <= rows; r++) {
+          value = 0
+          unit = ""
+          fields = split(row[r], field, /[ \t]+/)
+          for (f = 2; f <= fields; f++) {
+            if (field[f] ~ /^(K|M|G|T)?bits\/sec$/) {
+              value = field[f - 1] + 0
+              unit = field[f]
+            }
+          }
+          if (value == 0) continue
+          if (unit == "Kbits/sec") value /= 1000
+          else if (unit == "Gbits/sec") value *= 1000
+          else if (unit == "Tbits/sec") value *= 1000000
+          if (row[r] ~ /\[SUM\]/ && row[r] ~ /sender/) {
+            printf "%.1f\n", value
+            found = -1
+            break
+          }
+          if (row[r] ~ /sender/) {
+            sum += value
+            found = 1
+          }
+        }
+        if (found == -1) exit 0
+        if (found) {
+          printf "%.1f\n", sum
+          exit 0
+        }
+      }
+      exit 1
+    }
+  '
+}
+
 run_iperf() {
   local streams=$1
   if ! command -v iperf3 >/dev/null 2>&1; then
@@ -252,17 +329,7 @@ run_iperf() {
     printf '  iperf3 -P %s failed (server not reachable?)\n' "$streams" >&2
     return
   }
-  mbps=$(printf '%s\n' "$out" | awk '
-    /sender/ {
-      for (i = 1; i <= NF; i++) {
-        if ($i == "Mbits/sec" || $i == "Gbits/sec") {
-          v = $(i - 1) + 0
-          if ($i == "Gbits/sec") v *= 1000
-          printf "%.1f\n", v
-          exit
-        }
-      }
-    }')
+  mbps=$(printf '%s\n' "$out" | parse_iperf_mbps)
   if [ -z "$mbps" ]; then
     printf '  iperf3 -P %s: could not parse output\n' "$streams" >&2
     return
@@ -354,10 +421,14 @@ render_results() {
 
       if (direct > 0 && caddy > 0) {
         r = direct / caddy
-        if (r <= 1.10)
-          printf "- direct/caddy = %.2fx: direct is within 10%% of Caddy, so Caddy is not the limit. Keep Caddy.\n", r
-        else
+        if (r > 1.10)
           printf "- direct/caddy = %.2fx: Caddy adds %.0f%%. Check buffering, TLS CPU and the h2 window before bypassing it.\n", r, (r - 1) * 100
+        else if (r >= 0.90)
+          printf "- direct/caddy = %.2fx: direct is within 10%% of Caddy, so Caddy is not the limit. Keep Caddy.\n", r
+        else if (r >= 0.50)
+          printf "- direct/caddy = %.2fx: direct is %.0f%% slower than Caddy. Caddy is not the limit: investigate the direct path (disk, CPU, network namespace, bind address).\n", r, (1 - r) * 100
+        else
+          printf "- direct/caddy = %.2fx: direct is %.0f%% slower than Caddy. The direct path is broken or throttled; fix it before trusting its rows.\n", r, (1 - r) * 100
       } else {
         printf "- direct vs Caddy: insufficient data (pass --direct to compare).\n"
       }
@@ -481,6 +552,84 @@ self_check() {
   assert_contains "$out3" "the link is the limit" "fixture 3: link is the limit"
   assert_contains "$out3" "HTTP/3 is slower" "fixture 3: h3 hurts"
   assert_contains "$out3" "parallel ranges are NOT justified" "fixture 3: no parallel ranges"
+
+  # 7.1: the bearer header must contain the token value, on both clients. A
+  # hardcoded placeholder would still pass "contains Bearer", hence the exact
+  # value check.
+  checks=$((checks + 1))
+  set_headers "tok-abc.123"
+  if printf '%s\n' "${curl_headers[@]}" | grep -Fxq -- "Authorization: Bearer tok-abc.123"; then
+    printf 'PASS curl sends the token from --token\n'
+  else
+    printf 'FAIL curl header is: %s\n' "${curl_headers[*]}"
+    failures=$((failures + 1))
+  fi
+  checks=$((checks + 1))
+  if printf '%s\n' "${aria_headers[@]}" | grep -Fxq -- "--header=Authorization: Bearer tok-abc.123"; then
+    printf 'PASS aria2c sends the token from --token\n'
+  else
+    printf 'FAIL aria2c header is: %s\n' "${aria_headers[*]}"
+    failures=$((failures + 1))
+  fi
+  checks=$((checks + 1))
+  set_headers ""
+  if [ "${#curl_headers[@]}" -eq 2 ] && [ "${#aria_headers[@]}" -eq 1 ]; then
+    printf 'PASS no token means no Authorization header\n'
+  else
+    printf 'FAIL headers without a token: %s / %s\n' \
+      "${curl_headers[*]}" "${aria_headers[*]}"
+    failures=$((failures + 1))
+  fi
+
+  # 7.2: the -P8 total is the `[SUM]` line, not the first stream. Fixture is a
+  # trimmed real run: 8 x 20.6 Gbit/s streams aggregate to 70.7 Gbit/s.
+  local iperf8 iperf1
+  iperf8=$(parse_iperf_mbps <<'EOF'
+Connecting to host 10.1.20.58, port 5201
+[ ID] Interval           Transfer     Bitrate         Retr  Cwnd
+[  5]   0.00-1.00   sec  2.40 GBytes  20.6 Gbits/sec    0   3.12 MBytes
+[  5]   1.00-2.00   sec  2.40 GBytes  20.6 Gbits/sec    0   3.12 MBytes
+- - - - - - - - - - - - - - - - - - - - - - - - -
+[ ID] Interval           Transfer     Bitrate         Retr
+[  5]   0.00-15.00  sec  36.0 GBytes  20.6 Gbits/sec    0             sender
+[  6]   0.00-15.00  sec  36.0 GBytes  20.6 Gbits/sec    0             sender
+[  7]   0.00-15.00  sec  36.0 GBytes  20.6 Gbits/sec    0             sender
+[  8]   0.00-15.00  sec  36.0 GBytes  20.6 Gbits/sec    0             sender
+[  9]   0.00-15.00  sec  36.0 GBytes  20.6 Gbits/sec    0             sender
+[ 10]   0.00-15.00  sec  36.0 GBytes  20.6 Gbits/sec    0             sender
+[ 11]   0.00-15.00  sec  36.0 GBytes  20.6 Gbits/sec    0             sender
+[ 12]   0.00-15.00  sec  36.0 GBytes  20.6 Gbits/sec    0             sender
+[SUM]   0.00-15.00  sec   288 GBytes  70.7 Gbits/sec    0             sender
+[  5]   0.00-15.00  sec  36.0 GBytes  20.6 Gbits/sec                  receiver
+[SUM]   0.00-15.00  sec   288 GBytes  70.7 Gbits/sec                  receiver
+
+iperf Done.
+EOF
+)
+  assert_contains "$iperf8" "70700.0" "fixture 7.2: -P8 uses the [SUM] line"
+
+  # A single-stream run prints no `[SUM]`; the sender line must still be read.
+  iperf1=$(parse_iperf_mbps <<'EOF'
+[ ID] Interval           Transfer     Bitrate         Retr
+[  5]   0.00-15.00  sec  35.0 GBytes  19.9 Gbits/sec    0             sender
+[  5]   0.00-15.00  sec  35.0 GBytes  19.9 Gbits/sec                  receiver
+
+iperf Done.
+EOF
+)
+  assert_contains "$iperf1" "19900.0" "fixture 7.2: -P1 has no [SUM]"
+
+  # Fixture 4: the field report's direct/caddy = 0.55x. 0.55x is not "within
+  # 10%": the direct path is 45% slower, and Caddy is still not the limit.
+  local f4="$tmp/self-4.tsv"
+  {
+    printf 'caddy h2\t200\t47935843067\t480.7\t100000000\n'
+    printf 'caddy h1.1\t200\t47935843067\t573.5\t85000000\n'
+    printf 'direct h1.1\t200\t47935843067\t734.5\t55000000\n'
+  } >"$f4"
+  local out4
+  out4=$(render_results "$f4" 0 0 "")
+  assert_contains "$out4" "45% slower than Caddy" "fixture 4: 0.55x is not 'within 10%'"
 
   printf '\n'
   if [ "$failures" -eq 0 ]; then

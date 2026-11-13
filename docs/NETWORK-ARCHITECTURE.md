@@ -1,8 +1,11 @@
 # Network architecture: downloads and remote play (#200)
 
-Status: **accepted** (2026-11-12). This is a decision record, not a benchmark
-report: the numbers for the user's setup do not exist yet. The matrix and the
-thresholds below decide the follow-up work; nothing here assumes a result.
+Status: **accepted** (2026-11-12), **measured** (2026-11-13). The decision was
+taken before any number existed for the user's setup; the field campaign on
+v0.4.7 has since filled the matrix (sections 7 and 10) and confirmed it:
+single-stream stays the only download mode, Caddy stays the only ingress, h3
+stays opportunistic. Numbers below that are labelled *measured* come from that
+campaign; the rest are arithmetic.
 
 Related: [#194](https://github.com/cleeryy/ludex/issues/194) (download
 performance), [#195](https://github.com/cleeryy/ludex/issues/195) (stall
@@ -13,17 +16,18 @@ detection and resume), [#179](https://github.com/cleeryy/ludex/issues/179)
 ## Decision in one paragraph
 
 Keep **Caddy + HTTPS as the only public ingress for downloads**, authenticated
-and resumable, and keep **single-stream** as the default until a measurement
-shows otherwise. Do **not** add STUN or TURN: they solve peer-to-peer NAT
-traversal, and Ludex has no peer-to-peer download path; Moonlight/Sunshine does
-not use ICE either, so STUN does not help remote play. Do **not** expose the
-Ludex server directly, and do **not** map a port for downloads: the Caddy hop
-is only a suspect until `direct` and `Caddy` are compared on the same URL.
-For remote play, **VPN first**; the #179 UPnP wizard is the convenience
-fallback, with its lease, verification and rollback rules. HTTP/3 is
-opportunistic (Caddy advertises it when UDP 443 is reachable); it is not a
-default requirement. Parallel ranges are justified only when `aria2c -x8` is
-at least 1.5× the best single stream, and are a separate, client-side issue.
+and resumable, and keep **single-stream** as the default. Do **not** add STUN or
+TURN: they solve peer-to-peer NAT traversal, and Ludex has no peer-to-peer
+download path; Moonlight/Sunshine does not use ICE either, so STUN does not help
+remote play. Do **not** expose the Ludex server directly, and do **not** map a
+port for downloads: the Caddy hop is only a suspect until `direct` and `Caddy`
+are compared on the same URL. For remote play, **VPN first**; the #179 UPnP
+wizard is the convenience fallback, with its lease, verification and rollback
+rules. HTTP/3 is opportunistic (Caddy advertises it when UDP 443 is reachable);
+it is not a default requirement. Parallel ranges were justified only at
+`aria2c -x8` ≥ 1.5× the best single stream: the field run measured **1.12×** on
+the WAN and **0.64×** on a cold LAN, so they are **not implemented** and the
+desktop stays single-stream.
 
 The desktop installer is **HTTP/1.1 today**: `reqwest` is built without the
 `http2` feature, so the ~36 MB/s in #194/#195 is a single-TCP-flow number, not
@@ -42,8 +46,11 @@ therefore TCP BDP/congestion control, Caddy, the disk/CPU and the ISP.
 - **Would TURN help?** No; it relays and adds latency.
 - **Would QUIC/HTTP3 help?** Possibly on a lossy/high-RTT WAN with UDP 443
   open; not on a clean LAN, and not for the native desktop client today.
+  Measured LAN: +18% (112.5 vs 95.1 MB/s); from the WAN it is unreachable
+  because no UDP 443 forward exists (section 6).
 - **Would parallel ranges help?** Only if `aria2c -x8` is ≥1.5× a single
-  stream.
+  stream. Measured: 1.12× WAN, 0.64× cold LAN — no, and the cold-LAN number
+  says they actively hurt.
 - **What about remote play?** VPN first; UPnP (#179) as fallback; never an
   HTTP tunnel.
 
@@ -92,12 +99,12 @@ Assumptions, stated so a wrong one can be challenged:
 client (reqwest / browser)
    │  HTTPS 443, HTTP/2 (Caddy may also serve HTTP/3)
    ▼
-Caddy (TLS, no buffering, flush_interval -1)
+Caddy (TLS; no proxy timeout, flushes each write)
    │  HTTP/1.1 to the upstream by default
    ▼
 ludex-server
    │  GET /api/games/{id}/download?versionId=…
-   │  ServeFile, 512 KiB chunks, Range + If-Range, strong ETag
+   │  ServeFile, 1 MiB chunks, Range + enforced If-Range, strong ETag
    ▼
 archive on disk
 ```
@@ -105,10 +112,12 @@ archive on disk
 Evidence in this repository:
 
 - `crates/ludex-server/src/routes/games.rs::download_local` uses
-  `ServeFile::with_buf_chunk_size(512 * 1024)`, forwards `Range`/`If-Range`,
-  sets an `ETag` (`size-mtime`) and logs every stream (`bytes`, `elapsed_ms`,
-  `range_start`, `outcome`). It is a buffered `tower-http` copy, not
-  `sendfile(2)`.
+  `ServeFile::with_buf_chunk_size(1024 * 1024)`, forwards `Range` and only
+  honours it under a matching `If-Range`, sets an `ETag` (`size-mtime`) and logs
+  every stream (`bytes`, `elapsed_ms`, `range_start`, `outcome`). It is a
+  buffered `tower-http` copy, not `sendfile(2)`. The 1 MiB chunk was measured
+  against 512 KiB on the field host (373 → 640-1000 MB/s of raw `dd`, see
+  [PERFORMANCE.md](PERFORMANCE.md#chunk-size-211)).
 - `apps/desktop/src-tauri/src/state.rs` builds `reqwest::Client::builder()`
   with keepalive, `TCP_NODELAY` and a 20 s connect timeout, and no HTTP/2
   window override.
@@ -128,16 +137,16 @@ Evidence in this repository:
   refusal codes and cleanup; see `docs/CONTRACT.md` ("Remote play safety
   (#179)") and `apps/desktop/src-tauri/src/remote_play.rs`.
 
-What is **not** known: whether 36 MB/s is the ISP, Caddy, the h2 window
-(browser path), the server disk, the client disk, the CPU, or the Wi-Fi.
-#194/#195 recorded the symptom, not the layer. That is what section 10
-measures.
+What is **not** known from the original report: whether 36 MB/s was the ISP,
+Caddy, the h2 window (browser path), the server disk, the client disk, the CPU,
+or the Wi-Fi. #194/#195 recorded the symptom, not the layer. Section 10 measures
+it; the 2026-11-13 campaign answered the download part on the field host (LAN,
+WAN, protocol and parallelism rows) and left the desktop-only scenarios open.
 
-**This ADR therefore cannot name the limiting layer yet, and does not pretend
-to.** Naming it from a throughput plateau alone would be a guess. The adopted
-option is the current Caddy path plus the matrix; no optimisation is shipped
-until a row in section 11 fires. That is the decision the evidence supports
-today.
+**This ADR names the limiting layers only where a row fired.** On the measured
+host the ceiling is the **ISP upload** on the WAN (400–480 Mb/s) and the
+**storage/CPU** on the LAN (a single stream reaches ~550 MiB/s, far above the
+62–112 MB/s of the contended matrix). The archive path is not code-limited.
 
 ## 3. Decision matrix
 
@@ -167,12 +176,21 @@ How to decide:
    `https://…` (Caddy) and once against `http://server:8080` (direct).
 2. Compare the best of each pair (h2/h1.1 on Caddy, h1.1 direct). For the
    native desktop, use the h1.1 rows; for a browser, include h2.
-3. **If direct is within 10% of Caddy, Caddy is not the limit.** Keep Caddy;
-   the difference is inside run-to-run noise and TLS/HTTP overhead.
-4. If direct is more than 10% faster, Caddy is doing something measurable.
+3. **If direct is within 10% of Caddy (0.90–1.10×), Caddy is not the limit.**
+   Keep Caddy; the difference is inside run-to-run noise and TLS/HTTP overhead.
+4. If direct is 0.50–0.90× Caddy, Caddy is *still* not the limit: the direct
+   path is slower, so investigate it (disk, CPU, network namespace, bind
+   address, missing keep-alive) before drawing a conclusion from it.
+5. Below 0.50× the direct path is broken or throttled; the row is unusable as
+   a reference until it is fixed.
+6. If direct is more than 10% *faster*, Caddy is doing something measurable.
    Check, in this order: `flush_interval -1` is set (no buffering), Caddy CPU
    (`pidstat -C caddy 1`), the h2 window on a browser client, and the upstream
    transport (h1.1 vs h2c). Do not bypass Caddy before those are excluded.
+
+The script prints exactly these bands. Do not read "direct is 45% slower" as
+"within 10%": a 0.55× row means the bypass would be slower, which is the
+strongest evidence that Caddy is not the bottleneck — not evidence that it is.
 
 Why 10%: a single large stream varies by several percent between runs from
 page-cache state, TCP slow start, and background load. A 10% band keeps the
@@ -220,6 +238,10 @@ proxy, or a single-flow TCP BDP limit. The matrix separates them:
 - `dd iflag=direct` ≈ the download → the server disk is the limit.
 - `pidstat` shows a saturated core → CPU is the limit.
 - `direct` ≈ `Caddy` → the proxy is not the limit.
+
+Measured on the field host: `h1.1/h2 = 0.84×` (h2 is *faster*, so no flow-control
+problem), `direct/caddy = 0.55×` (the bypass is 45% slower), and a download at
+~5% of `iperf3 -P1`. None of the Caddy/h2 suspects fired.
 
 Caveat: `curl`'s HTTP/2 stack is nghttp2, not hyper. Its window may differ from
 a browser's. The `h1.1` vs `h2` A/B is still valid because it removes h2 flow
@@ -310,6 +332,15 @@ publish `443:443/udp` in addition to `443:443/tcp`; on a host firewall, allow
 UDP 443. If UDP is blocked, clients fall back to h2 automatically; `Alt-Svc` is
 advisory, so this is safe.
 
+**Field caveat (measured).** `alt-svc: h3=":443"` is advertised on
+`ludex.cleeryy.cloud`, but OPNsense forwards **TCP 80/443 only** — there is no
+UDP 443 rule. Consequence: HTTP/3 works on the LAN and is unreachable from the
+WAN, so a remote client silently stays on h2. Measured LAN gain: 112.5 vs
+95.1 MB/s (1.18×) on a 48 GB archive, on a path that is already disk-bound —
+real but not decisive. Decide explicitly: either add the UDP 443 NAT rule (and
+the Caddy `443/udp` publish) or drop the claim that remote clients can use h3.
+Do not treat a LAN-only h3 number as a WAN result.
+
 Decision: keep h2 as the guaranteed path, leave h3 enabled/opportunistic, and
 adopt h3 only if the matrix shows ≥15% on the user's lossy path **and** UDP 443
 works. No server code change is needed.
@@ -343,6 +374,37 @@ parallel ranges. Between 1.2× and 1.5×, fix the single flow first (BBR; the h2
 window only matters on the browser path). Below 1.2×, the link/disk/CPU/proxy
 is the limit and parallel ranges only add load.**
 
+### Verdict (#217): not implemented
+
+The campaign measured the threshold on the real infrastructure (v0.4.7,
+2026-11-13) and it does not fire:
+
+| Path | Single stream | `aria2c -x8` | Ratio |
+|---|---|---|---|
+| WAN (VPS OVH, distinct link, same 4.9 GB archive) | 54.1 MB/s (432 Mb/s) | 57.6 MiB/s (483 Mb/s) | **1.12×** (bit rate) |
+| LAN, cold, host idle (8 GiB slices) | **548 MiB/s** | 348 MiB/s | **0.64×** |
+| LAN matrix, host under load | 112.5 MB/s (h3) | 119.9 MB/s | 1.19× (vs h1.1 1.50×) |
+
+- WAN: the fiber upload is saturated at ~400–480 Mb/s; no client-side
+  parallelism can exceed it.
+- LAN cold: eight concurrent ranges are **1.6× slower** than one stream. The
+  single stream already reaches ~4.4 Gb/s; extra readers add seek/CPU contention
+  on the thin pool.
+- The 1.50× row is measured against `direct h1.1`, not against the best single
+  stream, and while two real user downloads saturated the storage. It does not
+  describe the nominal regime.
+
+**Decision: the desktop client stays single-stream.** The server prerequisites
+stay in place and are cheap: `X-Ludex-Job-Id`, `?partIndex=`, the job-scoped
+budget, the 8-part cap and the `parallelPartsMax` capability. They cost nothing
+when unused, are tested, and make a future measurement a client-only change.
+Reopen only if a path shows ≥1.5× on *disjoint cold slices* (section 10).
+
+**Where the cold-LAN throughput actually goes:** the read chunk size, not the
+request count. `dd` on the same zone moved from 373 MB/s at 512 KiB to
+640–1000 MB/s at 1 MiB, and `ServeFile` now uses 1 MiB
+([PERFORMANCE.md](PERFORMANCE.md#chunk-size-211)).
+
 **Server readiness (#217).** The server foundations are in place; the client
 implementation stays gated on the measurement above. A single-stream client
 keeps the #195 budget unchanged (120 requests per address + version per
@@ -371,10 +433,10 @@ request (no `multipart/byteranges`).
 Internet / LAN
    │  HTTPS 443/tcp (h2 or h1.1; h3 opportunistic on 443/udp)
    ▼
-Caddy ── TLS, no buffering, flush_interval -1, optional BBR on the host
+Caddy ── TLS, no proxy timeout, flushes each write, optional BBR on the host
    │  HTTP/1.1 (default) to 127.0.0.1:8080 or the private address
    ▼
-ludex-server ── auth, Range, ETag, 512 KiB chunks, per-stream logging
+ludex-server ── auth, Range, If-Range, ETag, 1 MiB chunks, per-stream logging
    ▼
 /games (local disk or S3)
 ```
@@ -402,6 +464,13 @@ Rules:
 6. **Do not add a second proxy hop** (Cloudflare proxying, another tunnel) in
    front of large downloads unless it is measured; buffering proxies are a
    common cause of stalls.
+
+**Doc vs production (7.7).** The vhost that runs on the field host is
+`encode zstd gzip` + `reverse_proxy gamevault:8081`, with **no `transport`
+block**. Caddy's defaults already mean "no proxy read/write deadline, flush each
+write", so the tuning block in [PERFORMANCE.md](PERFORMANCE.md) changes nothing
+measurable there; it is a starting point for a host whose defaults differ, not a
+description of production. Nothing in the measurements above depends on it.
 
 ### 8.2 Remote play
 
@@ -539,6 +608,50 @@ Notes:
   $TOKEN"`) or request a new ticket.
 - **S3 path.** If the version is on object storage, M3–M7 measure the server's
   S3 fetch + relay, not the local disk. Record it separately.
+- **Disjoint slices for an A/B.** A cold-vs-warm A/B on *the same* byte range is
+  invalid: the first run fills the page cache (the host had 156 GB of RAM and
+  55 GB in `buff/cache`), and the second serves from memory. The naive
+  "single then 8 parts on one 8 GiB slice" measured 1700–2860 MiB/s for the
+  parallel run — pure cache, not disk. Every mode must read a **slice that has
+  never been read** in that campaign (the accepted run used 30/70/110 GiB for
+  single and 50/90/130 GiB for 8 parts). `drop_caches` is not a substitute on a
+  shared host with live downloads.
+- **Proxy budget.** Through Cloudflare, a request that buffers for ~100 s gets
+  a **524** even though the origin is fine; a DNS-only hostname (no orange
+  cloud) has no such budget. Say which one the row used, because a 524 changes
+  the apparent throughput.
+
+### Field results (2026-11-13, v0.4.7, real infra)
+
+Reference archive: "It Takes Two", 47 935 843 067 bytes (44.64 GiB), version 7.
+Server CT 258 (`gamevault`, 10.1.20.58, 8 vCPU/12 GB, virtio 10 Gb/s, cubic),
+Caddy v2.11.7 on CT 2010, client LAN CT 125 on the same VLAN, WAN client on a
+distinct VPS (OVH). LAN matrix rows ran **while two real user downloads
+saturated the storage**, so they compare protocols, not a ceiling.
+
+| LAN row | HTTP | GiB | s | MB/s | ×best |
+|---|---|---|---|---|---|
+| caddy h2 | 200 | 44.64 | 480.7 | 95.1 | 0.71 |
+| caddy h1.1 | 200 | 44.64 | 573.5 | 79.7 | 0.59 |
+| caddy h3 | 200 | 44.64 | 406.3 | 112.5 | 0.84 |
+| direct h1.1 | 200 | 44.64 | 734.5 | 62.2 | 0.46 |
+| aria2c -x8 caddy | 200 | 44.64 | 381.4 | 119.9 | 0.89 |
+| aria2c -x8 direct | 200 | 44.64 | 340.7 | 134.2 | 1.00 |
+
+| WAN row (VPS OVH) | Result |
+|---|---|
+| `Range` 512 MiB, h2 | 30.6 → 49.0 MB/s (burst 411 Mb/s, then ~256 Mb/s) |
+| `Range` 512 MiB, h1.1 | 30.7 – 31.9 MB/s |
+| Full archive, single stream | 953 s → 47.97 MiB/s (402 Mb/s), sha256 matches |
+| Cuphead 4.9 GB, single stream | 91.2 s → 54.1 MB/s (432 Mb/s) |
+| Cuphead 4.9 GB, `aria2c -x8 -s8` | 81.7 s → 57.6 MiB/s (483 Mb/s), **1.12×** |
+
+Baselines measured on the same day: `iperf3 -P1` 19.9 Gb/s, `-P8` 70.7 Gb/s
+(the script used to print 7 990 Mb/s for `-P8` because it parsed the first
+stream; fixed), `dd bs=512K iflag=direct` 373 MB/s vs `bs=1M` 640–1 000 MB/s on
+an idle host, single-stream Ludex 508–580 MiB/s cold. Conclusion: the WAN
+ceiling is the fiber upload (~400–480 Mb/s), the LAN ceiling is the storage, and
+the 62–112 MB/s of the matrix is contention, not code.
 
 ### Numbers to record
 
@@ -565,8 +678,10 @@ Apply these to the table; the script prints them automatically.
 
 | Question | Metric | Threshold | Action |
 |---|---|---|---|
-| Is Caddy the limit? | `direct / caddy` | ≤ 1.10 | Caddy is not the limit; keep it |
-| | | > 1.10 | Investigate buffering/TLS CPU/h2 before bypassing Caddy |
+| Is Caddy the limit? | `direct / caddy` | > 1.10 | Investigate buffering/TLS CPU/h2 before bypassing Caddy |
+| | | 0.90 – 1.10 | Caddy is not the limit; keep it |
+| | | 0.50 – 0.90 | Caddy is not the limit either: the **direct** path is slower, fix/inspect it |
+| | | < 0.50 | Direct path broken or throttled; its rows are unusable |
 | Is h2 flow control the limit? | `h1.1 / h2` (browser/curl) | ≥ 1.25 | Fix the single flow: larger client h2 window, or test h1.1. Not applicable to the native desktop (h1.1 only) |
 | | | < 1.25 | h2 is not the limit |
 | Are parallel ranges worth it? | `aria2c / best single` | ≥ 1.50 | Implement parallel ranges (separate issue) |
@@ -582,13 +697,15 @@ Apply these to the table; the script prints them automatically.
 
 Two exact rules from the issue, restated so they are not lost:
 
-- **If direct is within 10% of Caddy, Caddy is not the limit.**
+- **If direct is within 10% of Caddy, Caddy is not the limit** (and a direct
+  path that is 45% slower is proof of the same conclusion, not a contradiction).
 - **If `aria2c -x8` is >1.5× a single stream, implement parallel ranges.**
 
 ## 12. What the user must provide
 
-This repository cannot measure the user's LAN, WAN, ISP, Caddy host or disks.
-To turn this ADR into a decision, provide:
+This repository cannot measure another user's LAN, WAN, ISP, Caddy host or
+disks. The 2026-11-13 campaign supplied items 1–6 and 9 for the reference host
+below; a *new* deployment still needs its own rows. Provide:
 
 1. The full output of `scripts/bench-download.sh` (table + verdicts), with
    `--direct`, `--iperf3` and `--http3` when possible.
@@ -608,8 +725,13 @@ To turn this ADR into a decision, provide:
 9. The Caddy access-log line and the server `download stream closed` line for
    the same run.
 
-Without items 1–3 the ADR stays at "measure first"; do not implement parallel
-ranges or QUIC on a guess.
+Without items 1–3 a new deployment stays at "measure first"; do not implement
+parallel ranges or QUIC on a guess.
+
+Revisit triggers for the reference host: `aria2c` ≥1.5× on **disjoint cold
+slices**; WAN retransmits ≥0.5%; UDP 443 forwarded and h3 measured from the
+WAN; routable IPv6 on both ends; 10 GbE LAN; S3-backed versions; a user report
+that the plateau is on a LAN.
 
 ## 13. Decision and consequences
 
@@ -623,20 +745,21 @@ Adopted:
   tunnel for Moonlight.
 - HTTP/3 is opportunistic (Caddy default), h2 is the guaranteed path.
 - BBR only on a measured lossy WAN, never as a default on a clean LAN.
-- Parallel ranges only at ≥1.5×; separate issue, per-range `.part` files and
-  `pwrite`.
+- Parallel ranges only at ≥1.5×; measured 1.12× WAN and 0.64× cold LAN, so the
+  client stays single-stream and the server prerequisites are kept dormant.
 
 Rejected, with reasons:
 
-- Direct/port-forward for downloads: loses TLS and the proxy, no measured gain
-  yet, new exposure.
+- Direct/port-forward for downloads: loses TLS and the proxy, and the direct
+  path measured **0.55×** Caddy — it is slower, not faster.
 - STUN/TURN: no P2P use case; TURN relay cost and latency.
 - UPnP for downloads: wrong tool, exposes the plain server.
 - HTTP tunnel for Moonlight: TCP/buffering, cannot carry the UDP ports.
 - Replacing Caddy or TLS: out of scope and not justified by any measurement.
 
-No Rust or web behaviour changes in this issue. The deliverables are this
-document and the benchmark script. The script self-check is the test for the
+The behaviours that changed with #211 are on the server side (enforced
+`If-Range`, honest `complete`/`client_abort` outcomes, 1 MiB read chunks); the
+network decisions above are unchanged. The script self-check is the test for the
 doc tooling.
 
 Candidate experiments, not shipped (each needs its own measurement and issue):
@@ -650,22 +773,24 @@ Candidate experiments, not shipped (each needs its own measurement and issue):
    needs a before/after of the native installer (`http2` off/on) at the same
    RTT, plus M4 for the browser/curl h2 path; it is not the current cause of
    36 MB/s.
-2. **Parallel ranges.** Only if M7 ≥ 1.5× M4/M5. Design: N ranges, one
-   `.part.N` per range, `pwrite` at the offset, resume per part, existing
-   SHA-256 verify, server-side per-user stream cap, fallback to single stream
-   on 416/429/error.
+2. **Parallel ranges.** Only if M7 ≥ 1.5× M4/M5. Measured 1.12×/0.64×: not
+   triggered. If it ever fires, the design is N ranges, one `.part.N` per
+   range, `pwrite` at the offset, resume per part, the existing SHA-256 verify,
+   a server-side per-user stream cap, and a fallback to single stream on
+   416/429/error.
 3. **BBR.** Only if M16 shows ≥0.5% retransmits and RTT > 20 ms. Apply on the
    sending host (the server for downloads), not blindly on the client.
 4. **HTTP/3 for the native client.** Requires `reqwest`'s `http3` feature
    (quinn) in the desktop build and a measured gain over the current HTTP/1.1
    path; today the native path is h1.1 only.
 5. **Larger `ServeFile` chunks or `sendfile`.** Only if M9 shows the server
-   CPU is the limit and the disk is not. 512 KiB is already above the tower
-   default; a blind increase adds per-stream memory.
+   CPU is the limit and the disk is not. The 1 MiB shipped in #211 is the
+   measured optimum for this thin pool; going further only adds per-stream
+   memory.
 
 Revisit triggers: `aria2c` ≥1.5×; WAN retransmits ≥0.5%; UDP 443 blocked;
 routable IPv6 on both ends; 10 GbE LAN; S3-backed versions; a user report that
-the 36 MB/s plateau is on a LAN.
+the plateau is on a LAN.
 
 ## 14. References
 

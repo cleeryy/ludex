@@ -501,7 +501,7 @@ payload are ignored. New and existing accounts default to
 | GET | `/api/games/{id}/metadata/candidates` | editor; query `q` (defaults to the game title, 1-120 chars), `provider` (one slug), `year` → `{ query, gameId, manualFields, candidates, providers }`. Network runs only when this route is called; each provider has a 6 s deadline and its own error state |
 | POST | `/api/games/{id}/metadata/apply` | editor; `{ provider, providerId, replaceManual? }` → `GameDetail`; caches the record's cover/background/screenshots/trailers, replaces title/year/description/genres/developers/publishers/rating/ageRating/maxPlayers/altTitles, always sets `provider.slug/id/url`, and emits `game.metadata_matched` |
 | POST | `/api/games/{id}/download-ticket` | `{ versionId? }` → `{ url, expiresAt }` (15 min, no auth needed on the URL) |
-| GET | `/api/games/{id}/download?versionId=&token=` | file stream, single Range + `If-Range` supported, `Content-Disposition`, strong `ETag`, and `X-Ludex-Archive-Sha256: <hex>` when the version has a full hash (#216). Optional `jobId`/`partIndex` (or `X-Ludex-Job-Id`) size a parallel download; see *Parallel ranged downloads (#217)* |
+| GET | `/api/games/{id}/download?versionId=&token=` | file stream, single Range under a matching `If-Range` (a stale/missing validator match returns the full `200`, per RFC 9110 §13.1.5), `Content-Disposition`, strong `ETag`, and `X-Ludex-Archive-Sha256: <hex>` when the version has a full hash (#216). Optional `jobId`/`partIndex` (or `X-Ludex-Job-Id`) size a parallel download; see *Parallel ranged downloads (#217)* |
 | GET | `/api/games/{id}/versions/{versionId}/stream?token=` | Compatibility tar stream: an uncompressed `application/x-tar` of the archive entries, no archive stored on the client. ZIP, 7z and RAR (RAR4/RAR5) are supported; unsupported files return 415, encrypted archives return 409. Exact `Content-Length`, `X-Accel-Buffering: no`, `X-Ludex-Archive-Sha256` when known. The desktop installs through the per-entry manifest instead, because a tar cannot be checkpointed (#203). Same auth rules as download. |
 | GET | `/api/games/{id}/versions/{versionId}/stream/manifest?token=` | Ordered ZIP manifest for resumable per-entry installs (#115): `{ format: "zip", entryCount, totalBytes, totalCompressedBytes, entries: [{ index, path, size, compressedSize, mode, crc32, isDir }] }`. Same auth as `/stream` (Bearer or download ticket). Non-ZIP → `415 stream_unsupported`. |
 | GET | `/api/games/{id}/versions/{versionId}/stream/entries/{index}?token=` | Raw content of one ZIP entry, single HTTP `Range` supported (`206` + `Content-Range`, `416` + `Content-Range: bytes */size`). `Content-Length` is exact. Unknown index → `404 entry_not_found`; directories → `404 entry_not_found`. Same auth as `/stream`. |
@@ -562,6 +562,10 @@ remaining version.
 The server is ready for a client that fetches one archive over several Range
 requests. There is still exactly one range per request (no
 `multipart/byteranges`); a job is identified by its client-generated id.
+**No client uses it today:** the field campaign measured `aria2c -x8` at 1.12×
+on the WAN and 0.64× on a cold LAN, below the 1.5× gate, so the desktop stays
+single-stream. The contract is published and enforced anyway, because it costs
+nothing when unused and a future measurement then needs no server change.
 
 | Field | Where | Rules |
 |---|---|---|
@@ -589,7 +593,9 @@ download never reaches the request budgets.
 Every download logs one `download stream closed` line with `game`, `version`,
 `status`, `job` (`null` for single-stream), `part` (`null` if omitted),
 `range_start`, `range_end`, `bytes`, `elapsed_ms` and `outcome`
-(`complete`, `error` or `client_abort`). Tokens are never logged.
+(`complete`, `error` or `client_abort`). `complete` means the bytes sent equal
+the announced window (`range_end - range_start + 1`, or the archive size for a
+full `200`); `client_abort` is anything shorter. Tokens are never logged.
 
 ### Manual metadata match (#135)
 

@@ -1554,7 +1554,7 @@ async fn download(
     } else {
         download_local(&state, &version, &headers).await?
     };
-    Ok(log_stream(response, game_id, version_id, context, &version))
+    Ok(log_stream(response, game_id, context, &version))
 }
 
 /// Refused admission as the public `429 too_many_download_attempts` error.
@@ -1605,11 +1605,15 @@ fn can_fall_back_to_local(error: &ApiError) -> bool {
     )
 }
 
-/// Serves a version from its library root with `ServeFile` (Range and If-Range).
+/// Serves a version from its library root with `ServeFile` (Range; `If-Range`
+/// is enforced here).
 ///
-/// The response body is copied in 512 KiB chunks instead of the tower default
-/// (64 KiB) to keep the send path cheap on large archives (#194). Logging and
-/// the part permit are attached by [`log_stream`] once the response exists.
+/// The response body is copied in 1 MiB chunks instead of the tower default
+/// (64 KiB) to keep the send path cheap on large archives (#194). A field
+/// campaign measured 373 MB/s with `dd bs=512K iflag=direct` against 640-1000
+/// MB/s with `dd bs=1M` on the same cold zone (#211), so the chunk is 1 MiB.
+/// Logging and the part permit are attached by [`log_stream`] once the
+/// response exists.
 async fn download_local(
     state: &AppState,
     version: &VersionRow,
@@ -1619,19 +1623,29 @@ async fn download_local(
     let metadata = tokio::fs::metadata(&path).await.map_err(|_| {
         ApiError::not_found("file_not_found", "The library file is missing from disk")
     })?;
+    // A cheap archive identity: the client compares it across Range resumes
+    // and restarts explicitly when the file was replaced (#195).
+    let etag = file_etag(&metadata);
     let mut request = axum::http::Request::builder()
         .method(Method::GET)
         .uri("/")
         .body(Body::empty())
         .map_err(|_| ApiError::internal())?;
-    for name in [header::RANGE, header::IF_RANGE] {
-        if let Some(value) = headers.get(&name) {
-            request.headers_mut().insert(name, value.clone());
+    // `ServeFile` in tower-http 0.6 ignores `If-Range`, so a client resuming a
+    // replaced archive would get 206 bytes of the new file at the old offset.
+    // RFC 9110 §13.1.5 says the range is only honoured when the validator
+    // matches; otherwise answer the full 200. Comparing here is cheaper than
+    // serving a corrupt splice, and a non-matching date is a restart too.
+    if if_range_matches(headers, etag.as_deref()) {
+        for name in [header::RANGE, header::IF_RANGE] {
+            if let Some(value) = headers.get(&name) {
+                request.headers_mut().insert(name, value.clone());
+            }
         }
     }
 
     let response = ServeFile::new(&path)
-        .with_buf_chunk_size(512 * 1024)
+        .with_buf_chunk_size(1024 * 1024)
         .oneshot(request)
         .await
         .map_err(|error| {
@@ -1647,9 +1661,7 @@ async fn download_local(
         header::CACHE_CONTROL,
         HeaderValue::from_static("private, no-store"),
     );
-    // A cheap archive identity: the client compares it across Range resumes
-    // and restarts explicitly when the file was replaced (#195).
-    if let Some(etag) = file_etag(&metadata) {
+    if let Some(etag) = etag {
         if let Ok(value) = HeaderValue::from_str(&etag) {
             parts.headers.insert(header::ETAG, value);
         }
@@ -1657,12 +1669,27 @@ async fn download_local(
     Ok(Response::from_parts(parts, Body::new(body)))
 }
 
+/// Whether a client `Range` may be honoured under `If-Range` (#211).
+///
+/// Only a strong entity-tag equal to the current one matches. A missing
+/// `If-Range` keeps the plain `Range` behaviour, and an HTTP-date is treated as
+/// a mismatch: the archive is restarted from zero rather than spliced, which is
+/// always a valid response and never serves inconsistent bytes.
+fn if_range_matches(headers: &HeaderMap, etag: Option<&str>) -> bool {
+    let Some(value) = headers.get(header::IF_RANGE) else {
+        return true;
+    };
+    let Some(etag) = etag else {
+        return false;
+    };
+    value.to_str().is_ok_and(|value| value.trim() == etag)
+}
+
 /// Attaches the per-stream outcome log (#195), the concurrent-part permit
 /// (#217) and the full archive digest (#216) to a download response.
 fn log_stream(
     response: Response,
     game_id: i64,
-    version_id: i64,
     context: StreamContext,
     version: &VersionRow,
 ) -> Response {
@@ -1678,7 +1705,7 @@ fn log_stream(
             || (0, full_range_end(&parts.headers)),
             |(start, end)| (start, Some(end)),
         );
-    let log = TransferLog::new(game_id, version_id, context, status, range_start, range_end);
+    let log = TransferLog::new(game_id, version, context, status, range_start, range_end);
     let stream = LoggedBody {
         inner: Body::new(body).into_data_stream(),
         log: Some(log),
@@ -1739,6 +1766,8 @@ struct TransferLog {
     part_index: Option<u32>,
     range_start: u64,
     range_end: Option<u64>,
+    /// Size recorded for the archive, used when the response announced none.
+    full_size: u64,
     bytes: u64,
     started: Instant,
     finished: bool,
@@ -1748,7 +1777,7 @@ struct TransferLog {
 impl TransferLog {
     fn new(
         game_id: i64,
-        version_id: i64,
+        version: &VersionRow,
         context: StreamContext,
         status: u16,
         range_start: u64,
@@ -1761,12 +1790,13 @@ impl TransferLog {
         } = context;
         Self {
             game_id,
-            version_id,
+            version_id: version.id,
             status,
             job_id,
             part_index,
             range_start,
             range_end,
+            full_size: version.size.max(0) as u64,
             bytes: 0,
             started: Instant::now(),
             finished: false,
@@ -1814,7 +1844,35 @@ impl TransferLog {
 
 impl Drop for TransferLog {
     fn drop(&mut self) {
-        self.finish("client_abort");
+        let outcome =
+            transfer_outcome(self.bytes, self.range_start, self.range_end, self.full_size);
+        self.finish(outcome);
+    }
+}
+
+/// Terminal outcome when the body is dropped without an explicit EOF (#211).
+///
+/// A response with a known `Content-Length` is never polled again after its
+/// last byte: hyper stops asking for frames, so `Poll::Ready(None)` does not
+/// arrive and the body is dropped right after a complete transfer. Comparing
+/// the counted bytes with the announced window is what distinguishes a finished
+/// download from a real client abort; without it, every successful transfer was
+/// logged as `client_abort`.
+fn transfer_outcome(
+    bytes: u64,
+    range_start: u64,
+    range_end: Option<u64>,
+    full_size: u64,
+) -> &'static str {
+    let expected = match range_end {
+        Some(end) => end.checked_sub(range_start).map(|span| span + 1),
+        // No `Content-Range` and no `Content-Length`: fall back to the archive
+        // size recorded at scan time, when it is known.
+        None => Some(full_size).filter(|size| *size > 0),
+    };
+    match expected {
+        Some(expected) if bytes == expected => "complete",
+        _ => "client_abort",
     }
 }
 
@@ -1842,6 +1900,9 @@ where
         match Pin::new(&mut this.inner).poll_next(context) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(None) => {
+                // EOF is the one unambiguous end of stream. A body with a
+                // `Content-Length` usually stops before this point; `Drop`
+                // handles that case by comparing the byte count (#211).
                 if let Some(mut log) = this.log.take() {
                     log.finish("complete");
                 }
@@ -3024,6 +3085,22 @@ mod tests {
             object_key: key,
             etag: None,
         }
+    }
+
+    #[test]
+    fn transfer_outcome_separates_a_finished_body_from_an_abort() {
+        // A ranged body that delivered `end - start + 1` bytes is complete even
+        // though hyper never polls it again for EOF (#211, 7.4).
+        assert_eq!(transfer_outcome(100, 100, Some(199), 4096), "complete");
+        assert_eq!(transfer_outcome(99, 100, Some(199), 4096), "client_abort");
+        // A full 200 response: `range_end` is `content-length - 1`.
+        assert_eq!(transfer_outcome(4096, 0, Some(4095), 4096), "complete");
+        assert_eq!(transfer_outcome(2048, 0, Some(4095), 4096), "client_abort");
+        // No announced length: fall back to the recorded archive size.
+        assert_eq!(transfer_outcome(4096, 0, None, 4096), "complete");
+        assert_eq!(transfer_outcome(4095, 0, None, 4096), "client_abort");
+        // Nothing known at all: never claim a completion.
+        assert_eq!(transfer_outcome(4096, 0, None, 0), "client_abort");
     }
 
     #[tokio::test]
