@@ -41,7 +41,14 @@ interface User {
 interface GameSummary {
   id: number; title: string; sortTitle: string; releaseDate: string | null;
   coverUrl: string | null; backgroundUrl: string | null; rating: number | null;
-  genres: string[]; earlyAccess: boolean; versionCount: number; totalSize: number;
+  genres: string[]; earlyAccess: boolean;
+  /** Available archives; missing rows are excluded (#210). */
+  versionCount: number;
+  availableVersionCount: number;
+  missingVersionCount: number;
+  /** available | partially_missing | missing (#210). */
+  status: "available" | "partially_missing" | "missing";
+  totalSize: number;
   state: ProgressState; minutesPlayed: number; bookmarked: boolean;
   lastPlayedAt: string | null; maxPlayers: number | null;
   /** `game` for an archive, `rom` for an emulator ROM (#52). */
@@ -62,6 +69,10 @@ interface GameVersion {
   archiveHash: string | null;
   /** Last time the version row changed (indexed, renamed or re-hashed). */
   updatedAt: string | null;
+  /** The archive vanished at the last scan; a scan never deletes the row (#210). */
+  missing?: boolean;
+  /** The library root holding the archive was offline at the last scan (#210). */
+  rootUnavailable?: boolean;
   downloadUrl: string; // /api/games/{id}/download?versionId={id}
 }
 
@@ -97,7 +108,9 @@ interface GameDetail extends GameSummary {
   developers: string[]; publishers: string[]; tags: string[]; ageRating: number | null;
   provider: { slug: string; id: string; url: string | null } | null;
   altTitles: string[];
-  versions: GameVersion[];
+  versions: GameVersion[];          // available archives only
+  /** Rows whose archive is missing or whose root is offline (#210). */
+  missingVersions: GameVersion[];
   /** Pinned version for downloads, installs and update checks; null = newest. */
   defaultVersionId: number | null;
   launch: {
@@ -472,7 +485,7 @@ payload are ignored. New and existing accounts default to
 
 | Method | Route | Notes |
 |---|---|---|
-| GET | `/api/games` | query: `q`, `genre`, `state`, `bookmarked`, `earlyAccess`, `yearFrom`, `yearTo`, `players`, `playtimeMin`, `playtimeMax`, `minRating`, `provider`, `platform`, `kind` (`game\|rom`), `sort` (`title\|releaseDate\|rating\|addedAt\|lastPlayed\|playtime`), `order` (`asc\|desc`), `page` (1), `limit` (48, max 200) → `{ items, total, page, limit }` |
+| GET | `/api/games` | query: `q`, `genre`, `state`, `bookmarked`, `earlyAccess`, `yearFrom`, `yearTo`, `players`, `playtimeMin`, `playtimeMax`, `minRating`, `provider`, `platform`, `kind` (`game\|rom`), `status` (`available` default, `missing`, `partial`, `all`; #210), `sort` (`title\|releaseDate\|rating\|addedAt\|lastPlayed\|playtime`), `order` (`asc\|desc`), `page` (1), `limit` (48, max 200) → `{ items, total, page, limit }`. The default hides games with zero available versions; `status=all` is the "show missing" view, `status=missing` its count/listing. |
 | GET | `/api/games/suggest` | query: `q`, `limit` (8, max 20) → `{ query, suggestions: [{ id, title, year, coverUrl, matchedField, matchedTitle, score }] }`; top matches, best first |
 | GET | `/api/games/{id}` | `GameDetail` |
 | GET | `/api/games/random` | same filters as list → `GameSummary`; 404 when empty |
@@ -489,6 +502,7 @@ payload are ignored. New and existing accounts default to
 | GET | `/api/games/{id}/versions` | editor; every version, newest first, including missing archives → `GameVersionsResponse` (`gameId`, `defaultVersionId`, `versions: GameVersionInfo[]`) |
 | PUT | `/api/games/{id}/versions/default` | editor; `{ versionId }` pins the version used by downloads, fresh installs and `/versions/latest`; returns `GameVersionsResponse`. Pinning an older version is a rollback and keeps newer archives available. 404 `version_not_found`, 409 `version_missing` / `root_unavailable` |
 | DELETE | `/api/games/{id}/versions/{versionId}?confirm=true` | editor; deletes one archive file (local and object storage) and its row, keeps the game/metadata/saves and appends `game.version_deleted` to the audit log. 400 `confirmation_required`, 409 `version_missing`, `root_unavailable`, `version_in_use` (download or stream running) or `last_version`; when the deleted row was the default, the pin moves to the newest remaining version. Returns `{ versionId, freedBytes, defaultVersionId }` |
+| DELETE | `/api/games/{id}?mode=library\|archives&confirm=true` | removes a whole game (#209, #210). `mode=library` requires editor and deletes the rows only: archives stay on disk and a scan re-adds the game. `mode=archives` requires administrator and unlinks the archive files first, then the rows. `keepFiles=true` is accepted as a legacy spelling of `mode=library`. Every file must canonicalise below its resolved library root; a symlink or a path that escapes the root is refused with `409 unsafe_path` and nothing is deleted. A file that is already gone is not an error. An offline root (`root_unavailable`) or an in-flight transfer is `409`. Requires `confirm=true` (`400 confirmation_required`), `400 mode_required` without a mode, and `404 game_not_found`. Returns `{ gameId, mode, versions, missingVersions, deletedFiles, freedBytes, keptFiles }` and appends `game.deleted` (actor, mode, paths, counts) to the audit log. Cascade: versions, progress, bookmarks, play sessions, collection entries, share links, achievements + unlocks + sources/scans, cloud-save snapshots and remote installs. Kept: the activity feed and notifications (game id set to null), audit logs, health findings, uploads and provider fetches. |
 | GET | `/api/games/{id}/versions/{versionId}/local-path` | embedded/local mode + loopback only → `{ path }`, else 404 |
 
 ### Version management and rollback (#168)
@@ -609,6 +623,33 @@ fallback). Results are ranked by relevance and carry `matchedField`,
 | PUT | `/api/games/{id}/bookmark` | `{ bookmarked }` | `{ bookmarked }` |
 | POST | `/api/games/{id}/installed` | desktop install report → `{ recorded }` |
 | GET | `/api/stats` | — | `{ games, versions, totalBytes, users, byState: Record<ProgressState, number> }` |
+
+
+### Missing archives and the read side (#210)
+
+A scan never deletes a game row. When an archive disappears, the version is
+marked `missing` (or `rootUnavailable` when the whole root is offline) and the
+row stays. `GameSummary.status` becomes `missing` when no available version is
+left, and `GET /api/games` hides those rows by default. A deep link to
+`/game/{id}` still resolves, `GET /api/games/{id}` lists the vanished files in
+`missingVersions`, and `status=missing` / `status=all` list them again. Re-adding
+the file and rescanning flips the same version row back and restores the same
+game id, its progress and its saves.
+
+### Admin Games manager (#209)
+
+Administrator-only. The table is filtered, sorted and paginated in SQL so no
+full-library payload ever reaches the browser.
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/admin/games` | query: `q` (title substring), `status` (`available` default, `missing`, `partial`, `all`), `provider`, `kind` (`game\|rom`), `sort` (`title\|releaseDate\|addedAt\|updatedAt\|size\|versions\|missing\|installed`), `order` (`asc\|desc`), `page` (1), `limit` (50, max 200) → `AdminGamesResponse`. Column set: id, title, year, kind/platform, provider, available/missing version counts, total size, default version, cover, installed report count + last report, added/updated. `counts` carries the facet counts after the non-status filters. 403 for a non-administrator or a key without the `admin` scope. |
+| POST | `/api/admin/games/bulk` | `{ ids: number[] (1..=500), action: "remove_from_library"\|"delete_archives"\|"delete_missing_versions"\|"refresh_metadata", confirm?: boolean, dryRun?: boolean }`. A destructive action with `dryRun: true` returns `{ dryRun: true, preview: { items: [{ gameId, title, versions, availableVersionCount, missingVersionCount, files, bytes, paths }], games, files, bytes } }` and changes nothing (`delete_missing_versions` deletes only missing version rows, never files, and keeps the game). Execution requires `confirm: true`; results are per item (`{ gameId, ok, code, message, deletedFiles, deletedVersions, freedBytes }`) plus `totals` — one failure never rolls back the others. `delete_archives` with more than 25 games returns `202 { jobId }` and runs in the background. Every run emits one `game.bulk_action` audit event (and one `game.deleted` per removed game). |
+| GET | `/api/admin/games/jobs/{id}` | `{ id, action, status: "running"\|"completed"\|"failed", total, done, succeeded, failed, startedAt, finishedAt, results }`; unknown id → 404 `job_not_found`. |
+
+`DELETE /api/games/{id}` shares the same path checks and cascade: the
+`mode=library` action is editor-level (database only), `mode=archives` is
+administrator-level. The admin table and the game page both call it.
 
 ## Share links (#9)
 

@@ -39,6 +39,9 @@ pub mod actions {
     pub const GAME_INGESTED: &str = "game.ingested";
     /// A library file was deleted.
     pub const GAME_DELETED: &str = "game.deleted";
+
+    /// Summary of a bulk admin action (#209).
+    pub const GAME_BULK_ACTION: &str = "game.bulk_action";
     /// Custom cover/background uploaded or reset.
     pub const GAME_ARTWORK_UPDATED: &str = "game.artwork_updated";
     /// Access denied by parental controls (age limit).

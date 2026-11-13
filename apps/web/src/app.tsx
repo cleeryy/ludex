@@ -43,6 +43,7 @@ import { SettingsScreen } from "@/screens/settings";
 import { NotFoundScreen } from "@/screens/not-found";
 import { IngestScreen } from "@/screens/admin/ingest";
 import { ScanScreen } from "@/screens/admin/scan";
+import { AdminGamesScreen } from "@/screens/admin/games";
 import { UsersScreen } from "@/screens/admin/users";
 import { AdminNewsScreen } from "@/screens/admin/news";
 import { ServerScreen } from "@/screens/admin/server";
@@ -342,6 +343,14 @@ export function App() {
                       <RequireEditor>
                         <ScanScreen />
                       </RequireEditor>
+                    }
+                  />
+                  <Route
+                    path="admin/games"
+                    element={
+                      <RequireAdmin>
+                        <AdminGamesScreen />
+                      </RequireAdmin>
                     }
                   />
                   <Route

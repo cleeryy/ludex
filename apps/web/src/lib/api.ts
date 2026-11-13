@@ -12,6 +12,12 @@ import { CONTROLLER_PRESETS, presetProfile } from "@/lib/controller-profiles";
 import type {
   AchievementScanReport,
   ActivityPage,
+  AdminBulkJob,
+  AdminBulkRequest,
+  AdminBulkResponse,
+  AdminGamesQuery,
+  AdminGamesResponse,
+  DeleteGameResponse,
   AuthResult,
   AuthSession,
   BackupCreated,
@@ -511,6 +517,50 @@ export const api = {
           method: "DELETE",
           query: { confirm: true },
         });
+  },
+  /**
+   * Removes one game from the library (#209, #210).
+   *
+   * `library` deletes the rows and keeps the files (editor); `archives`
+   * deletes the files below the library root first (administrator). Both are
+   * explicit and audited.
+   */
+  deleteGame(id: number, mode: "library" | "archives"): Promise<DeleteGameResponse> {
+    return USING_MOCKS
+      ? mockApi.deleteGame(tokenStore.get(), id, mode)
+      : request<DeleteGameResponse>(`/games/${id}`, {
+          method: "DELETE",
+          query: { mode, confirm: true },
+        });
+  },
+  /** Paginated admin table (#209); filters and sorting run on the server. */
+  adminGames(q: AdminGamesQuery = {}): Promise<AdminGamesResponse> {
+    return USING_MOCKS
+      ? mockApi.adminGames(tokenStore.get(), q)
+      : request<AdminGamesResponse>("/admin/games", {
+          query: {
+            q: q.q,
+            status: q.status,
+            provider: q.provider,
+            kind: q.kind,
+            sort: q.sort,
+            order: q.order,
+            page: q.page,
+            limit: q.limit,
+          },
+        });
+  },
+  /** Dry-run preview or execution of a bulk admin action (#209). */
+  bulkAdminGames(body: AdminBulkRequest): Promise<AdminBulkResponse> {
+    return USING_MOCKS
+      ? mockApi.bulkAdminGames(tokenStore.get(), body)
+      : request<AdminBulkResponse>("/admin/games/bulk", { method: "POST", body });
+  },
+  /** Progress of a background bulk archive deletion (#209). */
+  adminGamesJob(id: string): Promise<AdminBulkJob> {
+    return USING_MOCKS
+      ? mockApi.adminGamesJob(tokenStore.get(), id)
+      : request<AdminBulkJob>(`/admin/games/jobs/${encodeURIComponent(id)}`);
   },
   /**
    * Manual metadata match (#135): searches the configured providers. Runs

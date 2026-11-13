@@ -50,6 +50,14 @@ export function GameCard({
           className="absolute inset-0 z-[4] rounded-[2px]"
           aria-label={t("Open {title}", { title: game.title })}
         />
+        {game.versionCount === 0 && (
+          <span
+            className="absolute bottom-2 left-2 z-[5] inline-flex h-5 items-center rounded-[2px] border border-danger/60 bg-bg/85 px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-danger"
+            title={t("No archive available: the file was deleted or its root is offline.")}
+          >
+            {t("Missing")}
+          </span>
+        )}
         {installing !== null && installing !== undefined ? (
           <span className="absolute left-2 top-2 z-[5] inline-flex h-5 items-center rounded-[2px] bg-signal px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-on-signal">
             {t("Installing {percent}", { percent: installing > 0 ? formatPercent(installing) : "" })}

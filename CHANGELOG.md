@@ -10,6 +10,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Admin Games manager (#209): a dense, URL-filtered table of every game with
+  status facets and pagination, a detail drawer (versions, installed reports,
+  rescan), single actions (refresh metadata, set the default version, delete a
+  version, relink) and bulk actions with a preview and typed confirmation;
+  destructive deletions run as a background job with progress. New
+  `GET /api/admin/games`, `POST /api/admin/games/bulk` and
+  `DELETE /api/games/{id}` (rows-only vs archives, canonical path checks,
+  symlink refusal, audit).
 - The install/download queue can be reordered (#202): a persisted
   `queue_position` and a real scheduler start the lowest-position queued job
   when a slot frees, so a newly added game can jump ahead of older jobs; the
@@ -56,6 +64,12 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- A deleted archive no longer looks like a normal game (#210): game summaries
+  expose available/missing version counts and a status, the default library
+  hides games with no available archive behind a "Show missing" toggle with a
+  count, the game page shows a "No archive available" notice with the missing
+  path/root, last seen, Relink/rescan and a confirmed Remove-from-library
+  action, and scans still never delete metadata.
 - Stream installs resume instead of restarting (#203, #204, #205, #208):
   retries reuse the same job id and history row, the desktop persists the job
   request and rebuilds a worker for paused/failed/interrupted jobs (including

@@ -94,30 +94,38 @@ export function GameOverview({
               {t("Not installed on this device")}
             </p>
             <p className="mt-1 max-w-[62ch] text-[11.5px] leading-relaxed text-ink-3">
-              {preferredVersion
-                ? t("Installing uses {version} ({size}). Your progress, saves and achievements stay on the server.", {
-                    version: preferredVersion.version ? `v${preferredVersion.version}` : preferredVersion.fileName,
-                    size: formatBytes(preferredVersion.size),
-                  })
-                : t("There is no archive on the server yet. An administrator can add one in the ingest screen.")}
+              {game.versionCount === 0
+                ? t("No archive is available. The notice above names the missing file and the repair actions.")
+                : preferredVersion
+                  ? t("Installing uses {version} ({size}). Your progress, saves and achievements stay on the server.", {
+                      version: preferredVersion.version ? `v${preferredVersion.version}` : preferredVersion.fileName,
+                      size: formatBytes(preferredVersion.size),
+                    })
+                  : t("There is no archive on the server yet. An administrator can add one in the ingest screen.")}
             </p>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {native ? (
-                <Button variant="primary" icon={<Download className="size-4" />} onClick={onInstall}>
-                  {t("Install")}
-                </Button>
-              ) : (
-                <Button variant="primary" icon={<Download className="size-4" />} onClick={onDownload}>
-                  {t("Download")}
-                </Button>
-              )}
-              {native && (
-                <Button variant="ghost" icon={<Link2 className="size-4" />} onClick={onLinkExisting}>
-                  {t("Link existing installation")}
-                </Button>
-              )}
-            </div>
-            {remoteInstall && <div className="mt-3">{remoteInstall}</div>}
+            {/* No archive means no Install/Download (#210); the page offers
+                Relink/Remove instead of an action that cannot work. */}
+            {game.versionCount > 0 && (
+              <>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {native ? (
+                    <Button variant="primary" icon={<Download className="size-4" />} onClick={onInstall}>
+                      {t("Install")}
+                    </Button>
+                  ) : (
+                    <Button variant="primary" icon={<Download className="size-4" />} onClick={onDownload}>
+                      {t("Download")}
+                    </Button>
+                  )}
+                  {native && (
+                    <Button variant="ghost" icon={<Link2 className="size-4" />} onClick={onLinkExisting}>
+                      {t("Link existing installation")}
+                    </Button>
+                  )}
+                </div>
+                {remoteInstall && <div className="mt-3">{remoteInstall}</div>}
+              </>
+            )}
           </div>
         )}
         {game.kind !== "rom" && (

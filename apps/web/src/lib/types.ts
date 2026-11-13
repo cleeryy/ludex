@@ -45,7 +45,14 @@ export interface GameSummary {
   rating: number | null;
   genres: string[];
   earlyAccess: boolean;
+  /** Available archives (missing rows excluded). */
   versionCount: number;
+  /** Spelled-out available count (#210). */
+  availableVersionCount?: number;
+  /** Versions whose archive is missing or on an offline root (#210). */
+  missingVersionCount?: number;
+  /** `available`, `partially_missing` or `missing` (#210). */
+  status?: "available" | "partially_missing" | "missing";
   totalSize: number;
   state: ProgressState;
   minutesPlayed: number;
@@ -78,6 +85,10 @@ export interface GameVersion {
   archiveHash?: string | null;
   /** Last time the version row changed. */
   updatedAt?: string | null;
+  /** The archive vanished at the last scan; never auto-deleted (#210). */
+  missing?: boolean;
+  /** The library root holding the archive was offline (#210). */
+  rootUnavailable?: boolean;
   downloadUrl: string;
 }
 
@@ -141,6 +152,8 @@ export interface GameDetail extends GameSummary {
   /** Provider aliases used by fuzzy search. */
   altTitles: string[];
   versions: GameVersion[];
+  /** Rows whose archive is missing or whose root is offline (#210). */
+  missingVersions?: GameVersion[];
   /** Pinned version for downloads, installs and update checks (#168). */
   defaultVersionId: number | null;
   launch: GameLaunchOptions;
@@ -873,6 +886,11 @@ export interface GameListQuery {
   platform?: string;
   /** Entry kind (`game` or `rom`). */
   kind?: "game" | "rom";
+  /**
+   * Availability filter (#210). The server defaults to `available` and hides
+   * games whose archives are all missing; `all` is the "show missing" view.
+   */
+  status?: "available" | "missing" | "partial" | "all";
   sort?: "title" | "releaseDate" | "rating" | "addedAt" | "lastPlayed" | "playtime";
   order?: "asc" | "desc";
   page?: number;
@@ -3697,4 +3715,134 @@ export interface ObservabilitySnapshot {
   webhooks: ObservabilityWebhooks;
   integrity: ObservabilityIntegrity;
   prometheus: ObservabilityPrometheus;
+}
+
+/* Admin Games manager (#209) */
+
+export type AdminGameStatus = "available" | "partially_missing" | "missing";
+
+export interface AdminGameRow {
+  id: number;
+  title: string;
+  releaseDate: string | null;
+  kind: "game" | "rom";
+  platform: string | null;
+  providerSlug: string | null;
+  coverUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+  defaultVersionId: number | null;
+  availableVersionCount: number;
+  missingVersionCount: number;
+  status: AdminGameStatus;
+  totalSize: number;
+  installedReports: number;
+  lastInstalledAt: string | null;
+}
+
+export interface AdminGameCounts {
+  available: number;
+  partiallyMissing: number;
+  missing: number;
+  total: number;
+}
+
+export interface AdminGamesResponse {
+  items: AdminGameRow[];
+  total: number;
+  page: number;
+  limit: number;
+  counts: AdminGameCounts;
+}
+
+export interface AdminGamesQuery {
+  q?: string;
+  status?: "available" | "missing" | "partial" | "all";
+  provider?: string;
+  kind?: "game" | "rom";
+  sort?: "title" | "releaseDate" | "addedAt" | "updatedAt" | "size" | "versions" | "missing" | "installed";
+  order?: "asc" | "desc";
+  page?: number;
+  limit?: number;
+}
+
+export type AdminBulkAction =
+  | "remove_from_library"
+  | "delete_archives"
+  | "delete_missing_versions"
+  | "refresh_metadata";
+
+export interface AdminBulkRequest {
+  ids: number[];
+  action: AdminBulkAction;
+  confirm?: boolean;
+  dryRun?: boolean;
+}
+
+export interface AdminBulkPreviewItem {
+  gameId: number;
+  title: string;
+  versions: number;
+  availableVersionCount: number;
+  missingVersionCount: number;
+  files: number;
+  bytes: number;
+  paths: string[];
+}
+
+export interface AdminBulkPreview {
+  items: AdminBulkPreviewItem[];
+  games: number;
+  files: number;
+  bytes: number;
+}
+
+export interface AdminBulkItemResult {
+  gameId: number;
+  ok: boolean;
+  code: string | null;
+  message: string | null;
+  deletedFiles: number;
+  deletedVersions: number;
+  freedBytes: number;
+}
+
+export interface AdminBulkTotals {
+  games: number;
+  succeeded: number;
+  failed: number;
+  files: number;
+  bytes: number;
+}
+
+export interface AdminBulkResponse {
+  action: AdminBulkAction;
+  dryRun: boolean;
+  preview: AdminBulkPreview | null;
+  jobId: string | null;
+  results: AdminBulkItemResult[];
+  totals: AdminBulkTotals;
+}
+
+export interface AdminBulkJob {
+  id: string;
+  action: AdminBulkAction;
+  status: "running" | "completed" | "failed";
+  total: number;
+  done: number;
+  succeeded: number;
+  failed: number;
+  startedAt: string;
+  finishedAt: string | null;
+  results: AdminBulkItemResult[];
+}
+
+export interface DeleteGameResponse {
+  gameId: number;
+  mode: "library" | "archives";
+  versions: number;
+  missingVersions: number;
+  deletedFiles: number;
+  freedBytes: number;
+  keptFiles: number;
 }
