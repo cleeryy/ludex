@@ -67,6 +67,13 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Changed
 
+- Big Picture has one motion vocabulary (#220): tokens and a transition table
+  for boot, focus, shelf, page, layout, screen push/pop, overlays, power and
+  settings, an interruptible hub that never blocks input, instant commits for
+  held keys, sound cues fired once at the motion they describe, reduced-motion
+  mapped to opacity-only, and composite-only animations (tween layout cost
+  ≤0.6 ms in the console probe); the library is now a persistent layer with
+  apps pushed over it.
 - Parallel ranged downloads are server-ready (#217): the download limiter is
   job-aware (a named job gets 240 part requests/min and up to 8 concurrent
   parts, with higher per-address caps), single-stream clients keep the exact
