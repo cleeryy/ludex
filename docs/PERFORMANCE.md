@@ -156,6 +156,25 @@ ludex.home.cleeryy.cloud {
 - Network speeds are shown in bits per second (`Mb/s`) while sizes stay in
   bytes (#199).
 
+## Full archive hashing (#216)
+
+Every archive now has a full SHA-256 before a client installs it. The cost is
+deliberate and bounded:
+
+- **Server:** one sequential read per archive, in a background job, 1 MiB
+  buffers. It runs after a scan/ingest/adopt and backfills at most 50 legacy
+  rows per scan; `POST /api/integrity/content-hashes` hashes the rest on
+  demand. For `s3` rows the object is hashed while streaming — no staging copy,
+  no extra disk write. Single-flight: a second request never doubles the I/O.
+- **Client:** the classic download hashes while writing, so a fresh transfer
+  costs no extra read. A resumed transfer (HTTP `Range`) cannot keep a partial
+  hasher across restarts, so the completed `.part` is rehashed from byte 0
+  before extraction — one extra sequential read of the archive (SHA-256 is
+  ~1–2 GB/s on a modern CPU, well above WAN speeds; on a 40 GB archive expect
+  tens of seconds of local read, overlapped with nothing else by design).
+- The digest never crosses the disk as a sidecar file and is not a secret; it
+  is logged by both sides for support.
+
 ## What the user must measure
 
 On the actual setup (Proxmox host, Caddy, client), collect and record:

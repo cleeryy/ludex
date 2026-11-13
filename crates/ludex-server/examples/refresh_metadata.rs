@@ -81,6 +81,7 @@ async fn main() -> Result<()> {
         library_health_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         achievement_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         backup_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        content_hashes: Arc::new(ludex_server::content_hash::ContentHasher::default()),
         storage,
         metrics: Arc::new(ludex_server::metrics::Metrics::default()),
         ingest: None,

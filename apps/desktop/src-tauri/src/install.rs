@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
@@ -1780,6 +1781,81 @@ pub(crate) fn auto_resume_on_startup(app: &AppHandle) {
     tracing::info!(resumed, "auto-resumed interrupted downloads");
 }
 
+/// Full archive SHA-256 the server published for this version (#216).
+///
+/// Read from the game detail payload (players can load it, unlike the editor
+/// version list). A missing digest means a legacy row or a backfill still
+/// running: the install proceeds with a warning instead of blocking. A failed
+/// request is logged and treated the same way, so an offline/local install is
+/// never held hostage by metadata.
+async fn expected_archive_sha256(state: &AppState, params: &InstallParams) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Detail {
+        #[serde(default)]
+        versions: Vec<VersionDigest>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct VersionDigest {
+        id: i64,
+        content_sha256: Option<String>,
+    }
+
+    let base = params.server_url.trim_end_matches('/');
+    if base.is_empty() {
+        return None;
+    }
+    let url = format!("{base}/api/games/{}", params.game_id);
+    let mut request = state.http.get(url).timeout(Duration::from_secs(20));
+    if let Some(token) = non_empty(params.token.as_deref()) {
+        request = request.bearer_auth(token);
+    }
+    let response = match request.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(
+                game_id = params.game_id,
+                version_id = params.version_id,
+                %error,
+                "could not read the archive hash; installing without strong verification"
+            );
+            return None;
+        }
+    };
+    if !response.status().is_success() {
+        tracing::warn!(
+            game_id = params.game_id,
+            version_id = params.version_id,
+            status = response.status().as_u16(),
+            "the server did not return the game detail; installing without strong verification"
+        );
+        return None;
+    }
+    let Ok(detail) = response.json::<Detail>().await else {
+        return None;
+    };
+    let digest = detail
+        .versions
+        .into_iter()
+        .find(|version| version.id == params.version_id)
+        .and_then(|version| version.content_sha256)
+        .map(|digest| digest.trim().to_ascii_lowercase())
+        .filter(|digest| digest.len() == 64);
+    match digest.as_deref() {
+        Some(digest) => tracing::info!(
+            game_id = params.game_id,
+            version_id = params.version_id,
+            sha256 = digest,
+            "server published the archive SHA-256; it will be verified before install"
+        ),
+        None => tracing::warn!(
+            "{}",
+            crate::archive_verify::legacy_warning(params.game_id, params.version_id)
+        ),
+    }
+    digest
+}
+
 async fn execute(
     app: &AppHandle,
     entry: &Arc<JobEntry>,
@@ -1820,6 +1896,12 @@ async fn execute(
     // (#115). Every non-resumable branch resets it before writing.
 
     check_stop(&entry.cancel, &pause)?;
+
+    // Full archive hash published by the server (#216). Read once here so both
+    // the local shortcut and the classic download verify the same value.
+    let mut expected_sha256 = expected_archive_sha256(&state, &params).await;
+    // Set when the classic transfer already proved the digest for `archive`.
+    let mut verified_sha256: Option<String> = None;
 
     // 1. Local library shortcut: ask the embedded server for the archive path.
     let mut archive: Option<PathBuf> = None;
@@ -1971,12 +2053,118 @@ async fn execute(
         });
         job_paths.part = Some(part.clone());
         entry.set_part_path(Some(part.to_string_lossy().to_string()));
-        download(app, entry, &params, &part).await?;
+        // Verify before extraction; on a mismatch delete the corrupt bytes,
+        // refresh the expected digest and retry once from zero (#216).
+        let mut retried = false;
+        loop {
+            let report = download(app, entry, &params, &part).await?;
+            check_cancel(&entry.cancel)?;
+            match crate::archive_verify::verify_download(
+                &part,
+                expected_sha256.as_deref(),
+                report.sha256.as_deref(),
+                report.served_sha256.as_deref(),
+            ) {
+                Ok(crate::archive_verify::ArchiveVerdict::Verified(digest)) => {
+                    tracing::info!(
+                        game_id = params.game_id,
+                        version_id = params.version_id,
+                        bytes = report.bytes,
+                        resumed = report.resumed,
+                        sha256 = %digest,
+                        "archive verified against the server SHA-256"
+                    );
+                    verified_sha256 = Some(digest);
+                    break;
+                }
+                Ok(crate::archive_verify::ArchiveVerdict::Unverified) => break,
+                Ok(crate::archive_verify::ArchiveVerdict::Mismatch(mismatch)) => {
+                    // Never extract these bytes: remove them before anything
+                    // else can read the `.part`.
+                    let _ = tokio::fs::remove_file(&part).await;
+                    if !retried {
+                        retried = true;
+                        tracing::warn!(
+                            game_id = params.game_id,
+                            version_id = params.version_id,
+                            expected = %mismatch.expected,
+                            actual = %mismatch.actual,
+                            changed_on_server = mismatch.changed_on_server,
+                            "archive failed SHA-256 verification; retrying once from zero"
+                        );
+                        set_progress(
+                            app,
+                            entry,
+                            InstallPhase::Downloading,
+                            0,
+                            None,
+                            0,
+                            Some(if mismatch.changed_on_server {
+                                "The archive changed on the server; downloading it again"
+                                    .to_string()
+                            } else {
+                                "The download failed verification; retrying from 0%".to_string()
+                            }),
+                        );
+                        // The archive may have been replaced since the first
+                        // metadata read: refresh before re-downloading.
+                        if let Some(fresh) = expected_archive_sha256(&state, &params).await {
+                            expected_sha256 = Some(fresh);
+                        }
+                        continue;
+                    }
+                    return Err(Failure::Failed(mismatch.message(&params.title)));
+                }
+                Err(error) => {
+                    let _ = tokio::fs::remove_file(&part).await;
+                    return Err(Failure::Failed(error));
+                }
+            }
+        }
         archive = Some(part.clone());
         downloaded = Some(part);
     }
 
     check_cancel(&entry.cancel)?;
+
+    // The local shortcut reads the library file directly: verify it too, once,
+    // before extraction. The classic path already proved its digest above.
+    if !streamed && verified_sha256.is_none() {
+        if let Some(path) = archive.as_deref() {
+            match crate::archive_verify::verify_download(
+                path,
+                expected_sha256.as_deref(),
+                None,
+                None,
+            ) {
+                Ok(crate::archive_verify::ArchiveVerdict::Verified(digest)) => {
+                    tracing::info!(
+                        game_id = params.game_id,
+                        version_id = params.version_id,
+                        sha256 = %digest,
+                        "local archive verified against the server SHA-256"
+                    );
+                }
+                Ok(crate::archive_verify::ArchiveVerdict::Unverified) => {}
+                Ok(crate::archive_verify::ArchiveVerdict::Mismatch(mismatch)) => {
+                    // A library file is never deleted: report and stop.
+                    return Err(Failure::Failed(mismatch.message(&params.title)));
+                }
+                Err(error) => return Err(Failure::Failed(error)),
+            }
+        }
+    }
+
+    // Stream installs retain no archive: the per-entry CRC-32 and size checks
+    // are the verification model, recorded in the stream manifest (#216).
+    if streamed {
+        tracing::info!(
+            game_id = params.game_id,
+            version_id = params.version_id,
+            "{}",
+            crate::archive_verify::stream_note(expected_sha256.as_deref())
+        );
+    }
 
     // Fingerprint the archive before it is deleted: it is how update detection
     // knows whether the installed files came from this exact archive.
@@ -2661,6 +2849,10 @@ pub(crate) trait DownloadResponse {
     fn retry_after(&self) -> Option<Duration> {
         None
     }
+    /// Full archive SHA-256 advertised by the server (#216), when present.
+    fn archive_sha256(&self) -> Option<String> {
+        None
+    }
     /// Next body chunk, or `None` at end of stream.
     async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, ChunkError>;
     /// Body of a failed response, for the user-facing error.
@@ -2730,6 +2922,14 @@ impl DownloadResponse for HttpDownloadResponse {
             .and_then(parse_retry_after)
     }
 
+    fn archive_sha256(&self) -> Option<String> {
+        self.response
+            .headers()
+            .get(crate::archive_verify::ARCHIVE_SHA256_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string)
+    }
+
     async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, ChunkError> {
         match self.response.chunk().await {
             Ok(Some(bytes)) => Ok(Some(bytes.to_vec())),
@@ -2791,6 +2991,22 @@ impl Throttle {
     }
 }
 
+/// What one completed transfer produced, for verification (#216).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DownloadReport {
+    /// SHA-256 computed while writing, set only when every byte was written
+    /// once from offset 0 in this run. A resumed transfer leaves it `None` and
+    /// the caller rehashes the file from byte 0.
+    pub sha256: Option<String>,
+    /// Bytes in the finished file.
+    pub bytes: u64,
+    /// Full archive SHA-256 the server advertised on the last response.
+    pub served_sha256: Option<String>,
+    /// A Range resume or an append happened: the file is not a single
+    /// from-zero write.
+    pub resumed: bool,
+}
+
 /// Download `url` into `part`, resuming an existing file with HTTP Range.
 ///
 /// A silent response is abandoned after `tuning.idle_timeout` and the next
@@ -2798,6 +3014,9 @@ impl Throttle {
 /// `tuning` (#195). The `.part` file is kept when the user pauses; cancelling
 /// is handled by the caller (which deletes it). `progress` is called at most
 /// every 250 ms.
+///
+/// The returned [`DownloadReport`] carries the digests needed to verify the
+/// archive before extraction (#216).
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn download_file(
     client: &reqwest::Client,
@@ -2810,7 +3029,7 @@ pub(crate) async fn download_file(
     bandwidth_kib: u64,
     tuning: DownloadTuning<'_>,
     progress: impl FnMut(DownloadProgress) + Send,
-) -> Result<(), Failure> {
+) -> Result<DownloadReport, Failure> {
     let mut transport = HttpTransport { client, url, token };
     download_into(
         &mut transport,
@@ -3013,7 +3232,7 @@ pub(crate) async fn download_into<T: DownloadTransport>(
     bandwidth_kib: u64,
     tuning: DownloadTuning<'_>,
     mut progress: impl FnMut(DownloadProgress) + Send,
-) -> Result<(), Failure> {
+) -> Result<DownloadReport, Failure> {
     if let Some(parent) = part.parent() {
         tokio::fs::create_dir_all(parent).await.map_err(|e| {
             Failure::Failed(format!(
@@ -3027,6 +3246,13 @@ pub(crate) async fn download_into<T: DownloadTransport>(
         .await
         .map(|metadata| metadata.len())
         .unwrap_or(0);
+
+    // The streaming hasher is only trustworthy when the file is written once
+    // from byte 0. A pre-existing `.part` (resume) or any append invalidates
+    // it and the caller rehashes the file from byte 0 instead (#216).
+    let mut hasher = (existing == 0).then(Sha256::new);
+    let mut resumed = existing > 0;
+    let mut served_sha256: Option<String> = None;
 
     let mut retry = RetryState::new();
     // Guards the "restart from zero" paths so a flapping server cannot loop.
@@ -3092,6 +3318,11 @@ pub(crate) async fn download_into<T: DownloadTransport>(
 
         let status = response.status();
         let retry_after = response.retry_after();
+        if (200..300).contains(&status) {
+            if let Some(digest) = response.archive_sha256() {
+                served_sha256 = Some(digest);
+            }
+        }
 
         if status == 416 {
             let total = response.content_range_total();
@@ -3110,7 +3341,13 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                 );
                 update.http_status = Some(status);
                 progress(update);
-                return Ok(());
+                // The file predates this run: the caller rehashes it from 0.
+                return Ok(DownloadReport {
+                    sha256: None,
+                    bytes: existing,
+                    served_sha256,
+                    resumed: true,
+                });
             }
             if existing > 0 && restarts < 2 {
                 restarts += 1;
@@ -3121,6 +3358,8 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                 );
                 let _ = tokio::fs::remove_file(part).await;
                 existing = 0;
+                hasher = Some(Sha256::new());
+                resumed = false;
                 expected_total = None;
                 expected_etag = None;
                 progress(DownloadProgress {
@@ -3207,6 +3446,8 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                 "server ignored the Range request; restarting the archive"
             );
             existing = 0;
+            hasher = Some(Sha256::new());
+            resumed = false;
         }
 
         let content_length = response.content_length();
@@ -3242,6 +3483,8 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                     );
                     let _ = tokio::fs::remove_file(part).await;
                     existing = 0;
+                    hasher = Some(Sha256::new());
+                    resumed = false;
                     expected_total = None;
                     expected_etag = None;
                     progress(DownloadProgress {
@@ -3276,6 +3519,13 @@ pub(crate) async fn download_into<T: DownloadTransport>(
         } else {
             expected_total = total;
             expected_etag = response.etag();
+        }
+
+        if append {
+            // Bytes already on disk were not hashed by this run (or were
+            // hashed before an uncertain flush): a full rehash is required.
+            hasher = None;
+            resumed = true;
         }
 
         let mut done = existing;
@@ -3360,6 +3610,9 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                                     part.display()
                                 ))
                             })?;
+                            if let Some(hasher) = hasher.as_mut() {
+                                hasher.update(&bytes);
+                            }
                             done = done.saturating_add(bytes.len() as u64);
                             last_chunk = Instant::now();
 
@@ -3411,7 +3664,11 @@ pub(crate) async fn download_into<T: DownloadTransport>(
 
         if let Some((error, silent_ms)) = interrupted {
             // The connection is gone but every byte written so far is on disk:
-            // the next attempt asks for exactly this offset.
+            // the next attempt asks for exactly this offset. The hasher may
+            // cover bytes past the flushed offset, so it is discarded and the
+            // resumed file is rehashed from byte 0 before install (#216).
+            hasher = None;
+            resumed = true;
             existing = done;
             let reason = match &error {
                 ChunkError::Stalled => format!(
@@ -3479,7 +3736,12 @@ pub(crate) async fn download_into<T: DownloadTransport>(
         completed_update.http_status = Some(status);
         progress(completed_update);
 
-        return Ok(());
+        return Ok(DownloadReport {
+            sha256: hasher.map(|hasher| hex::encode(hasher.finalize())),
+            bytes: done,
+            served_sha256,
+            resumed,
+        });
     }
 }
 
@@ -3601,7 +3863,7 @@ async fn download(
     entry: &Arc<JobEntry>,
     params: &InstallParams,
     part: &Path,
-) -> Result<(), Failure> {
+) -> Result<DownloadReport, Failure> {
     let state = app.state::<AppState>();
     let client = state.http.clone();
     let settings = state.settings_snapshot();
@@ -4396,6 +4658,165 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /* --------------------- archive verification (#216) --------------------- */
+
+    #[tokio::test]
+    async fn a_fresh_download_reports_a_streaming_digest() {
+        let payload: Vec<u8> = (0..200 * 1024).map(|index| (index % 251) as u8).collect();
+        let digest = hex::encode(Sha256::digest(&payload));
+        let (mut transport, _ranges) = FakeTransport::new(vec![FakeConn {
+            status: 200,
+            declared_length: Some(payload.len() as u64),
+            range_total: None,
+            etag: None,
+            sha256: Some(digest.clone()),
+            body: payload.clone(),
+            after: After::End,
+            chunk_delay: Duration::ZERO,
+        }]);
+        let root = download_temp_dir("verify-fresh");
+        let part = root.join("archive.part");
+
+        let report = download_into(
+            &mut transport,
+            &part,
+            "Verified game",
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            0,
+            test_tuning(50, 3),
+            |_| {},
+        )
+        .await
+        .expect("download");
+
+        assert!(!report.resumed);
+        assert_eq!(report.sha256.as_deref(), Some(digest.as_str()));
+        assert_eq!(report.served_sha256.as_deref(), Some(digest.as_str()));
+        assert_eq!(report.bytes, payload.len() as u64);
+
+        // The streaming digest is trusted: verifying must not need a re-read.
+        let missing = root.join("already-moved.part");
+        let verdict = crate::archive_verify::verify_download(
+            &missing,
+            Some(&digest),
+            report.sha256.as_deref(),
+            report.served_sha256.as_deref(),
+        )
+        .expect("verify");
+        assert!(
+            matches!(verdict, crate::archive_verify::ArchiveVerdict::Verified(_)),
+            "{verdict:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn a_resumed_download_is_rehashed_from_byte_zero() {
+        let payload: Vec<u8> = (0..300 * 1024).map(|index| (index % 243) as u8).collect();
+        let split = 100 * 1024;
+        let digest = hex::encode(Sha256::digest(&payload));
+        let root = download_temp_dir("verify-resume");
+        let part = root.join("archive.part");
+        std::fs::write(&part, &payload[..split]).expect("seed partial");
+        let (mut transport, ranges) = FakeTransport::new(vec![FakeConn {
+            status: 206,
+            declared_length: Some((payload.len() - split) as u64),
+            range_total: Some(payload.len() as u64),
+            etag: Some("\"v1\"".to_string()),
+            sha256: Some(digest.clone()),
+            body: payload[split..].to_vec(),
+            after: After::End,
+            chunk_delay: Duration::ZERO,
+        }]);
+
+        let report = download_into(
+            &mut transport,
+            &part,
+            "Resumed game",
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            0,
+            test_tuning(50, 3),
+            |_| {},
+        )
+        .await
+        .expect("resume");
+
+        assert_eq!(*ranges.lock().unwrap(), vec![Some(split as u64)]);
+        assert!(report.resumed);
+        assert!(
+            report.sha256.is_none(),
+            "a resumed writer cannot produce a from-zero digest"
+        );
+
+        // Hashing the file from byte 0 (not only the new bytes) verifies it.
+        let verdict = crate::archive_verify::verify_download(
+            &part,
+            Some(&digest),
+            report.sha256.as_deref(),
+            report.served_sha256.as_deref(),
+        )
+        .expect("verify");
+        assert_eq!(
+            verdict,
+            crate::archive_verify::ArchiveVerdict::Verified(digest)
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn a_corrupted_body_never_reaches_the_install_gate() {
+        let honest: Vec<u8> = (0..120 * 1024).map(|index| (index % 239) as u8).collect();
+        let expected = hex::encode(Sha256::digest(&honest));
+        // The server advertises the honest digest, the body is damaged in
+        // transit: a transport corruption, not a replaced archive.
+        let mut corrupt = honest.clone();
+        corrupt[64 * 1024] ^= 0x7F;
+        let (mut transport, _ranges) = FakeTransport::new(vec![FakeConn {
+            status: 200,
+            declared_length: Some(corrupt.len() as u64),
+            range_total: None,
+            etag: None,
+            sha256: Some(expected.clone()),
+            body: corrupt,
+            after: After::End,
+            chunk_delay: Duration::ZERO,
+        }]);
+        let root = download_temp_dir("verify-corrupt");
+        let part = root.join("archive.part");
+
+        let report = download_into(
+            &mut transport,
+            &part,
+            "Corrupt game",
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            0,
+            test_tuning(50, 3),
+            |_| {},
+        )
+        .await
+        .expect("download");
+
+        let verdict = crate::archive_verify::verify_download(
+            &part,
+            Some(&expected),
+            report.sha256.as_deref(),
+            report.served_sha256.as_deref(),
+        )
+        .expect("verify");
+        let crate::archive_verify::ArchiveVerdict::Mismatch(mismatch) = verdict else {
+            panic!("a corrupted body must be rejected: {verdict:?}");
+        };
+        assert!(!mismatch.changed_on_server);
+        let message = mismatch.message("Corrupt game");
+        assert!(message.contains(&expected), "{message}");
+        assert!(message.contains(&mismatch.actual), "{message}");
+        assert!(message.contains("Nothing was installed"), "{message}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /* --------------------- injected-transport resume tests (#195) ---------------- */
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4410,6 +4831,8 @@ mod tests {
         declared_length: Option<u64>,
         range_total: Option<u64>,
         etag: Option<String>,
+        /// Full archive digest the fake server advertises (#216).
+        sha256: Option<String>,
         body: Vec<u8>,
         after: After,
         /// Pause between chunks, to model a slow but healthy transfer.
@@ -4469,6 +4892,10 @@ mod tests {
             self.conn.etag.clone()
         }
 
+        fn archive_sha256(&self) -> Option<String> {
+            self.conn.sha256.clone()
+        }
+
         async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, ChunkError> {
             const STEP: usize = 16 * 1024;
             if self.sent < self.conn.body.len() {
@@ -4517,6 +4944,7 @@ mod tests {
                 declared_length: Some(payload.len() as u64),
                 range_total: None,
                 etag: Some("\"v1\"".to_string()),
+                sha256: None,
                 body: payload[..split].to_vec(),
                 after: After::Stall,
                 chunk_delay: Duration::ZERO,
@@ -4526,6 +4954,7 @@ mod tests {
                 declared_length: Some((payload.len() - split) as u64),
                 range_total: Some(payload.len() as u64),
                 etag: Some("\"v1\"".to_string()),
+                sha256: None,
                 body: payload[split..].to_vec(),
                 after: After::End,
                 chunk_delay: Duration::ZERO,
@@ -4583,6 +5012,7 @@ mod tests {
             declared_length: Some(payload.len() as u64),
             range_total: None,
             etag: None,
+            sha256: None,
             body: payload.clone(),
             after: After::End,
             chunk_delay: Duration::from_millis(20),
@@ -4619,6 +5049,7 @@ mod tests {
                 declared_length: Some(payload.len() as u64),
                 range_total: None,
                 etag: None,
+                sha256: None,
                 body: Vec::new(),
                 after: After::Lost,
                 chunk_delay: Duration::ZERO,
@@ -4661,6 +5092,7 @@ mod tests {
                 declared_length: Some(first.len() as u64),
                 range_total: None,
                 etag: Some("\"v1\"".to_string()),
+                sha256: None,
                 body: first[..split].to_vec(),
                 after: After::Lost,
                 chunk_delay: Duration::ZERO,
@@ -4671,6 +5103,7 @@ mod tests {
                 declared_length: Some((first.len() - split) as u64),
                 range_total: Some(first.len() as u64),
                 etag: Some("\"v2\"".to_string()),
+                sha256: None,
                 body: Vec::new(),
                 after: After::End,
                 chunk_delay: Duration::ZERO,
@@ -4680,6 +5113,7 @@ mod tests {
                 declared_length: Some(second.len() as u64),
                 range_total: None,
                 etag: Some("\"v2\"".to_string()),
+                sha256: None,
                 body: second.clone(),
                 after: After::End,
                 chunk_delay: Duration::ZERO,
@@ -4728,6 +5162,7 @@ mod tests {
             declared_length: Some(0),
             range_total: None,
             etag: None,
+            sha256: None,
             body: Vec::new(),
             after: After::End,
             chunk_delay: Duration::ZERO,
@@ -4859,6 +5294,7 @@ mod tests {
                 declared_length: Some(0),
                 range_total: None,
                 etag: None,
+                sha256: None,
                 body: Vec::new(),
                 after: After::End,
                 chunk_delay: Duration::ZERO,
@@ -4869,6 +5305,7 @@ mod tests {
             declared_length: Some(payload.len() as u64),
             range_total: None,
             etag: None,
+            sha256: None,
             body: payload.clone(),
             after: After::End,
             chunk_delay: Duration::ZERO,
@@ -4913,6 +5350,7 @@ mod tests {
             declared_length: Some(0),
             range_total: None,
             etag: None,
+            sha256: None,
             body: Vec::new(),
             after: After::End,
             chunk_delay: Duration::ZERO,
@@ -4948,6 +5386,7 @@ mod tests {
             declared_length: Some(payload.len() as u64),
             range_total: None,
             etag: None,
+            sha256: None,
             body: payload.clone(),
             after: After::End,
             chunk_delay: Duration::ZERO,

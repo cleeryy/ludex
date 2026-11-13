@@ -73,6 +73,13 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- Every archive is verified by full SHA-256 before install (#216): the server
+  computes the digest in a background job (S3 streamed without staging),
+  exposes `contentSha256` and `X-Ludex-Archive-Sha256`, and the desktop hashes
+  the `.part` while writing (or rehashes from byte 0 after a resume), refuses
+  corrupt bytes, retries once from zero and then fails with expected/actual and
+  a changed-vs-corrupted reason; local-library and repair archives are verified
+  too, and legacy rows without a hash warn but still install.
 - `.minecraft` is no longer offered as a save folder for every game (#215):
   save engine layouts are now title-gated (a pattern must contain a title token
   or the engine declares `titles`), so the Minecraft layout only appears for

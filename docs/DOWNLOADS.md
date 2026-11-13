@@ -13,6 +13,7 @@ network topology (direct vs Caddy, HTTP/2/3, VPN) lives in
 | What it keeps | The archive in a `.part` file, then extracts it | Extracts entries as they arrive; no full archive retained |
 | Resume unit | Byte offset via HTTP `Range` | Completed entries + a `.part` per in-flight entry |
 | Formats | ZIP, RAR, 7z, portable `.exe` | ZIP per-entry; RAR/7z fall back to the sequential tar stream or to classic |
+| Verification | Full archive SHA-256 before extraction | Per-entry size + CRC-32 before rename; manifest recorded |
 | Best for | Large repacks, slow/flaky WAN, proxies with short timeouts | Small/medium ZIPs, fast LAN, saving disk space |
 | Default | Yes | Opt-in (`Settings → Downloads → Stream installs`) |
 
@@ -37,8 +38,9 @@ per-version manifest + plain HTTPS in parallel + per-unit verification.**
 The lessons that matter for a self-hosted archive server:
 
 - **The hash is the identity.** A full archive SHA-256, verified before install,
-  is the missing piece in Ludex (#216). It closes the "fails at the same byte"
-  class and is a prerequisite for parallel parts.
+  closes the "fails at the same byte" class and is a prerequisite for parallel
+  parts (#216, shipped). The server publishes it and the client refuses to
+  extract bytes that do not match.
 - **The manifest is the contract.** For Ludex the archive is the unit; the
   per-entry stream checkpoint is already a small manifest. Publish entry
   size/CRC32 and verify each entry; do not build a chunk store for one server.
@@ -70,6 +72,33 @@ The lessons that matter for a self-hosted archive server:
   checkpoint is read, and the job re-enters the queue automatically (unless it
   was paused/cancelled or `autoResumeDownloads` is off), so the UI shows
   "Resuming from X" without a click.
+
+## Full archive verification (#216)
+
+Every version carries a full SHA-256 (not the sampled `sha256-sample:` update
+fingerprint). The server computes it in a background job and exposes it as
+`contentSha256` plus the `X-Ludex-Archive-Sha256` header on the download and
+tar-stream responses.
+
+- **Classic:** the download hashes while writing. The digest is only trusted
+  when the file was written once from byte 0; a resumed or reconnected transfer
+  is rehashed from byte 0 after the last byte arrives (no partial hash state is
+  persisted, which also makes an app restart harmless). Verification runs before
+  extraction, so a corrupt archive is never installed.
+- **Mismatch:** the `.part` is deleted (never extracted), the expected digest is
+  refreshed from the server, and the download retries once from zero. A second
+  failure ends the job with the expected and actual SHA-256 in the message.
+- **Changed vs corrupt:** the download response advertises the digest of the
+  bytes the server is sending. If that digest matches what reached the disk but
+  not the version metadata, the server replaced the archive between the two
+  reads and the message says so; otherwise the transfer was corrupted.
+- **Legacy rows:** a version without a hash (backfill pending, or indexed before
+  #216) logs a warning and installs without strong verification. It stays
+  downloadable; the server backfills it on the next scan.
+- **Stream:** no archive is retained, so the full hash is not applicable. Each
+  entry is size- and CRC-32-verified before rename and the manifest is recorded
+  (the per-entry checkpoint already proves completion).
+- Both sides log the digest (not a secret) for support.
 
 ## Stall detection and recovery
 
@@ -181,7 +210,8 @@ serve/decompress the requested entry. Consequences:
 | `error decoding response body` | Connection closed mid-body; stall/retry log; server `client_abort`/`error`; disk space |
 | `0 B/s` for >30 s | Job `stalledForMs`, retry count, server log, Caddy timeout; the UI should show reconnecting |
 | Resume starts at 0% | Job id/history duplicates; `resume_install` mode; `.part` path; report with logs (#208/#205) |
-| Download fails at the same byte | Archive/version changed, server file truncated, or a proxy body limit; compare hash/size |
+| Download fails at the same byte | Archive/version changed, server file truncated, or a proxy body limit; the SHA-256 verification error shows expected/actual and whether the server changed the archive |
+| `failed SHA-256 verification` | Retry from zero happened automatically; if it persists, the archive on the server differs from its recorded hash (run `POST /api/integrity/content-hashes`) or a proxy rewrites the body |
 | Stream fails immediately | Format unsupported or manifest missing; classic fallback should run |
 | Slow but stable | Run `scripts/bench-download.sh` and the matrix in PERFORMANCE; check LAN vs Caddy, disk and CPU |
 

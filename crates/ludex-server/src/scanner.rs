@@ -325,6 +325,10 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
     };
 
     let fingerprinted = backfill_fingerprints(state).await;
+    // Full SHA-256 for new and legacy rows (#216): a background job, never on
+    // this path, bounded per scan so a huge library does not read every byte
+    // on every scan. The admin endpoint can hash everything.
+    let _ = crate::content_hash::schedule(state, crate::content_hash::SCAN_LIMIT);
 
     {
         let mut status = state.scan.write().await;
@@ -714,6 +718,16 @@ async fn upsert_version(
         .execute(&state.pool)
         .await
         .context("update game version")?;
+        if replaced {
+            // The bytes behind the row changed: the stored full hash describes
+            // the old archive (#216). Clearing it makes the background job
+            // re-hash the replacement instead of advertising a stale digest.
+            db::query("UPDATE game_versions SET content_sha256 = NULL WHERE id = ?")
+                .bind(id)
+                .execute(&state.pool)
+                .await
+                .context("reset the stale archive hash")?;
+        }
         // New archives, replaced archives and rows indexed before S3 was
         // enabled are published once. The local file stays in place as the
         // fallback, so a failed upload never makes a game undownloadable.
@@ -1295,6 +1309,7 @@ pub async fn index_uploaded_archive(state: &AppState, path: &Path) -> Result<(i6
         .context("uploaded file is not an indexable archive")?;
     candidate.root_id = root.id;
     let outcome = process_candidate(state, &candidate).await?;
+    let _ = crate::content_hash::schedule(state, 0);
     if outcome.game_created {
         let title = db::query_scalar::<String>("SELECT title FROM games WHERE id = ?")
             .bind(outcome.game_id)

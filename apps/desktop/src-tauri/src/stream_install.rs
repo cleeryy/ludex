@@ -2197,10 +2197,14 @@ mod tests {
             },
         );
 
-        let pending: Vec<StreamEntry> = files(&manifest)
+        let mut pending: Vec<StreamEntry> = files(&manifest)
             .into_iter()
             .filter(|item| !completed.contains(item.index))
             .collect();
+        // Schedule the doomed entry last: with two concurrent entries the test
+        // then deterministically has finished entries to keep when the failure
+        // aborts the others (it used to depend on scheduler timing).
+        pending.sort_by_key(|item| item.index == big_index);
         let result = download_entries(
             &transport,
             "http://test",
@@ -2275,7 +2279,7 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(40)).await;
             cancel_from_test.cancel();
         });
-        let pending: Vec<StreamEntry> = files(&manifest)
+        let mut pending: Vec<StreamEntry> = files(&manifest)
             .into_iter()
             .filter(|item| !completed.contains(item.index))
             .collect();

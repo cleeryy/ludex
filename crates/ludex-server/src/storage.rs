@@ -351,6 +351,35 @@ impl ArchiveStorage {
         Ok(expected)
     }
 
+    /// Hashes an object's bytes without staging it to disk (#216).
+    ///
+    /// The object body is streamed into the SHA-256 hasher, so a 40 GB archive
+    /// never touches the data directory. Returns the byte count and the hex
+    /// digest.
+    pub async fn hash_object(&self, key: &str) -> Result<(u64, String), StorageError> {
+        let store = self.inner.store.as_ref().ok_or(StorageError::Disabled)?;
+        let location = ObjectPath::from(key);
+        let result = store.get(&location).await.map_err(unavailable)?;
+        let expected = result.meta.size;
+        let reader = tokio_util::io::StreamReader::new(
+            result
+                .into_stream()
+                .map(|item| item.map_err(|error| std::io::Error::other(error.to_string()))),
+        );
+        let (size, digest) = crate::content_hash::hash_reader(reader)
+            .await
+            .map_err(|error| StorageError::Unavailable(format!("hash object: {error}")))?;
+        if size != expected {
+            tracing::warn!(
+                object = key,
+                expected,
+                received = size,
+                "object storage returned fewer bytes than its metadata announced"
+            );
+        }
+        Ok((size, digest))
+    }
+
     /// Uploads a backup tarball. `key` is prefixed with `LUDEX_S3_PREFIX`.
     pub async fn upload_file(
         &self,
@@ -518,6 +547,26 @@ mod tests {
             .expect("offset read");
         assert_eq!(object.range, Some((10, 15)));
         assert_eq!(collect(object.body).await, b"abcdef");
+    }
+
+    #[tokio::test]
+    async fn objects_are_hashed_without_staging() {
+        let storage = ArchiveStorage::from_store(Arc::new(InMemory::new()));
+        let payload_b: Vec<u8> = (0..32 * 1024).map(|index| (index % 251) as u8).collect();
+        let (_dir, path) = temp_archive(&payload_b);
+        let stored = storage
+            .publish_archive("hash:1:size:1", "Hades.zip", &path)
+            .await
+            .expect("upload")
+            .expect("remote object");
+
+        let (size, digest) = storage.hash_object(&stored.key).await.expect("hash object");
+        assert_eq!(size, payload_b.len() as u64);
+        assert_eq!(digest, hex::encode(Sha256::digest(&payload_b)));
+        assert!(matches!(
+            storage.hash_object("archives/missing.zip").await,
+            Err(StorageError::NotFound)
+        ));
     }
 
     #[tokio::test]
