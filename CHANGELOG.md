@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-11-13
+
 ### Added
 
 - The install/download queue can be reordered (#202): a persisted
