@@ -24,13 +24,16 @@ import {
   readLocalPreferences,
   readUpdatePrompt,
   readSoundPreference,
+  readUpdateNotifications,
   sanitizePreferences,
   themeAvailable,
   writeCachedPreferences,
   writeSoundPreference,
+  writeUpdateNotifications,
   writeUpdatePrompt,
   type AccountPreferences,
   type PreferencesPatch,
+  type UpdateNotificationPreference,
   type UpdatePromptPreference,
 } from "@/lib/preferences";
 import { scopedStorageKey } from "@/lib/server-storage";
@@ -102,7 +105,8 @@ export function preferencesFromDesktop(settings: LocalSettings | null): AccountP
     Boolean(settings.accountLibraryView) ||
     typeof settings.accountSound === "boolean" ||
     typeof settings.accountHaptics === "boolean" ||
-    Boolean(settings.accountUpdatePrompt);
+    Boolean(settings.accountUpdatePrompt) ||
+    Boolean(settings.accountUpdateNotifications);
   if (!hasMirror) return null;
   return sanitizePreferences({
     theme: { selection: settings.accountTheme },
@@ -112,7 +116,10 @@ export function preferencesFromDesktop(settings: LocalSettings | null): AccountP
       haptics: settings.accountHaptics,
     },
     library: { view: settings.accountLibraryView },
-    updates: { prompt: settings.accountUpdatePrompt },
+    updates: {
+      prompt: settings.accountUpdatePrompt,
+      notifications: settings.accountUpdateNotifications,
+    },
   });
 }
 
@@ -136,6 +143,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [conflictRevision, setConflictRevision] = useState<number | null>(null);
   const [source, setSource] = useState<PreferencesSource>("device");
   const [updatePrompt, setUpdatePrompt] = useState<UpdatePromptPreference>(() => readUpdatePrompt());
+  const [updateNotifications, setUpdateNotificationsState] = useState<UpdateNotificationPreference>(
+    () => readUpdateNotifications(),
+  );
 
   const documentRef = useRef(preferences);
   const revisionRef = useRef(0);
@@ -177,6 +187,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       writeSoundPreference(next.bigPicture.sound);
       writeUpdatePrompt(next.updates.prompt);
       setUpdatePrompt(next.updates.prompt);
+      writeUpdateNotifications(next.updates.notifications);
+      setUpdateNotificationsState(next.updates.notifications);
       queueMicrotask(() => {
         applyingRef.current = false;
       });
@@ -587,13 +599,13 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         haptics: readControllerPrefs(localStorage, scopedStorageKey("ludex.bigPicture.controller")).haptics,
       },
       library: { view },
-      updates: { prompt: updatePrompt },
+      updates: { prompt: updatePrompt, notifications: updateNotifications },
     });
     if (preferencesEqual(next, current)) return;
     // The bus covers writes made outside this effect (Big Picture, palette);
     // this effect catches React state that changed without a storage write.
     queue(next);
-  }, [theme, accent, tint, view, layout, updatePrompt, queue]);
+  }, [theme, accent, tint, view, layout, updatePrompt, updateNotifications, queue]);
 
   const value: PreferencesValue = {
     preferences,
@@ -620,4 +632,9 @@ export function usePreferences(): PreferencesValue {
 /** Account-level update reminder choice, applied by the update notifier. */
 export function useUpdatePrompt(): UpdatePromptPreference {
   return usePreferences().preferences.updates.prompt;
+}
+
+/** Account-level update notification channels, applied by the update notifier (#213). */
+export function useUpdateNotifications(): UpdateNotificationPreference {
+  return usePreferences().preferences.updates.notifications;
 }

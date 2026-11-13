@@ -3603,5 +3603,14 @@
   "Setup program detected": "Programme d’installation détecté",
   "The setup window stays open until you finish it. Nothing runs silently and Ludex never elevates the installer.": "La fenêtre d’installation reste ouverte jusqu’à la fin. Rien ne s’exécute en silence et Ludex n’élève jamais le programme d’installation.",
   "This archive contains a setup program. Run it once to install the game files; Ludex then finds the game executable it produced.": "Cette archive contient un programme d’installation. Lancez-le une fois pour installer les fichiers du jeu ; Ludex retrouve ensuite l’exécutable du jeu qu’il a produit.",
-  "Use this executable": "Utiliser cet exécutable"
+  "Use this executable": "Utiliser cet exécutable",
+  "In-app and OS notifications": "Dans l’app et par notification système",
+  "In-app only": "Dans l’app uniquement",
+  "Ludex {version} is available": "Ludex {version} est disponible",
+  "Ludex {version} is installed": "Ludex {version} est installé",
+  "Restart Ludex to use it.": "Redémarrez Ludex pour l’utiliser.",
+  "Update notifications": "Notifications de mise à jour",
+  "When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.": "Quand une nouvelle version est publiée. Le badge et le centre de mises à jour ne dépendent pas de ce réglage : la mise à jour n’est jamais téléchargée toute seule.",
+  "You are on {current}": "Vous êtes en {current}",
+  "You are on {current} · {size}": "Vous êtes en {current} · {size}"
 }

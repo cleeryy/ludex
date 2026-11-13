@@ -1364,6 +1364,8 @@ export interface LocalSettings {
   lastUpdateCheckAt: string | null;
   /** Version the user skipped (#163); only silences notifications. */
   skippedUpdateVersion?: string | null;
+  /** Version an OS notification was already raised for (#213); prevents repeats. */
+  notifiedUpdateVersion?: string | null;
   /** Publish the running game as Discord Rich Presence (#12). Off by default. */
   discordPresence: boolean;
   /** Discord application id used for Rich Presence (not a bot token). */
@@ -1451,6 +1453,8 @@ export interface LocalSettings {
   accountSound?: boolean;
   accountHaptics?: boolean;
   accountUpdatePrompt?: string;
+  /** `app-and-os`, `app` or `off`; mirrors the account document (#213). */
+  accountUpdateNotifications?: string;
   /** In-game controller overlay (#144). On by default. */
   overlayEnabled?: boolean;
   /** Gesture recognised by the native listener (#144). */
@@ -2579,6 +2583,8 @@ export interface UpdateInfo {
   isPrerelease: boolean;
   /** CI run number of an `edge` build, when the version carries one. */
   build: number | null;
+  /** Size of the release artifact in bytes, when the download could be probed (#213). */
+  sizeBytes: number | null;
 }
 
 /** Result of an application update check (#16, #163). */

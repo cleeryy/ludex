@@ -3603,5 +3603,14 @@
   "Setup program detected": "Wykryto program instalacyjny",
   "The setup window stays open until you finish it. Nothing runs silently and Ludex never elevates the installer.": "Okno instalatora pozostaje otwarte do zakończenia. Nic nie działa po cichu, a Ludex nigdy nie podnosi uprawnień instalatora.",
   "This archive contains a setup program. Run it once to install the game files; Ludex then finds the game executable it produced.": "To archiwum zawiera program instalacyjny. Uruchom go raz, aby zainstalować pliki gry; następnie Ludex znajdzie utworzony plik wykonywalny gry.",
-  "Use this executable": "Użyj tego pliku wykonywalnego"
+  "Use this executable": "Użyj tego pliku wykonywalnego",
+  "In-app and OS notifications": "W aplikacji i w systemie",
+  "In-app only": "Tylko w aplikacji",
+  "Ludex {version} is available": "Ludex {version} jest dostępny",
+  "Ludex {version} is installed": "Ludex {version} został zainstalowany",
+  "Restart Ludex to use it.": "Uruchom Ludex ponownie, aby jej użyć.",
+  "Update notifications": "Powiadomienia o aktualizacjach",
+  "When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.": "Gdy zostanie opublikowana nowa kompilacja. Odznaka i centrum aktualizacji nie zależą od tego ustawienia: aktualizacja nigdy nie jest pobierana samoczynnie.",
+  "You are on {current}": "Masz {current}",
+  "You are on {current} · {size}": "Masz {current} · {size}"
 }

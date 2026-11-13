@@ -3603,5 +3603,14 @@
   "Setup program detected": "Kurulum programı algılandı",
   "The setup window stays open until you finish it. Nothing runs silently and Ludex never elevates the installer.": "Kurulum penceresi siz bitirene kadar açık kalır. Hiçbir şey sessizce çalışmaz ve Ludex yükleyiciyi asla yükseltmez.",
   "This archive contains a setup program. Run it once to install the game files; Ludex then finds the game executable it produced.": "Bu arşiv bir kurulum programı içeriyor. Oyun dosyalarını kurmak için bir kez çalıştırın; ardından Ludex oluşturduğu oyun çalıştırılabilir dosyasını bulur.",
-  "Use this executable": "Bu çalıştırılabilir dosyayı kullan"
+  "Use this executable": "Bu çalıştırılabilir dosyayı kullan",
+  "In-app and OS notifications": "Uygulama içinde ve sistemde",
+  "In-app only": "Yalnızca uygulama içinde",
+  "Ludex {version} is available": "Ludex {version} kullanılabilir",
+  "Ludex {version} is installed": "Ludex {version} yüklendi",
+  "Restart Ludex to use it.": "Kullanmak için Ludex’i yeniden başlatın.",
+  "Update notifications": "Güncelleme bildirimleri",
+  "When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.": "Yeni bir sürüm yayımlandığında. Rozet ve güncelleme merkezi bundan etkilenmez: güncelleme asla kendi kendine indirilmez.",
+  "You are on {current}": "Şu an {current} kullanıyorsunuz",
+  "You are on {current} · {size}": "Şu an {current} kullanıyorsunuz · {size}"
 }

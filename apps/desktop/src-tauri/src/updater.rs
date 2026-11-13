@@ -89,6 +89,10 @@ pub struct UpdateInfo {
     pub is_prerelease: bool,
     /// CI run number of an `edge` build, parsed from the version.
     pub build: Option<u64>,
+    /// Size of the release artifact in bytes, when the download could be
+    /// probed (#213). The update center and the notice show it; an unavailable
+    /// value is `null`, never `0`.
+    pub size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -246,6 +250,24 @@ fn configured_pubkey(app: &AppHandle) -> String {
         .to_string()
 }
 
+/// Size of the release artifact, best effort.
+///
+/// GitHub serves the asset behind a redirect; `HEAD` follows it and answers
+/// with `Content-Length`. A timeout, a missing header or a non-success answer
+/// is "unknown", never an error for the check itself.
+async fn probe_size(http: &reqwest::Client, url: &str) -> Option<u64> {
+    let response = http
+        .head(url)
+        .timeout(Duration::from_secs(8))
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    response.content_length().filter(|length| *length > 0)
+}
+
 fn build_updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
     let channel = app
         .try_state::<AppState>()
@@ -305,6 +327,13 @@ pub async fn check_now(app: AppHandle, manual: bool) -> Result<UpdateStatus, Str
         .await
         .map_err(|e| format!("Could not check for updates: {e}"))?;
 
+    let size_bytes = match (found.as_ref(), app.try_state::<AppState>()) {
+        // A HEAD request is cheap next to the download and only runs when an
+        // update actually exists; a server that omits Content-Length, or a
+        // network hiccup, simply leaves the size out.
+        (Some(update), Some(state)) => probe_size(&state.http, update.download_url.as_str()).await,
+        _ => None,
+    };
     status.available = found.as_ref().map(|update| UpdateInfo {
         version: update.version.clone(),
         current_version: update.current_version.clone(),
@@ -313,6 +342,7 @@ pub async fn check_now(app: AppHandle, manual: bool) -> Result<UpdateStatus, Str
         release_url: release_url_for(status.channel, &update.version),
         is_prerelease: is_prerelease_version(&update.version),
         build: edge_build_number(&update.version),
+        size_bytes,
     });
     status.notify = should_notify(
         status
@@ -382,6 +412,25 @@ pub async fn check_on_startup(app: AppHandle) {
         Ok(_) => {}
         Err(error) => tracing::debug!(error = %error, "startup update check failed"),
     }
+}
+
+/// Keep checking while the window stays open (#213).
+///
+/// The startup check only runs once per launch; a Ludex left open for days
+/// would never learn about a new build. The loop wakes every six hours and
+/// reuses [`check_on_startup`], so the 24 h throttle, the "check at startup"
+/// preference and the `update://available` event stay the single path. No
+/// network call happens while the throttle is active.
+pub fn spawn_periodic_check(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(6 * 60 * 60));
+        // The first tick is immediate; the startup check already covered it.
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            check_on_startup(app.clone()).await;
+        }
+    });
 }
 
 /// Download and install the available update. Progress is emitted as
@@ -483,6 +532,7 @@ pub async fn install(app: AppHandle) -> Result<UpdateStatus, String> {
             current_version: status.current_version.clone(),
             notes: None,
             published_at: None,
+            size_bytes: None,
         }),
         notify: false,
         message: Some(if restarted {
@@ -537,6 +587,11 @@ pub fn set_update_skip(app: AppHandle, version: Option<String>) -> Result<Update
         .map(|value| value.chars().take(64).collect::<String>());
     let state = app.state::<AppState>();
     state.update_settings(|settings| settings.skipped_update_version = skipped.clone())?;
+    if skipped.is_none() {
+        // "Prompts are back on": let the next check raise an OS banner for the
+        // version the user had silenced (#213).
+        crate::update_notify::clear_notified_version(&app);
+    }
     tracing::info!(
         skipped = skipped.as_deref().unwrap_or("none"),
         "update skip preference saved"

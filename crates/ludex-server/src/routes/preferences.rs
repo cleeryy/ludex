@@ -2,7 +2,8 @@
 //!
 //! One JSON document per account carries the settings that should follow the
 //! user across browsers and machines: the theme selection, the Big Picture
-//! layout and haptics, the default library view and the update prompt choice.
+//! layout and haptics, the default library view, the update prompt choice and
+//! the update notification channels (#213).
 //! Genuinely device-specific values (install and download roots, bandwidth,
 //! Sunshine/Moonlight paths, overlay settings, server profiles and tokens)
 //! never enter this document — the allowlist below is the enforcement point.
@@ -42,10 +43,11 @@ const ALLOWED_TOP_LEVEL: &[&str] = &["theme", "bigPicture", "library", "updates"
 const THEME_KEYS: &[&str] = &["selection", "accent", "tint"];
 const BIG_PICTURE_KEYS: &[&str] = &["layout", "sound", "haptics"];
 const LIBRARY_KEYS: &[&str] = &["view"];
-const UPDATE_KEYS: &[&str] = &["prompt"];
+const UPDATE_KEYS: &[&str] = &["prompt", "notifications"];
 const LAYOUTS: &[&str] = &["shelf", "hero", "grid", "compact"];
 const LIBRARY_VIEWS: &[&str] = &["grid", "list"];
 const UPDATE_PROMPTS: &[&str] = &["always", "notify", "off"];
+const UPDATE_NOTIFICATIONS: &[&str] = &["app-and-os", "app", "off"];
 
 /// Account preference routes.
 pub fn router() -> Router<AppState> {
@@ -537,6 +539,16 @@ fn validate_document(value: &Value) -> Result<Value, ApiError> {
             next.insert(
                 "prompt".into(),
                 Value::String(enum_value(prompt, "updates.prompt", UPDATE_PROMPTS)?),
+            );
+        }
+        if let Some(notifications) = updates.get("notifications") {
+            next.insert(
+                "notifications".into(),
+                Value::String(enum_value(
+                    notifications,
+                    "updates.notifications",
+                    UPDATE_NOTIFICATIONS,
+                )?),
             );
         }
         canonical.insert("updates".into(), Value::Object(next));

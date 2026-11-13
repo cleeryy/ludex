@@ -479,6 +479,28 @@ export function UpdatesBody({ desktop }: { desktop: DesktopSettingsController })
         </div>
       </SettingsGroup>
 
+      <SettingsGroup
+        title={t("Update notifications")}
+        description={t("When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.")}
+      >
+        <div className="w-[260px]">
+          <Select
+            label={t("Update notifications")}
+            value={preferences.updates.notifications}
+            onChange={(notifications) => update({ updates: { notifications } })}
+            options={[
+              {
+                value: "app-and-os",
+                label: t("In-app and OS notifications"),
+                hint: isNative() ? t("Desktop only") : undefined,
+              },
+              { value: "app", label: t("In-app only") },
+              { value: "off", label: t("Off") },
+            ]}
+          />
+        </div>
+      </SettingsGroup>
+
       <DesktopBody
         desktop={desktop}
         note={t("App updates need the desktop build: the browser always runs the build your server serves. Release notes and downloads are on GitHub.")}

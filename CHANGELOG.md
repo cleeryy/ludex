@@ -24,6 +24,13 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Update notifications (#213): one persistent in-app card per version (Open
+  update center / Later / Skip this version, deduplicated by version and
+  suppressed on the update/setup/login pages) plus desktop OS notifications
+  through the Tauri notification plugin when the window is unfocused or
+  minimized, with an account "Update notifications" preference (in-app + OS /
+  in-app only / off); OS notifications never fire while a game or the console
+  shell is running, and clicking one brings Ludex forward on `/updates`.
 - Repack archives with a `setup.exe` install properly (#214): after extraction,
   Ludex detects a setup payload at the archive root or its wrapper, ranks
   setup/install executables while excluding prerequisites and uninstallers, and

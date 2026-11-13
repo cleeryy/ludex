@@ -3603,5 +3603,14 @@
   "Setup program detected": "Обнаружена программа установки",
   "The setup window stays open until you finish it. Nothing runs silently and Ludex never elevates the installer.": "Окно установки остаётся открытым до завершения. Ничего не запускается молча, и Ludex никогда не повышает права установщика.",
   "This archive contains a setup program. Run it once to install the game files; Ludex then finds the game executable it produced.": "Этот архив содержит программу установки. Запустите её один раз, чтобы установить файлы игры; затем Ludex найдёт созданный ею исполняемый файл игры.",
-  "Use this executable": "Использовать этот исполняемый файл"
+  "Use this executable": "Использовать этот исполняемый файл",
+  "In-app and OS notifications": "В приложении и в системе",
+  "In-app only": "Только в приложении",
+  "Ludex {version} is available": "Доступна версия Ludex {version}",
+  "Ludex {version} is installed": "Ludex {version} установлена",
+  "Restart Ludex to use it.": "Перезапустите Ludex, чтобы использовать её.",
+  "Update notifications": "Уведомления об обновлениях",
+  "When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.": "Когда публикуется новая сборка. Значок и центр обновлений от этого не зависят: обновление никогда не загружается само.",
+  "You are on {current}": "Вы находитесь на {current}",
+  "You are on {current} · {size}": "Вы находитесь на {current} · {size}"
 }

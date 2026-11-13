@@ -3603,5 +3603,14 @@
   "Setup program detected": "セットアッププログラムを検出しました",
   "The setup window stays open until you finish it. Nothing runs silently and Ludex never elevates the installer.": "セットアップウィンドウは完了するまで開いたままです。サイレント実行は行わず、Ludex がインストーラーの権限を昇格することもありません。",
   "This archive contains a setup program. Run it once to install the game files; Ludex then finds the game executable it produced.": "このアーカイブにはセットアッププログラムが含まれています。一度実行してゲームファイルをインストールすると、Ludex が生成されたゲームの実行ファイルを見つけます。",
-  "Use this executable": "この実行ファイルを使用"
+  "Use this executable": "この実行ファイルを使用",
+  "In-app and OS notifications": "アプリ内と OS 通知",
+  "In-app only": "アプリ内のみ",
+  "Ludex {version} is available": "Ludex {version} が利用可能です",
+  "Ludex {version} is installed": "Ludex {version} をインストールしました",
+  "Restart Ludex to use it.": "使用するには Ludex を再起動してください。",
+  "Update notifications": "アップデート通知",
+  "When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.": "新しいビルドが公開されたとき。バッジとアップデートセンターはこの設定に影響されません。アップデートが自動でダウンロードされることはありません。",
+  "You are on {current}": "{current} を使用しています",
+  "You are on {current} · {size}": "{current} を使用しています · {size}"
 }

@@ -450,9 +450,36 @@ export const native = {
     return invoke<UpdateStatus>("set_update_channel", { channel });
   },
 
-  /** Persist (or clear with null) the skipped version (#163). */
+  /**
+   * Persist (or clear with null) the skipped version (#163).
+   */
   async setUpdateSkip(version: string | null): Promise<UpdateStatus> {
     return invoke<UpdateStatus>("set_update_skip", { version });
+  },
+
+  /**
+   * Ask the desktop for an OS notification about a new build (#213).
+   *
+   * The web app decides whether a notice is due (preference, skip, dedupe,
+   * reminder window); the desktop still refuses while a game or console
+   * session runs and when the window is already in front. Clicking the
+   * notification focuses Ludex and opens the update center. Best effort:
+   * `false` when the platform has no notification support or the permission
+   * was denied.
+   */
+  async notifyUpdateAvailable(payload: {
+    version: string;
+    title: string;
+    body: string;
+    /** `available` (default) or `installed`; only the first is deduped. */
+    kind?: "available" | "installed";
+  }): Promise<boolean> {
+    if (!isNative()) return false;
+    try {
+      return await invoke<boolean>("notify_update_available", payload);
+    } catch {
+      return false;
+    }
   },
 
   async restartApp(): Promise<void> {
@@ -1418,6 +1445,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   checkUpdatesOnStartup: true,
   lastUpdateCheckAt: null,
   skippedUpdateVersion: null,
+  notifiedUpdateVersion: null,
   discordPresence: false,
   discordClientId: "",
   installerSilentArgs: [],

@@ -3603,5 +3603,14 @@
   "Setup program detected": "설치 프로그램이 감지되었습니다",
   "The setup window stays open until you finish it. Nothing runs silently and Ludex never elevates the installer.": "설치 창은 완료할 때까지 열려 있습니다. 아무것도 자동으로 실행되지 않으며 Ludex는 설치 프로그램 권한을 승격하지 않습니다.",
   "This archive contains a setup program. Run it once to install the game files; Ludex then finds the game executable it produced.": "이 압축 파일에는 설치 프로그램이 포함되어 있습니다. 한 번 실행하여 게임 파일을 설치하면 Ludex가 생성된 게임 실행 파일을 찾습니다.",
-  "Use this executable": "이 실행 파일 사용"
+  "Use this executable": "이 실행 파일 사용",
+  "In-app and OS notifications": "앱 내 및 OS 알림",
+  "In-app only": "앱 내에서만",
+  "Ludex {version} is available": "Ludex {version}을(를) 사용할 수 있습니다",
+  "Ludex {version} is installed": "Ludex {version}이(가) 설치되었습니다",
+  "Restart Ludex to use it.": "사용하려면 Ludex를 다시 시작하세요.",
+  "Update notifications": "업데이트 알림",
+  "When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.": "새 빌드가 게시될 때. 배지와 업데이트 센터는 이 설정과 무관합니다. 업데이트는 자동으로 다운로드되지 않습니다.",
+  "You are on {current}": "현재 {current} 사용 중",
+  "You are on {current} · {size}": "현재 {current} 사용 중 · {size}"
 }
