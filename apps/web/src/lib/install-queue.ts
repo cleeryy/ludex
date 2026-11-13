@@ -11,15 +11,24 @@ import type { InstallJob } from "@/lib/types";
  */
 export type QueueMove = "top" | "up" | "down" | "position";
 
-/** Phases that own the install slot: they are never reordered. */
+/**
+ * Phases that own a scheduler slot: a download, the verification pass and the
+ * extraction/commit are never reordered (#221). Only the extractor is
+ * exclusive; a running download can coexist with an extraction, and neither is
+ * moved by the queue controls.
+ */
 export const isRunningJob = (job: InstallJob): boolean =>
-  job.phase === "downloading" || job.phase === "extracting" || job.phase === "finalizing";
+  job.phase === "downloading" ||
+  job.phase === "verifying" ||
+  job.phase === "extracting" ||
+  job.phase === "finalizing";
 
 /**
  * Phases that wait in the queue and can be moved. A paused job keeps its slot
  * (and its checkpoint), so it can be moved like a queued one.
  */
-export const isReorderableJob = (job: InstallJob): boolean => job.phase === "queued" || job.phase === "paused";
+export const isReorderableJob = (job: InstallJob): boolean =>
+  job.phase === "queued" || job.phase === "waitingForSpace" || job.phase === "paused";
 
 /** Rows without a position sort last instead of jumping to the top. */
 const positionOf = (job: InstallJob): number => job.queuePosition ?? Number.MAX_SAFE_INTEGER;

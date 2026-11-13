@@ -166,8 +166,12 @@ export function installPhaseLabel(phase: string): string {
   switch (phase) {
     case "queued":
       return t("Queued");
+    case "waitingForSpace":
+      return t("Waiting for disk space");
     case "downloading":
       return t("Downloading");
+    case "verifying":
+      return t("Verifying");
     case "extracting":
       return t("Extracting");
     case "finalizing":

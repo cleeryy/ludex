@@ -23,7 +23,14 @@ import {
 } from "@/lib/eta";
 import { t } from "@/lib/i18n";
 
-const ACTIVE_PHASES: ReadonlySet<InstallJob["phase"]> = new Set(["queued", "downloading", "extracting", "finalizing"]);
+const ACTIVE_PHASES: ReadonlySet<InstallJob["phase"]> = new Set([
+  "queued",
+  "waitingForSpace",
+  "downloading",
+  "verifying",
+  "extracting",
+  "finalizing",
+]);
 
 /** Paused jobs stay in the queue and are listed with the active installs. */
 export const isPausedJob = (job: InstallJob): boolean => job.phase === "paused";
@@ -86,7 +93,15 @@ export interface Aggregate {
 }
 
 /** Why the aggregate shows a phase instead of an ETA. */
-const PHASE_ORDER: readonly InstallPhase[] = ["downloading", "extracting", "finalizing", "queued", "paused"];
+const PHASE_ORDER: readonly InstallPhase[] = [
+  "downloading",
+  "verifying",
+  "extracting",
+  "finalizing",
+  "queued",
+  "waitingForSpace",
+  "paused",
+];
 
 /** Sampling state rendered by the Downloads screen (#102). */
 interface TransferState {
@@ -126,6 +141,8 @@ interface DownloadsValue {
   retryStream: (job: InstallJob, info: ResumeInfo) => Promise<InstallJob | null>;
   /** Skip the current retry backoff of a waiting job (#212). */
   retryNow: (jobId: string) => Promise<void>;
+  /** Re-check the disk reservation of a job parked on space (#222). */
+  checkSpace: (jobId: string) => Promise<void>;
   /**
    * Move a waiting install in the queue (#202): `top`, `up`, `down` or an
    * explicit `position`. Optimistic, rolled back when the desktop refuses.
@@ -488,6 +505,20 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     [runRetry],
   );
 
+  /** Re-evaluate the reservation of a `waitingForSpace` job (#222). */
+  const checkSpace = useCallback(
+    async (jobId: string) => {
+      try {
+        const next = await installBridge.checkSpace(jobId);
+        setJobs((current) => current.map((job) => (job.jobId === next.jobId ? next : job)));
+        await refresh();
+      } catch (cause) {
+        push({ title: t("Could not check the disk space"), description: errorMessage(cause), tone: "danger" });
+      }
+    },
+    [refresh, push],
+  );
+
   /** Skip the wait, not the job: same id, same offset, same attempt budget. */
   const retryNow = useCallback(
     async (jobId: string) => {
@@ -604,6 +635,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       retryAsDownload,
       retryStream,
       retryNow,
+      checkSpace,
       reorder,
       remove,
       clearHistory,
@@ -612,7 +644,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       resumableForGame,
       titleFor,
     }),
-    [available, jobs, active, history, aggregate, transfer, startInstall, cancel, pause, resume, retryAsDownload, retryStream, retryNow, reorder, remove, clearHistory, openFolder, jobForGame, resumableForGame, titleFor],
+    [available, jobs, active, history, aggregate, transfer, startInstall, cancel, pause, resume, retryAsDownload, retryStream, retryNow, checkSpace, reorder, remove, clearHistory, openFolder, jobForGame, resumableForGame, titleFor],
   );
 
   return <DownloadsContext.Provider value={value}>{children}</DownloadsContext.Provider>;

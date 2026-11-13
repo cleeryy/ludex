@@ -9,6 +9,7 @@ import type {
   InstallGameArgs,
   InstallJob,
   InstallResumeMode,
+  InstallSpaceTotal,
   InstalledGame,
   LocalSettings,
   ManifestStatus,
@@ -25,7 +26,14 @@ import type {
 
 const MB = 1024 ** 2;
 const GB = 1024 ** 3;
-const ACTIVE: ReadonlySet<InstallJob["phase"]> = new Set(["queued", "downloading", "extracting", "finalizing"]);
+const ACTIVE: ReadonlySet<InstallJob["phase"]> = new Set([
+  "queued",
+  "waitingForSpace",
+  "downloading",
+  "verifying",
+  "extracting",
+  "finalizing",
+]);
 /** Phases that may leave Downloads history (#100); mirrors the SQLite check. */
 const TERMINAL: ReadonlySet<InstallJob["phase"]> = new Set(["done", "cancelled", "error", "interrupted"]);
 
@@ -160,6 +168,9 @@ function job(
     httpStatus: null,
     waitingForNetwork: false,
     queuePosition: null,
+    prefetching: false,
+    space: null,
+    verifiedSha256: null,
   };
 }
 
@@ -185,13 +196,25 @@ let jobs: InstallJob[] = [
     "job_spidey",
     11,
     111,
-    "error",
+    "waitingForSpace",
     0,
     Math.round(86.3 * GB),
     0,
     "Marvel's Spider-Man 2",
     "1.2.1",
-    "Not enough free space on the install volume",
+    "Waiting for disk space on /home/mara/Games/Ludex",
+  ),
+  job(
+    "job_uncharted",
+    3,
+    31,
+    "verifying",
+    Math.round(96.3 * GB),
+    Math.round(96.3 * GB),
+    0,
+    "Uncharted: Legacy of Thieves",
+    "1.4.3",
+    "Verifying archive (48.2 GB of 96.3 GB)",
   ),
   job(
     "job_bodycam",
@@ -234,12 +257,39 @@ let jobs: InstallJob[] = [
   ),
 ];
 
+// #223: a demo job stuck in the verification pass shows the read progress the
+// real desktop reports, not a frozen 100 % download.
+if (jobs[1]) {
+  jobs[1].bytesDone = Math.round(48.2 * GB);
+  jobs[1].space = {
+    volume: "/home/mara/Games/Ludex",
+    neededBytes: Math.round(148 * GB),
+    freeBytes: Math.round(318 * GB),
+    reservedBytes: Math.round(148 * GB),
+    availableBytes: Math.round(170 * GB),
+    ok: true,
+  };
+}
+
 // Demo the per-entry stream UI (#115): a resumable job shows file counts.
 if (jobs[0]) {
   jobs[0].entriesDone = 1240;
   jobs[0].entriesTotal = 1830;
   jobs[0].resumedEntries = 410;
   jobs[0].currentEntry = "data/pakchunk12.pak";
+}
+
+// #222: the demo shows a job parked on its disk reservation.
+const spidey = jobs.find((entry) => entry.jobId === "job_spidey");
+if (spidey) {
+  spidey.space = {
+    volume: "/home/mara/Games/Ludex",
+    neededBytes: Math.round(133 * GB),
+    freeBytes: Math.round(318 * GB),
+    reservedBytes: Math.round(196 * GB),
+    availableBytes: Math.round(122 * GB),
+    ok: false,
+  };
 }
 
 phaseEnds.set("job_ln3", now() + 5000);
@@ -282,9 +332,25 @@ if (USING_MOCKS) setInterval(() => {
       current.speedBps = nextMockSpeed(current.jobId);
       current.bytesDone = Math.min(total, current.bytesDone + current.speedBps);
       if (total > 0 && current.bytesDone >= total) {
-        current.phase = "extracting";
+        current.phase = "verifying";
         current.speedBps = 0;
+        current.message = "Verifying archive";
+        phaseEnds.set(current.jobId, time + 2500);
+      }
+      changed = true;
+    } else if (current.phase === "verifying") {
+      // #223: the rehash reads the archive; the bar is indeterminate and the
+      // speed stays 0 instead of freezing at the last download rate.
+      current.speedBps = 0;
+      if (current.bytesTotal) {
+        current.bytesDone = Math.min(current.bytesTotal, current.bytesDone + Math.round(current.bytesTotal / 4));
+        current.message = `Verifying archive (${Math.round(current.bytesDone / GB)} GB of ${Math.round(current.bytesTotal / GB)} GB)`;
+      }
+      if (time >= (phaseEnds.get(current.jobId) ?? time)) {
+        current.phase = "extracting";
+        current.bytesDone = 0;
         current.message = "Extracting files";
+        current.verifiedSha256 = "b".repeat(64);
         phaseEnds.set(current.jobId, time + 4000);
       }
       changed = true;
@@ -355,6 +421,7 @@ const DEFAULT_SETTINGS: LocalSettings = {
   downloadStallTimeoutSecs: 30,
   downloadRetryWindowSecs: 21600,
   autoResumeDownloads: true,
+  downloadConcurrency: 1,
   closeToTray: true,
   nativeTitleBar: false,
   updateChannel: "stable",
@@ -491,6 +558,9 @@ export const mockInstalls = {
       httpStatus: null,
       waitingForNetwork: false,
       queuePosition: nextQueuePosition(jobs),
+      prefetching: false,
+      space: null,
+      verifiedSha256: null,
     };
     phaseEnds.set(id, now() + 1500);
     jobs = [next, ...jobs];
@@ -557,6 +627,35 @@ export const mockInstalls = {
     target.message = "Retrying now";
     emit();
     return Promise.resolve(clone(target));
+  },
+
+  /** Re-evaluate a job parked on disk space (#222). */
+  checkSpace(jobId: string): Promise<InstallJob> {
+    const target = jobs.find((entry) => entry.jobId === jobId);
+    if (!target) return Promise.reject(new Error("Unknown install job"));
+    if (target.phase !== "waitingForSpace") return Promise.resolve(clone(target));
+    const space = target.space;
+    if (space && space.availableBytes >= space.neededBytes) {
+      target.phase = "queued";
+      target.space = { ...space, ok: true };
+      target.message = "Queued";
+      phaseEnds.set(jobId, now() + 1500);
+      emit();
+    }
+    return Promise.resolve(clone(target));
+  },
+
+  /** Bytes reserved per volume (#222), as the demo ledger reports them. */
+  spaceLedger(): Promise<InstallSpaceTotal[]> {
+    const totals = new Map<string, InstallSpaceTotal>();
+    for (const entry of jobs) {
+      if (!entry.space || !ACTIVE.has(entry.phase)) continue;
+      const current = totals.get(entry.space.volume) ?? { volume: entry.space.volume, reservedBytes: 0, jobs: 0 };
+      current.reservedBytes += entry.space.neededBytes;
+      current.jobs += 1;
+      totals.set(entry.space.volume, current);
+    }
+    return Promise.resolve([...totals.values()]);
   },
 
   /** Reorder the demo queue exactly like the desktop scheduler (#202). */

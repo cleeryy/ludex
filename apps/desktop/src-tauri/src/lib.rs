@@ -26,6 +26,7 @@ mod manifest;
 mod oidc_login;
 mod overlay;
 mod paths;
+mod pipeline;
 mod prefix;
 mod presence;
 mod process;
@@ -44,6 +45,7 @@ mod saves_sync;
 mod secrets;
 mod server;
 mod settings;
+mod space;
 mod state;
 mod steam;
 mod storage_suggest;
@@ -172,6 +174,9 @@ pub fn run() {
                 // #212: re-enter downloads interrupted by the previous app
                 // run after the embedded server is up (their URL points at it).
                 install::auto_resume_on_startup(&handle);
+                // #222: rebuild the per-volume reservation ledger from the
+                // active rows, so a restart never double-counts a reservation.
+                install::rebuild_space_ledger(&handle);
                 launch::sync_pending(handle.clone()).await;
                 // Cloud saves (#108): retry failed automatic uploads with
                 // bounded backoff; pending state is persisted in SQLite.
@@ -212,6 +217,8 @@ pub fn run() {
             commands::list_install_jobs,
             commands::delete_install_job,
             commands::clear_finished_install_jobs,
+            commands::check_install_space,
+            commands::install_space_ledger,
             remote_install::remote_installs_sync,
             commands::list_installed,
             commands::list_recent_games,

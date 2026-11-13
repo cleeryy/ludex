@@ -211,7 +211,9 @@ pub fn refresh_tooltip(app: &AppHandle) {
             matches!(
                 job.phase,
                 InstallPhase::Queued
+                    | InstallPhase::WaitingForSpace
                     | InstallPhase::Downloading
+                    | InstallPhase::Verifying
                     | InstallPhase::Extracting
                     | InstallPhase::Finalizing
             )

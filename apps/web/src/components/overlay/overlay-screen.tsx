@@ -8,6 +8,7 @@ import { isNative, native } from "@/lib/native";
 import { useGamepad } from "@/lib/gamepad";
 import { applyGamepadFocus, moveTargetIndex, type MoveAction } from "@/lib/gamepad-core";
 import { useControllerProfile } from "@/lib/use-controller-profile";
+import { jobProgressPercent } from "@/lib/install-phase";
 import {
   defaultOverlayTab,
   formatOverlayClock,
@@ -37,7 +38,14 @@ import { t } from "@/lib/i18n";
  * running in the Rust install queue.
  */
 
-const ACTIVE_PHASES = new Set(["queued", "downloading", "extracting", "finalizing"]);
+const ACTIVE_PHASES = new Set([
+  "queued",
+  "waitingForSpace",
+  "downloading",
+  "verifying",
+  "extracting",
+  "finalizing",
+]);
 
 function overlayTabLabel(tab: OverlayTabId): string {
   switch (tab) {
@@ -53,8 +61,9 @@ function overlayTabLabel(tab: OverlayTabId): string {
 }
 
 function jobPercent(job: InstallJob): number | null {
-  if (!job.bytesTotal || job.bytesTotal <= 0) return null;
-  return Math.min(100, Math.max(0, (job.bytesDone / job.bytesTotal) * 100));
+  // #223: an indeterminate bar while the archive is verified, never a frozen
+  // 100 % with the download's last rate.
+  return jobProgressPercent(job);
 }
 
 export interface OverlayScreenProps {

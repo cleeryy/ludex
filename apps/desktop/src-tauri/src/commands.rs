@@ -112,6 +112,9 @@ pub fn save_settings(
     // The title bar preference is saved with the rest of the form; apply it so
     // the window never needs a restart (#111).
     chrome::apply(&app, saved.native_title_bar);
+    // #221/#222: a raised download concurrency or a new location can let a
+    // queued install start right away instead of at the next completion.
+    install::dispatch(&app);
 
     Ok(saved)
 }
@@ -291,6 +294,23 @@ pub fn get_install_job(app: AppHandle, job_id: String) -> Result<InstallJob, Str
 #[tauri::command]
 pub fn list_install_jobs(app: AppHandle) -> Result<Vec<InstallJob>, String> {
     install::list(&app)
+}
+
+/// Re-evaluate a job parked on `waitingForSpace` (#222).
+///
+/// The scheduler already re-checks automatically when another job releases its
+/// reservation; this is the explicit "Check again" action, and it returns the
+/// refreshed job so the row can update without waiting for the next event.
+#[tauri::command]
+pub fn check_install_space(app: AppHandle, job_id: String) -> Result<InstallJob, String> {
+    install::check_space(&app, &job_id)
+}
+
+/// Bytes reserved per volume by the active installs (#222), for Settings →
+/// Storage.
+#[tauri::command]
+pub fn install_space_ledger(app: AppHandle) -> Vec<crate::space::LedgerTotal> {
+    install::space_ledger(&app)
 }
 
 /// Terminal phases whose Downloads history entry can be removed (#100).

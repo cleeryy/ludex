@@ -41,6 +41,7 @@ import type {
   InstallHealth,
   InstallJob,
   InstallResumeMode,
+  InstallSpaceTotal,
   InstalledGame,
   InstallerPlan,
   InstallerReport,
@@ -384,6 +385,25 @@ export const native = {
 
   async getInstallJob(jobId: string): Promise<InstallJob> {
     return invoke<InstallJob>("get_install_job", { jobId });
+  },
+
+  /**
+   * Re-evaluate a job parked on `waitingForSpace` (#222). The desktop also
+   * re-checks by itself when another install releases its reservation; this is
+   * the explicit "Check again" action.
+   */
+  async checkInstallSpace(jobId: string): Promise<InstallJob> {
+    return invoke<InstallJob>("check_install_space", { jobId });
+  },
+
+  /** Reserved bytes per volume by the active installs (#222). */
+  async installSpaceLedger(): Promise<InstallSpaceTotal[]> {
+    if (!isNative()) return [];
+    try {
+      return await invoke<InstallSpaceTotal[]>("install_space_ledger");
+    } catch {
+      return [];
+    }
   },
 
   async listRecentGames(limit?: number): Promise<InstalledGame[]> {
@@ -1456,6 +1476,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   downloadStallTimeoutSecs: 30,
   downloadRetryWindowSecs: 21600,
   autoResumeDownloads: true,
+  downloadConcurrency: 1,
   closeToTray: true,
   nativeTitleBar: false,
   updateChannel: "stable",

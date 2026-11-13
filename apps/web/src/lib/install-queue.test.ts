@@ -33,6 +33,9 @@ function job(overrides: Partial<InstallJob> & Pick<InstallJob, "jobId" | "phase"
     httpStatus: null,
     waitingForNetwork: false,
     queuePosition: null,
+    prefetching: false,
+    space: null,
+    verifiedSha256: null,
     ...overrides,
   };
 }
@@ -130,6 +133,17 @@ describe("install queue order", () => {
     expect(canMoveDown(jobs, "job-d")).toBe(false);
     expect(canMoveUp(jobs, "running")).toBe(false);
     expect(canMoveDown(jobs, "missing")).toBe(false);
+  });
+
+  it("treats verification and disk waits as their own states", () => {
+    // #223: verification owns the extractor, so it is never reordered.
+    expect(isRunningJob(job({ jobId: "v", phase: "verifying" }))).toBe(true);
+    expect(isReorderableJob(job({ jobId: "v", phase: "verifying" }))).toBe(false);
+    // #222: a job parked on disk space keeps its turn and can be moved.
+    expect(isReorderableJob(job({ jobId: "w", phase: "waitingForSpace" }))).toBe(true);
+    expect(isRunningJob(job({ jobId: "w", phase: "waitingForSpace" }))).toBe(false);
+    // A prefetching download is still a running job.
+    expect(isRunningJob(job({ jobId: "p", phase: "downloading", prefetching: true }))).toBe(true);
   });
 
   it("moves a paused job like a queued one", () => {

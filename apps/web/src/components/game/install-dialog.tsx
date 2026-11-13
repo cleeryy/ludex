@@ -7,6 +7,14 @@ import { formatBytes, formatEta, formatSpeed, installPhaseLabel, formatPercent }
 import { isNative, native } from "@/lib/native";
 import type { GameDetail, GameVersion, LocationStatus } from "@/lib/types";
 import { isStreamFailedJob, useDownloads } from "@/state/downloads";
+import {
+  isVerifyingJob,
+  isWaitingForSpaceJob,
+  peakEstimate,
+  peakEstimateLabel,
+  spaceWaitLabel,
+  verifyingLabel,
+} from "@/lib/install-phase";
 import { Button, Progress } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { Dialog } from "@/components/ui/dialog";
@@ -118,7 +126,10 @@ export function InstallDialog({
   const installStatus = installOptions.find((location) => location.id === installLocationId) ?? null;
   const downloadStatus = downloadLocations.find((location) => location.id === downloadLocationId) ?? null;
   const sameVolume = !downloadStatus || !installStatus || downloadStatus.path === installStatus.path;
-  const requiredBytes = version.size * (sameVolume ? 2 : 1) + FREE_SPACE_RESERVE;
+  // #222: the dialog shows the same peak estimate the desktop reserves (the
+  // archive, the extracted tree estimated at 1.5×, plus the safety margin).
+  const estimate = peakEstimate(version.size, sameVolume);
+  const requiredBytes = estimate.peakBytes;
   const spaceError = installStatus?.freeBytes != null && installStatus.freeBytes < requiredBytes
     ? t("Not enough free space on {label}: {free} available, about {needed} needed.", {
         label: installStatus.label,
@@ -188,16 +199,24 @@ export function InstallDialog({
     }
   };
 
-  const pct = job?.bytesTotal ? Math.min(100, (job.bytesDone / job.bytesTotal) * 100) : null;
+  const verifying = job ? isVerifyingJob(job) : false;
+  // A verifying job reports an indeterminate bar (the bytes are complete).
+  const pct = job ? (verifying ? null : job.bytesTotal ? Math.min(100, (job.bytesDone / job.bytesTotal) * 100) : null) : null;
   const paused = job?.phase === "paused";
-  const active = job && ["queued", "downloading", "extracting", "finalizing"].includes(job.phase);
+  const active =
+    job && ["queued", "waitingForSpace", "downloading", "verifying", "extracting", "finalizing"].includes(job.phase);
   const failed = job && ["error", "cancelled", "interrupted"].includes(job.phase);
   // "Resume" only when a checkpoint really continues the job; a legacy stream
   // without one gets an explicit "Restart stream" (#205/#208).
   const streamFailed = job ? isStreamFailedJob(job) : false;
   const resumable = paused || (failed && job?.resumable === true);
   const needsRestart = failed && job?.resumable !== true && !streamFailed;
-  const eta = job && active && job.bytesTotal ? formatEta(job.bytesDone, job.bytesTotal, job.speedBps) : null;
+  const eta =
+    job && active && job.bytesTotal && job.phase === "downloading"
+      ? formatEta(job.bytesDone, job.bytesTotal, job.speedBps)
+      : null;
+  const verifyingLine = job ? verifyingLabel(job) : null;
+  const waitingLine = job && isWaitingForSpaceJob(job) ? spaceWaitLabel(job) : null;
 
   return (
     <Dialog
@@ -216,7 +235,7 @@ export function InstallDialog({
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               {t("Continue in background")}
             </Button>
-            {(job.phase === "queued" || job.phase === "downloading") &&
+            {(job.phase === "queued" || job.phase === "downloading" || verifying) &&
             (job.stream !== true || job.resumable) ? (
               <Button variant="default" onClick={() => void downloads.pause(job.jobId)}>
                 {t("Pause")}
@@ -327,7 +346,12 @@ export function InstallDialog({
             <dt className="text-ink-3">{t("Archive")}</dt>
             <dd className="truncate font-mono text-[11px] text-ink-2">{version.fileName}</dd>
           </div>
+          <div className="flex items-baseline justify-between gap-4">
+            <dt className="text-ink-3">{t("Peak disk use")}</dt>
+            <dd className="truncate text-right text-[11.5px] text-ink-2">{formatBytes(estimate.peakBytes)}</dd>
+          </div>
         </dl>
+        <p className="text-[11.5px] leading-relaxed text-ink-3">{peakEstimateLabel(estimate, sameVolume)}</p>
 
         {rollback && (
           <p className="border-l-2 border-signal pl-3 text-[12px] leading-relaxed text-signal-text">
@@ -347,8 +371,9 @@ export function InstallDialog({
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
               <span>{formatBytes(job.bytesDone)}</span>
               {job.bytesTotal && <span>{t("{done} of {total}", { done: formatBytes(job.bytesDone), total: formatBytes(job.bytesTotal) })}</span>}
-              {job.speedBps > 0 && <span>{formatSpeed(job.speedBps)}</span>}
+              {job.phase === "downloading" && job.speedBps > 0 && <span>{formatSpeed(job.speedBps)}</span>}
               {eta && <span>{t("{duration} left", { duration: eta })}</span>}
+              {verifyingLine && <span className="text-signal-text">{verifyingLine}</span>}
               {job.entriesTotal ? (
                 <span>
                   {t("{done}/{total} files", {
@@ -397,6 +422,11 @@ export function InstallDialog({
                 {t(
                   "Stream installs resume file by file: closing or losing the connection never re-downloads completed files.",
                 )}
+              </p>
+            )}
+            {waitingLine && (
+              <p className="border-l-2 border-signal pl-3 text-[11.5px] leading-relaxed text-signal-text">
+                {waitingLine}
               </p>
             )}
             {job.installPath && (

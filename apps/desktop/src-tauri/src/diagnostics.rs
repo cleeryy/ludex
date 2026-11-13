@@ -704,6 +704,9 @@ mod tests {
             http_status: Some(524),
             waiting_for_network: false,
             queue_position: None,
+            prefetching: false,
+            space: None,
+            verified_sha256: None,
         };
         let rows = store.download_jobs(vec![job]);
         assert_eq!(rows.len(), 1);

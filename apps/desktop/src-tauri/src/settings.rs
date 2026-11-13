@@ -168,6 +168,11 @@ pub struct LocalSettings {
     /// Never applies to a user-paused or cancelled job.
     #[serde(default = "default_auto_resume_downloads")]
     pub auto_resume_downloads: bool,
+    /// Parallel archive downloads (#221): 1 (default) or 2. Extraction is
+    /// always serialised, so raising it only overlaps two transfers, never two
+    /// unpackers; every slot is still gated by the disk-space ledger (#222).
+    #[serde(default = "default_download_concurrency")]
+    pub download_concurrency: u64,
     /// Closing the window hides Ludex to the tray instead of quitting.
     pub close_to_tray: bool,
     /// Use the native title bar instead of Ludex's own (#111). Windows and Linux
@@ -476,6 +481,13 @@ pub const fn default_download_retry_window_secs() -> u64 {
     6 * 60 * 60
 }
 
+/// Parallel downloads (#221). One by default: the pipeline already overlaps
+/// the next download with the current extraction, and two transfers only help
+/// on a fast link with a slow disk.
+pub const fn default_download_concurrency() -> u64 {
+    1
+}
+
 /// Resume incomplete downloads after an app restart (#212). On by default:
 /// the job was already user-intended, and pausing exists for the opt-out.
 pub const fn default_auto_resume_downloads() -> bool {
@@ -511,6 +523,7 @@ impl Default for LocalSettings {
             download_stall_timeout_secs: default_download_stall_timeout_secs(),
             download_retry_window_secs: default_download_retry_window_secs(),
             auto_resume_downloads: default_auto_resume_downloads(),
+            download_concurrency: default_download_concurrency(),
             close_to_tray: true,
             native_title_bar: false,
             update_channel: UpdateChannel::Stable,
@@ -603,6 +616,12 @@ impl LocalSettings {
         self.download_stall_timeout_secs = self.download_stall_timeout_secs.clamp(5, 600);
         // #212: 0 is meaningful ("retry while the app is open"), anything else
         // is bounded to a sane range so a typo cannot mean ten years.
+        if self.download_concurrency == 0 {
+            self.download_concurrency = default_download_concurrency();
+        }
+        self.download_concurrency = self
+            .download_concurrency
+            .clamp(1, crate::state::MAX_CONCURRENT_DOWNLOADS as u64);
         if self.download_retry_window_secs != 0 {
             self.download_retry_window_secs =
                 self.download_retry_window_secs.clamp(60, 7 * 24 * 60 * 60);
@@ -1984,6 +2003,33 @@ mod tests {
         settings.overlay_tabs = Vec::new();
         settings.normalize(Path::new("/data"));
         assert!(settings.overlay_tabs.is_empty());
+    }
+
+    #[test]
+    fn download_concurrency_defaults_to_one_and_is_bounded() {
+        let mut settings = LocalSettings::default();
+        assert_eq!(settings.download_concurrency, 1);
+
+        // A settings file written before #221 has no key: the default applies.
+        let raw = serde_json::json!({ "installDir": "/games" });
+        let mut legacy: LocalSettings = serde_json::from_value(raw).unwrap();
+        assert_eq!(legacy.download_concurrency, 1);
+
+        // Two is the documented maximum: extraction is always serialised.
+        settings.download_concurrency = 2;
+        settings.normalize(Path::new("/data"));
+        assert_eq!(settings.download_concurrency, 2);
+        settings.download_concurrency = 9;
+        settings.normalize(Path::new("/data"));
+        assert_eq!(
+            settings.download_concurrency,
+            u64::from(crate::state::MAX_CONCURRENT_DOWNLOADS as u32)
+        );
+        // Zero is not "unlimited": it falls back to the single-download default.
+        settings.download_concurrency = 0;
+        settings.normalize(Path::new("/data"));
+        assert_eq!(settings.download_concurrency, 1);
+        assert_eq!(legacy.download_concurrency, 1);
     }
 
     #[test]
