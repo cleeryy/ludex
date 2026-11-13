@@ -1470,6 +1470,33 @@ pub fn get_install_job(
         .map_err(|e| format!("Could not read the install job: {e}"))
 }
 
+/// Jobs interrupted by the previous app run (#212), in queue order so the
+/// scheduler restores the previous queue. `mark_interrupted_jobs` stamps them
+/// with the startup message; a real failure carries another one. The legacy
+/// v0.4.5 message is accepted too, so an upgrade resumes an in-flight job.
+pub fn interrupted_install_jobs(
+    connection: &Connection,
+    message: &str,
+    legacy_message: &str,
+) -> Result<Vec<InstallJobRecord>, String> {
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {INSTALL_JOB_COLUMNS} FROM install_jobs
+                 WHERE phase = 'error' AND error IN (?1, ?2)
+                 ORDER BY CASE WHEN queue_position IS NULL THEN 1 ELSE 0 END,
+                          queue_position, created_at"
+        ))
+        .map_err(|e| format!("Could not read interrupted install jobs: {e}"))?;
+    let rows = statement
+        .query_map(params![message, legacy_message], map_install_job)
+        .map_err(|e| format!("Could not read interrupted install jobs: {e}"))?;
+    let mut records = Vec::new();
+    for row in rows {
+        records.push(row.map_err(|e| format!("Could not read interrupted install jobs: {e}"))?);
+    }
+    Ok(records)
+}
+
 /// Most recent persisted job for a game version, used to resume a `.part`
 /// file even when the download folder changed between attempts.
 pub fn latest_install_job_for_version(
@@ -3611,6 +3638,66 @@ mod tests {
         assert_eq!(loaded.error.as_deref(), Some("interrupted"));
         assert_eq!(all_install_jobs(&connection).unwrap().len(), 1);
         assert_eq!(all_install_jobs(&connection).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn interrupted_downloads_are_listed_in_queue_order_only() {
+        let connection = memory_database();
+        let record = |job_id: &str, phase: &str, error: Option<&str>, position: Option<i64>| {
+            InstallJobRecord {
+                job_id: job_id.into(),
+                game_id: 1,
+                version_id: 2,
+                phase: phase.into(),
+                bytes_done: 1024,
+                bytes_total: Some(4096),
+                speed_bps: 0,
+                part_path: Some(format!("/tmp/{job_id}.part")),
+                install_path: None,
+                staging_path: None,
+                error: error.map(str::to_string),
+                stream: false,
+                resumable: true,
+                stream_completed: None,
+                entries_total: None,
+                queue_position: position,
+                created_at: "2026-01-01T00:00:00Z".into(),
+                updated_at: "2026-01-01T00:00:00Z".into(),
+            }
+        };
+        // Two interrupted rows (one without a recorded slot) and one real
+        // failure: only the interrupted ones may auto-resume.
+        upsert_install_job(
+            &connection,
+            &record("job-b", "error", Some("Ludex closed early"), Some(1)),
+        )
+        .unwrap();
+        upsert_install_job(
+            &connection,
+            &record("job-a", "error", Some("Ludex closed early"), Some(0)),
+        )
+        .unwrap();
+        upsert_install_job(
+            &connection,
+            &record(
+                "job-c",
+                "error",
+                Some("Download failed with HTTP 404"),
+                Some(2),
+            ),
+        )
+        .unwrap();
+        upsert_install_job(&connection, &record("job-d", "paused", None, Some(3))).unwrap();
+
+        let records =
+            interrupted_install_jobs(&connection, "Ludex closed early", "Install again to resume")
+                .unwrap();
+        let ids: Vec<&str> = records.iter().map(|row| row.job_id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["job-a", "job-b"],
+            "queue order, no permanent error"
+        );
     }
 
     #[test]

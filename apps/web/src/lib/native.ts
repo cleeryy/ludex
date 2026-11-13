@@ -349,6 +349,21 @@ export const native = {
     return invoke<InstallJob>("resume_install", { jobId, mode: mode ?? null });
   },
 
+  /** Skip the retry backoff of a waiting download (#212); same job/offset. */
+  async retryInstallNow(jobId: string): Promise<InstallJob> {
+    return invoke<InstallJob>("retry_install_now", { jobId });
+  },
+
+  /** Report OS reachability so download retries park while offline (#212). */
+  async setDownloadNetworkState(online: boolean): Promise<void> {
+    if (!isNative()) return;
+    try {
+      await invoke<null>("set_download_network_state", { online });
+    } catch {
+      /* an older desktop simply keeps retrying */
+    }
+  },
+
   /**
    * Move a waiting install in the queue (#202). `position` is the 0-based place
    * inside the waiting queue and is only used by the `position` action.
@@ -1403,6 +1418,8 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   archivePasswords: [],
   bandwidthLimitKib: 0,
   downloadStallTimeoutSecs: 30,
+  downloadRetryWindowSecs: 21600,
+  autoResumeDownloads: true,
   closeToTray: true,
   nativeTitleBar: false,
   updateChannel: "stable",

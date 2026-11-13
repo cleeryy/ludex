@@ -3595,5 +3595,19 @@
   "{done} of {total} games · {files} files · {bytes}": "{done} de {total} juegos · {files} archivos · {bytes}",
   "{files} files · {size}": "{files} archivos · {size}",
   "{succeeded} of {games} games updated": "{succeeded} de {games} juegos actualizados",
-  "{title} removed from the library": "{title} eliminado de la biblioteca"
+  "{title} removed from the library": "{title} eliminado de la biblioteca",
+  "Automatic retries": "Reintentos automáticos",
+  "A dropped transfer retries on its own for this long before the install stops: same job, same offset, with a backoff capped at five minutes. A wrong password, a missing game or a full disk stops immediately instead of looping. Use 0 to keep retrying until the app closes.": "Una transferencia interrumpida se reintenta sola durante este tiempo antes de que la instalación se detenga: mismo trabajo, mismo offset y un backoff limitado a cinco minutos. Una contraseña incorrecta, un juego ausente o un disco lleno se detienen de inmediato en lugar de repetir. Usa 0 para reintentar hasta cerrar la aplicación.",
+  "Retry window in hours": "Ventana de reintento en horas",
+  "Retrying until the app closes. Cancel always stops the download immediately.": "Reintentando hasta cerrar la aplicación. Cancelar siempre detiene la descarga de inmediato.",
+  "Retrying for up to 1 hour. Cancel always stops the download immediately.": "Reintentando hasta 1 hora. Cancelar siempre detiene la descarga de inmediato.",
+  "Retrying for up to {count} hours. Cancel always stops the download immediately.": "Reintentando hasta {count} horas. Cancelar siempre detiene la descarga de inmediato.",
+  "After a restart": "Tras reiniciar",
+  "Resume unfinished downloads on launch": "Reanudar las descargas inacabadas al iniciar",
+  "Re-enters an install that was still downloading when Ludex closed, at the same offset and in the same queue position. A paused or cancelled install is never resumed automatically.": "Vuelve a poner en cola una instalación que seguía descargando al cerrar Ludex, con el mismo offset y la misma posición en la cola. Una instalación pausada o cancelada nunca se reanuda automáticamente.",
+  "Waiting for the network": "Esperando a la red",
+  "Retrying in {seconds} s, attempt {attempt}": "Reintentando en {seconds} s, intento {attempt}",
+  "Skips the current wait and retries immediately": "Salta la espera actual y reintenta de inmediato",
+  "Retry now": "Reintentar ahora",
+  "Could not retry now": "No se pudo reintentar ahora"
 }

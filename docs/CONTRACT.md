@@ -1773,6 +1773,8 @@ interface LocalSettings {
   archivePasswords: string[];   // tried in order
   bandwidthLimitKib: number;    // global cap stored in KiB/s; the UI presents Mb/s (#199), 0 = unlimited
   downloadStallTimeoutSecs: number; // idle seconds before a download reconnects with Range (#195), default 30, clamped 5..600
+  downloadRetryWindowSecs: number;  // automatic retry window in seconds (#212), default 21600 (6 h), 0 = until the app closes, clamped 60..604800 otherwise
+  autoResumeDownloads: boolean;      // re-enter interrupted downloads on launch (#212), default true; never a paused/cancelled job
   closeToTray: boolean;         // closing the window hides to the tray (default true)
   nativeTitleBar: boolean;      // OS title bar instead of Ludex's own (#111), default false
   updateChannel: "stable" | "early"; // app updater channel (default stable)
@@ -2195,6 +2197,9 @@ interface InstallJob {
   attempt: number;              // connection attempt that produced this snapshot; the next one while reconnecting
   lastError: string | null;     // last transport error, kept until the transfer completes (#195)
   stalledForMs: number | null;  // silence that triggered the stall, in milliseconds
+  nextRetryAt: string | null;   // RFC 3339 time of the next automatic retry (#212); the row shows a countdown + "Retry now"
+  httpStatus: number | null;    // HTTP status of the last response (#212); diagnostics only
+  waitingForNetwork: boolean;   // true while retries are parked because the OS reports offline (#212)
   queuePosition: number | null; // install queue slot (#202); null when finished or from an older build
 }
 
@@ -2642,6 +2647,8 @@ interface RemotePlayCleanup {
 | `cancel_install` | `{ jobId }` | `null` |
 | `pause_install` | `{ jobId }` | `InstallJob` (`paused`; keeps the `.part`) |
 | `resume_install` | `{ jobId, mode? }` | `InstallJob`; continues the **same** job (#205/#208). Accepts `paused`, `error`, `interrupted` and `cancelled` rows, including a job persisted by a previous app run: the worker is rebuilt from `install_job_params`, keeps the `.part`/staging path and the per-entry checkpoint, and never creates a second history row. `mode` is `null`/`"keep"` (same transport), `"download"` (explicit retry as a download) or `"stream"` (explicit restart of the per-entry stream); both reuse the job id. A `done` job or an unknown/legacy row without parameters is refused with a clear reason |
+| `retry_install_now` | `{ jobId }` | `InstallJob` (#212); wakes a download waiting in a retry backoff. Same job id, same offset, same attempt budget. Refused with a string error when the job is not `reconnecting` or is from a previous session |
+| `set_download_network_state` | `{ online }` | `null` (#212); the web shell forwards `navigator.onLine` (and the `online`/`offline` events). While offline, download and stream retries park without consuming an attempt |
 | `get_install_job` | `{ jobId }` | `InstallJob` |
 | `list_install_jobs` | — | `InstallJob[]`; active jobs first in queue order (`queuePosition`, lowest first, running install at the front), then history newest first |
 | `reorder_install_job` | `{ jobId, action, position? }` | `InstallJob[]` (the new queue order, same shape as `list_install_jobs`). `action` is `"top"`, `"up"`, `"down"` or `"position"`; `position` is the 0-based place inside the waiting queue and is required (and validated) for `"position"`. Queued and paused jobs move; the running install is never preempted and is refused with a clear message, as is a finished job or a row from a previous session. Moving a job to the top makes it the next one the scheduler starts (#202) |
@@ -2767,7 +2774,7 @@ interface RemotePlayCleanup {
 | `oidc_login_poll` | `{ sessionId }` | `{ status: "claimed" \| "expired" \| "cancelled" \| "error", code, message }`; polls the claim endpoint every second for up to five minutes, then the webview redeems `code` through the existing exchange. `code` is `null` unless `status` is `claimed`; the app never logs the state or the code (#157) |
 | `oidc_login_cancel` | `{ sessionId }` | Stops an in-flight poll; idempotent, the attempt resolves as `cancelled` (#157) |
 | `open_external_url` | `{ url }` | Opens an `http(s)` address in the system browser (the "Open web login" fallback). Refuses any other scheme (#157) |
-| `diagnostics_status` | — | `{ enabled, installId, appVersion, platform, os, locale, channel, reports, unsent }`; generates the random install id on first read. Local capture is on, uploading is not (#171) |
+| `diagnostics_status` | — | `{ enabled, installId, appVersion, platform, os, locale, channel, reports, unsent, downloads }`; generates the random install id on first read. `downloads` is the redacted download bundle (#212): `{ jobId, gameId, phase, stream, attempt, offset, bytesTotal, httpStatus, lastError, nextRetryAt, waitingForNetwork }` (at most 10 jobs, no token). Local capture is on, uploading is not (#171) |
 | `set_diagnostics_enabled` | `{ enabled }` | Refreshed status. Enabling only records consent; disabling deletes the local queue and forgets the install id (#171) |
 | `diagnostics_preview` | `{ reportId? }` | `{ reportId, payload }`; the exact JSON body, already redacted. Defaults to the newest report (#171) |
 | `diagnostics_send` | `{ reportId }` | `{ reportId, sent: true }`; refuses with a string error while the toggle is off. There is no automatic send path (#171) |
@@ -3222,17 +3229,42 @@ stops every write. Each applied change appears in the Backups tab with
   Settings and the onboarding summary present it in Mb/s (`1 Mb/s =
   122.0703125 KiB/s`, #199). Network speeds are always rendered in decimal bits
   (`Kb/s`, `Mb/s`, `Gb/s`); file sizes stay in bytes.
-- **Download resilience (#195).** A response that yields no bytes for
+- **Download resilience (#195, #212).** A response that yields no bytes for
   `downloadStallTimeoutSecs` (default 30 s) is abandoned; the `.part` is kept and
   the next request resumes with `Range: bytes=<last flushed byte>-`. Reconnects
-  use exponential backoff with jitter, are bounded by attempts and a retry
-  window, and never restart from zero while the `.part` is valid. A changed
-  archive (different `ETag` or total size) restarts explicitly with a visible
-  job message. While reconnecting, the job carries `reconnecting`, `attempt`,
-  `lastError` and `stalledForMs`; cancellation and pause keep their existing
-  `.part` semantics. The server treats a Range reconnect as a normal request,
-  logs each stream's `bytes`/`elapsed_ms`/`outcome`, and answers `429` with
-  `Retry-After` above 120 attempts/minute per address and version.
+  use exponential backoff with jitter (1 s base, capped at 5 min) and keep
+  retrying for `downloadRetryWindowSecs` (default 6 h; 0 = until the app closes),
+  so a 40 GB install does not need a manual Resume after a WAN outage. Only
+  permanent failures stop immediately (`400`/`401`/`403`/`404`/`415`, a changed
+  archive/ETag/size after two explicit restarts, a rejected resume offset, disk
+  full); three identical permanent errors trip a circuit breaker so a bug cannot
+  hot-loop. `Retry-After` on `429`/`503` is honoured (capped at 30 min). While a
+  retry waits, the job stays in the active queue with `reconnecting`, `attempt`,
+  `lastError`, `stalledForMs`, `httpStatus` and `nextRetryAt`; the UI shows a
+  countdown and a `retry_install_now` action, and cancel still stops at once.
+  While the OS reports offline the wait is parked (`waitingForNetwork`) without
+  counting an attempt, and resumes on the next online event.
+- **Stream job-level retry (#212).** After the five per-entry attempts, the
+  stream job backs off and runs the same job again against the same checkpoint;
+  completed entries and per-entry `.part` files are adopted, so no byte is
+  fetched twice. The same window applies. A structurally unusable path (an
+  unsupported format, or zero bytes received for the whole job) still falls back
+  to the classic resumable download once instead of looping. Each entry attempt
+  within `waiting_for_network` is skipped while offline; the first body chunk
+  must arrive within 20 s or the attempt is abandoned, keeping the whole burst
+  inside Cloudflare's 100 s 524 budget.
+- **Resume on launch (#212).** `mark_interrupted_jobs` still marks rows that were
+  active at exit, preserving their queue position. At startup, when
+  `autoResumeDownloads` (default true) is on, the desktop rebuilds each of those
+  workers from `install_job_params` and re-queues it at its recorded position;
+  paused, cancelled and genuinely failed jobs are never auto-resumed. The same
+  job id, `.part` offset and stream checkpoint are reused, so one history row
+  remains.
+- **Download diagnostics (#211/#212).** `diagnostics_status.downloads` carries up
+  to 10 in-memory jobs with the redacted `lastError`, `attempt`, `offset`
+  (bytes already on disk), `bytesTotal`, `httpStatus`, `nextRetryAt` and
+  `stream`. Tokens, URLs and absolute paths are redacted with the same context as
+  a crash report; the job parameters (which hold the token) are never included.
 - **Manifests.** At install completion the desktop hashes every installed file
   (relative path, size, SHA-256) into `install_manifests`. Hashing failures are
   logged and never fail the install; such installs report `noManifest` until

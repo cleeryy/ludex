@@ -3,7 +3,7 @@
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
 use tokio::sync::Mutex as AsyncMutex;
@@ -30,11 +30,68 @@ pub struct ProcessEntry {
     pub started: std::time::Instant,
 }
 
+/// OS network reachability reported by the web shell (#212).
+///
+/// The desktop owns the retry sleeps, so it needs to know when the machine is
+/// offline: a retry timer must not burn attempts (or spin) while there is no
+/// route. The flag is toggled from `navigator.onLine` events and read by the
+/// download loops; the initial value is "online" so a browser that never sends
+/// the event does not block downloads.
+#[derive(Debug)]
+pub struct NetworkGate {
+    online: AtomicBool,
+    changed: tokio::sync::Notify,
+}
+
+impl Default for NetworkGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NetworkGate {
+    pub fn new() -> Self {
+        Self {
+            online: AtomicBool::new(true),
+            changed: tokio::sync::Notify::new(),
+        }
+    }
+
+    pub fn set_online(&self, online: bool) {
+        self.online.store(online, Ordering::SeqCst);
+        // Wake every waiter on both transitions: a waiter only acts on the
+        // state it observes, so notifying on "offline" is harmless and keeps a
+        // wait that started online from sleeping through the change.
+        self.changed.notify_waiters();
+    }
+
+    pub fn is_online(&self) -> bool {
+        self.online.load(Ordering::SeqCst)
+    }
+
+    /// Wait for `online = true`; returns immediately when already online.
+    pub async fn wait_online(&self) {
+        loop {
+            // Register before reading the flag: `notify_waiters` does not
+            // buffer, so this ordering cannot lose a transition.
+            let notified = self.changed.notified();
+            if self.is_online() {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
 /// An install job: immutable request parameters, cancellation, live status and
 /// the paths needed to persist/resume it.
 pub struct JobEntry {
     pub params: InstallParams,
     pub cancel: CancellationToken,
+    /// Fires when the user asks a job waiting in a retry backoff to try right
+    /// now (#212). Replaced on resume so a stale notification cannot skip a
+    /// later wait.
+    pub retry_now: tokio::sync::Notify,
     /// Cancelled by `pause_install`, replaced by `resume_install`. A paused job
     /// keeps its `.part` file and its place in the queue.
     pub pause: Mutex<CancellationToken>,
@@ -120,6 +177,17 @@ impl JobEntry {
         self.pause_token().cancel();
     }
 
+    /// Skip the current retry backoff without touching the connection (#212).
+    pub fn request_retry_now(&self) {
+        // `notify_one` keeps a permit, so a click that lands just before the
+        // worker starts its sleep is not lost.
+        self.retry_now.notify_one();
+    }
+
+    pub fn retry_signal(&self) -> &tokio::sync::Notify {
+        &self.retry_now
+    }
+
     /// Give the job a fresh pause token when it resumes.
     pub fn clear_pause(&self) {
         match self.pause.lock() {
@@ -156,6 +224,9 @@ pub struct AppState {
     /// Short-lived executable listings for the Launch options picker (#143).
     pub executables: Mutex<ExecutableCache>,
     pub http: reqwest::Client,
+    /// OS reachability reported by the web shell (#212); retry waits pause
+    /// while it is false without consuming an attempt.
+    pub network: NetworkGate,
     /// Install jobs run one at a time by default to avoid disk thrash on large
     /// archives. Additional requests wait in the queued phase.
     pub install_slots: Arc<tokio::sync::Semaphore>,
@@ -209,11 +280,13 @@ impl AppState {
         let database_path = profiles::adopt_legacy_database(&app_data, &loaded.active_server_id)?;
         let database = db::open(&database_path)?;
 
-        match db::mark_interrupted_jobs(
-            &database,
-            "Ludex closed before this install finished. Install again to resume.",
-            &crate::util::now_rfc3339(),
-        ) {
+        let interrupted_message = if loaded.auto_resume_downloads {
+            crate::install::INTERRUPTED_MESSAGE
+        } else {
+            "Ludex closed before this install finished. Resume to continue."
+        };
+        match db::mark_interrupted_jobs(&database, interrupted_message, &crate::util::now_rfc3339())
+        {
             Ok(0) => {}
             Ok(count) => tracing::warn!(count, "marked interrupted install jobs"),
             Err(error) => tracing::warn!(error = %error, "could not mark interrupted install jobs"),
@@ -255,6 +328,7 @@ impl AppState {
             installers: Mutex::new(HashMap::new()),
             executables: Mutex::new(ExecutableCache::default()),
             http,
+            network: NetworkGate::new(),
             install_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_INSTALLS)),
             secrets,
             oidc_logins: Arc::new(crate::oidc_login::LoginSessions::new()),

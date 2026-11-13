@@ -3595,5 +3595,19 @@
   "{done} of {total} games · {files} files · {bytes}": "{done}/{total} 个游戏 · {files} 个文件 · {bytes}",
   "{files} files · {size}": "{files} 个文件 · {size}",
   "{succeeded} of {games} games updated": "已更新 {succeeded}/{games} 个游戏",
-  "{title} removed from the library": "{title} 已从库中移除"
+  "{title} removed from the library": "{title} 已从库中移除",
+  "Automatic retries": "自动重试",
+  "A dropped transfer retries on its own for this long before the install stops: same job, same offset, with a backoff capped at five minutes. A wrong password, a missing game or a full disk stops immediately instead of looping. Use 0 to keep retrying until the app closes.": "下载中断后会自动重试这段时间，直到安装停止：同一任务、同一偏移量，退避上限为五分钟。密码错误、游戏不存在或磁盘已满会立即停止而不是循环。设为 0 则重试到应用关闭。",
+  "Retry window in hours": "重试窗口（小时）",
+  "Retrying until the app closes. Cancel always stops the download immediately.": "重试到应用关闭。取消始终立即停止下载。",
+  "Retrying for up to 1 hour. Cancel always stops the download immediately.": "最多重试 1 小时。取消始终立即停止下载。",
+  "Retrying for up to {count} hours. Cancel always stops the download immediately.": "最多重试 {count} 小时。取消始终立即停止下载。",
+  "After a restart": "重启后",
+  "Resume unfinished downloads on launch": "启动时恢复未完成的下载",
+  "Re-enters an install that was still downloading when Ludex closed, at the same offset and in the same queue position. A paused or cancelled install is never resumed automatically.": "Ludex 关闭时仍在下载的安装会在启动后重新排队，偏移量和队列位置保持不变。暂停或取消的安装绝不会自动恢复。",
+  "Waiting for the network": "等待网络",
+  "Retrying in {seconds} s, attempt {attempt}": "{seconds} 秒后重试，第 {attempt} 次尝试",
+  "Skips the current wait and retries immediately": "跳过当前等待并立即重试",
+  "Retry now": "立即重试",
+  "Could not retry now": "现在无法重试"
 }

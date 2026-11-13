@@ -3595,5 +3595,19 @@
   "{done} of {total} games · {files} files · {bytes}": "{done} von {total} Spielen · {files} Dateien · {bytes}",
   "{files} files · {size}": "{files} Dateien · {size}",
   "{succeeded} of {games} games updated": "{succeeded} von {games} Spielen aktualisiert",
-  "{title} removed from the library": "{title} aus der Bibliothek entfernt"
+  "{title} removed from the library": "{title} aus der Bibliothek entfernt",
+  "Automatic retries": "Automatische Wiederholungen",
+  "A dropped transfer retries on its own for this long before the install stops: same job, same offset, with a backoff capped at five minutes. A wrong password, a missing game or a full disk stops immediately instead of looping. Use 0 to keep retrying until the app closes.": "Ein abgebrochener Transfer wird so lange automatisch wiederholt, bevor die Installation stoppt: gleicher Auftrag, gleicher Offset, mit einem auf fünf Minuten begrenzten Backoff. Ein falsches Passwort, ein fehlendes Spiel oder eine volle Festplatte stoppen sofort statt zu schleifen. 0 wiederholt bis zum Schließen der App.",
+  "Retry window in hours": "Wiederholungsfenster in Stunden",
+  "Retrying until the app closes. Cancel always stops the download immediately.": "Wiederholung bis zum Schließen der App. Abbrechen stoppt den Download immer sofort.",
+  "Retrying for up to 1 hour. Cancel always stops the download immediately.": "Wiederholung für bis zu 1 Stunde. Abbrechen stoppt den Download immer sofort.",
+  "Retrying for up to {count} hours. Cancel always stops the download immediately.": "Wiederholung für bis zu {count} Stunden. Abbrechen stoppt den Download immer sofort.",
+  "After a restart": "Nach einem Neustart",
+  "Resume unfinished downloads on launch": "Unvollständige Downloads beim Start fortsetzen",
+  "Re-enters an install that was still downloading when Ludex closed, at the same offset and in the same queue position. A paused or cancelled install is never resumed automatically.": "Stellt eine Installation, die beim Schließen von Ludex noch lief, mit demselben Offset und an derselben Warteschlangenposition wieder ein. Eine pausierte oder abgebrochene Installation wird nie automatisch fortgesetzt.",
+  "Waiting for the network": "Warten auf das Netzwerk",
+  "Retrying in {seconds} s, attempt {attempt}": "Wiederholung in {seconds} s, Versuch {attempt}",
+  "Skips the current wait and retries immediately": "Überspringt die aktuelle Wartezeit und wiederholt sofort",
+  "Retry now": "Jetzt wiederholen",
+  "Could not retry now": "Jetzt wiederholen nicht möglich"
 }

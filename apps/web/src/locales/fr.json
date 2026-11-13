@@ -3595,5 +3595,19 @@
   "{done} of {total} games · {files} files · {bytes}": "{done} sur {total} jeux · {files} fichiers · {bytes}",
   "{files} files · {size}": "{files} fichiers · {size}",
   "{succeeded} of {games} games updated": "{succeeded} jeux sur {games} mis à jour",
-  "{title} removed from the library": "{title} retiré de la bibliothèque"
+  "{title} removed from the library": "{title} retiré de la bibliothèque",
+  "Automatic retries": "Nouvel essai automatique",
+  "A dropped transfer retries on its own for this long before the install stops: same job, same offset, with a backoff capped at five minutes. A wrong password, a missing game or a full disk stops immediately instead of looping. Use 0 to keep retrying until the app closes.": "Un transfert interrompu réessaie tout seul pendant cette durée avant que l'installation s'arrête : même tâche, même offset, avec un backoff plafonné à cinq minutes. Un mot de passe erroné, un jeu absent ou un disque plein arrêtent immédiatement au lieu de boucler. Mettez 0 pour réessayer jusqu'à la fermeture de l'application.",
+  "Retry window in hours": "Fenêtre de nouvel essai en heures",
+  "Retrying until the app closes. Cancel always stops the download immediately.": "Nouvel essai jusqu'à la fermeture de l'application. Annuler arrête toujours le téléchargement immédiatement.",
+  "Retrying for up to 1 hour. Cancel always stops the download immediately.": "Nouvel essai pendant 1 heure maximum. Annuler arrête toujours le téléchargement immédiatement.",
+  "Retrying for up to {count} hours. Cancel always stops the download immediately.": "Nouvel essai pendant {count} heures maximum. Annuler arrête toujours le téléchargement immédiatement.",
+  "After a restart": "Après un redémarrage",
+  "Resume unfinished downloads on launch": "Reprendre les téléchargements inachevés au lancement",
+  "Re-enters an install that was still downloading when Ludex closed, at the same offset and in the same queue position. A paused or cancelled install is never resumed automatically.": "Remet en file une installation encore en cours quand Ludex s'est fermé, au même offset et à la même place dans la file. Une installation en pause ou annulée n'est jamais reprise automatiquement.",
+  "Waiting for the network": "En attente du réseau",
+  "Retrying in {seconds} s, attempt {attempt}": "Nouvel essai dans {seconds} s, tentative {attempt}",
+  "Skips the current wait and retries immediately": "Saute l'attente en cours et réessaie immédiatement",
+  "Retry now": "Réessayer maintenant",
+  "Could not retry now": "Impossible de réessayer maintenant"
 }

@@ -167,6 +167,52 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
             </div>
           </SettingsGroup>
 
+          <SettingsGroup
+            title={t("Automatic retries")}
+            description={t("A dropped transfer retries on its own for this long before the install stops: same job, same offset, with a backoff capped at five minutes. A wrong password, a missing game or a full disk stops immediately instead of looping. Use 0 to keep retrying until the app closes.")}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="w-[150px]">
+                <Input
+                  id="retry-window"
+                  aria-label={t("Retry window in hours")}
+                  type="number"
+                  min={0}
+                  max={168}
+                  step={1}
+                  inputMode="numeric"
+                  value={Math.round(draft.downloadRetryWindowSecs / 3600)}
+                  onChange={(event) => {
+                    const hours = Math.max(0, Math.min(168, Number(event.target.value) || 0));
+                    desktop.update({ downloadRetryWindowSecs: Math.round(hours * 3600) });
+                  }}
+                  className="font-mono text-[12px]"
+                />
+              </div>
+              <span className="text-[11.5px] text-ink-3" aria-hidden="true">
+                h
+              </span>
+            </div>
+            <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">
+              {draft.downloadRetryWindowSecs === 0
+                ? t("Retrying until the app closes. Cancel always stops the download immediately.")
+                : tn(
+                    Math.round(draft.downloadRetryWindowSecs / 3600),
+                    "Retrying for up to 1 hour. Cancel always stops the download immediately.",
+                    "Retrying for up to {count} hours. Cancel always stops the download immediately.",
+                  )}
+            </p>
+          </SettingsGroup>
+
+          <SettingsGroup title={t("After a restart")}>
+            <SettingsSwitchRow
+              title={t("Resume unfinished downloads on launch")}
+              description={t("Re-enters an install that was still downloading when Ludex closed, at the same offset and in the same queue position. A paused or cancelled install is never resumed automatically.")}
+              checked={draft.autoResumeDownloads}
+              onCheckedChange={(autoResumeDownloads) => desktop.update({ autoResumeDownloads })}
+            />
+          </SettingsGroup>
+
           <SettingsGroup title={t("Encrypted archives")}>
             <label htmlFor="archive-passwords" className="text-[13px] font-medium text-ink">
               {t("Archive passwords")}

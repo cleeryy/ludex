@@ -3595,5 +3595,19 @@
   "{done} of {total} games · {files} files · {bytes}": "{done} de {total} jogos · {files} arquivos · {bytes}",
   "{files} files · {size}": "{files} arquivos · {size}",
   "{succeeded} of {games} games updated": "{succeeded} de {games} jogos atualizados",
-  "{title} removed from the library": "{title} removido da biblioteca"
+  "{title} removed from the library": "{title} removido da biblioteca",
+  "Automatic retries": "Tentativas automáticas",
+  "A dropped transfer retries on its own for this long before the install stops: same job, same offset, with a backoff capped at five minutes. A wrong password, a missing game or a full disk stops immediately instead of looping. Use 0 to keep retrying until the app closes.": "Uma transferência interrompida tenta novamente sozinha por este tempo antes de a instalação parar: mesmo trabalho, mesmo offset e backoff limitado a cinco minutos. Uma senha errada, um jogo ausente ou um disco cheio param imediatamente em vez de repetir. Use 0 para tentar até fechar o aplicativo.",
+  "Retry window in hours": "Janela de nova tentativa em horas",
+  "Retrying until the app closes. Cancel always stops the download immediately.": "Tentando até fechar o aplicativo. Cancelar sempre interrompe o download imediatamente.",
+  "Retrying for up to 1 hour. Cancel always stops the download immediately.": "Tentando por até 1 hora. Cancelar sempre interrompe o download imediatamente.",
+  "Retrying for up to {count} hours. Cancel always stops the download immediately.": "Tentando por até {count} horas. Cancelar sempre interrompe o download imediatamente.",
+  "After a restart": "Após reiniciar",
+  "Resume unfinished downloads on launch": "Retomar downloads inacabados ao iniciar",
+  "Re-enters an install that was still downloading when Ludex closed, at the same offset and in the same queue position. A paused or cancelled install is never resumed automatically.": "Recoloca na fila uma instalação que ainda baixava quando o Ludex fechou, no mesmo offset e na mesma posição da fila. Uma instalação pausada ou cancelada nunca é retomada automaticamente.",
+  "Waiting for the network": "Aguardando a rede",
+  "Retrying in {seconds} s, attempt {attempt}": "Nova tentativa em {seconds} s, tentativa {attempt}",
+  "Skips the current wait and retries immediately": "Pula a espera atual e tenta novamente agora",
+  "Retry now": "Tentar agora",
+  "Could not retry now": "Não foi possível tentar agora"
 }

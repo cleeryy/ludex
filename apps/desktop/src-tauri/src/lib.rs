@@ -159,6 +159,9 @@ pub fn run() {
                 .await;
 
                 server::autostart(handle.clone()).await;
+                // #212: re-enter downloads interrupted by the previous app
+                // run after the embedded server is up (their URL points at it).
+                install::auto_resume_on_startup(&handle);
                 launch::sync_pending(handle.clone()).await;
                 // Cloud saves (#108): retry failed automatic uploads with
                 // bounded backoff; pending state is persisted in SQLite.
@@ -189,6 +192,8 @@ pub fn run() {
             commands::cancel_install,
             commands::pause_install,
             commands::resume_install,
+            commands::retry_install_now,
+            commands::set_download_network_state,
             commands::reorder_install_job,
             commands::get_install_job,
             commands::list_install_jobs,

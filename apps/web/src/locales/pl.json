@@ -3595,5 +3595,19 @@
   "{done} of {total} games · {files} files · {bytes}": "{done} z {total} gier · pliki: {files} · {bytes}",
   "{files} files · {size}": "pliki: {files} · {size}",
   "{succeeded} of {games} games updated": "Zaktualizowano {succeeded} z {games} gier",
-  "{title} removed from the library": "Usunięto {title} z biblioteki"
+  "{title} removed from the library": "Usunięto {title} z biblioteki",
+  "Automatic retries": "Automatyczne ponowienia",
+  "A dropped transfer retries on its own for this long before the install stops: same job, same offset, with a backoff capped at five minutes. A wrong password, a missing game or a full disk stops immediately instead of looping. Use 0 to keep retrying until the app closes.": "Przerwany transfer jest ponawiany automatycznie przez ten czas, zanim instalacja się zatrzyma: ten sam job, ten sam offset, backoff ograniczony do pięciu minut. Błędne hasło, brak gry lub pełny dysk zatrzymują ją od razu zamiast zapętlać. 0 ponawia do zamknięcia aplikacji.",
+  "Retry window in hours": "Okno ponowień w godzinach",
+  "Retrying until the app closes. Cancel always stops the download immediately.": "Ponawianie do zamknięcia aplikacji. Anulowanie zawsze natychmiast zatrzymuje pobieranie.",
+  "Retrying for up to 1 hour. Cancel always stops the download immediately.": "Ponawianie do 1 godz. Anulowanie zawsze natychmiast zatrzymuje pobieranie.",
+  "Retrying for up to {count} hours. Cancel always stops the download immediately.": "Ponawianie do {count} godz. Anulowanie zawsze natychmiast zatrzymuje pobieranie.",
+  "After a restart": "Po restarcie",
+  "Resume unfinished downloads on launch": "Wznawiaj niedokończone pobierania przy starcie",
+  "Re-enters an install that was still downloading when Ludex closed, at the same offset and in the same queue position. A paused or cancelled install is never resumed automatically.": "Przywraca do kolejki instalację, która nadal się pobierała przy zamknięciu Ludex, z tym samym offsetem i pozycją w kolejce. Wstrzymana lub anulowana instalacja nigdy nie jest wznawiana automatycznie.",
+  "Waiting for the network": "Oczekiwanie na sieć",
+  "Retrying in {seconds} s, attempt {attempt}": "Ponowienie za {seconds} s, próba {attempt}",
+  "Skips the current wait and retries immediately": "Pomija bieżące oczekiwanie i ponawia od razu",
+  "Retry now": "Ponów teraz",
+  "Could not retry now": "Nie można teraz ponowić"
 }

@@ -159,6 +159,15 @@ pub struct LocalSettings {
     /// with Range (#195). Clamped to 5..=600 when used.
     #[serde(default = "default_download_stall_timeout_secs")]
     pub download_stall_timeout_secs: u64,
+    /// How long a failed connection keeps retrying before the job fails
+    /// (#212), in seconds. Default 6 h; 0 = keep retrying while the job is
+    /// active. Permanent errors stop immediately regardless.
+    #[serde(default = "default_download_retry_window_secs")]
+    pub download_retry_window_secs: u64,
+    /// Re-enter incomplete downloads in the queue after an app restart (#212).
+    /// Never applies to a user-paused or cancelled job.
+    #[serde(default = "default_auto_resume_downloads")]
+    pub auto_resume_downloads: bool,
     /// Closing the window hides Ludex to the tray instead of quitting.
     pub close_to_tray: bool,
     /// Use the native title bar instead of Ludex's own (#111). Windows and Linux
@@ -452,6 +461,18 @@ pub const fn default_download_stall_timeout_secs() -> u64 {
     30
 }
 
+/// How long a download keeps retrying a transient failure before giving up
+/// (#212): six hours, long enough for a 40 GB install over a home line.
+pub const fn default_download_retry_window_secs() -> u64 {
+    6 * 60 * 60
+}
+
+/// Resume incomplete downloads after an app restart (#212). On by default:
+/// the job was already user-intended, and pausing exists for the opt-out.
+pub const fn default_auto_resume_downloads() -> bool {
+    true
+}
+
 /// A console session is meant for a TV: fullscreen by default (#172).
 pub const fn default_console_fullscreen() -> bool {
     true
@@ -479,6 +500,8 @@ impl Default for LocalSettings {
             archive_passwords: Vec::new(),
             bandwidth_limit_kib: 0,
             download_stall_timeout_secs: default_download_stall_timeout_secs(),
+            download_retry_window_secs: default_download_retry_window_secs(),
+            auto_resume_downloads: default_auto_resume_downloads(),
             close_to_tray: true,
             native_title_bar: false,
             update_channel: UpdateChannel::Stable,
@@ -567,6 +590,12 @@ impl LocalSettings {
             self.download_stall_timeout_secs = default_download_stall_timeout_secs();
         }
         self.download_stall_timeout_secs = self.download_stall_timeout_secs.clamp(5, 600);
+        // #212: 0 is meaningful ("retry while the app is open"), anything else
+        // is bounded to a sane range so a typo cannot mean ten years.
+        if self.download_retry_window_secs != 0 {
+            self.download_retry_window_secs =
+                self.download_retry_window_secs.clamp(60, 7 * 24 * 60 * 60);
+        }
         self.games_dir = self
             .games_dir
             .take()
@@ -1938,6 +1967,37 @@ mod tests {
         settings.overlay_tabs = Vec::new();
         settings.normalize(Path::new("/data"));
         assert!(settings.overlay_tabs.is_empty());
+    }
+
+    #[test]
+    fn download_retry_defaults_and_bounds() {
+        let mut settings = LocalSettings::default();
+        assert!(settings.auto_resume_downloads);
+        assert_eq!(settings.download_retry_window_secs, 6 * 60 * 60);
+
+        // A settings file from before #212 has neither key: both defaults apply.
+        let raw = serde_json::json!({ "installDir": "/games" });
+        let mut legacy: LocalSettings = serde_json::from_value(raw).unwrap();
+        assert!(legacy.auto_resume_downloads);
+        assert_eq!(legacy.download_retry_window_secs, 6 * 60 * 60);
+
+        // 0 means "keep retrying while the app is open" and is preserved.
+        settings.download_retry_window_secs = 0;
+        settings.normalize(Path::new("/data"));
+        assert_eq!(settings.download_retry_window_secs, 0);
+
+        settings.download_retry_window_secs = 3;
+        settings.normalize(Path::new("/data"));
+        assert_eq!(settings.download_retry_window_secs, 60);
+
+        settings.download_retry_window_secs = 30 * 24 * 60 * 60;
+        settings.normalize(Path::new("/data"));
+        assert_eq!(settings.download_retry_window_secs, 7 * 24 * 60 * 60);
+
+        // The opt-out survives normalization.
+        legacy.auto_resume_downloads = false;
+        legacy.normalize(Path::new("/data"));
+        assert!(!legacy.auto_resume_downloads);
     }
 
     #[test]

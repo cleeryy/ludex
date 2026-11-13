@@ -1352,6 +1352,14 @@ export interface LocalSettings {
   bandwidthLimitKib: number;
   /** Seconds without data before a download reconnects with Range (#195). */
   downloadStallTimeoutSecs: number;
+  /**
+   * How long a failed download keeps retrying automatically (#212), in
+   * seconds. Default 6 h; 0 keeps retrying while the app is open. Permanent
+   * errors stop immediately either way.
+   */
+  downloadRetryWindowSecs: number;
+  /** Re-enter interrupted downloads after an app restart (#212), default true. */
+  autoResumeDownloads: boolean;
   /** Closing the window hides Ludex to the tray instead of quitting. */
   closeToTray: boolean;
   /** Use the OS title bar instead of Ludex's own (#111). Off by default. */
@@ -1642,6 +1650,25 @@ export interface DiagnosticsStatus {
   channel: string;
   reports: DiagnosticsReportSummary[];
   unsent: number;
+  /** Redacted download bundle (#212): at most 10 jobs, never a token. */
+  downloads?: DownloadJobDiagnostics[];
+}
+
+/** One download job in the diagnostics bundle (#212). */
+export interface DownloadJobDiagnostics {
+  jobId: string;
+  gameId: number;
+  phase: InstallPhase;
+  stream: boolean;
+  /** Connection attempt when the snapshot was taken. */
+  attempt: number;
+  /** Bytes on disk: the offset the next request resumes from. */
+  offset: number;
+  bytesTotal: number | null;
+  httpStatus: number | null;
+  lastError: string | null;
+  nextRetryAt: string | null;
+  waitingForNetwork: boolean;
 }
 
 /** Exact payload a send would use, as shown in the preview. */
@@ -2478,6 +2505,15 @@ export interface InstallJob {
   lastError: string | null;
   /** Milliseconds the connection was silent when the stall was detected. */
   stalledForMs: number | null;
+  /**
+   * RFC 3339 time of the next automatic retry (#212). The row shows a
+   * countdown while it is set and offers "Retry now".
+   */
+  nextRetryAt: string | null;
+  /** HTTP status of the last response (#212); null before the first one. */
+  httpStatus: number | null;
+  /** True while a retry is parked because the OS reports no network (#212). */
+  waitingForNetwork: boolean;
   /**
    * Position in the install queue (#202): the desktop starts the lowest one
    * when a slot frees. `null` for a finished job and for a row written before
