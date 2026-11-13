@@ -22,6 +22,37 @@ consume the same authenticated archive. When the stream path cannot work
 its budget), Ludex falls back to the classic resumable download instead of
 looping.
 
+## How the big launchers do it (and what we copy)
+
+They converged on the same shape: **immutable hash-addressed units + a
+per-version manifest + plain HTTPS in parallel + per-unit verification.**
+
+| | Unit | Identity | Resume | Parallel | Delta |
+|---|---|---|---|---|---|
+| Steam (SteamPipe) | ~1 MiB chunks in depots | chunk SHA-1, depot manifest | chunk | many chunk GETs, multi-CDN | chunk reuse + binary deltas |
+| Epic (BPS) | chunks in a binary manifest | chunk hash/GUID + SHA-1 | chunk | worker pool | per-chunk delta optimization |
+| GOG (gogdl) | V2 chunks / V1 `main.bin` | MD5 per chunk/file | chunk/offset | worker pool | per-file patch |
+| Battle.net (TACT) | encoded files/archives | CKey/EKey MD5 | file/block Range | multi-CDN | ZBSDIFF patches |
+
+The lessons that matter for a self-hosted archive server:
+
+- **The hash is the identity.** A full archive SHA-256, verified before install,
+  is the missing piece in Ludex (#216). It closes the "fails at the same byte"
+  class and is a prerequisite for parallel parts.
+- **The manifest is the contract.** For Ludex the archive is the unit; the
+  per-entry stream checkpoint is already a small manifest. Publish entry
+  size/CRC32 and verify each entry; do not build a chunk store for one server.
+- **Plain HTTP, several requests.** Parallelism comes from multiple Range
+  requests, not an exotic protocol. Only worth it when measured (#217): the
+  `aria2c -x8 ≥ 1.5×` rule in NETWORK-ARCHITECTURE.
+- **Staging + commit.** Keep versions as immutable archives; never re-zip or
+  patch an archive in place. Replacing a 40 GB archive for a one-file fix is a
+  Steam-documented anti-pattern.
+- **Do not copy:** CDN/cell topology, DRM/encryption keys, P2P, preload,
+  fixed-size chunk stores, or an A→B delta pipeline. They solve scale problems
+  Ludex does not have (and a delta on a multi-GB compressed archive is often
+  larger or slower than the archive).
+
 ## Job identity and resume
 
 - One installed game/version/transport has **one job id** from queue to history.
@@ -118,4 +149,20 @@ last offset and the server/Caddy status.
   decision thresholds.
 - [CONTRACT.md](CONTRACT.md) — upload/download/stream endpoints and fields.
 - Issues: #202 queue, #203 stream resume, #204 stream drops, #205/#208 same-job
-  resume, #211 field acceptance.
+  resume, #211 field acceptance, #216 full archive SHA-256, #217 parallel
+  ranges.
+
+## Sources for the launcher comparison
+
+- Valve, SteamPipe upload/content system (chunks, manifests, HTTP, deltas):
+  <https://partner.steamgames.com/doc/sdk/uploading>
+- Valve, updating best practices (pack-file churn, update size):
+  <https://partner.steamgames.com/doc/store/updates>
+- Epic BuildPatch Tool (chunks, PatchGeneration, delta optimisation):
+  <https://dev.epicgames.com/docs/epic-games-store/publishing-tools/uploading-binaries/bpt-instructions-140>
+- Epic manifest/chunk layout (community reimplementation):
+  <https://github.com/derrod/legendary/blob/master/legendary/models/manifest.py>
+- GOG downloader (chunks/patches):
+  <https://github.com/Heroic-Games-Launcher/heroic-gogdl>
+- Blizzard TACT/CASC (community reverse engineering):
+  <https://wowdev.wiki/TACT>

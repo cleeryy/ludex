@@ -6,6 +6,13 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Documentation
+
+- [docs/DOWNLOADS.md](docs/DOWNLOADS.md) now compares SteamPipe, Epic BPS,
+  gogdl and Battle.net TACT, and records what Ludex copies (full archive
+  SHA-256 #216, measured parallel ranges #217, entry manifest) versus what it
+  deliberately does not build (CDN, chunk store, delta pipeline).
+
 ## [0.4.5] - 2026-11-13
 
 ### Documentation
