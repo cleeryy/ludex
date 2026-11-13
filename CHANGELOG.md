@@ -35,6 +35,11 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- `.minecraft` is no longer offered as a save folder for every game (#215):
+  save engine layouts are now title-gated (a pattern must contain a title token
+  or the engine declares `titles`), so the Minecraft layout only appears for
+  Minecraft editions (not Dungeons/Legends), the Flatpak leak is gone, and an
+  ignored candidate can never be auto-promoted.
 - A deleted archive no longer looks like a normal game (#210): game summaries
   expose available/missing version counts and a status, the default library
   hides games with no available archive behind a "Show missing" toggle with a
