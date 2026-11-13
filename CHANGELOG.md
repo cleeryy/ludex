@@ -19,6 +19,15 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- Field-report fixes from the v0.4.7 campaign (#211, #217):
+  `bench-download.sh` sends the real bearer token, parses iperf3 `[SUM]` for
+  `-P8`, and its direct-vs-Caddy verdict has three bands; the server logs
+  `complete` instead of `client_abort` when a body is fully delivered, honours
+  `If-Range` (a stale ETag now returns the full 200 instead of a 206), and
+  serves 1 MiB chunks (measured 373 → ~700 MB/s on cold storage); the docs
+  record the 40 GB field matrix and the #217 verdict (parallel client not
+  implemented: WAN 1.12×, LAN cold 0.64×, below the 1.5× gate), plus the
+  ticket-in-proxy-log filter and the `content_sha256` backfill note.
 - Every archive is verified by full SHA-256 before install (#216): the server
   computes the digest in a background job (S3 streamed without staging),
   exposes `contentSha256` and `X-Ludex-Archive-Sha256`, and the desktop hashes
