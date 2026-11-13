@@ -6,8 +6,6 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
-## [0.4.3] - 2026-11-12
-
 ### Added
 
 - The install/download queue can be reordered (#202): a persisted
@@ -16,6 +14,11 @@ All notable changes to Ludex are documented here. The format is based on
   Downloads screen shows the queue rank with move-to-top/up/down controls
   (running and finished jobs are refused), the queue compacts after completion,
   and classic and stream installs share the same order.
+
+## [0.4.3] - 2026-11-12
+
+### Added
+
 - Account settings sync through the server (#201): a validated per-account
   preference document (`user_preferences`, revision/If-Match, 64 KiB cap,
   allowlisted keys) carries theme, language, Big Picture layout, sound/haptics,
