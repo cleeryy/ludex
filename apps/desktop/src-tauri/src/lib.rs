@@ -57,6 +57,7 @@ mod updater;
 mod updates;
 mod util;
 mod webview_profile;
+mod window_focus;
 
 use tauri::{Manager, RunEvent, WindowEvent};
 use tracing_subscriber::EnvFilter;

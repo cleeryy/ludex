@@ -1887,6 +1887,7 @@
   "The files were left where they are.": "Les fichiers ont été laissés à leur place.",
   "The folder name must match exactly.": "Le nom du dossier doit correspondre exactement.",
   "The folder was already gone.": "Le dossier avait déjà disparu.",
+  "The game is running, but Ludex could not bring its window forward. Use Resume to try again, or Force close on the game page.": "Le jeu est lancé, mais Ludex n'a pas pu passer sa fenêtre au premier plan. Utilisez Reprendre pour réessayer, ou Forcer la fermeture depuis la page du jeu.",
   "The game keeps its name and version subfolder.": "Le jeu conserve son nom et son sous-dossier de version.",
   "The games didn’t load": "Les jeux ne se sont pas chargés",
   "The games folder is empty.": "Le dossier des jeux est vide.",

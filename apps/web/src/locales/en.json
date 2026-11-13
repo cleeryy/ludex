@@ -3103,6 +3103,7 @@
   "The game exited immediately": "The game exited immediately",
   "The game exited immediately (code {code})": "The game exited immediately (code {code})",
   "The game folder contains a June 2010 DirectX redistributable.": "The game folder contains a June 2010 DirectX redistributable.",
+  "The game is running, but Ludex could not bring its window forward. Use Resume to try again, or Force close on the game page.": "The game is running, but Ludex could not bring its window forward. Use Resume to try again, or Force close on the game page.",
   "The game keeps its name and version subfolder.": "The game keeps its name and version subfolder.",
   "The game keeps running while the overlay is open.": "The game keeps running while the overlay is open.",
   "The game ships a .NET build; the desktop runtime is required before it can start.": "The game ships a .NET build; the desktop runtime is required before it can start.",

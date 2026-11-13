@@ -270,6 +270,22 @@ export function useNativeEvents() {
       if (cancelled) offStatus();
       else unlisteners.push(offStatus);
 
+      // #219: the game is running but its window could not be brought forward.
+      // The launch already succeeded, so this is a warning, not an error: the
+      // game page's Resume and Force close actions are the recovery.
+      const offFocus = await native.onGameFocus(({ focused }) => {
+        if (focused) return;
+        push({
+          title: t("Game window not found"),
+          description: t(
+            "The game is running, but Ludex could not bring its window forward. Use Resume to try again, or Force close on the game page.",
+          ),
+          tone: "danger",
+        });
+      });
+      if (cancelled) offFocus();
+      else unlisteners.push(offFocus);
+
       // Tray menu (#15): navigate to a route or launch a recent game.
       const offNavigate = await native.onNavigate((path) => navigate(path));
       if (cancelled) offNavigate();

@@ -1922,6 +1922,7 @@
   "The files were left where they are.": "Los expedientes quedaron donde están.",
   "The folder name must match exactly.": "El nombre de la carpeta debe coincidir exactamente.",
   "The folder was already gone.": "La carpeta ya había desaparecido.",
+  "The game is running, but Ludex could not bring its window forward. Use Resume to try again, or Force close on the game page.": "El juego se está ejecutando, pero Ludex no pudo traer su ventana al frente. Usa «Currículum» para reintentarlo o «Forzar cierre» en la página del juego.",
   "The game keeps its name and version subfolder.": "El juego mantiene su subcarpeta de nombre y versión.",
   "The games didn’t load": "Los juegos no cargaron",
   "The games folder is empty.": "La carpeta de juegos está vacía.",

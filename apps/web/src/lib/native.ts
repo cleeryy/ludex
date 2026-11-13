@@ -910,6 +910,33 @@ export const native = {
     }>("game://exited", handler);
   },
 
+  /**
+   * #219: the launch focus attempt ended.
+   *
+   * `focused: false` means the game runs but its window was not brought forward
+   * (no window found, or the window manager refused); the game page's Resume and
+   * Force close actions are the recovery. Emitted once per launch, never for a
+   * game that exited before its window appeared.
+   */
+  async onGameFocus(
+    handler: (payload: {
+      gameId: number;
+      sessionId: string;
+      focused: boolean;
+      window?: string | null;
+      /** `noWindow` / `focusRefused` when the window could not be focused. */
+      reason?: string | null;
+    }) => void,
+  ): Promise<() => void> {
+    return listen<{
+      gameId: number;
+      sessionId: string;
+      focused: boolean;
+      window?: string | null;
+      reason?: string | null;
+    }>("game://focus", handler);
+  },
+
   /** Tray navigation: the menu asked the UI to open a route. */
   async onNavigate(handler: (path: string) => void): Promise<() => void> {
     return listen<string>("ui://navigate", handler);

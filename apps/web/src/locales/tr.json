@@ -1922,6 +1922,7 @@
   "The files were left where they are.": "Dosyalar oldukları yerde bırakıldı.",
   "The folder name must match exactly.": "Klasör adı tam olarak eşleşmelidir.",
   "The folder was already gone.": "Klasör zaten gitmişti.",
+  "The game is running, but Ludex could not bring its window forward. Use Resume to try again, or Force close on the game page.": "Oyun çalışıyor ancak Ludex penceresini öne getiremedi. Tekrar denemek için «Devam et», oyun sayfasında ise «Zorla kapat» seçeneğini kullanın.",
   "The game keeps its name and version subfolder.": "Oyun, adını ve sürüm alt klasörünü korur.",
   "The games didn’t load": "Oyunlar yüklenmedi",
   "The games folder is empty.": "Oyunlar klasörü boş.",

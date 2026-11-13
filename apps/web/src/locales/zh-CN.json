@@ -1922,6 +1922,7 @@
   "The files were left where they are.": "文件留在原处。",
   "The folder name must match exactly.": "文件夹名称必须完全匹配。",
   "The folder was already gone.": "该文件夹已经消失了。",
+  "The game is running, but Ludex could not bring its window forward. Use Resume to try again, or Force close on the game page.": "游戏正在运行，但 Ludex 无法将其窗口置于前台。请使用“恢复”重试，或在游戏页面上使用“强制关闭”。",
   "The game keeps its name and version subfolder.": "游戏保留其名称和版本子文件夹。",
   "The games didn’t load": "游戏未加载",
   "The games folder is empty.": "游戏文件夹是空的。",
