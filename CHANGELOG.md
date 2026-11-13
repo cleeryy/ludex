@@ -24,6 +24,13 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Repack archives with a `setup.exe` install properly (#214): after extraction,
+  Ludex detects a setup payload at the archive root or its wrapper, ranks
+  setup/install executables while excluding prerequisites and uninstallers, and
+  the Installer panel leads with "Run the installer": it runs interactively
+  (no elevation, no shell), waits, rescans the install folder and Wine prefix,
+  records the single game executable or offers a picker, and keeps the files
+  with Retry/Choose on failure; a ready install never re-offers the setup.
 - Admin Games manager (#209): a dense, URL-filtered table of every game with
   status facets and pagination, a detail drawer (versions, installed reports,
   rescan), single actions (refresh metadata, set the default version, delete a
