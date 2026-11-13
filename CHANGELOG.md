@@ -13,15 +13,6 @@ All notable changes to Ludex are documented here. The format is based on
   SHA-256 #216, measured parallel ranges #217, entry manifest) versus what it
   deliberately does not build (CDN, chunk store, delta pipeline).
 
-## [0.4.5] - 2026-11-13
-
-### Documentation
-
-- Added [docs/DOWNLOADS.md](docs/DOWNLOADS.md): classic vs stream installs,
-  `.part`/per-entry resume, queue ordering, stall/backoff behavior, Cloudflare
-  524 troubleshooting and the 40 GB field acceptance matrix; the README feature
-  table and `docs/PERFORMANCE.md` link to it (#211).
-
 ### Added
 
 - Long-horizon automatic retry for downloads (#212): transient failures no
@@ -34,6 +25,27 @@ All notable changes to Ludex are documented here. The format is based on
   the attempt, a "Retrying in N s" countdown, a waiting-for-network state and a
   "Retry now" button. The diagnostics bundle now includes the job's attempt,
   offset, HTTP status and redacted last error.
+
+### Changed
+
+- Parallel ranged downloads are server-ready (#217): the download limiter is
+  job-aware (a named job gets 240 part requests/min and up to 8 concurrent
+  parts, with higher per-address caps), single-stream clients keep the exact
+  previous 120/min budget, part requests log job/part/range/bytes without
+  tokens, and `/api/config` advertises `parallelPartsMax`. The client-side
+  parallel download stays gated on the measured 1.5x threshold.
+
+## [0.4.5] - 2026-11-13
+
+### Documentation
+
+- Added [docs/DOWNLOADS.md](docs/DOWNLOADS.md): classic vs stream installs,
+  `.part`/per-entry resume, queue ordering, stall/backoff behavior, Cloudflare
+  524 troubleshooting and the 40 GB field acceptance matrix; the README feature
+  table and `docs/PERFORMANCE.md` link to it (#211).
+
+### Added
+
 - Update notifications (#213): one persistent in-app card per version (Open
   update center / Later / Skip this version, deduplicated by version and
   suppressed on the update/setup/login pages) plus desktop OS notifications
@@ -111,12 +123,6 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Changed
 
-- Parallel ranged downloads are server-ready (#217): the download limiter is
-  job-aware (a named job gets 240 part requests/min and up to 8 concurrent
-  parts, with higher per-address caps), single-stream clients keep the exact
-  previous 120/min budget, part requests log job/part/range/bytes without
-  tokens, and `/api/config` advertises `parallelPartsMax`. The client-side
-  parallel download stays gated on the measured 1.5x threshold.
 - Network architecture decision record (#200): `docs/NETWORK-ARCHITECTURE.md`
   evaluates direct vs Caddy, port-forward/UPnP, parallel ranges, TCP/BBR tuning,
   STUN/TURN and QUIC/HTTP3 against the measured path (and notes the desktop
