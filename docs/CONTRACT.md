@@ -149,7 +149,7 @@ interface ScanStatus {
 | GET | `/api/setup/status` | `{ needsSetup: boolean, serverName: string, version: string }` |
 | POST | `/api/setup` | body `{ username, password, serverName? }` → `{ token, user }`; 409 if users exist |
 | GET | `/api/media/{name}` | cached image/file (public, immutable cache headers) |
-| GET | `/api/config` | `{ serverName, version, features: { igdb, steam, ingest, localMode, oidc }, maxUploadBytes, oidcDisplayName, defaultLocale }` (public, used by setup/login). `features.oidc` and `oidcDisplayName` reflect the live OIDC client, so a saved admin configuration applies without a restart; `defaultLocale` is the admin interface default (`""` = System/English, #188) |
+| GET | `/api/config` | `{ serverName, version, features: { igdb, steam, ingest, localMode, oidc }, maxUploadBytes, oidcDisplayName, defaultLocale, parallelPartsMax }` (public, used by setup/login). `features.oidc` and `oidcDisplayName` reflect the live OIDC client, so a saved admin configuration applies without a restart; `defaultLocale` is the admin interface default (`""` = System/English, #188). `parallelPartsMax` (8) is the largest part count one download job may open (#217) |
 | GET | `/api/desktop/download` | latest stable desktop installers as links (`DesktopDownload`); optional `?platform=windows\|linux\|macos`, see *Desktop download page (#164)* |
 | GET | `/api/share/{token}` | public share page (`ShareView`); see *Share links (#9)* |
 | POST | `/api/share/{token}/access` | exchange a share link for a 15-minute download ticket; see *Share links (#9)* |
@@ -494,7 +494,7 @@ payload are ignored. New and existing accounts default to
 | GET | `/api/games/{id}/metadata/candidates` | editor; query `q` (defaults to the game title, 1-120 chars), `provider` (one slug), `year` → `{ query, gameId, manualFields, candidates, providers }`. Network runs only when this route is called; each provider has a 6 s deadline and its own error state |
 | POST | `/api/games/{id}/metadata/apply` | editor; `{ provider, providerId, replaceManual? }` → `GameDetail`; caches the record's cover/background/screenshots/trailers, replaces title/year/description/genres/developers/publishers/rating/ageRating/maxPlayers/altTitles, always sets `provider.slug/id/url`, and emits `game.metadata_matched` |
 | POST | `/api/games/{id}/download-ticket` | `{ versionId? }` → `{ url, expiresAt }` (15 min, no auth needed on the URL) |
-| GET | `/api/games/{id}/download?versionId=&token=` | file stream, Range supported, `Content-Disposition` |
+| GET | `/api/games/{id}/download?versionId=&token=` | file stream, single Range + `If-Range` supported, `Content-Disposition`, strong `ETag`. Optional `jobId`/`partIndex` (or `X-Ludex-Job-Id`) size a parallel download; see *Parallel ranged downloads (#217)* |
 | GET | `/api/games/{id}/versions/{versionId}/stream?token=` | Compatibility tar stream: an uncompressed `application/x-tar` of the archive entries, no archive stored on the client. ZIP, 7z and RAR (RAR4/RAR5) are supported; unsupported files return 415, encrypted archives return 409. Exact `Content-Length`, `X-Accel-Buffering: no`. The desktop installs through the per-entry manifest instead, because a tar cannot be checkpointed (#203). Same auth rules as download. |
 | GET | `/api/games/{id}/versions/{versionId}/stream/manifest?token=` | Ordered ZIP manifest for resumable per-entry installs (#115): `{ format: "zip", entryCount, totalBytes, totalCompressedBytes, entries: [{ index, path, size, compressedSize, mode, crc32, isDir }] }`. Same auth as `/stream` (Bearer or download ticket). Non-ZIP → `415 stream_unsupported`. |
 | GET | `/api/games/{id}/versions/{versionId}/stream/entries/{index}?token=` | Raw content of one ZIP entry, single HTTP `Range` supported (`206` + `Content-Range`, `416` + `Content-Range: bytes */size`). `Content-Length` is exact. Unknown index → `404 entry_not_found`; directories → `404 entry_not_found`. Same auth as `/stream`. |
@@ -548,6 +548,40 @@ audit trail stay. The last available version, a missing archive, an archive on
 an offline root and one used by an in-flight download/stream are refused with
 a specific `409` code. Deleting the pinned archive moves the pin to the newest
 remaining version.
+
+### Parallel ranged downloads (#217)
+
+The server is ready for a client that fetches one archive over several Range
+requests. There is still exactly one range per request (no
+`multipart/byteranges`); a job is identified by its client-generated id.
+
+| Field | Where | Rules |
+|---|---|---|
+| `X-Ludex-Job-Id` | header (preferred) | 1-64 chars of `A-Z a-z 0-9 - _`; wins over the query parameter |
+| `jobId` | query | same rules; missing or empty = single-stream download |
+| `partIndex` | query | optional `0..=255`, log label only; larger → `400 invalid_part_index` |
+
+Invalid job ids answer `400 invalid_job_id`. A job keeps the same id across
+all its ranges, resumes and retries.
+
+| Scope | Budget |
+|---|---|
+| one job on one address | 240 part requests per minute |
+| one address across all jobs | 600 part requests per minute |
+| one job on one address | 8 concurrent part streams (`parallelPartsMax`) |
+| one address across all jobs | 16 concurrent part streams |
+| single-stream client (no job id) | 120 requests per address + version per minute (#195, unchanged) |
+
+Budgets use a fixed 60 s window. A request over budget is
+`429 too_many_download_attempts` with `Retry-After` (seconds). The published
+`parallelPartsMax` in `GET /api/config` is the concurrent-part ceiling for one
+job, so a client can clamp N before it sends anything. A normal 4-8 part
+download never reaches the request budgets.
+
+Every download logs one `download stream closed` line with `game`, `version`,
+`status`, `job` (`null` for single-stream), `part` (`null` if omitted),
+`range_start`, `range_end`, `bytes`, `elapsed_ms` and `outcome`
+(`complete`, `error` or `client_abort`). Tokens are never logged.
 
 ### Manual metadata match (#135)
 
@@ -1747,7 +1781,7 @@ A successful ingest triggers `library/scan` automatically.
 
 | Method | Route | Notes |
 |---|---|---|
-| GET | `/api/config` | public; `{ serverName, version, features: { igdb, steam, ingest, localMode }, maxUploadBytes, defaultLocale }` |
+| GET | `/api/config` | public; `{ serverName, version, features: { igdb, steam, ingest, localMode }, maxUploadBytes, defaultLocale, parallelPartsMax }` (`parallelPartsMax: 8`, #217) |
 | GET | `/api/admin/server` | admin; `{ serverName, defaultLocale }` |
 | PUT | `/api/admin/server` | admin; `{ defaultLocale?: string \| null }` → `{ serverName, defaultLocale }`; `null`/`""` clears it (#188) |
 

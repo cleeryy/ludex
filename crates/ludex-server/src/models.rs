@@ -649,6 +649,9 @@ pub struct ServerConfig {
     /// Server-wide default interface language (#188). Empty means System:
     /// signed-out visitors use their browser languages, then English.
     pub default_locale: String,
+    /// Largest number of parallel byte ranges the server accepts for one
+    /// download job (#217). The server also caps concurrent parts per address.
+    pub parallel_parts_max: u32,
 }
 
 /// Password change request.
@@ -931,6 +934,13 @@ pub struct DownloadQuery {
     /// Short-lived ticket, accepted instead of a Bearer token.
     #[serde(default)]
     pub token: Option<String>,
+    /// Client download job shared by every range of one archive (#217).
+    /// Equivalent to the `X-Ludex-Job-Id` header, which takes precedence.
+    #[serde(default)]
+    pub job_id: Option<String>,
+    /// Zero-based index of this range within the job (#217), logged only.
+    #[serde(default)]
+    pub part_index: Option<u32>,
 }
 
 /// Query string for the ZIP stream-install route.

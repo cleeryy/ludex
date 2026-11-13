@@ -31,6 +31,7 @@ use crate::api_keys::Scope;
 use crate::auth::{authenticate_token, bearer_token, issue_download_ticket, AuthUser};
 use crate::config::StorageBackend;
 use crate::db;
+use crate::download_limits::{parse_job_id, DownloadAdmission, LimitRejection, JOB_ID_HEADER};
 use crate::error::ApiError;
 use crate::extract::{ApiPath, ApiQuery, JsonBody};
 use crate::media::content_disposition;
@@ -1513,25 +1514,26 @@ async fn download(
             "This version is no longer available",
         ));
     }
-    // A stalled client reconnects with `Range` from its last byte, which is a
-    // normal request here. Bound how many times per minute and version one
-    // address may do that so a broken client cannot hammer the disk (#195).
-    if let Err(wait) = state
+    // A stalled single-stream client reconnects with `Range` from its last
+    // byte, which is a normal request here, so #195 bounded how many times per
+    // minute and version one address may do that. A parallel job instead names
+    // itself and gets its own budget, address ceiling and part cap (#217).
+    let job_id = download_job_id(&headers, &query)?;
+    let part_index = download_part_index(&query)?;
+    let admission = state
         .download_limits
-        .check(&format!("{}:{}", peer.ip(), version.id))
-    {
-        return Err(ApiError::new(
-            StatusCode::TOO_MANY_REQUESTS,
-            "too_many_download_attempts",
-            "Too many download attempts for this version; wait a few seconds and retry.",
-        )
-        .with_retry_after(wait));
-    }
+        .admit(peer.ip(), version.id, job_id.as_deref())
+        .map_err(download_limited)?;
+    let context = StreamContext {
+        job_id,
+        part_index,
+        admission,
+    };
     let _lease = state.transfers.begin(version.id);
-    if is_s3_version(&version) {
+    let response = if is_s3_version(&version) {
         if let Some(key) = version.object_key.as_deref() {
             match download_from_storage(&state, &version, key, &headers).await {
-                Ok(response) => return Ok(response),
+                Ok(response) => response,
                 Err(error) if can_fall_back_to_local(&error) => {
                     tracing::warn!(
                         game = game_id,
@@ -1539,12 +1541,57 @@ async fn download(
                         object = key,
                         "object storage read failed; trying the local library file"
                     );
+                    download_local(&state, &version, &headers).await?
                 }
                 Err(error) => return Err(error),
             }
+        } else {
+            download_local(&state, &version, &headers).await?
         }
+    } else {
+        download_local(&state, &version, &headers).await?
+    };
+    Ok(log_stream(response, game_id, version_id, context))
+}
+
+/// Refused admission as the public `429 too_many_download_attempts` error.
+fn download_limited(rejection: LimitRejection) -> ApiError {
+    ApiError::new(
+        StatusCode::TOO_MANY_REQUESTS,
+        "too_many_download_attempts",
+        rejection.message(),
+    )
+    .with_retry_after(rejection.retry_after)
+}
+
+/// Job id from `X-Ludex-Job-Id` (preferred) or `?jobId=` (#217).
+fn download_job_id(headers: &HeaderMap, query: &DownloadQuery) -> Result<Option<String>, ApiError> {
+    let raw = match headers.get(JOB_ID_HEADER) {
+        Some(value) => Some(value.to_str().map_err(|_| invalid_job_id())?),
+        None => query.job_id.as_deref(),
+    };
+    parse_job_id(raw).map_err(|_| invalid_job_id())
+}
+
+fn invalid_job_id() -> ApiError {
+    ApiError::bad_request(
+        "invalid_job_id",
+        "Job id must be 1-64 characters of A-Z, a-z, 0-9, '-' or '_'",
+    )
+}
+
+/// Largest accepted `partIndex`; purely a log label, so it is not otherwise
+/// constrained.
+const MAX_PART_INDEX: u32 = 255;
+
+fn download_part_index(query: &DownloadQuery) -> Result<Option<u32>, ApiError> {
+    match query.part_index {
+        Some(index) if index > MAX_PART_INDEX => Err(ApiError::bad_request(
+            "invalid_part_index",
+            "partIndex must be at most 255",
+        )),
+        other => Ok(other),
     }
-    download_local(&state, game_id, &version, &headers).await
 }
 
 /// Whether a failed S3 read may fall back to the local library file.
@@ -1558,12 +1605,10 @@ fn can_fall_back_to_local(error: &ApiError) -> bool {
 /// Serves a version from its library root with `ServeFile` (Range and If-Range).
 ///
 /// The response body is copied in 512 KiB chunks instead of the tower default
-/// (64 KiB) to keep the send path cheap on large archives (#194), and it is
-/// wrapped in a counter that logs how every stream ended: complete, transport
-/// error or client abort (#195).
+/// (64 KiB) to keep the send path cheap on large archives (#194). Logging and
+/// the part permit are attached by [`log_stream`] once the response exists.
 async fn download_local(
     state: &AppState,
-    game_id: i64,
     version: &VersionRow,
     headers: &HeaderMap,
 ) -> Result<Response, ApiError> {
@@ -1606,56 +1651,104 @@ async fn download_local(
             parts.headers.insert(header::ETAG, value);
         }
     }
+    Ok(Response::from_parts(parts, Body::new(body)))
+}
+
+/// Attaches the per-stream outcome log (#195) and the concurrent-part permit
+/// (#217) to a download response.
+fn log_stream(
+    response: Response,
+    game_id: i64,
+    version_id: i64,
+    context: StreamContext,
+) -> Response {
+    let (parts, body) = response.into_parts();
     let status = parts.status.as_u16();
-    let range_start = parts
+    let (range_start, range_end) = parts
         .headers
         .get(header::CONTENT_RANGE)
         .and_then(|value| value.to_str().ok())
-        .and_then(content_range_start)
-        .unwrap_or(0);
-    let log = TransferLog::new(game_id, version.id, status, range_start);
+        .and_then(content_range_bounds)
+        .map_or_else(
+            || (0, full_range_end(&parts.headers)),
+            |(start, end)| (start, Some(end)),
+        );
+    let log = TransferLog::new(game_id, version_id, context, status, range_start, range_end);
     let stream = LoggedBody {
         inner: Body::new(body).into_data_stream(),
         log: Some(log),
     };
-    Ok(Response::from_parts(parts, Body::from_stream(stream)))
+    Response::from_parts(parts, Body::from_stream(stream))
 }
 
-/// Strong-ish tag from size and modification time, matching the bytes on disk.
-fn file_etag(metadata: &std::fs::Metadata) -> Option<String> {
-    let modified = metadata.modified().ok()?;
-    let since = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
-    Some(format!("\"{:x}-{:x}\"", metadata.len(), since.as_nanos()))
+/// Last byte of a full (`200`) response, when its length is known.
+fn full_range_end(headers: &HeaderMap) -> Option<u64> {
+    headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .and_then(|length| length.checked_sub(1))
 }
 
-/// Start offset of `Content-Range: bytes <start>-<end>/<total>`.
-fn content_range_start(value: &str) -> Option<u64> {
+/// Bounds of `Content-Range: bytes <start>-<end>/<total>`.
+fn content_range_bounds(value: &str) -> Option<(u64, u64)> {
     let range = value.trim().strip_prefix("bytes ")?;
-    let (start, _) = range.split_once('-')?;
-    start.trim().parse().ok()
+    let (start, rest) = range.split_once('-')?;
+    let (end, _) = rest.split_once('/')?;
+    Some((start.trim().parse().ok()?, end.trim().parse().ok()?))
+}
+
+/// What identifies one download request in the stream log (#217).
+struct StreamContext {
+    job_id: Option<String>,
+    part_index: Option<u32>,
+    admission: DownloadAdmission,
 }
 
 /// Per-stream outcome, logged once when the body finishes or is dropped.
+///
+/// The admission is owned here so the concurrent-part permit is released at
+/// exactly the moment the stream ends, not when the handler returns.
 struct TransferLog {
     game_id: i64,
     version_id: i64,
     status: u16,
+    job_id: Option<String>,
+    part_index: Option<u32>,
     range_start: u64,
+    range_end: Option<u64>,
     bytes: u64,
     started: Instant,
     finished: bool,
+    _admission: DownloadAdmission,
 }
 
 impl TransferLog {
-    fn new(game_id: i64, version_id: i64, status: u16, range_start: u64) -> Self {
+    fn new(
+        game_id: i64,
+        version_id: i64,
+        context: StreamContext,
+        status: u16,
+        range_start: u64,
+        range_end: Option<u64>,
+    ) -> Self {
+        let StreamContext {
+            job_id,
+            part_index,
+            admission,
+        } = context;
         Self {
             game_id,
             version_id,
             status,
+            job_id,
+            part_index,
             range_start,
+            range_end,
             bytes: 0,
             started: Instant::now(),
             finished: false,
+            _admission: admission,
         }
     }
 
@@ -1670,7 +1763,10 @@ impl TransferLog {
                 game = self.game_id,
                 version = self.version_id,
                 status = self.status,
+                job = ?self.job_id,
+                part = ?self.part_index,
                 range_start = self.range_start,
+                range_end = ?self.range_end,
                 bytes = self.bytes,
                 elapsed_ms,
                 outcome,
@@ -1681,7 +1777,10 @@ impl TransferLog {
                 game = self.game_id,
                 version = self.version_id,
                 status = self.status,
+                job = ?self.job_id,
+                part = ?self.part_index,
                 range_start = self.range_start,
+                range_end = ?self.range_end,
                 bytes = self.bytes,
                 elapsed_ms,
                 outcome,
@@ -1695,6 +1794,13 @@ impl Drop for TransferLog {
     fn drop(&mut self) {
         self.finish("client_abort");
     }
+}
+
+/// Strong-ish tag from size and modification time, matching the bytes on disk.
+fn file_etag(metadata: &std::fs::Metadata) -> Option<String> {
+    let modified = metadata.modified().ok()?;
+    let since = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some(format!("\"{:x}-{:x}\"", metadata.len(), since.as_nanos()))
 }
 
 /// Body wrapper that accounts bytes and logs the terminal outcome (#195).

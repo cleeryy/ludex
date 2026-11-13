@@ -343,6 +343,26 @@ parallel ranges. Between 1.2× and 1.5×, fix the single flow first (BBR; the h2
 window only matters on the browser path). Below 1.2×, the link/disk/CPU/proxy
 is the limit and parallel ranges only add load.**
 
+**Server readiness (#217).** The server foundations are in place; the client
+implementation stays gated on the measurement above. A single-stream client
+keeps the #195 budget unchanged (120 requests per address + version per
+minute). A client that names its job with `X-Ludex-Job-Id` (or `?jobId=`) gets
+a job-scoped budget instead:
+
+| Scope | Budget |
+|---|---|
+| one job on one address | 240 part requests/min |
+| one address across all jobs | 600 part requests/min |
+| one job on one address | 8 concurrent part streams (`parallelPartsMax`) |
+| one address across all jobs | 16 concurrent part streams |
+
+`GET /api/config` publishes `parallelPartsMax`, `?partIndex=` labels a range
+in the log, and each `download stream closed` line carries `job`, `part`,
+`range_start`, `range_end`, `bytes`, `elapsed_ms` and `outcome` (never a
+token). A refused part is `429 too_many_download_attempts` with `Retry-After`;
+it backs off one part, not the job. The server still serves one range per
+request (no `multipart/byteranges`).
+
 ## 8. Recommended architecture
 
 ### 8.1 Downloads
@@ -367,8 +387,9 @@ Rules:
    `LUDEX_BIND=127.0.0.1:8080` or a private/VPN address. Never publish 8080 to
    the internet.
 2. **Every download is authenticated.** JWT/device token or a 15-minute
-   ticket; Range resume is supported; the per-address/version reconnect limit
-   stays (120/min, #195).
+   ticket; Range resume is supported. Single-stream clients keep the
+   per-address/version reconnect limit (120/min, #195); a named parallel job
+   uses the job-scoped budgets and 8-part cap above (#217).
 3. **No STUN/TURN/UPnP for downloads.** No P2P swarm.
 4. **Measure before tuning.** Order of work:
    a. prove whether Caddy is the limit (direct vs Caddy);
@@ -486,7 +507,7 @@ DIRECT_URL="$DIRECT/api/games/$GAME/download?versionId=$VERSION"
 | M12 | Client `.part` target | repeat M4 with `downloadDir` on tmpfs | MB/s |
 | M13 | ZIP stream path | `curl -o /dev/null -w '%{speed_download}\n' -H "Authorization: Bearer $TOKEN" "$DIRECT/api/games/$GAME/versions/$VERSION/stream"` | MB/s (separate path) |
 | M14 | Caddy view | Caddy access log for the M4 request | status, duration |
-| M15 | Server view | `download stream closed` log line | bytes, elapsed_ms, outcome |
+| M15 | Server view | `download stream closed` log line | range_start/range_end, bytes, job, part, elapsed_ms, outcome |
 | M16 | Retransmits (WAN) | `ss -tin dst <server-ip>` or `nstat -az TcpRetransSegs` | retrans % |
 | M17 | UDP 443 path | `curl -s -o /dev/null -D - -r 0-0 "$CADDY_URL" \| grep -i alt-svc` then M6 | alt-svc present? M6 works? |
 | M18 | IPv6 (optional) | `curl -6 ...` and `ping6` to the server | reachable? MB/s |
