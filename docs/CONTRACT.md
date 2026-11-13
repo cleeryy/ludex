@@ -1889,6 +1889,18 @@ interface InstallerPlan {
   platform: string;         // "windows", "linux", "macos"
   compatTool: string | null; // Linux: tool a run would use (UMU/Proton/Wine)
   prefix: string | null;     // Wine prefix the installer would write into
+  repack: RepackState | null; // guided repack state (#214)
+}
+
+/** Repack payload detected after extraction (#214). */
+interface RepackState {
+  needed: boolean;          // no executable and a setup program exists
+  ready: boolean;           // executable already recorded: never re-offered
+  setup: string | null;     // best setup program, relative to installPath
+  candidates: string[];     // every setup program found, best first
+  markers: string[];        // payload markers (`data/`, `unarc.dll`, `2 .bin`)
+  executableCandidates: string[]; // rescan of an install without an exe
+  message: string;
 }
 
 interface InstallerAttempt {
@@ -1905,6 +1917,19 @@ interface InstallerReport {
   candidates: string[];              // exe picker suggestions
   compatTool: string | null;         // Linux tool used (#93)
   logTail: string | null;            // last 8 KiB of the Linux installer log
+  message: string;
+}
+
+/** Outcome of the guided repack flow (#214). */
+interface RepackRunReport {
+  gameId: number;
+  setup: string;                     // setup program that ran
+  success: boolean; cancelled: boolean; timedOut: boolean;
+  exitCode: number | null;
+  recordedExecutable: string | null; // single program after a successful exit
+  candidates: string[];              // ranked programs found after the setup
+  logTail: string | null;
+  compatTool: string | null;
   message: string;
 }
 
@@ -2672,8 +2697,9 @@ interface RemotePlayCleanup {
 | `set_update_skip` | `{ version }` | Persists `skippedUpdateVersion` (`null` clears it) and returns the status without a network check. Silences prompts/badges only (#163) |
 | `update_install_health` | — | `InstallHealth`: running exe, installed version and `LUDEX_BUILD_COMMIT`, `{appDataDir}/logs/ludex.log` path, scanned Windows install roots, other `ludex.exe` copies with their own build marker, the version a just-finished install recorded, and the last update that did not take effect (#186) |
 | `dismiss_update_mismatch` | — | `InstallHealth` after clearing a stored mismatch; a later successful update clears it automatically (#186) |
-| `installer_plan` | `{ gameId?, executable? }` | `InstallerPlan`; never runs anything. On Linux `compatTool`/`prefix` show the tool a run would use |
+| `installer_plan` | `{ gameId?, executable? }` | `InstallerPlan`; never runs anything. On Linux `compatTool`/`prefix` show the tool a run would use. `repack` reports the guided setup state (#214) |
 | `run_installer` | `{ gameId, executable?, interactive?, args? }` | `InstallerReport`; Windows runs `setup.exe` directly, Linux through UMU/Proton/Wine (#93); interactive runs use no arguments and no timeout |
+| `run_repack_installer` | `{ gameId, setup? }` | `RepackRunReport`; runs the detected setup **interactively** (no silent switches, no timeout, never elevated), then rescans the install folder and records a single game executable. Refuses when one is already recorded (`ready`), keeping the guided flow from looping. `setup` must be one of `InstallerPlan.repack.candidates` (#214) |
 | `cancel_installer` | `{ gameId }` | `null`; stops a running installer at the next poll |
 | `set_executable` | `{ gameId, executable }` | `InstalledGame`; the file must be inside the install folder or its Wine prefix |
 | `choose_executable` | `{ gameId }` | `InstalledGame \| null`; system file dialog, records the pick |
@@ -2867,6 +2893,22 @@ archive by default (`keepArchives` setting false).
   through the game's UMU/Proton/Wine tool with the game prefix and captures the
   log (`logTail`); macOS refuses. An interactive run sends no arguments and has
   no timeout. Nothing runs without an explicit command.
+- **Repack archives (#214).** An archive whose payload is an installer finishes
+  extraction with no executable: the job message points at the setup and the
+  Installer panel leads with the guided flow. Detection scans the archive root
+  and its deepest single-folder wrapper for `setup.exe`/`install*.exe`,
+  preferring a shallow `setup.exe` and ignoring `unins*`, `vcredist*`,
+  `dxsetup`, `dotnet*` and crash handlers; `data/`, `_CommonRedist`, `unarc.dll`,
+  `ISDone.dll` and `.bin`/`.arc`/`.cab` parts are reported as payload markers.
+  `run_repack_installer` runs the chosen setup once, interactively and without
+  elevation (the same `Command` path as #181, never a shell), waits for exit,
+  then rescans the install folder and the Wine prefix with the executable
+  ranking. A successful exit with a single program records it; several programs
+  or a non-zero exit leave the extracted files in place and return the ranked
+  list so the UI can offer Retry or “Use this executable”. An install that
+  already has an executable is `ready` and never re-runs the setup; a folder
+  with neither setup nor executable falls back to the executable picker. The
+  manual silent/interactive controls remain below for reruns.
 - **Linux compatibility (#89, #90, #91, #92, #93).** `compat_scan` reports Steam
   roots, `compatibilitytools.d` and `steamapps/common` Proton builds,
   `umu-run`, system `wine`/`wine64`, `winetricks` and `protonfixes`; every path
@@ -3244,6 +3286,10 @@ stops every write. Each applied change appears in the Backups tab with
   `fallback: true` with a message asking for a full reinstall. An adopted folder
   (#129) has no manifest until `build_install_manifest` hashes it; until then
   verify reports `noManifest` instead of a clean pass.
+- **Repack payloads (#214).** An archive that contains a setup program instead
+  of the game still finishes `done` with the extracted files in place and
+  `executable: null`; the job message names the detected setup and the Installer
+  panel leads with the guided flow. The install job never runs the setup itself.
 - **Game updates (#30).** `check_game_updates` compares each installed game with
   `GET /api/games/{id}/versions/latest`: a different `versionId` is a
   `newVersion`, an identical id with a different `archiveHash` is a

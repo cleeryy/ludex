@@ -4153,6 +4153,42 @@ mod tests {
         assert_eq!(stored.executable.as_deref(), Some(expected_exe.as_str()));
     }
 
+    /// #214: a repack install completes without an executable, then the guided
+    /// flow records the program the setup produced. The stored value survives a
+    /// reread unchanged (normalised like every other index path).
+    #[test]
+    fn repack_install_records_the_chosen_executable() {
+        let connection = memory_database();
+        let install_path = "/games/Hades/0.4.5";
+        let game = InstalledGame {
+            game_id: 77,
+            version_id: 3,
+            title: "Hades".into(),
+            version: Some("0.4.5".into()),
+            install_path: install_path.into(),
+            executable: None,
+            size_bytes: 0,
+            installed_at: "2026-11-13T00:00:00Z".into(),
+            last_launched_at: None,
+            archive_hash: None,
+            install_root: Some("/games/Hades".into()),
+            source: SOURCE_LUDEX.into(),
+            launch_uri: None,
+        };
+        upsert_installed(&connection, &game).unwrap();
+        assert!(get_installed(&connection, 77)
+            .unwrap()
+            .unwrap()
+            .executable
+            .is_none());
+
+        let chosen = format!("{install_path}/Hades.exe");
+        set_executable(&connection, 77, Some(&chosen)).unwrap();
+        let stored = get_installed(&connection, 77).unwrap().unwrap();
+        let expected = normalize_stored_path(&chosen);
+        assert_eq!(stored.executable.as_deref(), Some(expected.as_str()));
+    }
+
     /// #187: the launch-option paths (Wine prefix, working directory) use the
     /// same boundary. A value that needs long-path support keeps its prefix.
     #[test]

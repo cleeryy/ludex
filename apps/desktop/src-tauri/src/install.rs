@@ -1426,7 +1426,8 @@ async fn run_job(app: AppHandle, job_id: String, permit: tokio::sync::OwnedSemap
     }
 
     match result {
-        Ok(install_path) => {
+        Ok(outcome) => {
+            let install_path = outcome.install_path;
             // The staging folder was moved into place: the per-entry
             // checkpoint is no longer needed.
             clear_stream_checkpoint(&app, &entry);
@@ -1435,7 +1436,16 @@ async fn run_job(app: AppHandle, job_id: String, permit: tokio::sync::OwnedSemap
                 job.speed_bps = 0;
                 job.clear_reconnect();
                 job.bytes_done = job.bytes_total.unwrap_or(job.bytes_done);
-                job.message = Some("Installed".to_string());
+                // #214: a setup-only archive finishes with no executable. The
+                // guided flow in the Installer panel runs the setup and records
+                // the game binary it produces.
+                job.message = Some(match &outcome.pending_setup {
+                    Some(repack) => format!(
+                        "Installed. This archive contains a setup program: run {} to finish installing.",
+                        repack.setup
+                    ),
+                    None => "Installed".to_string(),
+                });
                 job.install_path = Some(install_path.to_string_lossy().to_string());
                 job.resumable = false;
                 // #202: a finished job leaves the queue without a gap.
@@ -1643,7 +1653,7 @@ async fn execute(
     app: &AppHandle,
     entry: &Arc<JobEntry>,
     job_paths: &mut JobPaths,
-) -> Result<PathBuf, Failure> {
+) -> Result<ExecutedInstall, Failure> {
     let state = app.state::<AppState>();
     let params = entry.params.clone();
     let settings = state.settings_snapshot();
@@ -2102,7 +2112,29 @@ async fn execute(
         }
     }
 
-    Ok(final_path)
+    // #214: a repack archive finishes with no executable. Detect the setup
+    // program now so the job can point the user at the guided flow; nothing is
+    // executed here.
+    let pending_setup = if executable_path.is_none() {
+        let root = final_path.clone();
+        tokio::task::spawn_blocking(move || crate::installer::detect_repack(&root))
+            .await
+            .unwrap_or(None)
+    } else {
+        None
+    };
+
+    Ok(ExecutedInstall {
+        install_path: final_path,
+        pending_setup,
+    })
+}
+
+/// What [`execute`] produced: the final folder, plus the setup payload found
+/// when no game executable could be recorded (#214).
+struct ExecutedInstall {
+    install_path: PathBuf,
+    pending_setup: Option<crate::installer::RepackLayout>,
 }
 
 /// Build and persist the manifest after the files are in their final folder.

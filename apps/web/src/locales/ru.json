@@ -3595,5 +3595,13 @@
   "{done} of {total} games · {files} files · {bytes}": "{done} из {total} игр · файлов: {files} · {bytes}",
   "{files} files · {size}": "файлов: {files} · {size}",
   "{succeeded} of {games} games updated": "Обновлено {succeeded} из {games} игр",
-  "{title} removed from the library": "{title} удалён из библиотеки"
+  "{title} removed from the library": "{title} удалён из библиотеки",
+  "Choose the game executable": "Выбрать исполняемый файл игры",
+  "Programs found in the install folder. Pick the one Ludex should launch.": "Программы, найденные в папке установки. Выберите ту, которую должен запускать Ludex.",
+  "Retry the installer": "Повторить запуск установщика",
+  "Run the installer": "Запустить установщик",
+  "Setup program detected": "Обнаружена программа установки",
+  "The setup window stays open until you finish it. Nothing runs silently and Ludex never elevates the installer.": "Окно установки остаётся открытым до завершения. Ничего не запускается молча, и Ludex никогда не повышает права установщика.",
+  "This archive contains a setup program. Run it once to install the game files; Ludex then finds the game executable it produced.": "Этот архив содержит программу установки. Запустите её один раз, чтобы установить файлы игры; затем Ludex найдёт созданный ею исполняемый файл игры.",
+  "Use this executable": "Использовать этот исполняемый файл"
 }

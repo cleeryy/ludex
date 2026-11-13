@@ -2283,6 +2283,43 @@ export interface InstallerPlan {
   compatTool?: string | null;
   /** Wine prefix the installer would write into. */
   prefix?: string | null;
+  /** Guided repack state (#214); null when no install is selected. */
+  repack?: RepackState | null;
+}
+
+/** Repack payload detected after extraction (#214). */
+export interface RepackState {
+  /** True when the install has no executable and the folder holds a setup. */
+  needed: boolean;
+  /** True when an executable is already recorded: never re-offered. */
+  ready: boolean;
+  /** Best setup program, relative to the install folder. */
+  setup: string | null;
+  /** Setup programs found, best first. */
+  candidates: string[];
+  /** Payload markers found next to the setup program. */
+  markers: string[];
+  /** Game programs found by a post-install rescan (pre-existing installs). */
+  executableCandidates: string[];
+  message: string;
+}
+
+/** Outcome of the guided repack flow (#214). */
+export interface RepackRunReport {
+  gameId: number;
+  /** Setup program that ran, relative to the install folder. */
+  setup: string;
+  success: boolean;
+  cancelled: boolean;
+  timedOut: boolean;
+  exitCode: number | null;
+  /** Set when a single game program was found and recorded. */
+  recordedExecutable: string | null;
+  /** Ranked programs found after the setup exited, for the picker. */
+  candidates: string[];
+  logTail?: string | null;
+  compatTool?: string | null;
+  message: string;
 }
 
 export interface InstallerAttempt {

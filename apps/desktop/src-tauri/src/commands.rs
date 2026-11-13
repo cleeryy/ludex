@@ -629,6 +629,8 @@ pub struct InstallerPlan {
     pub compat_tool: Option<String>,
     /// Wine prefix the installer would write into.
     pub prefix: Option<String>,
+    /// Guided repack state (#214): setup program detected after extraction.
+    pub repack: Option<installer::RepackState>,
 }
 
 /// Outcome of a silent or interactive installer run.
@@ -665,6 +667,82 @@ fn installed_or_error(state: &AppState, game_id: i64) -> Result<InstalledGame, S
 
 fn installer_candidates(installed: &InstalledGame) -> Vec<String> {
     installer::detect_installers(&PathBuf::from(&installed.install_path))
+}
+
+/// A ready-to-run installer invocation plus the context the report shows.
+struct PreparedInstaller {
+    base: installer::Invocation,
+    compat_tool: Option<String>,
+    prefix: Option<PathBuf>,
+    log_path: Option<PathBuf>,
+}
+
+/// Build the platform invocation for a setup program (#7, #93, #214).
+///
+/// Windows runs it directly; Linux wraps it in the game's UMU/Proton/Wine tool
+/// with the game prefix and a captured log; macOS is unsupported. No shell is
+/// involved and elevation is never requested here.
+#[allow(clippy::too_many_arguments)]
+fn prepare_installer(
+    state: &AppState,
+    settings: &LocalSettings,
+    options: &LaunchOptions,
+    installer_path: &Path,
+    install_root: &Path,
+    interactive: bool,
+    log_tag: &str,
+) -> Result<PreparedInstaller, String> {
+    if cfg!(windows) {
+        let mut base =
+            installer::Invocation::direct(installer_path.to_path_buf(), install_root.to_path_buf());
+        base.interactive = interactive;
+        return Ok(PreparedInstaller {
+            base,
+            compat_tool: None,
+            prefix: None,
+            log_path: None,
+        });
+    }
+    if cfg!(all(unix, not(target_os = "macos"))) {
+        let prefix = linux_gaming::prefix_for(install_root, &options.prefix_path)?;
+        std::fs::create_dir_all(&prefix).map_err(|error| {
+            format!(
+                "Could not create the Wine prefix {}: {error}",
+                prefix.display()
+            )
+        })?;
+
+        let scan = compat::scan(settings);
+        let mode = match options.mode {
+            LaunchMode::Umu | LaunchMode::Proton => options.mode,
+            _ => LaunchMode::Auto,
+        };
+        let mut selection = linux_gaming::select_tool(&scan.tools, mode, &options.tool_id)?;
+        selection.client_install_path = scan.steam_client_path.as_deref().map(PathBuf::from);
+        let plan = linux_gaming::build_launch(&selection, installer_path, &[], &prefix, options)?;
+
+        let log = state
+            .app_data
+            .join("installer-logs")
+            .join(format!("{log_tag}-{}", uuid::Uuid::new_v4()))
+            .with_extension("log");
+        let tool = plan.tool_name.clone();
+        let mut base = installer::compat_invocation(&plan, install_root, Some(log.clone()));
+        // #181: an interactive run keeps its own window; compatibility tools
+        // own that window on Linux.
+        base.interactive = interactive;
+        return Ok(PreparedInstaller {
+            base,
+            compat_tool: Some(tool),
+            prefix: Some(prefix),
+            log_path: Some(log),
+        });
+    }
+    let _ = (state, settings, options, log_tag);
+    Err(
+        "Installer automation is not available on macOS. Run the setup program manually."
+            .to_string(),
+    )
 }
 
 /// Preview the silent install plan (#7) without running anything.
@@ -723,6 +801,17 @@ pub fn installer_plan(
         }
     }
 
+    // #214: a repack archive finishes without an executable. Report whether the
+    // guided flow has a setup program to run.
+    let repack = installed.as_ref().map(|installed| {
+        installer::repack_state(
+            &PathBuf::from(&installed.install_path),
+            prefix.as_deref().map(Path::new),
+            installed.executable.as_deref(),
+            &installed.title,
+        )
+    });
+
     Ok(InstallerPlan {
         executable,
         detected,
@@ -732,6 +821,7 @@ pub fn installer_plan(
         platform: std::env::consts::OS.to_string(),
         compat_tool,
         prefix,
+        repack,
     })
 }
 
@@ -807,50 +897,21 @@ pub async fn run_installer(
 
     // Windows runs the setup program directly. Linux runs it through the same
     // UMU/Proton/Wine tool as the game (#93); macOS has no supported path.
-    let mut compatibility_tool: Option<String> = None;
-    let mut prefix_used: Option<PathBuf> = None;
-    let mut log_path: Option<PathBuf> = None;
-
-    let mut base = if cfg!(windows) {
-        installer::Invocation::direct(installer_path.clone(), install_root.clone())
-    } else if cfg!(all(unix, not(target_os = "macos"))) {
-        let prefix = linux_gaming::prefix_for(&install_root, &options.prefix_path)?;
-        std::fs::create_dir_all(&prefix).map_err(|error| {
-            format!(
-                "Could not create the Wine prefix {}: {error}",
-                prefix.display()
-            )
-        })?;
-
-        let scan = compat::scan(&current);
-        let mode = match options.mode {
-            LaunchMode::Umu | LaunchMode::Proton => options.mode,
-            _ => LaunchMode::Auto,
-        };
-        let mut selection = linux_gaming::select_tool(&scan.tools, mode, &options.tool_id)?;
-        selection.client_install_path = scan.steam_client_path.as_deref().map(PathBuf::from);
-        let plan = linux_gaming::build_launch(&selection, &installer_path, &[], &prefix, &options)?;
-
-        let log = state
-            .app_data
-            .join("installer-logs")
-            .join(format!("{game_id}-{}", uuid::Uuid::new_v4()))
-            .with_extension("log");
-        compatibility_tool = Some(plan.tool_name.clone());
-        prefix_used = Some(prefix);
-        log_path = Some(log.clone());
-
-        installer::compat_invocation(&plan, &install_root, Some(log))
-    } else {
-        return Err(
-            "Installer automation is not available on macOS. Run the setup program manually."
-                .to_string(),
-        );
-    };
-
-    // #181: tell the runner explicitly whether the user asked to watch
-    // setup.exe. Only an interactive run may keep its console window.
-    base.interactive = interactive;
+    let prepared = prepare_installer(
+        &state,
+        &current,
+        &options,
+        &installer_path,
+        &install_root,
+        interactive,
+        &format!("{game_id}"),
+    )?;
+    let PreparedInstaller {
+        base,
+        compat_tool: compatibility_tool,
+        prefix: prefix_used,
+        log_path,
+    } = prepared;
 
     let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     {
@@ -1003,6 +1064,224 @@ pub fn cancel_installer(state: State<'_, AppState>, game_id: i64) -> Result<(), 
         .ok_or_else(|| "No installer is running for this game.".to_string())?;
     flag.store(true, std::sync::atomic::Ordering::SeqCst);
     Ok(())
+}
+
+/// Outcome of the guided repack flow (#214).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepackRunReport {
+    pub game_id: i64,
+    /// Setup program that ran, relative to the install folder.
+    pub setup: String,
+    pub success: bool,
+    pub cancelled: bool,
+    pub timed_out: bool,
+    pub exit_code: Option<i32>,
+    /// Executable recorded in the index when a single game program was found.
+    pub recorded_executable: Option<String>,
+    /// Ranked programs found after the setup exited, for the picker.
+    pub candidates: Vec<String>,
+    pub log_tail: Option<String>,
+    pub compat_tool: Option<String>,
+    pub message: String,
+}
+
+/// Run the detected setup program interactively, then record the game binary it
+/// produced (#214).
+///
+/// Never silently, never elevated: the setup keeps its own window, the user
+/// finishes it, and only then is the install folder rescanned. An install that
+/// already has an executable is refused so the guided flow cannot loop.
+#[tauri::command]
+pub async fn run_repack_installer(
+    app: AppHandle,
+    game_id: i64,
+    setup: Option<String>,
+) -> Result<RepackRunReport, String> {
+    let state = app.state::<AppState>();
+    let installed = installed_or_error(&state, game_id)?;
+    let install_root = PathBuf::from(&installed.install_path);
+    if !install_root.is_dir() {
+        return Err(format!(
+            "The install folder is missing: {}. Reinstall the game.",
+            install_root.display()
+        ));
+    }
+
+    let settings = state.settings_snapshot();
+    let options = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::get_launch_options(&connection, game_id)?
+    };
+    let prefix = linux_gaming::prefix_for(&install_root, &options.prefix_path).ok();
+    let repack = installer::repack_state(
+        &install_root,
+        prefix.as_deref(),
+        installed.executable.as_deref(),
+        &installed.title,
+    );
+    if repack.ready {
+        return Err(
+            "This install already has a game executable; the setup program is not run again automatically."
+                .to_string(),
+        );
+    }
+    if !repack.needed {
+        return Err(repack.message);
+    }
+
+    let requested = setup
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| repack.setup.clone())
+        .ok_or_else(|| "No setup program was detected in the install folder.".to_string())?;
+    if !repack.candidates.contains(&requested) {
+        return Err(format!(
+            "Choose one of the detected setup programs: {}.",
+            repack.candidates.join(", ")
+        ));
+    }
+    let setup_path = installer::resolve_installer(&install_root, &requested)?;
+
+    let prepared = prepare_installer(
+        &state,
+        &settings,
+        &options,
+        &setup_path,
+        &install_root,
+        true,
+        &format!("{game_id}-repack"),
+    )?;
+    let PreparedInstaller {
+        base,
+        compat_tool,
+        prefix: prefix_used,
+        log_path,
+    } = prepared;
+
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let mut running = state
+            .installers
+            .lock()
+            .map_err(|_| "The installer registry is unavailable; restart Ludex.".to_string())?;
+        if running.contains_key(&game_id) {
+            return Err("An installer is already running for this game.".to_string());
+        }
+        running.insert(game_id, std::sync::Arc::clone(&cancel));
+    }
+
+    // Interactive only: no silent switches, no timeout. The user watches the
+    // setup window and closes it when the install is done.
+    let report = tokio::task::spawn_blocking(move || {
+        installer::run_plan(
+            &installer::SystemRunner,
+            &base,
+            &[Vec::new()],
+            Duration::ZERO,
+            &cancel,
+        )
+    })
+    .await;
+
+    if let Ok(mut running) = state.installers.lock() {
+        running.remove(&game_id);
+    }
+
+    let report = report.map_err(|error| format!("The installer task failed: {error}"))?;
+    let exit_code = report.last_exit_code();
+    let timed_out = report.timed_out();
+    let log_tail = log_path.as_deref().and_then(prefix::read_tail);
+
+    // Rescan after the setup exited -- even on failure, since a half-finished
+    // install may still hold a launchable program the user can pick.
+    let candidates = installer::discover_installed_executables(
+        &install_root,
+        prefix_used.as_deref(),
+        &installed.title,
+        12,
+    );
+    let decision = installer::post_install_decision(report.success, &candidates);
+    let mut recorded_executable = None;
+    if let Some(candidate) = &decision.record {
+        let full = installer::executable_full_path(&install_root, candidate);
+        let value = full.to_string_lossy().to_string();
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::set_executable(&connection, game_id, Some(&value))?;
+        recorded_executable = Some(value);
+    }
+
+    // The setup may have written new programs into the folder or the prefix;
+    // the executable picker must not keep serving the pre-install listing (#143).
+    if report.success || recorded_executable.is_some() {
+        if let Ok(mut cache) = state.executables.lock() {
+            if let Ok(root) = game_executables::installed_root(&installed) {
+                cache.invalidate(&root.to_string_lossy());
+            }
+        }
+    }
+
+    let via = compat_tool
+        .as_deref()
+        .map(|tool| format!(" via {tool}"))
+        .unwrap_or_default();
+    let message = if report.cancelled {
+        "Setup cancelled. The extracted files are kept; run it again when you are ready."
+            .to_string()
+    } else if report.success {
+        match (&recorded_executable, decision.needs_choice) {
+            (Some(path), _) => format!(
+                "Setup finished{via} (exit code {}). Recorded {} as the game executable.",
+                exit_code
+                    .map(|code| code.to_string())
+                    .unwrap_or_else(|| "n/a".into()),
+                path
+            ),
+            (None, true) => format!(
+                "Setup finished{via}. Choose the game executable from the list to finish the install."
+            ),
+            (None, false) => format!(
+                "Setup finished{via} but no game executable was found. Choose it manually."
+            ),
+        }
+    } else {
+        format!(
+            "The setup program exited with code {}{via}. The extracted files are kept; retry or choose the executable.",
+            exit_code
+                .map(|code| code.to_string())
+                .unwrap_or_else(|| "unknown".into())
+        )
+    };
+
+    let _ = app.emit(
+        "installer://done",
+        serde_json::json!({
+            "gameId": game_id,
+            "success": report.success,
+            "exitCode": exit_code,
+            "tool": compat_tool,
+        }),
+    );
+
+    Ok(RepackRunReport {
+        game_id,
+        setup: requested,
+        success: report.success,
+        cancelled: report.cancelled,
+        timed_out,
+        exit_code,
+        recorded_executable,
+        candidates,
+        log_tail,
+        compat_tool,
+        message,
+    })
 }
 
 /// Record the executable the user picked for an installed game.

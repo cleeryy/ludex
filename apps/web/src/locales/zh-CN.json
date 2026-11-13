@@ -3595,5 +3595,13 @@
   "{done} of {total} games · {files} files · {bytes}": "{done}/{total} 个游戏 · {files} 个文件 · {bytes}",
   "{files} files · {size}": "{files} 个文件 · {size}",
   "{succeeded} of {games} games updated": "已更新 {succeeded}/{games} 个游戏",
-  "{title} removed from the library": "{title} 已从库中移除"
+  "{title} removed from the library": "{title} 已从库中移除",
+  "Choose the game executable": "选择游戏可执行文件",
+  "Programs found in the install folder. Pick the one Ludex should launch.": "在安装文件夹中找到的程序。请选择 Ludex 应启动的程序。",
+  "Retry the installer": "重试安装程序",
+  "Run the installer": "运行安装程序",
+  "Setup program detected": "检测到安装程序",
+  "The setup window stays open until you finish it. Nothing runs silently and Ludex never elevates the installer.": "安装窗口会保持打开，直到你完成安装。不会静默运行，Ludex 也绝不会提升安装程序权限。",
+  "This archive contains a setup program. Run it once to install the game files; Ludex then finds the game executable it produced.": "此压缩包包含一个安装程序。运行一次以安装游戏文件；随后 Ludex 会找到它生成的游戏可执行文件。",
+  "Use this executable": "使用此可执行文件"
 }
