@@ -13,8 +13,6 @@ All notable changes to Ludex are documented here. The format is based on
   524 troubleshooting and the 40 GB field acceptance matrix; the README feature
   table and `docs/PERFORMANCE.md` link to it (#211).
 
-## [0.4.4] - 2026-11-13
-
 ### Added
 
 - Admin Games manager (#209): a dense, URL-filtered table of every game with
@@ -25,6 +23,20 @@ All notable changes to Ludex are documented here. The format is based on
   `GET /api/admin/games`, `POST /api/admin/games/bulk` and
   `DELETE /api/games/{id}` (rows-only vs archives, canonical path checks,
   symlink refusal, audit).
+
+### Fixed
+
+- A deleted archive no longer looks like a normal game (#210): game summaries
+  expose available/missing version counts and a status, the default library
+  hides games with no available archive behind a "Show missing" toggle with a
+  count, the game page shows a "No archive available" notice with the missing
+  path/root, last seen, Relink/rescan and a confirmed Remove-from-library
+  action, and scans still never delete metadata.
+
+## [0.4.4] - 2026-11-13
+
+### Added
+
 - The install/download queue can be reordered (#202): a persisted
   `queue_position` and a real scheduler start the lowest-position queued job
   when a slot frees, so a newly added game can jump ahead of older jobs; the
@@ -71,12 +83,6 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
-- A deleted archive no longer looks like a normal game (#210): game summaries
-  expose available/missing version counts and a status, the default library
-  hides games with no available archive behind a "Show missing" toggle with a
-  count, the game page shows a "No archive available" notice with the missing
-  path/root, last seen, Relink/rescan and a confirmed Remove-from-library
-  action, and scans still never delete metadata.
 - Stream installs resume instead of restarting (#203, #204, #205, #208):
   retries reuse the same job id and history row, the desktop persists the job
   request and rebuilds a worker for paused/failed/interrupted jobs (including
