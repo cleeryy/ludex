@@ -3595,5 +3595,13 @@
   "{done} of {total} games · {files} files · {bytes}": "{total} 件中 {done} 件 · {files} ファイル · {bytes}",
   "{files} files · {size}": "{files} ファイル · {size}",
   "{succeeded} of {games} games updated": "{games} 件中 {succeeded} 件のゲームを更新しました",
-  "{title} removed from the library": "{title} をライブラリから削除しました"
+  "{title} removed from the library": "{title} をライブラリから削除しました",
+  "Choose the game executable": "ゲームの実行ファイルを選択",
+  "Programs found in the install folder. Pick the one Ludex should launch.": "インストールフォルダーで見つかったプログラムです。Ludex が起動するものを選択してください。",
+  "Retry the installer": "インストーラーを再試行",
+  "Run the installer": "インストーラーを実行",
+  "Setup program detected": "セットアッププログラムを検出しました",
+  "The setup window stays open until you finish it. Nothing runs silently and Ludex never elevates the installer.": "セットアップウィンドウは完了するまで開いたままです。サイレント実行は行わず、Ludex がインストーラーの権限を昇格することもありません。",
+  "This archive contains a setup program. Run it once to install the game files; Ludex then finds the game executable it produced.": "このアーカイブにはセットアッププログラムが含まれています。一度実行してゲームファイルをインストールすると、Ludex が生成されたゲームの実行ファイルを見つけます。",
+  "Use this executable": "この実行ファイルを使用"
 }

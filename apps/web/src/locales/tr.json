@@ -3595,5 +3595,13 @@
   "{done} of {total} games · {files} files · {bytes}": "{total} oyundan {done} · {files} dosya · {bytes}",
   "{files} files · {size}": "{files} dosya · {size}",
   "{succeeded} of {games} games updated": "{games} oyundan {succeeded} tanesi güncellendi",
-  "{title} removed from the library": "{title} kütüphaneden kaldırıldı"
+  "{title} removed from the library": "{title} kütüphaneden kaldırıldı",
+  "Choose the game executable": "Oyunun çalıştırılabilir dosyasını seç",
+  "Programs found in the install folder. Pick the one Ludex should launch.": "Kurulum klasöründe bulunan programlar. Ludex'in başlatacağı programı seç.",
+  "Retry the installer": "Yükleyiciyi yeniden dene",
+  "Run the installer": "Yükleyiciyi çalıştır",
+  "Setup program detected": "Kurulum programı algılandı",
+  "The setup window stays open until you finish it. Nothing runs silently and Ludex never elevates the installer.": "Kurulum penceresi siz bitirene kadar açık kalır. Hiçbir şey sessizce çalışmaz ve Ludex yükleyiciyi asla yükseltmez.",
+  "This archive contains a setup program. Run it once to install the game files; Ludex then finds the game executable it produced.": "Bu arşiv bir kurulum programı içeriyor. Oyun dosyalarını kurmak için bir kez çalıştırın; ardından Ludex oluşturduğu oyun çalıştırılabilir dosyasını bulur.",
+  "Use this executable": "Bu çalıştırılabilir dosyayı kullan"
 }

@@ -3595,5 +3595,13 @@
   "{done} of {total} games · {files} files · {bytes}": "{done} de {total} jogos · {files} arquivos · {bytes}",
   "{files} files · {size}": "{files} arquivos · {size}",
   "{succeeded} of {games} games updated": "{succeeded} de {games} jogos atualizados",
-  "{title} removed from the library": "{title} removido da biblioteca"
+  "{title} removed from the library": "{title} removido da biblioteca",
+  "Choose the game executable": "Escolher o executável do jogo",
+  "Programs found in the install folder. Pick the one Ludex should launch.": "Programas encontrados na pasta de instalação. Escolha o que o Ludex deve iniciar.",
+  "Retry the installer": "Tentar o instalador novamente",
+  "Run the installer": "Executar o instalador",
+  "Setup program detected": "Programa de instalação detectado",
+  "The setup window stays open until you finish it. Nothing runs silently and Ludex never elevates the installer.": "A janela de instalação permanece aberta até você concluir. Nada é executado em silêncio e o Ludex nunca eleva o instalador.",
+  "This archive contains a setup program. Run it once to install the game files; Ludex then finds the game executable it produced.": "Este arquivo contém um programa de instalação. Execute-o uma vez para instalar os arquivos do jogo; depois o Ludex encontra o executável do jogo que ele produziu.",
+  "Use this executable": "Usar este executável"
 }

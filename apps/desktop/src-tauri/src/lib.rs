@@ -228,6 +228,7 @@ pub fn run() {
             commands::get_disk_usage,
             commands::installer_plan,
             commands::run_installer,
+            commands::run_repack_installer,
             commands::cancel_installer,
             commands::set_executable,
             commands::choose_executable,

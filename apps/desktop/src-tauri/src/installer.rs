@@ -430,10 +430,14 @@ pub fn detect_installed_executable(
     if let Some(found) = crate::bridge::pick_executable(install_root, title) {
         return Some(found);
     }
-    let prefix = prefix?;
+    scan_prefix_programs(prefix?, title).into_iter().next()
+}
+
+/// Programs inside a Wine prefix, best first (title match, then path).
+fn scan_prefix_programs(prefix: &Path, title: &str) -> Vec<PathBuf> {
     let drive = prefix.join("drive_c");
     if !drive.is_dir() {
-        return None;
+        return Vec::new();
     }
 
     let wanted = crate::steam::normalize_title(title);
@@ -495,7 +499,422 @@ pub fn detect_installed_executable(
             .cmp(&score(right))
             .then_with(|| left.to_string_lossy().cmp(&right.to_string_lossy()))
     });
-    candidates.into_iter().next()
+    candidates
+}
+
+/* ------------------------- repack payloads (#214) ------------------------ */
+
+/// Folder names that only hold prerequisites, never the setup that installs
+/// the game.
+const PREREQUISITE_FOLDERS: &[&str] = &[
+    "_commonredist",
+    "redist",
+    "directx",
+    "dotnet",
+    "vcredist",
+    "support",
+    "tools",
+];
+
+/// File stems that identify a prerequisite installer or an uninstaller.
+const PREREQUISITE_STEMS: &[&str] = &[
+    "unins",
+    "uninstall",
+    "vcredist",
+    "vc_redist",
+    "dxsetup",
+    "dxwebsetup",
+    "dotnet",
+    "oalinst",
+    "redist",
+    "crashhandler",
+    "unitycrashhandler",
+    "ue4prereq",
+    "prereq",
+];
+
+/// Directories that mark a repack payload next to `setup.exe`.
+const REPACK_MARKER_DIRS: &[&str] = &["data", "_commonredist", "redist", "directx", "dotnet"];
+/// Files that mark a repack payload next to `setup.exe`.
+const REPACK_MARKER_FILES: &[&str] = &["unarc.dll", "isdone.dll"];
+/// Extensions counted as repack payload parts (`.bin`, `.arc`, `.cab`).
+const REPACK_MARKER_EXTENSIONS: &[&str] = &["bin", "arc", "cab"];
+
+/// True when a file name is an explicit setup program (`setup.exe`,
+/// `install.exe`, `*setup*.exe`, …), never a prerequisite or uninstaller.
+pub fn is_setup_program(name: &str) -> bool {
+    setup_score(name).is_some()
+}
+
+/// True for a redistributable or uninstaller that must never be run as the
+/// game installer.
+pub fn is_prerequisite_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let stem = lower.strip_suffix(".exe").unwrap_or(&lower);
+    PREREQUISITE_STEMS
+        .iter()
+        .any(|prefix| stem.starts_with(prefix))
+}
+
+/// Score a setup file name, `None` when it is not a setup program.
+fn setup_score(name: &str) -> Option<u32> {
+    let lower = name.to_ascii_lowercase();
+    let stem = lower.strip_suffix(".exe")?;
+    if is_prerequisite_name(&lower) {
+        return None;
+    }
+    if stem == "setup" {
+        Some(300)
+    } else if stem == "install" {
+        Some(280)
+    } else if stem.starts_with("install") {
+        Some(240)
+    } else if stem.contains("setup") {
+        Some(200)
+    } else if stem.contains("install") {
+        Some(160)
+    } else {
+        None
+    }
+}
+
+/// A repack payload: the folder holding `setup.exe` and its data files (#214).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepackLayout {
+    /// Folder holding the setup program, relative to the install folder
+    /// (`""` when the setup sits at the root).
+    pub payload_dir: String,
+    /// Best setup program, relative to the install folder.
+    pub setup: String,
+    /// Every setup program found, best first, relative to the install folder.
+    pub candidates: Vec<String>,
+    /// Payload markers found next to the setup program (`data/`, `unarc.dll`,
+    /// `2 .bin`).
+    pub markers: Vec<String>,
+}
+
+/// What the guided repack flow should do for an install (#214).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepackState {
+    /// True when the install has no executable and the folder holds a setup.
+    pub needed: bool,
+    /// True when an executable is already recorded: the setup is not offered
+    /// again automatically.
+    pub ready: bool,
+    /// Best setup program, relative to the install folder.
+    pub setup: Option<String>,
+    /// Setup programs found, best first.
+    pub candidates: Vec<String>,
+    /// Repack markers found next to the setup program.
+    pub markers: Vec<String>,
+    /// Game programs found by a post-install rescan (pre-existing installs).
+    pub executable_candidates: Vec<String>,
+    pub message: String,
+}
+
+/// What the guided flow records after the interactive setup exits (#214).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PostInstallDecision {
+    /// Executable to record without asking: only a single candidate after a
+    /// successful exit.
+    pub record: Option<String>,
+    /// True when the UI must show the candidate list (several programs, or a
+    /// failed setup that may still have written files).
+    pub needs_choice: bool,
+}
+
+/// Detect a repack payload inside an extracted archive.
+///
+/// The archive root and its deepest single-folder wrapper are checked, so
+/// `Game/setup.exe` and `Game/Repack/setup.exe` are both found. Prerequisite
+/// installers and uninstallers are never returned.
+pub fn detect_repack(root: &Path) -> Option<RepackLayout> {
+    if !root.is_dir() {
+        return None;
+    }
+    let payload = deepest_payload_root(root);
+    let mut candidates: Vec<(u32, String)> = Vec::new();
+    collect_setup_candidates(&payload, root, 0, &mut candidates);
+    if candidates.is_empty() {
+        return None;
+    }
+    candidates.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
+    let setup = candidates.first()?.1.clone();
+    let payload_dir = relative_to(root, &payload);
+    let markers = repack_markers(&payload);
+    Some(RepackLayout {
+        payload_dir,
+        setup,
+        candidates: candidates.into_iter().map(|(_, path)| path).collect(),
+        markers,
+    })
+}
+
+/// Descend through single-folder wrappers, stopping at the level that holds a
+/// setup program. `Game/Repack/setup.exe` resolves to `Game/Repack`.
+fn deepest_payload_root(root: &Path) -> PathBuf {
+    let mut current = root.to_path_buf();
+    for _ in 0..3 {
+        if has_setup_file(&current) {
+            break;
+        }
+        let Ok(entries) = std::fs::read_dir(&current) else {
+            break;
+        };
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        let mut files = 0usize;
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+            if entry.path().is_dir() {
+                if PREREQUISITE_FOLDERS
+                    .iter()
+                    .any(|folder| name.eq_ignore_ascii_case(folder))
+                {
+                    continue;
+                }
+                dirs.push(entry.path());
+            } else {
+                files += 1;
+            }
+        }
+        if files > 0 || dirs.len() != 1 {
+            break;
+        }
+        current = dirs.remove(0);
+    }
+    current
+}
+
+/// True when `dir` directly contains a setup program.
+fn has_setup_file(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        path.is_file()
+            && path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(is_setup_program)
+    })
+}
+
+/// Collect setup programs in `dir` and, at the top level only, one level of
+/// subdirectories. Prerequisite folders are skipped.
+fn collect_setup_candidates(dir: &Path, root: &Path, depth: usize, out: &mut Vec<(u32, String)>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut subdirs: Vec<PathBuf> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+            if PREREQUISITE_FOLDERS
+                .iter()
+                .any(|folder| name.eq_ignore_ascii_case(folder))
+            {
+                continue;
+            }
+            subdirs.push(path);
+            continue;
+        }
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        let Some(score) = setup_score(&name) else {
+            continue;
+        };
+        let penalty = u32::try_from(depth).unwrap_or(u32::MAX).saturating_mul(10);
+        out.push((score.saturating_sub(penalty), relative_to(root, &path)));
+    }
+    if depth == 0 {
+        subdirs.sort();
+        for child in subdirs {
+            collect_setup_candidates(&child, root, 1, out);
+        }
+    }
+}
+
+/// Payload markers next to the setup program, for the guided flow copy.
+fn repack_markers(dir: &Path) -> Vec<String> {
+    let mut markers: Vec<String> = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return markers;
+    };
+    let mut counts: Vec<(&str, usize)> = REPACK_MARKER_EXTENSIONS
+        .iter()
+        .map(|extension| (*extension, 0usize))
+        .collect();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let lower = name.to_ascii_lowercase();
+        let path = entry.path();
+        if path.is_dir() {
+            if REPACK_MARKER_DIRS.iter().any(|marker| lower == *marker) {
+                markers.push(format!("{name}/"));
+            }
+            continue;
+        }
+        if REPACK_MARKER_FILES.contains(&lower.as_str()) {
+            markers.push(name);
+            continue;
+        }
+        let extension = lower.rsplit_once('.').map(|(_, extension)| extension);
+        if let Some((_, count)) = counts
+            .iter_mut()
+            .find(|(known, _)| Some(*known) == extension)
+        {
+            *count += 1;
+        }
+    }
+    for (extension, count) in counts {
+        if count > 0 {
+            markers.push(format!("{count} .{extension}"));
+        }
+    }
+    markers.sort();
+    markers.truncate(8);
+    markers
+}
+
+/// Relative, forward-slash path for the UI; `""` for the folder itself.
+fn relative_to(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// Ranked game programs after a setup program ran, relative to `root` when
+/// they are inside it, absolute for the Wine prefix. Installers, prerequisites
+/// and uninstallers never appear.
+pub fn discover_installed_executables(
+    root: &Path,
+    prefix: Option<&Path>,
+    title: &str,
+    limit: usize,
+) -> Vec<String> {
+    let limit = limit.max(1);
+    let mut found: Vec<String> = Vec::new();
+    let discovery =
+        crate::bridge::discover_executables(root, title, crate::bridge::DEFAULT_SCAN_DEPTH);
+    for candidate in &discovery.candidates {
+        push_unique(&mut found, relative_to(root, &candidate.path));
+        if found.len() >= limit {
+            return found;
+        }
+    }
+    if let Some(prefix) = prefix {
+        for path in scan_prefix_programs(prefix, title) {
+            push_unique(&mut found, path.to_string_lossy().replace('\\', "/"));
+            if found.len() >= limit {
+                break;
+            }
+        }
+    }
+    found.truncate(limit);
+    found
+}
+
+fn push_unique(found: &mut Vec<String>, value: String) {
+    if !value.is_empty() && !found.contains(&value) {
+        found.push(value);
+    }
+}
+
+/// Resolve a candidate from [`discover_installed_executables`] for storage.
+pub fn executable_full_path(root: &Path, candidate: &str) -> PathBuf {
+    let path = Path::new(candidate);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    }
+}
+
+/// What to do after the guided setup exits (#214).
+///
+/// A single program is recorded only when the setup succeeded; a failed setup
+/// keeps the payload and always shows the list so the user can retry or pick
+/// one manually.
+pub fn post_install_decision(exit_ok: bool, candidates: &[String]) -> PostInstallDecision {
+    if candidates.is_empty() {
+        return PostInstallDecision {
+            record: None,
+            needs_choice: false,
+        };
+    }
+    if exit_ok {
+        if let [only] = candidates {
+            return PostInstallDecision {
+                record: Some(only.clone()),
+                needs_choice: false,
+            };
+        }
+    }
+    PostInstallDecision {
+        record: None,
+        needs_choice: true,
+    }
+}
+
+/// Guided repack state for an install (#214).
+///
+/// An install that already has an executable is `ready` and never offers the
+/// setup again. A folder with no setup and no executable is neither: the UI
+/// falls back to the executable picker.
+pub fn repack_state(
+    root: &Path,
+    prefix: Option<&Path>,
+    executable: Option<&str>,
+    title: &str,
+) -> RepackState {
+    let ready = executable.is_some_and(|value| !value.trim().is_empty());
+    if ready {
+        return RepackState {
+            needed: false,
+            ready: true,
+            setup: None,
+            candidates: Vec::new(),
+            markers: Vec::new(),
+            executable_candidates: Vec::new(),
+            message: "This install already has a game executable; the setup program is not offered again."
+                .to_string(),
+        };
+    }
+
+    match detect_repack(root) {
+        Some(layout) => RepackState {
+            needed: true,
+            ready: false,
+            setup: Some(layout.setup),
+            candidates: layout.candidates,
+            markers: layout.markers,
+            executable_candidates: discover_installed_executables(root, prefix, title, 8),
+            message:
+                "This archive contains a setup program. Run it once to install the game files."
+                    .to_string(),
+        },
+        None => RepackState {
+            needed: false,
+            ready: false,
+            setup: None,
+            candidates: Vec::new(),
+            markers: Vec::new(),
+            executable_candidates: discover_installed_executables(root, prefix, title, 8),
+            message: "No setup program was found in this install folder.".to_string(),
+        },
+    }
 }
 
 #[cfg(test)]
@@ -862,6 +1281,193 @@ mod tests {
         assert!(!is_installer_name("unins000.exe"));
         assert!(!is_installer_name("Hades.exe"));
         assert!(!is_installer_name("setup.msi"));
+    }
+
+    fn temp_repack_root(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "ludex-repack-{tag}-{}",
+            crate::util::short_id(&uuid::Uuid::new_v4().to_string())
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn repack_detection_covers_the_common_layouts() {
+        // Root-level setup with the usual payload markers.
+        let root = temp_repack_root("flat");
+        std::fs::write(root.join("setup.exe"), b"x").unwrap();
+        std::fs::create_dir_all(root.join("data")).unwrap();
+        std::fs::write(root.join("setup-1.bin"), b"x").unwrap();
+        let layout = detect_repack(&root).unwrap();
+        assert_eq!(layout.payload_dir, "");
+        assert_eq!(layout.setup, "setup.exe");
+        assert_eq!(layout.candidates, vec!["setup.exe".to_string()]);
+        assert!(layout.markers.iter().any(|marker| marker == "data/"));
+        assert!(layout.markers.iter().any(|marker| marker == "1 .bin"));
+        std::fs::remove_dir_all(&root).ok();
+
+        // A plain game folder is not a repack.
+        let plain = temp_repack_root("plain");
+        std::fs::write(plain.join("Hades.exe"), b"x").unwrap();
+        assert!(detect_repack(&plain).is_none());
+        std::fs::remove_dir_all(&plain).ok();
+
+        // Single top-level wrapper: the setup lives one folder down.
+        let nested = temp_repack_root("nested");
+        std::fs::create_dir_all(nested.join("Hades")).unwrap();
+        std::fs::write(nested.join("Hades/setup.exe"), b"x").unwrap();
+        std::fs::write(nested.join("Hades/game.bin"), b"x").unwrap();
+        let layout = detect_repack(&nested).unwrap();
+        assert_eq!(layout.payload_dir, "Hades");
+        assert_eq!(layout.setup, "Hades/setup.exe");
+        assert!(layout.markers.iter().any(|marker| marker == "1 .bin"));
+        std::fs::remove_dir_all(&nested).ok();
+
+        // Nested wrappers: the deepest single folder wins.
+        let deep = temp_repack_root("deep");
+        std::fs::create_dir_all(deep.join("Hades/Repack")).unwrap();
+        std::fs::write(deep.join("Hades/Repack/setup.exe"), b"x").unwrap();
+        std::fs::write(deep.join("Hades/Repack/unarc.dll"), b"x").unwrap();
+        let layout = detect_repack(&deep).unwrap();
+        assert_eq!(layout.payload_dir, "Hades/Repack");
+        assert_eq!(layout.setup, "Hades/Repack/setup.exe");
+        assert!(layout.markers.iter().any(|marker| marker == "unarc.dll"));
+        std::fs::remove_dir_all(&deep).ok();
+
+        // `install.exe` is a setup too.
+        let install = temp_repack_root("install");
+        std::fs::write(install.join("install.exe"), b"x").unwrap();
+        assert_eq!(detect_repack(&install).unwrap().setup, "install.exe");
+        std::fs::remove_dir_all(&install).ok();
+
+        // Prerequisites only: never a repack.
+        let prereq = temp_repack_root("prereq");
+        std::fs::create_dir_all(prereq.join("_CommonRedist")).unwrap();
+        std::fs::write(prereq.join("_CommonRedist/vcredist_x64.exe"), b"x").unwrap();
+        std::fs::write(prereq.join("unins000.exe"), b"x").unwrap();
+        assert!(detect_repack(&prereq).is_none());
+        std::fs::remove_dir_all(&prereq).ok();
+    }
+
+    #[test]
+    fn setup_candidates_are_ranked_and_prerequisites_excluded() {
+        let root = temp_repack_root("ranking");
+        std::fs::create_dir_all(root.join("bin")).unwrap();
+        std::fs::create_dir_all(root.join("_CommonRedist")).unwrap();
+        std::fs::write(root.join("setup.exe"), b"x").unwrap();
+        std::fs::write(root.join("install.exe"), b"x").unwrap();
+        std::fs::write(root.join("bin/install_helper.exe"), b"x").unwrap();
+        std::fs::write(root.join("unins000.exe"), b"x").unwrap();
+        std::fs::write(root.join("vcredist_x64.exe"), b"x").unwrap();
+        std::fs::write(root.join("_CommonRedist/dxsetup.exe"), b"x").unwrap();
+
+        let layout = detect_repack(&root).unwrap();
+        assert_eq!(
+            layout.candidates,
+            vec![
+                "setup.exe".to_string(),
+                "install.exe".to_string(),
+                "bin/install_helper.exe".to_string(),
+            ]
+        );
+        assert!(!layout
+            .candidates
+            .iter()
+            .any(|candidate| candidate.contains("vcredist")
+                || candidate.contains("unins")
+                || candidate.contains("dxsetup")));
+
+        assert!(is_setup_program("Game Setup.exe"));
+        assert!(is_setup_program("gogsetup.exe"));
+        assert!(!is_setup_program("vcredist_x64.exe"));
+        assert!(!is_setup_program("unins000.exe"));
+        assert!(!is_setup_program("Hades.exe"));
+        assert!(is_prerequisite_name("vcredist_x64.exe"));
+        assert!(is_prerequisite_name("dxsetup.exe"));
+        assert!(!is_prerequisite_name("setup.exe"));
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn post_install_discovery_skips_installers_and_prerequisites() {
+        let root = temp_repack_root("discover");
+        std::fs::create_dir_all(root.join("_CommonRedist")).unwrap();
+        std::fs::create_dir_all(root.join("Tools")).unwrap();
+        std::fs::write(root.join("Hades.exe"), b"x").unwrap();
+        std::fs::write(root.join("setup.exe"), b"x").unwrap();
+        std::fs::write(root.join("unins000.exe"), b"x").unwrap();
+        std::fs::write(root.join("_CommonRedist/vcredist_x64.exe"), b"x").unwrap();
+        std::fs::write(root.join("Tools/helper.exe"), b"x").unwrap();
+
+        let found = discover_installed_executables(&root, None, "Hades", 8);
+        assert_eq!(found, vec!["Hades.exe".to_string()]);
+        assert_eq!(
+            executable_full_path(&root, "Hades.exe"),
+            root.join("Hades.exe")
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn post_install_decision_records_one_success_and_asks_otherwise() {
+        let single = vec!["Hades.exe".to_string()];
+        let decision = post_install_decision(true, &single);
+        assert_eq!(decision.record.as_deref(), Some("Hades.exe"));
+        assert!(!decision.needs_choice);
+
+        // A failed setup keeps the payload and offers the list.
+        let failed = post_install_decision(false, &single);
+        assert!(failed.record.is_none());
+        assert!(failed.needs_choice);
+
+        // Several programs: the user picks one.
+        let many = vec!["Hades.exe".to_string(), "HadesLauncher.exe".to_string()];
+        let decision = post_install_decision(true, &many);
+        assert!(decision.record.is_none());
+        assert!(decision.needs_choice);
+
+        // Nothing found: nothing to choose and nothing to record.
+        let empty = post_install_decision(true, &[]);
+        assert!(empty.record.is_none());
+        assert!(!empty.needs_choice);
+    }
+
+    #[test]
+    fn repack_state_needs_the_setup_then_is_ready_once_an_executable_is_recorded() {
+        let root = temp_repack_root("state");
+        std::fs::write(root.join("setup.exe"), b"x").unwrap();
+        std::fs::write(root.join("Hades.exe"), b"x").unwrap();
+
+        let pending = repack_state(&root, None, None, "Hades");
+        assert!(pending.needed);
+        assert!(!pending.ready);
+        assert_eq!(pending.setup.as_deref(), Some("setup.exe"));
+        assert!(pending
+            .executable_candidates
+            .iter()
+            .any(|candidate| candidate == "Hades.exe"));
+
+        // Once an executable is recorded the guided flow never re-offers it.
+        let ready = repack_state(&root, None, Some("/games/Hades/Hades.exe"), "Hades");
+        assert!(ready.ready);
+        assert!(!ready.needed);
+        assert!(ready.setup.is_none());
+        assert!(ready.candidates.is_empty());
+
+        std::fs::remove_dir_all(&root).ok();
+
+        // Pre-existing install without a setup: no guided flow, just a rescan.
+        let preexisting = temp_repack_root("preexisting");
+        std::fs::write(preexisting.join("Hades.exe"), b"x").unwrap();
+        let state = repack_state(&preexisting, None, None, "Hades");
+        assert!(!state.needed);
+        assert!(!state.ready);
+        assert!(state.setup.is_none());
+        assert_eq!(state.executable_candidates, vec!["Hades.exe".to_string()]);
+        std::fs::remove_dir_all(&preexisting).ok();
     }
 
     #[test]

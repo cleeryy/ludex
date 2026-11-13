@@ -70,6 +70,7 @@ import type {
   RemotePlayReport,
   RemotePlayStatus,
   RemotePlayVerification,
+  RepackRunReport,
   RepairProgress,
   RepairReport,
   ResumeGameResult,
@@ -148,7 +149,7 @@ function rejectionSummary(error: unknown): string {
 
 /** Classifies a failed Tauri command for the local report. */
 function commandKind(command: string): string {
-  if (/^(install_game|run_installer|move_install|update_game|check_game_updates)/.test(command)) return "install";
+  if (/^(install_game|run_installer|run_repack_installer|move_install|update_game|check_game_updates)/.test(command)) return "install";
   if (/^(launch_game|launch_rom_game|stop_game)/.test(command)) return "launch";
   if (/^(check_for_updates|install_update|update_status)/.test(command)) return "update";
   return "command";
@@ -562,6 +563,14 @@ export const native = {
     args?: string[] | null;
   }): Promise<InstallerReport> {
     return invoke<InstallerReport>("run_installer", { ...args });
+  },
+
+  /**
+   * Guided repack flow (#214): run the detected setup interactively, then
+   * rescan the install folder. Never silent, never elevated.
+   */
+  async runRepackInstaller(args: { gameId: number; setup?: string | null }): Promise<RepackRunReport> {
+    return invoke<RepackRunReport>("run_repack_installer", { ...args });
   },
 
   async cancelInstaller(gameId: number): Promise<void> {
