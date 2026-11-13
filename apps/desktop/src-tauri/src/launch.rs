@@ -14,6 +14,7 @@ use crate::paths;
 use crate::process_tree::{ProcessSampler, TreeTracker};
 use crate::state::{AppState, ProcessEntry};
 use crate::util::{non_empty, now_rfc3339};
+use crate::window_focus::{self, FocusOutcome};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +44,56 @@ struct GameExited {
     /// [`IMMEDIATE_EXIT_WINDOW`]: the game crashed or bailed out instead of
     /// running (#187). The renderer shows a danger toast for this.
     immediate_exit: bool,
+}
+
+/// The focus outcome of a fresh launch (#219), emitted as `game://focus`.
+///
+/// Failure is data, never an error: the launch already succeeded. The shell
+/// shows this only when `focused` is false, together with the Resume and Force
+/// close actions the game page already offers (#191).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GameFocus {
+    game_id: i64,
+    session_id: String,
+    /// True when the game window is now in the foreground.
+    focused: bool,
+    /// Platform window handle that was focused, when any.
+    window: Option<String>,
+    /// `noWindow` / `focusRefused` when the window could not be focused.
+    reason: Option<String>,
+}
+
+impl GameFocus {
+    /// The event for one focus attempt. `Focused` is the success case; both
+    /// failures carry a reason and no window guarantee.
+    fn new(game_id: i64, session_id: &str, outcome: &FocusOutcome) -> Self {
+        let (focused, window, reason) = match outcome {
+            FocusOutcome::Focused { window } => (true, Some(window.clone()), None),
+            FocusOutcome::NoWindow => (false, None, Some("noWindow".to_string())),
+            FocusOutcome::Refused { window } => (
+                false,
+                Some(window.clone()),
+                Some("focusRefused".to_string()),
+            ),
+        };
+        Self {
+            game_id,
+            session_id: session_id.to_string(),
+            focused,
+            window,
+            reason,
+        }
+    }
+}
+
+/// Whether a successful focus hides Ludex (#219).
+///
+/// Hiding is what makes the game visible, but a failed focus must leave Ludex
+/// on screen so the player can read the message and press Resume. A console
+/// session (#172) keeps its shell: the shell *is* the streamed display.
+fn should_hide_ludex(focused: bool, console_session: bool) -> bool {
+    focused && !console_session
 }
 
 /// A game that ends this quickly never reached its first frame in practice
@@ -258,6 +309,11 @@ pub async fn launch(
     })?;
     let pid = child.id();
 
+    // #219: Windows only lets the foreground process hand the foreground over,
+    // so let the game take it while it starts. A refusal is not fatal: the
+    // focus ladder below retries once the window exists.
+    crate::window_focus::grant_foreground(pid);
+
     let session_id = uuid::Uuid::new_v4().to_string();
     let started_at = chrono::Utc::now();
     let started_stamp = started_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
@@ -301,6 +357,9 @@ pub async fn launch(
         game_id,
         installed.source.clone(),
     );
+    // #219: bring the game's window forward once it exists. Off-thread and
+    // fire-and-forget: a slow or windowless game never delays the launch.
+    spawn_focus_watch(app.clone(), game_id, session_id.clone(), pid);
     // The tray lists recent games by last launch.
     crate::tray::refresh_menu(app);
     announce_presence(app, game_id, &installed.title, started_at);
@@ -1017,6 +1076,72 @@ async fn fetch_cover(
         .map(str::to_string)
 }
 
+/// #219: wait for the game's first top-level window and put it in the
+/// foreground, then hide Ludex so the game is visible.
+///
+/// Runs on its own thread: the launch command has already returned its
+/// `LaunchResult`, so a slow game (30 s budget) or a windowless one (launcher,
+/// headless, console-only) never delays or fails the launch. Only the launched
+/// PID is ever looked at: no other process can be brought forward.
+fn spawn_focus_watch(app: AppHandle, game_id: i64, session_id: String, pid: u32) {
+    if !window_focus::focus_supported() {
+        // macOS (#219): no window-by-PID lookup, so this is a documented no-op
+        // rather than a warning on every launch.
+        tracing::debug!(
+            game_id,
+            pid,
+            "focus on launch is not supported on this platform; leaving the focus alone"
+        );
+        return;
+    }
+
+    std::thread::spawn(move || {
+        let (outcome, elapsed) = window_focus::wait_and_focus(pid);
+        let state = app.state::<AppState>();
+        let alive = state
+            .processes
+            .lock()
+            .map(|processes| processes.contains_key(&session_id))
+            .unwrap_or(false);
+        if !alive {
+            // The game exited (or crashed) while we waited: hiding Ludex and
+            // asking for Resume would point at nothing.
+            tracing::debug!(
+                game_id,
+                pid,
+                elapsed_ms = elapsed.as_millis(),
+                outcome = ?outcome,
+                "the game exited before its window could be focused"
+            );
+            return;
+        }
+
+        let report = GameFocus::new(game_id, &session_id, &outcome);
+        if report.focused {
+            tracing::info!(
+                game_id,
+                pid,
+                window = report.window.as_deref().unwrap_or_default(),
+                elapsed_ms = elapsed.as_millis(),
+                "the game window is in the foreground"
+            );
+            if should_hide_ludex(true, crate::console::active(&app)) {
+                crate::tray::hide_window(&app);
+            }
+        } else {
+            tracing::warn!(
+                game_id,
+                pid,
+                reason = report.reason.as_deref().unwrap_or_default(),
+                elapsed_ms = elapsed.as_millis(),
+                "the game window could not be focused; the shell offers Resume and Force close"
+            );
+        }
+        let _ = app.emit("game://focus", report);
+        // The game page flips to Resume from its own poll; refresh nothing else.
+    });
+}
+
 fn spawn_watcher(
     app: AppHandle,
     entry: Arc<ProcessEntry>,
@@ -1702,6 +1827,50 @@ mod tests {
         assert_eq!(immediate_exit_code(Duration::from_secs(5), Some(3)), None);
         assert_eq!(immediate_exit_code(Duration::from_secs(1), None), None);
         assert_eq!(exit_code_hex(0xC0000409), "0xC0000409");
+    }
+
+    /// #219: the payload the shell receives after waiting for the game window.
+    /// A failure is reported as data — `focused: false` plus a reason — never as
+    /// a launch error, and the launch result is built before the wait starts.
+    #[test]
+    fn a_focus_failure_is_reported_not_raised() {
+        let success = GameFocus::new(
+            7,
+            "session-1",
+            &FocusOutcome::Focused {
+                window: "4242".to_string(),
+            },
+        );
+        assert!(success.focused);
+        assert_eq!(success.window.as_deref(), Some("4242"));
+        assert_eq!(success.reason, None);
+
+        let no_window = GameFocus::new(7, "session-1", &FocusOutcome::NoWindow);
+        assert!(!no_window.focused);
+        assert_eq!(no_window.window, None);
+        assert_eq!(no_window.reason.as_deref(), Some("noWindow"));
+
+        let refused = GameFocus::new(
+            7,
+            "session-1",
+            &FocusOutcome::Refused {
+                window: "9".to_string(),
+            },
+        );
+        assert!(!refused.focused);
+        assert_eq!(refused.window.as_deref(), Some("9"));
+        assert_eq!(refused.reason.as_deref(), Some("focusRefused"));
+    }
+
+    /// #219: Ludex only steps aside when the game really took the foreground.
+    /// A failed focus leaves Ludex on screen (Resume/Force close live there),
+    /// and a console session keeps its shell because the shell is the display.
+    #[test]
+    fn ludex_is_hidden_only_after_a_successful_focus() {
+        assert!(should_hide_ludex(true, false));
+        assert!(!should_hide_ludex(false, false));
+        assert!(!should_hide_ludex(true, true));
+        assert!(!should_hide_ludex(false, true));
     }
 
     /// #160 end-to-end: the resolved nested executable really runs, from its

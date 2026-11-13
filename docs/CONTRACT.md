@@ -2749,10 +2749,10 @@ interface RemotePlayCleanup {
 | `clear_finished_install_jobs` | — | `number` (rows removed); deletes every terminal history row, keeps active/paused jobs and all files on disk |
 | `remote_installs_sync` | — | `{ claimed: string[], skipped: number, error: string \| null }`; picks up phone-queued installs (#167) via `GET /api/remote-installs?status=queued`, claims each row, starts the normal `install_game` pipeline and mirrors progress (`claimed` → `downloading` → `ready`/`failed`/`cancelled`) every 2 s. Safe to call repeatedly; two desktops racing get `409` on the loser |
 | `list_installed` | — | `InstalledGame[]` |
-| `launch_game` | `{ gameId, executable?, args? }` | `{ sessionId }` |
+| `launch_game` | `{ gameId, executable?, args? }` | `{ sessionId, tool, source }`; after the spawn, a worker thread waits up to 30 s (250 ms poll) for the first top-level window owned by the game PID and brings it forward (see *Focus on launch*), then hides Ludex on success. The lift is fire-and-forget: a game without a window never delays or fails the launch (#219) |
 | `stop_game` | `{ sessionId }` | `null` |
 | `game_session` | `{ gameId }` | `GameSession \| null`; the live session of that game (#191): `sessionId`, `gameId`, root `pid`, `startedAt`, `elapsedSeconds`, stored `executable` and `title`. Resolved from the same process registry the launch watcher owns, so it clears when the tracked tree exits; the game page polls it while open and invalidates on `game://exited` |
-| `resume_game` | `{ gameId }` | `ResumeGameResult`; brings the running game's window back without launching a second instance. Windows: `EnumWindows` + `GetWindowThreadProcessId` picks the PID's top-level window, `ShowWindow` restores it and `SetForegroundWindow` focuses it. Linux/X11: `xdotool search --pid`, then `windowmap` + `windowactivate --sync`. When no window is found or the window manager refuses focus, Ludex hides itself and returns `focused: false` with `reason` (`noWindow`/`focusRefused`) so the shell asks for Alt+Tab. macOS has no window-by-PID lookup and always takes that fallback; Wayland compositors may ignore the focus request (#191) |
+| `resume_game` | `{ gameId }` | `ResumeGameResult`; brings the running game's window back without launching a second instance. Windows: `EnumWindows` + `GetWindowThreadProcessId` picks the PID's top-level window, `ShowWindow` restores it and the focus ladder runs `SetForegroundWindow`, then the foreground-lock workaround (`AttachThreadInput` on the foreground thread), then `BringWindowToTop`; tool windows are skipped. Linux/X11: `xdotool search --pid`, then `windowmap` + `windowactivate --sync`. When no window is found or the window manager refuses focus, Ludex hides itself and returns `focused: false` with `reason` (`noWindow`/`focusRefused`) so the shell asks for Alt+Tab. macOS has no window-by-PID lookup and always takes that fallback; Wayland compositors may ignore the focus request (#191) |
 | `force_close_game` | `{ sessionId }` | `ForceCloseResult` `{ escalated }`; stops the tracked process tree (same pass as `stop_game`), waits up to 2 s for the root PID and the session row to disappear, then escalates to a hard kill (`taskkill /F /T /PID` on Windows, a second `SIGKILL` tree pass elsewhere) and verifies again for up to 3 s. Returns an actionable error when the game is still alive; a closed game always leaves the session row finished, never a ghost `running` state (#191) |
 | `uninstall_game` | `{ gameId }` | `null` |
 | `move_install` | `{ gameId, targetDir }` | `InstalledGame` (new path) |
@@ -2918,6 +2918,7 @@ Events:
 - `install://verify-progress` → `{ gameId, filesDone, filesTotal, bytesDone, bytesTotal, message }`
 - `install://repair-progress` → same shape plus `phase: "downloading" | "extracting" | "restoring" | "verifying"`
 - `game://exited` → `{ sessionId, gameId, minutesPlayed, secondsPlayed, source, exitCode, immediateExit }` (#129 adds `source`; #187 adds the root process `exitCode` as an unsigned 32-bit value — NTSTATUS bits are preserved — and `immediateExit`, true when the process tree ended within 5 s; the shell shows a danger toast with the code in hex; #191 invalidates the game page's `game_session` poll on it)
+- `game://focus` → `{ gameId, sessionId, focused, window, reason }` (#219: the launch focus attempt ended. `focused: false` means the game runs but its window was not brought forward, with `reason` `noWindow` or `focusRefused`; the shell warns the player and points at the game page's Resume/Force close actions. Never emitted when the game exited before its window appeared, and never on macOS, where focus on launch is a documented no-op)
 - `install://manifest-progress` → `{ gameId, filesDone, filesTotal, bytesDone, bytesTotal, message }` (#129)
 - `cloud-save://synced` → `gameId` (automatic upload completed or was unchanged)
 - `cloud-save://pending` → `gameId` (automatic upload failed and was queued for retry)
@@ -3158,6 +3159,37 @@ archive by default (`keepArchives` setting false).
   one of the scanned roots.
 - **Playnite.** The plugin lives in `integrations/playnite/` and is a pure API
   client; there is no dedicated endpoint.
+
+### Focus on launch (#219)
+
+Launching a game must bring its window to the foreground instead of leaving the
+player on Ludex. After the process spawns, a worker thread polls every 250 ms
+for up to 30 s for a top-level window owned by the launched PID only (never
+another process), picks the first visible non-minimised window (`ShowWindow`
+restores a minimised one) and focuses it with the same primitives as Resume
+(`window_focus.rs`, shared by `launch.rs` and `resume.rs`):
+
+- **Windows**: `AllowSetForegroundWindow(pid)` right after the spawn, so the
+  game may take the foreground itself; the focus ladder then tries
+  `SetForegroundWindow`, the foreground-lock workaround (`AttachThreadInput` on
+  the foreground thread, detached immediately) and `BringWindowToTop`. Tool
+  windows (`WS_EX_TOOLWINDOW`) are skipped.
+- **Linux/X11**: `xdotool search --pid`, `windowmap`, `windowactivate --sync`.
+  A Wayland compositor decides focus itself; the refusal is logged and
+  reported.
+- **macOS**: no window-by-PID lookup, so focus on launch is a documented no-op
+  and the launcher leaves focus alone (it does not wait, warn or hide). `open
+  -a` is not used: it activates an application bundle and can start a second
+  instance for a bare executable.
+
+Ludex never takes focus before the game has a window, and a failure never fails
+the launch: the launch result is already returned, and the outcome is logged
+(game id, PID, window handle, elapsed, result) and emitted as `game://focus`.
+On success Ludex hides itself (desktop and Big Picture) so the game is visible;
+a console session (#172) keeps its shell because the shell is the streamed
+display. On failure Ludex stays on screen and the shell tells the player the
+game is running but its window was not found, with Resume and Force close one
+click away on the game page. No second instance is ever started.
 
 ### Resume and force close (#191)
 

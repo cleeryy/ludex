@@ -1922,6 +1922,7 @@
   "The files were left where they are.": "Файлы остались там, где они есть.",
   "The folder name must match exactly.": "Имя папки должно точно совпадать.",
   "The folder was already gone.": "Папка уже исчезла.",
+  "The game is running, but Ludex could not bring its window forward. Use Resume to try again, or Force close on the game page.": "Игра запущена, но Ludex не смог вывести её окно на передний план. Нажмите «Резюме», чтобы повторить, или «Принудительно закрыть» на странице игры.",
   "The game keeps its name and version subfolder.": "Игра сохраняет свое имя и подпапку версии.",
   "The games didn’t load": "Игры не загружались",
   "The games folder is empty.": "Папка с играми пуста.",

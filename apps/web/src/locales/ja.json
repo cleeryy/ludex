@@ -1922,6 +1922,7 @@
   "The files were left where they are.": "ファイルはそのまま残されました。",
   "The folder name must match exactly.": "フォルダー名は正確に一致する必要があります。",
   "The folder was already gone.": "フォルダーはすでに消えていました。",
+  "The game is running, but Ludex could not bring its window forward. Use Resume to try again, or Force close on the game page.": "ゲームは起動していますが、Ludex はゲームのウィンドウを前面に表示できませんでした。ゲームページで「再開する」で再試行するか、「強制終了」してください。",
   "The game keeps its name and version subfolder.": "ゲームはその名前とバージョンのサブフォルダーを保持します。",
   "The games didn’t load": "ゲームが読み込まれませんでした",
   "The games folder is empty.": "ゲームフォルダーは空です。",
