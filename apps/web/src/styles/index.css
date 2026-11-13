@@ -439,6 +439,77 @@
       max(calc(var(--bp-u) * 44), env(safe-area-inset-right));
   }
 
+  /*
+   * Rail geometry (#218). Every horizontal Big Picture row scrolls its own
+   * overflow, so a selected tile that scales, lifts or wears the cover ring is
+   * clipped by the scroller at the first and last card. One shared gutter, one
+   * shared block padding, and a negative inline margin that keeps the first
+   * cover exactly on the `bp-pad-x` edge: the gutter the ring needs lives in
+   * the page margin, not in the content.
+   */
+  .bp-rail {
+    --bp-rail-gutter: calc(var(--bp-u) * 40);
+    --bp-rail-top: calc(var(--bp-u) * 28);
+    --bp-rail-bottom: calc(var(--bp-u) * 12);
+    margin-inline: calc(-1 * var(--bp-rail-gutter));
+    padding-inline: var(--bp-rail-gutter);
+    padding-block: var(--bp-rail-top) var(--bp-rail-bottom);
+    scroll-padding-inline: var(--bp-rail-gutter);
+  }
+
+  /* The Dock lifts the selected cover 12 %: the top gutter is the room that
+     lift plus its ring need above the row. */
+  .bp-rail-dock {
+    --bp-rail-top: calc(var(--bp-u) * 76);
+  }
+
+  /* Spotlight scales 8 % without lifting. */
+  .bp-rail-spotlight {
+    --bp-rail-top: calc(var(--bp-u) * 56);
+  }
+
+  /* Shelf and Hero only scale 3 %: the ring and its offset are the whole
+     overhang. */
+  .bp-rail-shelf {
+    --bp-rail-top: calc(var(--bp-u) * 28);
+    --bp-rail-bottom: calc(var(--bp-u) * 16);
+  }
+
+  /*
+   * The cover grid wraps instead of scrolling and never scales a card, so the
+   * shared `bp-pad-x` edge is already wider than the rail gutter. It only asks
+   * for the same scroll padding, which keeps the ring on screen when
+   * `scrollIntoView` brings a card back.
+   */
+  .bp-grid {
+    --bp-rail-gutter: calc(var(--bp-u) * 40);
+    scroll-padding-inline: var(--bp-rail-gutter);
+    scroll-padding-block: calc(var(--bp-u) * 16);
+  }
+
+  /*
+   * One ring per game card (#218). The selected card draws the cover-hugging
+   * `FocusRing`; the global gamepad outline would double it, and a card the
+   * player just left could keep that outline as a ghost. Cards are the only
+   * surface with their own ring, so the mark and the keyboard outline are
+   * dropped there and nowhere else.
+   */
+  [data-bp-card][data-gamepad-focus="true"],
+  [data-bp-card][aria-current="true"]:focus-visible {
+    outline: none;
+  }
+
+  /*
+   * Pointer idle (#218). Big Picture is watched from a couch: once the mouse
+   * stops, the cursor has no business sitting on the artwork. `cursor: none`
+   * keeps every click target live, and the first pointer movement removes the
+   * attribute again.
+   */
+  [data-pointer-idle="true"],
+  [data-pointer-idle="true"] * {
+    cursor: none;
+  }
+
   .label {
     font-size: 12px;
     color: var(--ink-3);

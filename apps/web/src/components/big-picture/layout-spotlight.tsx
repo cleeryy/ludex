@@ -170,9 +170,7 @@ export function SpotlightLayout({
         </motion.div>
 
         <div className="bp-pad-x">
-          <div
-            className="nav-scroll flex items-end gap-[clamp(0.75rem,1.5vw,1.75rem)] overflow-x-auto px-2 pb-2 pt-[calc(var(--bp-u)*36)] scroll-px-2"
-          >
+          <div className="bp-rail bp-rail-spotlight nav-scroll flex items-end gap-[clamp(0.75rem,1.5vw,1.75rem)] overflow-x-auto">
             {nav.games.map((entry, position) => (
               <motion.div
                 key={entry.id}

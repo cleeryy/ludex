@@ -154,10 +154,17 @@ function InstalledDot({ className }: { className?: string }) {
   return <span className={cn("absolute start-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-ok", className)} aria-hidden="true" />;
 }
 
+/**
+ * The selection ring, hugging the cover (#141, #218). It is the only outline a
+ * game card ever wears: cards carry `data-bp-card`, and the stylesheet turns
+ * off both the global gamepad mark and `:focus-visible` on them so a pad move
+ * can never paint a second ring over this one.
+ */
 function FocusRing() {
   return (
     <span
       aria-hidden="true"
+      data-bp-focus-ring="true"
       className="pointer-events-none absolute -inset-[4px] z-10 rounded-[2px] ring-2 ring-signal ring-offset-2 ring-offset-stage"
     />
   );
@@ -217,6 +224,7 @@ export function RailCard({
     <button
       type="button"
       ref={nav.cardRef(position)}
+      data-bp-card="true"
       data-gamepad-target="true"
       onClick={() => nav.setIndex(position)}
       aria-current={selected ? "true" : undefined}
@@ -272,6 +280,7 @@ export function GridCard({
     <button
       type="button"
       ref={nav.cardRef(position)}
+      data-bp-card="true"
       data-gamepad-target="true"
       onClick={() => nav.setIndex(position)}
       aria-current={selected ? "true" : undefined}
@@ -317,6 +326,7 @@ export function CompactRow({
     <button
       type="button"
       ref={nav.cardRef(position)}
+      data-bp-card="true"
       data-gamepad-target="true"
       onClick={() => nav.setIndex(position)}
       aria-current={selected ? "true" : undefined}

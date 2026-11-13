@@ -92,7 +92,7 @@ export function ShelfLayout({
             {nav.index + 1} / {nav.games.length}
           </span>
         </div>
-        <div className="nav-scroll flex gap-3 overflow-x-auto px-1 pb-3 pt-2">
+        <div className="bp-rail bp-rail-shelf nav-scroll flex gap-3 overflow-x-auto">
           {nav.games.map((entry, position) => (
             <motion.div
               key={entry.id}

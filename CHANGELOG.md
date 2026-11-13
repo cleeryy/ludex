@@ -6,6 +6,15 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Big Picture no longer clips the selected tile or its ring at the edges of a
+  row: every rail shares a safe gutter and block padding sized for the Dock
+  lift/scale, Spotlight scale and the cover ring (#218). Game cards draw only
+  the cover-hugging ring (the global gamepad outline is suppressed on them, so
+  no duplicate/ghost outlines), and the cursor hides after ~1.6 s of pointer
+  inactivity and returns on movement.
+
 ## [0.4.7] - 2026-11-13
 
 ### Fixed

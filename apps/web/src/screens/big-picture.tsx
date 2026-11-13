@@ -112,6 +112,7 @@ import {
   searchRows,
 } from "@/components/big-picture/search";
 import { useBigPictureLayout, useViewportWidth } from "@/components/big-picture/use-layout";
+import { usePointerIdle } from "@/components/big-picture/pointer-idle";
 import { localeMeta, selectableLocales, t, tn, useI18n } from "@/lib/i18n";
 
 /** Ask the server once per open; a quick round trip through the route is free. */
@@ -237,6 +238,12 @@ export function BigPictureScreen() {
     setTv(true);
     return () => setTv(false);
   }, [setTv]);
+
+  // #218: a mouse cursor left on the artwork reads as a bug at ten feet. The
+  // root hides it after a pause and the first pointer movement brings it back;
+  // it only ever applies inside this screen.
+  const rootRef = useRef<HTMLDivElement>(null);
+  usePointerIdle(rootRef);
 
   // The audio context is created suspended and resumed on the first gesture;
   // a browser that refuses it simply stays silent. Every cue is decoded in
@@ -1676,6 +1683,23 @@ export function BigPictureScreen() {
     focusActions(actionIndexRef.current);
   }, [level, zone, overlay, pendingPower, focusActions]);
 
+  /**
+   * #218: the card ring is drawn by the card itself, never by the global
+   * gamepad mark. A mark left behind by the surface the player came from would
+   * paint a second outline, or keep a ghost on the card they just left, so
+   * every layout, shelf, zone, app and overlay step drops it — and so does
+   * unmounting the screen.
+   */
+  useEffect(() => {
+    const clear = () => {
+      document
+        .querySelectorAll("[data-bp-card][data-gamepad-focus]")
+        .forEach((marked) => marked.removeAttribute("data-gamepad-focus"));
+    };
+    clear();
+    return clear;
+  }, [layout, nav.shelfIndex, zone, level, overlay]);
+
   useEffect(() => {
     if (level.kind !== "app" || overlay || pendingPower) return;
     focusSurface("app");
@@ -1971,7 +1995,7 @@ export function BigPictureScreen() {
   );
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-bg-deep text-ink">
+    <div ref={rootRef} className="flex h-dvh flex-col overflow-hidden bg-bg-deep text-ink">
       <div className="grain" aria-hidden="true" />
 
       <SystemBar

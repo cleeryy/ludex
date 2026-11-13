@@ -75,28 +75,30 @@ export function HeroLayout({
           </span>
         </motion.div>
 
-        <div className="nav-scroll overflow-x-auto pb-2 pt-2.5 bp-pad-x">
-          <div className="mx-auto flex w-max gap-3">
-            {nav.games.map((entry, position) => (
-              <motion.div
-                key={entry.id}
-                className="shrink-0"
-                {...reveal(reduceMotion, {
-                  ...CARD_CUE,
-                  delay: cardDelay(position),
-                  settled,
-                })}
-              >
-                <RailCard
-                  game={entry}
-                  position={position}
-                  selected={position === nav.index}
-                  nav={nav}
-                  installed={installed.has(entry.id)}
-                  className="w-[var(--bp-rail-card)]"
-                />
-              </motion.div>
-            ))}
+        <div className="bp-pad-x">
+          <div className="bp-rail bp-rail-shelf nav-scroll overflow-x-auto">
+            <div className="mx-auto flex w-max gap-3">
+              {nav.games.map((entry, position) => (
+                <motion.div
+                  key={entry.id}
+                  className="shrink-0"
+                  {...reveal(reduceMotion, {
+                    ...CARD_CUE,
+                    delay: cardDelay(position),
+                    settled,
+                  })}
+                >
+                  <RailCard
+                    game={entry}
+                    position={position}
+                    selected={position === nav.index}
+                    nav={nav}
+                    installed={installed.has(entry.id)}
+                    className="w-[var(--bp-rail-card)]"
+                  />
+                </motion.div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
