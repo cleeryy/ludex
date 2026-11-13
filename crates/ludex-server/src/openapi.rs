@@ -804,6 +804,24 @@ pub const ROUTES: &[RouteDoc] = &[
         ),
         "UpdateGameRequest",
     ),
+    query(
+        route(
+            HttpMethod::Delete,
+            "/games/{id}",
+            "Games",
+            "Remove a game from the library (#209, #210)",
+            Auth::Admin,
+            Payload::Schema("DeleteGameResponse"),
+        ),
+        &[
+            (
+                "mode",
+                "`library` deletes the rows and keeps the files (editor); `archives` deletes the files under the library root, then the rows (admin)",
+            ),
+            ("keepFiles", "Legacy spelling of mode=library"),
+            ("confirm", "Must be true; deletion is never implicit"),
+        ],
+    ),
     route(
         HttpMethod::Post,
         "/games/{id}/refresh-metadata",
@@ -1078,6 +1096,46 @@ pub const ROUTES: &[RouteDoc] = &[
         "Folder watcher status",
         Auth::Session,
         Payload::Object,
+    ),
+    // Admin Games manager (#209)
+    query(
+        route(
+            HttpMethod::Get,
+            "/admin/games",
+            "Admin",
+            "Search, filter and page the admin game table",
+            Auth::Admin,
+            Payload::Schema("AdminGamesResponse"),
+        ),
+        &[
+            ("q", "Title substring"),
+            ("status", "available (default), missing, partial or all"),
+            ("provider", "Metadata provider slug"),
+            ("kind", "game or rom"),
+            ("sort", "title, releaseDate, addedAt, updatedAt, size, versions, missing, installed"),
+            ("order", "asc or desc"),
+            ("page", "1-based page"),
+            ("limit", "Page size (1-200, default 50)"),
+        ],
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/admin/games/bulk",
+            "Admin",
+            "Preview or run a bulk game action",
+            Auth::Admin,
+            Payload::Schema("BulkResponse"),
+        ),
+        "BulkRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/admin/games/jobs/{id}",
+        "Admin",
+        "Progress and report of a bulk archive deletion",
+        Auth::Admin,
+        Payload::Schema("BulkJobView"),
     ),
     // Library health (#165)
     query(
@@ -2745,6 +2803,17 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::emulators::SetGameEmulatorRequest>()
         .schema_from::<crate::emulators::EmulatorLaunch>()
         .schema_from::<crate::models::RootScanResponse>()
+        .schema_from::<crate::routes::games::DeleteGameResponse>()
+        .schema_from::<crate::routes::admin_games::AdminGameRow>()
+        .schema_from::<crate::routes::admin_games::AdminGameCounts>()
+        .schema_from::<crate::routes::admin_games::AdminGamesResponse>()
+        .schema_from::<crate::routes::admin_games::BulkRequest>()
+        .schema_from::<crate::routes::admin_games::BulkPreviewItem>()
+        .schema_from::<crate::routes::admin_games::BulkPreview>()
+        .schema_from::<crate::routes::admin_games::BulkItemResult>()
+        .schema_from::<crate::routes::admin_games::BulkTotals>()
+        .schema_from::<crate::routes::admin_games::BulkResponse>()
+        .schema_from::<crate::routes::admin_games::BulkJobView>()
         .schema_from::<crate::library_health::LibraryHealthCounts>()
         .schema_from::<crate::library_health::LibraryHealthCategoryCount>()
         .schema_from::<crate::library_health::LibraryHealthReport>()

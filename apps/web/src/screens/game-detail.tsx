@@ -64,6 +64,7 @@ import { MoveInstallDialog } from "@/components/game/move-install";
 import { MediaGallery } from "@/components/game/media-gallery";
 import { GameNav } from "@/components/game/game-nav";
 import { GameOverview } from "@/components/game/game-overview";
+import { MissingArchiveNotice } from "@/components/game/missing-archive";
 import { StartupCommandPanel } from "@/components/game/startup-command";
 import { AddToCollectionDialog } from "@/components/collections/add-to-collection";
 import { ShareDialog } from "@/components/share/share-dialog";
@@ -302,7 +303,11 @@ export function GameDetailScreen() {
   // resumable history entry.
   const resumeJob = activeJob?.phase === "paused" ? activeJob : resumableJob;
 
+  // With no available archive the hero offers no download or install (#210);
+  // Play/Resume stay because they belong to a local installation.
+  const archiveActions = game.versionCount > 0;
   const primary =
+    !(action === "play" || action === "resume" || archiveActions) ? null :
     action === "resume" ? (
       <Button
         variant="primary"
@@ -636,6 +641,8 @@ export function GameDetailScreen() {
             </div>
 
             {game.description && <p className="measure mt-6 text-[14.5px] leading-relaxed text-ink-2">{game.description}</p>}
+
+            {game.versionCount === 0 && <MissingArchiveNotice game={game} />}
 
             <div className="mt-7 flex flex-wrap items-center gap-2">
               {primary}

@@ -28,6 +28,7 @@ export const FILTER_KEYS = [
   "platform",
   "kind",
   "launcher",
+  "missing",
   "sort",
   "order",
 ] as const;
@@ -51,6 +52,8 @@ export interface LibraryFilters {
   kind: "" | "game" | "rom";
   /** Launcher imports only (#154): a launcher id, `other`, or empty for all. */
   launcher: string;
+  /** Include games whose archives are missing or unavailable (#210). */
+  missing: boolean;
   sort: NonNullable<GameListQuery["sort"]>;
   order: NonNullable<GameListQuery["order"]>;
 }
@@ -142,6 +145,7 @@ export function readFilters(
     platform: params.get("platform") ?? "",
     kind: (params.get("kind") as LibraryFilters["kind"]) ?? "",
     launcher: params.get("launcher") ?? "",
+    missing: params.get("missing") === "true",
     sort,
     order: (params.get("order") ?? (sort === "title" ? "asc" : "desc")) as LibraryFilters["order"],
   };
@@ -187,6 +191,7 @@ export function filterQuery(filters: LibraryFilters): GameListQuery {
     provider: filters.provider || undefined,
     platform: filters.platform || undefined,
     kind: filters.kind || undefined,
+    status: filters.missing ? "all" : undefined,
     sort: filters.sort,
     order: filters.order,
   };
@@ -235,6 +240,7 @@ export function activeFilterChips(filters: LibraryFilters): FilterChip[] {
       }),
     });
   }
+  if (filters.missing) chips.push({ key: "missing", label: t("Includes missing archives") });
   return chips;
 }
 

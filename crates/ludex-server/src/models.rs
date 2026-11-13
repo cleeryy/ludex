@@ -27,6 +27,8 @@ pub struct GameListRow {
     pub bookmarked: i64,
     pub last_played_at: Option<String>,
     pub version_count: i64,
+    pub available_version_count: i64,
+    pub missing_version_count: i64,
     pub total_size: i64,
     pub kind: String,
     pub platform: Option<String>,
@@ -68,6 +70,8 @@ pub struct GameDetailRow {
     pub bookmarked: i64,
     pub last_played_at: Option<String>,
     pub version_count: i64,
+    pub available_version_count: i64,
+    pub missing_version_count: i64,
     pub total_size: i64,
     pub kind: String,
     pub platform: Option<String>,
@@ -758,6 +762,10 @@ pub struct GameQuery {
     /// Entry kind: `game` or `rom`.
     #[serde(default)]
     pub kind: Option<String>,
+    /// Availability filter (#210): `available` (default), `missing`, `partial`
+    /// or `all`. The default hides metadata rows with no usable archive.
+    #[serde(default)]
+    pub status: Option<String>,
     /// Sort column.
     #[serde(default)]
     pub sort: Option<String>,

@@ -211,6 +211,14 @@ export const NAV_DESTINATIONS = [
     visibility: "editor",
   },
   {
+    id: "admin-games",
+    to: "/admin/games",
+    labelKey: "Games",
+    group: "admin",
+    icon: "library",
+    visibility: "admin",
+  },
+  {
     id: "users",
     to: "/admin/users",
     labelKey: "Users",

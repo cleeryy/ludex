@@ -2,6 +2,7 @@
 
 pub mod account;
 pub mod achievements;
+pub mod admin_games;
 pub mod admin_oidc;
 pub mod admin_server;
 pub mod artwork;
@@ -52,6 +53,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(account::router())
         .merge(auth::router())
         .merge(oidc::router())
+        .merge(admin_games::router())
         .merge(admin_oidc::router())
         .merge(admin_server::router())
         .merge(backups::router())

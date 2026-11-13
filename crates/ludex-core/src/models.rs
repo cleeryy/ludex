@@ -195,9 +195,20 @@ pub struct GameSummary {
     pub genres: Vec<String>,
     /// Whether the game is still in early access.
     pub early_access: bool,
-    /// Number of files (versions) backing this game.
+    /// Number of available archives backing this game (missing rows excluded).
     pub version_count: u32,
-    /// Sum of the sizes of all versions, in bytes.
+    /// Available versions: the same count as `version_count`, spelled out for
+    /// clients that filter on availability (#210).
+    #[serde(default)]
+    pub available_version_count: u32,
+    /// Versions whose archive is missing or on an offline root (#210).
+    #[serde(default)]
+    pub missing_version_count: u32,
+    /// Availability derived from the two counts: `available`,
+    /// `partially_missing` or `missing`. Metadata is never deleted by a scan.
+    #[serde(default = "default_version_status")]
+    pub status: String,
+    /// Sum of the sizes of all available versions, in bytes.
     pub total_size: i64,
     /// Progress of the requesting user.
     pub state: ProgressState,
@@ -234,6 +245,10 @@ fn default_game_kind() -> String {
     "game".to_string()
 }
 
+fn default_version_status() -> String {
+    "available".to_string()
+}
+
 /// One downloadable file (archive or executable) of a game.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -257,6 +272,12 @@ pub struct GameVersion {
     /// Last time this version row changed (indexed, renamed or re-hashed).
     #[serde(default)]
     pub updated_at: Option<DateTime<Utc>>,
+    /// The archive vanished at the last scan (#210). Never auto-deleted.
+    #[serde(default)]
+    pub missing: bool,
+    /// The library root holding this archive was offline at the last scan.
+    #[serde(default)]
+    pub root_unavailable: bool,
     /// Download URL (`/api/games/{id}/download?versionId={id}`).
     pub download_url: String,
 }
@@ -364,8 +385,12 @@ pub struct GameDetail {
     /// Alternative titles (provider aliases) used by fuzzy search.
     #[serde(default)]
     pub alt_titles: Vec<String>,
-    /// Files backing this game.
+    /// Available archives backing this game.
     pub versions: Vec<GameVersion>,
+    /// Rows whose archive vanished or whose root is offline (#210). Kept so a
+    /// rescan can restore them; never offered for download.
+    #[serde(default)]
+    pub missing_versions: Vec<GameVersion>,
     /// Version used by downloads, fresh installs and the update check. When
     /// `null`, the newest available version is used (#168).
     #[serde(default)]
@@ -450,6 +475,9 @@ mod tests {
             genres: vec!["Stealth".into()],
             early_access: false,
             version_count: 2,
+            available_version_count: 2,
+            missing_version_count: 0,
+            status: "available".into(),
             total_size: 42,
             state: ProgressState::Playing,
             minutes_played: 90,
@@ -544,8 +572,11 @@ mod tests {
                 early_access: false,
                 archive_hash: Some("sha256-sample:abc".into()),
                 updated_at: None,
+                missing: false,
+                root_unavailable: false,
                 download_url: "/api/games/1/download?versionId=7".into(),
             }],
+            missing_versions: Vec::new(),
             default_version_id: Some(7),
             launch: LaunchInfo {
                 executable: Some("HITMAN3.exe".into()),

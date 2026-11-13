@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useReducedMotion } from "motion/react";
-import { Gamepad2, LayoutGrid, List, Plus, SlidersHorizontal, X } from "lucide-react";
+import { AlertTriangle, Gamepad2, LayoutGrid, List, Plus, SlidersHorizontal, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { errorMessage } from "@/lib/http";
@@ -177,6 +177,16 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
     queryKey: ["games", mode, query],
     queryFn: () => api.listGames(query),
   });
+
+  // Count of metadata rows hidden by the default availability filter (#210).
+  // The toggle is the only way to bring them back; a deep link to a game page
+  // still resolves without it.
+  const missingCount = useQuery({
+    queryKey: ["games-missing-count"],
+    queryFn: () => api.listGames({ status: "missing", limit: 1 }),
+    staleTime: 60_000,
+  });
+  const hiddenMissing = missingCount.data?.total ?? 0;
 
   const all = data?.items ?? [];
   const model = useMemo(() => {
@@ -442,6 +452,19 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 className="h-9 text-[12.5px]"
               />
             </div>
+            {(hiddenMissing > 0 || filters.missing) && (
+              <Button
+                variant={filters.missing ? "default" : "ghost"}
+                size="sm"
+                icon={<AlertTriangle className="size-3.5" />}
+                aria-pressed={filters.missing}
+                onClick={() => update("missing", filters.missing ? null : true)}
+                title={t("Games whose archive was deleted outside Ludex stay in the database. They are hidden unless this filter is on.")}
+              >
+                {t("Show missing")}
+                <span className="num ml-1 text-ink-3">{hiddenMissing}</span>
+              </Button>
+            )}
             <Button
               variant="default"
               size="sm"

@@ -308,9 +308,14 @@ async fn roots_can_be_added_scanned_updated_and_removed() {
         .iter()
         .all(|root| root["id"].as_i64() != Some(root_id)));
 
-    // Removing a root keeps the game rows.
-    let (_, games) = server.get("/api/games", Some(&token)).await;
+    // Removing a root marks its versions missing and keeps the game rows
+    // (#210): the default library hides titles with no available archive, the
+    // `status=all` view still lists them for an administrator to repair.
+    let (_, hidden) = server.get("/api/games", Some(&token)).await;
+    assert_eq!(hidden["total"], 0, "{hidden}");
+    let (_, games) = server.get("/api/games?status=all", Some(&token)).await;
     assert_eq!(games["total"], 1, "{games}");
+    assert_eq!(games["items"][0]["status"], "missing", "{games}");
 }
 
 #[tokio::test]
@@ -383,20 +388,27 @@ async fn missing_root_keeps_games_and_reports_the_root_unavailable() {
     assert!(root["lastError"].as_str().is_some(), "{root}");
 
     // The game and its version are preserved: the disk is gone, not the game.
-    let (_, games) = server.get("/api/games", Some(&token)).await;
+    // The default list hides it; the detail still names the unavailable file.
+    let (_, hidden) = server.get("/api/games", Some(&token)).await;
+    assert_eq!(hidden["total"], 0, "{hidden}");
+    let (_, games) = server.get("/api/games?status=missing", Some(&token)).await;
     assert_eq!(games["total"], 1, "{games}");
+    assert_eq!(games["items"][0]["status"], "missing", "{games}");
     let game_id = games["items"][0]["id"].as_i64().expect("id");
     let (_, detail) = server
         .get(&format!("/api/games/{game_id}"), Some(&token))
         .await;
     assert_eq!(
         detail["versions"].as_array().map(Vec::len),
-        Some(1),
+        Some(0),
         "{detail}"
     );
+    let missing = detail["missingVersions"].as_array().expect("missing");
+    assert_eq!(missing.len(), 1, "{detail}");
+    assert_eq!(missing[0]["rootUnavailable"], true, "{detail}");
 
     // Downloads surface a dedicated error instead of "file not found".
-    let version_id = detail["versions"][0]["id"].as_i64().expect("version");
+    let version_id = missing[0]["id"].as_i64().expect("version");
     let (status, body) = server
         .get(
             &format!("/api/games/{game_id}/download?versionId={version_id}"),

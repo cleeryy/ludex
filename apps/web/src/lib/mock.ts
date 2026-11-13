@@ -21,6 +21,13 @@ import type {
   Achievement,
   AchievementScanReport,
   Activity,
+  AdminBulkJob,
+  AdminBulkRequest,
+  AdminBulkResponse,
+  AdminGameRow,
+  AdminGamesQuery,
+  AdminGamesResponse,
+  DeleteGameResponse,
   ActivityKind,
   ActivityPage,
   AppNotification,
@@ -1487,6 +1494,148 @@ export const mockApi = {
     }
     game.defaultVersionId = versionId;
     return this.gameVersions(token, id);
+  },
+
+  async deleteGame(
+    token: string | null,
+    id: number,
+    mode: "library" | "archives",
+  ): Promise<DeleteGameResponse> {
+    await latency();
+    const user = currentUser(token);
+    if (mode === "archives" && user.role !== "admin") fail(403, "forbidden", "Administrator role required");
+    if (mode === "library" && user.role === "user") fail(403, "forbidden", "Editor role required");
+    const game = games.find((g) => g.id === id);
+    if (!game) fail(404, "game_not_found", "That game is not in the library");
+    const versions = game.versions.length + (game.missingVersions?.length ?? 0);
+    games = games.filter((g) => g.id !== id);
+    return {
+      gameId: id,
+      mode,
+      versions,
+      missingVersions: game.missingVersions?.length ?? 0,
+      deletedFiles: mode === "archives" ? versions : 0,
+      freedBytes: mode === "archives" ? game.totalSize : 0,
+      keptFiles: mode === "library" ? versions : 0,
+    };
+  },
+
+  async adminGames(token: string | null, query: AdminGamesQuery = {}): Promise<AdminGamesResponse> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role !== "admin") fail(403, "forbidden", "Administrator role required");
+    const q = query.q?.trim().toLowerCase() ?? "";
+    const rows = games
+      .filter((game) => !q || game.title.toLowerCase().includes(q))
+      .map<AdminGameRow>((game) => ({
+        id: game.id,
+        title: game.title,
+        releaseDate: game.releaseDate,
+        kind: game.kind === "rom" ? "rom" : "game",
+        platform: game.platform ?? null,
+        providerSlug: game.provider?.slug ?? null,
+        coverUrl: game.coverUrl,
+        createdAt: game.releaseDate ?? new Date().toISOString(),
+        updatedAt: game.releaseDate ?? new Date().toISOString(),
+        defaultVersionId: game.defaultVersionId,
+        availableVersionCount: game.versions.length,
+        missingVersionCount: game.missingVersions?.length ?? 0,
+        status: game.versions.length > 0 ? "available" : "missing",
+        totalSize: game.totalSize,
+        installedReports: 0,
+        lastInstalledAt: null,
+      }));
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 50;
+    const start = (page - 1) * limit;
+    return {
+      items: rows.slice(start, start + limit),
+      total: rows.length,
+      page,
+      limit,
+      counts: {
+        available: rows.filter((row) => row.status === "available").length,
+        partiallyMissing: rows.filter((row) => row.status === "partially_missing").length,
+        missing: rows.filter((row) => row.status === "missing").length,
+        total: rows.length,
+      },
+    };
+  },
+
+  async bulkAdminGames(token: string | null, body: AdminBulkRequest): Promise<AdminBulkResponse> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role !== "admin") fail(403, "forbidden", "Administrator role required");
+    const selected = games.filter((game) => body.ids.includes(game.id));
+    if (body.dryRun) {
+      const items = selected.map((game) => ({
+        gameId: game.id,
+        title: game.title,
+        versions: game.versions.length,
+        availableVersionCount: game.versions.length,
+        missingVersionCount: 0,
+        files: game.versions.length,
+        bytes: game.totalSize,
+        paths: game.versions.map((version) => version.fileName),
+      }));
+      return {
+        action: body.action,
+        dryRun: true,
+        preview: {
+          items,
+          games: items.length,
+          files: items.reduce((sum, item) => sum + item.files, 0),
+          bytes: items.reduce((sum, item) => sum + item.bytes, 0),
+        },
+        jobId: null,
+        results: [],
+        totals: { games: items.length, succeeded: 0, failed: 0, files: 0, bytes: 0 },
+      };
+    }
+    const results = selected.map((game) => ({
+      gameId: game.id,
+      ok: true,
+      code: null,
+      message: null,
+      deletedFiles: body.action === "delete_archives" ? game.versions.length : 0,
+      deletedVersions: game.versions.length,
+      freedBytes: body.action === "delete_archives" ? game.totalSize : 0,
+    }));
+    if (body.action !== "refresh_metadata") {
+      games = games.filter((game) => !body.ids.includes(game.id));
+    }
+    return {
+      action: body.action,
+      dryRun: false,
+      preview: null,
+      jobId: null,
+      results,
+      totals: {
+        games: results.length,
+        succeeded: results.length,
+        failed: 0,
+        files: results.reduce((sum, item) => sum + item.deletedFiles, 0),
+        bytes: results.reduce((sum, item) => sum + item.freedBytes, 0),
+      },
+    };
+  },
+
+  async adminGamesJob(token: string | null, id: string): Promise<AdminBulkJob> {
+    await latency();
+    const user = currentUser(token);
+    if (user.role !== "admin") fail(403, "forbidden", "Administrator role required");
+    return {
+      id,
+      action: "delete_archives",
+      status: "completed",
+      total: 0,
+      done: 0,
+      succeeded: 0,
+      failed: 0,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      results: [],
+    };
   },
 
   async deleteGameVersion(
