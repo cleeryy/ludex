@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowDown, ArrowUp, ArrowUpToLine, Check, Download, FolderOpen, Pause, Play, RefreshCw, Trash2, X } from "lucide-react";
 import { installsAvailable } from "@/lib/install";
 import { isActiveJob, useDownloads, type Aggregate } from "@/state/downloads";
-import { canRetryJob, isTrulyResumable } from "@/lib/install-retry";
+import { canRetryJob, canRetryNow, isTrulyResumable, secondsUntilRetry } from "@/lib/install-retry";
 import { canMoveDown, canMoveUp, isReorderableJob, waitingQueue } from "@/lib/install-queue";
 import { useAllGames } from "@/lib/hooks";
 import { formatBytes, formatDuration, formatSpeed, installPhaseLabel, formatPercent } from "@/lib/format";
@@ -183,6 +183,7 @@ export function DownloadsScreen() {
     resume,
     retryAsDownload,
     retryStream,
+    retryNow,
     reorder,
     remove,
     clearHistory,
@@ -297,6 +298,7 @@ export function DownloadsScreen() {
               onOpenFolder={job.installPath ? () => void openFolder(job.installPath!) : undefined}
               onResume={() => void resume(job, { title: titleFor(job) })}
               onRestart={() => requestRestart(job)}
+              onRetryNow={() => void retryNow(job.jobId)}
               onMoveTop={canMoveUp(active, job.jobId) ? () => void reorder(job.jobId, "top") : undefined}
               onMoveUp={canMoveUp(active, job.jobId) ? () => void reorder(job.jobId, "up") : undefined}
               onMoveDown={canMoveDown(active, job.jobId) ? () => void reorder(job.jobId, "down") : undefined}
@@ -398,6 +400,18 @@ function jobEta(job: InstallJob, meter?: JobMeter): string | null {
   return null;
 }
 
+/** Ticks once per second only while a retry is scheduled (#212). */
+function useRetrySeconds(nextRetryAt: string | null): number | null {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!nextRetryAt) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [nextRetryAt]);
+  return secondsUntilRetry(nextRetryAt, now);
+}
+
 function JobRow({
   job,
   meter,
@@ -411,6 +425,7 @@ function JobRow({
   onOpenFolder,
   onResume,
   onRestart,
+  onRetryNow,
   onRetryAsDownload,
   onRemove,
   onMoveTop,
@@ -431,6 +446,7 @@ function JobRow({
   onOpenFolder?: () => void;
   onResume: () => void;
   onRestart: () => void;
+  onRetryNow?: () => void;
   onRetryAsDownload?: () => void;
   onRemove?: () => void;
   onMoveTop?: () => void;
@@ -459,6 +475,7 @@ function JobRow({
   const pausable =
     (job.phase === "queued" || job.phase === "downloading") &&
     (job.stream !== true || job.resumable);
+  const retryIn = useRetrySeconds(job.nextRetryAt);
   const done = job.phase === "done";
   const showMessage =
     Boolean(job.message) && !["Downloading archive", "Queued", "Resuming", "Paused"].includes(job.message ?? "");
@@ -500,7 +517,11 @@ function JobRow({
               {job.bytesTotal && <span>{t("{done} of {total}", { done: formatBytes(job.bytesDone), total: formatBytes(job.bytesTotal) })}</span>}
               {job.reconnecting ? (
                 <span className="text-signal-text" title={job.lastError ?? undefined}>
-                  {t("Connection lost, resuming from {percent}", { percent: formatPercent(pct ?? 0) })}
+                  {job.waitingForNetwork
+                    ? t("Waiting for the network")
+                    : retryIn !== null
+                      ? t("Retrying in {seconds} s, attempt {attempt}", { seconds: retryIn, attempt: job.attempt })
+                      : t("Connection lost, resuming from {percent}", { percent: formatPercent(pct ?? 0) })}
                 </span>
               ) : (
                 speed > 0 && <span>{formatSpeed(speed)}</span>
@@ -584,6 +605,18 @@ function JobRow({
           {pausable && (
             <Button variant="ghost" size="sm" className="text-ink-2" icon={<Pause className="size-3.5" />} onClick={onPause}>
               {t("Pause")}
+            </Button>
+          )}
+          {active && canRetryNow(job) && onRetryNow && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-signal-text"
+              icon={<RefreshCw className="size-3.5" />}
+              onClick={onRetryNow}
+              title={t("Skips the current wait and retries immediately")}
+            >
+              {t("Retry now")}
             </Button>
           )}
           {retryable && (

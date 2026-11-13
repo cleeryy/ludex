@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canRetryJob, isTrulyResumable, planRetry } from "@/lib/install-retry";
+import { canRetryJob, canRetryNow, isTrulyResumable, planRetry, secondsUntilRetry } from "@/lib/install-retry";
 import type { InstallJob } from "@/lib/types";
 
 const job = (patch: Partial<InstallJob> = {}): InstallJob => ({
@@ -22,6 +22,9 @@ const job = (patch: Partial<InstallJob> = {}): InstallJob => ({
   attempt: 1,
   lastError: null,
   stalledForMs: null,
+  nextRetryAt: null,
+  httpStatus: null,
+  waitingForNetwork: false,
   queuePosition: null,
   ...patch,
 });
@@ -91,5 +94,30 @@ describe("retry planning", () => {
   it("treats a paused job as resumable even before its first checkpoint", () => {
     expect(isTrulyResumable(job({ phase: "paused", resumable: false }))).toBe(true);
     expect(isTrulyResumable(job({ phase: "error", resumable: false }))).toBe(false);
+  });
+});
+
+describe("retry countdown (#212)", () => {
+  const now = Date.parse("2026-11-13T02:00:00Z");
+
+  it("counts down to the scheduled retry and never goes negative", () => {
+    expect(secondsUntilRetry("2026-11-13T02:00:42Z", now)).toBe(42);
+    expect(secondsUntilRetry("2026-11-13T01:59:00Z", now)).toBe(0);
+    expect(secondsUntilRetry(null, now)).toBeNull();
+    expect(secondsUntilRetry("not a date", now)).toBeNull();
+  });
+
+  it("offers Retry now only when a timer is actually running", () => {
+    const waiting = job({
+      phase: "downloading",
+      reconnecting: true,
+      nextRetryAt: "2026-11-13T02:00:42Z",
+      attempt: 7,
+    });
+    expect(canRetryNow(waiting)).toBe(true);
+    expect(canRetryNow({ ...waiting, nextRetryAt: null })).toBe(false);
+    // Offline is not a skippable wait: it resumes on its own at `online`.
+    expect(canRetryNow({ ...waiting, waitingForNetwork: true })).toBe(false);
+    expect(canRetryNow({ ...waiting, reconnecting: false })).toBe(false);
   });
 });

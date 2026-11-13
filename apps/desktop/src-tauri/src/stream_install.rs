@@ -50,26 +50,40 @@ const DEFAULT_STALL_TIMEOUT: Duration = Duration::from_secs(45);
 const DEFAULT_ENTRY_ATTEMPTS: u32 = 5;
 /// First backoff; doubles per attempt up to eight seconds.
 const RETRY_BACKOFF: Duration = Duration::from_millis(500);
+/// A stream entry must start its body within this budget before the attempt is
+/// abandoned (#211). Cloudflare answers a 524 at ~100 s; 20 s per attempt keeps
+/// the whole `DEFAULT_ENTRY_ATTEMPTS` burst inside that proxy budget, so a job
+/// either starts or falls back to classic instead of hanging.
+const DEFAULT_FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// Retry policy of the per-entry stream (#204).
+/// Retry policy of the per-entry stream (#204, #212).
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct StreamTuning {
+pub(crate) struct StreamTuning<'a> {
     pub stall_timeout: Duration,
+    /// Time allowed between the request and the first body chunk (#211).
+    pub first_byte_timeout: Duration,
     pub attempts: u32,
     pub backoff: Duration,
+    /// OS reachability (#212): entry retries park while offline.
+    pub network: Option<&'a crate::state::NetworkGate>,
+    /// "Retry now" signal of the job (#212).
+    pub retry_now: Option<&'a tokio::sync::Notify>,
 }
 
-impl Default for StreamTuning {
+impl Default for StreamTuning<'_> {
     fn default() -> Self {
         Self {
             stall_timeout: DEFAULT_STALL_TIMEOUT,
+            first_byte_timeout: DEFAULT_FIRST_BYTE_TIMEOUT,
             attempts: DEFAULT_ENTRY_ATTEMPTS,
             backoff: RETRY_BACKOFF,
+            network: None,
+            retry_now: None,
         }
     }
 }
 
-impl StreamTuning {
+impl StreamTuning<'_> {
     /// Delay before attempt `failed + 1`, capped at eight times the base.
     fn backoff(&self, failed: u32) -> Duration {
         let factor = 1_u32 << failed.saturating_sub(1).min(3);
@@ -266,6 +280,8 @@ struct ProgressState {
     bytes: AtomicU64,
     entries_done: AtomicU64,
     current: Mutex<String>,
+    /// Last HTTP status of any entry response (#211/#212), 0 = none yet.
+    status: std::sync::atomic::AtomicU16,
 }
 
 impl ProgressState {
@@ -274,6 +290,18 @@ impl ProgressState {
             bytes: AtomicU64::new(bytes),
             entries_done: AtomicU64::new(entries_done),
             current: Mutex::new(String::new()),
+            status: std::sync::atomic::AtomicU16::new(0),
+        }
+    }
+
+    fn set_status(&self, status: u16) {
+        self.status.store(status, Ordering::Relaxed);
+    }
+
+    fn status(&self) -> Option<u16> {
+        match self.status.load(Ordering::Relaxed) {
+            0 => None,
+            status => Some(status),
         }
     }
 
@@ -584,6 +612,7 @@ pub(crate) async fn install(
                     job.entries_done = Some(entries_done as u32);
                     job.entries_total = Some(files_total as u32);
                     job.current_entry = (!current.is_empty()).then(|| current.clone());
+                    job.http_status = progress.status().or(job.http_status);
                     job.message = Some(message);
                 });
                 persist(&app, &entry);
@@ -602,6 +631,11 @@ pub(crate) async fn install(
     let transport = HttpTransport {
         client: &state.http,
     };
+    let stream_tuning = StreamTuning {
+        network: Some(&state.network),
+        retry_now: Some(entry.retry_signal()),
+        ..StreamTuning::default()
+    };
     let downloaded = download_entries(
         &transport,
         base,
@@ -616,7 +650,7 @@ pub(crate) async fn install(
         &entry.cancel,
         &entry.pause_token(),
         &progress,
-        StreamTuning::default(),
+        stream_tuning,
         |item, completed_hex| {
             entry.set_stream_completed(Some(completed_hex.to_string()));
             let entries_done = progress.entries_done.load(Ordering::Relaxed);
@@ -674,7 +708,7 @@ async fn download_entries<F>(
     cancel: &CancellationToken,
     pause: &CancellationToken,
     progress: &Arc<ProgressState>,
-    tuning: StreamTuning,
+    tuning: StreamTuning<'_>,
     mut on_complete: F,
 ) -> Result<(), Failure>
 where
@@ -713,13 +747,33 @@ where
         .buffer_unordered(ENTRY_CONCURRENCY);
     tokio::pin!(downloads);
 
+    let mut first_error: Option<Failure> = None;
     while let Some(result) = downloads.next().await {
-        let item = result?;
-        completed.insert(item.index);
-        progress.entries_done.fetch_add(1, Ordering::Relaxed);
-        on_complete(&item, &completed.to_hex());
+        match result {
+            Ok(item) => {
+                // Record every completion, even when a sibling already failed:
+                // the checkpoint must describe the files really on disk before
+                // the job retry adopts it (#212).
+                completed.insert(item.index);
+                progress.entries_done.fetch_add(1, Ordering::Relaxed);
+                on_complete(&item, &completed.to_hex());
+            }
+            Err(Failure::Cancelled) => return Err(Failure::Cancelled),
+            Err(Failure::Paused) => return Err(Failure::Paused),
+            // A structurally unusable stream path is a fallback signal, not a
+            // reason to keep the other entries downloading (#211).
+            Err(error @ Failure::StreamUnavailable(_)) => return Err(error),
+            Err(error) => {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
+        }
     }
-    Ok(())
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }
 
 /// Downloads one entry into `staging`, resuming a `.part` file with Range.
@@ -744,7 +798,7 @@ async fn download_entry(
     cancel: &CancellationToken,
     pause: &CancellationToken,
     progress: &ProgressState,
-    tuning: StreamTuning,
+    tuning: StreamTuning<'_>,
 ) -> Result<(), Failure> {
     let relative = safe_tar_path(Path::new(&item.path)).ok_or_else(|| {
         Failure::Failed(format!(
@@ -779,6 +833,8 @@ async fn download_entry(
     let started = Instant::now();
     let mut last_error = String::new();
     for attempt in 1..=tuning.attempts {
+        // #212: never burn an attempt while the OS reports no network.
+        wait_for_network(&tuning, cancel, pause).await?;
         if attempt > 1 {
             let delay = tuning.backoff(attempt - 1);
             let kept = partial_size(&partial).await;
@@ -787,7 +843,7 @@ async fn download_entry(
                 path = %item.path,
                 attempt,
                 max_attempts = tuning.attempts,
-                bytes = kept,
+                offset = kept,
                 delay_ms = delay.as_millis() as u64,
                 error = %last_error,
                 "retrying stream entry"
@@ -796,14 +852,28 @@ async fn download_entry(
                 biased;
                 _ = cancel.cancelled() => return Err(Failure::Cancelled),
                 _ = pause.cancelled() => return Err(Failure::Paused),
+                _ = async {
+                    match tuning.retry_now {
+                        Some(signal) => signal.notified().await,
+                        None => std::future::pending().await,
+                    }
+                } => {}
                 _ = tokio::time::sleep(delay) => {}
             }
         }
-        match download_entry_once(
+        let mut info = EntryAttemptInfo {
+            status: None,
+            offset: partial_size(&partial).await,
+            elapsed_ms: 0,
+        };
+        let attempt_started = Instant::now();
+        let outcome = download_entry_once(
             transport, &url, token, item, &partial, throttle, cancel, pause, progress, tuning,
+            &mut info,
         )
-        .await
-        {
+        .await;
+        info.elapsed_ms = attempt_started.elapsed().as_millis() as u64;
+        match outcome {
             Ok(()) => {
                 finalize_entry(&partial, &target, item).await?;
                 tracing::info!(
@@ -822,7 +892,20 @@ async fn download_entry(
                 return Err(Failure::StreamUnavailable(message))
             }
             Err(Failure::Failed(message)) => {
-                if is_permanent_http_failure(&message) {
+                // #211: the structured row the log and the tests share. A 524
+                // from a proxy is recorded with its status, not just prose.
+                tracing::warn!(
+                    index = item.index,
+                    path = %item.path,
+                    attempt,
+                    max_attempts = tuning.attempts,
+                    status = info.status,
+                    offset = info.offset,
+                    elapsed_ms = info.elapsed_ms,
+                    error = %message,
+                    "stream entry attempt failed"
+                );
+                if is_permanent_stream_failure(&message) {
                     // 401/403/404/415: retrying cannot help. Report at once so
                     // the UI can offer a real fix (sign in, another version).
                     return Err(Failure::Failed(message));
@@ -859,13 +942,13 @@ async fn download_entry(
         )));
     }
     Err(Failure::Failed(format!(
-        "Entry {} failed after {} attempts ({kept} bytes kept): {last_error}. Resume the install to continue.",
+        "Entry {} failed after {} attempts ({kept} bytes kept): {last_error}",
         item.path, tuning.attempts
     )))
 }
 
 /// HTTP failures that a retry cannot fix.
-fn is_permanent_http_failure(message: &str) -> bool {
+pub(crate) fn is_permanent_http_failure(message: &str) -> bool {
     [
         "HTTP 400", "HTTP 401", "HTTP 403", "HTTP 404", "HTTP 405", "HTTP 415", "HTTP 416",
     ]
@@ -873,11 +956,59 @@ fn is_permanent_http_failure(message: &str) -> bool {
     .any(|code| message.contains(code))
 }
 
+/// Failures of a stream job that no retry and no classic fallback can fix
+/// (#212): a bad manifest, disk full or an unusable local target.
+pub(crate) fn is_permanent_stream_failure(message: &str) -> bool {
+    is_permanent_http_failure(message)
+        || [
+            "Not enough free space",
+            "unsafe entry path",
+            "reserved entry path",
+            "Could not create the staging folder",
+            "Could not create the folder",
+            "No archive was available",
+        ]
+        .iter()
+        .any(|fragment| message.contains(fragment))
+}
+
+/// Status and resume offset of one entry attempt, used by the structured retry
+/// log (#211). Kept separate from the error string so a proxy status such as
+/// 524 is visible in the log and in a test.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct EntryAttemptInfo {
+    pub status: Option<u16>,
+    /// Offset the request asked for (the `.part` size at attempt start).
+    pub offset: u64,
+    pub elapsed_ms: u64,
+}
+
 async fn partial_size(partial: &Path) -> u64 {
     tokio::fs::metadata(partial)
         .await
         .map(|metadata| metadata.len())
         .unwrap_or(0)
+}
+
+/// Park the entry retry while the OS reports no network (#212). This does not
+/// count as an attempt: nothing was tried.
+async fn wait_for_network(
+    tuning: &StreamTuning<'_>,
+    cancel: &CancellationToken,
+    pause: &CancellationToken,
+) -> Result<(), Failure> {
+    let Some(network) = tuning.network else {
+        return Ok(());
+    };
+    if network.is_online() {
+        return Ok(());
+    }
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => Err(Failure::Cancelled),
+        _ = pause.cancelled() => Err(Failure::Paused),
+        _ = network.wait_online() => Ok(()),
+    }
 }
 
 /// One HTTP pass for an entry, starting at the current `.part` size.
@@ -896,7 +1027,8 @@ async fn download_entry_once(
     cancel: &CancellationToken,
     pause: &CancellationToken,
     progress: &ProgressState,
-    tuning: StreamTuning,
+    tuning: StreamTuning<'_>,
+    info: &mut EntryAttemptInfo,
 ) -> Result<(), Failure> {
     if item.size == 0 {
         let _ = tokio::fs::write(partial, []).await;
@@ -913,11 +1045,23 @@ async fn download_entry_once(
 
     let mut restarted = false;
     loop {
+        info.offset = offset;
         let response = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Err(Failure::Cancelled),
             _ = pause.cancelled() => return Err(Failure::Paused),
-            response = transport.fetch(url, token, offset) => response,
+            // #211: a proxy that never answers must not hang the job; the
+            // first-byte budget keeps the attempt inside the 524 window.
+            response = tokio::time::timeout(tuning.first_byte_timeout, transport.fetch(url, token, offset)) => match response {
+                Err(_elapsed) => {
+                    return Err(Failure::Failed(format!(
+                        "Entry {} did not start within {} s (HTTP timeout). Retrying from the saved offset.",
+                        item.path,
+                        tuning.first_byte_timeout.as_secs()
+                    )))
+                }
+                Ok(response) => response,
+            },
         }
         .map_err(|e| {
             Failure::Failed(format!(
@@ -927,6 +1071,8 @@ async fn download_entry_once(
         })?;
 
         let status = response.status;
+        info.status = Some(status.as_u16());
+        progress.set_status(status.as_u16());
         if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
             // The `.part` may already hold the whole entry (completed just
             // before the app stopped) or be bogus.
@@ -1322,7 +1468,7 @@ mod tests {
         progress: &Arc<ProgressState>,
         cancel: &CancellationToken,
         pause: &CancellationToken,
-        tuning: StreamTuning,
+        tuning: StreamTuning<'_>,
         on_complete: impl FnMut(&StreamEntry, &str),
     ) -> Result<(), Failure> {
         let pending: Vec<StreamEntry> = files(manifest)
@@ -1586,6 +1732,9 @@ mod tests {
             stall: bool,
         },
         Error(String),
+        /// Never answers: models a proxy that holds the request until its own
+        /// 524 budget expires (#211).
+        Hang,
     }
 
     type ScriptHandler = Box<dyn Fn(usize, u64, usize, &[Vec<u8>]) -> ScriptedResult + Send + Sync>;
@@ -1640,6 +1789,9 @@ mod tests {
                 self.requests.lock().unwrap().push((index, offset));
                 match (self.handler)(index, offset, attempt, &self.contents) {
                     ScriptedResult::Error(message) => Err(message),
+                    ScriptedResult::Hang => {
+                        std::future::pending::<Result<EntryResponse, String>>().await
+                    }
                     ScriptedResult::Response {
                         status,
                         content_range_start,
@@ -1672,11 +1824,12 @@ mod tests {
         }
     }
 
-    fn fast_tuning(attempts: u32) -> StreamTuning {
+    fn fast_tuning(attempts: u32) -> StreamTuning<'static> {
         StreamTuning {
             stall_timeout: Duration::from_millis(120),
             attempts,
             backoff: Duration::from_millis(1),
+            ..StreamTuning::default()
         }
     }
 
@@ -1835,6 +1988,194 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_524_burst_is_retried_with_its_status_recorded() {
+        let (manifest, contents) = zip_fixture("proxy-524");
+        let big = files(&manifest)
+            .into_iter()
+            .find(|item| item.path.ends_with("big.bin"))
+            .expect("big entry");
+        let big_index = big.index;
+        let transport =
+            ScriptedTransport::new(contents.clone(), move |index, offset, attempt, contents| {
+                if index == big_index && attempt <= 2 {
+                    return ScriptedResult::Response {
+                        status: 524,
+                        content_range_start: None,
+                        chunks: Vec::new(),
+                        stall: false,
+                    };
+                }
+                if index == big_index {
+                    return ScriptedResult::Response {
+                        status: 206,
+                        content_range_start: Some(offset),
+                        chunks: vec![Ok(contents[index][offset as usize..].to_vec())],
+                        stall: false,
+                    };
+                }
+                full_entry(contents, index)
+            });
+
+        // The attempt record used by the retry log keeps the proxy status,
+        // the offset requested and the time it took (#211).
+        let partial = temp_dir("proxy-524-partial").join("entry.part");
+        let mut info = EntryAttemptInfo::default();
+        let entry_url = format!("http://test/{}", big.index);
+        let err = download_entry_once(
+            &transport,
+            &entry_url,
+            None,
+            &big,
+            &partial,
+            &Arc::new(Mutex::new(None)),
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            &ProgressState::new(0, 0),
+            StreamTuning {
+                first_byte_timeout: Duration::from_secs(2),
+                ..fast_tuning(3)
+            },
+            &mut info,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, Failure::Failed(_)));
+        assert_eq!(info.status, Some(524), "the proxy status is logged");
+        assert_eq!(info.offset, 0, "the request started at zero");
+        assert!(info.elapsed_ms < 5_000);
+
+        // The same burst then resolves: the entry keeps its checkpoint and
+        // completes without falling back.
+        let (staging, partial_root) = scripted_staging("proxy-524-staging");
+        let mut completed = CompletedEntries::new(manifest.entry_count);
+        let progress = Arc::new(ProgressState::new(0, 0));
+        let pending: Vec<StreamEntry> = files(&manifest)
+            .into_iter()
+            .filter(|item| !completed.contains(item.index))
+            .collect();
+        download_entries(
+            &transport,
+            "http://test",
+            None,
+            7,
+            9,
+            pending,
+            &staging,
+            &partial_root,
+            &mut completed,
+            0,
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            &progress,
+            fast_tuning(4),
+            |_, _| {},
+        )
+        .await
+        .expect("a 524 burst must be retried, not fail the entry");
+        assert_eq!(completed.count(), files(&manifest).len());
+        assert_eq!(
+            std::fs::read(staging.join(&big.path)).unwrap(),
+            contents[big_index]
+        );
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+
+    #[tokio::test]
+    async fn a_524_only_stream_is_reported_unavailable_for_the_classic_fallback() {
+        let (manifest, contents) = zip_fixture("only-524");
+        let (staging, partial_root) = scripted_staging("only-524-staging");
+        let mut completed = CompletedEntries::new(manifest.entry_count);
+        let progress = Arc::new(ProgressState::new(0, 0));
+        let transport =
+            ScriptedTransport::new(contents.clone(), |_, _, _, _| ScriptedResult::Response {
+                status: 524,
+                content_range_start: None,
+                chunks: Vec::new(),
+                stall: false,
+            });
+        let pending: Vec<StreamEntry> = files(&manifest)
+            .into_iter()
+            .filter(|item| !completed.contains(item.index))
+            .collect();
+        let result = download_entries(
+            &transport,
+            "http://test",
+            None,
+            7,
+            9,
+            pending,
+            &staging,
+            &partial_root,
+            &mut completed,
+            0,
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            &progress,
+            fast_tuning(2),
+            |_, _| {},
+        )
+        .await;
+
+        match result {
+            Err(Failure::StreamUnavailable(message)) => {
+                assert!(message.contains("524"), "{message}");
+                assert!(message.contains("2 attempts"), "{message}");
+            }
+            other => panic!("expected the classic fallback, got {other:?}"),
+        }
+        // The job is not stuck: nothing is complete and no entry file exists.
+        assert_eq!(completed.count(), 0);
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+
+    #[tokio::test]
+    async fn a_hanging_entry_times_out_and_the_job_falls_back() {
+        let (manifest, contents) = zip_fixture("hang");
+        let big = files(&manifest)
+            .into_iter()
+            .find(|item| item.path.ends_with("big.bin"))
+            .expect("big entry");
+        let transport = ScriptedTransport::new(contents.clone(), move |index, _, _, contents| {
+            if index == big.index {
+                ScriptedResult::Hang
+            } else {
+                full_entry(contents, index)
+            }
+        });
+
+        // The first-byte budget is the whole point: a proxy that never
+        // answers must fail the attempt, not hang the job forever (#211).
+        let partial = temp_dir("hang-partial").join("big.part");
+        let mut info = EntryAttemptInfo::default();
+        let started = Instant::now();
+        let entry_url = format!("http://test/{}", big.index);
+        let err = download_entry_once(
+            &transport,
+            &entry_url,
+            None,
+            &big,
+            &partial,
+            &Arc::new(Mutex::new(None)),
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            &ProgressState::new(0, 0),
+            StreamTuning {
+                first_byte_timeout: Duration::from_millis(30),
+                ..fast_tuning(2)
+            },
+            &mut info,
+        )
+        .await
+        .unwrap_err();
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(
+            matches!(&err, Failure::Failed(message) if message.contains("did not start")),
+            "{err:?}"
+        );
+        assert_eq!(info.status, None, "a timeout has no HTTP status");
+    }
+
+    #[tokio::test]
     async fn entry_retries_are_bounded_and_keep_the_checkpoint() {
         let (manifest, contents) = zip_fixture("bounded");
         let big = files(&manifest)
@@ -1956,6 +2297,7 @@ mod tests {
                 stall_timeout: Duration::from_secs(5),
                 attempts: 2,
                 backoff: Duration::from_millis(1),
+                ..StreamTuning::default()
             },
             |_, _| {},
         )

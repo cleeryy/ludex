@@ -45,6 +45,11 @@ export const installBridge = {
     return USING_MOCKS ? mockInstalls.resume(jobId, mode) : native.resumeInstall(jobId, mode);
   },
 
+  /** Skip a retry backoff without touching the job or its checkpoint (#212). */
+  retryNow(jobId: string): Promise<InstallJob> {
+    return USING_MOCKS ? mockInstalls.retryNow(jobId) : native.retryInstallNow(jobId);
+  },
+
   /**
    * Move a waiting install in the queue (#202). Resolves with the new order
    * confirmed by the desktop; a running or finished job is refused.

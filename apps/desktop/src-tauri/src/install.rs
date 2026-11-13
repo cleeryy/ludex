@@ -23,7 +23,11 @@ use crate::settings::{self, LocalSettings, Mode};
 use crate::state::{AppState, JobEntry};
 use crate::util::{human_bytes, non_empty, now_rfc3339, short_id};
 
-const INTERRUPTED_MESSAGE: &str =
+pub(crate) const INTERRUPTED_MESSAGE: &str =
+    "Ludex closed before this install finished. Resuming automatically.";
+/// The message v0.4.5 and earlier stamped on an interrupted row. Recognised by
+/// the startup auto-resume so an upgrade does not strand an in-flight job.
+pub(crate) const LEGACY_INTERRUPTED_MESSAGE: &str =
     "Ludex closed before this install finished. Install again to resume.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -109,6 +113,14 @@ pub struct InstallJob {
     pub last_error: Option<String>,
     /// Milliseconds the connection was silent when the stall was detected.
     pub stalled_for_ms: Option<u64>,
+    /// RFC 3339 time of the next automatic retry (#212). `None` when no retry
+    /// is scheduled. The UI renders the countdown and a "Retry now" action.
+    pub next_retry_at: Option<String>,
+    /// HTTP status of the last response for this job (#212), kept for the
+    /// diagnostics bundle. `None` before the first response.
+    pub http_status: Option<u16>,
+    /// True while a retry is parked because the OS reports no network (#212).
+    pub waiting_for_network: bool,
     /// Position in the install queue (#202): the scheduler starts the lowest
     /// one when a slot frees. `None` for a finished job and for a row that
     /// predates the queue order.
@@ -168,6 +180,9 @@ impl InstallJob {
             attempt: 1,
             last_error: None,
             stalled_for_ms: None,
+            next_retry_at: None,
+            http_status: None,
+            waiting_for_network: false,
             // #202: a finished job leaves the queue for good. An interrupted
             // job (error after a crash) keeps the slot recorded by the previous
             // session, so resuming restores the order instead of appending.
@@ -186,6 +201,8 @@ impl InstallJob {
         self.reconnecting = false;
         self.last_error = None;
         self.stalled_for_ms = None;
+        self.next_retry_at = None;
+        self.waiting_for_network = false;
     }
 }
 
@@ -630,12 +647,16 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
         attempt: 1,
         last_error: None,
         stalled_for_ms: None,
+        next_retry_at: None,
+        http_status: None,
+        waiting_for_network: false,
         queue_position: Some(queue_position),
     };
 
     let entry = Arc::new(JobEntry {
         params,
         cancel: CancellationToken::new(),
+        retry_now: tokio::sync::Notify::new(),
         pause: std::sync::Mutex::new(CancellationToken::new()),
         running: AtomicBool::new(false),
         job: std::sync::Mutex::new(job.clone()),
@@ -1028,6 +1049,36 @@ pub fn pause(app: &AppHandle, job_id: &str) -> Result<InstallJob, String> {
     }
 }
 
+/// Skip the current retry backoff of a waiting download (#212). The worker
+/// wakes immediately, keeps the same job id and the same attempt budget.
+pub fn retry_now(app: &AppHandle, job_id: &str) -> Result<InstallJob, String> {
+    let state = app.state::<AppState>();
+    let entry = {
+        let jobs = state
+            .jobs
+            .lock()
+            .map_err(|_| "The install queue is unavailable; restart Ludex.".to_string())?;
+        jobs.get(job_id).cloned()
+    }
+    .ok_or_else(|| {
+        "This install job is from a previous session. Start the install again from the game page."
+            .to_string()
+    })?;
+
+    if !entry.snapshot().reconnecting {
+        return Err("This download is not waiting to retry.".to_string());
+    }
+    entry.update(|job| {
+        job.next_retry_at = None;
+        job.message = Some("Retrying now".to_string());
+    });
+    entry.request_retry_now();
+    let job = entry.snapshot();
+    let _ = app.emit("install://progress", &job);
+    tracing::info!(job_id = %job_id, attempt = job.attempt, "retry now requested");
+    Ok(job)
+}
+
 /// Resume any resumable job — paused, failed, interrupted, cancelled, or from a
 /// previous app run — always with the same job id (#205/#208).
 ///
@@ -1173,6 +1224,7 @@ pub(crate) fn entry_from_persisted(
     Ok(JobEntry {
         params,
         cancel: CancellationToken::new(),
+        retry_now: tokio::sync::Notify::new(),
         pause: std::sync::Mutex::new(CancellationToken::new()),
         running: AtomicBool::new(false),
         job: std::sync::Mutex::new(job),
@@ -1203,6 +1255,7 @@ fn rebuild_entry(
     JobEntry {
         params,
         cancel: CancellationToken::new(),
+        retry_now: tokio::sync::Notify::new(),
         pause: std::sync::Mutex::new(CancellationToken::new()),
         running: AtomicBool::new(false),
         job: std::sync::Mutex::new(job),
@@ -1649,6 +1702,84 @@ pub(crate) fn persist(app: &AppHandle, entry: &JobEntry) {
     };
 }
 
+/// Re-enter downloads interrupted by an app restart (#212).
+///
+/// `mark_interrupted_jobs` stamped every row that was still active at exit;
+/// this runs once at startup and rebuilds those workers from their persisted
+/// parameters. A user-paused or cancelled job is never included, and a real
+/// failure (404, disk full) carries a different message and is skipped too.
+/// `resume_entry` reuses the recorded queue position, so the order survives.
+pub(crate) fn auto_resume_on_startup(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+    if !settings.auto_resume_downloads {
+        tracing::info!("auto-resume of interrupted downloads is disabled");
+        return;
+    }
+
+    let records = {
+        let Ok(connection) = state.db.lock() else {
+            tracing::warn!("could not read interrupted downloads: database unavailable");
+            return;
+        };
+        match db::interrupted_install_jobs(
+            &connection,
+            INTERRUPTED_MESSAGE,
+            LEGACY_INTERRUPTED_MESSAGE,
+        ) {
+            Ok(records) => records,
+            Err(error) => {
+                tracing::warn!(error = %error, "could not list interrupted downloads");
+                return;
+            }
+        }
+    };
+    if records.is_empty() {
+        return;
+    }
+
+    let token = settings.token.clone();
+    let mut resumed = 0usize;
+    for record in records {
+        let job_id = record.job_id.clone();
+        let already_active = state
+            .jobs
+            .lock()
+            .map(|jobs| jobs.contains_key(&job_id))
+            .unwrap_or(false);
+        if already_active {
+            continue;
+        }
+        let params = {
+            let Ok(connection) = state.db.lock() else {
+                break;
+            };
+            db::get_install_job_params(&connection, &job_id)
+                .ok()
+                .flatten()
+        };
+        let Some(params) = params else {
+            tracing::warn!(
+                job_id = %job_id,
+                "an interrupted download has no stored parameters; leaving it for a manual retry"
+            );
+            continue;
+        };
+        match entry_from_persisted(record, params, token.clone(), ResumeMode::Keep) {
+            Ok(entry) => match resume_entry(app, Arc::new(entry), ResumeMode::Keep) {
+                Ok(_) => resumed += 1,
+                Err(error) => {
+                    tracing::warn!(job_id = %job_id, error = %error, "could not auto-resume a download")
+                }
+            },
+            Err(error) => {
+                tracing::warn!(job_id = %job_id, error = %error, "could not rebuild an interrupted download")
+            }
+        }
+    }
+    tracing::info!(resumed, "auto-resumed interrupted downloads");
+}
+
 async fn execute(
     app: &AppHandle,
     entry: &Arc<JobEntry>,
@@ -1718,8 +1849,49 @@ async fn execute(
     // resumable download *before* any data is written (#203).
     let mut streamed = false;
     if archive.is_none() && stream_requested(params.stream, &settings, &params.server_url) {
-        let outcome =
-            crate::stream_install::install(app, entry, &params, &staging, job_paths).await;
+        // #212: a stream job retries itself after its per-entry budget is
+        // exhausted, with the same checkpoint, instead of failing outright.
+        let tuning = DownloadTuning {
+            network: Some(&state.network),
+            retry_now: Some(entry.retry_signal()),
+            ..DownloadTuning::from_settings(
+                settings.download_stall_timeout_secs,
+                settings.download_retry_window_secs,
+            )
+        };
+        let outcome = {
+            let mut attempt = InstallStreamAttempt {
+                app,
+                entry,
+                params: &params,
+                staging: &staging,
+                job_paths,
+            };
+            stream_with_retry(
+                &mut attempt,
+                tuning,
+                &entry.cancel,
+                &pause,
+                |message, attempt, delay| {
+                    let at = retry_at(delay);
+                    entry.update(|job| {
+                        job.phase = InstallPhase::Downloading;
+                        job.reconnecting = true;
+                        job.attempt = attempt;
+                        job.last_error = Some(message.to_string());
+                        job.next_retry_at = Some(at);
+                        job.waiting_for_network = false;
+                        job.message = Some(format!(
+                            "Retrying the stream in {} s, attempt {attempt}",
+                            delay.as_secs().max(1)
+                        ));
+                    });
+                    persist(app, entry);
+                    let _ = app.emit("install://progress", entry.snapshot());
+                },
+            )
+            .await
+        };
         match outcome {
             Ok(StreamOutcome::Done) => {
                 streamed = true;
@@ -2364,6 +2536,7 @@ fn is_loopback_url(url: &str) -> bool {
 }
 
 /// Snapshot passed to the download progress callback.
+#[derive(Debug, Clone)]
 pub(crate) struct DownloadProgress {
     pub done: u64,
     pub total: Option<u64>,
@@ -2378,6 +2551,12 @@ pub(crate) struct DownloadProgress {
     pub last_error: Option<String>,
     /// How long the connection was silent when the stall was detected.
     pub stalled_for_ms: Option<u64>,
+    /// RFC 3339 time of the next automatic retry (#212).
+    pub next_retry_at: Option<String>,
+    /// HTTP status of the last response, `None` before the first one (#212).
+    pub http_status: Option<u16>,
+    /// True while the retry waits for the OS to report a network (#212).
+    pub waiting_for_network: bool,
 }
 
 impl DownloadProgress {
@@ -2391,44 +2570,69 @@ impl DownloadProgress {
             attempt,
             last_error: None,
             stalled_for_ms: None,
+            next_retry_at: None,
+            http_status: None,
+            waiting_for_network: false,
         }
     }
 }
 
-/// Read/write tuning for one resumable download (#195).
+/// Read/write tuning for one resumable download (#195, #212).
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct DownloadTuning {
+pub(crate) struct DownloadTuning<'a> {
     /// Abort the response when no bytes arrive for this long. A transfer that
     /// keeps producing bytes is never judged a stall.
     pub idle_timeout: Duration,
-    /// Connections per download, including the first one.
+    /// Connections per download, including the first one. `u32::MAX` for an
+    /// unlimited retry window.
     pub max_attempts: u32,
     /// Give up on retries once this much wall-clock time was spent reconnecting.
-    pub max_retry_window: Duration,
+    /// `None` keeps retrying while the job is active.
+    pub max_retry_window: Option<Duration>,
     pub base_backoff: Duration,
     pub max_backoff: Duration,
+    /// OS reachability (#212): retry waits park while offline.
+    pub network: Option<&'a crate::state::NetworkGate>,
+    /// "Retry now" signal of the job (#212); skips one backoff sleep.
+    pub retry_now: Option<&'a tokio::sync::Notify>,
 }
 
-impl Default for DownloadTuning {
+impl Default for DownloadTuning<'_> {
     fn default() -> Self {
         Self {
             idle_timeout: Duration::from_secs(30),
-            max_attempts: 12,
-            max_retry_window: Duration::from_secs(30 * 60),
-            base_backoff: Duration::from_millis(750),
-            max_backoff: Duration::from_secs(30),
+            max_attempts: 50,
+            max_retry_window: Some(Duration::from_secs(6 * 60 * 60)),
+            base_backoff: Duration::from_secs(1),
+            // A long-horizon retry must not hammer a dead link: five minutes
+            // between attempts still recovers quickly after an outage (#212).
+            max_backoff: Duration::from_secs(5 * 60),
+            network: None,
+            retry_now: None,
         }
     }
 }
 
-impl DownloadTuning {
-    /// Build from the persisted setting, clamped so a bad value cannot turn
+impl<'a> DownloadTuning<'a> {
+    /// Build from the persisted settings, clamped so a bad value cannot turn
     /// every install into a reconnect storm or wait forever.
-    pub(crate) fn from_idle_secs(seconds: u64) -> Self {
+    pub(crate) fn from_settings(idle_secs: u64, retry_window_secs: u64) -> Self {
+        let window = (retry_window_secs != 0)
+            .then(|| Duration::from_secs(retry_window_secs.clamp(60, 7 * 24 * 60 * 60)));
         Self {
-            idle_timeout: Duration::from_secs(seconds.clamp(5, 600)),
+            idle_timeout: Duration::from_secs(idle_secs.clamp(5, 600)),
+            // Unlimited retry: no attempt cap either, otherwise the count
+            // would become the real limit and stop a working retry early.
+            max_attempts: if window.is_some() { 50 } else { u32::MAX },
+            max_retry_window: window,
             ..Self::default()
         }
+    }
+
+    /// Kept for call sites that only know the stall timeout (#195).
+    #[cfg(test)]
+    pub(crate) fn from_idle_secs(seconds: u64) -> Self {
+        Self::from_settings(seconds, 6 * 60 * 60)
     }
 }
 
@@ -2452,6 +2656,11 @@ pub(crate) trait DownloadResponse {
         None
     }
     fn etag(&self) -> Option<String>;
+    /// `Retry-After` of a 429/503, in seconds (#212). `None` when absent or
+    /// unparsable.
+    fn retry_after(&self) -> Option<Duration> {
+        None
+    }
     /// Next body chunk, or `None` at end of stream.
     async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, ChunkError>;
     /// Body of a failed response, for the user-facing error.
@@ -2511,6 +2720,14 @@ impl DownloadResponse for HttpDownloadResponse {
             .get(reqwest::header::ETAG)
             .and_then(|value| value.to_str().ok())
             .map(str::to_string)
+    }
+
+    fn retry_after(&self) -> Option<Duration> {
+        self.response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .and_then(parse_retry_after)
     }
 
     async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, ChunkError> {
@@ -2591,7 +2808,7 @@ pub(crate) async fn download_file(
     cancel: &CancellationToken,
     pause: &CancellationToken,
     bandwidth_kib: u64,
-    tuning: DownloadTuning,
+    tuning: DownloadTuning<'_>,
     progress: impl FnMut(DownloadProgress) + Send,
 ) -> Result<(), Failure> {
     let mut transport = HttpTransport { client, url, token };
@@ -2608,10 +2825,13 @@ pub(crate) async fn download_file(
     .await
 }
 
-/// Connection budget of one download: attempt count and retry window (#195).
+/// Connection budget of one download: attempt count, retry window and the
+/// circuit breaker on repeated identical permanent errors (#195, #212).
 struct RetryState {
     attempt: u32,
     retry_started: Option<Instant>,
+    last_failure: Option<String>,
+    identical_failures: u32,
 }
 
 impl RetryState {
@@ -2619,6 +2839,8 @@ impl RetryState {
         Self {
             attempt: 0,
             retry_started: None,
+            last_failure: None,
+            identical_failures: 0,
         }
     }
 
@@ -2629,19 +2851,37 @@ impl RetryState {
         }
     }
 
+    /// Record one failure. Returns a stop reason when the same *permanent*
+    /// error repeated, so a flapping archive cannot spin the loop (#212).
+    fn record_failure(&mut self, message: &str, permanent: bool) -> Option<String> {
+        if self.last_failure.as_deref() == Some(message) {
+            self.identical_failures = self.identical_failures.saturating_add(1);
+        } else {
+            self.last_failure = Some(message.to_string());
+            self.identical_failures = 1;
+        }
+        if permanent && self.identical_failures >= 3 {
+            return Some(format!(
+                "the same permanent error repeated {} times",
+                self.identical_failures
+            ));
+        }
+        None
+    }
+
     /// Whether another connection is allowed; adds a friendly reason when not.
-    fn exhausted(&self, tuning: DownloadTuning) -> Option<String> {
+    fn exhausted(&self, tuning: DownloadTuning<'_>) -> Option<String> {
         if self.attempt >= tuning.max_attempts {
             return Some(format!(
                 "the connection failed {} times in a row",
                 self.attempt
             ));
         }
-        if let Some(started) = self.retry_started {
-            if started.elapsed() >= tuning.max_retry_window {
+        if let (Some(started), Some(window)) = (self.retry_started, tuning.max_retry_window) {
+            if started.elapsed() >= window {
                 return Some(format!(
                     "the connection stayed unreliable for {}",
-                    human_duration(tuning.max_retry_window)
+                    human_duration(window)
                 ));
             }
         }
@@ -2651,7 +2891,9 @@ impl RetryState {
 
 fn human_duration(duration: Duration) -> String {
     let seconds = duration.as_secs();
-    if seconds >= 60 {
+    if seconds >= 3600 {
+        format!("{} h", seconds / 3600)
+    } else if seconds >= 60 {
         format!("{} min", seconds / 60)
     } else {
         format!("{seconds} s")
@@ -2659,7 +2901,7 @@ fn human_duration(duration: Duration) -> String {
 }
 
 /// Exponential backoff with ±25 % jitter, capped by the tuning.
-pub(crate) fn retry_delay(attempt: u32, tuning: DownloadTuning) -> Duration {
+pub(crate) fn retry_delay(attempt: u32, tuning: DownloadTuning<'_>) -> Duration {
     let exponent = attempt.saturating_sub(1).min(10);
     let base = tuning
         .base_backoff
@@ -2683,6 +2925,82 @@ fn resume_message(done: u64, total: Option<u64>) -> String {
     }
 }
 
+/// RFC 3339 timestamp of a retry that will start in `delay` (#212).
+fn retry_at(delay: Duration) -> String {
+    (chrono::Utc::now() + chrono::Duration::from_std(delay).unwrap_or_default()).to_rfc3339()
+}
+
+/// `Retry-After: 30` → 30 s. An HTTP-date is ignored rather than misparsed;
+/// the reconnect limiter of the server uses delta-seconds (#212).
+fn parse_retry_after(value: &str) -> Option<Duration> {
+    value.trim().parse::<u64>().ok().map(Duration::from_secs)
+}
+
+/// The bigger of the exponential backoff and the server's `Retry-After`,
+/// capped so a bogus header cannot park a job for hours (#212).
+fn retry_delay_with_hint(base: Duration, hint: Option<Duration>) -> Duration {
+    const MAX_HINT: Duration = Duration::from_secs(30 * 60);
+    base.max(hint.unwrap_or_default().min(MAX_HINT))
+}
+
+/// One reconnecting progress snapshot, shared by every retry branch.
+#[allow(clippy::too_many_arguments)]
+fn reconnect_progress(
+    attempt: u32,
+    done: u64,
+    total: Option<u64>,
+    last_error: Option<String>,
+    stalled_for_ms: Option<u64>,
+    next_retry_at: Option<String>,
+    http_status: Option<u16>,
+    waiting_for_network: bool,
+) -> DownloadProgress {
+    DownloadProgress {
+        done,
+        total,
+        speed_bps: 0,
+        message: restart_message(next_retry_at.as_deref(), done, total),
+        reconnecting: true,
+        attempt,
+        last_error,
+        stalled_for_ms,
+        next_retry_at,
+        http_status,
+        waiting_for_network,
+    }
+}
+
+/// "Retrying automatically" while a timer runs, the resume point while waiting
+/// on the OS network (#212). The UI adds its own countdown from `nextRetryAt`.
+fn restart_message(next_retry_at: Option<&str>, done: u64, total: Option<u64>) -> String {
+    match next_retry_at {
+        Some(_) => format!("{}, retrying automatically", resume_message(done, total)),
+        None => "Waiting for the network".to_string(),
+    }
+}
+
+/// Sleep a backoff, honouring cancel, pause and "Retry now" (#212).
+async fn sleep_or_stop(
+    delay: Duration,
+    cancel: &CancellationToken,
+    pause: &CancellationToken,
+    retry_now: Option<&tokio::sync::Notify>,
+) -> Result<bool, Failure> {
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => Ok(false),
+        _ = pause.cancelled() => Err(Failure::Paused),
+        // A "Retry now" click skips the remaining wait, not the attempt budget.
+        _ = async {
+            match retry_now {
+                Some(signal) => signal.notified().await,
+                None => std::future::pending().await,
+            }
+        } => Ok(true),
+        _ = tokio::time::sleep(delay) => Ok(true),
+    }
+}
+
 /// The resumable transfer core, generic over the transport so tests can inject
 /// stalls, resets and a changed archive deterministically (#195).
 #[allow(clippy::too_many_arguments)]
@@ -2693,7 +3011,7 @@ pub(crate) async fn download_into<T: DownloadTransport>(
     cancel: &CancellationToken,
     pause: &CancellationToken,
     bandwidth_kib: u64,
-    tuning: DownloadTuning,
+    tuning: DownloadTuning<'_>,
     mut progress: impl FnMut(DownloadProgress) + Send,
 ) -> Result<(), Failure> {
     if let Some(parent) = part.parent() {
@@ -2719,6 +3037,23 @@ pub(crate) async fn download_into<T: DownloadTransport>(
     let mut last_error: Option<String> = None;
 
     'connect: loop {
+        // #212: park the retry while the OS reports no network. This wait does
+        // not consume an attempt: nothing was tried, so nothing failed.
+        if let Some(network) = tuning.network {
+            if !network.is_online() {
+                progress(reconnect_progress(
+                    retry.attempt.saturating_add(1),
+                    existing,
+                    expected_total,
+                    last_error.clone(),
+                    None,
+                    None,
+                    None,
+                    true,
+                ));
+                wait_online(network, cancel, pause).await?;
+            }
+        }
         retry.next_attempt();
 
         let opened = tokio::select! {
@@ -2737,17 +3072,18 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                         "The download kept failing ({reason}). Last error: {error}. The partial archive was kept; install again to resume."
                     )));
                 }
-                progress(DownloadProgress {
-                    done: existing,
-                    total: expected_total,
-                    speed_bps: 0,
-                    message: resume_message(existing, expected_total),
-                    reconnecting: true,
-                    attempt: retry.attempt.saturating_add(1),
-                    last_error: Some(error),
-                    stalled_for_ms: None,
-                });
-                if !sleep_or_stop(retry_delay(retry.attempt, tuning), cancel, pause).await? {
+                let delay = retry_delay(retry.attempt, tuning);
+                progress(reconnect_progress(
+                    retry.attempt.saturating_add(1),
+                    existing,
+                    expected_total,
+                    Some(error),
+                    None,
+                    Some(retry_at(delay)),
+                    None,
+                    false,
+                ));
+                if !sleep_or_stop(delay, cancel, pause, tuning.retry_now).await? {
                     return Err(Failure::Cancelled);
                 }
                 continue 'connect;
@@ -2755,6 +3091,7 @@ pub(crate) async fn download_into<T: DownloadTransport>(
         };
 
         let status = response.status();
+        let retry_after = response.retry_after();
 
         if status == 416 {
             let total = response.content_range_total();
@@ -2764,13 +3101,15 @@ pub(crate) async fn download_into<T: DownloadTransport>(
             if existing > 0 && total == Some(existing) && unchanged {
                 // The `.part` file is already complete: a previous run
                 // downloaded everything but failed before extraction.
-                progress(DownloadProgress::plain(
+                let mut update = DownloadProgress::plain(
                     retry.attempt,
                     existing,
                     Some(existing),
                     0,
                     "Download already complete".to_string(),
-                ));
+                );
+                update.http_status = Some(status);
+                progress(update);
                 return Ok(());
             }
             if existing > 0 && restarts < 2 {
@@ -2794,13 +3133,17 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                     attempt: retry.attempt.saturating_add(1),
                     last_error: last_error.clone(),
                     stalled_for_ms: None,
+                    next_retry_at: None,
+                    http_status: Some(status),
+                    waiting_for_network: false,
                 });
                 continue 'connect;
             }
-            return Err(Failure::Failed(
-                "The server rejected the resume request (HTTP 416). Delete the partial download and retry."
-                    .to_string(),
-            ));
+            // #212: the resume offset was rejected twice; retrying the same
+            // Range cannot help, so this is permanent.
+            let message = "The server rejected the resume request (HTTP 416). Delete the partial download and retry.".to_string();
+            let _ = retry.record_failure(&message, true);
+            return Err(Failure::Failed(message));
         }
 
         if !(200..300).contains(&status) {
@@ -2819,26 +3162,35 @@ pub(crate) async fn download_into<T: DownloadTransport>(
             };
             let message = format!("Download failed with HTTP {status}{hint}{detail}");
             if !retryable {
+                // #212: the permanent failures stop at once and keep the
+                // `.part`; the circuit breaker only guards against a repeat.
+                let _ = retry.record_failure(&message, true);
                 return Err(Failure::Failed(message));
             }
-            last_error = Some(message);
-            if let Some(reason) = retry.exhausted(tuning) {
+            last_error = Some(message.clone());
+            if let Some(reason) = retry
+                .record_failure(&message, false)
+                .or_else(|| retry.exhausted(tuning))
+            {
                 return Err(Failure::Failed(format!(
                     "The download kept failing ({reason}). Last error: {}. The partial archive was kept; install again to resume.",
                     last_error.clone().unwrap_or_default()
                 )));
             }
-            progress(DownloadProgress {
-                done: existing,
-                total: expected_total,
-                speed_bps: 0,
-                message: resume_message(existing, expected_total),
-                reconnecting: true,
-                attempt: retry.attempt.saturating_add(1),
-                last_error: last_error.clone(),
-                stalled_for_ms: None,
-            });
-            if !sleep_or_stop(retry_delay(retry.attempt, tuning), cancel, pause).await? {
+            // #212: honour `Retry-After` (server reconnect rate limit); the
+            // exponential delay is a floor, not a replacement.
+            let delay = retry_delay_with_hint(retry_delay(retry.attempt, tuning), retry_after);
+            progress(reconnect_progress(
+                retry.attempt.saturating_add(1),
+                existing,
+                expected_total,
+                last_error.clone(),
+                None,
+                Some(retry_at(delay)),
+                Some(status),
+                false,
+            ));
+            if !sleep_or_stop(delay, cancel, pause, tuning.retry_now).await? {
                 return Err(Failure::Cancelled);
             }
             continue 'connect;
@@ -2877,32 +3229,43 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                 matches!((expected_total, total), (Some(known), Some(current)) if known != current);
             let start_changed =
                 matches!(response.content_range_start(), Some(start) if start != existing);
-            if (start_changed || etag_changed || total_changed) && restarts < 2 {
-                restarts += 1;
-                tracing::warn!(
-                    part = %part.display(),
-                    bytes = existing,
-                    ?expected_total,
-                    ?total,
-                    start = response.content_range_start(),
-                    "the archive changed on the server; restarting from zero"
-                );
-                let _ = tokio::fs::remove_file(part).await;
-                existing = 0;
-                expected_total = None;
-                expected_etag = None;
-                progress(DownloadProgress {
-                    done: 0,
-                    total: None,
-                    speed_bps: 0,
-                    message: "The archive changed on the server; restarting the download from 0%"
-                        .to_string(),
-                    reconnecting: true,
-                    attempt: retry.attempt.saturating_add(1),
-                    last_error: last_error.clone(),
-                    stalled_for_ms: None,
-                });
-                continue 'connect;
+            if start_changed || etag_changed || total_changed {
+                if restarts < 2 {
+                    restarts += 1;
+                    tracing::warn!(
+                        part = %part.display(),
+                        bytes = existing,
+                        ?expected_total,
+                        ?total,
+                        start = response.content_range_start(),
+                        "the archive changed on the server; restarting from zero"
+                    );
+                    let _ = tokio::fs::remove_file(part).await;
+                    existing = 0;
+                    expected_total = None;
+                    expected_etag = None;
+                    progress(DownloadProgress {
+                        done: 0,
+                        total: None,
+                        speed_bps: 0,
+                        message:
+                            "The archive changed on the server; restarting the download from 0%"
+                                .to_string(),
+                        reconnecting: true,
+                        attempt: retry.attempt.saturating_add(1),
+                        last_error: last_error.clone(),
+                        stalled_for_ms: None,
+                        next_retry_at: None,
+                        http_status: Some(status),
+                        waiting_for_network: false,
+                    });
+                    continue 'connect;
+                }
+                // #212: two explicit restarts did not converge; the archive
+                // keeps changing, which no retry can fix.
+                let message = "The archive changed on the server while the download was resuming. Start the install again to fetch the new version.".to_string();
+                let _ = retry.record_failure(&message, true);
+                return Err(Failure::Failed(message));
             }
             if expected_total.is_none() {
                 expected_total = total;
@@ -2938,13 +3301,10 @@ pub(crate) async fn download_into<T: DownloadTransport>(
             }
         }
 
-        progress(DownloadProgress::plain(
-            retry.attempt,
-            done,
-            total,
-            0,
-            download_message(title),
-        ));
+        let mut started_update =
+            DownloadProgress::plain(retry.attempt, done, total, 0, download_message(title));
+        started_update.http_status = Some(status);
+        progress(started_update);
 
         let file = if append {
             tokio::fs::OpenOptions::new()
@@ -3060,14 +3420,18 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                 ),
                 ChunkError::Lost(message) => message.clone(),
             };
-            last_error = Some(reason);
-            if let Some(reason) = retry.exhausted(tuning) {
+            last_error = Some(reason.clone());
+            if let Some(stop) = retry
+                .record_failure(&reason, false)
+                .or_else(|| retry.exhausted(tuning))
+            {
                 return Err(Failure::Failed(format!(
-                    "The download stopped at {} ({reason}). Last error: {}. The partial archive was kept; install again to resume.",
+                    "The download stopped at {} ({stop}). Last error: {}. The partial archive was kept; install again to resume.",
                     human_bytes(existing),
                     last_error.clone().unwrap_or_default()
                 )));
             }
+            let delay = retry_delay(retry.attempt, tuning);
             tracing::warn!(
                 part = %part.display(),
                 bytes = existing,
@@ -3075,17 +3439,17 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                 error = %last_error.clone().unwrap_or_default(),
                 "download interrupted; reconnecting from the last flushed byte"
             );
-            progress(DownloadProgress {
-                done: existing,
+            progress(reconnect_progress(
+                retry.attempt.saturating_add(1),
+                existing,
                 total,
-                speed_bps: 0,
-                message: resume_message(existing, total),
-                reconnecting: true,
-                attempt: retry.attempt.saturating_add(1),
-                last_error: last_error.clone(),
-                stalled_for_ms: Some(silent_ms),
-            });
-            if !sleep_or_stop(retry_delay(retry.attempt, tuning), cancel, pause).await? {
+                last_error.clone(),
+                Some(silent_ms),
+                Some(retry_at(delay)),
+                Some(status),
+                false,
+            ));
+            if !sleep_or_stop(delay, cancel, pause, tuning.retry_now).await? {
                 return Err(Failure::Cancelled);
             }
             continue 'connect;
@@ -3105,13 +3469,15 @@ pub(crate) async fn download_into<T: DownloadTransport>(
             ))
         })?;
 
-        progress(DownloadProgress::plain(
+        let mut completed_update = DownloadProgress::plain(
             retry.attempt,
             done,
             Some(total.unwrap_or(done)),
             0,
             "Download complete".to_string(),
-        ));
+        );
+        completed_update.http_status = Some(status);
+        progress(completed_update);
 
         return Ok(());
     }
@@ -3134,16 +3500,99 @@ async fn flush_before_resume(
 /// Sleep the backoff, still honouring cancel and pause. Returns `Ok(false)`
 /// when the caller should stop with `Failure::Cancelled` (checked by the call
 /// site) and `Err` for pause.
-async fn sleep_or_stop(
-    delay: Duration,
+async fn wait_online(
+    network: &crate::state::NetworkGate,
     cancel: &CancellationToken,
     pause: &CancellationToken,
-) -> Result<bool, Failure> {
+) -> Result<(), Failure> {
     tokio::select! {
         biased;
-        _ = cancel.cancelled() => Ok(false),
+        _ = cancel.cancelled() => Err(Failure::Cancelled),
         _ = pause.cancelled() => Err(Failure::Paused),
-        _ = tokio::time::sleep(delay) => Ok(true),
+        _ = network.wait_online() => Ok(()),
+    }
+}
+
+/// One whole per-entry stream attempt, abstracted so the long-horizon retry
+/// policy can be tested without an `AppHandle` (#212).
+#[allow(async_fn_in_trait)]
+pub(crate) trait StreamAttempt {
+    async fn run(&mut self) -> Result<StreamOutcome, Failure>;
+}
+
+/// Retry a whole stream attempt with the classic long-horizon policy (#212).
+///
+/// After the per-entry attempts are exhausted, the stream job itself backs off
+/// and runs again against the same checkpoint instead of failing: completed
+/// entries and `.part` files are adopted by `stream_install::install`. A
+/// structurally unusable stream ([`Failure::StreamUnavailable`]) still returns
+/// at once so the caller can fall back to classic; permanent errors stop too.
+async fn stream_with_retry<A: StreamAttempt>(
+    attempt: &mut A,
+    tuning: DownloadTuning<'_>,
+    cancel: &CancellationToken,
+    pause: &CancellationToken,
+    mut on_retry: impl FnMut(&str, u32, Duration),
+) -> Result<StreamOutcome, Failure> {
+    let mut retry = RetryState::new();
+    loop {
+        if let Some(network) = tuning.network {
+            if !network.is_online() {
+                wait_online(network, cancel, pause).await?;
+            }
+        }
+        retry.next_attempt();
+        match attempt.run().await {
+            Ok(outcome) => return Ok(outcome),
+            Err(Failure::Cancelled) => return Err(Failure::Cancelled),
+            Err(Failure::Paused) => return Err(Failure::Paused),
+            Err(Failure::StreamUnavailable(message)) => {
+                return Err(Failure::StreamUnavailable(message))
+            }
+            Err(Failure::Failed(message)) => {
+                if crate::stream_install::is_permanent_stream_failure(&message) {
+                    return Err(Failure::Failed(message));
+                }
+                if let Some(reason) = retry.exhausted(tuning) {
+                    return Err(Failure::Failed(format!(
+                        "The stream install kept failing ({reason}). Last error: {message}. The files already downloaded were kept; retry the install to resume."
+                    )));
+                }
+                let delay = retry_delay(retry.attempt, tuning);
+                on_retry(&message, retry.attempt.saturating_add(1), delay);
+                tracing::warn!(
+                    attempt = retry.attempt,
+                    delay_ms = delay.as_millis() as u64,
+                    error = %message,
+                    "stream install failed; retrying the same job from its checkpoint"
+                );
+                if !sleep_or_stop(delay, cancel, pause, tuning.retry_now).await? {
+                    return Err(Failure::Cancelled);
+                }
+            }
+        }
+    }
+}
+
+/// Production [`StreamAttempt`] over the real per-entry installer.
+struct InstallStreamAttempt<'a> {
+    app: &'a AppHandle,
+    entry: &'a Arc<JobEntry>,
+    params: &'a InstallParams,
+    staging: &'a Path,
+    job_paths: &'a mut JobPaths,
+}
+
+impl StreamAttempt for InstallStreamAttempt<'_> {
+    async fn run(&mut self) -> Result<StreamOutcome, Failure> {
+        crate::stream_install::install(
+            self.app,
+            self.entry,
+            self.params,
+            self.staging,
+            self.job_paths,
+        )
+        .await
     }
 }
 
@@ -3157,7 +3606,14 @@ async fn download(
     let client = state.http.clone();
     let settings = state.settings_snapshot();
     let bandwidth_kib = settings.bandwidth_limit_kib;
-    let tuning = DownloadTuning::from_idle_secs(settings.download_stall_timeout_secs);
+    let tuning = DownloadTuning {
+        network: Some(&state.network),
+        retry_now: Some(entry.retry_signal()),
+        ..DownloadTuning::from_settings(
+            settings.download_stall_timeout_secs,
+            settings.download_retry_window_secs,
+        )
+    };
     let base = params.server_url.trim_end_matches('/');
     if base.is_empty() {
         return Err(Failure::Failed(
@@ -3195,6 +3651,11 @@ async fn download(
                 job.attempt = update.attempt;
                 job.last_error = update.last_error;
                 job.stalled_for_ms = update.stalled_for_ms;
+                job.next_retry_at = update.next_retry_at;
+                job.waiting_for_network = update.waiting_for_network;
+                // Keep the last HTTP status: an open error carries none, and
+                // the diagnostics bundle still wants the failing response.
+                job.http_status = update.http_status.or(job.http_status);
             });
             persist(&handle, &job_entry);
             let _ = handle.emit("install://progress", job_entry.snapshot());
@@ -4035,13 +4496,14 @@ mod tests {
         }
     }
 
-    fn test_tuning(idle_ms: u64, max_attempts: u32) -> DownloadTuning {
+    fn test_tuning(idle_ms: u64, max_attempts: u32) -> DownloadTuning<'static> {
         DownloadTuning {
             idle_timeout: Duration::from_millis(idle_ms),
             max_attempts,
-            max_retry_window: Duration::from_secs(30),
+            max_retry_window: Some(Duration::from_secs(30)),
             base_backoff: Duration::from_millis(1),
             max_backoff: Duration::from_millis(5),
+            ..DownloadTuning::default()
         }
     }
 
@@ -4317,6 +4779,386 @@ mod tests {
     }
 
     #[test]
+    fn the_retry_window_defaults_to_six_hours_and_can_be_unlimited() {
+        let tuning = DownloadTuning::default();
+        assert_eq!(tuning.max_retry_window, Some(Duration::from_secs(6 * 3600)));
+        assert_eq!(tuning.max_attempts, 50);
+        assert_eq!(tuning.max_backoff, Duration::from_secs(5 * 60));
+
+        let unlimited = DownloadTuning::from_settings(30, 0);
+        assert_eq!(unlimited.max_retry_window, None);
+        assert_eq!(
+            unlimited.max_attempts,
+            u32::MAX,
+            "an unlimited window must not be capped by the attempt counter"
+        );
+
+        // The window boundary: one second past 6 h is exhausted, one second
+        // before it still retries.
+        let mut retry = RetryState::new();
+        retry.next_attempt();
+        retry.retry_started = Some(Instant::now() - Duration::from_secs(6 * 3600 + 1));
+        assert!(retry
+            .exhausted(tuning)
+            .expect("window exhausted")
+            .contains("6 h"));
+        retry.retry_started = Some(Instant::now() - Duration::from_secs(6 * 3600 - 60));
+        assert!(
+            retry.exhausted(tuning).is_none(),
+            "inside the window, retrying continues"
+        );
+    }
+
+    #[test]
+    fn repeated_identical_permanent_errors_trip_the_circuit_breaker() {
+        let mut retry = RetryState::new();
+        let message = "Download failed with HTTP 404: gone";
+        assert!(retry.record_failure(message, true).is_none());
+        assert!(retry.record_failure(message, true).is_none());
+        let reason = retry
+            .record_failure(message, true)
+            .expect("third identical permanent error stops the loop");
+        assert!(reason.contains("3 times"), "{reason}");
+        // A transient error repeating is normal during an outage: no breaker.
+        let mut transient = RetryState::new();
+        for _ in 0..10 {
+            assert!(transient
+                .record_failure("connection reset by peer", false)
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn retry_after_is_honoured_and_capped() {
+        assert_eq!(parse_retry_after(" 30 "), Some(Duration::from_secs(30)));
+        assert_eq!(parse_retry_after("Wed, 21 Oct 2015 07:28:00 GMT"), None);
+        assert_eq!(parse_retry_after("soon"), None);
+        let base = Duration::from_secs(2);
+        assert_eq!(
+            retry_delay_with_hint(base, Some(Duration::from_secs(45))),
+            Duration::from_secs(45)
+        );
+        // A shorter Retry-After never shortens the exponential floor.
+        assert_eq!(
+            retry_delay_with_hint(base, Some(Duration::from_secs(1))),
+            base
+        );
+        // A bogus huge header is capped instead of parking the job for hours.
+        assert_eq!(
+            retry_delay_with_hint(base, Some(Duration::from_secs(24 * 3600))),
+            Duration::from_secs(30 * 60)
+        );
+    }
+
+    #[tokio::test]
+    async fn twenty_consecutive_failures_then_success() {
+        let payload: Vec<u8> = (0..64 * 1024).map(|index| (index % 251) as u8).collect();
+        let mut conns: Vec<FakeConn> = (0..20)
+            .map(|_| FakeConn {
+                status: 503,
+                declared_length: Some(0),
+                range_total: None,
+                etag: None,
+                body: Vec::new(),
+                after: After::End,
+                chunk_delay: Duration::ZERO,
+            })
+            .collect();
+        conns.push(FakeConn {
+            status: 200,
+            declared_length: Some(payload.len() as u64),
+            range_total: None,
+            etag: None,
+            body: payload.clone(),
+            after: After::End,
+            chunk_delay: Duration::ZERO,
+        });
+        let (mut transport, ranges) = FakeTransport::new(conns);
+        let root = download_temp_dir("twenty");
+        let part = root.join("archive.part");
+        let updates = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&updates);
+
+        download_into(
+            &mut transport,
+            &part,
+            "Flaky game",
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            0,
+            test_tuning(50, 25),
+            move |update| sink.lock().unwrap().push(update),
+        )
+        .await
+        .expect("a 20-failure burst must still complete");
+
+        assert_eq!(std::fs::read(&part).unwrap(), payload);
+        assert_eq!(
+            ranges.lock().unwrap().len(),
+            21,
+            "twenty retries then the successful connection"
+        );
+        let last = updates.lock().unwrap().last().cloned();
+        let last = last.expect("a completion update");
+        assert_eq!(last.attempt, 21, "the job reports the final attempt");
+        assert_eq!(last.last_error, None);
+        assert_eq!(last.next_retry_at, None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn a_404_stops_at_once_and_keeps_the_part() {
+        let (mut transport, ranges) = FakeTransport::new(vec![FakeConn {
+            status: 404,
+            declared_length: Some(0),
+            range_total: None,
+            etag: None,
+            body: Vec::new(),
+            after: After::End,
+            chunk_delay: Duration::ZERO,
+        }]);
+        let root = download_temp_dir("not-found");
+        let part = root.join("archive.part");
+        std::fs::write(&part, b"kept").unwrap();
+
+        let error = download_into(
+            &mut transport,
+            &part,
+            "Missing game",
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            0,
+            test_tuning(50, 5),
+            |_| {},
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(error, Failure::Failed(_)));
+        assert_eq!(ranges.lock().unwrap().len(), 1, "a 404 is final");
+        assert_eq!(std::fs::read(&part).unwrap(), b"kept");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn an_offline_machine_does_not_open_a_connection_or_burn_an_attempt() {
+        let payload = vec![5u8; 32 * 1024];
+        let (mut transport, ranges) = FakeTransport::new(vec![FakeConn {
+            status: 200,
+            declared_length: Some(payload.len() as u64),
+            range_total: None,
+            etag: None,
+            body: payload.clone(),
+            after: After::End,
+            chunk_delay: Duration::ZERO,
+        }]);
+        let gate = crate::state::NetworkGate::new();
+        gate.set_online(false);
+        let tuning = DownloadTuning {
+            network: Some(&gate),
+            ..test_tuning(50, 5)
+        };
+        let root = download_temp_dir("offline");
+        let part = root.join("archive.part");
+
+        let offline = tokio::time::timeout(
+            Duration::from_millis(120),
+            download_into(
+                &mut transport,
+                &part,
+                "Offline game",
+                &CancellationToken::new(),
+                &CancellationToken::new(),
+                0,
+                tuning,
+                |_| {},
+            ),
+        )
+        .await;
+        assert!(
+            offline.is_err(),
+            "the download must wait while the OS reports offline"
+        );
+        assert!(
+            ranges.lock().unwrap().is_empty(),
+            "no connection may be opened while offline"
+        );
+
+        gate.set_online(true);
+        download_into(
+            &mut transport,
+            &part,
+            "Offline game",
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            0,
+            tuning,
+            |_| {},
+        )
+        .await
+        .expect("the retry starts as soon as the network returns");
+        assert_eq!(std::fs::read(&part).unwrap(), payload);
+        assert_eq!(*ranges.lock().unwrap(), vec![None]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn retry_now_skips_the_backoff_and_cancel_stops_it() {
+        let signal = tokio::sync::Notify::new();
+        let started = Instant::now();
+        let cancel = CancellationToken::new();
+        let pause = CancellationToken::new();
+        let waiter = sleep_or_stop(Duration::from_secs(30), &cancel, &pause, Some(&signal));
+        tokio::pin!(waiter);
+        tokio::select! {
+            result = &mut waiter => panic!("the backoff ended too early: {result:?}"),
+            _ = tokio::time::sleep(Duration::from_millis(20)) => {}
+        }
+        signal.notify_waiters();
+        assert!(waiter.await.unwrap(), "retry now wakes the wait");
+        assert!(started.elapsed() < Duration::from_secs(2));
+
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let started = Instant::now();
+        assert!(!sleep_or_stop(
+            Duration::from_secs(30),
+            &cancel,
+            &CancellationToken::new(),
+            None
+        )
+        .await
+        .unwrap());
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    struct ScriptedStreamAttempt {
+        results: Vec<Result<StreamOutcome, Failure>>,
+        runs: usize,
+    }
+
+    impl StreamAttempt for ScriptedStreamAttempt {
+        async fn run(&mut self) -> Result<StreamOutcome, Failure> {
+            self.runs += 1;
+            if self.results.is_empty() {
+                return Ok(StreamOutcome::Done);
+            }
+            self.results.remove(0)
+        }
+    }
+
+    fn stream_retry_tuning() -> DownloadTuning<'static> {
+        DownloadTuning {
+            base_backoff: Duration::from_millis(1),
+            max_backoff: Duration::from_millis(2),
+            max_retry_window: Some(Duration::from_secs(30)),
+            max_attempts: 5,
+            ..DownloadTuning::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn an_exhausted_stream_entry_retries_the_job_from_its_checkpoint() {
+        let mut attempt = ScriptedStreamAttempt {
+            results: vec![
+                Err(Failure::Failed(
+                    "Entry Game/big.bin failed after 5 attempts (1048576 bytes kept): proxy returned HTTP 524"
+                        .to_string(),
+                )),
+                Ok(StreamOutcome::Done),
+            ],
+            runs: 0,
+        };
+        let retries = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&retries);
+        let outcome = stream_with_retry(
+            &mut attempt,
+            stream_retry_tuning(),
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            move |message, next_attempt, delay| {
+                sink.lock()
+                    .unwrap()
+                    .push((message.to_string(), next_attempt, delay));
+            },
+        )
+        .await;
+
+        assert!(matches!(outcome, Ok(StreamOutcome::Done)), "{outcome:?}");
+        assert_eq!(attempt.runs, 2, "the job runs again instead of failing");
+        let retries = retries.lock().unwrap();
+        assert_eq!(retries.len(), 1);
+        assert_eq!(retries[0].1, 2, "the retry is visible as attempt 2");
+        assert!(retries[0].0.contains("524"), "{}", retries[0].0);
+    }
+
+    #[tokio::test]
+    async fn a_permanent_stream_error_is_not_retried() {
+        let mut attempt = ScriptedStreamAttempt {
+            results: vec![Err(Failure::Failed(
+                "Entry Game/big.bin failed with HTTP 404. The game version or entry was not found on the server."
+                    .to_string(),
+            ))],
+            runs: 0,
+        };
+        let outcome = stream_with_retry(
+            &mut attempt,
+            stream_retry_tuning(),
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            |_, _, _| panic!("a 404 must not be retried"),
+        )
+        .await;
+        assert!(matches!(outcome, Err(Failure::Failed(_))));
+        assert_eq!(attempt.runs, 1);
+    }
+
+    #[tokio::test]
+    async fn an_unusable_stream_path_returns_for_the_classic_fallback() {
+        let mut attempt = ScriptedStreamAttempt {
+            results: vec![Err(Failure::StreamUnavailable(
+                "entry game.exe could not be reached after 5 attempts: HTTP 524".to_string(),
+            ))],
+            runs: 0,
+        };
+        let outcome = stream_with_retry(
+            &mut attempt,
+            stream_retry_tuning(),
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            |_, _, _| panic!("an unusable stream path falls back instead of retrying"),
+        )
+        .await;
+        assert!(matches!(outcome, Err(Failure::StreamUnavailable(_))));
+        assert_eq!(attempt.runs, 1);
+    }
+
+    #[tokio::test]
+    async fn cancel_stops_a_stream_retry_immediately() {
+        let mut attempt = ScriptedStreamAttempt {
+            results: vec![Err(Failure::Failed("proxy returned 502".to_string()))],
+            runs: 0,
+        };
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let started = Instant::now();
+        let outcome = stream_with_retry(
+            &mut attempt,
+            DownloadTuning {
+                base_backoff: Duration::from_secs(30),
+                ..stream_retry_tuning()
+            },
+            &cancel,
+            &CancellationToken::new(),
+            |_, _, _| {},
+        )
+        .await;
+        assert!(matches!(outcome, Err(Failure::Cancelled)));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert_eq!(attempt.runs, 1);
+    }
+
+    #[test]
     fn throttle_paces_bytes() {
         let mut throttle = Throttle::new(256).unwrap();
         let started = Instant::now();
@@ -4388,6 +5230,11 @@ mod tests {
         assert_eq!(snapshot.phase, InstallPhase::Queued);
         assert!(snapshot.resumable, "a failed job with a .part can resume");
         assert_eq!(snapshot.bytes_done, 100);
+        assert_eq!(
+            snapshot.queue_position,
+            Some(1),
+            "an app-restart resume keeps its queue slot (#212)"
+        );
         assert_eq!(
             entry.stored_paths().0.as_deref(),
             Some("/tmp/.3-4.part"),

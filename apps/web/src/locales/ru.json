@@ -3612,5 +3612,19 @@
   "Update notifications": "Уведомления об обновлениях",
   "When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.": "Когда публикуется новая сборка. Значок и центр обновлений от этого не зависят: обновление никогда не загружается само.",
   "You are on {current}": "Вы находитесь на {current}",
-  "You are on {current} · {size}": "Вы находитесь на {current} · {size}"
+  "You are on {current} · {size}": "Вы находитесь на {current} · {size}",
+  "Automatic retries": "Автоматические повторы",
+  "A dropped transfer retries on its own for this long before the install stops: same job, same offset, with a backoff capped at five minutes. A wrong password, a missing game or a full disk stops immediately instead of looping. Use 0 to keep retrying until the app closes.": "Прерванная передача повторяется автоматически в течение этого времени, прежде чем установка остановится: тот же job, тот же offset, backoff не более пяти минут. Неверный пароль, отсутствующая игра или заполненный диск останавливаются сразу, без цикла. 0 — повторять до закрытия приложения.",
+  "Retry window in hours": "Окно повторов в часах",
+  "Retrying until the app closes. Cancel always stops the download immediately.": "Повторы до закрытия приложения. Отмена всегда сразу останавливает загрузку.",
+  "Retrying for up to 1 hour. Cancel always stops the download immediately.": "Повторы до 1 ч. Отмена всегда сразу останавливает загрузку.",
+  "Retrying for up to {count} hours. Cancel always stops the download immediately.": "Повторы до {count} ч. Отмена всегда сразу останавливает загрузку.",
+  "After a restart": "После перезапуска",
+  "Resume unfinished downloads on launch": "Возобновлять незавершённые загрузки при запуске",
+  "Re-enters an install that was still downloading when Ludex closed, at the same offset and in the same queue position. A paused or cancelled install is never resumed automatically.": "Возвращает в очередь установку, которая ещё скачивалась при закрытии Ludex, с тем же offset и местом в очереди. Приостановленная или отменённая установка никогда не возобновляется автоматически.",
+  "Waiting for the network": "Ожидание сети",
+  "Retrying in {seconds} s, attempt {attempt}": "Повтор через {seconds} с, попытка {attempt}",
+  "Skips the current wait and retries immediately": "Пропускает текущее ожидание и повторяет сразу",
+  "Retry now": "Повторить сейчас",
+  "Could not retry now": "Не удалось повторить сейчас"
 }

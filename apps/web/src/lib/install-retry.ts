@@ -34,6 +34,21 @@ export interface RetryPlan {
 /** True when the job's row offers a retry action at all. */
 export const canRetryJob = (job: InstallJob): boolean => RESUMABLE_PHASES.has(job.phase);
 
+/** Seconds until the next automatic retry (#212), `null` when none is set. */
+export function secondsUntilRetry(nextRetryAt: string | null, now = Date.now()): number | null {
+  if (!nextRetryAt) return null;
+  const at = Date.parse(nextRetryAt);
+  if (!Number.isFinite(at)) return null;
+  return Math.max(0, Math.ceil((at - now) / 1000));
+}
+
+/**
+ * True when "Retry now" can skip a real wait (#212). A job parked because the
+ * OS is offline has no timer to skip: it resumes on its own at `online`.
+ */
+export const canRetryNow = (job: InstallJob): boolean =>
+  job.reconnecting === true && job.nextRetryAt !== null && job.waitingForNetwork !== true;
+
 /**
  * True when retrying continues at the checkpoint. A failed job without one
  * (free-space error before the first byte, a legacy tar stream) is a restart,

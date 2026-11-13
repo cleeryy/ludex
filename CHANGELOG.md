@@ -24,6 +24,16 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Long-horizon automatic retry for downloads (#212): transient failures no
+  longer need a manual Resume — classic installs retry with capped backoff for
+  a configurable window (default 6 h, or until the app closes), permanent errors
+  (400/401/403/404/415, changed archive, disk full, invalid range) stop at once
+  with a circuit breaker, stream jobs retry the same checkpoint after per-entry
+  exhaustion, interrupted resumable jobs auto-resume on launch (paused and
+  cancelled ones never do, queue position kept), and the Downloads screen shows
+  the attempt, a "Retrying in N s" countdown, a waiting-for-network state and a
+  "Retry now" button. The diagnostics bundle now includes the job's attempt,
+  offset, HTTP status and redacted last error.
 - Update notifications (#213): one persistent in-app card per version (Open
   update center / Later / Skip this version, deduplicated by version and
   suppressed on the update/setup/login pages) plus desktop OS notifications

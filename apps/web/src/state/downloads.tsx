@@ -124,6 +124,8 @@ interface DownloadsValue {
   resume: (job: InstallJob, info: ResumeInfo) => Promise<InstallJob | null>;
   retryAsDownload: (job: InstallJob, info: ResumeInfo) => Promise<InstallJob | null>;
   retryStream: (job: InstallJob, info: ResumeInfo) => Promise<InstallJob | null>;
+  /** Skip the current retry backoff of a waiting job (#212). */
+  retryNow: (jobId: string) => Promise<void>;
   /**
    * Move a waiting install in the queue (#202): `top`, `up`, `down` or an
    * explicit `position`. Optimistic, rolled back when the desktop refuses.
@@ -285,6 +287,23 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [available, refresh]);
+
+  // #212: the desktop owns the retry timers, so it needs the OS reachability.
+  // Report once on mount, then on every transition; while offline a retry
+  // parks instead of counting a failed attempt.
+  useEffect(() => {
+    if (!isNative()) return;
+    const report = () => {
+      void native.setDownloadNetworkState(navigator.onLine);
+    };
+    report();
+    window.addEventListener("online", report);
+    window.addEventListener("offline", report);
+    return () => {
+      window.removeEventListener("online", report);
+      window.removeEventListener("offline", report);
+    };
+  }, []);
 
   const titleFor = useCallback(
     (job: InstallJob) => titles[job.jobId] ?? gamesById.get(job.gameId)?.title ?? `Game ${job.gameId}`,
@@ -469,6 +488,20 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     [runRetry],
   );
 
+  /** Skip the wait, not the job: same id, same offset, same attempt budget. */
+  const retryNow = useCallback(
+    async (jobId: string) => {
+      try {
+        const next = await installBridge.retryNow(jobId);
+        setJobs((current) => current.map((job) => (job.jobId === next.jobId ? next : job)));
+        await refresh();
+      } catch (cause) {
+        push({ title: t("Could not retry now"), description: errorMessage(cause), tone: "danger" });
+      }
+    },
+    [refresh, push],
+  );
+
   /**
    * Reorder the queue (#202). The local list moves first so the buttons react
    * immediately; the desktop's confirmed order replaces it, and any refusal
@@ -570,6 +603,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       resume,
       retryAsDownload,
       retryStream,
+      retryNow,
       reorder,
       remove,
       clearHistory,
@@ -578,7 +612,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       resumableForGame,
       titleFor,
     }),
-    [available, jobs, active, history, aggregate, transfer, startInstall, cancel, pause, resume, retryAsDownload, retryStream, reorder, remove, clearHistory, openFolder, jobForGame, resumableForGame, titleFor],
+    [available, jobs, active, history, aggregate, transfer, startInstall, cancel, pause, resume, retryAsDownload, retryStream, retryNow, reorder, remove, clearHistory, openFolder, jobForGame, resumableForGame, titleFor],
   );
 
   return <DownloadsContext.Provider value={value}>{children}</DownloadsContext.Provider>;

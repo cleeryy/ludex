@@ -124,6 +124,34 @@ pub struct DiagnosticsStatus {
     pub reports: Vec<ReportSummary>,
     /// Number of reports not sent yet.
     pub unsent: usize,
+    /// Redacted download jobs (#212): last error, attempt, offset and HTTP
+    /// status. Never contains a token; empty when no job is tracked.
+    pub downloads: Vec<DownloadJobDiagnostics>,
+}
+
+/// Redacted snapshot of one download job for the diagnostics bundle (#212).
+///
+/// The point is to answer "why did this install stop?" from a user's report
+/// without asking them to paste logs: the attempt counter, the resume offset,
+/// the HTTP status and the last transport error identify the failing layer.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadJobDiagnostics {
+    pub job_id: String,
+    pub game_id: i64,
+    pub phase: String,
+    pub stream: bool,
+    /// Connection attempt of the job when the snapshot was taken.
+    pub attempt: u32,
+    /// Bytes already on disk: the offset the next request resumes from.
+    pub offset: u64,
+    pub bytes_total: Option<u64>,
+    /// HTTP status of the last response, `None` for a pure transport error.
+    pub http_status: Option<u16>,
+    /// Redacted last transport error.
+    pub last_error: Option<String>,
+    pub next_retry_at: Option<String>,
+    pub waiting_for_network: bool,
 }
 
 /// Outcome of an explicit send.
@@ -230,7 +258,40 @@ impl DiagnosticsStore {
             channel: channel(settings.update_channel).to_string(),
             reports: self.summaries(),
             unsent: self.unsent(),
+            downloads: Vec::new(),
         }
+    }
+
+    /// Redacted download rows for the diagnostics bundle (#212).
+    ///
+    /// Tokens live in the job parameters, never in these fields; the error
+    /// text is run through the same redaction as a crash report, and the
+    /// snapshot is capped at 10 rows (active jobs are the interesting ones).
+    pub fn download_jobs(
+        &self,
+        jobs: impl IntoIterator<Item = crate::install::InstallJob>,
+    ) -> Vec<DownloadJobDiagnostics> {
+        jobs.into_iter()
+            .take(10)
+            .map(|job| DownloadJobDiagnostics {
+                job_id: job.job_id,
+                game_id: job.game_id,
+                phase: job.phase.as_str().to_string(),
+                stream: job.stream,
+                attempt: job.attempt,
+                offset: job.bytes_done,
+                bytes_total: job.bytes_total,
+                http_status: job.http_status,
+                last_error: job.last_error.map(|value| {
+                    truncate(
+                        &ludex_core::redact::redact(&value, &self.redaction),
+                        MAX_LOG_CHARS,
+                    )
+                }),
+                next_retry_at: job.next_retry_at,
+                waiting_for_network: job.waiting_for_network,
+            })
+            .collect()
     }
 
     /// Local reports, newest first.
@@ -611,6 +672,56 @@ mod tests {
         assert_eq!(preview.payload["installId"], "install1234567890");
         assert_eq!(preview.payload["appVersion"], env!("CARGO_PKG_VERSION"));
         assert_eq!(preview.payload["errorKind"], "startup");
+    }
+
+    #[test]
+    fn the_download_bundle_carries_status_attempt_and_offset_without_tokens() {
+        let store = DiagnosticsStore::in_memory();
+        let job = crate::install::InstallJob {
+            job_id: "job-42".to_string(),
+            game_id: 7,
+            version_id: 9,
+            phase: crate::install::InstallPhase::Downloading,
+            bytes_done: 4096,
+            bytes_total: Some(8192),
+            speed_bps: 0,
+            message: Some("Retrying".to_string()),
+            install_path: Some("/home/tester/Games/Hades".to_string()),
+            stream: true,
+            resumable: true,
+            entries_done: Some(3),
+            entries_total: Some(9),
+            current_entry: Some("Game/big.bin".to_string()),
+            resumed_entries: None,
+            reconnecting: true,
+            attempt: 7,
+            last_error: Some(
+                "Download failed with HTTP 524 for /home/tester/Games/Hades (token=abcdef123456)"
+                    .to_string(),
+            ),
+            stalled_for_ms: None,
+            next_retry_at: Some("2026-11-13T02:00:00+00:00".to_string()),
+            http_status: Some(524),
+            waiting_for_network: false,
+            queue_position: None,
+        };
+        let rows = store.download_jobs(vec![job]);
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row.job_id, "job-42");
+        assert_eq!(row.attempt, 7);
+        assert_eq!(row.offset, 4096, "the offset is what a resume asks for");
+        assert_eq!(row.http_status, Some(524));
+        assert_eq!(
+            row.next_retry_at.as_deref(),
+            Some("2026-11-13T02:00:00+00:00")
+        );
+        assert!(row.stream);
+        let error = row.last_error.as_deref().unwrap_or_default();
+        assert!(error.contains("524"), "{error}");
+        assert!(!error.contains("abcdef123456"), "token leaked: {error}");
+        assert!(!error.contains("/home/tester"), "path leaked: {error}");
+        assert!(error.contains("<token>"), "{error}");
     }
 
     #[test]

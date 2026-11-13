@@ -3612,5 +3612,19 @@
   "Update notifications": "アップデート通知",
   "When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.": "新しいビルドが公開されたとき。バッジとアップデートセンターはこの設定に影響されません。アップデートが自動でダウンロードされることはありません。",
   "You are on {current}": "{current} を使用しています",
-  "You are on {current} · {size}": "{current} を使用しています · {size}"
+  "You are on {current} · {size}": "{current} を使用しています · {size}",
+  "Automatic retries": "自動再試行",
+  "A dropped transfer retries on its own for this long before the install stops: same job, same offset, with a backoff capped at five minutes. A wrong password, a missing game or a full disk stops immediately instead of looping. Use 0 to keep retrying until the app closes.": "中断した転送は、インストールが停止するまでこの時間だけ自動で再試行します。同じジョブ、同じオフセット、バックオフは最大5分です。パスワード間違い、ゲームが見つからない、ディスク容量不足はループせず即座に停止します。0 はアプリを閉じるまで再試行します。",
+  "Retry window in hours": "再試行ウィンドウ（時間）",
+  "Retrying until the app closes. Cancel always stops the download immediately.": "アプリを閉じるまで再試行します。キャンセルは常にダウンロードを即座に停止します。",
+  "Retrying for up to 1 hour. Cancel always stops the download immediately.": "最大 1 時間再試行します。キャンセルは常にダウンロードを即座に停止します。",
+  "Retrying for up to {count} hours. Cancel always stops the download immediately.": "最大 {count} 時間再試行します。キャンセルは常にダウンロードを即座に停止します。",
+  "After a restart": "再起動後",
+  "Resume unfinished downloads on launch": "起動時に未完了のダウンロードを再開",
+  "Re-enters an install that was still downloading when Ludex closed, at the same offset and in the same queue position. A paused or cancelled install is never resumed automatically.": "Ludex を閉じたときにダウンロード中だったインストールを、同じオフセットと同じキューの位置で再開します。一時停止またはキャンセルしたインストールは自動再開しません。",
+  "Waiting for the network": "ネットワークを待機中",
+  "Retrying in {seconds} s, attempt {attempt}": "{seconds} 秒後に再試行、試行 {attempt}",
+  "Skips the current wait and retries immediately": "現在の待機を飛ばしてすぐに再試行します",
+  "Retry now": "今すぐ再試行",
+  "Could not retry now": "今すぐ再試行できませんでした"
 }

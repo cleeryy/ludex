@@ -3612,5 +3612,19 @@
   "Update notifications": "업데이트 알림",
   "When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.": "새 빌드가 게시될 때. 배지와 업데이트 센터는 이 설정과 무관합니다. 업데이트는 자동으로 다운로드되지 않습니다.",
   "You are on {current}": "현재 {current} 사용 중",
-  "You are on {current} · {size}": "현재 {current} 사용 중 · {size}"
+  "You are on {current} · {size}": "현재 {current} 사용 중 · {size}",
+  "Automatic retries": "자동 재시도",
+  "A dropped transfer retries on its own for this long before the install stops: same job, same offset, with a backoff capped at five minutes. A wrong password, a missing game or a full disk stops immediately instead of looping. Use 0 to keep retrying until the app closes.": "중단된 전송은 설치가 멈추기 전까지 이 시간 동안 자동으로 재시도합니다. 동일한 작업, 동일한 오프셋, 백오프는 최대 5분입니다. 잘못된 비밀번호, 없는 게임, 가득 찬 디스크는 반복하지 않고 즉시 중지됩니다. 0은 앱을 닫을 때까지 재시도합니다.",
+  "Retry window in hours": "재시도 기간(시간)",
+  "Retrying until the app closes. Cancel always stops the download immediately.": "앱을 닫을 때까지 재시도합니다. 취소는 항상 다운로드를 즉시 중지합니다.",
+  "Retrying for up to 1 hour. Cancel always stops the download immediately.": "최대 1시간 동안 재시도합니다. 취소는 항상 다운로드를 즉시 중지합니다.",
+  "Retrying for up to {count} hours. Cancel always stops the download immediately.": "최대 {count}시간 동안 재시도합니다. 취소는 항상 다운로드를 즉시 중지합니다.",
+  "After a restart": "재시작 후",
+  "Resume unfinished downloads on launch": "시작할 때 완료되지 않은 다운로드 재개",
+  "Re-enters an install that was still downloading when Ludex closed, at the same offset and in the same queue position. A paused or cancelled install is never resumed automatically.": "Ludex가 닫힐 때 다운로드 중이던 설치를 같은 오프셋과 같은 대기열 위치로 다시 넣습니다. 일시 중지되거나 취소된 설치는 자동으로 재개되지 않습니다.",
+  "Waiting for the network": "네트워크 대기 중",
+  "Retrying in {seconds} s, attempt {attempt}": "{seconds}초 후 재시도, 시도 {attempt}",
+  "Skips the current wait and retries immediately": "현재 대기를 건너뛰고 즉시 재시도합니다",
+  "Retry now": "지금 재시도",
+  "Could not retry now": "지금 재시도할 수 없습니다"
 }

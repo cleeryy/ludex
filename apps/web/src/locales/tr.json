@@ -3612,5 +3612,19 @@
   "Update notifications": "Güncelleme bildirimleri",
   "When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.": "Yeni bir sürüm yayımlandığında. Rozet ve güncelleme merkezi bundan etkilenmez: güncelleme asla kendi kendine indirilmez.",
   "You are on {current}": "Şu an {current} kullanıyorsunuz",
-  "You are on {current} · {size}": "Şu an {current} kullanıyorsunuz · {size}"
+  "You are on {current} · {size}": "Şu an {current} kullanıyorsunuz · {size}",
+  "Automatic retries": "Otomatik yeniden denemeler",
+  "A dropped transfer retries on its own for this long before the install stops: same job, same offset, with a backoff capped at five minutes. A wrong password, a missing game or a full disk stops immediately instead of looping. Use 0 to keep retrying until the app closes.": "Kesilen aktarım, kurulum durmadan önce bu süre boyunca kendiliğinden yeniden denenir: aynı iş, aynı offset, beş dakikayla sınırlı backoff. Yanlış parola, eksik oyun veya dolu disk döngüye girmeden hemen durur. 0, uygulama kapanana kadar dener.",
+  "Retry window in hours": "Yeniden deneme penceresi (saat)",
+  "Retrying until the app closes. Cancel always stops the download immediately.": "Uygulama kapanana kadar yeniden denenir. İptal, indirmeyi her zaman hemen durdurur.",
+  "Retrying for up to 1 hour. Cancel always stops the download immediately.": "En fazla 1 saat yeniden denenir. İptal, indirmeyi her zaman hemen durdurur.",
+  "Retrying for up to {count} hours. Cancel always stops the download immediately.": "En fazla {count} saat yeniden denenir. İptal, indirmeyi her zaman hemen durdurur.",
+  "After a restart": "Yeniden başlatmadan sonra",
+  "Resume unfinished downloads on launch": "Başlangıçta tamamlanmamış indirmeleri sürdür",
+  "Re-enters an install that was still downloading when Ludex closed, at the same offset and in the same queue position. A paused or cancelled install is never resumed automatically.": "Ludex kapanırken hâlâ indirilen bir kurulumu aynı offset ve aynı kuyruk konumuyla yeniden kuyruğa alır. Duraklatılmış veya iptal edilmiş bir kurulum asla otomatik sürdürülmez.",
+  "Waiting for the network": "Ağ bekleniyor",
+  "Retrying in {seconds} s, attempt {attempt}": "{seconds} sn sonra yeniden deneme, deneme {attempt}",
+  "Skips the current wait and retries immediately": "Mevcut beklemeyi atlar ve hemen yeniden dener",
+  "Retry now": "Şimdi yeniden dene",
+  "Could not retry now": "Şimdi yeniden denenemedi"
 }

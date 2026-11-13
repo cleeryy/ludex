@@ -67,23 +67,83 @@ The lessons that matter for a self-hosted archive server:
   byte granularity. Entries already on disk are verified and skipped; a changed
   archive/manifest restarts from zero with a clear message.
 - A full app restart does not lose the job. The queue row is restored, the
-  checkpoint is read, and the UI shows "Resuming from X".
+  checkpoint is read, and the job re-enters the queue automatically (unless it
+  was paused/cancelled or `autoResumeDownloads` is off), so the UI shows
+  "Resuming from X" without a click.
 
 ## Stall detection and recovery
 
 - The client judges idleness **per response chunk**, not with a global read
   timeout: no bytes for ~30 s means a stall (configurable in
   Settings → Downloads → Connection recovery).
-- A stalled/dropped response is retried with exponential backoff and jitter,
-  bounded per entry/job. The next request resumes at the last flushed offset.
-- HTTP `408`, `425`, `429`, `5xx`, connection reset, TLS/body decode errors and
-  proxy `502`/`504`/`524` are retryable. `401`, `403`, `404` and `415` are not:
-  the job fails with the server's reason instead of looping.
-- The job exposes `reconnecting`, `attempt`, `lastError` and `stalledForMs`;
-  the UI shows "Connection lost, resuming from X%" instead of a frozen 0 B/s.
+- A stalled/dropped response is retried with exponential backoff and jitter
+  (1 s doubling, capped at 5 min). The next request resumes at the last flushed
+  offset; the `.part` is never restarted while it is valid.
+- **Long-horizon retry (#212).** Retrying continues for
+  `downloadRetryWindowSecs` (default **6 h**, `0` = until the app closes). A
+  dropped WAN, a Caddy restart or a ten-minute outage therefore needs no manual
+  Resume. The window is set in Settings → Downloads → Automatic retries.
+- **Only permanent errors stop immediately:** `400`, `401`, `403`, `404`,
+  `415`, a changed archive (`ETag`/size/start offset, after two explicit
+  restarts), a rejected resume offset (`416` after an explicit restart), and a
+  full disk. The message names the layer and the `.part` is kept.
+- A circuit breaker stops after **three identical permanent errors**, so a buggy
+  server or archive cannot spin the retry loop.
+- `408`, `425`, `429`, `5xx`, connection reset, TLS/body decode errors and proxy
+  `502`/`504`/`524` are retryable. A `429`/`503` `Retry-After` is honoured
+  (capped at 30 min).
+- **Visibility.** While a retry waits the job stays in the active queue with
+  `reconnecting`, `attempt`, `lastError`, `stalledForMs`, `httpStatus` and
+  `nextRetryAt`. The row shows "Retrying in 42 s, attempt 7" and a **Retry now**
+  button; cancel stops the job immediately (including during a backoff wait).
+- **Offline.** The web shell forwards `navigator.onLine` to
+  `set_download_network_state`. While offline, retries park
+  (`waitingForNetwork`) without counting a failed attempt and resume on the next
+  `online` event.
 - The server rate-limits reconnect abuse per address/version (`429` +
   `Retry-After`) and logs `bytes`, `elapsed_ms`, `range_start` and `outcome`
   (`complete`, `error`, `client_abort`) for each stream.
+
+## Stream retry and the 524 budget (#211/#212)
+
+- Each entry gets five short attempts (0.5 s → 8 s backoff), then the **job**
+  backs off and runs again against the same checkpoint: completed entries are
+  skipped and per-entry `.part` files resume at their byte offset. The job-level
+  retry uses the same 6 h window and the same visibility fields.
+- A stream attempt only falls back to classic or fails when the path is
+  structurally unusable: unsupported format/manifest, or the whole job received
+  **zero bytes** after its entry attempts.
+- Each entry request must produce its first body chunk within **20 s**. Cloudflare
+  answers a 524 at ~100 s; five 20 s attempts plus backoff fit inside that
+  budget, so a stuck proxy ends in the classic fallback instead of a hung job.
+  A 524 in the middle of a working entry is retried at the exact byte.
+- Server side, `GET .../stream/entries/{index}` logs `stream entry response`
+  (`index`, `path`, `size`, `start`, `length`, `partial`, `elapsed_ms`) before
+  the body, and `download stream closed` (`status`, `bytes`, `elapsed_ms`,
+  `outcome`) when the body ends or the client aborts. Use those two lines to
+  tell a proxy timeout (no entry response) from a client abort (entry response,
+  then `client_abort`).
+
+## Resume on launch (#212)
+
+- On exit the desktop marks rows that were still active, keeping their queue
+  position. At startup, with `autoResumeDownloads` on (default), it rebuilds
+  those workers from `install_job_params` and re-queues them at the recorded
+  position. The job id, `.part` offset and stream checkpoint are reused, so the
+  Downloads history keeps one row and no bytes are fetched twice.
+- A user-paused or cancelled job is never auto-resumed. A real failure (404,
+  disk full, changed archive) carries its own message and is not auto-resumed
+  either; the row stays in history with its Retry action.
+- Turn it off in Settings → Downloads → After a restart (the job then waits for
+  an explicit Resume).
+
+## Diagnostics bundle (#211 item 6)
+
+`diagnostics_status` returns a `downloads` array (at most 10 jobs) with the
+redacted `lastError`, `attempt`, `offset` (bytes on disk), `bytesTotal`,
+`httpStatus`, `nextRetryAt`, `phase` and `stream`. Tokens, URLs and absolute
+paths are redacted; the token stored in `install_job_params` is never included.
+That is what to attach to a bug report instead of pasting logs.
 
 ## Queue
 
@@ -131,15 +191,27 @@ last offset and the server/Caddy status.
 
 ## Field acceptance (40 GB)
 
-1. Start a 40 GB classic download over the real WAN path.
-2. Drop the client network for 30 s three times; confirm same job id, offset
-   resumes, one history row, final hash/size.
-3. Restart the desktop app mid-download; press Resume; confirm the same job and
-   offset.
-4. Repeat with stream enabled: confirm per-entry resume, then a forced `524`
-   falls back to classic once.
-5. Reorder a second queued game to the top; confirm it starts next.
-6. Record the result in #211 (epic) with the server/Caddy logs.
+This is the matrix that closes #211 items 1 and 4. It must be run on the real
+Proxmox/Caddy/Cloudflare setup and on a second connection; automated tests
+cannot prove a WAN path.
+
+| # | Scenario | Steps | Pass criteria |
+|---|---|---|---|
+| 1 | Classic 40 GB, LAN | Install the 40 GB archive from a LAN client | Completes; `sha256`/size match; one Downloads row; elapsed time recorded |
+| 2 | Classic 40 GB, WAN | Same over the real WAN/proxy path | Same hash/size; note throughput in Mb/s |
+| 3 | 20 drops | Drop the client link 20 times during a classic install (or script `nmcli`/router toggles) | Same job id and offset after each drop; no manual Resume; completes |
+| 4 | 10-minute outage | Offline for 10 min mid-download, then restore | Retry waits (countdown visible), resumes at the same offset, completes |
+| 5 | App restart at 50 % | Kill the app at ~50 %, relaunch | Job auto-resumes at the same offset, same job id, one history row |
+| 6 | Paused across restart | Pause, quit, relaunch | Job stays paused (no auto-resume) and Resumes from the checkpoint on click |
+| 7 | Stream, 524 burst | Stream install through Cloudflare, force a 524 burst on one entry | Entries resume at the byte; after exhaustion the job retries itself; if zero bytes ever arrived it falls back to classic once, with no duplicate row |
+| 8 | Stream restart | Kill the app mid-stream, relaunch | Completed entries are skipped, the interrupted entry resumes, same job id |
+| 9 | Queue reorder | Add a second install, move it to the top, let it start | Order changes; positions survive a restart; no second row |
+| 10 | Wrong version | Install a version deleted/replaced on the server (404) | Stops immediately with a clear message; `.part` kept; no retry loop |
+| 11 | Throughput decision | Run `scripts/bench-download.sh` and the PERFORMANCE matrix; compare `aria2c -x8` | Either parallel ranges are worth a flag, or the link/disk ceiling is recorded and optimisation stops |
+
+Record for each row: job id, final offset, retry count, final hash/size,
+elapsed time, client and server/Caddy log excerpts (never a token). Close #211
+only after the table is filled in the issue.
 
 ## Related
 

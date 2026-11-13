@@ -234,6 +234,21 @@ pub fn resume_install(
     install::resume_with_mode(&app, &job_id, mode)
 }
 
+/// Skip the retry backoff of a waiting download (#212). Same job, same
+/// checkpoint; the worker wakes immediately instead of at `nextRetryAt`.
+#[tauri::command]
+pub fn retry_install_now(app: AppHandle, job_id: String) -> Result<InstallJob, String> {
+    install::retry_now(&app, &job_id)
+}
+
+/// OS reachability from `navigator.onLine` (#212). While offline, download
+/// retries park instead of counting failed attempts.
+#[tauri::command]
+pub fn set_download_network_state(app: AppHandle, online: bool) {
+    app.state::<AppState>().network.set_online(online);
+    tracing::info!(online, "download network state changed");
+}
+
 /// Move a waiting install in the download queue (#202).
 ///
 /// `action` is `top`, `up`, `down` or `position` (then `position` is the
@@ -5130,7 +5145,18 @@ pub fn diagnostics_status(
             current.diagnostics_install_id = install_id;
         })?;
     }
-    Ok(state.diagnostics.status(&settings))
+    let mut status = state.diagnostics.status(&settings);
+    let jobs = {
+        let jobs = state
+            .jobs
+            .lock()
+            .map_err(|_| "The install queue is unavailable; restart Ludex.".to_string())?;
+        jobs.values()
+            .map(|entry| entry.snapshot())
+            .collect::<Vec<_>>()
+    };
+    status.downloads = state.diagnostics.download_jobs(jobs);
+    Ok(status)
 }
 
 /// Turn anonymous diagnostics on or off. Turning it off deletes every stored

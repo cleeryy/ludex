@@ -156,6 +156,9 @@ function job(
     attempt: 1,
     lastError: null,
     stalledForMs: null,
+    nextRetryAt: null,
+    httpStatus: null,
+    waitingForNetwork: false,
     queuePosition: null,
   };
 }
@@ -350,6 +353,8 @@ const DEFAULT_SETTINGS: LocalSettings = {
   archivePasswords: [],
   bandwidthLimitKib: 0,
   downloadStallTimeoutSecs: 30,
+  downloadRetryWindowSecs: 21600,
+  autoResumeDownloads: true,
   closeToTray: true,
   nativeTitleBar: false,
   updateChannel: "stable",
@@ -482,6 +487,9 @@ export const mockInstalls = {
       attempt: 1,
       lastError: null,
       stalledForMs: null,
+      nextRetryAt: null,
+      httpStatus: null,
+      waitingForNetwork: false,
       queuePosition: nextQueuePosition(jobs),
     };
     phaseEnds.set(id, now() + 1500);
@@ -534,6 +542,20 @@ export const mockInstalls = {
       }
       emit();
     }
+    return Promise.resolve(clone(target));
+  },
+
+  /** Skip the demo retry countdown (#212); the same job keeps its offset. */
+  retryNow(jobId: string): Promise<InstallJob> {
+    const target = jobs.find((entry) => entry.jobId === jobId);
+    if (!target) return Promise.reject(new Error("Unknown install job"));
+    if (!target.reconnecting) {
+      return Promise.reject(new Error("This download is not waiting to retry."));
+    }
+    target.nextRetryAt = null;
+    target.waitingForNetwork = false;
+    target.message = "Retrying now";
+    emit();
     return Promise.resolve(clone(target));
   },
 

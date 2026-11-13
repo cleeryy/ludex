@@ -29,6 +29,9 @@ function job(overrides: Partial<InstallJob> & Pick<InstallJob, "jobId" | "phase"
     attempt: 1,
     lastError: null,
     stalledForMs: null,
+    nextRetryAt: null,
+    httpStatus: null,
+    waitingForNetwork: false,
     queuePosition: null,
     ...overrides,
   };

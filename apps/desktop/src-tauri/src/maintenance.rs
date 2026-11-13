@@ -618,7 +618,13 @@ pub async fn repair_install(app: &AppHandle, game_id: i64) -> Result<RepairRepor
             &cancel,
             &pause,
             settings.bandwidth_limit_kib,
-            install::DownloadTuning::from_idle_secs(settings.download_stall_timeout_secs),
+            install::DownloadTuning {
+                network: Some(&state.network),
+                ..install::DownloadTuning::from_settings(
+                    settings.download_stall_timeout_secs,
+                    settings.download_retry_window_secs,
+                )
+            },
             move |update: DownloadProgress| {
                 let _ = handle.emit(
                     "install://repair-progress",
