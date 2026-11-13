@@ -51,6 +51,7 @@ mod streaming;
 #[cfg(test)]
 mod test_support;
 mod tray;
+mod update_notify;
 mod updater;
 mod updates;
 mod util;
@@ -80,6 +81,10 @@ pub fn run() {
             tray::show_window(app);
         }))
         .plugin(tauri_plugin_dialog::init())
+        // #213: OS notifications for a new build (Windows toast, macOS
+        // Notification Center, Linux libnotify). Plain notifications only; the
+        // click handler below focuses Ludex on the update center.
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         // Registered even without a signing key: the plugin refuses to install
@@ -122,6 +127,10 @@ pub fn run() {
             remote_play::spawn_startup_cleanup(&state.app_data);
             app.manage(state);
             app.manage(remote_play_state);
+
+            // #213: must be installed before the first notification, otherwise
+            // the plugin does not track clicks.
+            update_notify::register_click_handler(app.handle()).map_err(std::io::Error::other)?;
 
             if console_mode.active {
                 console::apply_window(app.handle());
@@ -174,6 +183,9 @@ pub fn run() {
 
                 // Throttled to once per 24 h; a no-op without release keys.
                 updater::check_on_startup(handle.clone()).await;
+                // #213: a window left open for days still learns about a new
+                // build; the same throttle and preference apply.
+                updater::spawn_periodic_check(handle.clone());
             });
             Ok(())
         })
@@ -218,6 +230,7 @@ pub fn run() {
             commands::update_game,
             commands::check_for_updates,
             commands::install_update,
+            update_notify::notify_update_available,
             commands::restart_app,
             updater::update_status,
             updater::set_update_channel,

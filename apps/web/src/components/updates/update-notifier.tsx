@@ -1,27 +1,53 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ArrowRight, Download, RotateCcw } from "lucide-react";
 import { formatBytes, formatDate, formatSpeed } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { isNative, native } from "@/lib/native";
 import {
   markPrompted,
+  markUpdateNoticeLater,
+  markUpdateNoticeShown,
   readPromptedVersion,
+  readUpdateNotice,
   shouldPrompt,
+  shouldSendOsNotification,
   shouldShowBadge,
+  shouldShowUpdateNotice,
+  type UpdateNoticeRecord,
 } from "@/lib/updates";
 import { useUpdater } from "@/components/updates/update-provider";
-import { useUpdatePrompt } from "@/state/preferences";
+import { UpdateNotice } from "@/components/updates/update-notice";
+import { useToast } from "@/state/toasts";
+import { useUpdateNotifications, useUpdatePrompt } from "@/state/preferences";
 import { ExternalAnchor, ReleaseNotes } from "@/components/updates/parts";
 import { Badge, Button, Progress } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 
+/** Body shared by the in-app card and the OS banner (#213). */
+function noticeBody(currentVersion: string, sizeBytes: number | null): string {
+  return sizeBytes
+    ? t("You are on {current} · {size}", {
+        current: currentVersion,
+        size: formatBytes(sizeBytes),
+      })
+    : t("You are on {current}", { current: currentVersion });
+}
+
 /**
- * Launch prompt and persistent badge for app updates (#163).
+ * Launch prompt, persistent badge and update notice for app updates (#163, #213).
  *
  * One dialog per version at launch — never twice, never while Big Picture is
  * open, never on the update center itself. "Later" silences it for a day,
  * "Skip this version" persists the skip so only a newer version prompts again.
  * Closing the dialog never cancels a running install.
+ *
+ * The in-app notice (#213) is a second, persistent surface: one card per
+ * version with the current version and the download size, "Open update center"
+ * / "Later" / "Skip this version". Marking it read never skips the version and
+ * the badge/update center stay the source of truth. When the desktop window is
+ * not in front and the account allows it, the same text becomes an OS
+ * notification; a running game and the console shell never get a popup.
  */
 export function UpdateNotifier() {
   const {
@@ -37,15 +63,24 @@ export function UpdateNotifier() {
     remindLater,
   } = useUpdater();
   const location = useLocation();
+  const { push } = useToast();
   const promptPreference = useUpdatePrompt();
+  const noticePreference = useUpdateNotifications();
   const [open, setOpen] = useState(false);
   const [prompted, setPrompted] = useState<string | null>(() => readPromptedVersion());
+  const [notice, setNotice] = useState<UpdateNoticeRecord | null>(() => readUpdateNotice());
+  const [noticeVisible, setNoticeVisible] = useState(false);
+  // Bumped when a "Later" window ends so the notice can come back without a
+  // new update event.
+  const [noticeNow, setNoticeNow] = useState(() => Date.now());
+  const osRequested = useRef<Set<string>>(new Set());
 
   const available = status?.available ?? null;
   const version = available?.version ?? "";
   const at = location.pathname;
   const onCenter = at.startsWith("/updates");
-  const quietRoute = onCenter || at.startsWith("/bigpicture") || at === "/setup" || at === "/login";
+  const onBigPicture = at.startsWith("/bigpicture");
+  const quietRoute = onCenter || onBigPicture || at === "/setup" || at === "/login";
 
   useEffect(() => {
     if (!available || quietRoute || open) return;
@@ -63,7 +98,143 @@ export function UpdateNotifier() {
       return;
     }
     setOpen(true);
-  }, [available, version, quietRoute, open, remindAfter, prompted, status, promptPreference]);
+  }, [available, quietRoute, open, remindAfter, prompted, status, promptPreference]);
+
+  /* --------------------------- in-app notice (#213) -------------------------- */
+
+  useEffect(() => {
+    if (!available || open) return;
+    if (noticeVisible) return;
+    if (quietRoute) return;
+    const due = shouldShowUpdateNotice({
+      status,
+      preference: noticePreference,
+      notice,
+      remindAfter,
+      onUpdateCenter: onCenter,
+      now: noticeNow,
+    });
+    if (!due) return;
+    // Persist the dedupe before rendering: a later check, a relaunch or a
+    // second window must not raise the same notice again.
+    markUpdateNoticeShown(available.version);
+    setNotice({ version: available.version, state: "shown", until: null });
+    setNoticeVisible(true);
+  }, [
+    available,
+    open,
+    noticeVisible,
+    quietRoute,
+    notice,
+    remindAfter,
+    noticePreference,
+    onCenter,
+    status,
+    noticeNow,
+  ]);
+
+  // Let a "Later" window expire without waiting for the next check.
+  useEffect(() => {
+    if (notice?.state !== "later" || notice.until === null) return;
+    const delay = notice.until - Date.now();
+    if (delay <= 0) return;
+    const timer = window.setTimeout(() => setNoticeNow(Date.now()), delay + 1_000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  // Big Picture is a console surface: the existing in-shell toast carries the
+  // news, once per version, and never an OS popup.
+  useEffect(() => {
+    if (!onBigPicture || !available || open) return;
+    if (
+      !shouldShowUpdateNotice({
+        status,
+        preference: noticePreference,
+        notice,
+        remindAfter,
+        onUpdateCenter: onCenter,
+        now: noticeNow,
+      })
+    ) {
+      return;
+    }
+    markUpdateNoticeShown(available.version);
+    setNotice({ version: available.version, state: "shown", until: null });
+    push({
+      title: t("Ludex {version} is available", { version: available.version }),
+      description: noticeBody(available.currentVersion, available.sizeBytes),
+    });
+  }, [
+    onBigPicture,
+    available,
+    open,
+    notice,
+    remindAfter,
+    noticePreference,
+    onCenter,
+    status,
+    push,
+    noticeNow,
+  ]);
+
+  /* ---------------------------- OS notification (#213) ---------------------- */
+
+  useEffect(() => {
+    // The launch dialog may be open behind a window that is in the tray, so the
+    // OS decision does not wait for the in-app card: it only needs the notice
+    // to be due and the window to be in the background.
+    if (!available || !isNative()) return;
+    if (
+      !shouldShowUpdateNotice({
+        status,
+        preference: noticePreference,
+        notice,
+        remindAfter,
+        onUpdateCenter: onCenter,
+        now: Date.now(),
+      })
+    ) {
+      return;
+    }
+    const focused = typeof document === "undefined" ? true : document.hasFocus();
+    if (
+      !shouldSendOsNotification({
+        preference: noticePreference,
+        focused,
+        minimized: false,
+      })
+    ) {
+      return;
+    }
+    const key = `available:${available.version}`;
+    if (osRequested.current.has(key)) return;
+    osRequested.current.add(key);
+    void native.notifyUpdateAvailable({
+      version: available.version,
+      title: t("Ludex {version} is available", { version: available.version }),
+      body: noticeBody(available.currentVersion, available.sizeBytes),
+    });
+  }, [available, status, notice, remindAfter, noticePreference, onCenter]);
+
+  // #213: "Ludex {version} installed, restart to use it" gets the same OS
+  // treatment when the window is not in front. The in-app toast comes from the
+  // provider; the update center holds the restart action the click opens.
+  useEffect(() => {
+    if (!installed || installed.restarted || !isNative()) return;
+    const focused = typeof document === "undefined" ? true : document.hasFocus();
+    if (!shouldSendOsNotification({ preference: noticePreference, focused, minimized: false })) {
+      return;
+    }
+    const key = `installed:${installed.version}`;
+    if (osRequested.current.has(key)) return;
+    osRequested.current.add(key);
+    void native.notifyUpdateAvailable({
+      version: installed.version,
+      kind: "installed",
+      title: t("Ludex {version} is installed", { version: installed.version }),
+      body: t("Restart Ludex to use it."),
+    });
+  }, [installed, noticePreference]);
 
   const dismiss = () => {
     if (installing) return;
@@ -77,10 +248,16 @@ export function UpdateNotifier() {
 
   const later = () => {
     remindLater();
+    if (version) {
+      const until = markUpdateNoticeLater(version);
+      setNotice({ version, state: "later", until });
+      setNoticeVisible(false);
+    }
     setOpen(false);
   };
 
   const doSkip = async () => {
+    setNoticeVisible(false);
     await skip(version || null);
     setOpen(false);
   };
@@ -89,6 +266,7 @@ export function UpdateNotifier() {
     promptPreference !== "off" &&
     shouldShowBadge(status) &&
     !open &&
+    !noticeVisible &&
     !quietRoute &&
     (remindAfter === null || Date.now() >= remindAfter);
 
@@ -113,6 +291,19 @@ export function UpdateNotifier() {
           </span>
           <ArrowRight className="size-3.5 shrink-0 text-ink-3" aria-hidden="true" />
         </Link>
+      )}
+
+      {noticeVisible && available && !installed && status?.notify !== false && (
+        <UpdateNotice
+          version={available.version}
+          currentVersion={available.currentVersion}
+          sizeBytes={available.sizeBytes}
+          disabled={installing}
+          onOpen={() => setNoticeVisible(false)}
+          onDismiss={() => setNoticeVisible(false)}
+          onLater={later}
+          onSkip={() => void doSkip()}
+        />
       )}
 
       <Dialog
@@ -186,6 +377,12 @@ export function UpdateNotifier() {
                   <span>{formatDate(available.publishedAt)}</span>
                 </>
               )}
+              {available.sizeBytes ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>{formatBytes(available.sizeBytes)}</span>
+                </>
+              ) : null}
               {available.isPrerelease && <Badge tone="signal">{t("Edge build")}</Badge>}
             </div>
 

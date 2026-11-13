@@ -14,6 +14,7 @@
     "core:window:allow-is-maximized",
     "core:window:allow-close",
     "dialog:default",
+    "notification:allow-notify",
     "opener:default",
     "window-state:default"
   ]

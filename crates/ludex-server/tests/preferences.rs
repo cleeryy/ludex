@@ -90,7 +90,7 @@ fn sample_document() -> Value {
         "theme": { "selection": "midnight", "accent": "#1f6feb", "tint": null },
         "bigPicture": { "layout": "grid", "sound": true, "haptics": false },
         "library": { "view": "list" },
-        "updates": { "prompt": "notify" }
+        "updates": { "prompt": "notify", "notifications": "app-and-os" }
     })
 }
 
@@ -259,6 +259,10 @@ async fn unknown_keys_bad_values_and_oversized_bodies_are_rejected() {
         ),
         (
             json!({ "updates": { "prompt": "C:\\Users\\mara" } }),
+            "invalid_preference_value",
+        ),
+        (
+            json!({ "updates": { "notifications": "os-only" } }),
             "invalid_preference_value",
         ),
         (

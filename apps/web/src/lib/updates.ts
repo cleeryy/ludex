@@ -1,3 +1,4 @@
+import type { UpdateNotificationPreference } from "@/lib/preferences";
 import type { UpdateStatus } from "@/lib/types";
 
 /** Channel followed by the updater. */
@@ -23,6 +24,8 @@ export const EDGE_RELEASE_URL = `${RELEASES_URL}/tag/edge`;
 export const REMIND_LATER_STORAGE_KEY = "ludex.update.remindAfter";
 /** localStorage key remembering the version whose launch prompt was closed. */
 export const PROMPTED_STORAGE_KEY = "ludex.update.promptedVersion";
+/** localStorage key holding the last in-app update notice (#213). */
+export const UPDATE_NOTICE_STORAGE_KEY = "ludex.update.notice";
 /** "Remind me later" silences the startup prompt for a day. */
 export const REMIND_LATER_MS = 24 * 60 * 60 * 1000;
 /** Notes are capped before parsing: a release body is never a document. */
@@ -100,6 +103,141 @@ export function shouldPrompt({
 /** Whether the persistent "update available" badge should be visible. */
 export function shouldShowBadge(status: UpdateStatus | null | undefined): boolean {
   return Boolean(status?.available) && status?.notify === true;
+}
+
+/* -------------------------- update notices (#213) ------------------------- */
+
+/** Where a new build was announced, so a check never repeats the same notice. */
+export type UpdateNoticeState = "shown" | "later";
+
+export interface UpdateNoticeRecord {
+  /** Version the notice was raised for. */
+  version: string;
+  /** `shown` means it was announced; `later` waits for `until`. */
+  state: UpdateNoticeState;
+  /** End of the "Later" window, or null. */
+  until: number | null;
+}
+
+/**
+ * Whether the in-app update notice should be on screen.
+ *
+ * One notice per version: a shown version stays quiet on every later check and
+ * relaunch. "Later" only delays the same version until the reminder window
+ * ends; "Skip this version" is handled by `status.notify === false`, so marking
+ * a notice read never skips the update. The update center is the source of
+ * truth, so nothing is announced while the user is already there.
+ */
+export function shouldShowUpdateNotice({
+  status,
+  preference,
+  notice,
+  remindAfter,
+  onUpdateCenter = false,
+  now = Date.now(),
+}: {
+  status: Pick<UpdateStatus, "available" | "notify"> | null | undefined;
+  preference: UpdateNotificationPreference;
+  notice: UpdateNoticeRecord | null | undefined;
+  remindAfter: number | null;
+  onUpdateCenter?: boolean;
+  now?: number;
+}): boolean {
+  const available = status?.available;
+  if (!available) return false;
+  if (status?.notify === false) return false;
+  if (preference === "off") return false;
+  if (onUpdateCenter) return false;
+  if (remindAfter !== null && Number.isFinite(remindAfter) && now < remindAfter) return false;
+  if (notice && notice.version === available.version) {
+    if (notice.state === "shown") return false;
+    if (notice.state === "later" && notice.until !== null && now < notice.until) return false;
+  }
+  return true;
+}
+
+/**
+ * Whether the desktop should raise an OS notification.
+ *
+ * The OS banner only duplicates the in-app notice when Ludex is in the
+ * background: a focused window already shows the card. A running game and the
+ * console shell (Sunshine/Big Picture) never get a popup — the overlay and the
+ * in-shell toast already cover those. `app-and-os` is the only preference that
+ * allows an OS notification; `app` and `off` keep it in the app.
+ */
+export function shouldSendOsNotification({
+  preference,
+  focused,
+  minimized,
+  gameRunning = false,
+  consoleActive = false,
+}: {
+  preference: UpdateNotificationPreference;
+  focused: boolean;
+  minimized: boolean;
+  gameRunning?: boolean;
+  consoleActive?: boolean;
+}): boolean {
+  if (preference !== "app-and-os") return false;
+  if (gameRunning || consoleActive) return false;
+  if (focused && !minimized) return false;
+  return true;
+}
+
+/** Last in-app notice, if any. A corrupt record is treated as absent. */
+export function readUpdateNotice(): UpdateNoticeRecord | null {
+  try {
+    const raw = localStorage.getItem(UPDATE_NOTICE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    const version = typeof record.version === "string" ? record.version.trim() : "";
+    if (!version) return null;
+    const until = typeof record.until === "number" && Number.isFinite(record.until) ? record.until : null;
+    return {
+      version,
+      state: record.state === "later" ? "later" : "shown",
+      until,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeUpdateNotice(record: UpdateNoticeRecord): void {
+  try {
+    localStorage.setItem(UPDATE_NOTICE_STORAGE_KEY, JSON.stringify(record));
+  } catch {
+    /* private mode or full storage: the in-memory state still works */
+  }
+}
+
+/** Records that the version was announced; later checks stay silent. */
+export function markUpdateNoticeShown(version: string): void {
+  const trimmed = version.trim();
+  if (!trimmed) return;
+  writeUpdateNotice({ version: trimmed, state: "shown", until: null });
+}
+
+/** "Later": the same version may be announced again after the window. */
+export function markUpdateNoticeLater(
+  version: string,
+  now = Date.now(),
+  delay = REMIND_LATER_MS,
+): number {
+  const until = now + delay;
+  const trimmed = version.trim();
+  if (trimmed) writeUpdateNotice({ version: trimmed, state: "later", until });
+  return until;
+}
+
+export function clearUpdateNotice(): void {
+  try {
+    localStorage.removeItem(UPDATE_NOTICE_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 /**

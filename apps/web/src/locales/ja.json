@@ -3595,5 +3595,14 @@
   "{done} of {total} games · {files} files · {bytes}": "{total} 件中 {done} 件 · {files} ファイル · {bytes}",
   "{files} files · {size}": "{files} ファイル · {size}",
   "{succeeded} of {games} games updated": "{games} 件中 {succeeded} 件のゲームを更新しました",
-  "{title} removed from the library": "{title} をライブラリから削除しました"
+  "{title} removed from the library": "{title} をライブラリから削除しました",
+  "In-app and OS notifications": "アプリ内と OS 通知",
+  "In-app only": "アプリ内のみ",
+  "Ludex {version} is available": "Ludex {version} が利用可能です",
+  "Ludex {version} is installed": "Ludex {version} をインストールしました",
+  "Restart Ludex to use it.": "使用するには Ludex を再起動してください。",
+  "Update notifications": "アップデート通知",
+  "When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.": "新しいビルドが公開されたとき。バッジとアップデートセンターはこの設定に影響されません。アップデートが自動でダウンロードされることはありません。",
+  "You are on {current}": "{current} を使用しています",
+  "You are on {current} · {size}": "{current} を使用しています · {size}"
 }

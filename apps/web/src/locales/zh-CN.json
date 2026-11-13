@@ -3595,5 +3595,14 @@
   "{done} of {total} games · {files} files · {bytes}": "{done}/{total} 个游戏 · {files} 个文件 · {bytes}",
   "{files} files · {size}": "{files} 个文件 · {size}",
   "{succeeded} of {games} games updated": "已更新 {succeeded}/{games} 个游戏",
-  "{title} removed from the library": "{title} 已从库中移除"
+  "{title} removed from the library": "{title} 已从库中移除",
+  "In-app and OS notifications": "应用内和系统通知",
+  "In-app only": "仅应用内",
+  "Ludex {version} is available": "Ludex {version} 已可用",
+  "Ludex {version} is installed": "Ludex {version} 已安装",
+  "Restart Ludex to use it.": "重启 Ludex 即可使用。",
+  "Update notifications": "更新通知",
+  "When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.": "新版本发布时。徽标和更新中心不受此设置影响：更新永远不会自行下载。",
+  "You are on {current}": "您正在使用 {current}",
+  "You are on {current} · {size}": "您正在使用 {current} · {size}"
 }

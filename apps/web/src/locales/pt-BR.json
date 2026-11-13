@@ -3595,5 +3595,14 @@
   "{done} of {total} games · {files} files · {bytes}": "{done} de {total} jogos · {files} arquivos · {bytes}",
   "{files} files · {size}": "{files} arquivos · {size}",
   "{succeeded} of {games} games updated": "{succeeded} de {games} jogos atualizados",
-  "{title} removed from the library": "{title} removido da biblioteca"
+  "{title} removed from the library": "{title} removido da biblioteca",
+  "In-app and OS notifications": "No app e no sistema",
+  "In-app only": "Só no app",
+  "Ludex {version} is available": "Ludex {version} está disponível",
+  "Ludex {version} is installed": "Ludex {version} está instalado",
+  "Restart Ludex to use it.": "Reinicie o Ludex para usá-lo.",
+  "Update notifications": "Notificações de atualização",
+  "When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.": "Quando uma nova compilação é publicada. O selo e a central de atualizações ignoram isto: a atualização nunca é baixada sozinha.",
+  "You are on {current}": "Você está em {current}",
+  "You are on {current} · {size}": "Você está em {current} · {size}"
 }

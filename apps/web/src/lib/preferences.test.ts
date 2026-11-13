@@ -5,6 +5,7 @@ import {
   LIBRARY_VIEW_STORAGE_KEY,
   PREFERENCES_CACHE_PREFIX,
   SOUND_STORAGE_KEY,
+  UPDATE_NOTIFICATIONS_STORAGE_KEY,
   UPDATE_PROMPT_STORAGE_KEY,
   defaultPreferences,
   mergePreferences,
@@ -39,6 +40,7 @@ describe("preference document", () => {
     expect(document.bigPicture.haptics).toBe(true);
     expect(document.library.view).toBe("grid");
     expect(document.updates.prompt).toBe("always");
+    expect(document.updates.notifications).toBe("app-and-os");
     // Device-scoped values have no place in the document.
     const raw = JSON.stringify(document);
     for (const key of ["install", "download", "bandwidth", "sunshine", "moonlight", "token", "serverUrl"]) {
@@ -51,7 +53,7 @@ describe("preference document", () => {
       theme: { selection: "light", accent: "#AABBCC", tint: "not-a-colour" },
       bigPicture: { layout: "cinema", sound: "yes", haptics: false },
       library: { view: "list" },
-      updates: { prompt: "sometimes" },
+      updates: { prompt: "sometimes", notifications: "os-only" },
       installRoot: "D:/Games",
     });
     expect(document.theme.selection).toBe("light");
@@ -62,6 +64,7 @@ describe("preference document", () => {
     expect(document.bigPicture.haptics).toBe(false);
     expect(document.library.view).toBe("list");
     expect(document.updates.prompt).toBe("always");
+    expect(document.updates.notifications).toBe("app-and-os");
     expect("installRoot" in document).toBe(false);
   });
 
@@ -91,7 +94,7 @@ describe("preference document", () => {
     });
     expect(preferencePatch(from, to)).toEqual({
       bigPicture: { layout: "grid", sound: true, haptics: true },
-      updates: { prompt: "off" },
+      updates: { prompt: "off", notifications: "app-and-os" },
     });
     expect(preferencePatch(from, from)).toEqual({});
     expect(preferencesEqual(from, to)).toBe(false);
@@ -107,6 +110,30 @@ describe("preference document", () => {
     expect(themeAvailable(id, [custom])).toBe(true);
     expect(themeAvailable(id, [])).toBe(false);
     expect(themeAvailable("midnight", [])).toBe(true);
+  });
+});
+
+describe("update notification preference (#213)", () => {
+  it("keeps the three channels and rejects anything else", () => {
+    for (const value of ["app-and-os", "app", "off"] as const) {
+      expect(sanitizePreferences({ updates: { notifications: value } }).updates.notifications).toBe(value);
+    }
+    expect(sanitizePreferences({ updates: { notifications: "os" } }).updates.notifications).toBe(
+      "app-and-os",
+    );
+    expect(sanitizePreferences({ updates: { notifications: 7 } }).updates.notifications).toBe(
+      "app-and-os",
+    );
+  });
+
+  it("merges and diffs the channel without touching the prompt", () => {
+    const base = defaultPreferences();
+    const merged = mergePreferences(base, { updates: { notifications: "off" } });
+    expect(merged.updates).toEqual({ prompt: "always", notifications: "off" });
+    expect(preferencePatch(base, merged)).toEqual({
+      updates: { prompt: "always", notifications: "off" },
+    });
+    expect(preferencesEqual(base, mergePreferences(base, {}))).toBe(true);
   });
 });
 
@@ -151,6 +178,7 @@ describe("local snapshot", () => {
       "ludex.bigPicture.controller": JSON.stringify({ profileId: "pad-1", haptics: false }),
       [SOUND_STORAGE_KEY]: "off",
       [UPDATE_PROMPT_STORAGE_KEY]: "notify",
+      [UPDATE_NOTIFICATIONS_STORAGE_KEY]: "app",
     });
     const local = readLocalPreferences(storage);
     expect(local.theme.selection).toBe("light");
@@ -160,6 +188,7 @@ describe("local snapshot", () => {
     expect(local.bigPicture.haptics).toBe(false);
     expect(local.library.view).toBe("list");
     expect(local.updates.prompt).toBe("notify");
+    expect(local.updates.notifications).toBe("app");
     // The controller hardware mapping stays device-local, out of the document.
     expect(JSON.stringify(local)).not.toContain("pad-1");
   });

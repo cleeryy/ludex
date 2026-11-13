@@ -43,6 +43,8 @@ export const PREFERENCES_SCHEMA_VERSION = 1;
 export const PREFERENCES_CACHE_PREFIX = "ludex.preferences.v1";
 /** Account-level update reminder choice; device-level remind-later stays local. */
 export const UPDATE_PROMPT_STORAGE_KEY = "ludex.update.pref";
+/** Account-level update notification channels (#213). */
+export const UPDATE_NOTIFICATIONS_STORAGE_KEY = "ludex.update.notifications";
 /** Big Picture sound cues preference (reserved; stored so devices agree). */
 export const SOUND_STORAGE_KEY = "ludex.bigPicture.sound";
 /** Library view preference, scoped per server like the existing setting. */
@@ -52,6 +54,11 @@ export { PREFERENCES_CHANGED_EVENT, notifyPreferencesChanged };
 
 export type LibraryViewPreference = "grid" | "list";
 export type UpdatePromptPreference = "always" | "notify" | "off";
+/**
+ * Where a new build is announced (#213): in-app and OS banner, in-app only, or
+ * nowhere. The badge and the update center ignore this preference.
+ */
+export type UpdateNotificationPreference = "app-and-os" | "app" | "off";
 
 export interface ThemePreference {
   /** Built-in id, `system`, or a `custom:<hash>` id from the theme registry. */
@@ -75,6 +82,8 @@ export interface LibraryPreference {
 export interface UpdatesPreference {
   /** `always` opens the launch prompt, `notify` only shows the badge, `off` hides both. */
   prompt: UpdatePromptPreference;
+  /** Where a new build is announced: in-app and OS, in-app only, or off (#213). */
+  notifications: UpdateNotificationPreference;
 }
 
 export interface AccountPreferences {
@@ -113,7 +122,7 @@ export function defaultPreferences(): AccountPreferences {
       haptics: DEFAULT_CONTROLLER_PREFS.haptics,
     },
     library: { view: "grid" },
-    updates: { prompt: "always" },
+    updates: { prompt: "always", notifications: "app-and-os" },
   };
 }
 
@@ -139,6 +148,10 @@ function isLibraryView(value: unknown): value is LibraryViewPreference {
 
 function isUpdatePrompt(value: unknown): value is UpdatePromptPreference {
   return value === "always" || value === "notify" || value === "off";
+}
+
+function isUpdateNotification(value: unknown): value is UpdateNotificationPreference {
+  return value === "app-and-os" || value === "app" || value === "off";
 }
 
 /**
@@ -175,6 +188,9 @@ export function sanitizePreferences(value: unknown): AccountPreferences {
     },
     updates: {
       prompt: isUpdatePrompt(updates.prompt) ? updates.prompt : defaults.updates.prompt,
+      notifications: isUpdateNotification(updates.notifications)
+        ? updates.notifications
+        : defaults.updates.notifications,
     },
   };
 }
@@ -214,7 +230,12 @@ export function preferencePatch(
     patch.bigPicture = { ...to.bigPicture };
   }
   if (from.library.view !== to.library.view) patch.library = { ...to.library };
-  if (from.updates.prompt !== to.updates.prompt) patch.updates = { ...to.updates };
+  if (
+    from.updates.prompt !== to.updates.prompt ||
+    from.updates.notifications !== to.updates.notifications
+  ) {
+    patch.updates = { ...to.updates };
+  }
   return patch;
 }
 
@@ -227,7 +248,8 @@ export function preferencesEqual(a: AccountPreferences, b: AccountPreferences): 
     a.bigPicture.sound === b.bigPicture.sound &&
     a.bigPicture.haptics === b.bigPicture.haptics &&
     a.library.view === b.library.view &&
-    a.updates.prompt === b.updates.prompt
+    a.updates.prompt === b.updates.prompt &&
+    a.updates.notifications === b.updates.notifications
   );
 }
 
@@ -309,6 +331,28 @@ export function writeUpdatePrompt(
   }
 }
 
+export function readUpdateNotifications(
+  storage: StorageLike | null = browserStorage(),
+): UpdateNotificationPreference {
+  try {
+    const value = storage?.getItem(UPDATE_NOTIFICATIONS_STORAGE_KEY);
+    return isUpdateNotification(value) ? value : "app-and-os";
+  } catch {
+    return "app-and-os";
+  }
+}
+
+export function writeUpdateNotifications(
+  notifications: UpdateNotificationPreference,
+  storage: StorageLike | null = browserStorage(),
+): void {
+  try {
+    storage?.setItem(UPDATE_NOTIFICATIONS_STORAGE_KEY, notifications);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function readSoundPreference(storage: StorageLike | null = browserStorage()): boolean {
   try {
     return storage?.getItem(SOUND_STORAGE_KEY) !== "off";
@@ -364,6 +408,9 @@ export function readLocalPreferences(storage: StorageLike | null = browserStorag
     },
     bigPicture: { layout, sound: readSoundPreference(storage), haptics },
     library: { view },
-    updates: { prompt: readUpdatePrompt(storage) },
+    updates: {
+      prompt: readUpdatePrompt(storage),
+      notifications: readUpdateNotifications(storage),
+    },
   };
 }

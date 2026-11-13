@@ -178,6 +178,10 @@ pub struct LocalSettings {
     /// startup prompt are silenced, and a newer version prompts again.
     #[serde(default)]
     pub skipped_update_version: Option<String>,
+    /// Version an OS notification was already raised for (#213). A new check,
+    /// relaunch or second window must not repeat the same banner.
+    #[serde(default)]
+    pub notified_update_version: Option<String>,
     /// Publish the running game as Discord Rich Presence (#12). Off by default.
     pub discord_presence: bool,
     /// Discord application id used for Rich Presence. An application id is not
@@ -324,6 +328,11 @@ pub struct LocalSettings {
     /// `off`). The channel and the skipped version stay device-local.
     #[serde(default)]
     pub account_update_prompt: String,
+    /// Update notification channels from the account document (`app-and-os`,
+    /// `app` or `off`, #213). Read before raising an OS banner; the webview can
+    /// be in the tray when a startup check finds a new build.
+    #[serde(default)]
+    pub account_update_notifications: String,
     /// In-game controller overlay (#144). Enabling it never pauses the running
     /// game and sends nothing anywhere.
     #[serde(default = "default_overlay_enabled")]
@@ -485,6 +494,7 @@ impl Default for LocalSettings {
             check_updates_on_startup: true,
             last_update_check_at: None,
             skipped_update_version: None,
+            notified_update_version: None,
             discord_presence: false,
             discord_client_id: String::new(),
             installer_silent_args: Vec::new(),
@@ -527,6 +537,7 @@ impl Default for LocalSettings {
             account_sound: None,
             account_haptics: None,
             account_update_prompt: String::new(),
+            account_update_notifications: String::new(),
             overlay_enabled: default_overlay_enabled(),
             overlay_trigger: OverlayTrigger::DoubleHome,
             overlay_opacity: default_overlay_opacity(),
@@ -684,6 +695,12 @@ impl LocalSettings {
         // decision; trim it and drop blanks so the field serialises cleanly.
         self.skipped_update_version = self
             .skipped_update_version
+            .take()
+            .map(|value| value.trim().chars().take(64).collect::<String>())
+            .filter(|value| !value.is_empty());
+        // #213: same rule for the version an OS banner already covered.
+        self.notified_update_version = self
+            .notified_update_version
             .take()
             .map(|value| value.trim().chars().take(64).collect::<String>())
             .filter(|value| !value.is_empty());

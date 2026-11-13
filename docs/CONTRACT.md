@@ -344,8 +344,11 @@ validated JSON document; genuinely device-specific settings never enter it.
   created on the first write and deleted by a reset. `ON DELETE CASCADE` ties it
   to the account.
 - **Allowlist.** Only `theme` (`selection`, `accent`, `tint`), `bigPicture`
-  (`layout`, `sound`, `haptics`), `library` (`view`) and `updates` (`prompt`)
-  are accepted; any other key, at any depth, is 400 `unknown_preference_key`.
+  (`layout`, `sound`, `haptics`), `library` (`view`) and `updates` (`prompt`,
+  `notifications`) are accepted; any other key, at any depth, is 400
+  `unknown_preference_key`. `updates.notifications` is `app-and-os` (default),
+  `app` or `off`; `off` hides the notice and the OS banner but never the badge
+  or the update center (#213).
   Values are typed and canonicalised (hex colours lowercased, enums checked);
   `theme.selection` is a built-in id, `system` or `custom:<hash>`, which keeps
   URLs, paths and token-shaped strings out by construction. An unknown
@@ -385,9 +388,9 @@ validated JSON document; genuinely device-specific settings never enter it.
 - **Desktop mirror.** The Tauri app calls `apply_account_preferences` after a
   successful sync. It copies only the account-owned fields into
   `settings.json` (`accountTheme`, `accountBigPictureLayout`,
-  `accountLibraryView`, `accountSound`, `accountHaptics`,
-  `accountUpdatePrompt`), rejects unknown keys and never overwrites device
-  paths, bandwidth, overlay settings or tokens. When the webview profile is
+  `accountLibraryView`, `accountSound`, `accountHaptics`, `accountUpdatePrompt`,
+  `accountUpdateNotifications`), rejects unknown keys and never overwrites
+  device paths, bandwidth, overlay settings or tokens. When the webview profile is
   reset but the app data survives, the web app falls back to this mirror before
   the first server read.
 
@@ -1779,6 +1782,7 @@ interface LocalSettings {
   checkUpdatesOnStartup: boolean;    // throttled to once per 24 h
   lastUpdateCheckAt: string | null;  // RFC 3339, drives the throttle
   skippedUpdateVersion: string | null; // #163: no prompt/badge for this version
+  notifiedUpdateVersion: string | null; // #213: OS banner already raised for this version
   diagnosticsEnabled: boolean;       // #171: opt-in anonymous reports, default false
   diagnosticsInstallId: string;      // #171: random local id, cleared when disabled
   discordPresence: boolean;          // Discord Rich Presence (#12), default false
@@ -2145,7 +2149,8 @@ interface UpdateStatus {
   notify: boolean;                  // false when the version is skipped, or none is available
   available: { version: string; currentVersion: string; notes: string | null;
                publishedAt: string | null; releaseUrl: string; // (#163)
-               isPrerelease: boolean; build: number | null } | null;
+               isPrerelease: boolean; build: number | null;
+               sizeBytes: number | null } | null; // release artifact size (#213)
   message: string | null;
 }
 
@@ -2626,7 +2631,7 @@ interface RemotePlayCleanup {
 | `get_settings` | — | `LocalSettings` |
 | `save_settings` | `{ settings }` | `LocalSettings`; also re-applies the window decorations when `nativeTitleBar` changed (#111) |
 | `set_native_title_bar` | `{ enabled }` | `LocalSettings`; shows the OS title bar (`true`) or Ludex's own (`false`) on the live window and persists it, no restart. No-op decoration change on macOS (#111) |
-| `apply_account_preferences` | `{ document }` | `LocalSettings`; mirrors the synced account document into `settings.json` (`accountTheme`, `accountBigPictureLayout`, `accountLibraryView`, `accountSound`, `accountHaptics`, `accountUpdatePrompt`). Rejects unknown keys and never touches device paths, bandwidth, overlay settings, tokens or server profiles (#201) |
+| `apply_account_preferences` | `{ document }` | `LocalSettings`; mirrors the synced account document into `settings.json` (`accountTheme`, `accountBigPictureLayout`, `accountLibraryView`, `accountSound`, `accountHaptics`, `accountUpdatePrompt`, `accountUpdateNotifications`). Rejects unknown keys and never touches device paths, bandwidth, overlay settings, tokens or server profiles (#201, #213) |
 | `overlay_status` | — | `OverlayStatus`; overlay feature switch/opacity/scale/tabs, running game with pid, presentation (`closed`, `window`, `inApp`), native listener status (backend, available, running, controllers, battery), capabilities, trigger deliverability, the "why it does not open" checklist, the foreground fullscreen hint, the last trigger verdict and the platform limitation note (#144, #190). Also re-arms a listener thread that failed to spawn. Local only |
 | `set_overlay_settings` | `{ settings: OverlaySettingsPatch }` | `OverlayStatus`; merges any subset of `enabled`, `trigger`, `opacity`, `scale`, `tabs`, `disabledGames`, validates/clamps it, persists it and applies it live (an open overlay picks up opacity/scale/tabs; disabling closes it) (#144) |
 | `open_overlay` | — | `OverlayStatus`; opens the overlay. When the main window is focused it is drawn in-app (`presentation: "inApp"`); otherwise a transparent always-on-top `overlay` window is created on demand on the current monitor, shown, unminimized and focused with one retry (`presentation: "window"`). Refused when the overlay or the running game is opted out; the refusal and its reason are logged and returned in `lastTrigger` (#144, #190) |
@@ -2669,7 +2674,8 @@ interface RemotePlayCleanup {
 | `restart_app` | — | `null` (restarts Ludex; Linux/macOS after an update) |
 | `update_status` | — | `UpdateStatus` without a network check: current version, channel, endpoint, skipped version, last check (#163) |
 | `set_update_channel` | `{ channel }` | Persists `updateChannel` then re-checks on it; unknown values are rejected (#163) |
-| `set_update_skip` | `{ version }` | Persists `skippedUpdateVersion` (`null` clears it) and returns the status without a network check. Silences prompts/badges only (#163) |
+| `set_update_skip` | `{ version }` | Persists `skippedUpdateVersion` (`null` clears it) and returns the status without a network check. Silences prompts/badges only; clearing it also forgets `notifiedUpdateVersion` (#163, #213) |
+| `notify_update_available` | `{ version, title, body, kind? }` | `boolean`; raises one OS notification (Windows toast, macOS Notification Center, Linux libnotify) for a new build (`kind` omitted/`"available"`, deduped by `notifiedUpdateVersion`) or a finished install (`"installed"`, one-shot). Refused with `false` when a game or console session runs, when the main window is focused and restored, when the account preference is not `app-and-os`, or when the platform/permission cannot show it. A click focuses Ludex and emits `ui://navigate` with `/updates`. Never starts a check, download or install (#213) |
 | `update_install_health` | — | `InstallHealth`: running exe, installed version and `LUDEX_BUILD_COMMIT`, `{appDataDir}/logs/ludex.log` path, scanned Windows install roots, other `ludex.exe` copies with their own build marker, the version a just-finished install recorded, and the last update that did not take effect (#186) |
 | `dismiss_update_mismatch` | — | `InstallHealth` after clearing a stored mismatch; a later successful update clears it automatically (#186) |
 | `installer_plan` | `{ gameId?, executable? }` | `InstallerPlan`; never runs anything. On Linux `compatTool`/`prefix` show the tool a run would use |
@@ -4194,6 +4200,65 @@ Commands are tokenised into `program` + `args` and spawned without a shell:
 quotes are preserved, and `;`, `|`, `&&`, `$(`, backticks, `>` and `<` are
 rejected instead of interpreted. No emulator binary is bundled.
 
+## App update notifications (#213)
+
+A new build is announced without ever starting a check, a download or an
+install; the badge and `/updates` stay the source of truth.
+
+- **In-app.** `update://available` raises one persistent notice per version
+  (bottom-end card, same slot as the badge, which it replaces while visible):
+  title `Ludex {version} is available`, body `You are on {current} · {size}`
+  (`sizeBytes` from `UpdateStatus.available`, omitted when GitHub does not
+  answer the HEAD probe), actions **Open update center** / **Later** /
+  **Skip this version**. `localStorage` key `ludex.update.notice` holds
+  `{ version, state: "shown" | "later", until }`: a shown version never
+  re-raises, **Later** waits for the same 24 h window as the launch prompt
+  and then re-raises, a newer version is a new notice. Closing the card marks
+  it read, which never skips the version. Skipping stays the backend
+  `skippedUpdateVersion`, so `notify: false` silences the notice, badge and
+  launch prompt until a newer version. On `/updates`, `/setup`, `/login` and
+  Big Picture no card is drawn — Big Picture gets the existing in-shell toast
+  instead, once per version.
+- **While the app stays open.** A six-hour loop re-runs the throttled startup
+  check (still at most one network check per 24 h and never when "check at
+  startup" is off), so a window left open for days raises the same
+  `update://available` event instead of waiting for a relaunch.
+- **OS (desktop only).** `notify_update_available` uses
+  `tauri-plugin-notification` (Windows toast, macOS Notification Center, Linux
+  libnotify). The web view asks only when the account preference is
+  `app-and-os` and the notice is due; the command re-checks the window and the
+  session, so a focused, restored window (in-app card already visible), a
+  running game (overlay/badge instead) or the `--console` Sunshine shell
+  (in-shell toast) never gets a popup. `notifiedUpdateVersion` in
+  `settings.json` dedupes across checks, relaunches and windows; clearing the
+  skip resets it. No action buttons are registered: a click on the banner
+  focuses Ludex and emits `ui://navigate` with `/updates`, which works on every
+  platform. macOS needs the one-time system permission; a denial is silent.
+  `tauri-plugin-notification` is part of the desktop dependency set and the
+  capability list grants `notification:allow-notify` only.
+- **Installed.** After `update://installed` (Linux/macOS, restart pending) the
+  same background rule raises `Ludex {version} is installed` /
+  `Restart Ludex to use it.`; the click opens the update center where the
+  restart action lives. In-app, the existing success toast stays.
+- **Preference.** Account-scoped `updates.notifications` (`app-and-os`
+  default, `app`, `off`) lives in the preference document and is mirrored to
+  `settings.json.accountUpdateNotifications`, so a startup check that finds a
+  build while the window is in the tray knows whether to raise a banner. It
+  never hides the badge or the update center. The existing notification
+  preferences have no quiet-hours window, so none is applied here.
+- **Tests.** `apps/web/src/lib/updates.test.ts` covers dedupe per version,
+  skip/later, the preference matrix, OS-only-when-unfocused and game/console
+  suppression; `update_notify.rs` repeats the platform gate and text bounds in
+  Rust. `preferences` tests cover the new allowlisted key on both backends.
+- **Manual platform checks (not automatable here).** Windows 10/11: toast
+  appears with an unfocused window, is not repeated after relaunch, a click
+  brings Ludex forward on `/updates`, Focus Assist/notification settings can
+  hide it. macOS: the permission prompt appears once, the banner is in
+  Notification Center, a click activates the app. Linux: a running notification
+  daemon (GNOME/KDE libnotify) shows it; without a daemon the command returns
+  `false` and the in-app notice is the only surface. Also verify a skipped
+  version stays silent and that a game launch suppresses the banner.
+
 ## Web client preferences (#23, #29)
 
 These are browser-local values, not server configuration; no API or database
@@ -4208,6 +4273,8 @@ shape changes.
 | `localStorage` | `ludex.locale.server` | cache of `defaultLocale` from the last `/api/config`, read before the first render |
 | `localStorage` | `ludex.preferences.v1.<userId>` | cached account preference document, revision and pending flag, scoped per server by `scopedStorageKey` (#201) |
 | `localStorage` | `ludex.update.pref` | account update reminder choice (`always`, `notify`, `off`); the channel, skipped version and remind-later window stay device-local (#201) |
+| `localStorage` | `ludex.update.notifications` | account update notification channels (`app-and-os`, `app`, `off`), synced through the account document (#213) |
+| `localStorage` | `ludex.update.notice` | last in-app update notice `{ version, state: "shown" \| "later", until }`; the per-version dedupe and the Later window (#213) |
 | `localStorage` | `ludex.bigPicture.sound` | Big Picture sound cue preference (`on`/`off`, absent = on), synced through the account document (#201) |
 | `localStorage` | `ludex.pwa.installDismissedAt` | epoch ms; the install prompt is hidden for 30 days |
 

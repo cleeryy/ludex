@@ -3982,6 +3982,7 @@ pub fn apply_account_preferences(
     let layout = account_string(big_picture, "layout")?;
     let view = account_string(library, "view")?;
     let prompt = account_string(updates, "prompt")?;
+    let notifications = account_string(updates, "notifications")?;
     let sound = account_bool(big_picture, "sound")?;
     let haptics = account_bool(big_picture, "haptics")?;
 
@@ -4005,6 +4006,11 @@ pub fn apply_account_preferences(
             return Err("updates.prompt must be always, notify or off.".to_string());
         }
     }
+    if let Some(notifications) = &notifications {
+        if !matches!(notifications.as_str(), "app-and-os" | "app" | "off") {
+            return Err("updates.notifications must be app-and-os, app or off.".to_string());
+        }
+    }
 
     state.update_settings(|settings| {
         if let Some(selection) = selection {
@@ -4018,6 +4024,14 @@ pub fn apply_account_preferences(
         }
         if let Some(prompt) = prompt {
             settings.account_update_prompt = prompt;
+        }
+        if let Some(notifications) = notifications {
+            if settings.account_update_notifications != notifications {
+                // A new channel choice may be exactly the reason the user
+                // wants a banner again; forget the previous "already shown".
+                settings.notified_update_version = None;
+            }
+            settings.account_update_notifications = notifications;
         }
         if let Some(sound) = sound {
             settings.account_sound = Some(sound);

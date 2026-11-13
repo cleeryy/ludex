@@ -3595,5 +3595,14 @@
   "{done} of {total} games · {files} files · {bytes}": "{total} oyundan {done} · {files} dosya · {bytes}",
   "{files} files · {size}": "{files} dosya · {size}",
   "{succeeded} of {games} games updated": "{games} oyundan {succeeded} tanesi güncellendi",
-  "{title} removed from the library": "{title} kütüphaneden kaldırıldı"
+  "{title} removed from the library": "{title} kütüphaneden kaldırıldı",
+  "In-app and OS notifications": "Uygulama içinde ve sistemde",
+  "In-app only": "Yalnızca uygulama içinde",
+  "Ludex {version} is available": "Ludex {version} kullanılabilir",
+  "Ludex {version} is installed": "Ludex {version} yüklendi",
+  "Restart Ludex to use it.": "Kullanmak için Ludex’i yeniden başlatın.",
+  "Update notifications": "Güncelleme bildirimleri",
+  "When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.": "Yeni bir sürüm yayımlandığında. Rozet ve güncelleme merkezi bundan etkilenmez: güncelleme asla kendi kendine indirilmez.",
+  "You are on {current}": "Şu an {current} kullanıyorsunuz",
+  "You are on {current} · {size}": "Şu an {current} kullanıyorsunuz · {size}"
 }

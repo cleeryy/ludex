@@ -3595,5 +3595,14 @@
   "{done} of {total} games · {files} files · {bytes}": "{total}개 중 {done}개 · {files}개 파일 · {bytes}",
   "{files} files · {size}": "{files}개 파일 · {size}",
   "{succeeded} of {games} games updated": "{games}개 중 {succeeded}개 게임 업데이트됨",
-  "{title} removed from the library": "{title}이(가) 라이브러리에서 제거되었습니다"
+  "{title} removed from the library": "{title}이(가) 라이브러리에서 제거되었습니다",
+  "In-app and OS notifications": "앱 내 및 OS 알림",
+  "In-app only": "앱 내에서만",
+  "Ludex {version} is available": "Ludex {version}을(를) 사용할 수 있습니다",
+  "Ludex {version} is installed": "Ludex {version}이(가) 설치되었습니다",
+  "Restart Ludex to use it.": "사용하려면 Ludex를 다시 시작하세요.",
+  "Update notifications": "업데이트 알림",
+  "When a new build is published. The badge and the update center ignore this: the update is never downloaded on its own.": "새 빌드가 게시될 때. 배지와 업데이트 센터는 이 설정과 무관합니다. 업데이트는 자동으로 다운로드되지 않습니다.",
+  "You are on {current}": "현재 {current} 사용 중",
+  "You are on {current} · {size}": "현재 {current} 사용 중 · {size}"
 }
