@@ -130,7 +130,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 18;
+const SCHEMA_VERSION: i64 = 19;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -525,6 +525,12 @@ CREATE INDEX IF NOT EXISTS install_jobs_queue_idx
     ON install_jobs (phase, queue_position);
 "#;
 
+/// Verified archive digest (#216/#223): the job keeps the SHA-256 it proved so
+/// Downloads can show the result after a restart without rehashing 96 GB.
+const SCHEMA_V19: &str = r#"
+ALTER TABLE install_jobs ADD COLUMN verified_sha256 TEXT;
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -664,6 +670,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
     if version < 18 {
         connection.execute_batch(SCHEMA_V18).map_err(|e| {
             format!("Could not add the install queue order to the desktop database: {e}")
+        })?;
+    }
+    if version < 19 {
+        connection.execute_batch(SCHEMA_V19).map_err(|e| {
+            format!("Could not add the verified archive digest to the desktop database: {e}")
         })?;
     }
 
@@ -1376,6 +1387,8 @@ pub struct InstallJobRecord {
     /// Position in the install queue (#202). `None` for terminal rows: a
     /// finished job leaves no gap behind.
     pub queue_position: Option<i64>,
+    /// Verified full archive SHA-256 (#216/#223).
+    pub verified_sha256: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -1388,8 +1401,8 @@ pub fn upsert_install_job(connection: &Connection, job: &InstallJobRecord) -> Re
                 (job_id, game_id, version_id, phase, bytes_done, bytes_total,
                  speed_bps, part_path, install_path, staging_path, error, stream,
                  resumable, stream_completed, entries_total, queue_position,
-                 created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+                 verified_sha256, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
             ON CONFLICT(job_id) DO UPDATE SET
                 phase        = excluded.phase,
                 bytes_done   = excluded.bytes_done,
@@ -1404,6 +1417,7 @@ pub fn upsert_install_job(connection: &Connection, job: &InstallJobRecord) -> Re
                 stream_completed = excluded.stream_completed,
                 entries_total = excluded.entries_total,
                 queue_position = excluded.queue_position,
+                verified_sha256 = excluded.verified_sha256,
                 updated_at   = excluded.updated_at
             "#,
             params![
@@ -1423,6 +1437,7 @@ pub fn upsert_install_job(connection: &Connection, job: &InstallJobRecord) -> Re
                 job.stream_completed,
                 job.entries_total,
                 job.queue_position,
+                job.verified_sha256,
                 job.created_at,
                 job.updated_at,
             ],
@@ -1449,12 +1464,13 @@ fn map_install_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<InstallJobRecord
         stream_completed: row.get(13)?,
         entries_total: row.get(14)?,
         queue_position: row.get(15)?,
-        created_at: row.get(16)?,
-        updated_at: row.get(17)?,
+        verified_sha256: row.get(16)?,
+        created_at: row.get(17)?,
+        updated_at: row.get(18)?,
     })
 }
 
-const INSTALL_JOB_COLUMNS: &str = "job_id, game_id, version_id, phase, bytes_done, bytes_total, speed_bps, part_path, install_path, staging_path, error, stream, resumable, stream_completed, entries_total, queue_position, created_at, updated_at";
+const INSTALL_JOB_COLUMNS: &str = "job_id, game_id, version_id, phase, bytes_done, bytes_total, speed_bps, part_path, install_path, staging_path, error, stream, resumable, stream_completed, entries_total, queue_position, verified_sha256, created_at, updated_at";
 
 pub fn get_install_job(
     connection: &Connection,
@@ -1897,7 +1913,7 @@ pub fn supersede_install_jobs(
         .execute(
             "UPDATE install_jobs SET phase = 'cancelled', error = 'Superseded by a new install', updated_at = ?3, speed_bps = 0
              WHERE game_id = ?1 AND version_id = ?2
-               AND phase IN ('queued', 'downloading', 'extracting', 'finalizing', 'paused')",
+               AND phase IN ('queued', 'waiting_for_space', 'downloading', 'verifying', 'extracting', 'finalizing', 'paused')",
             params![game_id, version_id, now],
         )
         .map_err(|e| format!("Could not supersede the previous install jobs: {e}"))
@@ -1913,7 +1929,7 @@ pub fn mark_interrupted_jobs(
 ) -> Result<usize, String> {
     connection
         .execute(
-            "UPDATE install_jobs SET phase = 'error', error = ?1, updated_at = ?2, speed_bps = 0 WHERE phase IN ('queued', 'downloading', 'extracting', 'finalizing')",
+            "UPDATE install_jobs SET phase = 'error', error = ?1, updated_at = ?2, speed_bps = 0 WHERE phase IN ('queued', 'waiting_for_space', 'downloading', 'verifying', 'extracting', 'finalizing')",
             params![message, now],
         )
         .map_err(|e| format!("Could not mark interrupted install jobs: {e}"))
@@ -3353,6 +3369,7 @@ mod tests {
         connection.execute_batch(SCHEMA_V16).unwrap();
         connection.execute_batch(SCHEMA_V17).unwrap();
         connection.execute_batch(SCHEMA_V18).unwrap();
+        connection.execute_batch(SCHEMA_V19).unwrap();
         connection
     }
 
@@ -3620,6 +3637,7 @@ mod tests {
             stream_completed: None,
             entries_total: Some(4),
             queue_position: Some(0),
+            verified_sha256: None,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         };
@@ -3661,6 +3679,7 @@ mod tests {
                 stream_completed: None,
                 entries_total: None,
                 queue_position: position,
+                verified_sha256: None,
                 created_at: "2026-01-01T00:00:00Z".into(),
                 updated_at: "2026-01-01T00:00:00Z".into(),
             }
@@ -3946,6 +3965,7 @@ mod tests {
             stream_completed: None,
             entries_total: None,
             queue_position: None,
+            verified_sha256: None,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         };
@@ -3983,6 +4003,7 @@ mod tests {
             stream_completed: None,
             entries_total: None,
             queue_position: None,
+            verified_sha256: None,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         }

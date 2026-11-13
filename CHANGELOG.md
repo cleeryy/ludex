@@ -19,6 +19,10 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
+- Archive verification is a visible phase (#223): a `verifying` phase with real
+  read progress, an indeterminate bar, elapsed time and a digest sidecar so an
+  unchanged archive is not rehashed; the row shows the digest and never a frozen
+  100% speed.
 - Launching a game brings its window to the foreground (#219): after spawn,
   Ludex grants foreground rights, waits up to 30 s for the game's own top-level
   window (skipping tool windows), then restores and focuses it (Windows
@@ -92,6 +96,15 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Disk space is reserved before a download (#222): a per-volume ledger projects
+  the archive + extraction peak (1.5x when unknown, 5% + 2 GiB margin), refuses
+  or parks jobs in a "waiting for space" state naming the volume and numbers,
+  re-checks before extraction, keeps the `.part` on ENOSPC and shows ledger
+  totals in Settings.
+- Installs are pipelined (#221): the download slot is separate from the single
+  extract slot, so the next queued game downloads while the current one
+  verifies/extracts (`prefetching`), with queue order preserved, stream installs
+  holding both slots and every start gated by the space ledger.
 - Update notifications (#213): one persistent in-app card per version (Open
   update center / Later / Skip this version, deduplicated by version and
   suppressed on the update/setup/login pages) plus desktop OS notifications

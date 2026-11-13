@@ -1841,6 +1841,7 @@ interface LocalSettings {
   downloadStallTimeoutSecs: number; // idle seconds before a download reconnects with Range (#195), default 30, clamped 5..600
   downloadRetryWindowSecs: number;  // automatic retry window in seconds (#212), default 21600 (6 h), 0 = until the app closes, clamped 60..604800 otherwise
   autoResumeDownloads: boolean;      // re-enter interrupted downloads on launch (#212), default true; never a paused/cancelled job
+  downloadConcurrency: number;       // parallel archive downloads (#221), default 1, clamped 1..2; extraction stays serialised
   closeToTray: boolean;         // closing the window hides to the tray (default true)
   nativeTitleBar: boolean;      // OS title bar instead of Ludex's own (#111), default false
   updateChannel: "stable" | "early"; // app updater channel (default stable)
@@ -2275,8 +2276,15 @@ interface InstallHealth {
 
 interface InstallJob {
   jobId: string; gameId: number; versionId: number;
-  phase: "queued" | "downloading" | "extracting" | "finalizing" | "paused"
-       | "done" | "cancelled" | "error";
+  phase: "queued" | "waitingForSpace" | "downloading" | "verifying"
+       | "extracting" | "finalizing" | "paused"
+       | "done" | "cancelled" | "error" | "interrupted";
+  // `waitingForSpace` (#222): the head of the queue has no disk room yet. It
+  //   keeps its queuePosition and starts by itself when a reservation is
+  //   released (`check_install_space` re-evaluates it now).
+  // `verifying` (#223): the archive is re-read for its SHA-256. Disk/CPU work,
+  //   not network: the next queued download may already run. `bytesDone` is
+  //   the hashed byte count, and the download's speed is 0 (never frozen).
   bytesDone: number; bytesTotal: number | null; speedBps: number;
   message: string | null; installPath: string | null;
   stream: boolean;              // job used a stream install (#114)
@@ -2294,6 +2302,18 @@ interface InstallJob {
   httpStatus: number | null;    // HTTP status of the last response (#212); diagnostics only
   waitingForNetwork: boolean;   // true while retries are parked because the OS reports offline (#212)
   queuePosition: number | null; // install queue slot (#202); null when finished or from an older build
+  prefetching: boolean;         // archive downloads ahead of its turn, another job holds the extractor (#221)
+  space: InstallSpaceStatus | null; // peak disk requirement and volume (#222); ok=false while waiting
+  verifiedSha256: string | null;    // archive digest proved before extraction (#216/#223)
+}
+
+interface InstallSpaceStatus {  // #222
+  volume: string;               // folder on the volume, for the message
+  neededBytes: number;          // peak requirement, safety margin included
+  freeBytes: number;            // what the filesystem reports now
+  reservedBytes: number;        // held by the other active installs on that volume
+  availableBytes: number;       // freeBytes - reservedBytes
+  ok: boolean;
 }
 
 interface VerifyIssue {
@@ -2736,13 +2756,15 @@ interface RemotePlayCleanup {
 | `local_server_start` | — | `{ url, token }` |
 | `local_server_stop` | — | `null` |
 | `local_server_status` | — | `{ running, url }` |
-| `install_game` | `{ gameId, versionId, serverUrl, token, title, version?, executable?, installDir?, downloadDir?, locationId?, downloadLocationId?, expectedBytes?, stream? }` | `InstallJob` (starts background; survives dialog close). `locationId`/`downloadLocationId` pick #99 named locations; `installDir` is the direct-root override used while a #145 recommendation is not saved yet; `expectedBytes` enables the free-space guard. An unknown id or a read-only/missing location fails immediately |
+| `install_game` | `{ gameId, versionId, serverUrl, token, title, version?, executable?, installDir?, downloadDir?, locationId?, downloadLocationId?, expectedBytes?, stream? }` | `InstallJob` (starts background; survives dialog close). `locationId`/`downloadLocationId` pick #99 named locations; `installDir` is the direct-root override used while a #145 recommendation is not saved yet; `expectedBytes` is the archive size used for the peak disk estimate (archive + extracted × 1.5 + margin, #222). A job that cannot fit yet is queued as `waitingForSpace` instead of failing; an unknown id or a read-only/missing location still fails immediately |
 | `cancel_install` | `{ jobId }` | `null` |
 | `pause_install` | `{ jobId }` | `InstallJob` (`paused`; keeps the `.part`) |
 | `resume_install` | `{ jobId, mode? }` | `InstallJob`; continues the **same** job (#205/#208). Accepts `paused`, `error`, `interrupted` and `cancelled` rows, including a job persisted by a previous app run: the worker is rebuilt from `install_job_params`, keeps the `.part`/staging path and the per-entry checkpoint, and never creates a second history row. `mode` is `null`/`"keep"` (same transport), `"download"` (explicit retry as a download) or `"stream"` (explicit restart of the per-entry stream); both reuse the job id. A `done` job or an unknown/legacy row without parameters is refused with a clear reason |
 | `retry_install_now` | `{ jobId }` | `InstallJob` (#212); wakes a download waiting in a retry backoff. Same job id, same offset, same attempt budget. Refused with a string error when the job is not `reconnecting` or is from a previous session |
 | `set_download_network_state` | `{ online }` | `null` (#212); the web shell forwards `navigator.onLine` (and the `online`/`offline` events). While offline, download and stream retries park without consuming an attempt |
 | `get_install_job` | `{ jobId }` | `InstallJob` |
+| `check_install_space` | `{ jobId }` | `InstallJob` (#222); re-evaluates the disk reservation of a `waitingForSpace` job ("Check again"). The scheduler already retries automatically when another job releases its reservation; this returns the refreshed row and starts the job when it now fits |
+| `install_space_ledger` | — | `InstallSpaceTotal[]` (`{ volume, reservedBytes, jobs }`, #222); the per-volume reservation totals shown in Settings → Storage |
 | `list_install_jobs` | — | `InstallJob[]`; active jobs first in queue order (`queuePosition`, lowest first, running install at the front), then history newest first |
 | `reorder_install_job` | `{ jobId, action, position? }` | `InstallJob[]` (the new queue order, same shape as `list_install_jobs`). `action` is `"top"`, `"up"`, `"down"` or `"position"`; `position` is the 0-based place inside the waiting queue and is required (and validated) for `"position"`. Queued and paused jobs move; the running install is never preempted and is refused with a clear message, as is a finished job or a row from a previous session. Moving a job to the top makes it the next one the scheduler starts (#202) |
 | `delete_install_job` | `{ jobId }` | `null`; removes one terminal (`done`, `cancelled`, `error`, `interrupted`) row from Downloads history. Refuses active and paused jobs. Never deletes the install folder, archives or `.part` files |
@@ -2951,9 +2973,15 @@ Per-entry stream checkpoints live in
 and `install_jobs.staging_path`, `resumable` and `entries_total`. Schema v18
 adds `install_jobs.queue_position` (#202): a compact `0..n` slot per active job
 that survives a restart; terminal rows carry `NULL`, so a finished or cancelled
-job never leaves a gap. A single scheduler starts the lowest position when the
-install slot frees (stream and classic jobs share the same queue), and the
-running install keeps its slot until it finishes, pauses or is cancelled.
+job never leaves a gap. Schema v19 adds `install_jobs.verified_sha256` (#223):
+the digest proved before extraction, so Downloads can show it after a restart
+without rehashing the archive. The scheduler admits the lowest position into a
+**download** slot (1, or 2 with `downloadConcurrency`) and a single
+**extract/commit** slot (#221); the phase strings persisted in `install_jobs`
+are the `as_str()` values, so `waitingForSpace` is stored as
+`waiting_for_space` and `verifying` as `verifying`. Stream and classic jobs
+share the same queue; a stream job holds both slots because it writes while it
+downloads.
 Local archive extraction
 uses `GET /api/games/{id}/versions/{vid}/local-path` when the embedded server is
 in local mode; remote installs download with Range resume and delete the temp
@@ -3356,16 +3384,48 @@ stops every write. Each applied change appears in the Backups tab with
   focuses an already-running job instead of starting another. "Resume" is only
   shown when a checkpoint exists; otherwise the action is "Restart" with a
   confirmation that it starts from zero.
-- **Install queue order (#202).** One install slot (`MAX_CONCURRENT_INSTALLS`)
-  shared by classic downloads and stream installs. Every active job carries a
-  persisted `queuePosition`; the scheduler starts the lowest position when the
-  slot frees instead of relying on the order the tasks reached a semaphore.
+- **Install queue order (#202).** Every active job carries a persisted
+  `queuePosition`; the scheduler starts the lowest position when a slot frees
+  instead of relying on the order the tasks reached a semaphore.
   `reorder_install_job` moves a waiting job to the top, one place up/down or to
   an explicit place inside the waiting queue; running jobs keep the front slot
   and are refused, and a finished job cannot be reordered. Positions compact to
   `0..n` after every change, so a completed/cancelled job leaves no gap, and
   the order survives a restart. Downloads and Big Picture render the same list;
   the web UI reorders optimistically and rolls back on refusal.
+- **Pipeline (#221).** Two resources instead of one install slot: a download
+  slot (`MAX_CONCURRENT_DOWNLOADS = 2` as a hard cap, `downloadConcurrency`
+  1–2, default 1) and a single extraction/commit slot
+  (`MAX_CONCURRENT_EXTRACTS = 1`). A worker releases the download slot as soon
+  as its transfer ends and then takes the extractor, so the next queued game
+  downloads while the previous one verifies and unpacks; that job carries
+  `prefetching: true`. A stream install holds both slots (it writes while it
+  downloads) and drops the extractor if it falls back to the classic download.
+  Queue order is not bypassed: only the head is admitted, and a job that does
+  not fit its disk reservation is parked as `waitingForSpace` (#222) instead of
+  being skipped. One archive per game/version is enforced before admission.
+- **Disk-space ledger (#222).** A per-volume (device id) reservation per job:
+  peak `archive + extracted` on one volume, or one requirement per volume when
+  the archive and the install are on different disks; streams reserve the
+  extracted tree only; the extracted size falls back to `archive × 1.5`
+  (`extractionEstimated`) when unknown. Every requirement carries a 5 % + 2 GiB
+  safety margin. Admission requires `free - other reservations >= needed`;
+  otherwise the job is `waitingForSpace` with `space.neededBytes`,
+  `space.freeBytes`, `space.reservedBytes`, `space.availableBytes` and the
+  volume. Done/failed/paused/cancelled jobs release their reservation, a
+  resume takes it again, and the ledger is rebuilt from the active rows at
+  startup so a restart never double-counts. ENOSPC stops the job with the
+  volume named and the `.part` kept.
+- **Verifying phase (#223).** A resumed or pre-existing `.part` is rehashed
+  from byte 0 before extraction. That pass is phase `verifying` with
+  `bytesDone` as the hashed byte count, `speedBps: 0` and a message like
+  `Verifying archive (42.5 GB of 96.3 GB)`; the row renders an indeterminate
+  bar and an elapsed time instead of an ETA. The digest is cached next to the
+  archive in `{part}.verified.json` (`size`, `mtime`, `etag`, `sha256`) and
+  reused while it matches, so an unchanged archive is not rehashed. A mismatch
+  deletes the bytes and the cache and retries once from zero; the failure keeps
+  both digests. Verification runs after the download slot is released, so the
+  next download can start while a 96 GB archive hashes.
 - **Bandwidth limit.** `bandwidthLimitKib` caps the copy loop of archive
   downloads, repairs and stream installs. 0 means unlimited. The cap is read
   when a transfer starts. The field keeps its KiB/s storage for compatibility;

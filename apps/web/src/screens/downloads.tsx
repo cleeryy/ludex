@@ -4,6 +4,17 @@ import { ArrowDown, ArrowUp, ArrowUpToLine, Check, Download, FolderOpen, Pause, 
 import { installsAvailable } from "@/lib/install";
 import { isActiveJob, useDownloads, type Aggregate } from "@/state/downloads";
 import { canRetryJob, canRetryNow, isTrulyResumable, secondsUntilRetry } from "@/lib/install-retry";
+import {
+  isVerifyingJob,
+  isWaitingForSpaceJob,
+  jobDisplaySpeed,
+  jobProgressPercent,
+  prefetchLabel,
+  spaceWaitLabel,
+  verifiedDigestLabel,
+  verifyingElapsedLabel,
+  verifyingLabel,
+} from "@/lib/install-phase";
 import { canMoveDown, canMoveUp, isReorderableJob, waitingQueue } from "@/lib/install-queue";
 import { useAllGames } from "@/lib/hooks";
 import { formatBytes, formatDuration, formatSpeed, installPhaseLabel, formatPercent } from "@/lib/format";
@@ -41,9 +52,16 @@ function aggregateStatus(aggregate: Aggregate): { text: string; hint: string | n
     if (aggregate.etaSeconds !== null) return { text: t("{duration} left", { duration: formatDuration(aggregate.etaSeconds) }), hint: null };
     return null;
   }
-  // No download is moving: narrate extraction with elapsed time, and stay
-  // quiet for queued/paused queues that have no estimate at all.
-  if (aggregate.phase !== "extracting" && aggregate.phase !== "finalizing") return null;
+  // No download is moving: narrate the disk phase with elapsed time, and stay
+  // quiet for queued/paused queues that have no estimate at all. Verification
+  // (#223) has no ETA: it reports how long the read has been running.
+  if (
+    aggregate.phase !== "verifying" &&
+    aggregate.phase !== "extracting" &&
+    aggregate.phase !== "finalizing"
+  ) {
+    return null;
+  }
   const label = installPhaseLabel(aggregate.phase);
   if (aggregate.phaseElapsedMs === null) return { text: `${label}…`, hint: null };
   return { text: `${label}… ${formatDuration(aggregate.phaseElapsedMs / 1000)}`, hint: null };
@@ -184,6 +202,7 @@ export function DownloadsScreen() {
     retryAsDownload,
     retryStream,
     retryNow,
+    checkSpace,
     reorder,
     remove,
     clearHistory,
@@ -299,6 +318,7 @@ export function DownloadsScreen() {
               onResume={() => void resume(job, { title: titleFor(job) })}
               onRestart={() => requestRestart(job)}
               onRetryNow={() => void retryNow(job.jobId)}
+              onCheckSpace={() => void checkSpace(job.jobId)}
               onMoveTop={canMoveUp(active, job.jobId) ? () => void reorder(job.jobId, "top") : undefined}
               onMoveUp={canMoveUp(active, job.jobId) ? () => void reorder(job.jobId, "up") : undefined}
               onMoveDown={canMoveDown(active, job.jobId) ? () => void reorder(job.jobId, "down") : undefined}
@@ -426,6 +446,7 @@ function JobRow({
   onResume,
   onRestart,
   onRetryNow,
+  onCheckSpace,
   onRetryAsDownload,
   onRemove,
   onMoveTop,
@@ -447,6 +468,8 @@ function JobRow({
   onResume: () => void;
   onRestart: () => void;
   onRetryNow?: () => void;
+  /** "Check again" for a job parked on disk space (#222). */
+  onCheckSpace?: () => void;
   onRetryAsDownload?: () => void;
   onRemove?: () => void;
   onMoveTop?: () => void;
@@ -456,15 +479,22 @@ function JobRow({
   const active = isActiveJob(job);
   const paused = job.phase === "paused";
   const removable = REMOVABLE_PHASES.has(job.phase);
-  const pct = job.bytesTotal ? Math.min(100, (job.bytesDone / job.bytesTotal) * 100) : null;
-  const starting = active && !paused && job.bytesDone === 0;
+  // #223: `null` while verifying turns the bar indeterminate instead of
+  // freezing it at 100 % with the download's last rate.
+  const pct = jobProgressPercent(job);
+  const starting = active && !paused && job.bytesDone === 0 && !isVerifyingJob(job);
   const downloading = job.phase === "downloading";
+  const verifying = isVerifyingJob(job);
+  const waitingForSpace = isWaitingForSpaceJob(job);
   // Smoothed speed from the sampling layer; raw only until the first sample.
-  const speed = downloading ? (meter?.speedBps ?? job.speedBps) : 0;
+  // Verification and extraction report 0: a leftover download rate would look
+  // like a frozen transfer (#223).
+  const speed = jobDisplaySpeed(job, meter?.speedBps);
   const eta = downloading && !starting ? jobEta(job, meter) : null;
-  // Extraction/finalizing have no meaningful ETA: narrate the phase instead.
+  // Verification/extraction/finalizing have no meaningful ETA: narrate the
+  // phase and how long it has been running instead.
   const phaseElapsed =
-    (job.phase === "extracting" || job.phase === "finalizing") && meter
+    (verifying || job.phase === "extracting" || job.phase === "finalizing") && meter
       ? formatDuration(meter.elapsedMs / 1000)
       : null;
   // "Resume" only when the checkpoint really continues the job; a failed job
@@ -473,13 +503,19 @@ function JobRow({
   const resumes = isTrulyResumable(job);
   const restartLabel = job.stream ? t("Restart stream") : t("Restart");
   const pausable =
-    (job.phase === "queued" || job.phase === "downloading") &&
+    (job.phase === "queued" || job.phase === "downloading" || verifying) &&
     (job.stream !== true || job.resumable);
   const retryIn = useRetrySeconds(job.nextRetryAt);
   const done = job.phase === "done";
   const showMessage =
     Boolean(job.message) && !["Downloading archive", "Queued", "Resuming", "Paused"].includes(job.message ?? "");
-  const showBar = active || (!done && pct !== null && pct > 0);
+  // #223: the bar is indeterminate while the archive is re-hashed; #222: a job
+  // waiting for room shows no progress bar at all.
+  const showBar = (active && !waitingForSpace) || (!done && pct !== null && pct > 0);
+  const prefetch = prefetchLabel(job);
+  const verifyLabel = verifyingLabel(job);
+  const spaceLabel = spaceWaitLabel(job);
+  const digestLabel = verifiedDigestLabel(job);
 
   return (
     <article className="flex items-start gap-4 border-b border-line py-3.5" aria-label={t("{title}, {phase}", { title, phase: installPhaseLabel(job.phase) })}>
@@ -511,6 +547,8 @@ function JobRow({
               <span>{t("Starting")}</span>
               {job.bytesTotal && <span>{formatBytes(job.bytesTotal)}</span>}
             </>
+          ) : waitingForSpace ? (
+            <span className="text-signal-text">{spaceLabel ?? t("Waiting for disk space")}</span>
           ) : (
             <>
               <span>{formatBytes(job.bytesDone)}</span>
@@ -527,7 +565,11 @@ function JobRow({
                 speed > 0 && <span>{formatSpeed(speed)}</span>
               )}
               {eta && <span>{eta}</span>}
-              {phaseElapsed && <span>{t("{phase} for {duration}", { phase: installPhaseLabel(job.phase), duration: phaseElapsed })}</span>}
+              {verifying && <span className="text-signal-text">{verifyLabel}</span>}
+              {phaseElapsed && !verifying && (
+                <span>{t("{phase} for {duration}", { phase: installPhaseLabel(job.phase), duration: phaseElapsed })}</span>
+              )}
+              {verifying && phaseElapsed && <span>{verifyingElapsedLabel((meter?.elapsedMs ?? 0))}</span>}
               {pct !== null && <span>{formatPercent(pct, 1)}</span>}
               {job.entriesTotal ? (
                 <span>{t("{done}/{total} files", { done: job.entriesDone ?? 0, total: job.entriesTotal })}</span>
@@ -550,6 +592,16 @@ function JobRow({
         {showMessage && (
           <p className={cn("mt-1.5 text-[12px] leading-snug", job.phase === "error" ? "text-danger" : "text-ink-3")}>
             {job.message}
+          </p>
+        )}
+
+        {prefetch && (
+          <p className="mt-1 text-[11px] leading-snug text-signal-text">{prefetch}</p>
+        )}
+
+        {digestLabel && (
+          <p className="mt-1 font-mono text-[10.5px] text-ink-3" title={job.verifiedSha256 ?? undefined}>
+            {t("Archive verified · {digest}", { digest: digestLabel })}
           </p>
         )}
 
@@ -592,6 +644,18 @@ function JobRow({
               />
             </div>
           ) : null}
+          {waitingForSpace && onCheckSpace && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-signal-text"
+              icon={<RefreshCw className="size-3.5" />}
+              onClick={onCheckSpace}
+              title={t("Re-evaluates the disk reservation of this install")}
+            >
+              {t("Check again")}
+            </Button>
+          )}
           {active && (
             <button
               type="button"

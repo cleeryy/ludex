@@ -233,13 +233,101 @@ redacted `lastError`, `attempt`, `offset` (bytes on disk), `bytesTotal`,
 paths are redacted; the token stored in `install_job_params` is never included.
 That is what to attach to a bug report instead of pasting logs.
 
+## Pipeline: download N+1 while N extracts (#221)
+
+An install used to hold one slot from queue to done, so a 20 GB extraction left
+the network idle. The scheduler now has two resources:
+
+| Resource | Count | Notes |
+|---|---|---|
+| Download (network) | 1 by default, 2 with `downloadConcurrency` | released the moment the archive is on disk |
+| Extract/commit (disk) | **always 1** | covers verification, extraction, move, manifest |
+
+- A worker downloads, gives the network slot back, then takes the extractor.
+  The next queued game therefore downloads while the previous one hashes and
+  unpacks. That download is flagged `prefetching`, and Downloads says
+  "Downloading ahead".
+- **Queue order still rules.** Only the lowest `queuePosition` is admitted; a
+  job that does not fit is parked (`waitingForSpace`) instead of being
+  leapfrogged by a smaller one.
+- **Stream installs hold both slots** for their whole duration: a stream writes
+  entries while it downloads, so it is both network and extraction. That is the
+  documented policy — a stream job never interleaves with a classic extraction.
+- One archive per game/version: the registry deduplicates before the scheduler
+  sees a candidate, so a prefetch can never download the same version twice.
+- The final move/manifest/index still runs inside the extractor, so two jobs
+  never rename into the same folder concurrently.
+- `MAX_CONCURRENT_DOWNLOADS = 2` is a hard cap; the expert setting (1–2) only
+  lowers it. Raising it never starts a download that the disk ledger refuses.
+- Pause/cancel releases both slots immediately; reordering is refused for a
+  running job (including a prefetch), so a prefetch is only removed by pausing
+  or cancelling it. A restart rebuilds the queue and its positions.
+
+## Disk-space reservations (#222)
+
+Free space alone is not a gate: two 40 GB jobs can each pass it against the
+same bytes and then fail during extraction. Ludex keeps a **ledger per volume**
+(device id, not path string, so an install folder and a download folder on the
+same disk share it) and per job:
+
+- **Peak requirement.** Classic: `archive + extracted` on one volume, or one
+  requirement per volume when the archive and the install live on different
+  disks. Stream: the extracted tree only. The extracted size is the archive
+  × 1.5 when it is unknown (flagged "about" in the UI). A safety margin of
+  **5 % + 2 GiB** is added to every requirement.
+- **Admission.** A job starts only when `free - other reservations >= needed`
+  on every volume it will write to. Otherwise it is queued as
+  `waitingForSpace` with the volume, the needed bytes and the bytes available
+  after the other installs; it starts by itself when a reservation is released,
+  and "Check again" re-evaluates it immediately. There is no busy loop.
+- **Release.** Done, failed, paused and cancelled jobs release their
+  reservation; a resume takes it again. Moving a job in the queue keeps it
+  (the ledger is keyed by job id, so there is no double count).
+- **Restart.** The ledger is in memory and rebuilt from the active rows at
+  startup, so a crash cannot leave a phantom reservation behind.
+- **Early failure.** Before the first byte the `.part` volume is checked and
+  its blocks are reserved with a probe file (`fallocate` where the filesystem
+  supports it, `set_len` elsewhere). The real `.part` is never preallocated:
+  growing it would make a sparse file look complete to the resume offset, which
+  is the file length. Before extraction the install volume is re-checked
+  against the same estimate.
+- **ENOSPC is named, never generic.** A full volume stops the job with the
+  volume path, the bytes needed and "the partial archive was kept"; the
+  checkpoint is intact, so freeing space and resuming continues at the offset.
+  Nothing is ever reported as success with a truncated archive.
+
+## Verifying phase (#223)
+
+A resumed `.part` has no trusted streaming digest, so it is re-read from byte 0
+before extraction (#216). That read used to look like a frozen 100 % download:
+the phase stayed `downloading` with the last "Download already complete"
+message. It is now its own phase:
+
+- **`verifying`** with a real read progress: "Verifying archive (42.5 GB of
+  96.3 GB)", the elapsed time instead of an ETA, and speed `0` — never a stale
+  rate. The progress bar is indeterminate, because the bytes are already
+  complete and a 100 % bar would look stuck.
+- Verification runs **after the network slot is released** and inside the
+  extractor, so the next queued download starts while a 96 GB archive hashes.
+- **Digest sidecar.** A verified digest is stored next to the `.part` as
+  `{part}.verified.json` with `{size, mtime, etag, sha256}`. An unchanged
+  archive with the same expected digest and ETag is not hashed again; a resume
+  that appends changes size and mtime, which invalidates the cache
+  automatically. A mismatch deletes both the bytes and the sidecar, then
+  retries once from zero.
+- The result is visible: `verifiedSha256` on the job and "Archive verified ·
+  SHA-256 …" on the row; a failure keeps both digests in the error message.
+- Cancel/pause during the hash stops between 4 MiB chunks and never deletes or
+  truncates the archive from inside the verifier.
+
 ## Queue
 
 - Jobs are persisted with a `queue_position`; the scheduler takes the lowest
   position when a slot frees. Moving a queued job to the top/up/down changes the
   position and survives a restart.
-- One install runs at a time by default. "Start now" asks to pause the current
-  job first; it never silently cancels it.
+- One download and one extraction run at a time by default (the pipeline above
+  overlaps them). "Start now" asks to pause the current job first; it never
+  silently cancels it.
 - Pause keeps the `.part`/checkpoint; cancel also keeps the resumable state
   unless the user explicitly deletes it. Removing a history row never deletes
   the files.
@@ -285,6 +373,9 @@ consequences:
 | Resume starts at 0% | Job id/history duplicates; `resume_install` mode; `.part` path; report with logs (#208/#205) |
 | Download fails at the same byte | Archive/version changed, server file truncated, or a proxy body limit; the SHA-256 verification error shows expected/actual and whether the server changed the archive |
 | `failed SHA-256 verification` | Retry from zero happened automatically; if it persists, the archive on the server differs from its recorded hash (run `POST /api/integrity/content-hashes`) or a proxy rewrites the body |
+| Stuck-looking 100 % row | It should say **Verifying** with a byte count and an elapsed time (#223). If it still says Downloading/100 %, the build predates #223; check `.part.verified.json` and the `archive verification finished` log line |
+| `Waiting for disk space` | The job's peak requirement does not fit next to the other reservations (#222). Check the volume named in the row, free space or cancel the other install; "Check again" re-evaluates immediately |
+| `The download volume … is full` | The filesystem refused a write. The `.part` is kept: free space on that volume and resume; do not restart from zero |
 | Stream fails immediately | Format unsupported or manifest missing; classic fallback should run |
 | Slow but stable | Run `scripts/bench-download.sh` and the matrix in PERFORMANCE; check LAN vs Caddy, disk and CPU |
 
@@ -340,7 +431,7 @@ filled in the issue.
 - [CONTRACT.md](CONTRACT.md) — upload/download/stream endpoints and fields.
 - Issues: #202 queue, #203 stream resume, #204 stream drops, #205/#208 same-job
   resume, #211 field acceptance, #216 full archive SHA-256, #217 parallel
-  ranges.
+  ranges, #221 pipeline, #222 disk reservations, #223 verifying phase.
 
 ## Sources for the launcher comparison
 

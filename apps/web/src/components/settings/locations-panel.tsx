@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { installBridge } from "@/lib/install";
 import { Check, FolderOpen, Plus, Sparkles, Trash2 } from "lucide-react";
 import { errorMessage } from "@/lib/http";
 import { isNative, native } from "@/lib/native";
@@ -16,6 +18,43 @@ import { useToast } from "@/state/toasts";
 import { t } from "@/lib/i18n";
 
 const KINDS: LocationKind[] = ["install", "download", "temp"];
+
+/**
+ * Bytes the active installs reserved per volume (#222), read from the desktop
+ * ledger. A reservation is released on completion/pause/cancel, so this is the
+ * room the next queued install cannot use.
+ */
+function SpaceLedgerSummary() {
+  const { data } = useQuery({
+    queryKey: ["install-space-ledger"],
+    queryFn: () => installBridge.spaceLedger(),
+    refetchInterval: 10_000,
+    staleTime: 5_000,
+  });
+  const totals = data ?? [];
+  if (totals.length === 0) return null;
+  return (
+    <div className="border border-line p-4">
+      <p className="text-[12.5px] font-medium text-ink">{t("Reserved for installs")}</p>
+      <p className="mt-1 max-w-[56ch] text-[11.5px] leading-relaxed text-ink-3">
+        {t("Each active install reserves its worst-case size (archive plus extracted files, with a safety margin) on its volume. A queued install only starts when its own reservation fits next to these.")}
+      </p>
+      <div className="mt-3 flex flex-col divide-y divide-line border-y border-line">
+        {totals.map((total) => (
+          <div key={total.volume} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2">
+            <span className="truncate font-mono text-[11.5px] text-ink-2">{total.volume}</span>
+            <span className="flex items-baseline gap-3 text-[11.5px] text-ink-3">
+              <span>{t("{size} reserved", { size: formatBytes(total.reservedBytes) })}</span>
+              <Badge tone="outline">
+                {total.jobs === 1 ? t("1 install") : t("{count} installs", { count: total.jobs })}
+              </Badge>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const kindLabel = (kind: LocationKind): string =>
   kind === "install" ? t("Install") : kind === "download" ? t("Download") : t("Scratch");
@@ -269,6 +308,8 @@ export function LocationsPanel({
           {t("No location saved yet. Ludex will create one from the default install folder on save.")}
         </p>
       )}
+
+      {nativeAvailable && <SpaceLedgerSummary />}
 
       {nativeAvailable && detected && detected.suggestions.length > 0 && (
         <div className="border border-line p-4">

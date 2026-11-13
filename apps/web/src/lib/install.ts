@@ -10,6 +10,7 @@ import type {
   InstalledGame,
   LauncherId,
   InstallResumeMode,
+  InstallSpaceTotal,
   LocalSettings,
   ManifestStatus,
   ManifestUpdate,
@@ -48,6 +49,19 @@ export const installBridge = {
   /** Skip a retry backoff without touching the job or its checkpoint (#212). */
   retryNow(jobId: string): Promise<InstallJob> {
     return USING_MOCKS ? mockInstalls.retryNow(jobId) : native.retryInstallNow(jobId);
+  },
+
+  /**
+   * Re-evaluate a job parked on disk space (#222). The desktop also does this
+   * by itself when another install releases its reservation.
+   */
+  checkSpace(jobId: string): Promise<InstallJob> {
+    return USING_MOCKS ? mockInstalls.checkSpace(jobId) : native.checkInstallSpace(jobId);
+  },
+
+  /** Bytes reserved per volume by the active installs (#222). */
+  spaceLedger(): Promise<InstallSpaceTotal[]> {
+    return USING_MOCKS ? mockInstalls.spaceLedger() : native.installSpaceLedger();
   },
 
   /**

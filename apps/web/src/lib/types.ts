@@ -1360,6 +1360,11 @@ export interface LocalSettings {
   downloadRetryWindowSecs: number;
   /** Re-enter interrupted downloads after an app restart (#212), default true. */
   autoResumeDownloads: boolean;
+  /**
+   * Parallel archive downloads (#221): 1 (default) or 2. Extraction stays
+   * serialised either way.
+   */
+  downloadConcurrency: number;
   /** Closing the window hides Ludex to the tray instead of quitting. */
   closeToTray: boolean;
   /** Use the OS title bar instead of Ludex's own (#111). Off by default. */
@@ -2504,7 +2509,11 @@ export interface LauncherImportReport {
  */
 export type InstallPhase =
   | "queued"
+  /** The head of the queue has no room on disk yet (#222). */
+  | "waitingForSpace"
   | "downloading"
+  /** The archive is re-read for its SHA-256: disk work, not network (#223). */
+  | "verifying"
   | "extracting"
   | "finalizing"
   | "paused"
@@ -2512,6 +2521,27 @@ export type InstallPhase =
   | "cancelled"
   | "error"
   | "interrupted";
+
+/**
+ * Worst-case disk requirement of a job on one volume (#222). `ok` is false
+ * while the job waits for the room; `availableBytes` is `freeBytes` minus what
+ * the other active installs already reserved.
+ */
+export interface InstallSpaceStatus {
+  volume: string;
+  neededBytes: number;
+  freeBytes: number;
+  reservedBytes: number;
+  availableBytes: number;
+  ok: boolean;
+}
+
+/** One volume of the reservation ledger (#222), for Settings → Storage. */
+export interface InstallSpaceTotal {
+  volume: string;
+  reservedBytes: number;
+  jobs: number;
+}
 
 export interface InstallJob {
   jobId: string;
@@ -2561,6 +2591,15 @@ export interface InstallJob {
    * the queue order existed.
    */
   queuePosition: number | null;
+  /**
+   * True while this archive downloads ahead of its turn, i.e. another job
+   * holds the extractor (#221). The row says "Downloading ahead".
+   */
+  prefetching: boolean;
+  /** Peak disk requirement and the volume it applies to (#222). */
+  space: InstallSpaceStatus | null;
+  /** Verified archive SHA-256, once verification passed (#216/#223). */
+  verifiedSha256: string | null;
 }
 
 /**

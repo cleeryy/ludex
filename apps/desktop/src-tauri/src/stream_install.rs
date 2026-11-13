@@ -2279,7 +2279,7 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(40)).await;
             cancel_from_test.cancel();
         });
-        let mut pending: Vec<StreamEntry> = files(&manifest)
+        let pending: Vec<StreamEntry> = files(&manifest)
             .into_iter()
             .filter(|item| !completed.contains(item.index))
             .collect();

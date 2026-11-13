@@ -20,8 +20,10 @@ use tokio_util::sync::CancellationToken;
 use crate::db::{self, InstallManifestRecord, InstalledGame};
 use crate::manifest;
 use crate::paths;
+use crate::pipeline::{self, Admission, Candidate};
 use crate::settings::{self, LocalSettings, Mode};
-use crate::state::{AppState, JobEntry};
+use crate::space::{self, SpacePlan, SpaceStatus};
+use crate::state::{AppState, JobEntry, SlotGuard};
 use crate::util::{human_bytes, non_empty, now_rfc3339, short_id};
 
 pub(crate) const INTERRUPTED_MESSAGE: &str =
@@ -35,7 +37,14 @@ pub(crate) const LEGACY_INTERRUPTED_MESSAGE: &str =
 #[serde(rename_all = "lowercase")]
 pub enum InstallPhase {
     Queued,
+    /// The head of the queue has no disk room yet (#222). It keeps its queue
+    /// slot and starts by itself when a reservation is released.
+    #[serde(rename = "waitingForSpace")]
+    WaitingForSpace,
     Downloading,
+    /// The archive is being re-read for its SHA-256 (#223). Disk/CPU work, not
+    /// network: the next download may already run.
+    Verifying,
     Extracting,
     Finalizing,
     Paused,
@@ -48,7 +57,9 @@ impl InstallPhase {
     pub fn as_str(self) -> &'static str {
         match self {
             InstallPhase::Queued => "queued",
+            InstallPhase::WaitingForSpace => "waiting_for_space",
             InstallPhase::Downloading => "downloading",
+            InstallPhase::Verifying => "verifying",
             InstallPhase::Extracting => "extracting",
             InstallPhase::Finalizing => "finalizing",
             InstallPhase::Paused => "paused",
@@ -61,7 +72,9 @@ impl InstallPhase {
     pub fn parse(value: &str) -> Self {
         match value {
             "queued" => InstallPhase::Queued,
+            "waiting_for_space" => InstallPhase::WaitingForSpace,
             "downloading" => InstallPhase::Downloading,
+            "verifying" => InstallPhase::Verifying,
             "extracting" => InstallPhase::Extracting,
             "finalizing" => InstallPhase::Finalizing,
             "paused" => InstallPhase::Paused,
@@ -126,6 +139,16 @@ pub struct InstallJob {
     /// one when a slot frees. `None` for a finished job and for a row that
     /// predates the queue order.
     pub queue_position: Option<u32>,
+    /// True while this archive is fetched ahead of its turn, i.e. another job
+    /// holds the extractor (#221). The UI says "Downloading ahead" instead of
+    /// implying the archive is already being unpacked.
+    pub prefetching: bool,
+    /// Worst-case disk requirement of the job and the volume it applies to
+    /// (#222). `None` when no size is known yet; `ok: false` while the job
+    /// waits for space.
+    pub space: Option<space::SpaceStatus>,
+    /// Full archive SHA-256 that was verified before extraction (#216/#223).
+    pub verified_sha256: Option<String>,
 }
 
 impl InstallJob {
@@ -138,6 +161,7 @@ impl InstallJob {
                 InstallPhase::Cancelled => "Install cancelled".to_string(),
                 InstallPhase::Paused => "Paused".to_string(),
                 InstallPhase::Error => INTERRUPTED_MESSAGE.to_string(),
+                InstallPhase::WaitingForSpace => "Waiting for disk space".to_string(),
                 _ => "Interrupted".to_string(),
             })
         });
@@ -194,6 +218,9 @@ impl InstallJob {
                     .queue_position
                     .and_then(|value| u32::try_from(value).ok())
             },
+            prefetching: false,
+            space: None,
+            verified_sha256: record.verified_sha256,
         }
     }
 
@@ -225,16 +252,23 @@ pub(crate) struct QueueJob {
 
 impl QueueJob {
     /// Waiting jobs are the reorderable part of the queue: they have not
-    /// touched the disk yet, or they keep their checkpoint while paused.
+    /// touched the disk yet, or they keep their checkpoint while paused. A job
+    /// parked on disk space (#222) still holds its place and can be moved.
     fn is_waiting(&self) -> bool {
-        matches!(self.phase, InstallPhase::Queued | InstallPhase::Paused)
+        matches!(
+            self.phase,
+            InstallPhase::Queued | InstallPhase::WaitingForSpace | InstallPhase::Paused
+        )
     }
 
     fn is_running(&self) -> bool {
         self.running
             || matches!(
                 self.phase,
-                InstallPhase::Downloading | InstallPhase::Extracting | InstallPhase::Finalizing
+                InstallPhase::Downloading
+                    | InstallPhase::Verifying
+                    | InstallPhase::Extracting
+                    | InstallPhase::Finalizing
             )
     }
 
@@ -296,11 +330,18 @@ pub(crate) fn plan_compact(jobs: &[QueueJob]) -> Vec<(String, u32)> {
         .collect()
 }
 
-/// The job the scheduler starts next: the lowest position among `queued` jobs
-/// that no worker owns.
+/// The job the scheduler starts next: the lowest position among the jobs that
+/// wait for a worker. Mirrors the queue order `pipeline::plan_next` enforces;
+/// kept here because it is the rule the reorder tests assert against.
+#[cfg(test)]
 pub(crate) fn next_queued(jobs: &[QueueJob]) -> Option<String> {
     jobs.iter()
-        .filter(|job| job.phase == InstallPhase::Queued && !job.running)
+        .filter(|job| {
+            matches!(
+                job.phase,
+                InstallPhase::Queued | InstallPhase::WaitingForSpace
+            ) && !job.running
+        })
         .min_by(|left, right| left.order_key().cmp(&right.order_key()))
         .map(|job| job.job_id.clone())
 }
@@ -529,30 +570,28 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
         params.download_dir.as_deref(),
         stream_requested_now,
     )?;
-    // Guard before queueing: a full disk fails here with an actionable message
-    // instead of after a long download. Same volume + archive: peak usage is
-    // the archive plus the extracted copy.
-    if let Some(expected) = params.expected_bytes.filter(|value| *value > 0) {
-        let install_required = if stream_requested_now || plan.cross_filesystem {
-            expected
-        } else {
-            expected.saturating_mul(2)
-        };
-        if let Some(free) = free_space(&plan.install_root) {
-            crate::locations::guard_free_space(install_required, free)
-                .map_err(|error| format!("{} {}", plan.peak_note, error))?;
-        }
-        if plan.cross_filesystem && !stream_requested_now {
-            if let Some(free) = free_space(&plan.download_dir) {
-                crate::locations::guard_free_space(expected, free).map_err(|error| {
-                    format!(
-                        "The download location {} does not have room for the archive. {error}",
-                        plan.download_dir.display()
-                    )
-                })?;
-            }
-        }
-    }
+    // Worst-case disk requirement (#222). It is reserved at admission, not
+    // here: a job that cannot fit yet stays in the queue as
+    // `waiting_for_space` with a readable reason instead of failing after a
+    // long download, and starts by itself when a reservation is released.
+    let space_plan = space::SpacePlan::build(
+        params.expected_bytes.filter(|value| *value > 0),
+        None,
+        &plan.install_root,
+        &plan.download_dir,
+        stream_requested_now,
+        settings.keep_archives,
+    );
+    tracing::info!(
+        cross_filesystem = plan.cross_filesystem,
+        note = %plan.peak_note,
+        archive_bytes = ?space_plan.archive_bytes,
+        extracted_bytes = ?space_plan.extracted_bytes,
+        estimated_extraction = space_plan.extraction_estimated,
+        game_id = params.game_id,
+        version_id = params.version_id,
+        "install locations and peak disk requirement resolved"
+    );
     // Validate the folders now: a relative path or a read-only drive fails the
     // click with a clear message instead of the worker after a long queue wait.
     let install_root = absolute_path(plan.install_root.clone())?;
@@ -652,6 +691,25 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
         http_status: None,
         waiting_for_network: false,
         queue_position: Some(queue_position),
+        prefetching: false,
+        space: Some(SpaceStatus {
+            volume: space_plan
+                .requirements
+                .first()
+                .map(|requirement| requirement.volume.path.display().to_string())
+                .unwrap_or_default(),
+            needed_bytes: space_plan
+                .requirements
+                .iter()
+                .map(|requirement| requirement.bytes)
+                .max()
+                .unwrap_or(0),
+            free_bytes: 0,
+            reserved_bytes: 0,
+            available_bytes: 0,
+            ok: true,
+        }),
+        verified_sha256: None,
     };
 
     let entry = Arc::new(JobEntry {
@@ -735,40 +793,236 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
     Ok(job)
 }
 
-/// Start the next queued install while a slot is free (#202).
+/// Start the next queued install while a download slot is free (#202/#221).
 ///
-/// The scheduler picks the lowest `queue_position` among `queued` jobs, so a
-/// game moved to the top starts next. A running job is never preempted: it is
-/// only stopped by an explicit pause or cancel. The worker that frees a slot
-/// calls this again.
+/// Two resources are scheduled separately: the **download** slot (1 by
+/// default, 2 with `downloadConcurrency`) and the single **extract/commit**
+/// slot. A worker gives the download slot back as soon as its transfer ends and
+/// then takes the extractor, so the next queued game downloads while the
+/// previous one unpacks. The job that starts while the extractor is busy is
+/// flagged `prefetching`.
+///
+/// The queue order still rules: only the lowest position is considered, and a
+/// job whose peak disk requirement (#222) does not fit is parked as
+/// `waiting_for_space` instead of starting and failing mid-download. A running
+/// job is never preempted: it is only stopped by an explicit pause or cancel.
 pub(crate) fn dispatch(app: &AppHandle) {
     let state = app.state::<AppState>();
     loop {
-        let permit = match Arc::clone(&state.install_slots).try_acquire_owned() {
-            Ok(permit) => permit,
-            // Every slot is busy; the worker that finishes calls dispatch.
-            Err(_) => return,
-        };
-        let Some(job_id) = next_queued(&queue_snapshot(&state)) else {
+        let Some(slot) = state.download_slots.try_acquire() else {
+            // Every download slot is busy; the worker that frees one calls this.
             return;
         };
-        // Claim the job under the registry lock, so a cancel or a second
-        // dispatch can never start the same entry twice.
-        let claimed = match state.jobs.lock() {
-            Ok(jobs) => match jobs.get(&job_id) {
-                Some(entry) => !entry.running.swap(true, Ordering::SeqCst),
-                None => false,
-            },
-            Err(_) => return,
-        };
-        if !claimed {
-            continue;
+        let admission = pipeline::plan_next(
+            &candidates(&state),
+            true,
+            state.extract_slots.in_use() > 0,
+            &state.space,
+            &space::SystemCapacity,
+        );
+        match admission {
+            Admission::Idle => return,
+            Admission::WaitingForSpace { job_id, space } => {
+                mark_waiting_for_space(app, &job_id, space);
+                return;
+            }
+            Admission::Start {
+                job_id,
+                prefetching,
+                space,
+            } => {
+                // Claim the job under the registry lock, so a cancel or a
+                // second dispatch can never start the same entry twice.
+                let claimed = match state.jobs.lock() {
+                    Ok(jobs) => match jobs.get(&job_id) {
+                        Some(entry) => !entry.running.swap(true, Ordering::SeqCst),
+                        None => false,
+                    },
+                    Err(_) => return,
+                };
+                if !claimed {
+                    continue;
+                }
+                if let Ok(jobs) = state.jobs.lock() {
+                    if let Some(entry) = jobs.get(&job_id) {
+                        entry.update(|job| {
+                            job.prefetching = prefetching;
+                            job.space = Some(space.clone());
+                            if job.phase == InstallPhase::WaitingForSpace {
+                                job.phase = InstallPhase::Queued;
+                                job.message = Some("Starting install".to_string());
+                            }
+                        });
+                    }
+                }
+                emit_jobs(app);
+                let handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    run(handle, job_id, slot).await;
+                });
+            }
         }
-        let handle = app.clone();
-        tauri::async_runtime::spawn(async move {
-            run(handle, job_id, permit).await;
-        });
     }
+}
+
+/// Jobs a worker may start: waiting for a slot, not paused, not owned.
+fn candidates(state: &AppState) -> Vec<Candidate> {
+    let Ok(jobs) = state.jobs.lock() else {
+        return Vec::new();
+    };
+    jobs.values()
+        .filter_map(|entry| {
+            let job = entry.snapshot();
+            if job.phase.is_terminal() || entry.running.load(Ordering::SeqCst) {
+                return None;
+            }
+            let startable = matches!(
+                job.phase,
+                InstallPhase::Queued | InstallPhase::WaitingForSpace
+            );
+            if !startable {
+                return None;
+            }
+            Some(Candidate {
+                job_id: job.job_id.clone(),
+                position: job.queue_position,
+                created_at: entry.created_at.clone(),
+                phase: job.phase,
+                space: Some(plan_for_job(state, entry)),
+            })
+        })
+        .collect()
+}
+
+/// Worst-case disk requirement of one job (#222).
+///
+/// `bytes_total` is the archive size once the server told us; before that the
+/// UI estimate (`expectedBytes`) is used. The extracted size is unknown, so the
+/// plan estimates it at 1.5× and flags it.
+fn plan_for_job(state: &AppState, entry: &JobEntry) -> SpacePlan {
+    let settings = state.settings_snapshot();
+    let job = entry.snapshot();
+    let install_root = entry
+        .params
+        .install_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| settings.install_path());
+    let download_root = entry
+        .params
+        .download_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| settings.download_path());
+    SpacePlan::build(
+        job.bytes_total.or(entry.params.expected_bytes),
+        None,
+        &install_root,
+        &download_root,
+        job.stream,
+        settings.keep_archives,
+    )
+}
+
+/// Park the head of the queue on its disk requirement (#222).
+fn mark_waiting_for_space(app: &AppHandle, job_id: &str, space: SpaceStatus) {
+    let state = app.state::<AppState>();
+    let entry = match state.jobs.lock() {
+        Ok(jobs) => jobs.get(job_id).cloned(),
+        Err(_) => None,
+    };
+    let Some(entry) = entry else {
+        return;
+    };
+    let already = entry.snapshot();
+    if already.phase == InstallPhase::WaitingForSpace && already.space.as_ref() == Some(&space) {
+        // Nothing changed: do not rewrite the row on every dispatch.
+        return;
+    }
+    let message = space.message();
+    entry.update(|job| {
+        job.phase = InstallPhase::WaitingForSpace;
+        job.speed_bps = 0;
+        job.prefetching = false;
+        job.clear_reconnect();
+        job.message = Some(message.clone());
+        job.space = Some(space.clone());
+    });
+    persist(app, &entry);
+    emit_jobs(app);
+    tracing::info!(job_id = %job_id, %message, "install waiting for disk space");
+}
+
+/// Re-evaluate a job parked on disk space ("Check again" in Downloads, #222).
+pub fn check_space(app: &AppHandle, job_id: &str) -> Result<InstallJob, String> {
+    let state = app.state::<AppState>();
+    let entry = {
+        let jobs = state
+            .jobs
+            .lock()
+            .map_err(|_| "The install queue is unavailable; restart Ludex.".to_string())?;
+        jobs.get(job_id).cloned()
+    }
+    .ok_or_else(|| format!("Unknown install job: {job_id}"))?;
+    let snapshot = entry.snapshot();
+    if snapshot.phase != InstallPhase::WaitingForSpace {
+        return Ok(snapshot);
+    }
+    // Drop the stale status so `dispatch` re-evaluates even when nothing moved.
+    let plan = plan_for_job(&state, &entry);
+    let reservation = state
+        .space
+        .try_reserve(job_id, &plan, &space::SystemCapacity);
+    if !reservation.is_granted() {
+        let space = reservation.status().clone();
+        entry.update(|job| {
+            job.message = Some(space.message());
+            job.space = Some(space);
+        });
+        persist(app, &entry);
+        emit_jobs(app);
+        return Ok(entry.snapshot());
+    }
+    dispatch(app);
+    Ok(entry.snapshot())
+}
+
+/// Reserved bytes per volume (#222), for Settings → Storage.
+pub fn space_ledger(app: &AppHandle) -> Vec<space::LedgerTotal> {
+    app.state::<AppState>().space.totals()
+}
+
+/// Rebuild the reservation ledger from the active jobs after a restart (#222).
+///
+/// The rows are the source of truth, so nothing is counted twice: the ledger is
+/// cleared first and every active job reserves its requirement again, in queue
+/// order. A job that no longer fits stays `waiting_for_space`.
+pub(crate) fn rebuild_space_ledger(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    state.space.reset();
+    let entries: Vec<Arc<JobEntry>> = match state.jobs.lock() {
+        Ok(jobs) => jobs.values().cloned().collect(),
+        Err(_) => return,
+    };
+    let mut active: Vec<Arc<JobEntry>> = entries
+        .into_iter()
+        .filter(|entry| !entry.snapshot().phase.is_terminal())
+        .collect();
+    active.sort_by_key(|entry| entry.snapshot().queue_position.unwrap_or(u32::MAX));
+    for entry in active {
+        let plan = plan_for_job(&state, &entry);
+        let _ = state
+            .space
+            .try_reserve(&entry.snapshot().job_id, &plan, &space::SystemCapacity);
+    }
+    tracing::info!(
+        totals = ?state.space.totals(),
+        "rebuilt the install disk-space ledger"
+    );
 }
 
 /// Snapshot of the active queue: running, queued and paused jobs.
@@ -973,8 +1227,10 @@ pub fn cancel(app: &AppHandle, job_id: &str) -> Result<(), String> {
         // scheduler may start it at any moment. Claim it here (the same
         // `running` swap the scheduler uses) so exactly one path finishes it.
         let phase = entry.snapshot().phase;
-        let orphan = matches!(phase, InstallPhase::Queued | InstallPhase::Paused)
-            && !entry.running.swap(true, Ordering::SeqCst);
+        let orphan = matches!(
+            phase,
+            InstallPhase::Queued | InstallPhase::WaitingForSpace | InstallPhase::Paused
+        ) && !entry.running.swap(true, Ordering::SeqCst);
         if orphan {
             // Leave the queue before the cleanup: the scheduler only picks
             // `queued` jobs, so it cannot start this one mid-cancel.
@@ -1018,19 +1274,25 @@ pub fn pause(app: &AppHandle, job_id: &str) -> Result<InstallJob, String> {
     let snapshot = entry.snapshot();
     match snapshot.phase {
         InstallPhase::Paused => Ok(snapshot),
-        InstallPhase::Queued => {
+        InstallPhase::Queued | InstallPhase::WaitingForSpace => {
             entry.request_pause();
             entry.update(|job| {
                 job.phase = InstallPhase::Paused;
                 job.speed_bps = 0;
+                job.prefetching = false;
                 job.clear_reconnect();
                 job.message = Some("Paused".to_string());
             });
+            // Pausing gives the disk reservation back: another queued job may
+            // use the room while this one waits for an explicit resume (#222).
+            release_space(app, &entry);
             persist(app, &entry);
             emit_jobs(app);
+            // A paused job no longer blocks the head of the queue (#221).
+            dispatch(app);
             Ok(entry.snapshot())
         }
-        InstallPhase::Downloading => {
+        InstallPhase::Downloading | InstallPhase::Verifying => {
             if snapshot.stream && !snapshot.resumable {
                 // A stream job from an older build may have no checkpoint at
                 // all: pausing it would throw away the work (#203).
@@ -1388,15 +1650,17 @@ impl Drop for RunGuard<'_> {
     }
 }
 
-async fn run(app: AppHandle, job_id: String, permit: tokio::sync::OwnedSemaphorePermit) {
-    run_job(app.clone(), job_id, permit).await;
-    // The slot is free: start the next install in queue order. This also picks
-    // up a resume that landed while the worker was finishing a pause, so a job
-    // never stays queued without a worker.
+async fn run(app: AppHandle, job_id: String, download_slot: SlotGuard) {
+    let mut download_slot = Some(download_slot);
+    run_job(app.clone(), job_id, &mut download_slot).await;
+    // Both slots are free again: start the next download in queue order. This
+    // also picks up a resume that landed while the worker was finishing a
+    // pause, so a job never stays queued without a worker.
+    drop(download_slot);
     dispatch(&app);
 }
 
-async fn run_job(app: AppHandle, job_id: String, permit: tokio::sync::OwnedSemaphorePermit) {
+async fn run_job(app: AppHandle, job_id: String, download_slot: &mut Option<SlotGuard>) {
     let state = app.state::<AppState>();
     let entry = {
         match state.jobs.lock() {
@@ -1410,6 +1674,10 @@ async fn run_job(app: AppHandle, job_id: String, permit: tokio::sync::OwnedSemap
     };
     let _guard = RunGuard(&entry.running);
 
+    // The network slot is released as soon as the transfer ends (#221); the
+    // extractor is taken by `execute` right before hashing/extraction.
+    let mut extract_slot: Option<SlotGuard> = None;
+
     let mut job_paths = planned_paths(&state, &entry);
     entry.set_part_path(
         job_paths
@@ -1418,15 +1686,15 @@ async fn run_job(app: AppHandle, job_id: String, permit: tokio::sync::OwnedSemap
             .map(|path| path.to_string_lossy().to_string()),
     );
 
-    // The scheduler already gave this job the install slot (#202). A cancel or
-    // pause while queued moves it out of the queue without touching the disk.
+    // The scheduler already gave this job the download slot. A cancel or pause
+    // while queued moves it out of the queue without touching the disk.
     if entry.cancel.is_cancelled() {
-        drop(permit);
+        drop(download_slot.take());
         finalize_cancelled(&app, &entry, &job_paths).await;
         return;
     }
     if entry.pause_token().is_cancelled() {
-        drop(permit);
+        drop(download_slot.take());
         finalize_paused(&app, &entry, &job_paths).await;
         return;
     }
@@ -1450,16 +1718,30 @@ async fn run_job(app: AppHandle, job_id: String, permit: tokio::sync::OwnedSemap
                 if phase.is_terminal() {
                     break;
                 }
-                if matches!(phase, InstallPhase::Downloading | InstallPhase::Extracting) {
+                if matches!(
+                    phase,
+                    InstallPhase::Downloading | InstallPhase::Verifying | InstallPhase::Extracting
+                ) {
                     let _ = app.emit("install://progress", entry.snapshot());
                 }
             }
         })
     };
 
-    let result = execute(&app, &entry, &mut job_paths).await;
+    let result = execute(
+        &app,
+        &entry,
+        &mut job_paths,
+        download_slot,
+        &mut extract_slot,
+    )
+    .await;
     heartbeat.abort();
-    drop(permit);
+    // Whatever happened, this job no longer holds the extractor or a disk
+    // reservation (#221/#222).
+    drop(extract_slot.take());
+    drop(download_slot.take());
+    state.space.release(&entry.snapshot().job_id);
 
     if result.is_err() {
         // Resumable stream installs keep staging and their checkpoint so the
@@ -1475,6 +1757,7 @@ async fn run_job(app: AppHandle, job_id: String, permit: tokio::sync::OwnedSemap
         if matches!(&result, Err(Failure::Cancelled)) {
             if let Some(part) = job_paths.part.as_deref() {
                 let _ = tokio::fs::remove_file(part).await;
+                crate::archive_verify::clear_digest(part);
             }
         }
     }
@@ -1488,6 +1771,7 @@ async fn run_job(app: AppHandle, job_id: String, permit: tokio::sync::OwnedSemap
             entry.update(|job| {
                 job.phase = InstallPhase::Done;
                 job.speed_bps = 0;
+                job.prefetching = false;
                 job.clear_reconnect();
                 job.bytes_done = job.bytes_total.unwrap_or(job.bytes_done);
                 // #214: a setup-only archive finishes with no executable. The
@@ -1557,15 +1841,19 @@ async fn finalize_paused(app: &AppHandle, entry: &JobEntry, job_paths: &JobPaths
             let _ = tokio::fs::remove_dir_all(staging).await;
         }
     }
+    release_space(app, entry);
     entry.update(|job| {
         job.phase = InstallPhase::Paused;
         job.speed_bps = 0;
+        job.prefetching = false;
         job.clear_reconnect();
         job.message = Some("Paused".to_string());
     });
     persist(app, entry);
     let _ = app.emit("install://progress", entry.snapshot());
     emit_jobs(app);
+    // The slots are free: the next queued install can start (#221).
+    dispatch(app);
     tracing::info!(job_id = %entry.snapshot().job_id, "install paused");
 }
 
@@ -1592,6 +1880,7 @@ async fn finalize_cancelled(app: &AppHandle, entry: &JobEntry, job_paths: &JobPa
     }
     if let Some(part) = job_paths.part.as_deref() {
         let _ = tokio::fs::remove_file(part).await;
+        crate::archive_verify::clear_digest(part);
     }
     entry.set_part_path(None);
     let message = if keep_staging {
@@ -1599,9 +1888,11 @@ async fn finalize_cancelled(app: &AppHandle, entry: &JobEntry, job_paths: &JobPa
     } else {
         "Install cancelled"
     };
+    release_space(app, entry);
     entry.update(|job| {
         job.phase = InstallPhase::Cancelled;
         job.speed_bps = 0;
+        job.prefetching = false;
         job.clear_reconnect();
         job.message = Some(message.to_string());
         // #202: a cancelled job leaves the queue without a gap.
@@ -1611,6 +1902,7 @@ async fn finalize_cancelled(app: &AppHandle, entry: &JobEntry, job_paths: &JobPa
     compact_queue(app);
     let _ = app.emit("install://progress", entry.snapshot());
     emit_jobs(app);
+    dispatch(app);
     tracing::info!(job_id = %entry.snapshot().job_id, "install cancelled");
 }
 
@@ -1627,9 +1919,11 @@ fn clear_stream_checkpoint(app: &AppHandle, entry: &JobEntry) {
 }
 
 fn finalize_error(app: &AppHandle, entry: &JobEntry, message: String) {
+    release_space(app, entry);
     entry.update(|job| {
         job.phase = InstallPhase::Error;
         job.speed_bps = 0;
+        job.prefetching = false;
         job.clear_reconnect();
         job.message = Some(message.clone());
         // #202: a failed job leaves the queue without a gap.
@@ -1647,7 +1941,15 @@ fn finalize_error(app: &AppHandle, entry: &JobEntry, message: String) {
         },
     );
     emit_jobs(app);
+    dispatch(app);
     tracing::warn!(job_id = %job.job_id, error = %message, "install failed");
+}
+
+/// Drop this job's disk reservation (#222). Idempotent: the worker calls it on
+/// every exit path and the cancel/pause finalizers call it again.
+pub(crate) fn release_space(app: &AppHandle, entry: &JobEntry) {
+    let state = app.state::<AppState>();
+    state.space.release(&entry.snapshot().job_id);
 }
 
 pub(crate) fn persist(app: &AppHandle, entry: &JobEntry) {
@@ -1685,6 +1987,7 @@ pub(crate) fn persist(app: &AppHandle, entry: &JobEntry) {
         stream_completed: entry.stream_completed(),
         entries_total: job.entries_total.map(|value| value as i64),
         queue_position: job.queue_position.map(i64::from),
+        verified_sha256: job.verified_sha256.clone(),
         created_at: entry.created_at.clone(),
         updated_at: now_rfc3339(),
     };
@@ -1860,6 +2163,8 @@ async fn execute(
     app: &AppHandle,
     entry: &Arc<JobEntry>,
     job_paths: &mut JobPaths,
+    download_slot: &mut Option<SlotGuard>,
+    extract_slot: &mut Option<SlotGuard>,
 ) -> Result<ExecutedInstall, Failure> {
     let state = app.state::<AppState>();
     let params = entry.params.clone();
@@ -1931,6 +2236,11 @@ async fn execute(
     // resumable download *before* any data is written (#203).
     let mut streamed = false;
     if archive.is_none() && stream_requested(params.stream, &settings, &params.server_url) {
+        // #221: a stream install is network *and* extraction, and it writes
+        // entry by entry while it downloads. It holds **both** slots for its
+        // whole duration, so it can never interleave with another unpacker; the
+        // documented policy is "stream = download + extract, no prefetch".
+        hold_extract(app, entry, extract_slot).await?;
         // #212: a stream job retries itself after its per-entry budget is
         // exhausted, with the same checkpoint, instead of failing outright.
         let tuning = DownloadTuning {
@@ -2005,6 +2315,9 @@ async fn execute(
                 entry.set_stream_completed(None);
                 entry.set_staging_path(None);
                 persist(app, entry);
+                // The job is a normal download now: give the extractor back so
+                // another install can prefetch/unpack while it transfers (#221).
+                drop(extract_slot.take());
             }
             Err(Failure::StreamUnavailable(message)) => {
                 // Every entry attempt failed before receiving a byte: the
@@ -2031,6 +2344,7 @@ async fn execute(
                 entry.set_stream_completed(None);
                 entry.set_staging_path(None);
                 persist(app, entry);
+                drop(extract_slot.take());
             }
             Err(failure) => return Err(failure),
         }
@@ -2053,19 +2367,37 @@ async fn execute(
         });
         job_paths.part = Some(part.clone());
         entry.set_part_path(Some(part.to_string_lossy().to_string()));
-        // Verify before extraction; on a mismatch delete the corrupt bytes,
-        // refresh the expected digest and retry once from zero (#216).
+
+        // Transfer (network slot) → verify (disk, #223) → extract (the single
+        // extractor). The network slot is released as soon as the bytes are on
+        // disk, so the next queued game downloads while this one hashes and
+        // unpacks (#221). A mismatch re-downloads once from zero (#216): the
+        // extractor is then given back so the pipeline cannot deadlock with a
+        // stream install waiting for it.
         let mut retried = false;
         loop {
+            if download_slot.is_none() {
+                hold_download(app, entry, download_slot).await?;
+            }
             let report = download(app, entry, &params, &part).await?;
             check_cancel(&entry.cancel)?;
-            match crate::archive_verify::verify_download(
+            release_download(app, download_slot);
+            entry.update(|job| job.prefetching = false);
+            hold_extract(app, entry, extract_slot).await?;
+
+            let verdict = verify_archive_on_disk(
+                app,
+                entry,
+                &params,
                 &part,
                 expected_sha256.as_deref(),
-                report.sha256.as_deref(),
                 report.served_sha256.as_deref(),
-            ) {
-                Ok(crate::archive_verify::ArchiveVerdict::Verified(digest)) => {
+                report.sha256.as_deref(),
+                report.etag.as_deref(),
+            )
+            .await?;
+            match verdict {
+                crate::archive_verify::ArchiveVerdict::Verified(digest) => {
                     tracing::info!(
                         game_id = params.game_id,
                         version_id = params.version_id,
@@ -2077,11 +2409,12 @@ async fn execute(
                     verified_sha256 = Some(digest);
                     break;
                 }
-                Ok(crate::archive_verify::ArchiveVerdict::Unverified) => break,
-                Ok(crate::archive_verify::ArchiveVerdict::Mismatch(mismatch)) => {
+                crate::archive_verify::ArchiveVerdict::Unverified => break,
+                crate::archive_verify::ArchiveVerdict::Mismatch(mismatch) => {
                     // Never extract these bytes: remove them before anything
                     // else can read the `.part`.
                     let _ = tokio::fs::remove_file(&part).await;
+                    crate::archive_verify::clear_digest(&part);
                     if !retried {
                         retried = true;
                         tracing::warn!(
@@ -2111,13 +2444,10 @@ async fn execute(
                         if let Some(fresh) = expected_archive_sha256(&state, &params).await {
                             expected_sha256 = Some(fresh);
                         }
+                        drop(extract_slot.take());
                         continue;
                     }
                     return Err(Failure::Failed(mismatch.message(&params.title)));
-                }
-                Err(error) => {
-                    let _ = tokio::fs::remove_file(&part).await;
-                    return Err(Failure::Failed(error));
                 }
             }
         }
@@ -2127,32 +2457,48 @@ async fn execute(
 
     check_cancel(&entry.cancel)?;
 
+    // Verification and extraction are disk work: one at a time (#221). The
+    // stream path already took the extractor; the classic path took it in the
+    // loop above; the local shortcut takes it here.
+    hold_extract(app, entry, extract_slot).await?;
+
     // The local shortcut reads the library file directly: verify it too, once,
     // before extraction. The classic path already proved its digest above.
     if !streamed && verified_sha256.is_none() {
-        if let Some(path) = archive.as_deref() {
-            match crate::archive_verify::verify_download(
-                path,
+        if let Some(path) = archive.clone() {
+            match verify_archive_on_disk(
+                app,
+                entry,
+                &params,
+                &path,
                 expected_sha256.as_deref(),
                 None,
                 None,
-            ) {
-                Ok(crate::archive_verify::ArchiveVerdict::Verified(digest)) => {
+                None,
+            )
+            .await?
+            {
+                crate::archive_verify::ArchiveVerdict::Verified(digest) => {
                     tracing::info!(
                         game_id = params.game_id,
                         version_id = params.version_id,
                         sha256 = %digest,
                         "local archive verified against the server SHA-256"
                     );
+                    verified_sha256 = Some(digest);
                 }
-                Ok(crate::archive_verify::ArchiveVerdict::Unverified) => {}
-                Ok(crate::archive_verify::ArchiveVerdict::Mismatch(mismatch)) => {
+                crate::archive_verify::ArchiveVerdict::Unverified => {}
+                crate::archive_verify::ArchiveVerdict::Mismatch(mismatch) => {
                     // A library file is never deleted: report and stop.
                     return Err(Failure::Failed(mismatch.message(&params.title)));
                 }
-                Err(error) => return Err(Failure::Failed(error)),
             }
         }
+    }
+
+    if let Some(digest) = verified_sha256.clone() {
+        entry.update(|job| job.verified_sha256 = Some(digest));
+        persist(app, entry);
     }
 
     // Stream installs retain no archive: the per-entry CRC-32 and size checks
@@ -2264,7 +2610,12 @@ async fn execute(
             })
             .await
             .map_err(|e| Failure::Failed(format!("The file copy task failed: {e}")))?
-            .map_err(|e| Failure::Failed(format!("Could not copy the game file: {e}")))?;
+            .map_err(|e| {
+                Failure::Failed(download_write_failure(
+                    &destination,
+                    &std::io::Error::other(e),
+                ))
+            })?;
 
             if let Some(part) = downloaded.as_deref() {
                 cleanup_archive(part, settings.keep_archives, &file_name).await;
@@ -2273,6 +2624,10 @@ async fn execute(
             Some(PathBuf::from(&file_name))
         } else {
             // 3b. Extract the archive into the staging folder.
+            // #222: the ledger reserved the peak at admission, but the disk may
+            // have been filled by something else since: fail before unpacking
+            // and keep the archive so the job resumes after freeing space.
+            ensure_extraction_space(&install_root, archive_size)?;
             set_progress(
                 app,
                 entry,
@@ -2327,7 +2682,7 @@ async fn execute(
             })
             .await
             .map_err(|e| Failure::Failed(format!("The extraction task failed: {e}")))?;
-            extraction.map_err(Failure::Failed)?;
+            extraction.map_err(|error| Failure::Failed(extraction_failure(&staging, error)))?;
 
             // The archive is no longer needed once extraction succeeded.
             if let Some(part) = downloaded.as_deref() {
@@ -2581,6 +2936,247 @@ async fn record_manifest(
         }
         Err(_) => tracing::warn!("could not persist the file manifest: database unavailable"),
     };
+}
+
+/// Wait for a slot without losing cancel/pause responsiveness (#221).
+async fn acquire_slot(
+    entry: &JobEntry,
+    limiter: &Arc<crate::state::SlotLimiter>,
+) -> Result<SlotGuard, Failure> {
+    let pause = entry.pause_token();
+    tokio::select! {
+        biased;
+        _ = entry.cancel.cancelled() => Err(Failure::Cancelled),
+        _ = pause.cancelled() => Err(Failure::Paused),
+        guard = limiter.acquire() => Ok(guard),
+    }
+}
+
+/// Take (or keep) the network slot before a transfer.
+async fn hold_download(
+    app: &AppHandle,
+    entry: &JobEntry,
+    slot: &mut Option<SlotGuard>,
+) -> Result<(), Failure> {
+    if slot.is_some() {
+        return Ok(());
+    }
+    let limiter = Arc::clone(&app.state::<AppState>().download_slots);
+    *slot = Some(acquire_slot(entry, &limiter).await?);
+    Ok(())
+}
+
+/// Give the network slot back as soon as the bytes are on disk (#221). The
+/// next queued download starts immediately, while this job verifies/extracts.
+fn release_download(app: &AppHandle, slot: &mut Option<SlotGuard>) {
+    if slot.take().is_some() {
+        dispatch(app);
+    }
+}
+
+/// Take (or keep) the single extraction/commit slot.
+async fn hold_extract(
+    app: &AppHandle,
+    entry: &JobEntry,
+    slot: &mut Option<SlotGuard>,
+) -> Result<(), Failure> {
+    if slot.is_some() {
+        return Ok(());
+    }
+    let limiter = Arc::clone(&app.state::<AppState>().extract_slots);
+    *slot = Some(acquire_slot(entry, &limiter).await?);
+    Ok(())
+}
+
+/// "Verifying archive (42.5 GiB of 96.3 GiB)" (#223).
+pub(crate) fn verifying_message(done: u64, total: u64) -> String {
+    if total > 0 {
+        format!(
+            "Verifying archive ({} of {})",
+            human_bytes(done),
+            human_bytes(total)
+        )
+    } else {
+        "Verifying archive".to_string()
+    }
+}
+
+/// Verify the archive before extraction with a real `verifying` phase (#223).
+///
+/// The rehash of a resumed `.part` reads the whole file, which used to look
+/// like a frozen 100 % download. It now reports read progress, is skipped when
+/// the digest sidecar still matches, and honours cancel/pause between chunks.
+#[allow(clippy::too_many_arguments)]
+async fn verify_archive_on_disk(
+    app: &AppHandle,
+    entry: &Arc<JobEntry>,
+    params: &InstallParams,
+    path: &Path,
+    expected: Option<&str>,
+    served: Option<&str>,
+    known: Option<&str>,
+    etag: Option<&str>,
+) -> Result<crate::archive_verify::ArchiveVerdict, Failure> {
+    use crate::archive_verify::{verify_archive, ArchiveVerdict};
+
+    let expected = expected.map(str::to_string);
+    let served = served.map(str::to_string);
+    let known = known.map(str::to_string);
+    let etag = etag.map(str::to_string);
+    // Always run through `verify_archive` so the cache is consulted and a
+    // verified digest is stored; a from-zero transfer needs no extra read.
+    if !crate::archive_verify::needs_rehash(
+        path,
+        expected.as_deref(),
+        known.as_deref(),
+        etag.as_deref(),
+    ) {
+        return verify_archive(
+            path,
+            expected.as_deref(),
+            known.as_deref(),
+            served.as_deref(),
+            etag.as_deref(),
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            |_, _| {},
+        )
+        .map_err(hash_failure);
+    }
+
+    let bytes = std::fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    set_progress(
+        app,
+        entry,
+        InstallPhase::Verifying,
+        0,
+        Some(bytes),
+        0,
+        Some(verifying_message(0, bytes)),
+    );
+    tracing::info!(
+        job_id = %entry.snapshot().job_id,
+        game_id = params.game_id,
+        version_id = params.version_id,
+        bytes,
+        expected = expected.as_deref().unwrap_or_default(),
+        "verifying the downloaded archive before extraction"
+    );
+
+    let started = Instant::now();
+    let cancel = entry.cancel.clone();
+    let pause = entry.pause_token();
+    let handle = app.clone();
+    let job_entry = Arc::clone(entry);
+    let path_buf = path.to_path_buf();
+    let blocking = {
+        let expected = expected.clone();
+        let served = served.clone();
+        let known = known.clone();
+        let etag = etag.clone();
+        let handle = handle.clone();
+        let job_entry = Arc::clone(&job_entry);
+        move || {
+            let mut last_emit = Instant::now();
+            verify_archive(
+                &path_buf,
+                expected.as_deref(),
+                known.as_deref(),
+                served.as_deref(),
+                etag.as_deref(),
+                &cancel,
+                &pause,
+                |done, total| {
+                    // The bar must move during a 96 GB read, but a SQLite write
+                    // every 4 MiB is wasteful: 500 ms is fast enough for the UI.
+                    if last_emit.elapsed() < Duration::from_millis(500) {
+                        return;
+                    }
+                    last_emit = Instant::now();
+                    job_entry.update(|job| {
+                        job.phase = InstallPhase::Verifying;
+                        job.bytes_done = done;
+                        job.bytes_total = Some(total.max(1));
+                        job.speed_bps = 0;
+                        job.clear_reconnect();
+                        job.message = Some(verifying_message(done, total));
+                    });
+                    persist(&handle, &job_entry);
+                    let _ = handle.emit("install://progress", job_entry.snapshot());
+                },
+            )
+        }
+    };
+    let joined = tokio::task::spawn_blocking(blocking)
+        .await
+        .map_err(|error| Failure::Failed(format!("The verification task failed: {error}")))?;
+
+    let verdict = joined.map_err(hash_failure)?;
+    match &verdict {
+        ArchiveVerdict::Verified(digest) => {
+            tracing::info!(
+                job_id = %entry.snapshot().job_id,
+                game_id = params.game_id,
+                version_id = params.version_id,
+                bytes,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                sha256 = %digest,
+                "archive verification finished"
+            );
+        }
+        ArchiveVerdict::Unverified => tracing::warn!(
+            game_id = params.game_id,
+            version_id = params.version_id,
+            "no archive SHA-256 for this version; extracting without strong verification"
+        ),
+        ArchiveVerdict::Mismatch(mismatch) => tracing::warn!(
+            game_id = params.game_id,
+            version_id = params.version_id,
+            bytes,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            expected = %mismatch.expected,
+            actual = %mismatch.actual,
+            changed_on_server = mismatch.changed_on_server,
+            "archive verification failed"
+        ),
+    }
+    Ok(verdict)
+}
+
+fn hash_failure(failure: crate::archive_verify::HashFailure) -> Failure {
+    match failure {
+        crate::archive_verify::HashFailure::Cancelled => Failure::Cancelled,
+        crate::archive_verify::HashFailure::Paused => Failure::Paused,
+        crate::archive_verify::HashFailure::Failed(message) => Failure::Failed(message),
+    }
+}
+
+/// Re-check the install volume before unpacking (#222).
+///
+/// The ledger reserved the peak at admission, but the disk can be filled by
+/// something outside Ludex between the check and the extraction. The extracted
+/// size is the archive × 1.5 when unknown, plus the safety margin.
+fn ensure_extraction_space(install_root: &Path, archive_bytes: Option<u64>) -> Result<(), Failure> {
+    let Some(archive) = archive_bytes.filter(|bytes| *bytes > 0) else {
+        return Ok(());
+    };
+    let needed = archive.saturating_mul(space::UNKNOWN_EXTRACTION_PERCENT) / 100;
+    let Some(free) = free_space(install_root) else {
+        return Ok(());
+    };
+    let required = space::with_margin(needed);
+    if free < required {
+        return Err(Failure::Failed(format!(
+            "Not enough free space to unpack into {}: {} needed for the extracted files (archive {} × 1.5 plus a safety margin), {} available. The archive was kept; free space on that volume and resume the install.",
+            install_root.display(),
+            human_bytes(required),
+            human_bytes(archive),
+            human_bytes(free)
+        )));
+    }
+    Ok(())
 }
 
 fn check_cancel(cancel: &CancellationToken) -> Result<(), Failure> {
@@ -3002,6 +3598,8 @@ pub(crate) struct DownloadReport {
     pub bytes: u64,
     /// Full archive SHA-256 the server advertised on the last response.
     pub served_sha256: Option<String>,
+    /// ETag of the last response, part of the verification cache key (#223).
+    pub etag: Option<String>,
     /// A Range resume or an append happened: the file is not a single
     /// from-zero write.
     pub resumed: bool,
@@ -3346,6 +3944,7 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                     sha256: None,
                     bytes: existing,
                     served_sha256,
+                    etag: response.etag(),
                     resumed: true,
                 });
             }
@@ -3547,6 +4146,11 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                             tracing::warn!(error = %error, path = %directory.display(), "could not check free disk space");
                         }
                     }
+                    // #222: reserve the blocks now, so the filesystem refuses
+                    // before 40 GB are on the wire instead of at the end.
+                    if let Err(message) = preallocate_blocks(directory, needed) {
+                        return Err(Failure::Failed(message));
+                    }
                 }
             }
         }
@@ -3605,10 +4209,7 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                         }
                         Ok(Ok(Some(bytes))) => {
                             writer.write_all(&bytes).await.map_err(|e| {
-                                Failure::Failed(format!(
-                                    "Could not write the download to {}: {e}",
-                                    part.display()
-                                ))
+                                Failure::Failed(download_write_failure(part, &e))
                             })?;
                             if let Some(hasher) = hasher.as_mut() {
                                 hasher.update(&bytes);
@@ -3740,6 +4341,7 @@ pub(crate) async fn download_into<T: DownloadTransport>(
             sha256: hasher.map(|hasher| hex::encode(hasher.finalize())),
             bytes: done,
             served_sha256,
+            etag: expected_etag,
             resumed,
         });
     }
@@ -3954,6 +4556,99 @@ fn ensure_download_space(needed: u64, free: u64, directory: &Path) -> Result<(),
         ))
     } else {
         Ok(())
+    }
+}
+
+/// True for a filesystem that ran out of space (#222). `ErrorKind::StorageFull`
+/// is still unstable, so the OS error number and the message are used.
+pub(crate) fn is_out_of_space(error: &std::io::Error) -> bool {
+    // 28 = ENOSPC, 112 = ERROR_DISK_FULL, 39 = ERROR_HANDLE_DISK_FULL.
+    if matches!(error.raw_os_error(), Some(28) | Some(112) | Some(39)) {
+        return true;
+    }
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("no space left") || message.contains("disk full")
+}
+
+/// Message for a failed write: a full volume names the volume and keeps the
+/// checkpoint, everything else keeps the OS detail (#222).
+pub(crate) fn download_write_failure(part: &Path, error: &std::io::Error) -> String {
+    if is_out_of_space(error) {
+        let volume = part
+            .parent()
+            .map(|parent| parent.display().to_string())
+            .unwrap_or_else(|| part.display().to_string());
+        format!(
+            "The download volume {volume} is full. The partial archive was kept at {}; free space on that volume and resume the install.",
+            part.display()
+        )
+    } else {
+        format!(
+            "Could not write the download to {}: {error}",
+            part.display()
+        )
+    }
+}
+
+/// Message for a failed extraction (#222): a full volume names the volume, and
+/// the archive is kept so the install can be resumed after freeing space.
+pub(crate) fn extraction_failure(staging: &Path, error: String) -> String {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("no space left") || lower.contains("disk full") || lower.contains("enospc") {
+        format!(
+            "Extraction ran out of space in {}. The downloaded archive was kept; free space on that volume and resume the install. ({error})",
+            staging.display()
+        )
+    } else {
+        format!(
+            "Could not extract the archive into {}: {error}",
+            staging.display()
+        )
+    }
+}
+
+/// Reserve the blocks for the remaining bytes before any of them is written
+/// (#222), so a nearly-full filesystem fails at once instead of at byte 40 GB.
+///
+/// The reservation is a **sibling probe file**: growing the real `.part` would
+/// make a sparse file look complete to the resume offset, which is the file
+/// length. `set_len` alone is sparse, so `fs2::allocate` asks the filesystem to
+/// reserve real blocks; a filesystem that cannot answer (EOPNOTSUPP) is
+/// accepted, a full one is reported.
+pub(crate) fn preallocate_blocks(directory: &Path, bytes: u64) -> Result<(), String> {
+    if bytes == 0 {
+        return Ok(());
+    }
+    let probe = directory.join(format!(
+        ".ludex-space-{}.probe",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let reserved = (|| -> std::io::Result<()> {
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&probe)?;
+        file.set_len(bytes)?;
+        match fs2::FileExt::allocate(&file, bytes) {
+            Ok(()) => Ok(()),
+            // The filesystem cannot reserve blocks (FAT, some network shares):
+            // the free-space check is all the protection there is.
+            Err(error) if error.raw_os_error() == Some(95) => Ok(()),
+            Err(error) => Err(error),
+        }
+    })();
+    let _ = std::fs::remove_file(&probe);
+    match reserved {
+        Ok(()) => Ok(()),
+        Err(error) if is_out_of_space(&error) => Err(format!(
+            "Not enough free space in {} to reserve {} for the download. Free space or change the download folder.",
+            directory.display(),
+            human_bytes(bytes)
+        )),
+        Err(error) => {
+            tracing::debug!(error = %error, path = %directory.display(), "could not reserve download blocks");
+            Ok(())
+        }
     }
 }
 
@@ -4257,7 +4952,9 @@ mod tests {
     fn phase_roundtrip() {
         for phase in [
             InstallPhase::Queued,
+            InstallPhase::WaitingForSpace,
             InstallPhase::Downloading,
+            InstallPhase::Verifying,
             InstallPhase::Extracting,
             InstallPhase::Finalizing,
             InstallPhase::Paused,
@@ -4269,7 +4966,106 @@ mod tests {
         }
         assert!(InstallPhase::Done.is_terminal());
         assert!(!InstallPhase::Downloading.is_terminal());
+        assert!(!InstallPhase::Verifying.is_terminal());
+        assert!(!InstallPhase::WaitingForSpace.is_terminal());
         assert!(!InstallPhase::Paused.is_terminal());
+        // The persisted names are part of the API (#223/#222): a rename would
+        // silently break every row an older build wrote.
+        assert_eq!(InstallPhase::Verifying.as_str(), "verifying");
+        assert_eq!(InstallPhase::WaitingForSpace.as_str(), "waiting_for_space");
+    }
+
+    #[test]
+    fn the_verifying_message_names_the_bytes_and_never_a_percent() {
+        // #223: the row must say what is happening during the rehash, never
+        // leave "Download already complete" as the only signal.
+        let message = verifying_message(42 * 1024 * 1024 * 1024, 96 * 1024 * 1024 * 1024);
+        assert!(message.starts_with("Verifying archive ("), "{message}");
+        assert!(message.contains("42.0 GiB"), "{message}");
+        assert!(message.contains("96.0 GiB"), "{message}");
+        // An unknown size still says "Verifying archive".
+        assert_eq!(verifying_message(0, 0), "Verifying archive");
+    }
+
+    #[test]
+    fn a_full_volume_is_reported_with_the_volume_and_keeps_the_checkpoint() {
+        let enospc = std::io::Error::from_raw_os_error(28);
+        assert!(is_out_of_space(&enospc));
+        assert!(is_out_of_space(&std::io::Error::other(
+            "No space left on device"
+        )));
+        assert!(!is_out_of_space(&std::io::Error::from_raw_os_error(13)));
+
+        let part = Path::new("/mnt/games/.7-9.part");
+        let message = download_write_failure(part, &enospc);
+        assert!(message.contains("/mnt/games"), "{message}");
+        assert!(message.contains("full"), "{message}");
+        assert!(message.contains("partial archive was kept"), "{message}");
+        assert!(message.contains("/mnt/games/.7-9.part"), "{message}");
+
+        // A non-space error keeps the OS detail instead of blaming the disk.
+        let other = std::io::Error::from_raw_os_error(5);
+        let message = download_write_failure(part, &other);
+        assert!(
+            message.contains("Could not write the download"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn an_extraction_out_of_space_names_the_install_volume() {
+        let message = extraction_failure(
+            Path::new("/mnt/games/.hades.staging-abc"),
+            "7z error: No space left on device".to_string(),
+        );
+        assert!(
+            message.contains("/mnt/games/.hades.staging-abc"),
+            "{message}"
+        );
+        assert!(message.contains("downloaded archive was kept"), "{message}");
+        let message =
+            extraction_failure(Path::new("/mnt/games/staging"), "bad password".to_string());
+        assert!(message.contains("Could not extract"), "{message}");
+        assert!(!message.contains("kept"), "{message}");
+    }
+
+    #[test]
+    fn the_download_blocks_are_reserved_before_the_first_byte() {
+        let root = download_temp_dir("preallocate");
+        // A tiny reservation succeeds and leaves no probe file behind.
+        preallocate_blocks(&root, 64 * 1024).expect("reserve");
+        let leftovers: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| name.contains("space-"))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "probe files left behind: {leftovers:?}"
+        );
+        // Zero bytes is a no-op, never an error.
+        preallocate_blocks(&root, 0).expect("no-op");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_job_waiting_for_disk_space_keeps_its_queue_turn() {
+        let mut jobs = vec![
+            running("job-a", 0, "2026-01-01T00:00:00Z"),
+            queued("job-b", 1, "2026-01-01T00:01:00Z"),
+        ];
+        // #222: a parked job is still startable, in its recorded position.
+        jobs[1].phase = InstallPhase::WaitingForSpace;
+        assert_eq!(next_queued(&jobs).as_deref(), Some("job-b"));
+        // It is reorderable like a waiting job, never treated as running.
+        assert!(jobs[1].is_waiting());
+        assert!(!jobs[1].is_running());
+        let assignments = plan_reorder(&jobs, "job-b", QueueMove::Top).unwrap();
+        assert_eq!(
+            assignments,
+            vec![("job-a".to_string(), 0), ("job-b".to_string(), 1)]
+        );
     }
 
     fn queued(job_id: &str, position: u32, created_at: &str) -> QueueJob {
@@ -4504,6 +5300,7 @@ mod tests {
             stream_completed: None,
             entries_total: None,
             queue_position: position,
+            verified_sha256: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),
         }
@@ -5628,6 +6425,7 @@ mod tests {
             stream_completed: Some("0f".into()),
             entries_total: Some(8),
             queue_position: Some(1),
+            verified_sha256: None,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:10:00Z".into(),
         }

@@ -204,6 +204,40 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
             </p>
           </SettingsGroup>
 
+          <SettingsGroup
+            title={t("Parallel downloads")}
+            description={t("How many archives may download at once. One is usually enough: Ludex already downloads the next game while the current one extracts. Extraction is always one at a time, and every download is only started when its disk reservation fits.")}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="w-[150px]">
+                <Input
+                  id="download-concurrency"
+                  aria-label={t("Parallel downloads")}
+                  type="number"
+                  min={1}
+                  max={2}
+                  step={1}
+                  inputMode="numeric"
+                  value={draft.downloadConcurrency}
+                  onChange={(event) =>
+                    desktop.update({
+                      downloadConcurrency: Math.min(2, Math.max(1, Math.round(Number(event.target.value) || 1))),
+                    })
+                  }
+                  className="font-mono text-[12px]"
+                />
+              </div>
+              <span className="text-[11.5px] text-ink-3" aria-hidden="true">
+                {t("at a time")}
+              </span>
+            </div>
+            <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">
+              {draft.downloadConcurrency > 1
+                ? t("Two archives may download in parallel while one extracts. The disk reservation still gates every start, so this never overcommits the same volume.")
+                : t("One archive downloads while the previous one extracts: the network is not left idle waiting for an unpack.")}
+            </p>
+          </SettingsGroup>
+
           <SettingsGroup title={t("After a restart")}>
             <SettingsSwitchRow
               title={t("Resume unfinished downloads on launch")}

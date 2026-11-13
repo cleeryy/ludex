@@ -26,6 +26,9 @@ const job = (patch: Partial<InstallJob> = {}): InstallJob => ({
   httpStatus: null,
   waitingForNetwork: false,
   queuePosition: null,
+  prefetching: false,
+  space: null,
+  verifiedSha256: null,
   ...patch,
 });
 

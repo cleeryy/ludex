@@ -385,7 +385,9 @@ export function ConfirmPanel({
 
 const PHASE_COPY: Record<InstallJob["phase"], () => string> = {
   queued: () => t("Queued"),
+  waitingForSpace: () => t("Waiting for disk space"),
   downloading: () => t("Downloading"),
+  verifying: () => t("Verifying"),
   extracting: () => t("Extracting"),
   finalizing: () => t("Finalizing"),
   paused: () => t("Paused"),

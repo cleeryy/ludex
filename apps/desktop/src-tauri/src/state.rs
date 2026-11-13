@@ -3,7 +3,7 @@
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
 use tokio::sync::Mutex as AsyncMutex;
@@ -16,9 +16,107 @@ use crate::profiles;
 use crate::secrets::SecretStore;
 use crate::settings::{self, LocalSettings};
 
-/// Install jobs run one at a time by default to avoid disk thrash on large
-/// archives. Additional requests wait in the queued phase.
-const MAX_CONCURRENT_INSTALLS: usize = 1;
+/// Download slots: one archive at a time by default, two when the expert
+/// `downloadConcurrency` setting allows it (#221). The slot is released as soon
+/// as the transfer ends, so the next queued game downloads while this one
+/// extracts.
+pub const MAX_CONCURRENT_DOWNLOADS: usize = 2;
+
+/// Extraction/commit slots: one unpacker and one final `rename`/manifest pass at
+/// a time (#202/#221). Never raised by settings: two unpackers on the same disk
+/// only thrash.
+pub const MAX_CONCURRENT_EXTRACTS: usize = 1;
+
+/// Counting semaphore whose limit can change at runtime (#221).
+///
+/// The download concurrency is a setting, so the pool size changes while jobs
+/// run. `tokio::sync::Semaphore` cannot shrink, hence this small counter: `used`
+/// is bumped with a CAS, `limit` is read on every attempt, and dropping the
+/// returned [`SlotGuard`] frees one slot and wakes the waiters.
+#[derive(Debug)]
+pub struct SlotLimiter {
+    limit: AtomicUsize,
+    used: AtomicUsize,
+    changed: tokio::sync::Notify,
+}
+
+impl SlotLimiter {
+    pub fn new(limit: usize) -> Arc<Self> {
+        Arc::new(Self {
+            limit: AtomicUsize::new(limit.max(1)),
+            used: AtomicUsize::new(0),
+            changed: tokio::sync::Notify::new(),
+        })
+    }
+
+    pub fn limit(&self) -> usize {
+        self.limit.load(Ordering::SeqCst)
+    }
+
+    /// Change the limit (clamped to at least one) and wake the waiters, so
+    /// raising it starts a waiting download immediately.
+    pub fn set_limit(&self, limit: usize) {
+        self.limit.store(limit.max(1), Ordering::SeqCst);
+        self.changed.notify_waiters();
+    }
+
+    pub fn in_use(&self) -> usize {
+        self.used.load(Ordering::SeqCst)
+    }
+
+    fn take(&self) -> bool {
+        let mut used = self.used.load(Ordering::SeqCst);
+        loop {
+            if used >= self.limit() {
+                return false;
+            }
+            match self.used.compare_exchange_weak(
+                used,
+                used + 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => return true,
+                Err(current) => used = current,
+            }
+        }
+    }
+
+    /// Never waits: `None` when every slot is taken.
+    pub fn try_acquire(self: &Arc<Self>) -> Option<SlotGuard> {
+        self.take().then(|| SlotGuard {
+            slots: Arc::clone(self),
+        })
+    }
+
+    /// Waits for a free slot, honouring nothing but drop-safety: the caller
+    /// wraps it in `tokio::select!` when it also listens to cancel/pause.
+    pub async fn acquire(self: &Arc<Self>) -> SlotGuard {
+        loop {
+            // Register before the check so a release cannot be missed.
+            let notified = self.changed.notified();
+            if self.take() {
+                return SlotGuard {
+                    slots: Arc::clone(self),
+                };
+            }
+            notified.await;
+        }
+    }
+}
+
+/// One held slot; dropping it frees the slot for the next waiter.
+#[derive(Debug)]
+pub struct SlotGuard {
+    slots: Arc<SlotLimiter>,
+}
+
+impl Drop for SlotGuard {
+    fn drop(&mut self) {
+        self.slots.used.fetch_sub(1, Ordering::SeqCst);
+        self.slots.changed.notify_waiters();
+    }
+}
 
 /// A launched game process, watched until its whole process tree exits.
 pub struct ProcessEntry {
@@ -227,9 +325,13 @@ pub struct AppState {
     /// OS reachability reported by the web shell (#212); retry waits pause
     /// while it is false without consuming an attempt.
     pub network: NetworkGate,
-    /// Install jobs run one at a time by default to avoid disk thrash on large
-    /// archives. Additional requests wait in the queued phase.
-    pub install_slots: Arc<tokio::sync::Semaphore>,
+    /// Network slots (#221): 1 by default, 2 with `downloadConcurrency`.
+    pub download_slots: Arc<SlotLimiter>,
+    /// Extraction/commit slots (#221): always one.
+    pub extract_slots: Arc<SlotLimiter>,
+    /// Per-volume disk-space reservations (#222). Rebuilt from the active jobs
+    /// at startup, so a restart never double-counts.
+    pub space: crate::space::SpaceLedger,
     /// Per-profile tokens (#24): OS keychain, or a local SQLite fallback.
     pub secrets: SecretStore,
     /// Pending desktop SSO sign-ins (#157), keyed by the generated state.
@@ -312,6 +414,12 @@ impl AppState {
         if !loaded.server_url.trim().is_empty() {
             server_urls.push(loaded.server_url.clone());
         }
+        let download_limit = usize::try_from(
+            loaded
+                .download_concurrency
+                .clamp(1, MAX_CONCURRENT_DOWNLOADS as u64),
+        )
+        .unwrap_or(1);
         let diagnostics = crate::diagnostics::DiagnosticsStore::new(
             Some(crate::diagnostics::store_path(&app_data)),
             crate::diagnostics::local_redaction_context(server_urls),
@@ -329,7 +437,9 @@ impl AppState {
             executables: Mutex::new(ExecutableCache::default()),
             http,
             network: NetworkGate::new(),
-            install_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_INSTALLS)),
+            download_slots: SlotLimiter::new(download_limit),
+            extract_slots: SlotLimiter::new(MAX_CONCURRENT_EXTRACTS),
+            space: crate::space::SpaceLedger::new(),
             secrets,
             oidc_logins: Arc::new(crate::oidc_login::LoginSessions::new()),
             overlay: crate::overlay::OverlayRuntime::default(),
@@ -385,6 +495,16 @@ impl AppState {
         *guard = next.clone();
         drop(guard);
 
+        // #221: the download concurrency is a setting; applying it here means a
+        // raised limit admits a waiting download without a restart.
+        self.download_slots.set_limit(
+            usize::try_from(
+                next.download_concurrency
+                    .clamp(1, MAX_CONCURRENT_DOWNLOADS as u64),
+            )
+            .unwrap_or(1),
+        );
+
         // A different server means a different index: adopt or open it now so
         // installs made right after the switch are written to the right place.
         // Done after releasing the settings lock to keep the lock order simple.
@@ -432,5 +552,64 @@ impl AppState {
         for id in finished.into_iter().take(jobs.len().saturating_sub(32)) {
             jobs.remove(&id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_slot_limiter_caps_the_concurrency() {
+        let slots = SlotLimiter::new(1);
+        let first = slots.try_acquire().expect("the first slot");
+        assert!(slots.try_acquire().is_none(), "no second slot at limit 1");
+        assert_eq!(slots.in_use(), 1);
+        drop(first);
+        assert_eq!(slots.in_use(), 0);
+        assert!(slots.try_acquire().is_some());
+    }
+
+    #[tokio::test]
+    async fn a_waiting_acquire_is_woken_by_a_release() {
+        let slots = SlotLimiter::new(1);
+        let held = slots.try_acquire().expect("the first slot");
+        let waiter = {
+            let slots = Arc::clone(&slots);
+            tokio::spawn(async move { slots.acquire().await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(!waiter.is_finished(), "the second acquire must wait");
+        drop(held);
+        let guard = tokio::time::timeout(std::time::Duration::from_secs(2), waiter)
+            .await
+            .expect("the release wakes the waiter")
+            .expect("the task joins");
+        drop(guard);
+        assert_eq!(slots.in_use(), 0);
+    }
+
+    #[tokio::test]
+    async fn raising_the_limit_admits_a_second_download() {
+        let slots = SlotLimiter::new(1);
+        let _first = slots.try_acquire().expect("the first slot");
+        assert!(slots.try_acquire().is_none());
+        // `downloadConcurrency = 2` (#221): the same run admits a second one.
+        slots.set_limit(2);
+        assert_eq!(slots.limit(), 2);
+        assert!(slots.try_acquire().is_some());
+        // Lowering it back never cancels a running transfer, it only stops new
+        // acquisitions until enough slots are free again.
+        slots.set_limit(1);
+        assert_eq!(slots.limit(), 1);
+        assert!(slots.try_acquire().is_none());
+    }
+
+    #[test]
+    fn the_limit_never_drops_to_zero() {
+        let slots = SlotLimiter::new(0);
+        assert_eq!(slots.limit(), 1);
+        slots.set_limit(0);
+        assert_eq!(slots.limit(), 1);
     }
 }
