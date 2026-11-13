@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-11-13
+
 ### Added
 
 - Disk space is reserved before a download (#222): a per-volume ledger projects
