@@ -6,8 +6,53 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Disk space is reserved before a download (#222): a per-volume ledger projects
+  the archive + extraction peak (1.5x when unknown, 5% + 2 GiB margin), refuses
+  or parks jobs in a "waiting for space" state naming the volume and numbers,
+  re-checks before extraction, keeps the `.part` on ENOSPC and shows ledger
+  totals in Settings.
+
+- Installs are pipelined (#221): the download slot is separate from the single
+  extract slot, so the next queued game downloads while the current one
+  verifies/extracts (`prefetching`), with queue order preserved, stream installs
+  holding both slots and every start gated by the space ledger.
+
+### Changed
+
+- Big Picture has one motion vocabulary (#220): tokens and a transition table
+  for boot, focus, shelf, page, layout, screen push/pop, overlays, power and
+  settings, an interruptible hub that never blocks input, instant commits for
+  held keys, sound cues fired once at the motion they describe, reduced-motion
+  mapped to opacity-only, and composite-only animations (tween layout cost
+  ≤0.6 ms in the console probe); the library is now a persistent layer with
+  apps pushed over it.
+
 ### Fixed
 
+- Archive verification is a visible phase (#223): a `verifying` phase with real
+  read progress, an indeterminate bar, elapsed time and a digest sidecar so an
+  unchanged archive is not rehashed; the row shows the digest and never a frozen
+  100% speed.
+
+- Launching a game brings its window to the foreground (#219): after spawn,
+  Ludex grants foreground rights, waits up to 30 s for the game's own top-level
+  window (skipping tool windows), then restores and focuses it (Windows
+  `SetForegroundWindow` + `AttachThreadInput` workaround, Linux `xdotool`),
+  hides Ludex only after a confirmed success, and reports a failure through
+  `game://focus` with a toast pointing at the game page's Resume / Force close
+  actions; macOS is a documented no-op and Wayland falls back to the toast.
+
+- Field-report fixes from the v0.4.7 campaign (#211, #217):
+  `bench-download.sh` sends the real bearer token, parses iperf3 `[SUM]` for
+  `-P8`, and its direct-vs-Caddy verdict has three bands; the server logs
+  `complete` instead of `client_abort` when a body is fully delivered, honours
+  `If-Range` (a stale ETag now returns the full 200 instead of a 206), and
+  serves 1 MiB chunks (measured 373 → ~700 MB/s on cold storage); the docs
+  record the 40 GB field matrix and the #217 verdict (parallel client not
+  implemented: WAN 1.12×, LAN cold 0.64×, below the 1.5× gate), plus the
+  ticket-in-proxy-log filter and the `content_sha256` backfill note.
 - Big Picture no longer clips the selected tile or its ring at the edges of a
   row: every rail shares a safe gutter and block padding sized for the Dock
   lift/scale, Spotlight scale and the cover ring (#218). Game cards draw only
@@ -19,26 +64,6 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Fixed
 
-- Archive verification is a visible phase (#223): a `verifying` phase with real
-  read progress, an indeterminate bar, elapsed time and a digest sidecar so an
-  unchanged archive is not rehashed; the row shows the digest and never a frozen
-  100% speed.
-- Launching a game brings its window to the foreground (#219): after spawn,
-  Ludex grants foreground rights, waits up to 30 s for the game's own top-level
-  window (skipping tool windows), then restores and focuses it (Windows
-  `SetForegroundWindow` + `AttachThreadInput` workaround, Linux `xdotool`),
-  hides Ludex only after a confirmed success, and reports a failure through
-  `game://focus` with a toast pointing at the game page's Resume / Force close
-  actions; macOS is a documented no-op and Wayland falls back to the toast.
-- Field-report fixes from the v0.4.7 campaign (#211, #217):
-  `bench-download.sh` sends the real bearer token, parses iperf3 `[SUM]` for
-  `-P8`, and its direct-vs-Caddy verdict has three bands; the server logs
-  `complete` instead of `client_abort` when a body is fully delivered, honours
-  `If-Range` (a stale ETag now returns the full 200 instead of a 206), and
-  serves 1 MiB chunks (measured 373 → ~700 MB/s on cold storage); the docs
-  record the 40 GB field matrix and the #217 verdict (parallel client not
-  implemented: WAN 1.12×, LAN cold 0.64×, below the 1.5× gate), plus the
-  ticket-in-proxy-log filter and the `content_sha256` backfill note.
 - Every archive is verified by full SHA-256 before install (#216): the server
   computes the digest in a background job (S3 streamed without staging),
   exposes `contentSha256` and `X-Ludex-Archive-Sha256`, and the desktop hashes
@@ -71,13 +96,6 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Changed
 
-- Big Picture has one motion vocabulary (#220): tokens and a transition table
-  for boot, focus, shelf, page, layout, screen push/pop, overlays, power and
-  settings, an interruptible hub that never blocks input, instant commits for
-  held keys, sound cues fired once at the motion they describe, reduced-motion
-  mapped to opacity-only, and composite-only animations (tween layout cost
-  ≤0.6 ms in the console probe); the library is now a persistent layer with
-  apps pushed over it.
 - Parallel ranged downloads are server-ready (#217): the download limiter is
   job-aware (a named job gets 240 part requests/min and up to 8 concurrent
   parts, with higher per-address caps), single-stream clients keep the exact
@@ -96,15 +114,6 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
-- Disk space is reserved before a download (#222): a per-volume ledger projects
-  the archive + extraction peak (1.5x when unknown, 5% + 2 GiB margin), refuses
-  or parks jobs in a "waiting for space" state naming the volume and numbers,
-  re-checks before extraction, keeps the `.part` on ENOSPC and shows ledger
-  totals in Settings.
-- Installs are pipelined (#221): the download slot is separate from the single
-  extract slot, so the next queued game downloads while the current one
-  verifies/extracts (`prefetching`), with queue order preserved, stream installs
-  holding both slots and every start gated by the space ledger.
 - Update notifications (#213): one persistent in-app card per version (Open
   update center / Later / Skip this version, deduplicated by version and
   suppressed on the update/setup/login pages) plus desktop OS notifications
