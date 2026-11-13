@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-11-13
+
 ### Fixed
 
 - Every archive is verified by full SHA-256 before install (#216): the server
