@@ -193,6 +193,12 @@ pub struct EngineSpec {
     #[serde(default = "default_engine_source")]
     pub source: String,
     pub confidence: String,
+    /// Game titles this layout belongs to (#215). A pattern without a title
+    /// placeholder (`{home}/.minecraft/saves`) is shared by every game, so the
+    /// engine is only expanded when the game title matches one of these. The
+    /// registry validation below rejects a title-less engine without a gate.
+    #[serde(default)]
+    pub titles: Vec<String>,
     #[serde(default)]
     pub patterns: PlatformPatterns,
 }
@@ -719,6 +725,38 @@ impl SaveRegistry {
                     })?;
                 }
             }
+            for title in &engine.titles {
+                if crate::steam::normalize_title(title).is_empty() {
+                    return Err(format!(
+                        "Invalid save registry: engine {} has an empty titles entry.",
+                        engine.id
+                    ));
+                }
+            }
+            // #215: a pattern without a title placeholder describes a folder
+            // shared by every game (`{home}/.minecraft/saves`). It may only be
+            // expanded for the titles the engine declares, so a title-less
+            // engine without `titles` is rejected here instead of silently
+            // offering that folder for every installed game.
+            for (platform, patterns) in [
+                (Platform::Windows, &engine.patterns.windows),
+                (Platform::Linux, &engine.patterns.linux),
+                (Platform::Macos, &engine.patterns.macos),
+            ] {
+                if patterns.is_empty() {
+                    continue;
+                }
+                if engine.titles.is_empty()
+                    && patterns
+                        .iter()
+                        .any(|pattern| !pattern_has_title_token(pattern))
+                {
+                    return Err(format!(
+                        "Invalid save registry: engine {} has a {platform:?} pattern without a title placeholder; declare `titles` (#215).",
+                        engine.id
+                    ));
+                }
+            }
         }
 
         for root in self.store_roots.steam.cloud_roots.values() {
@@ -813,6 +851,17 @@ fn valid_guid(value: &str) -> bool {
                 character.is_ascii_hexdigit()
             }
         })
+}
+
+/// True when a pattern scopes itself to the game title. `{bundle}` counts: a
+/// macOS container is only kept when its bundle id contains the title, so the
+/// pattern still cannot describe every game (#215).
+fn pattern_has_title_token(pattern: &str) -> bool {
+    pattern.split('/').any(|segment| {
+        tokens(segment)
+            .iter()
+            .any(|token| matches!(*token, "product" | "project" | "game" | "bundle"))
+    })
 }
 
 /// Parse and validate the optional overrides file.
@@ -1002,6 +1051,12 @@ fn engine_candidates(
     let mut candidates = Vec::new();
     let mut budget = ScanBudget::new(inputs.registry.limits.max_entries);
     for engine in &inputs.registry.engines {
+        // #215: a title-gated engine describes one game family. It is skipped
+        // before any pattern is expanded, so it produces no candidate, no
+        // evidence and no warning for an unrelated title.
+        if !engine_applies_to(engine, inputs.title) {
+            continue;
+        }
         for pattern in engine.patterns.for_platform(inputs.platform) {
             for (root, path) in expand_pattern(pattern, inputs, &mut budget) {
                 let evidence = format!("{} default layout: {pattern}", engine.label);
@@ -1027,6 +1082,22 @@ fn engine_candidates(
     }
     let _ = inputs.user_name;
     candidates
+}
+
+/// True when an engine layout can describe this game (#215).
+///
+/// An engine with `titles` is title-gated: it is only expanded when the game
+/// title matches one of them. Every other engine must carry a title
+/// placeholder in each pattern, which `SaveRegistry::validate` enforces, so
+/// its expansion is already scoped to the game.
+fn engine_applies_to(engine: &EngineSpec, title: &str) -> bool {
+    if engine.titles.is_empty() {
+        return true;
+    }
+    engine
+        .titles
+        .iter()
+        .any(|expected| gate_title_matches(expected, title))
 }
 
 struct ScanBudget {
@@ -1516,6 +1587,41 @@ pub fn title_matches(folder: &str, title: &str) -> bool {
     let stripped_title = compact(&crate::steam::strip_edition(title));
     (!stripped_title.is_empty() && name == stripped_title)
         || (!stripped_folder.is_empty() && stripped_folder == direct)
+}
+
+/// Edition words that may trail a gated title without making it a different
+/// game: "Minecraft: Java Edition" is still Minecraft, "Minecraft Dungeons" and
+/// "Minecraft Legends" are not (#215).
+const GATE_EDITION_WORDS: [&str; 8] = [
+    "java", "bedrock", "edition", "windows", "10", "pocket", "legacy", "preview",
+];
+
+/// Title gate for an engine with an explicit `titles` list (#215).
+///
+/// It accepts the registry's usual title match first, then a title that starts
+/// with the gated title followed only by edition words. Nothing else matches: a
+/// spin-off with its own save layout must not inherit the layout.
+fn gate_title_matches(expected: &str, title: &str) -> bool {
+    if title_matches(expected, title) || title_matches(title, expected) {
+        return true;
+    }
+    let expected = crate::steam::normalize_title(expected);
+    let title = crate::steam::normalize_title(title);
+    let expected_words: Vec<&str> = expected.split_whitespace().collect();
+    let title_words: Vec<&str> = title.split_whitespace().collect();
+    if expected_words.is_empty() || title_words.len() <= expected_words.len() {
+        return false;
+    }
+    if !expected_words
+        .iter()
+        .zip(&title_words)
+        .all(|(left, right)| left == right)
+    {
+        return false;
+    }
+    title_words[expected_words.len()..]
+        .iter()
+        .all(|word| GATE_EDITION_WORDS.contains(word))
 }
 
 fn bundle_matches(name: &str, title: &str) -> bool {
@@ -2063,6 +2169,15 @@ mod tests {
         for expected in ["unity", "unreal", "godot", "renpy", "minecraft"] {
             assert!(ids.contains(expected), "missing engine {expected}");
         }
+        // #215: the Minecraft layout has no title placeholder, so it must stay
+        // gated on the game title and stay a labelled guess.
+        let minecraft = registry
+            .engines
+            .iter()
+            .find(|engine| engine.id == "minecraft")
+            .unwrap();
+        assert_eq!(minecraft.titles, vec!["Minecraft".to_string()]);
+        assert_eq!(minecraft.confidence, CONFIDENCE_GUESS);
         assert_eq!(overrides().overrides.len(), 0);
     }
 
@@ -2175,16 +2290,15 @@ mod tests {
     }
 
     #[test]
-    fn unity_unreal_godot_renpy_and_minecraft_layouts_are_guesses() {
+    fn unity_unreal_godot_and_renpy_layouts_are_guesses() {
         let fixture = fixture("engines");
         fs::create_dir_all(fixture.home.join(".config/unity3d/Acme/Hades")).unwrap();
         fs::create_dir_all(fixture.home.join(".local/share/Hades/Saved/SaveGames")).unwrap();
         fs::create_dir_all(fixture.home.join(".local/share/godot/app_userdata/Hades")).unwrap();
         fs::create_dir_all(fixture.home.join(".renpy/Hades")).unwrap();
-        fs::create_dir_all(fixture.home.join(".minecraft/saves")).unwrap();
 
         let discovery = discover_in(&fixture, Platform::Linux, "Hades");
-        for expected in ["Unity", "Unreal Engine", "Godot", "Ren'Py", "Minecraft"] {
+        for expected in ["Unity", "Unreal Engine", "Godot", "Ren'Py"] {
             assert!(
                 discovery
                     .candidates
@@ -2201,12 +2315,142 @@ mod tests {
             .unwrap();
         assert_eq!(unity.confidence, CONFIDENCE_GUESS);
         assert!(unity.is_guess());
-        let minecraft = discovery
-            .candidates
-            .iter()
-            .find(|candidate| candidate.evidence.contains("Minecraft"))
-            .unwrap();
-        assert_eq!(minecraft.confidence, CONFIDENCE_LIKELY);
+    }
+
+    #[test]
+    fn a_generic_minecraft_folder_is_not_a_candidate_for_another_game() {
+        let fixture = fixture("minecraft-guard");
+        // A real, populated launcher folder under home, the Windows copy and
+        // the Flatpak container. All three belong to Minecraft only (#215).
+        let saves = fixture.home.join(".minecraft/saves");
+        fs::create_dir_all(saves.join("world")).unwrap();
+        fs::write(saves.join("world/level.dat"), b"level").unwrap();
+        fs::create_dir_all(fixture.home.join("AppData/Roaming/.minecraft/saves")).unwrap();
+        fs::create_dir_all(
+            fixture
+                .home
+                .join(".var/app/com.mojang.Minecraft/.minecraft/saves"),
+        )
+        .unwrap();
+
+        for platform in [Platform::Windows, Platform::Linux, Platform::Macos] {
+            let discovery = discover_in(&fixture, platform, "Hades");
+            assert!(
+                !discovery.candidates.iter().any(|candidate| {
+                    candidate.path.contains(".minecraft")
+                        || candidate.evidence.contains("Minecraft")
+                }),
+                "{platform:?}: {:?}",
+                paths(&discovery)
+            );
+            // A skipped engine leaves no trace: no candidate and no warning.
+            assert!(
+                discovery
+                    .warnings
+                    .iter()
+                    .all(|warning| !warning.contains("Minecraft")),
+                "{platform:?}: {:?}",
+                discovery.warnings
+            );
+        }
+    }
+
+    #[test]
+    fn minecraft_layout_is_only_offered_for_minecraft_titles() {
+        let fixture = fixture("minecraft-titled");
+        fs::create_dir_all(fixture.home.join(".minecraft/saves/world")).unwrap();
+        fs::create_dir_all(fixture.home.join("AppData/Roaming/.minecraft/saves")).unwrap();
+
+        for title in ["Minecraft", "Minecraft: Java Edition"] {
+            let discovery = discover_in(&fixture, Platform::Linux, title);
+            let candidate = discovery
+                .candidates
+                .iter()
+                .find(|candidate| candidate.evidence.contains("Minecraft"))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{title} lost the Minecraft candidate: {:?}",
+                        paths(&discovery)
+                    )
+                });
+            assert!(candidate.path.ends_with(".minecraft/saves"));
+            assert_eq!(candidate.source, SOURCE_ENGINE);
+            assert_eq!(candidate.root_id, "home");
+            // The launcher folder is shared by every edition, so it stays a
+            // labelled guess and waits for a session or a confirmation.
+            assert_eq!(candidate.confidence, CONFIDENCE_GUESS);
+            assert!(candidate.is_guess());
+        }
+
+        // Editions and spin-offs with their own save layout are not Minecraft.
+        for title in ["Minecraft Dungeons", "Minecraft Legends", "Hades"] {
+            let discovery = discover_in(&fixture, Platform::Linux, title);
+            assert!(
+                !discovery
+                    .candidates
+                    .iter()
+                    .any(|candidate| candidate.evidence.contains("Minecraft")),
+                "{title}: {:?}",
+                paths(&discovery)
+            );
+        }
+    }
+
+    #[test]
+    fn discovery_never_offers_the_home_folder_or_a_hidden_folder() {
+        let fixture = fixture("minecraft-broad");
+        fs::create_dir_all(fixture.home.join(".minecraft/saves")).unwrap();
+        fs::create_dir_all(fixture.home.join(".config")).unwrap();
+        let discovery = discover_in(&fixture, Platform::Linux, "Minecraft");
+        let home = fixture
+            .home
+            .canonicalize()
+            .unwrap_or_else(|_| fixture.home.clone());
+        for candidate in &discovery.candidates {
+            let path = Path::new(&candidate.path);
+            assert_ne!(path, home, "{candidate:?}");
+            assert_ne!(path, home.join(".minecraft"), "{candidate:?}");
+            assert!(
+                path.components().count() > home.components().count(),
+                "{candidate:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_title_less_engine_without_titles_is_rejected() {
+        let without_gate = REGISTRY_YAML.replace("    titles: [\"Minecraft\"]\n", "");
+        assert_ne!(without_gate, REGISTRY_YAML);
+        let error = SaveRegistry::parse(&without_gate).unwrap_err();
+        assert!(error.contains("titles"), "{error}");
+        assert!(error.contains("minecraft"), "{error}");
+
+        // An empty gate is not a gate.
+        assert!(SaveRegistry::parse(
+            &REGISTRY_YAML.replace("    titles: [\"Minecraft\"]", "    titles: [\"  \"]")
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn every_title_less_pattern_is_gated_by_titles() {
+        for engine in &registry().engines {
+            for pattern in engine
+                .patterns
+                .windows
+                .iter()
+                .chain(engine.patterns.linux.iter())
+                .chain(engine.patterns.macos.iter())
+            {
+                if !pattern_has_title_token(pattern) {
+                    assert!(
+                        !engine.titles.is_empty(),
+                        "engine {} offers {pattern} to every game",
+                        engine.id
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -2251,9 +2495,21 @@ mod tests {
             .iter()
             .map(|candidate| candidate.root_id.clone())
             .collect();
-        for root in ["xdg_data", "xdg_config", "xdg_state", "flatpak_apps"] {
+        for root in ["xdg_data", "xdg_config", "xdg_state"] {
             assert!(roots.contains(root), "missing root {root}: {roots:?}");
         }
+        // The only Flatpak pattern belongs to Minecraft: another game must not
+        // inherit it from the shared `.var/app` root (#215).
+        assert!(!roots.contains("flatpak_apps"), "{roots:?}");
+
+        // The Minecraft engine still resolves its own Flatpak container.
+        let discovery = discover_in(&fixture, Platform::Linux, "Minecraft");
+        let flatpak = discovery
+            .candidates
+            .iter()
+            .find(|candidate| candidate.root_id == "flatpak_apps")
+            .unwrap_or_else(|| panic!("missing flatpak candidate: {:?}", paths(&discovery)));
+        assert!(flatpak.path.ends_with(".minecraft/saves"));
 
         fs::create_dir_all(fixture.home.join("Library/Application Support/Hades")).unwrap();
         fs::create_dir_all(
@@ -2285,6 +2541,19 @@ mod tests {
         assert!(!title_matches("Hades II", "Hades"));
         assert!(!title_matches("Hade", "Hades"));
         assert!(!title_matches("My Game Launcher", "My Game"));
+
+        // The title gate (#215) also accepts editions, never spin-offs.
+        assert!(gate_title_matches("Minecraft", "Minecraft"));
+        assert!(gate_title_matches("Minecraft", "Minecraft: Java Edition"));
+        assert!(gate_title_matches("Minecraft", "Minecraft Bedrock Edition"));
+        assert!(gate_title_matches(
+            "Minecraft",
+            "Minecraft (Windows 10 Edition)"
+        ));
+        assert!(!gate_title_matches("Minecraft", "Minecraft Dungeons"));
+        assert!(!gate_title_matches("Minecraft", "Minecraft Dungeons II"));
+        assert!(!gate_title_matches("Minecraft", "Minecraft Legends"));
+        assert!(!gate_title_matches("Minecraft", "Hades"));
     }
 
     #[test]
