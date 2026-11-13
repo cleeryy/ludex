@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-11-13
+
 ### Documentation
 
 - [docs/DOWNLOADS.md](docs/DOWNLOADS.md) now compares SteamPipe, Epic BPS,
