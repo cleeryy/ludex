@@ -41,6 +41,7 @@ pub mod db;
 pub mod desktop_download;
 pub mod desktop_handoff;
 pub mod devices;
+pub mod download_limits;
 pub mod emulators;
 pub mod error;
 pub mod events;
@@ -347,9 +348,9 @@ async fn prepare(config: Config) -> Result<Prepared> {
             devices::HEARTBEAT_LIMIT_PER_MINUTE,
             Duration::from_secs(60),
         )),
-        // One download or Range resume per second, averaged over a minute.
-        // Well above parallel ranges (aria2c -x8) and normal reconnects.
-        download_limits: Arc::new(security::AttemptCounter::new(120, Duration::from_secs(60))),
+        // Single-stream clients keep the #195 reconnect budget; parallel
+        // jobs get their own N-aware budget and part cap (#217).
+        download_limits: Arc::new(download_limits::DownloadLimiter::new()),
     };
 
     let watcher_handle = watcher::start(&state).await;

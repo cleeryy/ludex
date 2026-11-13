@@ -224,6 +224,7 @@ async fn config(State(state): State<AppState>) -> Result<Json<ServerConfig>, Api
             |client| client.display_name().to_string(),
         ),
         default_locale,
+        parallel_parts_max: crate::download_limits::JOB_PARTS_MAX as u32,
     }))
 }
 
