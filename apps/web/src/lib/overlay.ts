@@ -1,4 +1,11 @@
-import type { OverlayStatus, OverlayTabId } from "@/lib/types";
+import type {
+  OverlayCapabilities,
+  OverlayLastButton,
+  OverlayListenerStatus,
+  OverlayStatus,
+  OverlayTabId,
+  OverlayWindowResult,
+} from "@/lib/types";
 
 /**
  * Pure overlay logic (#144), shared by the floating overlay window, the in-app
@@ -129,15 +136,34 @@ export function moveFocusIndex(index: number, count: number, offset: number): nu
 }
 
 /**
+ * The shape `normalizeOverlayStatus` accepts: the documented status plus the
+ * listener-nested diagnostics some desktops report (#228), so the panel keeps
+ * working whatever the window and the bundle negotiated.
+ */
+type OverlayStatusPayload = Partial<OverlayStatus> & {
+  listener?: (Partial<OverlayListenerStatus> & {
+    eventsSeen?: number;
+    lastButton?: OverlayLastButton | null;
+  }) | null;
+};
+
+/**
  * Defensive merge for a desktop older than the web bundle (or a browser, where
  * the bridge returns nothing): every field gets a usable default so the overlay
  * still renders and Settings still shows the controls.
+ *
+ * The #228 diagnostics stay `undefined` when the desktop does not report them:
+ * "no pad event yet" and "this build cannot count them" are different facts.
  */
-export function normalizeOverlayStatus(raw: Partial<OverlayStatus> | null | undefined): OverlayStatus {
+export function normalizeOverlayStatus(raw: OverlayStatusPayload | null | undefined): OverlayStatus {
   const listener = raw?.listener;
   const diagnostics = raw?.diagnostics;
   const capabilities = raw?.capabilities;
   const triggerStatus = raw?.triggerStatus;
+  const eventsSeen = raw?.eventsSeen ?? listener?.eventsSeen;
+  // `null` is a real answer ("no button yet"), so only a missing key falls back.
+  const lastButton =
+    raw && "lastButton" in raw ? raw.lastButton : listener?.lastButton;
   return {
     enabled: raw?.enabled ?? true,
     open: raw?.open ?? false,
@@ -183,7 +209,58 @@ export function normalizeOverlayStatus(raw: Partial<OverlayStatus> | null | unde
     },
     foreground: raw?.foreground ?? null,
     lastTrigger: raw?.lastTrigger ?? null,
+    ...(eventsSeen === undefined ? {} : { eventsSeen }),
+    ...(lastButton === undefined ? {} : { lastButton }),
+    ...(raw?.windowShownAt === undefined ? {} : { windowShownAt: raw.windowShownAt }),
     platformNote: raw?.platformNote ?? "",
     keyboardShortcut: raw?.keyboardShortcut ?? "Shift+Tab",
   };
+}
+
+/**
+ * Double Home needs the Guide/Home button, which Windows never delivers to
+ * applications and some Linux pads hide (#228). When it cannot fire, the panel
+ * must not offer it as a choice at all. A payload without capabilities counts
+ * as unavailable: the panel never promises a gesture it cannot prove.
+ */
+export function doubleHomeAvailable(
+  capabilities: Pick<OverlayCapabilities, "platform" | "guideButton"> | null | undefined,
+): boolean {
+  if (!capabilities) return false;
+  return capabilities.platform !== "windows" && capabilities.guideButton;
+}
+
+/**
+ * The gesture the panel should highlight: the stored one when it can fire,
+ * otherwise the chord. A stored `doubleHome` on Windows is migrated by the
+ * desktop, so this only covers the first paint or an older payload.
+ */
+export function selectedTrigger(
+  status: Pick<OverlayStatus, "trigger" | "capabilities">,
+): OverlayStatus["trigger"] {
+  if (status.trigger === "doubleHome" && !doubleHomeAvailable(status.capabilities)) return "chord";
+  return status.trigger;
+}
+
+/** One sentence for a forced-test result; `unknown` when nothing was reported. */
+export type OverlayWindowOutcome = "shown" | "hidden" | "failed" | "unknown";
+
+export function overlayWindowOutcome(
+  result: OverlayWindowResult | null | undefined,
+): OverlayWindowOutcome {
+  if (!result || result.windowCreated === undefined) return "unknown";
+  if (result.windowCreated === false) return "failed";
+  return result.windowVisible === true ? "shown" : "hidden";
+}
+
+/**
+ * Last-button line: `undefined` events mean an older desktop, `0` means the
+ * listener is alive but no pad button ever reached it.
+ */
+export function overlayLastButtonState(
+  status: Pick<OverlayStatus, "eventsSeen" | "lastButton">,
+): "unreported" | "never" | "seen" {
+  if (status.lastButton) return "seen";
+  if (status.eventsSeen === 0) return "never";
+  return "unreported";
 }

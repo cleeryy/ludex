@@ -44,7 +44,7 @@ export const SETTINGS_SECTION_META: Record<
   controllers: {
     icon: Gamepad2,
     label: () => t("Controllers"),
-    description: () => t("Pad setup, vibration and the console cues on this device."),
+    description: () => t("Pad setup, vibration and the Console mode cues on this device."),
   },
   streaming: {
     icon: Cast,

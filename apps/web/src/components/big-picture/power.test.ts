@@ -69,7 +69,7 @@ describe("power actions by platform", () => {
     const withGame: PowerContext = { ...DESKTOP, gameTitle: "Hades II" };
     const action = powerActions(withGame).find((entry) => entry.id === "quit-game");
     expect(action?.label).toBe("Quit Hades II");
-    expect(action?.detail).toBe("Close Hades II and return to Big Picture.");
+    expect(action?.detail).toBe("Close Hades II and return to Console mode.");
     expect(action?.enabled).toBe(true);
     expect(actionIds(DESKTOP)).not.toContain("quit-game");
   });

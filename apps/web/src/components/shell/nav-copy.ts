@@ -24,7 +24,7 @@ export function navLabel(destination: NavDestination): string {
     case "downloads":
       return t("Downloads");
     case "bigpicture":
-      return t("Big Picture mode");
+      return t("Console mode");
     case "updates":
       return t("Updates");
     case "community":

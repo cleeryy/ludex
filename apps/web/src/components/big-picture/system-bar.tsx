@@ -125,7 +125,7 @@ export function SystemBar({
       <div className="flex min-w-0 items-center gap-3">
         <Wordmark height={17} />
         <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-3">
-          {t("Big Picture")}
+          {t("Console")}
         </span>
         {refreshing && (
           <span role="status" className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">

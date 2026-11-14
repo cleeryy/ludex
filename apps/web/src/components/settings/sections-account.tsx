@@ -332,7 +332,7 @@ export function ProfilesBody({ desktop }: { desktop: DesktopSettingsController }
     <div className="border-t border-line pt-6">
       <SettingsGroup
         title={t("Controllers")}
-        description={t("Deadzone, sensitivity, remapping and vibration apply in the library and Big Picture.")}
+        description={t("Deadzone, sensitivity, remapping and vibration apply in the library and Console mode.")}
       >
         <ControllerPanel />
       </SettingsGroup>

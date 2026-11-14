@@ -201,7 +201,7 @@ function Topbar({ onOpenPalette, chrome }: { onOpenPalette: () => void; chrome: 
             <Dice5 className="size-4" />
           </IconButton>
           <span className="hidden sm:block">
-            <IconButton label={t("Big Picture mode")} variant="ghost" onClick={() => navigate("/bigpicture")}>
+            <IconButton label={t("Console mode")} variant="ghost" onClick={() => navigate("/bigpicture")}>
               <Gamepad2 className="size-4" />
             </IconButton>
           </span>

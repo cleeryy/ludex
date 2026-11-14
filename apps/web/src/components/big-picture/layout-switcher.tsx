@@ -42,7 +42,7 @@ export function LayoutTrigger({
       onClick={onToggle}
       aria-haspopup="true"
       aria-expanded={open}
-      aria-label={`${t("Big Picture layout")} — ${layoutLabel(layout)}`}
+      aria-label={`${t("Console layout")} — ${layoutLabel(layout)}`}
       className={cn(
         "inline-flex h-8 items-center gap-2 border border-line px-2.5 text-[11.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink",
         open && "border-line-2 text-ink",
@@ -89,12 +89,12 @@ export function LayoutPicker({
         className="w-[min(1000px,94vw)] border border-line-2 bg-bg-deep p-5 shadow-palette"
         onClick={(event) => event.stopPropagation()}
         role="group"
-        aria-label={t("Big Picture layout")}
+        aria-label={t("Console layout")}
         {...reveal(reduceMotion, { y: 10, duration: MOTION_DURATION.base })}
         {...exitOf("overlayOpen", { reduce: reduceMotion })}
       >
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-          <p className="text-[13px] font-medium text-ink">{t("Big Picture layout")}</p>
+          <p className="text-[13px] font-medium text-ink">{t("Console layout")}</p>
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
             <span className="flex items-center gap-1.5">
               <Kbd>←</Kbd>

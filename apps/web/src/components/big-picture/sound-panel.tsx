@@ -110,10 +110,10 @@ export function BigPictureSoundPanel() {
   };
 
   return (
-    <section className="border border-line p-4" aria-label={t("Big Picture sound")}>
+    <section className="border border-line p-4" aria-label={t("Console sound")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[13px] font-medium text-ink">{t("Big Picture sound")}</p>
+          <p className="text-[13px] font-medium text-ink">{t("Console sound")}</p>
           <p className="mt-1 max-w-[64ch] text-[11.5px] leading-relaxed text-ink-3">
             {t("Short cues for movement, confirmations and launches. Silent while a game runs.")}
           </p>
@@ -217,7 +217,7 @@ export function BigPictureSoundPanel() {
       </div>
 
       <p className="mt-3 text-[11px] leading-relaxed text-ink-3">
-        {t("Saved on this device. Also in Big Picture → Settings → Controllers.")}
+        {t("Saved on this device. Also in Console mode → Settings → Controllers.")}
       </p>
     </section>
   );

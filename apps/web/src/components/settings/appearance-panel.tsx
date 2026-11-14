@@ -346,7 +346,7 @@ export function AppearancePanel() {
           <div>
             <p className="text-[13px] font-medium text-ink">{t("Theme")}</p>
             <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">
-              {t("Pick a theme. Changes apply immediately, in the library and in Big Picture.")}
+              {t("Pick a theme. Changes apply immediately, in the library and in Console mode.")}
             </p>
           </div>
           <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
@@ -606,7 +606,7 @@ export function AppearancePanel() {
       <section className="border-t border-line pt-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-[11.5px] leading-relaxed text-ink-3">
-            {t("Big Picture uses the same theme with TV contrast. Focus rings stay visible and decorative text is lifted to 7:1.")}
+            {t("Console mode uses the same theme with TV contrast. Focus rings stay visible and decorative text is lifted to 7:1.")}
           </p>
           <Button size="sm" variant="ghost" icon={<RotateCcw className="size-3.5" />} onClick={() => {
             resetAppearance();

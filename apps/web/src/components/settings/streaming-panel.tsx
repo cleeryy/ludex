@@ -66,32 +66,32 @@ function ConsoleModePanel({
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-2">
           <Gamepad2 className="size-4 text-ink-3" aria-hidden="true" />
-          <h4 className="text-[13.5px] font-semibold text-ink">{t("Console mode")}</h4>
+          <h4 className="text-[13.5px] font-semibold text-ink">{t("Console app")}</h4>
           <Badge tone={draft.consoleMode ? "ok" : "outline"}>
             {draft.consoleMode ? t("on") : t("off")}
           </Badge>
         </div>
       </div>
       <p className="mt-1 max-w-[76ch] text-[12px] leading-relaxed text-ink-3">
-        {t("Publish one Sunshine app that opens Big Picture fullscreen on the host. Games are installed, launched and stopped from there, and quitting the console returns to the host desktop. Per-game Sunshine entries are removed by the next sync.")}
+        {t("Publish one Console app that opens Console mode fullscreen on the host. Games are installed, launched and stopped from there, and quitting the Console app returns to the host desktop. Per-game Sunshine entries are removed by the next sync.")}
       </p>
 
       <div className="mt-4">
         <SettingsSwitchRow
-          title={t("Publish one Ludex console app")}
+          title={t("Publish one Ludex Console app")}
           description={t("Moonlight lists a single app. Turn this off to go back to one Sunshine app per game.")}
           checked={draft.consoleMode}
           onCheckedChange={(consoleMode) => update({ consoleMode })}
         />
         <SettingsSwitchRow
-          title={t("Fullscreen console")}
-          description={t("The published command opens the console fullscreen. Off passes --windowed, which is useful when testing on a desktop.")}
+          title={t("Fullscreen Console app")}
+          description={t("The published command opens the Console app fullscreen. Off passes --windowed, which is useful when testing on a desktop.")}
           checked={draft.consoleFullscreen}
           onCheckedChange={(consoleFullscreen) => update({ consoleFullscreen })}
         />
         <SettingsSwitchRow
           title={t("Publish per-game entries too (expert)")}
-          description={t("Keep one Sunshine app per installed game next to the console app. Not needed for Moonlight: the console launches every game.")}
+          description={t("Keep one Sunshine app per installed game next to the Console app. Not needed for Moonlight: the Console app launches every game.")}
           checked={draft.consolePerGameApps}
           onCheckedChange={(consolePerGameApps) => update({ consolePerGameApps })}
         />
@@ -108,7 +108,7 @@ function ConsoleModePanel({
             className="h-9"
           />
           <span className="text-[11px] text-ink-3">
-            {t("Name Moonlight shows for the console app. Empty uses Ludex.")}
+            {t("Name Moonlight shows for the Console app. Empty uses Ludex.")}
           </span>
         </label>
         <label className="flex flex-col gap-1.5">
@@ -121,12 +121,12 @@ function ConsoleModePanel({
             className="h-9 font-mono text-[11px]"
           />
           <span className="text-[11px] text-ink-3">
-            {t("Key combination that quits the console back to the desktop, for example f12 or ctrl+shift+q.")}
+            {t("Key combination that quits the Console app back to the desktop, for example f12 or ctrl+shift+q.")}
           </span>
         </label>
       </div>
       <p className="mt-3 text-[11px] leading-relaxed text-ink-3">
-        {t("Save the desktop settings first, then publish the library above. Sunshine starts the console with the Ludex binary and --console; the app must be installed on the streaming host itself.")}
+        {t("Save the desktop settings first, then publish the library above. Sunshine starts the Console app with the Ludex binary and --console; the app must be installed on the streaming host itself.")}
       </p>
     </div>
   );

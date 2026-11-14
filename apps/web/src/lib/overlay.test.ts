@@ -3,6 +3,7 @@ import {
   clampOverlayOpacity,
   clampOverlayScale,
   defaultOverlayTab,
+  doubleHomeAvailable,
   formatOverlayClock,
   isOverlayCloseKey,
   isOverlayShortcut,
@@ -10,6 +11,9 @@ import {
   normalizeOverlayStatus,
   overlayDurationParts,
   overlayElapsedSeconds,
+  overlayLastButtonState,
+  overlayWindowOutcome,
+  selectedTrigger,
   switchOverlayTab,
   trapFocusIndex,
   visibleOverlayTabs,
@@ -189,5 +193,82 @@ describe("normalizeOverlayStatus", () => {
 
   it("drops invalid disabled game ids", () => {
     expect(normalizeOverlayStatus({ disabledGames: [3, -1, 0, 8] }).disabledGames).toEqual([3, 8]);
+  });
+});
+
+describe("overlay diagnostics (#228)", () => {
+  it("keeps unreported #228 fields unreported instead of inventing zeros", () => {
+    const status = normalizeOverlayStatus({ enabled: true });
+    expect(status.eventsSeen).toBeUndefined();
+    expect(status.lastButton).toBeUndefined();
+    expect(status.windowShownAt).toBeUndefined();
+  });
+
+  it("reads the diagnostics from the top level or the listener block", () => {
+    const nested = normalizeOverlayStatus({
+      listener: {
+        backend: "gilrs",
+        available: true,
+        running: true,
+        platform: "linux",
+        reason: null,
+        controllers: [],
+        eventsSeen: 4,
+        lastButton: { pad: "0", button: "Guide", at: "2026-11-15T10:00:00Z" },
+      } as never,
+    });
+    expect(nested.eventsSeen).toBe(4);
+    expect(nested.lastButton?.button).toBe("Guide");
+
+    const top = normalizeOverlayStatus({
+      eventsSeen: 0,
+      lastButton: null,
+      windowShownAt: "2026-11-15T10:00:00Z",
+    });
+    expect(top.eventsSeen).toBe(0);
+    expect(top.lastButton).toBeNull();
+    expect(top.windowShownAt).toBe("2026-11-15T10:00:00Z");
+  });
+
+  it("distinguishes an unknown desktop from one that saw zero buttons", () => {
+    expect(overlayLastButtonState({})).toBe("unreported");
+    expect(overlayLastButtonState({ eventsSeen: 0 })).toBe("never");
+    expect(
+      overlayLastButtonState({
+        eventsSeen: 2,
+        lastButton: { pad: "0", button: "LB", at: "2026-11-15T10:00:00Z" },
+      }),
+    ).toBe("seen");
+  });
+
+  it("never offers Double Home where the Guide button cannot reach the app", () => {
+    expect(doubleHomeAvailable({ platform: "windows", guideButton: false })).toBe(false);
+    expect(doubleHomeAvailable({ platform: "windows", guideButton: true })).toBe(false);
+    expect(doubleHomeAvailable({ platform: "linux", guideButton: false })).toBe(false);
+    expect(doubleHomeAvailable({ platform: "linux", guideButton: true })).toBe(true);
+    expect(doubleHomeAvailable(null)).toBe(false);
+  });
+
+  it("highlights the chord when the stored Double Home cannot fire", () => {
+    const windows = normalizeOverlayStatus({
+      trigger: "doubleHome",
+      capabilities: {
+        platform: "windows",
+        floatingWindow: true,
+        alwaysOnTop: true,
+        globalListener: true,
+        guideButton: false,
+        chord: true,
+      },
+    });
+    expect(selectedTrigger(windows)).toBe("chord");
+    expect(selectedTrigger(normalizeOverlayStatus({ trigger: "keyboard" }))).toBe("keyboard");
+  });
+
+  it("turns a forced test answer into a plain outcome", () => {
+    expect(overlayWindowOutcome(null)).toBe("unknown");
+    expect(overlayWindowOutcome({ windowCreated: true, windowVisible: true })).toBe("shown");
+    expect(overlayWindowOutcome({ windowCreated: true, windowVisible: false })).toBe("hidden");
+    expect(overlayWindowOutcome({ windowCreated: false })).toBe("failed");
   });
 });

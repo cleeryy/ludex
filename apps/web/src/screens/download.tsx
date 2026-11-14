@@ -190,7 +190,7 @@ export function DownloadScreen() {
               },
               {
                 icon: <Gamepad2 className="size-4" aria-hidden="true" />,
-                title: t("Controllers and Big Picture"),
+                title: t("Controllers and Console mode"),
                 body: t("Full-screen library navigation and controller profiles for the couch."),
               },
               {

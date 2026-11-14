@@ -60,7 +60,7 @@ export function PreferencesSyncPanel() {
     <SettingsGroup
       title={t("Settings sync")}
       description={t(
-        "Theme, language, Big Picture and update preferences follow your account. Install paths, bandwidth, streaming paths and tokens stay on this device.",
+        "Theme, language, Console mode and update preferences follow your account. Install paths, bandwidth, streaming paths and tokens stay on this device.",
       )}
       actions={
         status === "conflict" ? undefined : (

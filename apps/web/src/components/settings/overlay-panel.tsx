@@ -6,8 +6,12 @@ import { errorMessage } from "@/lib/http";
 import {
   clampOverlayOpacity,
   clampOverlayScale,
+  doubleHomeAvailable,
   normalizeOverlayStatus,
   OVERLAY_TABS,
+  overlayLastButtonState,
+  overlayWindowOutcome,
+  selectedTrigger,
 } from "@/lib/overlay";
 import type {
   OverlayCheck,
@@ -15,6 +19,7 @@ import type {
   OverlayTabId,
   OverlayTrigger,
   OverlayTriggerEvent,
+  OverlayWindowResult,
 } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Checkbox, Segmented } from "@/components/ui/controls";
@@ -52,6 +57,9 @@ export function OverlayPanel() {
   const status = query.data ? normalizeOverlayStatus(query.data) : null;
   const [opacity, setOpacity] = useState(status?.opacity ?? 0.92);
   const [scale, setScale] = useState(status?.scale ?? 1);
+  /** Facts from the last forced window test (#228); null until the user asks. */
+  const [windowTest, setWindowTest] = useState<OverlayWindowResult | null>(null);
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     if (!status) return;
@@ -77,11 +85,38 @@ export function OverlayPanel() {
   };
 
   /**
-   * Test button: opens the overlay without a controller and reports which
-   * presentation the backend chose, so a user with no pad can still verify the
-   * window itself (issue #190).
+   * Test button (#228): ask the desktop for the floating window even though the
+   * main window is focused, then render what actually happened. A toast is not
+   * proof; the window facts are. An older desktop ignores the flag and returns
+   * only the status, which the panel reports as "not reported".
    */
-  const preview = async () => {
+  const testOverlay = async () => {
+    if (!isNative()) return;
+    setTesting(true);
+    try {
+      const opened = await native.openOverlay({ forceWindow: true });
+      setWindowTest({
+        presentation: opened.presentation,
+        windowCreated: opened.windowCreated,
+        windowVisible: opened.windowVisible,
+        windowError: opened.windowError ?? null,
+        monitor: opened.monitor ?? null,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["overlay-status"] });
+    } catch (cause) {
+      setWindowTest({ windowCreated: false, windowVisible: false, windowError: errorMessage(cause) });
+      push({
+        title: t("Could not open the overlay"),
+        description: errorMessage(cause),
+        tone: "danger",
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  /** Open the overlay the normal way: in-app while Ludex is focused. */
+  const openNow = async () => {
     if (!isNative()) return;
     try {
       const opened = await native.openOverlay();
@@ -138,6 +173,13 @@ export function OverlayPanel() {
   const enabled = status.enabled;
   const tabs = status.tabs ?? OVERLAY_TABS;
   const disabledNames = new Map((installed.data ?? []).map((game) => [game.gameId, game.title]));
+  const guideAvailable = doubleHomeAvailable(status.capabilities);
+  const trigger = selectedTrigger(status);
+  const triggerOptions: { value: OverlayTrigger; label: string }[] = [
+    ...(guideAvailable ? [{ value: "doubleHome" as const, label: t("Double Home") }] : []),
+    { value: "chord", label: t("LB+RB+Start") },
+    { value: "keyboard", label: t("Keyboard only") },
+  ];
 
   const toggleTab = (tab: OverlayTabId) => {
     if (tab === "game") return; // the game tab owns Resume/Exit and is never hidden
@@ -154,10 +196,10 @@ export function OverlayPanel() {
           size="sm"
           variant="default"
           icon={<MonitorPlay className="size-3.5" />}
-          disabled={!enabled}
-          onClick={() => void preview()}
+          disabled={!enabled || testing}
+          onClick={() => void testOverlay()}
         >
-          {t("Preview the overlay")}
+          {testing ? t("Sending…") : t("Send test overlay")}
         </Button>
       }
     >
@@ -173,16 +215,17 @@ export function OverlayPanel() {
         <p className="mt-1 max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">
           {t("A single Home press stays with the OS or Steam. The chord is the fallback for pads that hide the Guide button.")}
         </p>
+        {!guideAvailable && (
+          <p className="mt-2 max-w-[58ch] text-[11.5px] leading-relaxed text-signal-text">
+            {t("This system does not deliver the Guide button to apps, so Double Home cannot fire. LB+RB+Start is the default and opens the overlay.")}
+          </p>
+        )}
         <div className="mt-3">
           <Segmented<OverlayTrigger>
             label={t("Controller gesture")}
-            value={status.trigger}
-            onChange={(trigger) => void commit({ trigger }, t("Controller gesture"))}
-            options={[
-              { value: "doubleHome", label: t("Double Home") },
-              { value: "chord", label: t("LB+RB+Start") },
-              { value: "keyboard", label: t("Keyboard only") },
-            ]}
+            value={trigger}
+            onChange={(next) => void commit({ trigger: next }, t("Controller gesture"))}
+            options={triggerOptions}
           />
         </div>
       </div>
@@ -288,7 +331,12 @@ export function OverlayPanel() {
         )}
       </div>
 
-      <DiagnosticsChecklist status={status} saving={saving} onPreview={() => void preview()} />
+      <DiagnosticsChecklist
+        status={status}
+        saving={saving}
+        windowTest={windowTest}
+        onOpenNow={() => void openNow()}
+      />
 
       <p className="mt-4 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">{status.platformNote}</p>
     </SettingsGroup>
@@ -318,16 +366,20 @@ function overlayTabLabel(tab: OverlayTabId): string {
 function DiagnosticsChecklist({
   status,
   saving,
-  onPreview,
+  windowTest,
+  onOpenNow,
 }: {
   status: OverlayStatus;
   saving: boolean;
-  onPreview: () => void;
+  /** Facts from a forced window test, or null before the user asks (#228). */
+  windowTest: OverlayWindowResult | null;
+  onOpenNow: () => void;
 }) {
   const diagnostics = status.diagnostics;
   const blocking = diagnostics.checks.some((check) => check.level === "blocking");
   const listener = status.listener;
   const active = listener.controllers.find((pad) => pad.active) ?? listener.controllers[0];
+  const lastButton = overlayLastButtonState(status);
 
   return (
     <div className="border-b border-line py-4">
@@ -364,20 +416,48 @@ function DiagnosticsChecklist({
       </ul>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <DiagnosticFact label={t("Configured gesture")}>
+        <DiagnosticFact label={t("Effective gesture")}>
           {effectiveGestureLabel(status)}
-        </DiagnosticFact>
-        <DiagnosticFact label={t("Controllers")}>
-          {active ? (
-            <span className="flex items-center gap-2">
-              <Gamepad2 className="size-3.5" />
-              {active.name} <span className="text-ink-3">#{active.id}</span>
-              {active.battery !== null ? ` · ${active.battery}%${active.charging ? "+" : ""}` : ""}
-            </span>
-          ) : (
-            t("No controller detected.")
+          {!status.triggerStatus.deliverable && (
+            <span className="text-ink-3"> · {t("not available")}</span>
           )}
         </DiagnosticFact>
+        <DiagnosticFact label={t("Listener")}>
+          {listener.backend} · {listener.running ? t("Running") : t("Stopped")} ·{" "}
+          {listener.available ? t("Available") : t("Unavailable")}
+        </DiagnosticFact>
+        <DiagnosticFact label={t("Controllers")}>
+          <span className="flex items-center gap-2">
+            <Gamepad2 className="size-3.5" />
+            {listener.controllers.length}
+            <span className="text-ink-3">
+              {active ? `${active.name} #${active.id}` : t("No controller detected.")}
+            </span>
+            {active?.battery !== null && active?.battery !== undefined
+              ? ` · ${active.battery}%${active.charging ? "+" : ""}`
+              : ""}
+          </span>
+        </DiagnosticFact>
+        <DiagnosticFact label={t("Last button")}>
+          {lastButton === "never" ? (
+            t("No pad button received yet.")
+          ) : lastButton === "seen" && status.lastButton ? (
+            <span>
+              {status.lastButton.button}
+              {status.lastButton.pad ? <span className="text-ink-3"> · {status.lastButton.pad}</span> : null}
+              {" · "}
+              {formatEventTime(status.lastButton.at)}
+            </span>
+          ) : (
+            t("Not reported by this desktop.")
+          )}
+          {status.eventsSeen !== undefined && (
+            <span className="mt-0.5 block text-[10.5px] text-ink-3">
+              {t("Buttons seen: {count}", { count: String(status.eventsSeen) })}
+            </span>
+          )}
+        </DiagnosticFact>
+        <DiagnosticFact label={t("Window")}>{windowFact(status, windowTest)}</DiagnosticFact>
         <DiagnosticFact label={t("Running game")}>
           {status.game
             ? `${status.game.title}${status.game.pid ? ` · PID ${status.game.pid}` : ""}`
@@ -388,8 +468,12 @@ function DiagnosticsChecklist({
         </DiagnosticFact>
       </div>
 
+      <p className="mt-3 max-w-[72ch] text-[11.5px] leading-relaxed text-ink-3">
+        {t("A game in exclusive fullscreen blocks every panel from outside the game, including this overlay. Set the game to borderless or windowed fullscreen and the overlay will appear above it.")}
+      </p>
+
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <Button size="sm" variant="default" icon={<MonitorPlay className="size-3.5" />} onClick={onPreview}>
+        <Button size="sm" variant="default" icon={<MonitorPlay className="size-3.5" />} onClick={onOpenNow}>
           {t("Open the overlay now")}
         </Button>
         <span className="max-w-[52ch] text-[11.5px] leading-relaxed text-ink-3">
@@ -398,6 +482,46 @@ function DiagnosticsChecklist({
       </div>
     </div>
   );
+}
+
+/** One sentence for the window fact: the test result wins, else the last show. */
+function windowFact(status: OverlayStatus, test: OverlayWindowResult | null): ReactNode {
+  if (test) {
+    const outcome = overlayWindowOutcome(test);
+    const monitor = test.monitor ? (
+      <span className="text-ink-3"> · {t("Monitor: {monitor}", { monitor: test.monitor })}</span>
+    ) : null;
+    if (outcome === "shown") {
+      return (
+        <span className="text-ok">
+          {t("Floating window created and visible.")}
+          {monitor}
+        </span>
+      );
+    }
+    if (outcome === "hidden" || outcome === "failed") {
+      const error = test.windowError ?? t("unknown reason");
+      return (
+        <span className="text-danger">
+          {outcome === "hidden"
+            ? t("Floating window created but not shown: {error}", { error })
+            : t("Floating window not created: {error}", { error })}
+          {monitor}
+        </span>
+      );
+    }
+    return t("Not reported by this desktop.");
+  }
+  if (status.windowShownAt) {
+    return `${t("Window shown")} · ${formatEventTime(status.windowShownAt)}`;
+  }
+  return t("No window test yet.");
+}
+
+/** Local clock for a diagnostic timestamp; a bad date never prints `Invalid Date`. */
+function formatEventTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString();
 }
 
 function DiagnosticFact({ label, children }: { label: string; children: ReactNode }) {
@@ -459,7 +583,7 @@ function overlayCheckLabel(check: OverlayCheck): string {
       return t("The game window is windowed or borderless: the overlay can draw above it.");
     case "game-fullscreen":
     case "game-fullscreen-unknown":
-      return t("If the game is in exclusive fullscreen, Windows hides every overlay that is not injected: switch it to borderless or windowed fullscreen.");
+      return t("The game looks fullscreen. Exclusive fullscreen hides every panel drawn from outside the game; borderless or windowed fullscreen lets the overlay appear above it.");
     case "floating-window":
       return t("A floating always-on-top window can be drawn above a borderless game.");
     case "no-floating-window":
@@ -484,7 +608,7 @@ function effectiveGestureLabel(status: OverlayStatus): string {
 
 function lastTriggerLabel(event: OverlayTriggerEvent | null): string {
   if (!event) return t("No trigger event yet.");
-  const time = new Date(event.at).toLocaleTimeString();
+  const time = formatEventTime(event.at);
   switch (event.outcome) {
     case "openedWindow":
       return `${t("Opened in the floating window.")} · ${time}`;

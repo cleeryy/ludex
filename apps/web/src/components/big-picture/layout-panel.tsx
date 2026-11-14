@@ -17,12 +17,12 @@ export function BigPictureLayoutPanel() {
   const [layout, setLayout] = useBigPictureLayout();
 
   return (
-    <section className="border border-line p-4" aria-label={t("Big Picture layout")}>
+    <section className="border border-line p-4" aria-label={t("Console layout")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[13px] font-medium text-ink">{t("Big Picture layout")}</p>
+          <p className="text-[13px] font-medium text-ink">{t("Console layout")}</p>
           <p className="mt-1 max-w-[64ch] text-[11.5px] leading-relaxed text-ink-3">
-            {t("Big Picture opens in this layout. Changes apply immediately, here and in a running screen.")}
+            {t("Console mode opens in this layout. Changes apply immediately, here and in a running screen.")}
           </p>
         </div>
         <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
@@ -33,7 +33,7 @@ export function BigPictureLayoutPanel() {
       <div
         className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6"
         role="group"
-        aria-label={t("Big Picture layout")}
+        aria-label={t("Console layout")}
       >
         {BIG_PICTURE_LAYOUTS.map((entry) => {
           const active = entry === layout;
@@ -69,7 +69,7 @@ export function BigPictureLayoutPanel() {
       </div>
 
       <p className="mt-2.5 text-[11px] leading-relaxed text-ink-3">
-        {t("Saved on this device. Big Picture switches with L on a keyboard, or Menu → Layout on a controller.")}
+        {t("Saved on this device. Console mode switches with L on a keyboard, or Menu → Layout on a controller.")}
       </p>
     </section>
   );
