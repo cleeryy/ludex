@@ -1181,7 +1181,7 @@ fn keep_entry(entry: &DirEntry) -> bool {
         return true;
     }
     let name = entry.file_name().to_string_lossy();
-    if name.starts_with('.') {
+    if name.starts_with('.') || is_staging_dir_name(&name) {
         return false;
     }
     if entry.file_type().is_dir() {
@@ -1191,6 +1191,32 @@ fn keep_entry(entry: &DirEntry) -> bool {
         }
     }
     true
+}
+
+/// Staging folders written by the desktop installer (#225):
+/// `.slug.staging-<8 hex>` and the legacy `slug-staging-<8 hex>`.
+///
+/// A local copy of the desktop predicate: the server crate does not depend on
+/// the desktop app, and a half-written install must never be indexed as a
+/// game. Deliberately narrow: the suffix must be exactly eight hexadecimal
+/// characters.
+fn is_staging_dir_name(name: &str) -> bool {
+    let name = name.strip_prefix('.').unwrap_or(name);
+    let lowered = name.to_ascii_lowercase();
+    let separator = [".staging-", "-staging-"]
+        .iter()
+        .filter_map(|separator| lowered.rfind(separator))
+        .max();
+    let Some(index) = separator else {
+        return false;
+    };
+    if index == 0 {
+        return false;
+    }
+    let Some(suffix) = name.get(index + ".staging-".len()..) else {
+        return false;
+    };
+    suffix.len() == 8 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn candidate_from_entry(root: &Path, entry: &DirEntry, kind: &str) -> Option<Candidate> {
@@ -1463,6 +1489,53 @@ mod tests {
         assert!(looks_early_access("Upcoming (2024) (EA).zip"));
         assert!(looks_early_access("Game (Early Access).zip"));
         assert!(!looks_early_access("Hades (2020).zip"));
+    }
+
+    #[test]
+    fn staging_folder_names_are_recognised() {
+        assert!(is_staging_dir_name(".hades.staging-7719566e"));
+        assert!(is_staging_dir_name("hades.staging-7719566e"));
+        assert!(is_staging_dir_name("hades-staging-7719566e"));
+        assert!(is_staging_dir_name(
+            "uncharted-legacy-of-thieves-collection.staging-38817712"
+        ));
+        assert!(is_staging_dir_name("Hades-Staging-7719566E"));
+        for name in [
+            "hades",
+            "staging",
+            "Hades (2020)",
+            ".staging-7719566e",
+            "hades.staging-7719566",
+            "hades.staging-7719566ef",
+            "hades.staging-zzzzzzzz",
+        ] {
+            assert!(!is_staging_dir_name(name), "{name} must not match");
+        }
+    }
+
+    #[test]
+    fn staging_folders_are_never_indexed() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        touch(&root.join("Hades (2020).zip"), MIN_ARCHIVE_BYTES + 1);
+        // A finished install next to a leftover staging copy (#225): only the
+        // real archive may be discovered.
+        touch(
+            &root.join("hades-staging-7719566e/Hades.zip"),
+            MIN_ARCHIVE_BYTES + 1,
+        );
+        touch(
+            &root.join(".hades.staging-deadbeef/Hades.zip"),
+            MIN_ARCHIVE_BYTES + 1,
+        );
+
+        let candidates = discover(root).expect("discover");
+        let names: Vec<&str> = candidates
+            .iter()
+            .map(|candidate| candidate.file_name.as_str())
+            .collect();
+        assert_eq!(names, vec!["Hades (2020).zip"], "{names:?}");
+        assert_eq!(count_indexable_files(root, "game"), 1);
     }
 
     #[test]

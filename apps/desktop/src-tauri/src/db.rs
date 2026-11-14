@@ -1687,6 +1687,29 @@ pub fn delete_install_job_params(connection: &Connection, job_id: &str) -> Resul
     Ok(())
 }
 
+/// Every stored install request, newest first.
+///
+/// Used by the startup staging sweep (#225) to find install folders that no
+/// longer appear in the settings (a location removed while a job still pointed
+/// at it).
+pub fn all_install_job_params(
+    connection: &Connection,
+) -> Result<Vec<InstallJobParamsRecord>, String> {
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {INSTALL_JOB_PARAMS_COLUMNS} FROM install_job_params ORDER BY created_at DESC"
+        ))
+        .map_err(|e| format!("Could not read the install parameters: {e}"))?;
+    let rows = statement
+        .query_map([], map_install_job_params)
+        .map_err(|e| format!("Could not read the install parameters: {e}"))?;
+    let mut records = Vec::new();
+    for row in rows {
+        records.push(row.map_err(|e| format!("Could not read the install parameters: {e}"))?);
+    }
+    Ok(records)
+}
+
 /// Row shape of `install_stream_manifests` (#115).
 #[derive(Debug, Clone)]
 pub struct StreamManifestRecord {
@@ -3828,6 +3851,11 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(loaded, params);
+        // The startup staging sweep (#225) reads every request to find install
+        // folders that are no longer configured.
+        let all = all_install_job_params(&connection).unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].install_dir.as_deref(), Some("/games"));
 
         // The archive format is recorded once the manifest reports it and
         // never cleared by a later upsert that does not know it.
