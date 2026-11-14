@@ -6,6 +6,18 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Download transport is visible before the first byte (#226): every version
+  payload now publishes `archiveFormat` and `streamSupported`, the install
+  dialog states "Streaming entries, no archive kept" for ZIP and "Download the
+  archive, then extract" for 7z/RAR, and a non-ZIP stream fallback names the
+  format instead of a generic message.
+- New `downloadStaging` setting (`configured` | `installVolume`, #226): staging
+  the archive next to the install root avoids writing it to a NAS and reading it
+  back over SMB for SHA-256 and extraction. The disk ledger and peak estimate
+  follow the chosen volume; an existing resumable `.part` is never relocated.
+
 ### Fixed
 
 - Finishing an install leaves exactly one folder (#225): the startup sweep now
