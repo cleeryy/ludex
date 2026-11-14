@@ -23,6 +23,7 @@ import { useToast } from "@/state/toasts";
 import { Badge, Button } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState, SectionHeader } from "@/components/page";
+import { VirusTotalBadge, useGameVirusTotal } from "@/components/game/virustotal";
 
 /** A row from the server manager, or the public detail shape for readers. */
 function asInfo(version: GameVersion): GameVersionInfo {
@@ -73,6 +74,11 @@ export function VersionManager({
     enabled: isEditor,
     staleTime: 15_000,
   });
+
+  // #224: the archive verdict belongs next to the archive it describes.
+  const virusTotal = useGameVirusTotal(game.id, game.kind !== "rom");
+  const vtReport = (versionId: number) =>
+    virusTotal.data?.versions.find((report) => report.versionId === versionId) ?? null;
 
   const versions = sortVersionsNewestFirst(
     isEditor && manager.data ? manager.data.versions : game.versions.map(asInfo),
@@ -198,6 +204,14 @@ export function VersionManager({
                   {state === "missing" && <Badge tone="danger">{t("Missing")}</Badge>}
                   {state === "unavailable" && <Badge tone="signal">{t("Root offline")}</Badge>}
                   {version.earlyAccess && <Badge tone="signal">{t("Early access")}</Badge>}
+                  {game.kind !== "rom" && (
+                    <VirusTotalBadge
+                      report={vtReport(version.id)}
+                      gameId={game.id}
+                      sizeBytes={version.size}
+                      fileName={version.fileName}
+                    />
+                  )}
                 </p>
                 <p className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
                   <span className="truncate">{version.fileName}</span>

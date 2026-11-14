@@ -28,6 +28,7 @@ export type NavIconName =
   | "upload"
   | "health"
   | "metadata"
+  | "integrations"
   | "authentication"
   | "server"
   | "backup"
@@ -248,6 +249,14 @@ export const NAV_DESTINATIONS = [
     labelKey: "Metadata providers",
     group: "admin",
     icon: "metadata",
+    visibility: "admin",
+  },
+  {
+    id: "integrations",
+    to: "/admin/integrations",
+    labelKey: "Integrations",
+    group: "admin",
+    icon: "integrations",
     visibility: "admin",
   },
   {

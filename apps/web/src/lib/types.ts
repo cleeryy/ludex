@@ -3982,3 +3982,130 @@ export interface DeleteGameResponse {
   freedBytes: number;
   keptFiles: number;
 }
+
+/* ----------------------------- VirusTotal (#224) -------------------------- */
+
+/**
+ * Where the VirusTotal API key in force comes from. `env` wins over the admin
+ * form and the web UI refuses to overwrite it; `none` disables the feature and
+ * every lookup reports `disabled`, never a fake `clean`.
+ */
+export type VirusTotalKeySource = "env" | "database" | "none";
+
+/**
+ * Verdict the server derived from the hash lookup. `not_found` means
+ * VirusTotal has never seen the file — that is *not* a clean result. `unknown`,
+ * `quota_exceeded` and `error` carry a reason and must never render as safe.
+ */
+export type VirusTotalVerdict =
+  | "clean"
+  | "suspicious"
+  | "malicious"
+  | "not_found"
+  | "unknown"
+  | "disabled"
+  | "quota_exceeded"
+  | "error";
+
+/** `last_analysis_stats` as returned by VirusTotal. */
+export interface VirusTotalStats {
+  malicious: number;
+  suspicious: number;
+  undetected: number;
+  harmless: number;
+  timeout: number;
+  failure: number;
+}
+
+/** One engine result kept for the detail popover. */
+export interface VirusTotalDetection {
+  engine: string;
+  /** VirusTotal category: `malicious`, `suspicious`, `harmless`, … */
+  category: string;
+  result: string | null;
+  version: string | null;
+}
+
+/**
+ * One archive verdict (`ScanReport` in the #224 contract). The four optional
+ * fields are enrichments the server may include once it has them; the UI
+ * degrades to the honest summary when they are absent.
+ */
+export interface ScanReport {
+  versionId: number;
+  sha256: string;
+  verdict: VirusTotalVerdict;
+  stats: VirusTotalStats;
+  checkedAt: string;
+  /** `cache` = served from the Ludex report cache, `api` = looked up now. */
+  source: "cache" | "api";
+  permalink: string | null;
+  /** Name VirusTotal knows the hash by, when it has one. */
+  meaningfulName?: string | null;
+  /** VirusTotal's own `last_analysis_date`. */
+  lastAnalysisDate?: string | null;
+  /** Top engine results, already sorted by the server. */
+  detections?: VirusTotalDetection[];
+  /** Why the verdict is unknown/quota/error; never rendered as safe. */
+  reason?: string | null;
+}
+
+/** Alias kept for call sites that read the contract name literally. */
+export type VirusTotalScanReport = ScanReport;
+
+export interface VirusTotalScanRequest {
+  gameId?: number;
+  versionId?: number;
+  /** `hash` (default) looks up the archive SHA-256 only. */
+  mode?: "hash" | "hash_and_binaries";
+  /** Re-check even when the cached report is still fresh. */
+  force?: boolean;
+}
+
+export interface VirusTotalScanResponse {
+  scans: ScanReport[];
+}
+
+/**
+ * Explicit, per-file upload (#224). Only an admin can send it, only for a file
+ * within the size limit, and only after ticking the public-sharing warning.
+ */
+export interface VirusTotalUploadRequest {
+  versionId: number;
+  /** Mirrors the checkbox; the server rejects an upload without it. */
+  iUnderstand: "public-sharing";
+}
+
+export interface GameVirusTotalResponse {
+  gameId: number;
+  versions: ScanReport[];
+}
+
+export interface VirusTotalQuota {
+  dailyLimit: number;
+  usedToday: number;
+  remaining: number;
+  /** RFC 3339 time the public counter resets. */
+  resetAt: string;
+}
+
+export interface VirusTotalIntegration {
+  configured: boolean;
+  source: VirusTotalKeySource;
+  /** Masked key, e.g. `...4f2a`; never the key itself. */
+  fingerprint: string | null;
+  addedAt: string | null;
+  lastUsedAt: string | null;
+  /** Last failure, kept until the next successful call. */
+  lastError: string | null;
+  quota: VirusTotalQuota;
+}
+
+export interface VirusTotalKeyInput {
+  apiKey: string;
+}
+
+export interface VirusTotalTestResult {
+  ok: boolean;
+  message: string;
+}

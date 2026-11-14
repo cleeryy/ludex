@@ -22,6 +22,7 @@ import { HISTORY_WINDOW_MS, type JobMeter, type SpeedPoint } from "@/lib/eta";
 import type { InstallJob } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { RemoteQueueStrip } from "@/components/game/remote-queue-strip";
+import { VirusTotalArchiveWarning } from "@/components/game/virustotal";
 import { EmptyState, PageHeader, SectionHeader } from "@/components/page";
 import { GameCover } from "@/components/art/cover";
 import { Badge, Button, Progress } from "@/components/ui/controls";
@@ -596,6 +597,14 @@ function JobRow({
           <p className={cn("mt-1.5 text-[12px] leading-snug", job.phase === "error" ? "text-danger" : "text-ink-3")}>
             {job.message}
           </p>
+        )}
+
+        {/* #224: advisory verdict, grey unless VirusTotal flagged the archive.
+            A malicious verdict never cancels a running install. */}
+        {job.versionId > 0 && (
+          <div className="mt-1.5">
+            <VirusTotalArchiveWarning gameId={job.gameId} versionId={job.versionId} compact />
+          </div>
         )}
 
         {prefetch && (

@@ -64,6 +64,7 @@ import { MoveInstallDialog } from "@/components/game/move-install";
 import { MediaGallery } from "@/components/game/media-gallery";
 import { GameNav } from "@/components/game/game-nav";
 import { GameOverview } from "@/components/game/game-overview";
+import { VirusTotalSummary } from "@/components/game/virustotal";
 import { MissingArchiveNotice } from "@/components/game/missing-archive";
 import { StartupCommandPanel } from "@/components/game/startup-command";
 import { AddToCollectionDialog } from "@/components/collections/add-to-collection";
@@ -522,22 +523,35 @@ export function GameDetailScreen() {
     switch (id) {
       case "overview":
         return (
-          <GameOverview
-            game={game}
-            installed={isInstalled}
-            session={running}
-            update={update}
-            preferredVersion={version}
-            playtime={playtime.data ?? undefined}
-            onInstall={requestInstall}
-            onDownload={() => void download()}
-            onLinkExisting={() => setAdoptOpen(true)}
-            remoteInstall={
-              !desktop && user && !isInstalled ? (
-                <RemoteInstallAction gameId={game.id} versionId={version?.id} title={game.title} />
-              ) : undefined
-            }
-          />
+          <div className="flex flex-col gap-8">
+            <GameOverview
+              game={game}
+              installed={isInstalled}
+              session={running}
+              update={update}
+              preferredVersion={version}
+              playtime={playtime.data ?? undefined}
+              onInstall={requestInstall}
+              onDownload={() => void download()}
+              onLinkExisting={() => setAdoptOpen(true)}
+              remoteInstall={
+                !desktop && user && !isInstalled ? (
+                  <RemoteInstallAction gameId={game.id} versionId={version?.id} title={game.title} />
+                ) : undefined
+              }
+            />
+            {game.kind !== "rom" && (
+              <VirusTotalSummary
+                gameId={game.id}
+                versions={game.versions.map((entry) => ({
+                  id: entry.id,
+                  label: entry.version ? `v${entry.version}` : entry.fileName,
+                  sizeBytes: entry.size,
+                  fileName: entry.fileName,
+                }))}
+              />
+            )}
+          </div>
         );
       case "rom":
         return <RomPanel game={game} />;
