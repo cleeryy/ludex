@@ -83,6 +83,18 @@ export interface GameVersion {
   earlyAccess: boolean;
   /** Sampled archive fingerprint (`sha256-sample:`), null until computed. */
   archiveHash?: string | null;
+  /**
+   * Archive container the server detected (`zip`, `7z`, `rar`, …), null when
+   * it cannot tell (#226). The install dialog uses it to state the transport
+   * before the first byte.
+   */
+  archiveFormat?: string | null;
+  /**
+   * True when the server can serve this archive as a per-entry stream (#226).
+   * False means the job always downloads the archive and extracts it. Absent
+   * on older payloads: the transport is then checked when the download starts.
+   */
+  streamSupported?: boolean;
   /** Last time the version row changed. */
   updatedAt?: string | null;
   /** The archive vanished at the last scan; never auto-deleted (#210). */
@@ -1344,6 +1356,12 @@ export interface LocalSettings {
   serverPort: number;
   /** Remote ZIP installs stream a tar of the archive entries instead of storing it. */
   streamInstall: boolean;
+  /**
+   * Where the archive is staged while it downloads (#226): the configured
+   * download folder, or the install drive so a network download folder is not
+   * read back over SMB. Absent means `configured`.
+   */
+  downloadStaging?: "configured" | "installVolume";
   /** Keep the downloaded archive after a successful install. */
   keepArchives: boolean;
   /** Archive passwords, tried in order. */

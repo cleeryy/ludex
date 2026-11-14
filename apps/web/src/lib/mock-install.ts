@@ -415,6 +415,7 @@ const DEFAULT_SETTINGS: LocalSettings = {
   ],
   serverPort: 0,
   streamInstall: true,
+  downloadStaging: "configured",
   keepArchives: false,
   archivePasswords: [],
   bandwidthLimitKib: 0,

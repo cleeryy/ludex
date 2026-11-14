@@ -1,77 +1,77 @@
 {
   "en": {
-    "translated": 3652,
-    "total": 3652,
+    "translated": 3661,
+    "total": 3661,
     "percent": 100
   },
   "fr": {
-    "translated": 3652,
-    "total": 3652,
+    "translated": 3661,
+    "total": 3661,
     "percent": 100
   },
   "zh-CN": {
-    "translated": 3652,
-    "total": 3652,
-    "percent": 100
+    "translated": 3649,
+    "total": 3661,
+    "percent": 99.7
   },
   "ru": {
-    "translated": 3652,
-    "total": 3652,
-    "percent": 100
+    "translated": 3649,
+    "total": 3661,
+    "percent": 99.7
   },
   "es": {
-    "translated": 3652,
-    "total": 3652,
-    "percent": 100
+    "translated": 3649,
+    "total": 3661,
+    "percent": 99.7
   },
   "pt-BR": {
-    "translated": 3652,
-    "total": 3652,
-    "percent": 100
+    "translated": 3649,
+    "total": 3661,
+    "percent": 99.7
   },
   "de": {
-    "translated": 3652,
-    "total": 3652,
-    "percent": 100
+    "translated": 3649,
+    "total": 3661,
+    "percent": 99.7
   },
   "ja": {
-    "translated": 3652,
-    "total": 3652,
-    "percent": 100
+    "translated": 3649,
+    "total": 3661,
+    "percent": 99.7
   },
   "ko": {
-    "translated": 3652,
-    "total": 3652,
-    "percent": 100
+    "translated": 3649,
+    "total": 3661,
+    "percent": 99.7
   },
   "pl": {
-    "translated": 3652,
-    "total": 3652,
-    "percent": 100
+    "translated": 3649,
+    "total": 3661,
+    "percent": 99.7
   },
   "tr": {
-    "translated": 3652,
-    "total": 3652,
-    "percent": 100
+    "translated": 3649,
+    "total": 3661,
+    "percent": 99.7
   },
   "it": {
-    "translated": 3504,
-    "total": 3652,
-    "percent": 95.9
+    "translated": 3501,
+    "total": 3661,
+    "percent": 95.6
   },
   "nl": {
     "translated": 0,
-    "total": 3652,
+    "total": 3661,
     "percent": 0
   },
   "uk": {
     "translated": 0,
-    "total": 3652,
+    "total": 3661,
     "percent": 0
   },
   "ar": {
     "translated": 221,
-    "total": 3652,
-    "percent": 6.1
+    "total": 3661,
+    "percent": 6
   }
 }

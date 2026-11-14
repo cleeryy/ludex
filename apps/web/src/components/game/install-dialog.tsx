@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, FolderOpen } from "lucide-react";
 import { installBridge } from "@/lib/install";
+import { installTransport } from "@/lib/install-transport";
 import { errorMessage } from "@/lib/http";
 import { formatBytes, formatEta, formatSpeed, installPhaseLabel, formatPercent } from "@/lib/format";
 import { isNative, native } from "@/lib/native";
@@ -126,9 +127,15 @@ export function InstallDialog({
   const installStatus = installOptions.find((location) => location.id === installLocationId) ?? null;
   const downloadStatus = downloadLocations.find((location) => location.id === downloadLocationId) ?? null;
   const sameVolume = !downloadStatus || !installStatus || downloadStatus.path === installStatus.path;
+  // #226: staging on the install drive also puts the archive on the install
+  // volume, so the peak estimate must not promise it goes to the download
+  // folder. The dialog states this before the first byte and the desktop
+  // ledger reserves the same peak.
+  const stagingOnInstall = settings?.downloadStaging === "installVolume";
+  const archiveOnInstallVolume = sameVolume || stagingOnInstall;
   // #222: the dialog shows the same peak estimate the desktop reserves (the
   // archive, the extracted tree estimated at 1.5×, plus the safety margin).
-  const estimate = peakEstimate(version.size, sameVolume);
+  const estimate = peakEstimate(version.size, archiveOnInstallVolume);
   const requiredBytes = estimate.peakBytes;
   const spaceError = installStatus?.freeBytes != null && installStatus.freeBytes < requiredBytes
     ? t("Not enough free space on {label}: {free} available, about {needed} needed.", {
@@ -136,7 +143,7 @@ export function InstallDialog({
         free: formatBytes(installStatus.freeBytes),
         needed: formatBytes(requiredBytes),
       })
-    : downloadStatus?.freeBytes != null && !sameVolume && downloadStatus.freeBytes < version.size + FREE_SPACE_RESERVE
+    : downloadStatus?.freeBytes != null && !archiveOnInstallVolume && downloadStatus.freeBytes < version.size + FREE_SPACE_RESERVE
       ? t("The download location {label} is too small for this archive.", { label: downloadStatus.label })
       : null;
   const blocked = Boolean(spaceError) || Boolean(installStatus && !installStatus.writable);
@@ -217,6 +224,12 @@ export function InstallDialog({
       : null;
   const verifyingLine = job ? verifyingLabel(job) : null;
   const waitingLine = job && isWaitingForSpaceJob(job) ? spaceWaitLabel(job) : null;
+  // #226: state the transport the server will actually use, never the
+  // stream-install switch alone. A 7z/RAR repack always downloads the archive.
+  const transport = installTransport(
+    { archiveFormat: version.archiveFormat, streamSupported: version.streamSupported },
+    settings?.streamInstall ?? true,
+  );
 
   return (
     <Dialog
@@ -332,11 +345,17 @@ export function InstallDialog({
               className="h-10 text-[12px]"
             />
             <p className="text-[10.5px] leading-relaxed text-ink-3">
-              {settings?.streamInstall
-                ? t("Streamed, not stored (resumes per file)")
-                : sameVolume
-                  ? t("Peak usage is roughly twice the archive size.")
-                  : t("The archive is stored on another volume, then unpacked into the install location.")}
+              {transport === "stream"
+                ? t("Streaming entries, no archive kept")
+                : transport === "archive"
+                  ? stagingOnInstall
+                    ? t("Download the archive, then extract. It is staged on the install drive and deleted afterwards unless you keep archives.")
+                    : sameVolume
+                      ? t("Download the archive, then extract. Peak usage is roughly twice the archive size.")
+                      : t("Download the archive, then extract. The archive is stored on another volume, then unpacked into the install location.")
+                  : stagingOnInstall
+                    ? t("Checked when the download starts. If it downloads an archive, it is staged on the install drive.")
+                    : t("Checked when the download starts")}
             </p>
           </div>
         </div>
@@ -351,7 +370,7 @@ export function InstallDialog({
             <dd className="truncate text-right text-[11.5px] text-ink-2">{formatBytes(estimate.peakBytes)}</dd>
           </div>
         </dl>
-        <p className="text-[11.5px] leading-relaxed text-ink-3">{peakEstimateLabel(estimate, sameVolume)}</p>
+        <p className="text-[11.5px] leading-relaxed text-ink-3">{peakEstimateLabel(estimate, archiveOnInstallVolume)}</p>
 
         {rollback && (
           <p className="border-l-2 border-signal pl-3 text-[12px] leading-relaxed text-signal-text">
