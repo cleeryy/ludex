@@ -67,6 +67,12 @@ interface GameVersion {
   releaseDate: string | null; earlyAccess: boolean;
   /** Cheap archive fingerprint (`sha256-sample:<hex>`), null until computed. */
   archiveHash: string | null;
+  /** Archive container the server detected (`zip`, `7z`, `rar`, `exe`, …);
+   *  null when it cannot tell (#226). */
+  archiveFormat: string | null;
+  /** True when the server can serve this archive as a per-entry stream (#226).
+   *  False means the app downloads the whole archive, then extracts it. */
+  streamSupported: boolean;
   /** Full SHA-256 of the archive bytes (#216); null while a legacy row awaits
    *  the background backfill. Verified by the desktop before extraction. */
   contentSha256: string | null;
@@ -527,6 +533,8 @@ interface GameVersionInfo {
   releaseDate: string | null;
   earlyAccess: boolean;
   archiveHash: string | null;   // `sha256-sample:<hex>` when computed
+  archiveFormat: string | null; // `zip`, `7z`, `rar`, `exe`, …; null when unknown (#226)
+  streamSupported: boolean;     // per-entry stream usable for this archive (#226)
   contentSha256: string | null; // full SHA-256, null while pending (#216)
   indexedAt: string | null;     // first scan that indexed the row
   updatedAt: string | null;     // last rename/re-hash/scan touch
@@ -1834,7 +1842,8 @@ interface LocalSettings {
   downloadDir: string;          // mirrors the default download location; empty = {installDir}/.ludex-tmp
   locations: InstallLocation[]; // named install/download/temp folders (#99)
   serverPort: number;           // preferred embedded port, 0 = random
-  streamInstall: boolean;       // remote ZIP/7z/RAR installs without storing the archive
+  streamInstall: boolean;       // remote ZIP installs stream per-entry instead of storing the archive
+  downloadStaging: "configured" | "installVolume"; // #226: where the archive is staged; default "configured" (download folder), installVolume stages it next to the install so a NAS download folder is not read back over SMB
   keepArchives: boolean;        // keep the downloaded archive after install
   archivePasswords: string[];   // tried in order
   bandwidthLimitKib: number;    // global cap stored in KiB/s; the UI presents Mb/s (#199), 0 = unlimited
@@ -3263,6 +3272,14 @@ requires the archive size there. `expectedBytes` is optional so old callers keep
 working. Extraction always stages inside the install root, so a cross-volume
 download is read from the download folder and unpacked directly into the
 install volume; the archive is deleted afterwards unless `keepArchives`.
+
+`downloadStaging` (#226) chooses where the archive is written: `configured`
+(default) uses the download folder; `installVolume` stages the `.part` next to
+the install and deletes it after extraction unless `keepArchives`. With a NAS
+or SMB download folder, `configured` writes the archive over the network and
+then reads it back twice (full SHA-256, then extraction); `installVolume` keeps
+both local. Changing the setting never moves an existing resumable `.part`; it
+only applies to a new job.
 
 ### Suggested install roots (#145)
 

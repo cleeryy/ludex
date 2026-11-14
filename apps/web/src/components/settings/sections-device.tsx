@@ -129,6 +129,48 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
           </SettingsGroup>
 
           <SettingsGroup
+            title={t("Download staging")}
+            description={t("Where the archive is written while it downloads. The install dialog and the disk-space check use the same choice.")}
+          >
+            <div role="radiogroup" aria-label={t("Download staging")} className="flex flex-col gap-4">
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="radio"
+                  name="download-staging"
+                  value="configured"
+                  checked={(draft.downloadStaging ?? "configured") === "configured"}
+                  onChange={() => desktop.update({ downloadStaging: "configured" })}
+                  className="mt-0.5 size-4 shrink-0 accent-signal"
+                />
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-medium text-ink">{t("Configured download folder")}</span>
+                  <span className="mt-1 block max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">
+                    {t("The archive is written to the download folder, verified there, then extracted into the install location.")}
+                  </span>
+                </span>
+              </label>
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="radio"
+                  name="download-staging"
+                  value="installVolume"
+                  checked={draft.downloadStaging === "installVolume"}
+                  onChange={() => desktop.update({ downloadStaging: "installVolume" })}
+                  className="mt-0.5 size-4 shrink-0 accent-signal"
+                />
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-medium text-ink">
+                    {t("Install drive (recommended when the download folder is a network share)")}
+                  </span>
+                  <span className="mt-1 block max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">
+                    {t("The archive is staged next to the game, so hashing and extraction never read it back over the network. It needs temporary free space on the install drive, and the archive is deleted after extraction unless Keep downloaded archives is on.")}
+                  </span>
+                </span>
+              </label>
+            </div>
+          </SettingsGroup>
+
+          <SettingsGroup
             title={t("Bandwidth limit")}
             description={t("Caps every download (installs, repairs and stream installs) in Mb/s. Use 0 for no limit.")}
           >

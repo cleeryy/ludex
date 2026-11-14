@@ -12,16 +12,25 @@ network topology (direct vs Caddy, HTTP/2/3, VPN) lives in
 |---|---|---|
 | What it keeps | The archive in a `.part` file, then extracts it | Extracts entries as they arrive; no full archive retained |
 | Resume unit | Byte offset via HTTP `Range` | Completed entries + a `.part` per in-flight entry |
-| Formats | ZIP, RAR, 7z, portable `.exe` | ZIP per-entry; RAR/7z fall back to the sequential tar stream or to classic |
+| Formats | ZIP, RAR, 7z, portable `.exe` | **ZIP only**; 7z/RAR and portable `.exe` always download the archive, then extract |
 | Verification | Full archive SHA-256 before extraction | Per-entry size + CRC-32 before rename; manifest recorded |
 | Best for | Large repacks, slow/flaky WAN, proxies with short timeouts | Small/medium ZIPs, fast LAN, saving disk space |
-| Default | Yes | Opt-in (`Settings → Downloads → Stream installs`) |
+| Default | Yes | **On by default** (`Settings → Downloads → Stream installs`) |
 
 A stream install is not a different download protocol; it is a different way to
-consume the same authenticated archive. When the stream path cannot work
-(unsupported format, missing manifest, a proxy that cannot serve an entry within
-its budget), Ludex falls back to the classic resumable download instead of
-looping.
+consume the same authenticated archive. Streaming is **ZIP-only**: a 7z, RAR or
+portable-installer archive has no per-entry manifest, so it always takes the
+classic archive + extract path. When the stream path cannot work (unsupported
+format, missing manifest, a proxy that cannot serve an entry within its budget),
+Ludex falls back to the classic resumable download instead of looping.
+
+The version payload exposes `archiveFormat` and `streamSupported`, so the
+install dialog states the transport before the first byte instead of promising
+streaming and falling back:
+
+- ZIP with stream support → "Streaming entries, no archive kept".
+- 7z/RAR/unknown archive → "Download the archive, then extract".
+- Missing metadata (an older server) → "Checked when the download starts".
 
 ## How the big launchers do it (and what we copy)
 
@@ -262,6 +271,29 @@ the network idle. The scheduler now has two resources:
 - Pause/cancel releases both slots immediately; reordering is refused for a
   running job (including a prefetch), so a prefetch is only removed by pausing
   or cancelling it. A restart rebuilds the queue and its positions.
+
+## Download staging (#226)
+
+`downloadStaging` decides where the archive is written while it downloads:
+
+| Value | Behaviour |
+|---|---|
+| `configured` (default) | The `.part` file goes to the configured download folder (`downloadDir` or the default download location). |
+| `installVolume` | The `.part` file is staged next to the install, on the install drive, and deleted after a successful extraction unless `keepArchives` is on. |
+
+The distinction matters when `downloadDir` is a **network share**
+(`Z:\Temp\Games` on a NAS, an SMB mount). A classic install then makes three
+passes over the share for one install: it writes the archive, reads it back for
+the full SHA-256, and reads it again for extraction. `installVolume` keeps the
+write local and hashes and extracts the local copy, so the network is used once,
+for the download itself. It needs **temporary free space on the install
+drive**: the peak estimate in the install dialog and the #222 ledger include the
+staged archive, and the archive is deleted afterwards unless `keepArchives` is
+on.
+
+An existing resumable `.part` is never moved silently. Changing the staging
+location only changes where a **new** job writes; an interrupted download
+continues from the `.part` it already has.
 
 ## Disk-space reservations (#222)
 
