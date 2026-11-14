@@ -163,6 +163,11 @@ fn run_events(app: &AppHandle, mut gilrs: Gilrs) {
                         active_pad = Some(pad);
                         active_at = Some(Instant::now());
                     }
+                    // #228: record every edge, so the panel can prove whether
+                    // the pad reaches the process at all.
+                    app.state::<AppState>()
+                        .overlay
+                        .record_button(pad, &button_name(button));
                     if let Some(mapped) = pad_button(button) {
                         tracing::info!(pad, button = ?mapped, "overlay button pressed");
                         if detector.handle(PadEvent::Pressed(mapped), now_ms)
@@ -176,6 +181,9 @@ fn run_events(app: &AppHandle, mut gilrs: Gilrs) {
                     }
                 }
                 EventType::ButtonReleased(button, _) => {
+                    app.state::<AppState>()
+                        .overlay
+                        .record_button(pad, &button_name(button));
                     if let Some(mapped) = pad_button(button) {
                         tracing::info!(pad, button = ?mapped, "overlay button released");
                         detector.handle(PadEvent::Released(mapped), now_ms);
@@ -256,6 +264,18 @@ fn pad_button(button: Button) -> Option<PadButton> {
     }
 }
 
+/// Stable name for the "last button" diagnostic (#228); unrelated buttons keep
+/// the `gilrs` name so a mapping gap is visible in the log.
+fn button_name(button: Button) -> String {
+    match pad_button(button) {
+        Some(PadButton::Guide) => "guide".to_string(),
+        Some(PadButton::LeftBumper) => "leftBumper".to_string(),
+        Some(PadButton::RightBumper) => "rightBumper".to_string(),
+        Some(PadButton::Start) => "start".to_string(),
+        None => format!("{button:?}"),
+    }
+}
+
 fn power_info(info: PowerInfo) -> (Option<u8>, bool) {
     match info {
         PowerInfo::Charging(percent) => (Some(percent), true),
@@ -325,6 +345,18 @@ mod tests {
         // Analog triggers must not trigger the chord.
         assert_eq!(pad_button(Button::LeftTrigger2), None);
         assert_eq!(pad_button(Button::RightTrigger2), None);
+    }
+
+    #[test]
+    fn the_last_button_name_is_stable_for_the_panel() {
+        // #228: the settings panel shows this string, so it must not drift into
+        // Rust debug names for the buttons the overlay understands.
+        assert_eq!(button_name(Button::Mode), "guide");
+        assert_eq!(button_name(Button::LeftTrigger), "leftBumper");
+        assert_eq!(button_name(Button::RightTrigger), "rightBumper");
+        assert_eq!(button_name(Button::Start), "start");
+        // An unrelated button keeps the gilrs name, so a mapping gap is visible.
+        assert_eq!(button_name(Button::South), "South");
     }
 
     #[test]

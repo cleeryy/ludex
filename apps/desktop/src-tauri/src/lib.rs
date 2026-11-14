@@ -21,6 +21,7 @@ mod launch;
 mod launchers;
 mod linux_gaming;
 mod locations;
+mod logging;
 mod maintenance;
 mod manifest;
 mod oidc_login;
@@ -65,13 +66,33 @@ use tauri::{Manager, RunEvent, WindowEvent};
 use tracing_subscriber::EnvFilter;
 
 pub fn run() {
+    // #228: stderr stays, and `setup` mirrors it to {appDataDir}/logs/ludex.log
+    // because a release Windows build has no visible stderr.
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| EnvFilter::new("ludex_desktop=info,ludex_server=info,warn")),
         )
-        .with_writer(std::io::stderr)
+        .with_writer(logging::LogWriter)
         .init();
+
+    // #227: a `--console` launch swallowed by the single-instance plugin must
+    // leave a trace. The receipt is written before Tauri builds anything, so a
+    // missing receipt proves the process never started.
+    let process_args: Vec<String> = std::env::args().collect();
+    if process_args
+        .iter()
+        .any(|argument| argument == console::CONSOLE_FLAG)
+    {
+        match console::write_launch_receipt(&process_args) {
+            Some(path) => tracing::info!(
+                path = %path.display(),
+                pid = std::process::id(),
+                "console launch receipt written"
+            ),
+            None => tracing::warn!("could not write the console launch receipt"),
+        }
+    }
 
     // #177: a Windows update must show the new web UI. The WebView2 profile
     // survives the NSIS update, so drop the caches that can hold the previous
@@ -80,9 +101,27 @@ pub fn run() {
     webview_profile::maybe_reset(&context);
 
     let app = tauri::Builder::default()
-        // The single-instance plugin must be registered first.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            tray::show_window(app);
+        // The single-instance plugin must be registered first. #227: a second
+        // `Ludex.exe --console` (the Sunshine app) must promote the running
+        // instance instead of only showing the desktop shell.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            let current = app
+                .try_state::<console::ConsoleSession>()
+                .map(|session| session.mode())
+                .unwrap_or_default();
+            let action = console::second_instance_action(&argv, current);
+            tracing::info!(
+                ?action,
+                ?argv,
+                "second instance forwarded to the running app"
+            );
+            match action {
+                console::InstanceAction::ShowWindow => tray::show_window(app),
+                console::InstanceAction::Promote { fullscreen } => {
+                    console::promote(app, fullscreen);
+                }
+                console::InstanceAction::FocusConsole => console::focus(app),
+            }
         }))
         .plugin(tauri_plugin_dialog::init())
         // #213: OS notifications for a new build (Windows toast, macOS
@@ -97,12 +136,26 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle();
-                // Close-to-tray (#15): hide instead of quitting. Quit from the
-                // tray menu or the app menu. A console session (#172) has no
-                // tray and must close for real so Moonlight sees it end.
-                if tray::close_to_tray(app) && !console::active(app) {
-                    api.prevent_close();
-                    tray::hide_window(app);
+                // Close-to-tray (#15) hides the main window instead of quitting;
+                // #228: closing the overlay must never hide Ludex. A console
+                // session (#172) has no tray and must close for real so Moonlight
+                // sees it end.
+                match overlay::close_request_action(
+                    window.label(),
+                    tray::close_to_tray(app),
+                    console::active(app),
+                ) {
+                    overlay::CloseRequestAction::HideToTray => {
+                        api.prevent_close();
+                        tray::hide_window(app);
+                    }
+                    overlay::CloseRequestAction::CloseOverlay => {
+                        api.prevent_close();
+                        if let Err(error) = overlay::close(app, "window") {
+                            tracing::debug!(error = %error, "could not close the overlay window");
+                        }
+                    }
+                    overlay::CloseRequestAction::Close => {}
                 }
             }
         })
@@ -110,8 +163,10 @@ pub fn run() {
             // Console mode (#172): Sunshine starts `ludex --console`. The same
             // binary then runs Big Picture as the console shell, with no tray
             // icon and a real close so the session returns to the desktop.
+            // #227: the state is live, so the single-instance callback can
+            // promote a running desktop instance into the console shell.
             let console_mode = console::ConsoleMode::from_args(std::env::args());
-            app.manage(console_mode);
+            app.manage(console::ConsoleSession::new(console_mode));
 
             // #171: capture panics before anything else can fail. The hook is
             // local-only; nothing is uploaded from it.
@@ -124,6 +179,12 @@ pub fn run() {
                 }
             };
             let settings = state.settings_snapshot();
+            // #228: now that the app data folder is known, mirror tracing to
+            // {appDataDir}/logs/ludex.log. Never fatal.
+            match logging::install(&state.app_data) {
+                Some(path) => tracing::info!(log_file = %path.display(), "file logging enabled"),
+                None => tracing::warn!("file logging is unavailable; stderr only"),
+            }
             // #179: the mapping file is the source of truth for cleanup, so a
             // crashed run cannot leave ports open. The startup sweep runs off
             // the main thread and never blocks the window.
@@ -137,7 +198,7 @@ pub fn run() {
             update_notify::register_click_handler(app.handle()).map_err(std::io::Error::other)?;
 
             if console_mode.active {
-                console::apply_window(app.handle());
+                let _ = console::apply_window(app.handle());
             } else {
                 // Window chrome (#111): the base config is undecorated for Windows
                 // and Linux, so this only does work when the user asked for the

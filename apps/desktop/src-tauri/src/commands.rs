@@ -4405,9 +4405,10 @@ pub struct ConsoleStatus {
 #[tauri::command]
 pub fn console_mode(
     state: State<'_, AppState>,
-    mode: State<'_, crate::console::ConsoleMode>,
+    session: State<'_, crate::console::ConsoleSession>,
 ) -> Result<ConsoleStatus, String> {
     let settings = state.settings_snapshot();
+    let mode = session.mode();
     Ok(ConsoleStatus {
         active: mode.active,
         fullscreen: mode.fullscreen,
@@ -4421,9 +4422,9 @@ pub fn console_mode(
 #[tauri::command]
 pub fn exit_console(
     app: AppHandle,
-    mode: State<'_, crate::console::ConsoleMode>,
+    session: State<'_, crate::console::ConsoleSession>,
 ) -> Result<(), String> {
-    if !mode.active {
+    if !session.mode().active {
         return Err("Console mode is not active.".to_string());
     }
     app.exit(0);
@@ -4508,10 +4509,22 @@ fn console_plan(
             None
         }
     };
+    let name = console::app_name(&settings.console_app_name);
+    let cmd = console::command_line(&executable, settings.console_fullscreen);
+    let working_dir = console::working_directory(&executable);
+    // #227: the exact published command is the only way to prove what Sunshine
+    // will start after a "nothing happens" report.
+    tracing::info!(
+        name = %name,
+        cmd = %cmd,
+        working_dir = %working_dir,
+        executable = %executable.display(),
+        "console Sunshine app command resolved"
+    );
     Ok(Some(streaming::ConsoleEntry {
-        name: console::app_name(&settings.console_app_name),
-        cmd: console::command_line(&executable, settings.console_fullscreen),
-        working_dir: console::working_directory(&executable),
+        name,
+        cmd,
+        working_dir,
         image_path,
     }))
 }
@@ -4659,8 +4672,20 @@ pub async fn sunshine_sync(
     };
     let console = console_plan(&state.app_data, &settings)?;
     let scope = server_scope(&settings);
-    let (root, report) = streaming::merge_entries(
-        existing.as_deref(),
+    // #227: log exactly what is published, so a stale or wrong `cmd` is visible
+    // without guessing from the Sunshine side.
+    for app in &desired {
+        tracing::info!(
+            game_id = app.game_id,
+            name = %app.name,
+            cmd = %app.cmd,
+            working_dir = %app.working_dir,
+            "publishing a Sunshine game app"
+        );
+    }
+    let (root, report) = streaming::merge_entries_in(
+        existing.as_ref().map(|file| file.text.as_str()),
+        Some(Path::new(&apps_path)),
         &desired,
         console.as_ref(),
         &scope,
@@ -4680,6 +4705,26 @@ pub async fn sunshine_sync(
                 .map_err(streaming::SunshineError::write_failure)?
                 .map(|path| path.to_string_lossy().to_string());
         written = true;
+        // #227: re-read the file and merge again; a non-idempotent merge would
+        // rewrite apps.json on every sync and churn Sunshine's app list.
+        match streaming::merge_is_idempotent(
+            Path::new(&apps_path),
+            &desired,
+            console.as_ref(),
+            &scope,
+            remove_missing,
+        ) {
+            Ok(true) => tracing::info!(path = %apps_path, "apps.json merge is idempotent"),
+            Ok(false) => tracing::error!(
+                path = %apps_path,
+                "apps.json merge is not idempotent: a second sync would rewrite the file"
+            ),
+            Err(error) => tracing::warn!(
+                path = %apps_path,
+                error = %error,
+                "could not verify the apps.json merge"
+            ),
+        }
     }
 
     let message = if dry_run {
