@@ -162,15 +162,6 @@ pub fn run() {
                 })
                 .await;
 
-                let install_dir = handle
-                    .state::<state::AppState>()
-                    .settings_snapshot()
-                    .install_path();
-                let _ = tokio::task::spawn_blocking(move || {
-                    paths::cleanup_staging_dirs(&install_dir);
-                })
-                .await;
-
                 server::autostart(handle.clone()).await;
                 // #212: re-enter downloads interrupted by the previous app
                 // run after the embedded server is up (their URL points at it).
@@ -178,6 +169,14 @@ pub fn run() {
                 // #222: rebuild the per-volume reservation ledger from the
                 // active rows, so a restart never double-counts a reservation.
                 install::rebuild_space_ledger(&handle);
+                // #225: sweep stale staging folders *after* the interrupted
+                // jobs are rebuilt, so a folder a resuming job owns is
+                // protected. Blocking filesystem work stays off the runtime.
+                let sweep_handle = handle.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    install::sweep_stale_staging(&sweep_handle);
+                })
+                .await;
                 launch::sync_pending(handle.clone()).await;
                 // Cloud saves (#108): retry failed automatic uploads with
                 // bounded backoff; pending state is persisted in SQLite.

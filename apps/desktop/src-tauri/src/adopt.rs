@@ -1094,7 +1094,7 @@ pub fn scan_gamevault_roots(
                 .file_name()
                 .map(|name| name.to_string_lossy().to_string())
                 .unwrap_or_default();
-            if name.starts_with('.') {
+            if name.starts_with('.') || paths::is_staging_dir_name(&name) {
                 continue;
             }
 
@@ -1352,6 +1352,11 @@ fn count_game_folders(root: &Path) -> u64 {
         .filter(|entry| {
             let path = entry.path();
             if !path.is_dir() {
+                return false;
+            }
+            // A staging folder is not a game (#225).
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') || paths::is_staging_dir_name(&name) {
                 return false;
             }
             if has_metadata(&path) || is_store_folder(&path) {
@@ -2065,6 +2070,37 @@ mod tests {
             fs::read_to_string(hades.join("gamevault.json")).unwrap(),
             r#"{"title":"Hades"}"#
         );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn gamevault_scan_skips_staging_folders() {
+        let root = temp_dir("gamevault-staging");
+        let hades = root.join("Hades (v1.0)");
+        fs::create_dir_all(&hades).unwrap();
+        fs::write(hades.join("Hades.exe"), b"MZ").unwrap();
+
+        // A finished install next to its leftover staging copies (#225):
+        // neither form may become another game card.
+        for name in [
+            ".hades.staging-7719566e",
+            "hades-staging-deadbeef",
+            "celeste.staging-0123abcd",
+        ] {
+            let stale = root.join(name);
+            fs::create_dir_all(&stale).unwrap();
+            fs::write(stale.join("Game.exe"), b"MZ").unwrap();
+        }
+
+        let server = vec![(1, "Hades".to_string()), (2, "Celeste".to_string())];
+        let (candidates, _) = scan_gamevault_root(&root, &[], &server);
+
+        let names: Vec<&str> = candidates
+            .iter()
+            .map(|candidate| candidate.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["Hades (v1.0)"], "{names:?}");
 
         let _ = fs::remove_dir_all(&root);
     }

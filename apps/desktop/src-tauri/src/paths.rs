@@ -4,6 +4,7 @@
 //! goes through [`sanitize_component`] and [`safe_child`]. Deletions verify that
 //! the canonical target stays inside the configured install folder.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -427,21 +428,194 @@ pub fn nearest_existing(path: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Remove leftover `.slug.staging-*` folders from installs that were
-/// interrupted by an app exit. Safe to call at startup: only hidden staging
-/// directories inside the install root are touched.
-pub fn cleanup_staging_dirs(install_dir: &Path) {
-    let Ok(entries) = fs::read_dir(install_dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') && name.contains(".staging-") && entry.path().is_dir() {
-            if let Err(error) = fs::remove_dir_all(entry.path()) {
-                tracing::warn!(path = %entry.path().display(), error = %error, "could not remove stale staging folder");
+/// Length of both staging separators (`.staging-` and `-staging-`).
+const STAGING_SEPARATOR_LEN: usize = ".staging-".len();
+/// The per-job random suffix of a staging folder (`<8 hex>`).
+const STAGING_SUFFIX_LEN: usize = 8;
+
+/// Game slug carried by a staging folder name, `None` when `name` is not one.
+///
+/// The installer creates two forms:
+/// - `.slug.staging-<8 hex>` (current);
+/// - `slug-staging-<8 hex>` (legacy, before the leading-dot convention).
+///
+/// A leading dot is accepted on both so a user-renamed folder still matches.
+/// The suffix must be exactly eight hexadecimal characters: an ordinary game
+/// folder that merely contains "staging" is never matched (#225).
+pub fn staging_dir_slug(name: &str) -> Option<&str> {
+    let name = name.strip_prefix('.').unwrap_or(name);
+    let mut separator: Option<usize> = None;
+    for candidate in [".staging-", "-staging-"] {
+        if let Some(index) = find_ascii_separator(name, candidate) {
+            separator = Some(separator.map_or(index, |current: usize| current.max(index)));
+        }
+    }
+    let index = separator?;
+    if index == 0 {
+        return None;
+    }
+    let suffix = name.get(index + STAGING_SEPARATOR_LEN..)?;
+    let is_suffix =
+        suffix.len() == STAGING_SUFFIX_LEN && suffix.bytes().all(|byte| byte.is_ascii_hexdigit());
+    if is_suffix {
+        Some(&name[..index])
+    } else {
+        None
+    }
+}
+
+/// `true` when `name` is a staging folder of the installer (#225).
+pub fn is_staging_dir_name(name: &str) -> bool {
+    staging_dir_slug(name).is_some()
+}
+
+/// Locate an ASCII separator in `name`.
+///
+/// Windows paths are case-insensitive, so the separator is compared without
+/// ASCII case there; elsewhere the exact lowercase form is required.
+fn find_ascii_separator(haystack: &str, needle: &str) -> Option<usize> {
+    let haystack = haystack.as_bytes();
+    let needle = needle.as_bytes();
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return None;
+    }
+    (0..=haystack.len() - needle.len()).find(|&index| {
+        haystack[index..index + needle.len()]
+            .iter()
+            .zip(needle)
+            .all(|(left, right)| {
+                #[cfg(windows)]
+                {
+                    left.eq_ignore_ascii_case(right)
+                }
+                #[cfg(not(windows))]
+                {
+                    left == right
+                }
+            })
+    })
+}
+
+/// Lexical form used to compare two paths without touching the filesystem.
+///
+/// `.` components are dropped and `..` pops the previous one, so
+/// `/games/./x/../y` and `/games/y` compare equal. Windows paths are
+/// case-folded because the filesystem is.
+pub(crate) fn path_key(path: &Path) -> String {
+    let mut normalized = PathBuf::new();
+    for component in normalize_native_path(path).components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+    let key = normalized.to_string_lossy().replace('\\', "/");
+    #[cfg(windows)]
+    {
+        key.to_ascii_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        key
+    }
+}
+
+/// What a [`cleanup_staging_dirs`] sweep found and removed (#225).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct StagingSweep {
+    /// Distinct roots actually read.
+    pub roots: usize,
+    /// Staging folders found before protection was applied.
+    pub candidates: usize,
+    /// Staging folders left alone because a job still owns them.
+    pub protected: usize,
+    /// Staging folders removed.
+    pub removed: usize,
+    /// Staging folders that could not be removed.
+    pub failures: usize,
+    /// Bytes reclaimed by the removals (measured before deleting).
+    pub bytes_freed: u64,
+}
+
+/// Remove leftover staging folders from installs that were interrupted by an
+/// app exit (#225).
+///
+/// Safe to call at startup: only directories whose name matches
+/// [`is_staging_dir_name`] are considered, one level below each root. A
+/// staging folder listed in `protected` (a job that can still resume) is kept.
+/// `.part` files, `*.old-*` backups and final game folders never match the
+/// name predicate and are left untouched.
+pub fn cleanup_staging_dirs(roots: &[PathBuf], protected: &HashSet<PathBuf>) -> StagingSweep {
+    let protected: HashSet<String> = protected.iter().map(|path| path_key(path)).collect();
+    let mut sweep = StagingSweep::default();
+    let mut seen_roots: HashSet<String> = HashSet::new();
+
+    for root in roots {
+        if root.as_os_str().is_empty() || !seen_roots.insert(path_key(root)) {
+            continue;
+        }
+        let entries = match fs::read_dir(root) {
+            Ok(entries) => entries,
+            // A configured folder that is unplugged or absent has nothing to
+            // sweep; that is not a failure worth alarming the user about.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                sweep.failures += 1;
+                tracing::warn!(
+                    root = %root.display(),
+                    error = %error,
+                    "could not read an install root while sweeping staging folders"
+                );
+                continue;
+            }
+        };
+        sweep.roots += 1;
+
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !is_staging_dir_name(&name) || !entry.path().is_dir() {
+                continue;
+            }
+            sweep.candidates += 1;
+            let path = entry.path();
+            if protected.contains(&path_key(&path)) {
+                sweep.protected += 1;
+                tracing::debug!(
+                    path = %path.display(),
+                    "keeping a staging folder a job can still resume"
+                );
+                continue;
+            }
+            let bytes = dir_size(&path);
+            match fs::remove_dir_all(&path) {
+                Ok(()) => {
+                    sweep.removed += 1;
+                    sweep.bytes_freed = sweep.bytes_freed.saturating_add(bytes);
+                    tracing::info!(
+                        path = %path.display(),
+                        bytes,
+                        "removed a stale staging folder"
+                    );
+                }
+                Err(error) => {
+                    sweep.failures += 1;
+                    tracing::warn!(
+                        path = %path.display(),
+                        error = %error,
+                        "could not remove a stale staging folder"
+                    );
+                }
             }
         }
     }
+    sweep
 }
 
 /// Locate an executable on `PATH` (adds `.exe` on Windows).
@@ -527,6 +701,102 @@ mod tests {
         let traversal = version_label(Some("../../x"));
         assert!(!traversal.contains('/'));
         assert_ne!(traversal, "..");
+    }
+
+    #[test]
+    fn staging_names_accept_dot_and_legacy_forms_only() {
+        assert_eq!(
+            staging_dir_slug(".elden-ring.staging-7719566e"),
+            Some("elden-ring")
+        );
+        assert_eq!(
+            staging_dir_slug("elden-ring.staging-7719566e"),
+            Some("elden-ring")
+        );
+        assert_eq!(
+            staging_dir_slug("elden-ring-staging-7719566e"),
+            Some("elden-ring")
+        );
+        assert_eq!(
+            staging_dir_slug(".elden-ring-staging-7719566E"),
+            Some("elden-ring"),
+            "the hex suffix may be uppercase"
+        );
+        for name in [
+            "elden-ring",
+            "staging",
+            ".staging-7719566e",
+            "elden-ring.staging-7719566",
+            "elden-ring.staging-7719566ef",
+            "elden-ring.staging-zzzzzzzz",
+            "elden-ring.staging-",
+            "Game.staging-guide",
+            "elden-ring-staging",
+        ] {
+            assert!(!is_staging_dir_name(name), "{name} must not match");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn staging_separators_ignore_case_on_windows() {
+        assert!(is_staging_dir_name(".Elden-Ring.STAGING-7719566e"));
+        assert!(is_staging_dir_name("Elden-Ring-Staging-7719566e"));
+    }
+
+    #[test]
+    fn staging_sweep_removes_stale_roots_and_keeps_protected_and_final_folders() {
+        let root = std::env::temp_dir().join(format!(
+            "ludex-sweep-{}",
+            crate::util::short_id(&uuid::Uuid::new_v4().to_string())
+        ));
+        let other = std::env::temp_dir().join(format!(
+            "ludex-sweep-other-{}",
+            crate::util::short_id(&uuid::Uuid::new_v4().to_string())
+        ));
+
+        let stale_dot = root.join(".hades.staging-0123abcd");
+        let stale_legacy = root.join("hades-staging-deadbeef");
+        let protected = root.join(".hades.staging-aaaabbbb");
+        let final_dir = root.join("hades").join("1.0");
+        let other_stale = other.join(".doom.staging-11112222");
+        let backup = root.join(".hades.old-1234abcd");
+        let part = root.join(".3-4.part");
+        for folder in [
+            &stale_dot,
+            &stale_legacy,
+            &protected,
+            &final_dir,
+            &other_stale,
+            &backup,
+        ] {
+            fs::create_dir_all(folder).unwrap();
+            fs::write(folder.join("game.bin"), vec![0u8; 1024]).unwrap();
+        }
+        fs::write(&part, b"partial").unwrap();
+
+        // A lexically different spelling of the protected path must still win.
+        let protected_set = HashSet::from([root.join(".").join(".hades.staging-aaaabbbb")]);
+        let sweep =
+            cleanup_staging_dirs(&[root.clone(), other.clone(), root.clone()], &protected_set);
+
+        assert_eq!(sweep.roots, 2, "the duplicate root is read once");
+        assert_eq!(sweep.candidates, 4);
+        assert_eq!(sweep.protected, 1);
+        assert_eq!(sweep.removed, 3);
+        assert_eq!(sweep.failures, 0);
+        assert_eq!(sweep.bytes_freed, 3 * 1024);
+
+        assert!(!stale_dot.exists());
+        assert!(!stale_legacy.exists());
+        assert!(!other_stale.exists());
+        assert!(protected.join("game.bin").exists());
+        assert!(final_dir.join("game.bin").exists());
+        assert!(backup.join("game.bin").exists());
+        assert!(part.is_file());
+
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&other);
     }
 
     #[test]

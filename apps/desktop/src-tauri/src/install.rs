@@ -6,6 +6,7 @@
 //! a restart and the next attempt resumes the `.part` file with HTTP Range.
 //! Only one job runs at a time by default; the rest wait in the queued phase.
 
+use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -1641,6 +1642,247 @@ fn planned_paths(state: &AppState, entry: &JobEntry) -> JobPaths {
     }
 }
 
+/// Can this persisted job still need its staging folder (#225)?
+///
+/// A resumable stream job keeps its checkpoint across a failure or a pause, so
+/// its folder is never swept. A `done` job is never protected, even if an older
+/// build left `resumable` set: its staging was moved into place, so any folder
+/// still on disk is a leftover the sweep may remove.
+fn staging_is_protected(record: &db::InstallJobRecord) -> bool {
+    let phase = InstallPhase::parse(&record.phase);
+    phase != InstallPhase::Done && (record.resumable || !phase.is_terminal())
+}
+
+/// Staging folders a live or resumable job still owns (#225).
+///
+/// Built from the in-memory queue and from SQLite: a job that was interrupted
+/// in a previous app run has no in-memory entry, and deleting its checkpoint
+/// would force a full re-download.
+fn protected_staging(app: &AppHandle) -> HashSet<PathBuf> {
+    let state = app.state::<AppState>();
+    let mut protected = HashSet::new();
+
+    if let Ok(jobs) = state.jobs.lock() {
+        for entry in jobs.values() {
+            let job = entry.snapshot();
+            let active = job.resumable || !job.phase.is_terminal();
+            if job.phase == InstallPhase::Done || !active {
+                continue;
+            }
+            if let Some(path) = entry.staging_path() {
+                protected.insert(PathBuf::from(path));
+            }
+        }
+    }
+
+    if let Ok(connection) = state.db.lock() {
+        match db::all_install_jobs(&connection) {
+            Ok(records) => {
+                for record in records {
+                    if !staging_is_protected(&record) {
+                        continue;
+                    }
+                    if let Some(path) = record.staging_path {
+                        protected.insert(PathBuf::from(path));
+                    }
+                }
+            }
+            Err(error) => {
+                // Never sweep blind: without the persisted jobs a resumable
+                // checkpoint could be treated as stale.
+                tracing::warn!(error = %error, "could not read the persisted install jobs for the staging sweep");
+            }
+        }
+    }
+
+    protected
+}
+
+/// Install roots and protected staging folders for the startup sweep (#225).
+///
+/// Roots: the default install folder, every configured install location and
+/// the install folder of every persisted job (a location can be removed while
+/// a job still points at it). A root that no longer exists is harmless: the
+/// sweep skips it.
+pub(crate) fn staging_gc_targets(app: &AppHandle) -> (Vec<PathBuf>, HashSet<PathBuf>) {
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+    let mut roots = vec![settings.install_path()];
+    roots.extend(
+        settings
+            .locations
+            .iter()
+            .filter(|location| location.kind == settings::LocationKind::Install)
+            .filter(|location| !location.path.trim().is_empty())
+            .map(|location| PathBuf::from(location.path.trim())),
+    );
+    if let Ok(jobs) = state.jobs.lock() {
+        for entry in jobs.values() {
+            if let Some(dir) = entry
+                .params
+                .install_dir
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                roots.push(PathBuf::from(dir));
+            }
+        }
+    }
+    if let Ok(connection) = state.db.lock() {
+        match db::all_install_job_params(&connection) {
+            Ok(records) => roots.extend(
+                records
+                    .iter()
+                    .filter_map(|record| record.install_dir.as_deref())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(PathBuf::from),
+            ),
+            Err(error) => {
+                tracing::warn!(error = %error, "could not read the persisted install folders for the staging sweep")
+            }
+        }
+    }
+    (roots, protected_staging(app))
+}
+
+/// Startup sweep of stale staging folders (#225).
+///
+/// Runs on a blocking thread after `auto_resume_on_startup` and
+/// `rebuild_space_ledger`, so a folder owned by a job that is about to resume
+/// is already known and protected.
+pub(crate) fn sweep_stale_staging(app: &AppHandle) {
+    let (roots, protected) = staging_gc_targets(app);
+    let sweep = paths::cleanup_staging_dirs(&roots, &protected);
+    tracing::info!(
+        roots = ?roots,
+        candidates = sweep.candidates,
+        protected = sweep.protected,
+        removed = sweep.removed,
+        failures = sweep.failures,
+        bytes_freed = sweep.bytes_freed,
+        "staging sweep finished"
+    );
+}
+
+/// Staging folders a finished job may remove (#225).
+///
+/// Its own folder (unless it is the final path) plus stale siblings of the
+/// same slug that no job owns. `protected` holds [`paths::path_key`] values, so
+/// a differently spelled path still protects its folder.
+fn success_staging_candidates(
+    staging: &Path,
+    final_path: &Path,
+    slug: &str,
+    protected: &HashSet<String>,
+) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    let final_key = paths::path_key(final_path);
+    if staging.is_dir() && paths::path_key(staging) != final_key {
+        candidates.push(staging.to_path_buf());
+    }
+    let Some(root) = staging.parent() else {
+        return candidates;
+    };
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return candidates;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let Some(candidate_slug) = paths::staging_dir_slug(&name) else {
+            continue;
+        };
+        if !candidate_slug.eq_ignore_ascii_case(slug) {
+            continue;
+        }
+        let path = entry.path();
+        if !path.is_dir() || paths::path_key(&path) == final_key {
+            continue;
+        }
+        if path == staging || protected.contains(&paths::path_key(&path)) {
+            continue;
+        }
+        candidates.push(path);
+    }
+    candidates
+}
+
+/// Delete the staging folder of a job that just finished (#225) and any stale
+/// sibling staging folder of the same game.
+///
+/// Never fails the install: every error is logged and the final folder is
+/// already in place. `final_path` is checked so a bug can never delete the
+/// installed game.
+async fn cleanup_success_staging(
+    app: &AppHandle,
+    entry: &JobEntry,
+    job_paths: &JobPaths,
+    final_path: &Path,
+) {
+    let Some(staging) = job_paths.staging.clone() else {
+        return;
+    };
+    if staging == final_path {
+        tracing::warn!(
+            path = %staging.display(),
+            "refusing to remove a staging folder that is the installed game"
+        );
+        return;
+    }
+    let Some(root) = staging.parent().map(Path::to_path_buf) else {
+        return;
+    };
+    let slug = paths::slug_for_title(&entry.params.title);
+    let protected: HashSet<String> = protected_staging(app)
+        .iter()
+        .map(|path| paths::path_key(path))
+        .collect();
+    let final_path = final_path.to_path_buf();
+    let slug_for_cleanup = slug.clone();
+    let task = tokio::task::spawn_blocking(move || {
+        let candidates =
+            success_staging_candidates(&staging, &final_path, &slug_for_cleanup, &protected);
+        let mut removed = 0u64;
+        let mut freed = 0u64;
+        let mut failures = 0u64;
+        for path in candidates {
+            let bytes = paths::dir_size(&path);
+            match std::fs::remove_dir_all(&path) {
+                Ok(()) => {
+                    removed += 1;
+                    freed = freed.saturating_add(bytes);
+                }
+                Err(error) => {
+                    failures += 1;
+                    tracing::warn!(
+                        path = %path.display(),
+                        error = %error,
+                        "could not remove a staging folder of a finished install"
+                    );
+                }
+            }
+        }
+        (removed, freed, failures)
+    });
+
+    match task.await {
+        Ok((removed, freed, failures)) => tracing::info!(
+            job_id = %entry.snapshot().job_id,
+            root = %root.display(),
+            slug = %slug,
+            removed,
+            failures,
+            bytes_freed = freed,
+            "cleaned up the staging folder of a finished install"
+        ),
+        Err(error) => tracing::warn!(
+            error = %error,
+            "the staging cleanup task of a finished install failed"
+        ),
+    }
+}
+
 /// Clears the `running` flag when the worker exits, however it exits.
 struct RunGuard<'a>(&'a AtomicBool);
 
@@ -1768,6 +2010,13 @@ async fn run_job(app: AppHandle, job_id: String, download_slot: &mut Option<Slot
             // The staging folder was moved into place: the per-entry
             // checkpoint is no longer needed.
             clear_stream_checkpoint(&app, &entry);
+            // #225: a finished install must leave exactly one folder. Remove
+            // its own staging folder (the per-entry commit moves files out but
+            // a failed move/copy can leave it behind) and any stale sibling
+            // staging folder of the same game. A cleanup failure is logged,
+            // never fatal: the game is already in its final folder.
+            cleanup_success_staging(&app, &entry, &job_paths, &install_path).await;
+            entry.set_staging_path(None);
             entry.update(|job| {
                 job.phase = InstallPhase::Done;
                 job.speed_bps = 0;
@@ -2159,6 +2408,20 @@ async fn expected_archive_sha256(state: &AppState, params: &InstallParams) -> Op
     digest
 }
 
+/// The staging folder the transport actually wrote to (#225).
+///
+/// A fresh job writes to its own `.{slug}.staging-{job id}` folder, but
+/// `stream_install` adopts the checkpoint of a previous attempt and records
+/// that folder in [`JobPaths::staging`]. The commit must use it, otherwise the
+/// move reads an empty folder and leaves the full checkpoint behind.
+fn effective_staging(job_paths: &JobPaths, fallback: &Path) -> PathBuf {
+    job_paths
+        .staging
+        .clone()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| fallback.to_path_buf())
+}
+
 async fn execute(
     app: &AppHandle,
     entry: &Arc<JobEntry>,
@@ -2362,6 +2625,9 @@ async fn execute(
             let _ = tokio::fs::remove_dir_all(&previous).await;
         }
         reset_staging(&staging).await?;
+        // The classic path writes to the current job's own folder: make that
+        // the effective staging before the commit reads it (#225).
+        job_paths.staging = Some(staging.clone());
         let part = job_paths.part.clone().unwrap_or_else(|| {
             download_root.join(format!(".{}-{}.part", params.game_id, params.version_id))
         });
@@ -2457,6 +2723,12 @@ async fn execute(
 
     check_cancel(&entry.cancel)?;
 
+    // #225: `stream_install` can adopt the staging folder of a previous job
+    // and records it in `job_paths.staging`. Everything that inspects or
+    // commits staged files must use the folder the transport actually wrote
+    // to; the locally computed path is only a fallback.
+    let effective_staging = effective_staging(job_paths, &staging);
+
     // Verification and extraction are disk work: one at a time (#221). The
     // stream path already took the extractor; the classic path took it in the
     // loop above; the local shortcut takes it here.
@@ -2544,7 +2816,7 @@ async fn execute(
             0,
             Some("Locating the game executable".to_string()),
         );
-        let staging_for_exe = staging.clone();
+        let staging_for_exe = effective_staging.clone();
         let title = params.title.clone();
         let requested_exe = params.executable.clone();
         tokio::task::spawn_blocking(move || {
@@ -2574,13 +2846,15 @@ async fn execute(
                 Some("Installing game file".to_string()),
             );
 
-            tokio::fs::create_dir_all(&staging).await.map_err(|e| {
-                Failure::Failed(format!(
-                    "Could not create the staging folder {}: {e}",
-                    staging.display()
-                ))
-            })?;
-            let destination = paths::safe_child(&staging, &file_name)?;
+            tokio::fs::create_dir_all(&effective_staging)
+                .await
+                .map_err(|e| {
+                    Failure::Failed(format!(
+                        "Could not create the staging folder {}: {e}",
+                        effective_staging.display()
+                    ))
+                })?;
+            let destination = paths::safe_child(&effective_staging, &file_name)?;
 
             let source = archive.clone();
             let target = destination.clone();
@@ -2638,7 +2912,7 @@ async fn execute(
                 Some("Extracting archive".to_string()),
             );
 
-            let staging_for_extract = staging.clone();
+            let staging_for_extract = effective_staging.clone();
             let archive_for_extract = archive.clone();
             let passwords = settings.archive_passwords.clone();
             let entry_for_extract = Arc::clone(entry);
@@ -2682,7 +2956,8 @@ async fn execute(
             })
             .await
             .map_err(|e| Failure::Failed(format!("The extraction task failed: {e}")))?;
-            extraction.map_err(|error| Failure::Failed(extraction_failure(&staging, error)))?;
+            extraction
+                .map_err(|error| Failure::Failed(extraction_failure(&effective_staging, error)))?;
 
             // The archive is no longer needed once extraction succeeded.
             if let Some(part) = downloaded.as_deref() {
@@ -2709,7 +2984,7 @@ async fn execute(
                 Some("Locating the game executable".to_string()),
             );
 
-            let staging_for_exe = staging.clone();
+            let staging_for_exe = effective_staging.clone();
             let title = params.title.clone();
             let requested_exe = params.executable.clone();
             tokio::task::spawn_blocking(move || {
@@ -2722,8 +2997,9 @@ async fn execute(
 
     check_cancel(&entry.cancel)?;
 
-    // 5. Move staging into place (rename, or copy across devices).
-    let staging_for_move = staging.clone();
+    // 5. Move staging into place (rename, or copy across devices). For a stream
+    // install this is the folder it adopted from the previous attempt (#225).
+    let staging_for_move = effective_staging;
     let final_for_move = final_path.clone();
     let entry_for_move = Arc::clone(entry);
     let app_for_move = app.clone();
@@ -4883,6 +5159,113 @@ mod tests {
         assert!(!looks_like_single_file(&zip));
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_adopted_staging_folder_wins_over_the_job_default() {
+        let fallback = Path::new("/games/.hades.staging-new");
+        let mut paths = JobPaths::default();
+        assert_eq!(
+            effective_staging(&paths, fallback),
+            fallback,
+            "a fresh job commits its own folder"
+        );
+
+        paths.staging = Some(Path::new("/games/.hades.staging-old").to_path_buf());
+        assert_eq!(
+            effective_staging(&paths, fallback),
+            Path::new("/games/.hades.staging-old"),
+            "the adopted checkpoint is the folder to commit (#225)"
+        );
+
+        // An empty path is not an adopted checkpoint: keep the default.
+        paths.staging = Some(PathBuf::new());
+        assert_eq!(effective_staging(&paths, fallback), fallback);
+    }
+
+    #[test]
+    fn a_finished_install_removes_its_staging_and_stale_siblings() {
+        let root = download_temp_dir("success-cleanup");
+        let final_path = root.join("hades").join("1.0");
+        std::fs::create_dir_all(&final_path).unwrap();
+        std::fs::write(final_path.join("game.exe"), b"MZ").unwrap();
+
+        let own = root.join(".hades.staging-aaaabbbb");
+        let stale_legacy = root.join("hades-staging-ccccdddd");
+        let stale_dot = root.join(".hades.staging-eeeeffff");
+        let protected = root.join(".hades.staging-11112222");
+        let other_game = root.join(".doom.staging-33334444");
+        for (folder, bytes) in [
+            (&own, 1024u64),
+            (&stale_legacy, 2048),
+            (&stale_dot, 4096),
+            (&protected, 8192),
+            (&other_game, 16384),
+        ] {
+            std::fs::create_dir_all(folder).unwrap();
+            std::fs::write(folder.join("game.bin"), vec![0u8; bytes as usize]).unwrap();
+        }
+
+        let protected_set = HashSet::from([paths::path_key(&protected)]);
+        let candidates = success_staging_candidates(&own, &final_path, "hades", &protected_set);
+
+        let mut names: Vec<String> = candidates
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![
+                ".hades.staging-aaaabbbb".to_string(),
+                ".hades.staging-eeeeffff".to_string(),
+                "hades-staging-ccccdddd".to_string(),
+            ],
+            "the protected folder and another game's staging are not candidates"
+        );
+
+        for path in &candidates {
+            std::fs::remove_dir_all(path).unwrap();
+        }
+        assert!(!own.exists());
+        assert!(!stale_legacy.exists());
+        assert!(!stale_dot.exists());
+        assert!(protected.join("game.bin").exists());
+        assert!(other_game.join("game.bin").exists());
+        assert!(final_path.join("game.exe").exists());
+
+        // The final folder itself is never a candidate, even if passed as the
+        // job's staging by a bug.
+        assert!(
+            success_staging_candidates(&final_path, &final_path, "hades", &HashSet::new())
+                .is_empty()
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn only_a_resumable_or_active_job_protects_its_staging_folder() {
+        // A failed stream job keeps its checkpoint: never sweep it.
+        let mut record = persisted_record("job-protect", "error");
+        assert!(staging_is_protected(&record));
+
+        // A done job is never protected, even with a stale `resumable` flag.
+        record.phase = "done".into();
+        assert!(!staging_is_protected(&record));
+
+        // A cancelled resumable job (completed entries kept) stays protected.
+        record.phase = "cancelled".into();
+        record.resumable = true;
+        assert!(staging_is_protected(&record));
+        record.resumable = false;
+        assert!(!staging_is_protected(&record));
+
+        // Every non-terminal phase is protected while the job runs.
+        record.phase = "downloading".into();
+        assert!(staging_is_protected(&record));
+        record.phase = "waiting_for_space".into();
+        assert!(staging_is_protected(&record));
     }
 
     #[test]
