@@ -62,6 +62,7 @@ import type {
   OidcLoginPoll,
   OidcLoginStart,
   OverlayGameState,
+  OverlayOpenResult,
   OverlaySettingsPatch,
   OverlayStatus,
   PrefixInfo,
@@ -1390,9 +1391,15 @@ export const native = {
     return invoke<OverlayStatus>("set_overlay_settings", { settings: patch });
   },
 
-  /** Open the floating overlay (or the in-app overlay when it is unavailable). */
-  async openOverlay(): Promise<OverlayStatus> {
-    return invoke<OverlayStatus>("open_overlay");
+  /**
+   * Open the overlay. `forceWindow` (desktop #228) skips the "main window is
+   * focused, draw in-app" shortcut and returns the floating-window facts, so
+   * Settings can prove the window works instead of trusting a toast. Older
+   * desktops ignore the argument and only return the status.
+   */
+  async openOverlay(options?: { forceWindow?: boolean }): Promise<OverlayOpenResult> {
+    if (!options?.forceWindow) return invoke<OverlayOpenResult>("open_overlay");
+    return invoke<OverlayOpenResult>("open_overlay", { forceWindow: true });
   },
 
   /** Close the overlay and hand focus back to the game/main window. */

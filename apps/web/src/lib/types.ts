@@ -1578,6 +1578,33 @@ export interface OverlayDiagnostics {
   checks: OverlayCheck[];
 }
 
+/**
+ * Last pad button the global listener saw (#228). It separates "no pad input
+ * at all" from "the gesture was not recognised".
+ */
+export interface OverlayLastButton {
+  /** Process-local pad id, or its name when the backend reports one. */
+  pad: string | null;
+  /** Button name as the backend spells it, e.g. `Guide`, `LB`, `Start`. */
+  button: string;
+  /** RFC 3339 timestamp. */
+  at: string;
+}
+
+/**
+ * Facts returned by a forced test open (#228). A desktop older than that
+ * reports nothing here, so every field stays optional.
+ */
+export interface OverlayWindowResult {
+  presentation?: "closed" | "window" | "inApp";
+  windowCreated?: boolean;
+  windowVisible?: boolean;
+  /** Plain error from the desktop when creation, show or focus failed. */
+  windowError?: string | null;
+  /** Monitor the window was placed on, when the desktop names it. */
+  monitor?: string | null;
+}
+
 /** Foreground window the overlay would cover. */
 export interface OverlayForeground {
   title: string | null;
@@ -1635,11 +1662,23 @@ export interface OverlayStatus {
   foreground: OverlayForeground | null;
   /** Last trigger/open/close attempt. */
   lastTrigger: OverlayTriggerEvent | null;
+  /**
+   * Button events the global listener has seen since it started (#228).
+   * `undefined` means the desktop is older and does not count them.
+   */
+  eventsSeen?: number;
+  /** Last pad button the listener saw (#228); optional for older desktops. */
+  lastButton?: OverlayLastButton | null;
+  /** When the floating window was last shown (#228); optional for older desktops. */
+  windowShownAt?: string | null;
   /** Platform limitation, shown verbatim in Settings. */
   platformNote: string;
   /** Shortcut that works while Ludex is focused. */
   keyboardShortcut: string;
 }
+
+/** Answer of `open_overlay`: the status plus what the window did (#228). */
+export type OverlayOpenResult = OverlayStatus & OverlayWindowResult;
 
 /** Partial update accepted by `set_overlay_settings`. */
 export interface OverlaySettingsPatch {

@@ -27,12 +27,12 @@ function shortcutGroups(): { title: string; rows: { keys: string[]; label: strin
     ],
   },
   {
-    title: t("Big Picture"),
+    title: t("Console mode"),
     rows: [
       { keys: ["←", "→"], label: t("Select a game") },
       { keys: ["↑", "↓"], label: t("Change shelf") },
       { keys: ["↵"], label: t("Play, install or download") },
-      { keys: ["esc"], label: t("Exit Big Picture") },
+      { keys: ["esc"], label: t("Exit Console mode") },
     ],
   },
   {

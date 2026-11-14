@@ -85,7 +85,7 @@ export function powerActions(context: PowerContext): PowerAction[] {
     actions.push({
       id: "quit-game",
       label: `${t("Quit")} ${context.gameTitle}`,
-      detail: t("Close {title} and return to Big Picture.", { title: context.gameTitle }),
+      detail: t("Close {title} and return to Console mode.", { title: context.gameTitle }),
       tone: "danger",
       // Closing the game is a native launch-session command; a browser tab has
       // no process to stop.
@@ -97,7 +97,7 @@ export function powerActions(context: PowerContext): PowerAction[] {
   if (!context.console) {
     actions.push({
       id: "exit",
-      label: t("Exit Big Picture"),
+      label: t("Exit Console mode"),
       detail: t("Leave the couch interface."),
       tone: "default",
       enabled: true,

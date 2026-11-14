@@ -148,7 +148,7 @@ export const NAV_DESTINATIONS = [
   {
     id: "bigpicture",
     to: "/bigpicture",
-    labelKey: "Big Picture mode",
+    labelKey: "Console mode",
     group: "play",
     icon: "gamepad",
     visibility: "everyone",

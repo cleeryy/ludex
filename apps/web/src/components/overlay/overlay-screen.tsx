@@ -406,11 +406,11 @@ function GameTab({
     return (
       <div className="flex min-h-[240px] flex-col items-start justify-center gap-4">
         <p className="max-w-[52ch] text-[15px] leading-relaxed text-ink-2">
-          {t("Start a game from Ludex, or open Big Picture to pick one from the couch.")}
+          {t("Start a game from Ludex, or open Console mode to pick one from the couch.")}
         </p>
         <OverlayButton onClick={onBigPicture} variant="primary">
           <Play size={14} />
-          {t("Open Big Picture")}
+          {t("Open Console mode")}
         </OverlayButton>
       </div>
     );
@@ -450,7 +450,7 @@ function GameTab({
         </OverlayButton>
         <OverlayButton onClick={onBigPicture} disabled={busy !== null}>
           <Library size={14} />
-          {t("Big Picture")}
+          {t("Console mode")}
         </OverlayButton>
         <OverlayButton onClick={onDisable} disabled={busy !== null}>
           <Gamepad2 size={14} />
