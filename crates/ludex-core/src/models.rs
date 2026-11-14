@@ -273,6 +273,14 @@ pub struct GameVersion {
     /// background job has not reached yet; those stay downloadable unverified.
     #[serde(default)]
     pub content_sha256: Option<String>,
+    /// Archive format guessed from the file name (`zip`, `7z`, `rar`), `null`
+    /// when the extension is unknown or absent (#226). Never inspects the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_format: Option<String>,
+    /// Whether the ZIP-only per-entry stream install can serve this version
+    /// (#226). `false` means clients must download the archive and extract it.
+    #[serde(default)]
+    pub stream_supported: bool,
     /// Last time this version row changed (indexed, renamed or re-hashed).
     #[serde(default)]
     pub updated_at: Option<DateTime<Utc>>,
@@ -579,6 +587,8 @@ mod tests {
                 early_access: false,
                 archive_hash: Some("sha256-sample:abc".into()),
                 content_sha256: None,
+                archive_format: Some("7z".into()),
+                stream_supported: false,
                 updated_at: None,
                 missing: false,
                 root_unavailable: false,
@@ -595,6 +605,9 @@ mod tests {
         assert!(json.contains("\"id\":1"), "{json}");
         assert!(json.contains("\"title\":\"HITMAN 3\""), "{json}");
         assert!(json.contains("\"downloadUrl\""), "{json}");
+        // A 7z version keeps its format but cannot stream per entry (#226).
+        assert!(json.contains("\"archiveFormat\":\"7z\""), "{json}");
+        assert!(json.contains("\"streamSupported\":false"), "{json}");
         assert!(json.contains("\"installerExecutable\":null"), "{json}");
         let back: GameDetail = serde_json::from_str(&json).expect("deserialise");
         assert_eq!(back, detail);

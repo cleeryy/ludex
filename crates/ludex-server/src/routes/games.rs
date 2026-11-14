@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Instant;
@@ -17,8 +17,8 @@ use bytes::Bytes;
 use chrono::Duration;
 use futures_util::Stream;
 use ludex_core::archive::{
-    archive_tar_size, detect_format, zip_entry_info, zip_stream_manifest, ArchiveError,
-    ArchiveFormat, StreamManifest,
+    archive_tar_size, detect_format, format_from_extension, zip_entry_info, zip_stream_manifest,
+    ArchiveError, ArchiveFormat, StreamManifest,
 };
 use ludex_core::models::{
     GameDetail, GameSummary, GameVersion, LatestVersion, LaunchInfo, Paginated, ProgressState,
@@ -493,6 +493,7 @@ pub(crate) async fn fetch_detail(
     let mut available_versions = Vec::new();
     let mut missing_versions = Vec::new();
     for version in versions {
+        let (archive_format, stream_supported) = version_transport(&version.file_name);
         let row = GameVersion {
             id: version.id,
             file_name: version.file_name,
@@ -502,6 +503,8 @@ pub(crate) async fn fetch_detail(
             early_access: version.early_access != 0,
             archive_hash: version.archive_hash,
             content_sha256: version.content_sha256,
+            archive_format,
+            stream_supported,
             updated_at: version.updated_at.as_deref().and_then(db::parse_time),
             missing: version.missing != 0,
             root_unavailable: version.root_unavailable != 0,
@@ -1101,6 +1104,20 @@ pub(crate) async fn delete_game_rows(state: &AppState, game_id: i64) -> Result<(
     Ok(())
 }
 
+/// Transport hints for a version, derived from its file name only (#226).
+///
+/// `stream_supported` mirrors the server-side stream gate: the per-entry
+/// manifest exists for ZIP only. A 7z/RAR/unknown archive must be downloaded
+/// whole and extracted; the payload still carries the format so clients can
+/// say so before the first byte.
+fn version_transport(file_name: &str) -> (Option<String>, bool) {
+    let format = format_from_extension(Path::new(file_name));
+    (
+        format.extension().map(str::to_string),
+        format == ArchiveFormat::Zip,
+    )
+}
+
 /// All versions (including missing rows), newest first, with the pinned id.
 async fn fetch_versions(state: &AppState, game_id: i64) -> Result<GameVersionsResponse, ApiError> {
     let rows = db::query_as::<VersionRow>(
@@ -1120,20 +1137,25 @@ async fn fetch_versions(state: &AppState, game_id: i64) -> Result<GameVersionsRe
         default_version_id: game_default_version_id(state, game_id).await?,
         versions: rows
             .into_iter()
-            .map(|row| GameVersionInfo {
-                id: row.id,
-                file_name: row.file_name,
-                size: row.size,
-                version: row.version,
-                release_date: row.release_date.as_deref().and_then(db::parse_time),
-                early_access: row.early_access != 0,
-                archive_hash: row.archive_hash,
-                content_sha256: row.content_sha256,
-                indexed_at: row.indexed_at.as_deref().and_then(db::parse_time),
-                updated_at: row.updated_at.as_deref().and_then(db::parse_time),
-                missing: row.missing != 0,
-                root_unavailable: row.root_unavailable != 0,
-                download_url: format!("/api/games/{game_id}/download?versionId={}", row.id),
+            .map(|row| {
+                let (archive_format, stream_supported) = version_transport(&row.file_name);
+                GameVersionInfo {
+                    id: row.id,
+                    file_name: row.file_name,
+                    size: row.size,
+                    version: row.version,
+                    release_date: row.release_date.as_deref().and_then(db::parse_time),
+                    early_access: row.early_access != 0,
+                    archive_hash: row.archive_hash,
+                    content_sha256: row.content_sha256,
+                    archive_format,
+                    stream_supported,
+                    indexed_at: row.indexed_at.as_deref().and_then(db::parse_time),
+                    updated_at: row.updated_at.as_deref().and_then(db::parse_time),
+                    missing: row.missing != 0,
+                    root_unavailable: row.root_unavailable != 0,
+                    download_url: format!("/api/games/{game_id}/download?versionId={}", row.id),
+                }
             })
             .collect(),
     })
@@ -2857,7 +2879,7 @@ fn stream_unsupported() -> ApiError {
     ApiError::new(
         StatusCode::UNSUPPORTED_MEDIA_TYPE,
         "stream_unsupported",
-        "Stream install is only available for ZIP, 7z and RAR archives; use the normal download endpoint",
+        "Stream install is only available for ZIP archives; use the normal download endpoint",
     )
 }
 
@@ -3085,6 +3107,56 @@ mod tests {
             object_key: key,
             etag: None,
         }
+    }
+
+    #[test]
+    fn version_payload_reports_archive_format_and_stream_support() {
+        let build = |file_name: &str, id: i64| {
+            let (archive_format, stream_supported) = version_transport(file_name);
+            GameVersionInfo {
+                id,
+                file_name: file_name.to_string(),
+                size: 16,
+                version: None,
+                release_date: None,
+                early_access: false,
+                archive_hash: None,
+                content_sha256: None,
+                archive_format,
+                stream_supported,
+                indexed_at: None,
+                updated_at: None,
+                missing: false,
+                root_unavailable: false,
+                download_url: format!("/api/games/1/download?versionId={id}"),
+            }
+        };
+
+        let zip = serde_json::to_value(build("Cat Quest II.zip", 1)).expect("json");
+        assert_eq!(zip["archiveFormat"], "zip");
+        assert_eq!(zip["streamSupported"].as_bool(), Some(true));
+        assert_eq!(zip["fileName"], "Cat Quest II.zip");
+        assert_eq!(zip["size"], 16);
+
+        let seven = serde_json::to_value(build("HITMAN 3 (v3.10.1).7z", 2)).expect("json");
+        assert_eq!(seven["archiveFormat"], "7z");
+        assert_eq!(seven["streamSupported"].as_bool(), Some(false));
+
+        // Unknown extension or legacy row: no format claim, stream off.
+        for name in ["repack", "portable.exe", "archive.tar.gz"] {
+            let legacy = serde_json::to_value(build(name, 3)).expect("json");
+            assert!(legacy.get("archiveFormat").is_none(), "{name}: {legacy}");
+            assert_eq!(legacy["streamSupported"].as_bool(), Some(false), "{name}");
+        }
+    }
+
+    #[test]
+    fn stream_unsupported_message_names_zip_only() {
+        let error = stream_unsupported();
+        assert_eq!(error.status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        assert!(error.message.contains("ZIP archives"), "{}", error.message);
+        assert!(!error.message.contains("7z"), "{}", error.message);
+        assert!(!error.message.contains("RAR"), "{}", error.message);
     }
 
     #[test]
