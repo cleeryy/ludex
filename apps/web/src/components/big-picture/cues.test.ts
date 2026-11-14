@@ -23,16 +23,16 @@ describe("cueForCommand", () => {
     expect(cue({ type: "highlight", direction: "down" }, still)).toBeNull();
   });
 
-  it("uses the tab voice for a shelf or page change", () => {
-    expect(cue({ type: "shelf", delta: -1 })).toBe("tabChange");
-    expect(cue({ type: "shelf", delta: 1 })).toBe("tabChange");
-    expect(cue({ type: "page", delta: -1 })).toBe("tabChange");
-    expect(cue({ type: "page", delta: 1 })).toBe("tabChange");
+  it("uses the chrome click for a shelf or page change", () => {
+    expect(cue({ type: "shelf", delta: -1 })).toBe("click");
+    expect(cue({ type: "shelf", delta: 1 })).toBe("click");
+    expect(cue({ type: "page", delta: -1 })).toBe("click");
+    expect(cue({ type: "page", delta: 1 })).toBe("click");
   });
 
   it("stays silent when a surface opens or closes", () => {
     // The motion table owns these: overlayOpen, overlayClose, openGroup,
-    // closeGroup, confirm. Emitting them here as well was the double cue.
+    // closeGroup, click, confirm. Emitting them here as well was the double cue.
     for (const overlay of ["menu", "search", "profiles", "downloads", "exit", "collections"] as const) {
       expect(cue({ type: "open", overlay })).toBeNull();
     }

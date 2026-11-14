@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import { CUE_SPECS } from "@/lib/ui-sound-specs";
 import {
   INSTANT_HOLD_MS,
+  LAUNCH_FLIP_MS,
   MOTION,
   MOTION_DURATION,
   MOTION_KINDS,
+  MOTION_SPRING,
   MOTION_STAGGER,
   REDUCED_FADE,
   REDUCED_MOTION,
@@ -15,6 +17,7 @@ import {
   exitOf,
   missingCues,
   motionDebugEnabled,
+  springOf,
   transitionOf,
   type MotionKind,
 } from "./motion";
@@ -24,12 +27,16 @@ import {
    test reads the real stylesheet: a retune cannot land in CSS only. The cue
    test pins the reduced-motion split that #198 documented, so a surface cue
    cannot become "decorative" (and disappear) by accident.
+
+   #229 adds the spring split and must not weaken the composite-only rule: a
+   spring is still `transform`/`opacity` only, it just settles with physics
+   instead of a bezier.
    -------------------------------------------------------------------------- */
 
 const css = readFileSync(new URL("../../styles/index.css", import.meta.url), "utf8");
 
-/** The five cues #198 marks decorative; reduced motion drops them. */
-const DECORATIVE_CUES = ["openGroup", "closeGroup", "overlayOpen", "overlayClose", "tabChange"] as const;
+/** The three cues #198/#229 mark decorative; reduced motion drops them. */
+const DECORATIVE_CUES = ["click", "openGroup", "closeGroup"] as const;
 
 /** The console sequence the acceptance record walks. */
 const CONSOLE_SEQUENCE: MotionKind[] = [
@@ -54,14 +61,72 @@ describe("motion tokens", () => {
     expect(css).toContain("--ease-out: cubic-bezier(0.16, 1, 0.3, 1);");
   });
 
-  it("keeps every transition inside the 120–320ms console band", () => {
+  it("keeps every tween inside the 120–320ms console band", () => {
     for (const kind of MOTION_KINDS) {
       const spec = MOTION[kind];
+      if (spec.spring) continue;
       expect(spec.duration, kind).toBeGreaterThanOrEqual(0.12);
       expect(spec.duration, kind).toBeLessThanOrEqual(0.32);
       expect(spec.exit, kind).toBeGreaterThanOrEqual(0.1);
       expect(spec.exit, kind).toBeLessThanOrEqual(spec.duration);
     }
+  });
+
+  it("keeps every spring inside the 900ms surface budget", () => {
+    for (const kind of MOTION_KINDS) {
+      const spec = MOTION[kind];
+      if (!spec.spring) continue;
+      expect(spec.spring.visualDuration, `${kind}: visualDuration`).toBeGreaterThanOrEqual(0.24);
+      expect(spec.spring.visualDuration, `${kind}: visualDuration`).toBeLessThanOrEqual(0.6);
+      expect(spec.spring.bounce, `${kind}: bounce`).toBeGreaterThanOrEqual(0);
+      expect(spec.spring.bounce, `${kind}: bounce`).toBeLessThanOrEqual(0.2);
+      // The probe and the tests read `duration`; it must stay the spring's own
+      // visual duration, not a leftover tween number.
+      expect(spec.duration, `${kind}: probe budget`).toBe(spec.spring.visualDuration);
+      expect(spec.exit, kind).toBeLessThanOrEqual(MOTION_DURATION.slow);
+    }
+  });
+
+  it("springs only the six surfaces, with the values from the issue", () => {
+    const surfaces: Partial<Record<MotionKind, { visualDuration: number; bounce: number }>> = {
+      overlayOpen: { visualDuration: 0.3, bounce: 0 },
+      panel: { visualDuration: 0.34, bounce: 0.12 },
+      gameDetail: { visualDuration: 0.4, bounce: 0.1 },
+      screenPush: { visualDuration: 0.36, bounce: 0 },
+      queueRow: { visualDuration: 0.26, bounce: 0 },
+      launch: { visualDuration: 0.55, bounce: 0.08 },
+    };
+    for (const kind of MOTION_KINDS) {
+      const expected = surfaces[kind];
+      if (!expected) {
+        expect(MOTION[kind].spring, `${kind} stays a tween`).toBeUndefined();
+        continue;
+      }
+      expect(MOTION[kind].spring, kind).toEqual(expected);
+    }
+    expect(MOTION_SPRING.overlay.bounce).toBe(0);
+    expect(MOTION_SPRING.panel.bounce).toBeGreaterThan(0);
+  });
+
+  it("springs the surfaces and never the focus move", () => {
+    for (const kind of ["overlayOpen", "panel", "gameDetail", "screenPush", "queueRow", "launch"] as const) {
+      expect(transitionOf(kind, {}).transition, kind).toMatchObject({ type: "spring" });
+    }
+    // The ring follows the d-pad: 120 ms tween, no physics, no lag. The focus
+    // row has no JS frame of its own (the rail card does the move in CSS), so
+    // only the table entry is inspectable — it must not grow a spring.
+    expect(MOTION.focus.spring).toBeUndefined();
+    expect(MOTION.focus.duration).toBe(MOTION_DURATION.fast);
+    expect(MOTION.focus.duration * 1_000).toBe(120);
+    expect(springOf(MOTION_SPRING.launch)).toEqual({ type: "spring", visualDuration: 0.55, bounce: 0.08 });
+  });
+
+  it("keeps the launch FLIP in its 90–600ms window", () => {
+    expect(LAUNCH_FLIP_MS.min).toBe(90);
+    expect(LAUNCH_FLIP_MS.max).toBe(600);
+    const spring = MOTION.launch.spring!;
+    expect(spring.visualDuration * 1_000).toBeGreaterThanOrEqual(LAUNCH_FLIP_MS.min);
+    expect(spring.visualDuration * 1_000).toBeLessThanOrEqual(LAUNCH_FLIP_MS.max);
   });
 
   it("uses the 22ms cascade rhythm, not a custom stagger", () => {
@@ -72,7 +137,7 @@ describe("motion tokens", () => {
     const allowed = new Set(["x", "y", "scale", "opacity"]);
     for (const kind of MOTION_KINDS) {
       for (const key of Object.keys(MOTION[kind])) {
-        if (["duration", "exit", "ease", "reduced", "cue", "cueAt"].includes(key)) continue;
+        if (["duration", "exit", "ease", "reduced", "cue", "cueAt", "spring"].includes(key)) continue;
         expect(allowed.has(key), `${kind}.${key}`).toBe(true);
       }
     }
@@ -232,13 +297,24 @@ describe("cue sync", () => {
   });
 
   it("walks the console sequence with one cue per surface, in order", () => {
-    const seen = CONSOLE_SEQUENCE.map((kind) => cueForMotion(kind)).filter(
-      (cue): cue is NonNullable<typeof cue> => cue !== null,
-    );
-    expect(seen).toEqual(["move", "tabChange", "confirm", "openGroup", "tabChange", "overlayOpen", "overlayClose", "confirm", "closeGroup"]);
-    // No surface repeats the cue of the surface before it (the old double cue).
-    for (let index = 1; index < seen.length; index += 1) {
-      expect(seen[index]).not.toBe(seen[index - 1]);
+    const seen = CONSOLE_SEQUENCE.map((kind) => cueForMotion(kind));
+    expect(seen).toEqual([
+      null,
+      "move",
+      "click",
+      "click",
+      "openGroup",
+      "click",
+      "click",
+      "click",
+      "confirm",
+      "closeGroup",
+    ]);
+    // #229: the chrome deliberately speaks one voice, so adjacent clicks are
+    // the point. What must never repeat across two surfaces is a movement or a
+    // launch cue — that was the old double emission.
+    for (const cue of ["move", "launch"] as const) {
+      expect(seen.filter((entry) => entry === cue).length, cue).toBeLessThanOrEqual(1);
     }
   });
 

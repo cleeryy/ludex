@@ -117,22 +117,37 @@ describe("ui sound manager", () => {
     expect(started).toHaveLength(2);
   });
 
+  it("lets the launch voice ring out when the game starts (#229)", () => {
+    // `startGame` opens the plate and speaks `launch`; the launch resolves a
+    // moment later and `setGameRunning(true)` used to stop every voice, cutting
+    // the 4 ms-scheduled rise. The launch cue survives; the others do not.
+    const { manager, started, stopped, advance } = setup();
+    manager.play("launch");
+    advance(30);
+    manager.play("click");
+    manager.setGameRunning(true);
+    expect(stopped).toEqual(["click"]);
+    expect(manager.voiceCount()).toBe(1);
+    // Still audible: nothing stopped the launch source, and the buffer has not
+    // run out yet.
+    expect(started.map((entry) => entry.cue)).toEqual(["launch", "click"]);
+  });
+
   it("drops the decorative cues under reduced motion and keeps the functional ones", () => {
     const { manager, started, advance } = setup();
     manager.setReducedMotion(true);
-    for (const cue of ["overlayOpen", "overlayClose", "openGroup", "closeGroup", "tabChange"] as const) {
+    for (const cue of ["click", "openGroup", "closeGroup"] as const) {
       manager.play(cue);
       advance(200);
     }
     expect(started).toEqual([]);
-    for (const cue of ["move", "confirm", "back", "error", "launch", "power", "installComplete"] as const) {
+    for (const cue of ["move", "confirm", "error", "launch", "power", "installComplete"] as const) {
       manager.play(cue);
       advance(600);
     }
     expect(started.map((entry) => entry.cue)).toEqual([
       "move",
       "confirm",
-      "back",
       "error",
       "launch",
       "power",
@@ -169,7 +184,7 @@ describe("ui sound manager", () => {
     expect(manager.voiceCount()).toBe(CUE_SPECS.move.maxVoices);
     expect(stopped).toEqual(["move"]);
 
-    const cues = ["tabChange", "confirm", "back", "overlayOpen", "overlayClose", "openGroup", "closeGroup", "error"] as const;
+    const cues = ["click", "confirm", "openGroup", "closeGroup", "error", "notification", "installComplete", "achievement"] as const;
     for (const cue of cues) {
       advance(200);
       manager.play(cue);
@@ -189,11 +204,11 @@ describe("ui sound manager", () => {
   it("stopAll clears every live voice", () => {
     const { manager, stopped } = setup({ duration: () => 10 });
     manager.play("move");
-    manager.play("tabChange");
+    manager.play("click");
     expect(manager.voiceCount()).toBe(2);
     manager.stopAll();
     expect(manager.voiceCount()).toBe(0);
-    expect(stopped).toEqual(["move", "tabChange"]);
+    expect(stopped).toEqual(["move", "click"]);
   });
 
   it("prunes voices that outlived their buffer before applying the cap", () => {

@@ -253,10 +253,14 @@ describe("cue haptics (#198)", () => {
   });
 
   it("feels different per cue: launch and power are heavier than a move", () => {
+    const click = cueHapticPattern("click")!;
     const move = cueHapticPattern("move")!;
     const confirm = cueHapticPattern("confirm")!;
     const launch = cueHapticPattern("launch")!;
     const power = cueHapticPattern("power")!;
+    // #229: the chrome click is the lightest thing the pad can say.
+    expect(click.duration).toBeLessThan(move.duration);
+    expect(click.strongMagnitude).toBeLessThan(move.strongMagnitude);
     expect(confirm.strongMagnitude).toBeGreaterThan(move.strongMagnitude);
     expect(launch.duration).toBeGreaterThan(confirm.duration);
     expect(power.duration).toBeGreaterThan(launch.duration);

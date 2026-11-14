@@ -12,8 +12,12 @@ import type { BigPictureCommand } from "./input";
    - a command that opens or closes a surface does not speak here. The surface
      owns its cue through the motion table (`motion.ts`), fired once at the
      start of the transition. Deciding it in both places is how the old double
-     cue happened: `open` played `overlayOpen` in the router and again in
+     cue happened: `open` played an overlay cue in the router and again in
      `openOverlay`.
+
+   #229: the chrome answers with one dry `click` (tab, shelf, page, layout,
+   settings section, overlay open/close, back, a disabled press). Only movement
+   keeps its own voice.
 
    The screen also plays the cue of the action a pointer press triggers, so a
    mouse and a pad sound the same. Both paths share the manager's repeat gap,
@@ -34,7 +38,7 @@ export function cueForCommand(command: BigPictureCommand, view: CommandView): Cu
       return view.moved ? "move" : null;
     case "shelf":
     case "page":
-      return "tabChange";
+      return "click";
     case "activate":
     case "select":
     case "open":

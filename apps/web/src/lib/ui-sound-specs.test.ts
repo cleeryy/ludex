@@ -1,10 +1,13 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  CLICK_DEDUPE_MS,
   CUE_IDS,
   CUE_SPECS,
+  FROZEN_CUES,
   MOVE_DEDUPE_MS,
   PEAK_CEILING_DB,
   SOUND_BUDGET_BYTES,
@@ -12,11 +15,21 @@ import {
 } from "./ui-sound-specs";
 
 /* --------------------------------------------------------------------------
-   The committed audio (#198): every cue has a manifest entry, every file is a
-   mono 48 kHz 16-bit WAV whose length and peak match the table, and the set
-   stays inside the 512 KB budget. Regenerate with `node scripts/bp-sounds.mjs`;
-   the script and the files are committed together, so provenance is auditable.
+   The committed audio (#198, tightened by #229): every cue has a manifest
+   entry, every file is a mono 48 kHz 16-bit WAV whose length and peak match the
+   table, and the set stays inside the 512 KB budget. Regenerate with
+   `node scripts/bp-sounds.mjs`; the script and the files are committed
+   together, so provenance is auditable.
+
+   #229 freezes the two cues the player likes: `move` and `launch` are hashed, so
+   no future retune or regeneration can silently change how they sound.
    -------------------------------------------------------------------------- */
+
+/** SHA-256 of the two cues that must never change (#229). */
+const FROZEN_SHA256: Record<(typeof FROZEN_CUES)[number], string> = {
+  move: "dca4934f9b5e6934a9ad31abbae1810ae729754be7d74ad9d54b5dc1e693c491",
+  launch: "d8b72d1c4c36c7e7086c9af04e1b57423d4af55995dacf3ec5657c158189b8c0",
+};
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const soundDir = path.resolve(here, "..", "..", "public", "sounds", "bp");
@@ -96,6 +109,27 @@ describe("Big Picture cue assets", () => {
       total += statSync(path.join(soundDir, CUE_SPECS[cue].file)).size;
     }
     expect(total).toBeLessThan(SOUND_BUDGET_BYTES);
+  });
+
+  it("keeps move and launch byte-identical (#229)", () => {
+    for (const cue of FROZEN_CUES) {
+      const file = readFileSync(path.join(soundDir, CUE_SPECS[cue].file));
+      const digest = createHash("sha256").update(file).digest("hex");
+      expect(digest, `${cue}: frozen bytes`).toBe(FROZEN_SHA256[cue]);
+    }
+  });
+
+  it("states the click spec the console chrome relies on (#229)", () => {
+    const click = CUE_SPECS.click;
+    expect(click.durationMs).toBe(55);
+    expect(click.peakDb).toBe(-20);
+    expect(click.minGapMs).toBe(CLICK_DEDUPE_MS);
+    expect(CLICK_DEDUPE_MS).toBe(45);
+    expect(click.essential).toBe(false);
+    expect(click.maxVoices).toBe(2);
+    // Tick + 2.6 kHz body + 190 Hz tail + 4.2 kHz air: the pitched content stays
+    // at three partials, the tick is the transient.
+    expect([...click.partials]).toEqual([2600, 190, 4200]);
   });
 
   it("deduplicates the move cue at 24 ms", () => {

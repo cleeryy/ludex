@@ -44,7 +44,7 @@ export function OverlayShell({
   family,
   reduceMotion,
   instant = false,
-  kind = "overlayOpen",
+  kind = "panel",
   onClose,
   wide = false,
   children,
@@ -58,8 +58,12 @@ export function OverlayShell({
   reduceMotion: boolean | null;
   /** A held key opened it: land on the final frame. */
   instant?: boolean;
-  /** The power confirmation has its own rhythm and cue. */
-  kind?: "overlayOpen" | "powerConfirm";
+  /**
+   * #229: the shell is a panel and springs (`.34/bounce .12`); the power
+   * confirmation keeps its own tween rhythm. The open/close cue belongs to the
+   * screen's `beginMotion("overlayOpen" | "overlayClose")` — one click per press.
+   */
+  kind?: "panel" | "powerConfirm";
   onClose: () => void;
   wide?: boolean;
   children: ReactNode;
@@ -409,6 +413,8 @@ export function DownloadsOverlay({
   onHighlight,
   jobs,
   titleFor,
+  reduceMotion,
+  instant,
   ...shell
 }: {
   active: number;
@@ -421,6 +427,8 @@ export function DownloadsOverlay({
     <OverlayShell
       title={t("Downloads")}
       subtitle={t("Downloads keep running while this is open.")}
+      reduceMotion={reduceMotion}
+      instant={instant}
       {...shell}
     >
       {jobs.length === 0 ? (
@@ -432,7 +440,9 @@ export function DownloadsOverlay({
             // freezing the bar at 100 % while the local work runs.
             const percent = jobProgressPercent(job);
             return (
-              <li key={job.jobId}>
+              // #229: a queue row is a surface too — it lands on its own
+              // `.26/bounce 0` spring and never overshoots a progress value.
+              <motion.li key={job.jobId} {...transitionOf("queueRow", { reduce: reduceMotion, instant })}>
                 <OverlayRow
                   active={index === active}
                   onChoose={() => onChoose(index)}
@@ -454,7 +464,7 @@ export function DownloadsOverlay({
                     label={`${titleFor(job)} ${formatPercent(percent)}`}
                   />
                 )}
-              </li>
+              </motion.li>
             );
           })}
         </ul>
