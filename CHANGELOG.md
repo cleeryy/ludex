@@ -6,6 +6,21 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Finishing an install leaves exactly one folder (#225): the startup sweep now
+  runs after interrupted jobs are rebuilt, covers every configured install
+  root and the legacy `slug-staging-<id>` name, and never deletes a staging
+  folder a resumable job still owns. A successful job removes its own staging
+  and stale siblings, an adopted stream checkpoint is committed from the folder
+  it actually wrote to, and the library scanners no longer index staging
+  folders as games.
+- Downloads history shows one row per game (#225): an active job hides its
+  history row, superseded attempts are hidden, and older terminal rows collapse
+  to the newest `done` or newest attempt. Verifying/finalizing rows use an
+  indeterminate bar instead of a frozen 100%, and a queued job no longer shows
+  a misleading `0/N files`.
+
 ## [0.4.8] - 2026-11-13
 
 ### Added
