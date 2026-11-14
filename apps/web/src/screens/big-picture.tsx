@@ -678,7 +678,7 @@ export function BigPictureScreen() {
         if (!unmounted) {
           push({
             title: "Fullscreen unavailable",
-            description: "Staying in the in-app Big Picture view.",
+            description: t("Staying in the in-app view."),
             tone: "default",
           });
         }
@@ -2155,7 +2155,7 @@ export function BigPictureScreen() {
           {t("Try again")}
         </Button>
         <Button variant="default" onClick={exit}>
-          {t("Exit Big Picture")}
+          {t("Exit Console mode")}
         </Button>
       </div>
     </div>
@@ -2164,7 +2164,7 @@ export function BigPictureScreen() {
       <Wordmark height={22} />
       <p className="text-[15px] text-ink-2">{t("The library is empty. Add a game first.")}</p>
       <Button variant="primary" onClick={exit}>
-        {t("Exit Big Picture")}
+        {t("Exit Console mode")}
       </Button>
     </div>
   ) : (

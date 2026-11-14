@@ -6,6 +6,32 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Console mode rename and first motion pass (#229): user-facing "Big Picture"
+  is now **Console mode** (the Sunshine publisher is **Console app**); a dry
+  `click` cue replaces the air-sweep chrome sounds while the loved tile-move
+  and launch cues are byte-identical and hash-guarded; overlay, panels, screen
+  push and the launch handoff use interruptible springs, and launching a game
+  plays a full-bleed cover handoff with a hold frame until the session starts.
+- Overlay diagnostics (#228): the panel now shows the effective gesture, the
+  listener backend/running state, controller count, last button, buttons seen,
+  the forced floating-window result and monitor. "Send test overlay" forces the
+  real window instead of silently rendering in-app.
+
+### Fixed
+
+- `--console` now works while Ludex is already running (#227): the
+  single-instance handler parses the forwarded argv and promotes the running
+  process to the console session (undecorated fullscreen, tray removed,
+  `/bigpicture`), instead of only focusing the desktop shell. A `--windowed`
+  variant is honored, and a launch receipt before Tauri starts proves a
+  swallowed launch.
+- The overlay default is the LB+RB+Start chord on Windows (the Guide button is
+  not exposed by WGI), a stored `doubleHome` is migrated, a failed window
+  attempt no longer leaves a phantom-open state, and closing the overlay no
+  longer hides Ludex. Tracing is mirrored to `{appDataDir}/logs/ludex.log`.
+
 ## [0.4.9] - 2026-11-14
 
 ### Added
