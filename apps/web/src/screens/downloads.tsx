@@ -571,7 +571,10 @@ function JobRow({
               )}
               {verifying && phaseElapsed && <span>{verifyingElapsedLabel((meter?.elapsedMs ?? 0))}</span>}
               {pct !== null && <span>{formatPercent(pct, 1)}</span>}
-              {job.entriesTotal ? (
+              {/* #225: a queued job has not touched a single entry yet, and
+                  "0/N files" reads as a stall. The message line still carries
+                  "Resuming from 12.4 GiB" when a checkpoint exists. */}
+              {job.entriesTotal && !(job.phase === "queued" && (job.entriesDone ?? 0) === 0) ? (
                 <span>{t("{done}/{total} files", { done: job.entriesDone ?? 0, total: job.entriesTotal })}</span>
               ) : null}
             </>

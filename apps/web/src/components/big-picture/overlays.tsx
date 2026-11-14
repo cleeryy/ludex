@@ -16,6 +16,7 @@ import {
 import { cn } from "@/lib/cn";
 import { formatPercent } from "@/lib/format";
 import { t, tn } from "@/lib/i18n";
+import { jobProgressPercent } from "@/lib/install-phase";
 import type { Collection, InstallJob } from "@/lib/types";
 import { Progress } from "@/components/ui/controls";
 import type { HintContext, PadFamily } from "./controller";
@@ -397,12 +398,6 @@ const PHASE_COPY: Record<InstallJob["phase"], () => string> = {
   interrupted: () => t("Interrupted"),
 };
 
-function jobPercent(job: InstallJob): number | null {
-  if (job.phase === "done") return 100;
-  if (!job.bytesTotal) return null;
-  return Math.min(100, (job.bytesDone / job.bytesTotal) * 100);
-}
-
 /**
  * The queue, without leaving the game. It only reads the download provider, so
  * progress keeps moving behind the panel; A opens the full Downloads screen
@@ -433,7 +428,9 @@ export function DownloadsOverlay({
       ) : (
         <ul className="flex flex-col gap-1">
           {jobs.map((job, index) => {
-            const percent = jobPercent(job);
+            // #225: the shared rule keeps verifying/finalizing indeterminate instead of
+            // freezing the bar at 100 % while the local work runs.
+            const percent = jobProgressPercent(job);
             return (
               <li key={job.jobId}>
                 <OverlayRow

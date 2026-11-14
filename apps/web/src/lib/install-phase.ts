@@ -27,11 +27,12 @@ export const isWaitingForSpaceJob = (job: InstallJob): boolean => job.phase === 
 export const isPrefetchingJob = (job: InstallJob): boolean => job.prefetching === true;
 
 /**
- * Progress bar value. `null` means indeterminate, which is what a verifying job
- * shows: the bytes are already complete, so a 100 % bar would look frozen.
+ * Progress bar value. `null` means indeterminate, which is what a verifying or
+ * finalizing job shows: the bytes are already complete and the remaining work
+ * is a local read or a commit, so a 100 % bar would look frozen (#223/#225).
  */
 export function jobProgressPercent(job: InstallJob): number | null {
-  if (isVerifyingJob(job)) return null;
+  if (isVerifyingJob(job) || job.phase === "finalizing") return null;
   if (!job.bytesTotal || job.bytesTotal <= 0) return null;
   return Math.min(100, (job.bytesDone / job.bytesTotal) * 100);
 }

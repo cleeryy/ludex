@@ -6,6 +6,7 @@ import { isNative, native } from "@/lib/native";
 import { errorMessage } from "@/lib/http";
 import { planRetry } from "@/lib/install-retry";
 import { moveInQueue, orderActiveQueue, type QueueMove } from "@/lib/install-queue";
+import { visibleHistory } from "@/lib/install-history";
 import type { InstallJob, InstallPhase, InstallResumeMode } from "@/lib/types";
 import { useAuth } from "@/state/auth";
 import { useToast } from "@/state/toasts";
@@ -233,9 +234,12 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
   // The running install stays pinned at the top, then the waiting queue in
   // start order (#202); the desktop confirms the same order.
   const active = useMemo(() => orderActiveQueue(jobs.filter(isActiveJob)), [jobs]);
+  // One row per game (#225): a game with an active job has no history row, a
+  // superseded attempt is hidden, and older terminal rows for the same game
+  // collapse into the one worth showing (done, else newest).
   const history = useMemo(
-    () => jobs.filter((job) => !isActiveJob(job) && !hidden.has(job.jobId)),
-    [jobs, hidden],
+    () => visibleHistory(active, jobs.filter((job) => !isActiveJob(job) && !hidden.has(job.jobId))),
+    [active, jobs, hidden],
   );
 
   /**
@@ -407,13 +411,14 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     };
   }, [active, transfer]);
 
+  // Active job first, then the one history row the list shows for the game
+  // (#225). Because `history` is deduped, a finished game never offers a
+  // Resume button for an older failed attempt, and a game with a running
+  // install has no resumable row either.
   const jobForGame = useCallback((gameId: number) => active.find((job) => job.gameId === gameId), [active]);
   const resumableForGame = useCallback(
-    (gameId: number) =>
-      jobs.find(
-        (job) => job.gameId === gameId && (job.phase === "error" || job.phase === "interrupted" || job.phase === "cancelled"),
-      ),
-    [jobs],
+    (gameId: number) => history.find((job) => job.gameId === gameId && FAILED_PHASES.has(job.phase)),
+    [history],
   );
 
   const startInstall = useCallback(

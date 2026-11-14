@@ -65,6 +65,9 @@ describe("install phases (#221/#222/#223)", () => {
     // The bytes are complete: a 100 % bar would look frozen, so the bar is
     // animated instead and the message carries the read progress.
     expect(jobProgressPercent(job({ phase: "verifying", bytesDone: 10 * GIB, bytesTotal: 10 * GIB }))).toBeNull();
+    // Finalizing is the same story: the bytes are complete but the commit is
+    // still running, so a full bar would look frozen (#225).
+    expect(jobProgressPercent(job({ phase: "finalizing", bytesDone: 10 * GIB, bytesTotal: 10 * GIB }))).toBeNull();
     expect(jobProgressPercent(job({ phase: "done", bytesDone: 10 * GIB, bytesTotal: 10 * GIB }))).toBe(100);
     expect(jobProgressPercent(job({ bytesTotal: null }))).toBeNull();
   });
