@@ -46,6 +46,15 @@ import {
   type MotionKind,
 } from "@/components/big-picture/motion";
 import { MotionProbe } from "@/components/big-picture/motion-probe";
+import { LaunchPlate } from "@/components/big-picture/launch-overlay";
+import {
+  LAUNCH_CEILING_MS,
+  LAUNCH_FAIL_HOLD_MS,
+  LAUNCH_MIN_HOLD_MS,
+  plateCanDismiss,
+  type LaunchPlateStatus,
+  type PlateRect,
+} from "@/components/big-picture/launch-plate";
 import {
   hintContextFor,
   routeGamepadAction,
@@ -206,6 +215,15 @@ export function BigPictureScreen() {
   const [pendingPower, setPendingPower] = useState<{ action: PowerAction; index: number } | null>(null);
   const confirmWasOpen = useRef(false);
   const [runningGame, setRunningGame] = useState<{ sessionId: string; gameId: number; title: string } | null>(null);
+  // #229: the launch handoff plate. It opens on the Play press (cover FLIP,
+  // dimmed library, hold frame), ends on the launch promise, and gives up at
+  // 8 s with the honest line.
+  const [launchPlate, setLaunchPlate] = useState<{
+    game: GameSummary;
+    rect: PlateRect | null;
+    status: LaunchPlateStatus;
+    detail: string | null;
+  } | null>(null);
   const [online, setOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
   const [padBattery, setPadBattery] = useState<{ level: number; charging: boolean } | null>(null);
   // #172: when Sunshine started `ludex --console`, this screen is the console
@@ -789,7 +807,7 @@ export function BigPictureScreen() {
     setHomeIndex(0);
   };
 
-  const returnToLibrary = (cue: CueId | null = "back") => {
+  const returnToLibrary = (cue: CueId | null = "click") => {
     emit(cue);
     setZone("library");
     setOverlay(null);
@@ -847,8 +865,30 @@ export function BigPictureScreen() {
     }
   };
 
+  /**
+   * The selected card's artwork, in viewport px (#229). Measured at the press,
+   * before React re-renders, so the launch plate starts exactly on the cover the
+   * player is looking at. `null` when the game is not the selected card (a
+   * recent-game launch with no card on screen) — the plate then fades in.
+   */
+  const coverRectOfSelected = (gameId: number): PlateRect | null => {
+    if (selected?.id !== gameId) return null;
+    const card = document.querySelector<HTMLElement>('[data-bp-card="true"][aria-current="true"]');
+    const cover = card?.querySelector<HTMLElement>(".cover") ?? card;
+    if (!cover) return null;
+    const box = cover.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return null;
+    return { left: box.left, top: box.top, width: box.width, height: box.height };
+  };
+
   const startGame = async (game: GameSummary, executable?: string | null) => {
     const entry = installed.get(game.id);
+    // #229: the plate flies from the card the player is looking at, and the
+    // launch cue is this press — one voice, said once, at the start.
+    const rect = coverRectOfSelected(game.id);
+    const openedAt = performance.now();
+    setLaunchPlate({ game, rect, status: "launching", detail: null });
+    beginMotion("launch");
     try {
       const result = await launch.mutateAsync({
         id: game.id,
@@ -856,10 +896,25 @@ export function BigPictureScreen() {
         executable: executable ?? entry?.executable ?? null,
       });
       setRunningGame({ sessionId: result.sessionId, gameId: game.id, title: game.title });
-      emit("launch");
-    } catch {
+      const close = () =>
+        setLaunchPlate((current) => (current && current.game.id === game.id ? null : current));
+      // A launch that resolves in 80 ms must not blink the FLIP away.
+      const wait = LAUNCH_MIN_HOLD_MS - (performance.now() - openedAt);
+      if (wait > 0) window.setTimeout(close, wait);
+      else close();
+    } catch (cause) {
       /* `useLaunchGame` already shows the failure; the cue says it too */
       emit("error");
+      setLaunchPlate((current) =>
+        current && current.game.id === game.id
+          ? { ...current, status: "failed", detail: errorMessage(cause) }
+          : current,
+      );
+      window.setTimeout(() => {
+        setLaunchPlate((current) =>
+          current && current.game.id === game.id && current.status === "failed" ? null : current,
+        );
+      }, LAUNCH_FAIL_HOLD_MS);
     }
   };
 
@@ -868,6 +923,26 @@ export function BigPictureScreen() {
     emit("error");
     push({ title: t("Not available"), description: reason, tone: "danger" });
   };
+
+  // #229: the plate ends on the launch promise. Past the ceiling it stops
+  // pretending and says the true thing; it never spins forever.
+  useEffect(() => {
+    if (!launchPlate || launchPlate.status !== "launching") return;
+    const gameId = launchPlate.game.id;
+    const timer = window.setTimeout(() => {
+      setLaunchPlate((current) =>
+        current && current.game.id === gameId && current.status === "launching"
+          ? { ...current, status: "slow" }
+          : current,
+      );
+    }, LAUNCH_CEILING_MS);
+    return () => window.clearTimeout(timer);
+  }, [launchPlate]);
+
+  /** `B` on the plate. Only a launch that has given up is dismissable. */
+  const dismissLaunchPlate = useCallback(() => {
+    setLaunchPlate((current) => (current && plateCanDismiss(current.status) ? null : current));
+  }, []);
 
   const localeChoices = useMemo(() => selectableLocales(), []);
   const cycleLocale = async (delta: -1 | 1) => {
@@ -980,7 +1055,7 @@ export function BigPictureScreen() {
       emit("power");
       void runPower(pending.action);
     } else {
-      emit("back");
+      emit("click");
     }
   };
 
@@ -1000,7 +1075,8 @@ export function BigPictureScreen() {
       return;
     }
     if (installedGame) {
-      emit("confirm");
+      // #229: `startGame` speaks the launch cue at the press; a confirm here
+      // would say the same press twice.
       void startGame(selected, installedGame.executable ?? detail.data?.launch.executable);
     } else if (job) {
       // The queue stays in the console now (#196): pausing and retrying live
@@ -1034,7 +1110,7 @@ export function BigPictureScreen() {
   const applyLayout = (next: BigPictureLayout) => {
     setPickerOpen(false);
     if (next === layout) {
-      emit("back");
+      emit("click");
       return;
     }
     beginMotion("layout");
@@ -1321,6 +1397,19 @@ export function BigPictureScreen() {
   // Gamepad: the same commands as the keyboard, resolved from the active pad
   // action and the physical input that produced it (#138).
   const handleGamepad = (action: GamepadAction, source: ActionSource | null) => {
+    // #229: the launch plate owns the pad while it is up. B closes it once the
+    // launch has given up (the native call has no abort); everything else is
+    // swallowed so a reflex A cannot start a second launch.
+    if (launchPlate) {
+      if (action === "back" || action === "menu") {
+        if (plateCanDismiss(launchPlate.status)) {
+          emit("click");
+          dismissLaunchPlate();
+        }
+      }
+      return;
+    }
+
     if (pickerOpen) {
       if (action === "back" || action === "menu") return closePicker();
       if (action === "confirm") return applyLayout(BIG_PICTURE_LAYOUTS[pickerIndexRef.current] ?? layout);
@@ -1331,7 +1420,7 @@ export function BigPictureScreen() {
 
     if (pendingPower) {
       if (action === "back" || action === "menu") {
-        emit("back");
+        emit("click");
         return setPendingPower(null);
       }
       if (action === "confirm") return chooseConfirm(pendingPower.index);
@@ -1575,7 +1664,13 @@ export function BigPictureScreen() {
 
   const activateSetting = (index: number) => {
     const row = settingsRows[index];
-    if (!row || row.disabled) return;
+    if (!row) return;
+    if (row.disabled) {
+      // #229: a disabled row still answers the press, with the dry chrome click
+      // instead of silence — dead controls are how a console feels broken.
+      emit("click");
+      return;
+    }
     switch (row.id) {
       case "language":
         emit("confirm");
@@ -1647,7 +1742,11 @@ export function BigPictureScreen() {
 
   const adjustSetting = (index: number, delta: -1 | 1) => {
     const row = settingsRows[index];
-    if (!row || row.disabled) return;
+    if (!row) return;
+    if (row.disabled) {
+      emit("click");
+      return;
+    }
     switch (row.id) {
       case "language":
         emit("move");
@@ -1725,9 +1824,7 @@ export function BigPictureScreen() {
         if (target) nav.selectGame(target.shelf, target.index);
         setZone("library");
         if (installed.has(recentGame.id)) {
-          // The launch cue plays when the mutation resolves; the press itself
-          // gets its confirm, not a second open.
-          emit("confirm");
+          // #229: the launch plate and its cue start here, at the press.
           void startGame(recentGame);
         } else {
           emit("confirm");
@@ -1845,6 +1942,20 @@ export function BigPictureScreen() {
         return;
       }
 
+      // #229: the launch plate is the top surface. B/Escape closes it once the
+      // launch has given up; every other key is swallowed so a stray press
+      // cannot start a second launch behind the first.
+      if (launchPlate) {
+        if (key === "Escape" || key === "Backspace") {
+          event.preventDefault();
+          if (plateCanDismiss(launchPlate.status)) {
+            emit("click");
+            dismissLaunchPlate();
+          }
+        }
+        return;
+      }
+
       // The quick switcher owns the arrows while it is open, so a stray Enter
       // never launches a game behind it.
       if (pickerOpen) {
@@ -1879,7 +1990,7 @@ export function BigPictureScreen() {
           chooseConfirm(pendingPower.index);
         } else if (key === "Escape" || key === "Backspace") {
           event.preventDefault();
-          emit("back");
+          emit("click");
           setPendingPower(null);
         } else if (key === "ArrowLeft" || key === "ArrowUp") {
           event.preventDefault();
@@ -1978,6 +2089,7 @@ export function BigPictureScreen() {
   }, [
     overlay,
     pickerOpen,
+    launchPlate,
     consoleActive,
     consoleMode?.exitShortcut,
     pendingPower,
@@ -2296,6 +2408,25 @@ export function BigPictureScreen() {
             loading={collectionsQuery.isPending}
             error={collectionsQuery.isError ? errorMessage(collectionsQuery.error) : null}
             onRetry={() => void collectionsQuery.refetch()}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence initial={false}>
+        {launchPlate && (
+          <LaunchPlate
+            key={`launch-${launchPlate.game.id}`}
+            gameId={launchPlate.game.id}
+            title={launchPlate.game.title}
+            coverUrl={launchPlate.game.coverUrl}
+            rect={launchPlate.rect}
+            status={launchPlate.status}
+            detail={launchPlate.detail}
+            reduceMotion={reduceMotion}
+            instant={instantMotion}
+            onDismiss={() => {
+              emit("click");
+              dismissLaunchPlate();
+            }}
           />
         )}
       </AnimatePresence>

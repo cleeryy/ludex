@@ -11,26 +11,30 @@
    Mono, 48 kHz, 16-bit; 45–700 ms; never more than three partials at once;
    movement at -20 dBFS peak, confirmation at -12, nothing above -10.
 
+   #229 splits the vocabulary in two. `move` and `launch` are the two cues the
+   player asked to keep byte-for-byte (their SHA-256 is asserted in the asset
+   test), and the chrome — tabs, shelves, layout, settings sections, overlay
+   open/close, back, a disabled press — speaks one dry `click` instead of four
+   different air sweeps. The old `tabChange`, `overlayOpen`, `overlayClose` and
+   `back` cues retired with that pass.
+
    `achievement` and `notification` ship and are tested with the rest, but the
    surfaces that fire them (the achievements app, unread notifications) land in
    a later slice, so nothing fabricates a trigger for them today.
    -------------------------------------------------------------------------- */
 
-/** Every sound Big Picture can make. Generated once, shipped as a WAV. */
+/** Every sound Console mode can make. Generated once, shipped as a WAV. */
 export type CueId =
   | "move"
   | "confirm"
-  | "back"
+  | "click"
   | "openGroup"
   | "closeGroup"
-  | "tabChange"
   | "error"
   | "launch"
   | "achievement"
   | "installComplete"
   | "power"
-  | "overlayOpen"
-  | "overlayClose"
   | "notification";
 
 export interface CueSpec {
@@ -55,22 +59,25 @@ export interface CueSpec {
 export const CUE_IDS = [
   "move",
   "confirm",
-  "back",
+  "click",
   "openGroup",
   "closeGroup",
-  "tabChange",
   "error",
   "launch",
   "achievement",
   "installComplete",
   "power",
-  "overlayOpen",
-  "overlayClose",
   "notification",
 ] as const satisfies readonly CueId[];
 
 /** The move cue is deduplicated at 24 ms: a held d-pad must not machine-gun. */
 export const MOVE_DEDUPE_MS = 24;
+
+/** The chrome click is deduplicated at 45 ms (#229). */
+export const CLICK_DEDUPE_MS = 45;
+
+/** The two cues the player explicitly likes; their bytes are frozen by a hash. */
+export const FROZEN_CUES = ["move", "launch"] as const satisfies readonly CueId[];
 
 /** No cue may sit above -10 dBFS. */
 export const PEAK_CEILING_DB = -10;
@@ -99,15 +106,17 @@ export const CUE_SPECS: Record<CueId, CueSpec> = {
     peakDb: -12,
     partials: [660, 990],
   },
-  back: {
-    file: "bp-back.wav",
+  click: {
+    // #229: the chrome voice. Tick + 2.6 kHz body + 190 Hz tail + a breath of
+    // 4.2 kHz air; dry enough to sit under a fast d-pad walk.
+    file: "bp-click.wav",
     gainDb: 0,
-    maxVoices: 3,
-    essential: true,
-    minGapMs: 80,
-    durationMs: 100,
-    peakDb: -14,
-    partials: [880, 587],
+    maxVoices: 2,
+    essential: false,
+    minGapMs: CLICK_DEDUPE_MS,
+    durationMs: 55,
+    peakDb: -20,
+    partials: [2600, 190, 4200],
   },
   openGroup: {
     file: "bp-openGroup.wav",
@@ -128,16 +137,6 @@ export const CUE_SPECS: Record<CueId, CueSpec> = {
     durationMs: 120,
     peakDb: -18,
     partials: [165],
-  },
-  tabChange: {
-    file: "bp-tabChange.wav",
-    gainDb: 0,
-    maxVoices: 3,
-    essential: false,
-    minGapMs: 40,
-    durationMs: 70,
-    peakDb: -20,
-    partials: [900],
   },
   error: {
     file: "bp-error.wav",
@@ -188,26 +187,6 @@ export const CUE_SPECS: Record<CueId, CueSpec> = {
     durationMs: 500,
     peakDb: -12,
     partials: [440, 220],
-  },
-  overlayOpen: {
-    file: "bp-overlayOpen.wav",
-    gainDb: 0,
-    maxVoices: 3,
-    essential: false,
-    minGapMs: 80,
-    durationMs: 120,
-    peakDb: -20,
-    partials: [400, 900],
-  },
-  overlayClose: {
-    file: "bp-overlayClose.wav",
-    gainDb: 0,
-    maxVoices: 3,
-    essential: false,
-    minGapMs: 80,
-    durationMs: 100,
-    peakDb: -22,
-    partials: [900, 400],
   },
   notification: {
     file: "bp-notification.wav",

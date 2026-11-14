@@ -14,11 +14,15 @@
  * Format: mono, 48 kHz, 16-bit PCM. Length, peak and partials come from the
  * issue's cue table; the peak is normalised per file, so a WAV inspected on its
  * own is already at the loudness the design asks for. The whole set stays far
- * under the 512 KB budget (≈305 KB for fourteen cues).
+ * under the 512 KB budget (≈250 KB for eleven cues).
  *
  * Sound language: "dry archive". A short transient plus one pitched body —
  * paper, wood and a struck glass. No square waves, no melody longer than four
  * notes, no more than three partials at once.
+ *
+ * #229: `move` and `launch` are frozen — the asset test asserts their SHA-256,
+ * so these two `build` functions must not be touched. The chrome shares one
+ * dry `click`; the old tab/overlay air sweeps are gone.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -176,12 +180,18 @@ export const CUES = [
     },
   },
   {
-    id: "back",
-    ms: 100,
-    peakDb: -14,
-    partials: [880, 587],
+    // #229: the chrome voice. A 1.8 ms tick, a 2.6 kHz body that dies in 22 ms,
+    // a 190 Hz tail so a small speaker still has something to push, and 14 ms
+    // of 4.2 kHz air for the "closed" part of the click.
+    id: "click",
+    ms: 55,
+    peakDb: -20,
+    partials: [2600, 190, 4200],
     build: (buffer) => {
-      tone(buffer, { freq: 880, glideTo: 587, durMs: 100, amp: 0.9, decayMs: 80 });
+      tick(buffer, { durMs: 1.8, amp: 0.34, seed: 97, decayMs: 1.8 });
+      tone(buffer, { freq: 2600, durMs: 55, amp: 0.9, decayMs: 22 });
+      tone(buffer, { freq: 190, durMs: 40, amp: 0.55, decayMs: 16 });
+      air(buffer, { freq: 4200, q: 1.8, durMs: 16, amp: 3, decayMs: 7, seed: 101 });
     },
   },
   {
@@ -202,15 +212,6 @@ export const CUES = [
     build: (buffer) => {
       tone(buffer, { freq: 165, durMs: 55, amp: 0.8, decayMs: 26 });
       tick(buffer, { durMs: 3, amp: 0.12, seed: 31, decayMs: 3 });
-    },
-  },
-  {
-    id: "tabChange",
-    ms: 70,
-    peakDb: -20,
-    partials: [900],
-    build: (buffer) => {
-      air(buffer, { freq: 900, q: 1.6, durMs: 70, amp: 0.8, decayMs: 40, seed: 41 });
     },
   },
   {
@@ -264,24 +265,6 @@ export const CUES = [
     build: (buffer) => {
       tone(buffer, { freq: 440, glideTo: 220, durMs: 380, amp: 0.8, decayMs: 300 });
       air(buffer, { freq: 300, q: 0.9, durMs: 460, amp: 0.25, decayMs: 250, seed: 67 });
-    },
-  },
-  {
-    id: "overlayOpen",
-    ms: 120,
-    peakDb: -20,
-    partials: [400, 900],
-    build: (buffer) => {
-      air(buffer, { freq: 400, sweepTo: 900, q: 1.4, durMs: 120, amp: 0.8, decayMs: 80, seed: 71 });
-    },
-  },
-  {
-    id: "overlayClose",
-    ms: 100,
-    peakDb: -22,
-    partials: [900, 400],
-    build: (buffer) => {
-      air(buffer, { freq: 900, sweepTo: 400, q: 1.4, durMs: 100, amp: 0.8, decayMs: 70, seed: 79 });
     },
   },
   {

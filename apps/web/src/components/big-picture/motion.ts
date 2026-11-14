@@ -24,6 +24,11 @@ import { CUE_SPECS, type CueId } from "@/lib/ui-sound-specs";
      held shoulder cannot restart the shelf slide thirty times a second;
    - `prefers-reduced-motion` maps every kind to either a short opacity fade or
      no motion at all (see `REDUCED_MOTION`);
+   - #229: surfaces spring, focus does not. A card that has a physical body
+     (overlay, panel, screen, queue row, launch plate) settles with
+     `{ type: "spring", visualDuration, bounce }`; the 120 ms focus move stays a
+     tween so the ring never lags the d-pad. Progress bars and the blur never
+     spring: a bar that overshoots lies about progress;
    - the cue of a transition fires once, at the start of the motion it
      describes, through `cueForMotion`. Surfaces own their cue; the command
      router only speaks for movement, so a single press can never play twice.
@@ -62,7 +67,31 @@ export const MOTION_DISTANCE = {
   panel: 14,
   confirm: 18,
   settings: 6,
+  queue: 4,
 } as const;
+
+/**
+ * Spring surfaces (#229). `visualDuration` is the time the eye reads as "done",
+ * `bounce` the overshoot: 0 for a surface that must not wobble (overlay, screen
+ * push, queue row), a breath of it for a sheet or the launch plate.
+ */
+export const MOTION_SPRING = {
+  /** A translucent overlay arrives, it does not bounce. */
+  overlay: { visualDuration: 0.3, bounce: 0 },
+  /** Panels and sheets: the only surfaces allowed to feel soft. */
+  panel: { visualDuration: 0.34, bounce: 0.12 },
+  /** A game's own page/detail surface, heavier because it replaces the screen. */
+  gameDetail: { visualDuration: 0.4, bounce: 0.1 },
+  /** A screen push: firm, because B must be able to cut it cleanly. */
+  screenPush: { visualDuration: 0.36, bounce: 0 },
+  /** One queue row appearing under the cursor. */
+  queueRow: { visualDuration: 0.26, bounce: 0 },
+  /** The launch plate: the longest move in the product, and the calmest. */
+  launch: { visualDuration: 0.55, bounce: 0.08 },
+} as const;
+
+/** The window a launch FLIP may take, in ms (#229: 90–600 ms). */
+export const LAUNCH_FLIP_MS = { min: 90, max: 600 } as const;
 
 /** The console card cascade uses the same 22 ms rhythm as `.stagger-in`. */
 export const MOTION_STAGGER = 0.022;
@@ -91,6 +120,10 @@ export type MotionKind =
   | "screenPop"
   | "overlayOpen"
   | "overlayClose"
+  | "panel"
+  | "gameDetail"
+  | "queueRow"
+  | "launch"
   | "powerConfirm"
   | "settings";
 
@@ -104,6 +137,10 @@ export const MOTION_KINDS = [
   "screenPop",
   "overlayOpen",
   "overlayClose",
+  "panel",
+  "gameDetail",
+  "queueRow",
+  "launch",
   "powerConfirm",
   "settings",
 ] as const satisfies readonly MotionKind[];
@@ -112,7 +149,8 @@ export const MOTION_KINDS = [
  * Reduced motion, one line per kind. `fade` keeps a 120 ms opacity crossfade —
  * the information still reads; `none` lands on the final frame immediately.
  * Focus feedback is `none` on purpose: the ring and the lift are the feedback,
- * and a fade would only delay the highlight.
+ * and a fade would only delay the highlight. A spring surface always degrades
+ * to the fade, never to a shorter spring.
  */
 export const REDUCED_MOTION: Record<MotionKind, "fade" | "none"> = {
   boot: "fade",
@@ -124,16 +162,32 @@ export const REDUCED_MOTION: Record<MotionKind, "fade" | "none"> = {
   screenPop: "fade",
   overlayOpen: "fade",
   overlayClose: "fade",
+  panel: "fade",
+  gameDetail: "fade",
+  queueRow: "fade",
+  launch: "fade",
   powerConfirm: "fade",
   settings: "none",
 };
 
+/** A spring surface: Motion's `visualDuration` + `bounce`, both seconds/ratio. */
+export interface MotionSpring {
+  visualDuration: number;
+  bounce: number;
+}
+
 export interface MotionSpec {
-  /** Enter tween, seconds. */
+  /**
+   * Enter budget, seconds. For a tween it is the duration it runs; for a
+   * spring it is `spring.visualDuration`, kept here so the frame-budget probe
+   * and the tests have one number to read per kind.
+   */
   duration: number;
   /** Exit tween, seconds. */
   exit: number;
   ease: Ease;
+  /** Set on a surface: `transitionOf` returns a Motion spring instead. */
+  spring?: MotionSpring;
   /** Horizontal travel before settling, px. The sign comes from direction. */
   x?: number;
   /** Vertical travel before settling, px. */
@@ -178,7 +232,7 @@ export const MOTION: Record<MotionKind, MotionSpec> = {
     x: MOTION_DISTANCE.shelf,
     opacity: 0.55,
     reduced: REDUCED_MOTION.shelf,
-    cue: "tabChange",
+    cue: "click",
     cueAt: "start",
   },
   page: {
@@ -187,7 +241,7 @@ export const MOTION: Record<MotionKind, MotionSpec> = {
     ease: EASE_STANDARD,
     opacity: 0.7,
     reduced: REDUCED_MOTION.page,
-    cue: "tabChange",
+    cue: "click",
     cueAt: "start",
   },
   layout: {
@@ -197,13 +251,14 @@ export const MOTION: Record<MotionKind, MotionSpec> = {
     scale: 0.995,
     opacity: 0.55,
     reduced: REDUCED_MOTION.layout,
-    cue: "confirm",
+    cue: "click",
     cueAt: "start",
   },
   screenPush: {
-    duration: 0.22,
+    duration: MOTION_SPRING.screenPush.visualDuration,
     exit: MOTION_DURATION.exit,
     ease: EASE_OUT,
+    spring: MOTION_SPRING.screenPush,
     x: MOTION_DISTANCE.push,
     opacity: 0.4,
     reduced: REDUCED_MOTION.screenPush,
@@ -221,13 +276,14 @@ export const MOTION: Record<MotionKind, MotionSpec> = {
     cueAt: "start",
   },
   overlayOpen: {
-    duration: 0.2,
+    duration: MOTION_SPRING.overlay.visualDuration,
     exit: MOTION_DURATION.exit,
     ease: EASE_OUT,
+    spring: MOTION_SPRING.overlay,
     y: MOTION_DISTANCE.panel,
     opacity: 0.5,
     reduced: REDUCED_MOTION.overlayOpen,
-    cue: "overlayOpen",
+    cue: "click",
     cueAt: "start",
   },
   overlayClose: {
@@ -237,7 +293,59 @@ export const MOTION: Record<MotionKind, MotionSpec> = {
     y: 8,
     opacity: 0.6,
     reduced: REDUCED_MOTION.overlayClose,
-    cue: "overlayClose",
+    cue: "click",
+    cueAt: "start",
+  },
+  panel: {
+    // #229: the sheet inside an overlay (command menu, queue, picker). It
+    // arrives with the only soft spring in the language, and it is silent:
+    // the open/close cue belongs to `overlayOpen`/`overlayClose`.
+    duration: MOTION_SPRING.panel.visualDuration,
+    exit: MOTION_DURATION.exit,
+    ease: EASE_OUT,
+    spring: MOTION_SPRING.panel,
+    y: MOTION_DISTANCE.panel,
+    opacity: 0.55,
+    reduced: REDUCED_MOTION.panel,
+    cue: null,
+    cueAt: "start",
+  },
+  gameDetail: {
+    // A game's own surface (install options, detail). Reserved vocabulary: the
+    // console opens it through `panel` today, the game sheet lands in phase 2.
+    duration: MOTION_SPRING.gameDetail.visualDuration,
+    exit: MOTION_DURATION.exit,
+    ease: EASE_OUT,
+    spring: MOTION_SPRING.gameDetail,
+    y: MOTION_DISTANCE.confirm,
+    scale: 0.99,
+    opacity: 0.45,
+    reduced: REDUCED_MOTION.gameDetail,
+    cue: null,
+    cueAt: "start",
+  },
+  queueRow: {
+    duration: MOTION_SPRING.queueRow.visualDuration,
+    exit: MOTION_DURATION.fast,
+    ease: EASE_OUT,
+    spring: MOTION_SPRING.queueRow,
+    y: MOTION_DISTANCE.queue,
+    opacity: 0.5,
+    reduced: REDUCED_MOTION.queueRow,
+    cue: null,
+    cueAt: "start",
+  },
+  launch: {
+    // The handoff plate. Its travel is a FLIP computed from the selected cover
+    // (see `launch-plate.ts`); the table contributes the spring, the budget and
+    // the one cue of the press.
+    duration: MOTION_SPRING.launch.visualDuration,
+    exit: MOTION_DURATION.exit,
+    ease: EASE_OUT,
+    spring: MOTION_SPRING.launch,
+    opacity: 0.55,
+    reduced: REDUCED_MOTION.launch,
+    cue: "launch",
     cueAt: "start",
   },
   powerConfirm: {
@@ -258,7 +366,7 @@ export const MOTION: Record<MotionKind, MotionSpec> = {
     y: MOTION_DISTANCE.settings,
     opacity: 0.6,
     reduced: REDUCED_MOTION.settings,
-    cue: "tabChange",
+    cue: "click",
     cueAt: "start",
   },
 };
@@ -303,7 +411,12 @@ function fromOf(spec: MotionSpec, direction: 1 | -1): Record<string, number> {
 /**
  * Enter props for a kind. `instant` and `settled` both skip the tween; the
  * difference is why (a held key vs. a mount that must not replay). Reduced
- * motion keeps the kind's documented mapping: a 100 ms fade or nothing.
+ * motion keeps the kind's documented mapping: a 120 ms fade or nothing.
+ *
+ * #229: a surface with a `spring` returns Motion's
+ * `{ type: "spring", visualDuration, bounce }` instead of a tween. The
+ * `instant`/`reduce` branches above always win, so a held key still lands on
+ * the final frame and reduced motion never springs.
  */
 export function transitionOf(kind: MotionKind, options: MotionOptions = {}): MotionFrame {
   const spec = MOTION[kind];
@@ -327,8 +440,17 @@ export function transitionOf(kind: MotionKind, options: MotionOptions = {}): Mot
   return {
     initial: from,
     animate: target,
-    transition: { duration: spec.duration, ease: spec.ease },
+    transition: spec.spring ? springOf(spec.spring) : { duration: spec.duration, ease: spec.ease },
   };
+}
+
+/**
+ * The Motion transition for one surface spring (#229). Exported so a surface
+ * that supplies its own start frame — the launch FLIP — still speaks the same
+ * spring as the table.
+ */
+export function springOf(spring: MotionSpring): Transition {
+  return { type: "spring", visualDuration: spring.visualDuration, bounce: spring.bounce };
 }
 
 /**

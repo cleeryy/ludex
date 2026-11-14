@@ -36,6 +36,15 @@ export const SCHEDULE_AHEAD_S = 0.004;
 /** Global voice ceiling; a console that lags behind the input is worse than a silent one. */
 export const MAX_VOICES = 8;
 
+/**
+ * The voice that may finish into gameplay (#229). `launch` is the transition
+ * into the game: the screen emits it at the Play press, the launch resolves a
+ * moment later, and `setGameRunning(true)` used to stop every voice — cutting
+ * the scheduled rise 4 ms after it started. That one cue is allowed to ring
+ * out; nothing else survives the flip.
+ */
+export const GAMEPLAY_KEEPS: ReadonlySet<CueId> = new Set<CueId>(["launch"]);
+
 export interface SoundVoice {
   stop(): void;
 }
@@ -163,10 +172,15 @@ export function createSoundManager(
 
     setGameRunning(running) {
       gameRunning = running;
-      if (running) {
-        // No cue may leak into gameplay, even one already scheduled.
-        stopAll();
+      if (!running) return;
+      // No cue may leak into gameplay, even one already scheduled — except the
+      // launch voice, which is the transition itself (#229).
+      const kept: ActiveVoice[] = [];
+      for (const entry of voices) {
+        if (GAMEPLAY_KEEPS.has(entry.cue)) kept.push(entry);
+        else stop(entry);
       }
+      voices = kept;
     },
 
     setReducedMotion(reduce) {

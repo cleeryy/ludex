@@ -467,20 +467,16 @@ export function cueHapticPattern(cue: CueId): HapticPattern | null {
   switch (cue) {
     case "move":
       return { duration: 28, strongMagnitude: 0.18, weakMagnitude: 0.12 };
-    case "tabChange":
-      return { duration: 30, strongMagnitude: 0.2, weakMagnitude: 0.14 };
+    case "click":
+      // #229: the chrome voice is a tick, not a bump — the shortest pulse the
+      // actuator accepts, so a tab change never feels like a confirmation.
+      return { duration: 14, strongMagnitude: 0.12, weakMagnitude: 0.08 };
     case "confirm":
       return { duration: 70, strongMagnitude: 0.4, weakMagnitude: 0.3 };
-    case "back":
-      return { duration: 60, strongMagnitude: 0.32, weakMagnitude: 0.22 };
     case "openGroup":
       return { duration: 55, strongMagnitude: 0.3, weakMagnitude: 0.2 };
     case "closeGroup":
       return { duration: 45, strongMagnitude: 0.22, weakMagnitude: 0.16 };
-    case "overlayOpen":
-      return { duration: 40, strongMagnitude: 0.22, weakMagnitude: 0.16 };
-    case "overlayClose":
-      return { duration: 35, strongMagnitude: 0.18, weakMagnitude: 0.12 };
     case "error":
       return { duration: 40, strongMagnitude: 0.55, weakMagnitude: 0.4 };
     case "launch":
