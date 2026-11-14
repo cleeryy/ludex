@@ -33,10 +33,11 @@ pub mod rom;
 pub mod slug;
 
 pub use archive::{
-    archive_tar_size, detect_format, extract_archive, is_archive_path, sanitize_entry_path,
-    stream_archive_as_tar, stream_zip_as_tar, verify_archive, write_zip_entry_range,
-    zip_entry_info, zip_stream_manifest, zip_tar_size, ArchiveError, ArchiveFormat, ArchiveReport,
-    ExtractOptions, ExtractProgress, ExtractReport, StreamEntry, StreamManifest, TarStreamReport,
+    archive_tar_size, detect_format, extract_archive, format_from_extension, is_archive_path,
+    sanitize_entry_path, stream_archive_as_tar, stream_zip_as_tar, verify_archive,
+    write_zip_entry_range, zip_entry_info, zip_stream_manifest, zip_tar_size, ArchiveError,
+    ArchiveFormat, ArchiveReport, ExtractOptions, ExtractProgress, ExtractReport, StreamEntry,
+    StreamManifest, TarStreamReport,
 };
 pub use exe::{
     clamp_scan_depth, discover_executables, is_excluded_folder, is_installer, pick_executable,

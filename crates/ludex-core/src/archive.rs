@@ -220,6 +220,27 @@ pub fn is_archive_path(path: &Path) -> bool {
         })
 }
 
+/// Maps a file name extension to the archive format Ludex can handle.
+///
+/// This is a pure name check used to describe a version before any byte is
+/// read (#226): `.zip` → [`ArchiveFormat::Zip`], `.7z` →
+/// [`ArchiveFormat::SevenZip`], `.rar` → [`ArchiveFormat::Rar`], anything else
+/// (`.tar`, `.gz`, `.exe`, no extension …) → [`ArchiveFormat::Unknown`].
+/// Case-insensitive; never touches the filesystem.
+pub fn format_from_extension(path: &Path) -> ArchiveFormat {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("zip") => ArchiveFormat::Zip,
+        Some("rar") => ArchiveFormat::Rar,
+        Some("7z") => ArchiveFormat::SevenZip,
+        _ => ArchiveFormat::Unknown,
+    }
+}
+
 /// Opens an archive and reports its entries without extracting anything.
 ///
 /// The password is only needed for archives with encrypted headers (RAR, 7z).
@@ -1945,6 +1966,47 @@ mod tests {
         );
 
         assert!(detect_format(&temp.path().join("missing.zip")).is_err());
+    }
+
+    #[test]
+    fn format_from_extension_matches_supported_containers() {
+        for name in ["a.zip", "a.ZIP", "GAME (2021).Zip", "/tmp/a.zip"] {
+            assert_eq!(
+                format_from_extension(Path::new(name)),
+                ArchiveFormat::Zip,
+                "{name}"
+            );
+        }
+        for name in ["a.7z", "a.7Z"] {
+            assert_eq!(
+                format_from_extension(Path::new(name)),
+                ArchiveFormat::SevenZip,
+                "{name}"
+            );
+        }
+        for name in ["a.rar", "a.RAR"] {
+            assert_eq!(
+                format_from_extension(Path::new(name)),
+                ArchiveFormat::Rar,
+                "{name}"
+            );
+        }
+        for name in [
+            "a.tar",
+            "a.gz",
+            "a.tar.gz",
+            "a.exe",
+            "a.zip.part",
+            "a",
+            "a.txt",
+            "",
+        ] {
+            assert_eq!(
+                format_from_extension(Path::new(name)),
+                ArchiveFormat::Unknown,
+                "{name}"
+            );
+        }
     }
 
     #[test]

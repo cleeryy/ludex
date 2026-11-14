@@ -128,6 +128,14 @@ pub struct GameVersionInfo {
     /// the background hash job.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_sha256: Option<String>,
+    /// Archive format guessed from the file name (`zip`, `7z`, `rar`), `null`
+    /// when the extension is unknown or absent (#226).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_format: Option<String>,
+    /// Whether the ZIP-only per-entry stream install can serve this version
+    /// (#226).
+    #[serde(default)]
+    pub stream_supported: bool,
     /// When the scanner first indexed the row.
     pub indexed_at: Option<DateTime<Utc>>,
     /// Last time the row changed.
