@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-11-14
+
 ### Added
 
 - Download transport is visible before the first byte (#226): every version
