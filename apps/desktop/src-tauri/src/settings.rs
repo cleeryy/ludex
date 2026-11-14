@@ -36,6 +36,10 @@ pub enum UpdateChannel {
 /// chord stays available as a fallback for pads whose Guide button never reaches
 /// the host. `chord` leaves the Guide button to the OS/Steam. `keyboard` turns
 /// both pad gestures off and keeps Shift+Tab only.
+///
+/// #228: the default is platform-specific — Windows never delivers the Guide
+/// button to a background app, so `chord` is the only gesture that can fire
+/// there. See [`default_overlay_trigger`] and [`migrate_overlay_trigger`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum OverlayTrigger {
@@ -415,7 +419,7 @@ pub struct LocalSettings {
     #[serde(default = "default_overlay_enabled")]
     pub overlay_enabled: bool,
     /// Gesture recognised by the native global gamepad listener (#144).
-    #[serde(default)]
+    #[serde(default = "default_overlay_trigger")]
     pub overlay_trigger: OverlayTrigger,
     /// Opacity of the overlay panel background, 0.35..=1.0 (#144).
     #[serde(default = "default_overlay_opacity")]
@@ -454,6 +458,36 @@ pub struct LocalSettings {
 /// and it never touches the running game process.
 pub const fn default_overlay_enabled() -> bool {
     true
+}
+
+/// Default overlay gesture for this platform (#228).
+///
+/// Windows: `chord` (LB+RB+Start), because XInput/WGI never reports the Guide
+/// button. Linux: `doubleHome`, where `evdev` delivers `BTN_MODE`.
+pub const fn default_overlay_trigger() -> OverlayTrigger {
+    default_overlay_trigger_for(cfg!(windows))
+}
+
+/// Platform-independent default, so the matrix is tested on every host.
+pub const fn default_overlay_trigger_for(windows: bool) -> OverlayTrigger {
+    if windows {
+        OverlayTrigger::Chord
+    } else {
+        OverlayTrigger::DoubleHome
+    }
+}
+
+/// Migrate a stored trigger to one that can fire on this platform (#228).
+///
+/// Only Windows changes: a stored `doubleHome` (the old default) is useless
+/// there, so it becomes `chord`. Linux keeps its Guide gesture, and an explicit
+/// `keyboard` choice is never overridden.
+pub fn migrate_overlay_trigger(trigger: OverlayTrigger, windows: bool) -> OverlayTrigger {
+    if windows && trigger == OverlayTrigger::DoubleHome {
+        OverlayTrigger::Chord
+    } else {
+        trigger
+    }
 }
 
 pub const fn default_overlay_opacity() -> f64 {
@@ -639,7 +673,7 @@ impl Default for LocalSettings {
             account_update_prompt: String::new(),
             account_update_notifications: String::new(),
             overlay_enabled: default_overlay_enabled(),
-            overlay_trigger: OverlayTrigger::DoubleHome,
+            overlay_trigger: default_overlay_trigger(),
             overlay_opacity: default_overlay_opacity(),
             overlay_scale: default_overlay_scale(),
             overlay_tabs: default_overlay_tabs(),
@@ -766,6 +800,9 @@ impl LocalSettings {
         // drop bad floats from a hand-edited settings file.
         self.overlay_opacity = sanitize_overlay_opacity(self.overlay_opacity);
         self.overlay_scale = sanitize_overlay_scale(self.overlay_scale);
+        // #228: a stored `doubleHome` can never fire on Windows; migrate it to
+        // the chord. Linux keeps the Guide gesture.
+        self.overlay_trigger = migrate_overlay_trigger(self.overlay_trigger, cfg!(windows));
         self.overlay_tabs = canonical_overlay_tabs(&self.overlay_tabs);
         let mut seen_games = std::collections::HashSet::new();
         self.overlay_disabled_games = self
@@ -2176,6 +2213,48 @@ mod tests {
         settings.overlay_tabs = Vec::new();
         settings.normalize(Path::new("/data"));
         assert!(settings.overlay_tabs.is_empty());
+    }
+
+    #[test]
+    fn the_overlay_trigger_defaults_to_a_gesture_that_can_fire() {
+        // #228: the Windows Guide button never reaches the app, so the old
+        // `doubleHome` default was dead on arrival there.
+        assert_eq!(default_overlay_trigger_for(true), OverlayTrigger::Chord);
+        assert_eq!(
+            default_overlay_trigger_for(false),
+            OverlayTrigger::DoubleHome
+        );
+        assert_eq!(
+            default_overlay_trigger(),
+            default_overlay_trigger_for(cfg!(windows))
+        );
+
+        // Windows migrates only the old default; explicit choices survive.
+        assert_eq!(
+            migrate_overlay_trigger(OverlayTrigger::DoubleHome, true),
+            OverlayTrigger::Chord
+        );
+        assert_eq!(
+            migrate_overlay_trigger(OverlayTrigger::Chord, true),
+            OverlayTrigger::Chord
+        );
+        assert_eq!(
+            migrate_overlay_trigger(OverlayTrigger::Keyboard, true),
+            OverlayTrigger::Keyboard
+        );
+        // Linux keeps the Guide gesture.
+        assert_eq!(
+            migrate_overlay_trigger(OverlayTrigger::DoubleHome, false),
+            OverlayTrigger::DoubleHome
+        );
+
+        // A settings file without the key gets the platform default.
+        let raw = serde_json::json!({ "installDir": "/games" });
+        let legacy: LocalSettings = serde_json::from_value(raw).unwrap();
+        assert_eq!(
+            legacy.overlay_trigger,
+            default_overlay_trigger_for(cfg!(windows))
+        );
     }
 
     #[test]

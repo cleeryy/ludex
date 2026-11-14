@@ -131,8 +131,8 @@ pub fn notify_update_available(
         .map(|processes| !processes.is_empty())
         .unwrap_or(false);
     let console_active = app
-        .try_state::<crate::console::ConsoleMode>()
-        .is_some_and(|mode| mode.active);
+        .try_state::<crate::console::ConsoleSession>()
+        .is_some_and(|session| session.mode().active);
 
     if !should_show(preference, focused, minimized, game_running, console_active) {
         tracing::debug!(

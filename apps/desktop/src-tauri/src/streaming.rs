@@ -72,6 +72,10 @@ pub struct SunshineStatus {
     pub apps_found: bool,
     pub entries: usize,
     pub managed_entries: usize,
+    /// Name of a published console entry whose `cmd` starts a different
+    /// executable than this build (#227). `None` when the entry is current.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stale_console: Option<String>,
     /// Windows denies writes to the detected `apps.json` because it lives in
     /// `Program Files`; a one-time elevation can fix it (#182).
     pub needs_elevation: bool,
@@ -617,24 +621,32 @@ pub fn read_text_file(path: &Path) -> Result<AppsFile, String> {
 /// Read Sunshine's app database. Unknown keys survive; a malformed file is an
 /// error so nothing is ever overwritten blindly.
 pub fn parse_apps_json(text: &str) -> Result<Value, String> {
+    parse_apps_json_at(text, None)
+}
+
+/// Same as [`parse_apps_json`], naming the file in a malformed-file error so
+/// the user can fix or restore the right `apps.json` (#227).
+pub fn parse_apps_json_at(text: &str, path: Option<&Path>) -> Result<Value, String> {
     let text = text.trim_start_matches('\u{feff}').trim();
     if text.is_empty() {
         // Sunshine starts with an empty file until the first app is added.
         return Ok(serde_json::json!({ "apps": [] }));
     }
+    let file = path
+        .map(|path| format!(" ({})", path.display()))
+        .unwrap_or_default();
     let value: Value = serde_json::from_str(text).map_err(|error| {
         format!(
-            "Sunshine's apps.json is not valid JSON ({error}). Nothing was changed; fix or restore the file first."
+            "Sunshine's apps.json{file} is not valid JSON ({error}). Nothing was changed; fix or restore the file first."
         )
     })?;
     match value {
         Value::Array(_) => Ok(value),
         Value::Object(mut map) => match map.get("apps") {
             Some(Value::Array(_)) => Ok(Value::Object(map)),
-            Some(_) => Err(
-                "Sunshine's apps.json has an \"apps\" key that is not an array. Nothing was changed."
-                    .to_string(),
-            ),
+            Some(_) => Err(format!(
+                "Sunshine's apps.json{file} has an \"apps\" key that is not an array. Nothing was changed."
+            )),
             None => {
                 // A config object without an app list yet: start from empty
                 // without discarding the other keys.
@@ -642,10 +654,9 @@ pub fn parse_apps_json(text: &str) -> Result<Value, String> {
                 Ok(Value::Object(map))
             }
         },
-        _ => Err(
-            "Sunshine's apps.json must contain an object or an array of apps. Nothing was changed."
-                .to_string(),
-        ),
+        _ => Err(format!(
+            "Sunshine's apps.json{file} must contain an object or an array of apps. Nothing was changed."
+        )),
     }
 }
 
@@ -902,8 +913,21 @@ pub fn merge_entries(
     server_id: &str,
     remove_missing: bool,
 ) -> Result<(Value, MergeReport), String> {
+    merge_entries_in(existing, None, desired, console, server_id, remove_missing)
+}
+
+/// Same as [`merge_entries`], naming the source file in a malformed-file error
+/// (#227).
+pub fn merge_entries_in(
+    existing: Option<&str>,
+    existing_path: Option<&Path>,
+    desired: &[PublishedApp],
+    console: Option<&ConsoleEntry>,
+    server_id: &str,
+    remove_missing: bool,
+) -> Result<(Value, MergeReport), String> {
     let mut root = match existing.map(str::trim).filter(|text| !text.is_empty()) {
-        Some(text) => parse_apps_json(text)?,
+        Some(text) => parse_apps_json_at(text, existing_path)?,
         None => json!({ "env": {}, "apps": [] }),
     };
 
@@ -1370,14 +1394,16 @@ pub fn sunshine_status(settings: &LocalSettings) -> SunshineStatus {
     let mut warnings = detection.warnings.clone();
     let mut entries = 0;
     let mut managed_entries = 0;
+    let mut stale_console: Option<String> = None;
     let mut apps_error: Option<String> = None;
     if let Some(path) = apps_path.as_deref().filter(|_| apps_found) {
         match read_text_file(Path::new(path)) {
-            Ok(file) => match parse_apps_json(&file.text) {
+            Ok(file) => match parse_apps_json_at(&file.text, Some(Path::new(path))) {
                 Ok(value) => match apps_ref(&value) {
                     Ok(apps) => {
                         entries = apps.len();
                         managed_entries = apps.iter().filter(|app| is_managed_app(app)).count();
+                        stale_console = stale_console_entry(apps);
                     }
                     Err(_) => warnings.push(
                         "Sunshine's apps.json has no app list yet; the first sync creates one."
@@ -1413,6 +1439,12 @@ pub fn sunshine_status(settings: &LocalSettings) -> SunshineStatus {
     } else if managed_entries == 0 {
         "No Ludex game is published yet. Publish the library to create the first entries."
             .to_string()
+    } else if let Some(name) = stale_console.as_deref() {
+        // #227: a moved executable used to leave a dead Moonlight tile with no
+        // explanation anywhere.
+        format!(
+            "{managed_entries} Ludex app(s) published to Sunshine. The published {name} command starts a different executable than this build; publish again to update it."
+        )
     } else {
         format!("{managed_entries} Ludex app(s) published to Sunshine.")
     };
@@ -1435,10 +1467,84 @@ pub fn sunshine_status(settings: &LocalSettings) -> SunshineStatus {
         apps_found,
         entries,
         managed_entries,
+        stale_console,
         needs_elevation,
         warnings,
         message,
     }
+}
+
+/* ------------------- Published command checks (#227) ---------------------- */
+
+/// Executable a Sunshine `cmd` starts: the first token, unquoted.
+pub fn launch_executable(cmd: &str) -> Option<PathBuf> {
+    let trimmed = cmd.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some(rest) = trimmed.strip_prefix('"') {
+        let end = rest.find('"')?;
+        return Some(PathBuf::from(&rest[..end]));
+    }
+    trimmed.split_whitespace().next().map(PathBuf::from)
+}
+
+/// True when two paths name the same executable on this platform. Windows
+/// compares case-insensitively; everywhere else the path is exact.
+pub fn same_executable(published: &Path, current: &Path) -> bool {
+    let published = crate::paths::normalize_native_path(published);
+    let current = crate::paths::normalize_native_path(current);
+    let published = published.to_string_lossy();
+    let current = current.to_string_lossy();
+    if cfg!(windows) {
+        published.eq_ignore_ascii_case(&current)
+    } else {
+        published == current
+    }
+}
+
+/// True when a published `cmd` does not start `expected` (a moved or rebuilt
+/// binary). An empty command is reported stale: Sunshine cannot start it.
+pub fn cmd_is_stale(cmd: &str, expected: &Path) -> bool {
+    match launch_executable(cmd) {
+        Some(executable) => !same_executable(&executable, expected),
+        None => true,
+    }
+}
+
+/// Name of a published console entry whose command points elsewhere (#227).
+fn stale_console_entry(apps: &[Value]) -> Option<String> {
+    let expected = crate::console::expected_executable()?;
+    apps.iter()
+        .filter(|app| is_console_app(app))
+        .find(|app| {
+            app.get("cmd")
+                .and_then(Value::as_str)
+                .map(|cmd| cmd_is_stale(cmd, &expected))
+                .unwrap_or(false)
+        })
+        .and_then(|app| as_string(app.get("name")))
+}
+
+/// Re-read `apps.json` and merge the same input again (#227): a sync that is
+/// not idempotent would rewrite the file forever.
+pub fn merge_is_idempotent(
+    apps_path: &Path,
+    desired: &[PublishedApp],
+    console: Option<&ConsoleEntry>,
+    server_id: &str,
+    remove_missing: bool,
+) -> Result<bool, String> {
+    let file = read_text_file(apps_path)?;
+    let (_, report) = merge_entries_in(
+        Some(&file.text),
+        Some(apps_path),
+        desired,
+        console,
+        server_id,
+        remove_missing,
+    )?;
+    Ok(!report.changed)
 }
 
 /// Read `apps.json` for the given status, if any. The returned file keeps the
@@ -3176,6 +3282,53 @@ customname=Deck
         assert!(status.message.contains("not valid JSON"));
         assert!(status.message.contains("Nothing was changed"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_published_cmd_is_flagged_when_it_starts_another_executable() {
+        assert_eq!(
+            launch_executable("/opt/Ludex/ludex --console"),
+            Some(PathBuf::from("/opt/Ludex/ludex"))
+        );
+        assert_eq!(
+            launch_executable("\"C:\\Program Files\\Ludex\\Ludex.exe\" --console --windowed"),
+            Some(PathBuf::from("C:\\Program Files\\Ludex\\Ludex.exe"))
+        );
+        assert_eq!(launch_executable("   "), None);
+
+        let expected = Path::new("/opt/Ludex/ludex");
+        assert!(!cmd_is_stale("/opt/Ludex/ludex --console", expected));
+        assert!(cmd_is_stale("/opt/Old/ludex --console", expected));
+        assert!(cmd_is_stale("", expected));
+        assert!(same_executable(expected, Path::new("/opt/Ludex/ludex")));
+        assert!(!same_executable(expected, Path::new("/opt/Ludex/other")));
+    }
+
+    #[test]
+    fn a_written_apps_file_merges_idempotently() {
+        // #227: a second sync must not rewrite the same file forever.
+        let dir = temp_dir("idempotent");
+        let path = dir.join("apps.json");
+        let entry = console("Ludex");
+        let games = vec![publish_app(&game(1, "One", Some("one.exe")), None).unwrap()];
+        let (root, _) = merge_entries(None, &games, Some(&entry), "srv_1", true).unwrap();
+        std::fs::write(&path, render_apps(&root).unwrap()).unwrap();
+
+        assert!(merge_is_idempotent(&path, &games, Some(&entry), "srv_1", true).unwrap());
+        // A changed input is not idempotent, so the helper is not vacuous.
+        let renamed = vec![publish_app(&game(1, "Two", Some("one.exe")), None).unwrap()];
+        assert!(!merge_is_idempotent(&path, &renamed, Some(&entry), "srv_1", true).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_malformed_file_error_names_the_path() {
+        let path = Path::new("/tmp/sunshine/apps.json");
+        let error = parse_apps_json_at("{not json", Some(path)).unwrap_err();
+        assert!(error.contains("/tmp/sunshine/apps.json"));
+        assert!(error.contains("not valid JSON"));
+        // The path-free form stays unchanged for callers without a file.
+        assert!(!parse_apps_json("{not json").unwrap_err().contains("/tmp"));
     }
 
     #[test]

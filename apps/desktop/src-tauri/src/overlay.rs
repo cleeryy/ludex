@@ -17,7 +17,7 @@
 //! (the LB+RB+Start chord is the fallback), and Linux focus restoration is
 //! best-effort through `xdotool` on X11.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
@@ -227,6 +227,41 @@ pub struct OverlayDiagnostics {
     pub checks: Vec<OverlayCheck>,
 }
 
+/// Last controller edge seen by the native listener (#228).
+///
+/// The counter and this value separate three failures the panel used to
+/// conflate: no pad event arrives at all, a button arrives but the gesture is
+/// not recognised, or the gesture fires but the window cannot be shown.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverlayButtonEvent {
+    /// Process-local pad index from `gilrs`.
+    pub pad: usize,
+    /// Stable button name (`guide`, `leftBumper`, `rightBumper`, `start`, or
+    /// the `gilrs` name for an unrelated button).
+    pub button: String,
+    /// RFC 3339 timestamp.
+    pub at: String,
+}
+
+/// Result of the last attempt to create/show the floating window (#228).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverlayWindowResult {
+    /// Presentation the attempt settled on.
+    pub presentation: OverlayPresentation,
+    /// The window was created by this attempt (false when it already existed).
+    pub window_created: bool,
+    /// `is_visible` after the show call.
+    pub window_visible: bool,
+    /// Why the window could not be created, shown or focused.
+    pub window_error: Option<String>,
+    /// Monitor the overlay was positioned on, when the host reports a name.
+    pub monitor: Option<String>,
+    /// RFC 3339 timestamp.
+    pub at: String,
+}
+
 /// Last trigger/open/close attempt, so the panel can show whether presses
 /// arrive at all and why an attempt was ignored.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -238,10 +273,9 @@ pub struct OverlayTriggerEvent {
     pub source: String,
     /// `open` or `close`.
     pub action: String,
-    /// `openedWindow`, `openedInApp`, `closed` or `ignored`.
+    /// `openedWindow`, `openedInApp`, `windowFailed`, `closed` or `ignored`.
     pub outcome: String,
-    /// Reason for an ignored attempt, or the window-creation error that forced
-    /// the in-app fallback.
+    /// Reason for an ignored attempt, or the window-creation error.
     pub detail: Option<String>,
 }
 
@@ -289,6 +323,14 @@ pub struct OverlayStatus {
     pub foreground: Option<OverlayForeground>,
     /// Last trigger/open/close attempt.
     pub last_trigger: Option<OverlayTriggerEvent>,
+    /// Last controller button edge, when one arrived since launch (#228).
+    pub last_button: Option<OverlayButtonEvent>,
+    /// Every controller button edge seen by the listener since launch (#228).
+    pub events_seen: u64,
+    /// Result of the last floating-window attempt (#228).
+    pub window: Option<OverlayWindowResult>,
+    /// When the floating window was last shown successfully (#228).
+    pub window_shown_at: Option<String>,
     /// Human-readable limitation for this platform.
     pub platform_note: String,
     /// Keyboard shortcut that always works while the main window is focused.
@@ -323,6 +365,12 @@ pub struct OverlayRuntime {
     presentation: Mutex<OverlayPresentation>,
     listener: Mutex<OverlayListenerStatus>,
     last_trigger: Mutex<Option<OverlayTriggerEvent>>,
+    /// Controller edge counter and last edge (#228), so "the pad never reached
+    /// us" is distinguishable from "the gesture did not fire".
+    events_seen: AtomicU64,
+    last_button: Mutex<Option<OverlayButtonEvent>>,
+    /// Last floating-window attempt (#228).
+    window: Mutex<Option<OverlayWindowResult>>,
     focus_return: Mutex<Option<FocusToken>>,
 }
 
@@ -341,6 +389,9 @@ impl Default for OverlayRuntime {
                 controllers: Vec::new(),
             }),
             last_trigger: Mutex::new(None),
+            events_seen: AtomicU64::new(0),
+            last_button: Mutex::new(None),
+            window: Mutex::new(None),
             focus_return: Mutex::new(None),
         }
     }
@@ -414,6 +465,45 @@ impl OverlayRuntime {
         if let Ok(mut slot) = self.focus_return.lock() {
             *slot = token;
         }
+    }
+
+    /// Record a controller button edge (press or release), #228.
+    pub fn record_button(&self, pad: usize, button: &str) {
+        self.events_seen.fetch_add(1, Ordering::SeqCst);
+        let event = OverlayButtonEvent {
+            pad,
+            button: button.to_string(),
+            at: crate::util::now_rfc3339(),
+        };
+        if let Ok(mut slot) = self.last_button.lock() {
+            *slot = Some(event);
+        }
+    }
+
+    pub fn events_seen(&self) -> u64 {
+        self.events_seen.load(Ordering::SeqCst)
+    }
+
+    fn last_button(&self) -> Option<OverlayButtonEvent> {
+        self.last_button.lock().ok().and_then(|slot| slot.clone())
+    }
+
+    /// Store the last floating-window attempt, so the panel reports facts
+    /// instead of a toast (#228).
+    pub fn record_window(&self, result: OverlayWindowResult) {
+        if let Ok(mut slot) = self.window.lock() {
+            *slot = Some(result);
+        }
+    }
+
+    fn window(&self) -> Option<OverlayWindowResult> {
+        self.window.lock().ok().and_then(|slot| slot.clone())
+    }
+
+    fn window_shown_at(&self) -> Option<String> {
+        self.window()
+            .filter(|result| result.window_visible && result.window_error.is_none())
+            .map(|result| result.at)
     }
 }
 
@@ -915,6 +1005,10 @@ fn status_for(_app: &AppHandle, state: &AppState) -> OverlayStatus {
         diagnostics,
         foreground,
         last_trigger: state.overlay.last_trigger(),
+        last_button: state.overlay.last_button(),
+        events_seen: state.overlay.events_seen(),
+        window: state.overlay.window(),
+        window_shown_at: state.overlay.window_shown_at(),
         platform_note: platform_note().to_string(),
         keyboard_shortcut: KEYBOARD_SHORTCUT.to_string(),
     }
@@ -940,10 +1034,29 @@ fn record_event(
 
 /// Open the overlay (idempotent). Refused when the feature or the game is off.
 pub fn open(app: &AppHandle, source: &str) -> Result<OverlayStatus, String> {
+    open_with(app, source, false)
+}
+
+/// Open the overlay, optionally forcing the floating window (#228).
+///
+/// `force_window` skips the "main window is focused, draw in-app" branch: the
+/// Settings "Preview" button is always clicked in the focused main window, so
+/// the old path could never prove that the overlay window works. The same flag
+/// powers `open_overlay { forceWindow: true }`.
+///
+/// A failed window attempt never leaves `open = true`: the flag is reset and
+/// the error is returned, so the next press is not silently swallowed by a
+/// phantom-open overlay.
+pub fn open_with(
+    app: &AppHandle,
+    source: &str,
+    force_window: bool,
+) -> Result<OverlayStatus, String> {
     let state = app.state::<AppState>();
     let settings = state.settings_snapshot();
     tracing::info!(
         source,
+        force_window,
         enabled = settings.overlay_enabled,
         trigger = ?settings.overlay_trigger,
         "overlay open requested"
@@ -972,7 +1085,8 @@ pub fn open(app: &AppHandle, source: &str) -> Result<OverlayStatus, String> {
     }
 
     // Idempotent: a second toggle while the overlay is already open must not
-    // turn a floating window into an in-app panel (or the reverse).
+    // turn a floating window into an in-app panel (or the reverse). A forced
+    // window test may still upgrade an in-app overlay to the real window.
     if state.overlay.is_open() {
         let presentation = state.overlay.presentation();
         if presentation == OverlayPresentation::Window {
@@ -980,21 +1094,31 @@ pub fn open(app: &AppHandle, source: &str) -> Result<OverlayStatus, String> {
                 let _ = window.show();
                 let _ = window.set_focus();
             }
+            tracing::info!(source, ?presentation, "overlay already open");
+            return Ok(status_for(app, &state));
         }
-        tracing::info!(source, ?presentation, "overlay already open");
-        return Ok(status_for(app, &state));
+        if !force_window {
+            tracing::info!(source, ?presentation, "overlay already open");
+            return Ok(status_for(app, &state));
+        }
+        tracing::info!(
+            source,
+            ?presentation,
+            "forced window test while the in-app overlay is open"
+        );
+    } else {
+        // Capture the foreground window before the overlay steals focus, so
+        // closing it hands input back to the game (Windows: exact HWND; X11:
+        // xdotool).
+        let focus_token = capture_foreground(app);
+        tracing::info!(
+            source,
+            captured_foreground = focus_token.is_some(),
+            "overlay opening"
+        );
+        state.overlay.store_focus_token(focus_token);
+        state.overlay.set_open(true);
     }
-
-    // Capture the foreground window before the overlay steals focus, so closing
-    // it hands input back to the game (Windows: exact HWND; X11: xdotool).
-    let focus_token = capture_foreground(app);
-    tracing::info!(
-        source,
-        captured_foreground = focus_token.is_some(),
-        "overlay opening"
-    );
-    state.overlay.store_focus_token(focus_token);
-    state.overlay.set_open(true);
 
     // Phase 1: while Ludex itself is focused, draw the overlay inside the main
     // window. Phase 2: a game owns the focus, so a second always-on-top window
@@ -1003,7 +1127,7 @@ pub fn open(app: &AppHandle, source: &str) -> Result<OverlayStatus, String> {
         .get_webview_window("main")
         .map(|window| window.is_focused().unwrap_or(false))
         .unwrap_or(false);
-    if main_focused {
+    if main_focused && !force_window {
         tracing::info!(
             source,
             "the main window is focused; using the in-app overlay"
@@ -1011,44 +1135,54 @@ pub fn open(app: &AppHandle, source: &str) -> Result<OverlayStatus, String> {
         state.overlay.set_presentation(OverlayPresentation::InApp);
         let _ = app.emit_to("main", "overlay://open", ());
         record_event(&state, source, "open", "openedInApp", None);
-    } else if !capabilities().floating_window {
-        tracing::warn!(
-            source,
-            platform = OverlayPlatform::current().as_str(),
-            "no floating overlay window on this platform; using the in-app overlay"
-        );
-        state.overlay.set_presentation(OverlayPresentation::InApp);
-        let _ = app.emit_to("main", "overlay://open", ());
-        record_event(
-            &state,
-            source,
-            "open",
-            "openedInApp",
-            Some("The floating overlay window is not available on this platform.".to_string()),
-        );
     } else {
-        match show_overlay_window(app) {
-            Ok(()) => {
+        if !capabilities().floating_window {
+            let reason = "The floating overlay window is not available on this platform. Use the keyboard shortcut while Ludex is focused.".to_string();
+            tracing::warn!(source, reason = %reason, "overlay open refused");
+            return Err(fail_window_open(
+                app,
+                &state,
+                source,
+                reason,
+                WindowOutcome::default(),
+            ));
+        }
+        let outcome = show_overlay_window(app);
+        let presentation = if outcome.error.is_none() {
+            OverlayPresentation::Window
+        } else {
+            OverlayPresentation::Closed
+        };
+        state.overlay.record_window(OverlayWindowResult {
+            presentation,
+            window_created: outcome.created,
+            window_visible: outcome.visible,
+            window_error: outcome.error.clone(),
+            monitor: outcome.monitor.clone(),
+            at: crate::util::now_rfc3339(),
+        });
+        match outcome.error.clone() {
+            None => {
                 let game = running_game(&state);
                 tracing::info!(
                     source,
                     game_id = game.as_ref().map(|game| game.game_id),
                     pid = game.as_ref().map(|game| game.pid),
                     presentation = "window",
+                    window_created = outcome.created,
+                    window_visible = outcome.visible,
                     "overlay opened in the floating window"
                 );
                 state.overlay.set_presentation(OverlayPresentation::Window);
                 record_event(&state, source, "open", "openedWindow", None);
             }
-            Err(error) => {
+            Some(error) => {
                 tracing::warn!(
                     source,
                     error = %error,
-                    "the floating overlay window is unavailable; using the in-app overlay"
+                    "the floating overlay window could not be shown"
                 );
-                state.overlay.set_presentation(OverlayPresentation::InApp);
-                let _ = app.emit_to("main", "overlay://open", ());
-                record_event(&state, source, "open", "openedInApp", Some(error));
+                return Err(fail_window_open(app, &state, source, error, outcome));
             }
         }
     }
@@ -1057,6 +1191,36 @@ pub fn open(app: &AppHandle, source: &str) -> Result<OverlayStatus, String> {
     broadcast(app, &status);
     let _ = app.emit_to("overlay", "overlay://settings", &status);
     Ok(status)
+}
+
+/// Reset a failed open to a truthful state and publish the reason (#228).
+///
+/// `open = false` is the point: leaving it true made the next press close a
+/// window that was never shown, so presses looked dead.
+fn fail_window_open(
+    app: &AppHandle,
+    state: &AppState,
+    source: &str,
+    reason: String,
+    outcome: WindowOutcome,
+) -> String {
+    state.overlay.set_open(false);
+    state.overlay.set_presentation(OverlayPresentation::Closed);
+    state.overlay.record_window(OverlayWindowResult {
+        presentation: OverlayPresentation::Closed,
+        window_created: outcome.created,
+        window_visible: false,
+        window_error: Some(reason.clone()),
+        monitor: outcome.monitor,
+        at: crate::util::now_rfc3339(),
+    });
+    record_event(state, source, "open", "windowFailed", Some(reason.clone()));
+    // A forced test may have been showing the in-app overlay in the main
+    // window; dismiss it so the UI matches the reset state.
+    let _ = app.emit_to("main", "overlay://close", ());
+    let status = status_for(app, state);
+    broadcast(app, &status);
+    reason
 }
 
 /// Close the overlay and restore focus. Never touches the game process.
@@ -1093,9 +1257,22 @@ pub fn toggle(app: &AppHandle, source: &str) {
     }
 }
 
-fn show_overlay_window(app: &AppHandle) -> Result<(), String> {
+/// What one floating-window attempt did (#228). Every field is reported, so a
+/// failure is visible instead of being replaced by a silent in-app fallback.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct WindowOutcome {
+    created: bool,
+    visible: bool,
+    monitor: Option<String>,
+    error: Option<String>,
+}
+
+fn show_overlay_window(app: &AppHandle) -> WindowOutcome {
+    let mut outcome = WindowOutcome::default();
     if !capabilities().floating_window {
-        return Err("The floating overlay window is not available on this platform.".to_string());
+        outcome.error =
+            Some("The floating overlay window is not available on this platform.".to_string());
+        return outcome;
     }
 
     let window = match app.get_webview_window(OVERLAY_LABEL) {
@@ -1119,21 +1296,28 @@ fn show_overlay_window(app: &AppHandle) -> Result<(), String> {
             // enable; the overlay is still usable there with an opaque panel.
             #[cfg(not(target_os = "macos"))]
             let builder = builder.transparent(true);
-            let window = builder
-                .build()
-                .map_err(|error| format!("Could not create the overlay window: {error}"))?;
-            tracing::info!(
-                label = OVERLAY_LABEL,
-                "created the floating overlay window on demand"
-            );
-            window
+            match builder.build() {
+                Ok(window) => {
+                    outcome.created = true;
+                    tracing::info!(
+                        label = OVERLAY_LABEL,
+                        "created the floating overlay window on demand"
+                    );
+                    window
+                }
+                Err(error) => {
+                    outcome.error = Some(format!("Could not create the overlay window: {error}"));
+                    return outcome;
+                }
+            }
         }
     };
 
-    position_on_current_monitor(app, &window);
-    window
-        .show()
-        .map_err(|error| format!("Could not show the overlay window: {error}"))?;
+    outcome.monitor = position_on_current_monitor(app, &window);
+    if let Err(error) = window.show() {
+        outcome.error = Some(format!("Could not show the overlay window: {error}"));
+        return outcome;
+    }
     let _ = window.unminimize();
     // Some window managers drop the topmost flag when a hidden window is shown
     // again, so re-assert it on every open instead of only at creation.
@@ -1141,26 +1325,66 @@ fn show_overlay_window(app: &AppHandle) -> Result<(), String> {
     let _ = window.set_skip_taskbar(true);
     if let Err(error) = window.set_focus() {
         tracing::warn!(error = %error, "could not focus the overlay window; retrying once");
-        window
-            .set_focus()
-            .map_err(|error| format!("Could not focus the overlay window: {error}"))?;
+        if let Err(error) = window.set_focus() {
+            outcome.error = Some(format!("Could not focus the overlay window: {error}"));
+            return outcome;
+        }
     }
 
-    Ok(())
+    outcome.visible = window.is_visible().unwrap_or(false);
+    outcome
 }
 
-/// Cover the monitor the main window is on, or the primary monitor.
-fn position_on_current_monitor(app: &AppHandle, window: &tauri::WebviewWindow) {
-    let monitor = app
-        .get_webview_window("main")
-        .and_then(|main| main.current_monitor().ok().flatten())
+/// Center of the foreground window, in physical pixels (#228).
+///
+/// Windows only: X11 and macOS would need a shell helper for the same fact, and
+/// the screenshot/live tests there run on the main window's monitor.
+#[cfg(windows)]
+fn foreground_center() -> Option<(f64, f64)> {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect};
+
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.0.is_null() {
+        return None;
+    }
+    let mut rect = RECT::default();
+    unsafe { GetWindowRect(hwnd, &mut rect) }.ok()?;
+    let center_x = (f64::from(rect.left) + f64::from(rect.right)) / 2.0;
+    let center_y = (f64::from(rect.top) + f64::from(rect.bottom)) / 2.0;
+    Some((center_x, center_y))
+}
+
+#[cfg(not(windows))]
+fn foreground_center() -> Option<(f64, f64)> {
+    None
+}
+
+/// Monitor that hosts the foreground window when the host can report it, else
+/// the main window's monitor (#228, multi-monitor).
+fn target_monitor(app: &AppHandle) -> Option<tauri::Monitor> {
+    let main = app.get_webview_window("main");
+    let foreground = foreground_center().and_then(|(x, y)| {
+        main.as_ref()
+            .and_then(|main| main.monitor_from_point(x, y).ok().flatten())
+    });
+    foreground
         .or_else(|| {
-            app.get_webview_window("main")
+            main.as_ref()
+                .and_then(|main| main.current_monitor().ok().flatten())
+        })
+        .or_else(|| {
+            main.as_ref()
                 .and_then(|main| main.primary_monitor().ok().flatten())
-        });
-    let Some(monitor) = monitor else {
+        })
+}
+
+/// Cover the foreground/game monitor, or the main window's monitor. Returns the
+/// monitor name for the status payload.
+fn position_on_current_monitor(app: &AppHandle, window: &tauri::WebviewWindow) -> Option<String> {
+    let Some(monitor) = target_monitor(app) else {
         tracing::warn!("no monitor reported; the overlay keeps its default size");
-        return;
+        return None;
     };
     let position = monitor.position();
     let size = monitor.size();
@@ -1169,6 +1393,48 @@ fn position_on_current_monitor(app: &AppHandle, window: &tauri::WebviewWindow) {
     }
     if let Err(error) = window.set_size(tauri::PhysicalSize::new(size.width, size.height)) {
         tracing::warn!(error = %error, "could not size the overlay window");
+    }
+    tracing::debug!(
+        monitor = monitor.name().map(String::as_str),
+        x = position.x,
+        y = position.y,
+        width = size.width,
+        height = size.height,
+        "overlay positioned"
+    );
+    monitor.name().cloned()
+}
+
+/* ------------------------------ close routing ---------------------------- */
+
+/// What a `CloseRequested` event must do for one window (#228).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseRequestAction {
+    /// The main window with close-to-tray on: hide it instead of quitting.
+    HideToTray,
+    /// The overlay: hide it, never hide the main window.
+    CloseOverlay,
+    /// Let the window close (a console session, or a window with no tray).
+    Close,
+}
+
+/// Route a window close. Pure so "Alt+F4 on the overlay does not hide Ludex"
+/// is tested without a live window (#228).
+pub fn close_request_action(
+    label: &str,
+    close_to_tray: bool,
+    console_active: bool,
+) -> CloseRequestAction {
+    if label == OVERLAY_LABEL {
+        return CloseRequestAction::CloseOverlay;
+    }
+    if label != "main" {
+        return CloseRequestAction::Close;
+    }
+    if close_to_tray && !console_active {
+        CloseRequestAction::HideToTray
+    } else {
+        CloseRequestAction::Close
     }
 }
 
@@ -1179,7 +1445,9 @@ fn apply_patch(settings: &mut LocalSettings, patch: OverlaySettingsPatch) {
         settings.overlay_enabled = enabled;
     }
     if let Some(trigger) = patch.trigger {
-        settings.overlay_trigger = trigger;
+        // #228: Windows cannot deliver the Guide button, so a web bundle that
+        // still sends `doubleHome` must not re-arm a gesture that never fires.
+        settings.overlay_trigger = crate::settings::migrate_overlay_trigger(trigger, cfg!(windows));
     }
     if let Some(opacity) = patch.opacity {
         settings.overlay_opacity = opacity;
@@ -1485,8 +1753,9 @@ pub fn set_overlay_settings(
 }
 
 #[tauri::command]
-pub fn open_overlay(app: AppHandle) -> Result<OverlayStatus, String> {
-    open(&app, "manual")
+pub fn open_overlay(app: AppHandle, force_window: Option<bool>) -> Result<OverlayStatus, String> {
+    let force = force_window.unwrap_or(false);
+    open_with(&app, if force { "test" } else { "manual" }, force)
 }
 
 #[tauri::command]
@@ -1949,5 +2218,81 @@ mod tests {
         assert!(detector
             .handle(PadEvent::Pressed(PadButton::Start), 3)
             .is_some());
+    }
+
+    #[test]
+    fn closing_the_overlay_never_hides_the_desktop_shell() {
+        // #228: the old handler called `hide_window` for any window, so Alt+F4
+        // on the overlay hid Ludex.
+        assert_eq!(
+            close_request_action(OVERLAY_LABEL, true, false),
+            CloseRequestAction::CloseOverlay
+        );
+        assert_eq!(
+            close_request_action("main", true, false),
+            CloseRequestAction::HideToTray
+        );
+        // A console session closes for real so Moonlight sees it end.
+        assert_eq!(
+            close_request_action("main", true, true),
+            CloseRequestAction::Close
+        );
+        assert_eq!(
+            close_request_action("main", false, false),
+            CloseRequestAction::Close
+        );
+        assert_eq!(
+            close_request_action("other", true, false),
+            CloseRequestAction::Close
+        );
+    }
+
+    #[test]
+    fn the_runtime_counts_controller_edges_and_the_last_button() {
+        let runtime = OverlayRuntime::default();
+        assert_eq!(runtime.events_seen(), 0);
+        assert!(runtime.last_button().is_none());
+
+        runtime.record_button(1, "leftBumper");
+        runtime.record_button(1, "leftBumper");
+        assert_eq!(runtime.events_seen(), 2);
+        let last = runtime.last_button().unwrap();
+        assert_eq!(last.pad, 1);
+        assert_eq!(last.button, "leftBumper");
+        assert!(!last.at.is_empty());
+    }
+
+    #[test]
+    fn the_window_result_is_reported_as_camel_case_facts() {
+        let result = OverlayWindowResult {
+            presentation: OverlayPresentation::Closed,
+            window_created: true,
+            window_visible: false,
+            window_error: Some("Could not show the overlay window".to_string()),
+            monitor: Some("DISPLAY1".to_string()),
+            at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["presentation"], "closed");
+        assert_eq!(json["windowCreated"], true);
+        assert_eq!(json["windowVisible"], false);
+        assert_eq!(json["windowError"], "Could not show the overlay window");
+        assert_eq!(json["monitor"], "DISPLAY1");
+
+        let runtime = OverlayRuntime::default();
+        assert!(runtime.window().is_none());
+        assert!(runtime.window_shown_at().is_none());
+        runtime.record_window(OverlayWindowResult {
+            presentation: OverlayPresentation::Window,
+            window_created: false,
+            window_visible: true,
+            window_error: None,
+            monitor: None,
+            at: "2026-01-01T00:00:01Z".to_string(),
+        });
+        assert_eq!(
+            runtime.window_shown_at().as_deref(),
+            Some("2026-01-01T00:00:01Z")
+        );
     }
 }
