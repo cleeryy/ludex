@@ -586,6 +586,8 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
     tracing::info!(
         cross_filesystem = plan.cross_filesystem,
         note = %plan.peak_note,
+        download_dir = %plan.download_dir.display(),
+        download_staging = settings.download_staging.as_str(),
         archive_bytes = ?space_plan.archive_bytes,
         extracted_bytes = ?space_plan.extracted_bytes,
         estimated_extraction = space_plan.extraction_estimated,
@@ -918,7 +920,7 @@ fn plan_for_job(state: &AppState, entry: &JobEntry) -> SpacePlan {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| settings.download_path());
+        .unwrap_or_else(|| settings.effective_download_dir(&install_root));
     SpacePlan::build(
         job.bytes_total.or(entry.params.expected_bytes),
         None,
@@ -1607,39 +1609,64 @@ fn resume_entry(
 
 fn planned_paths(state: &AppState, entry: &JobEntry) -> JobPaths {
     let settings = state.settings_snapshot();
-    let install_root = entry
-        .params
+    let (stored_part, _) = entry.stored_paths();
+    planned_paths_for(
+        &settings,
+        &entry.params,
+        stored_part.as_deref(),
+        entry.staging_path().as_deref(),
+        &entry.snapshot().job_id,
+    )
+}
+
+/// Pure form of [`planned_paths`], testable without a Tauri runtime.
+fn planned_paths_for(
+    settings: &LocalSettings,
+    params: &InstallParams,
+    stored_part: Option<&str>,
+    stored_staging: Option<&str>,
+    job_id: &str,
+) -> JobPaths {
+    let install_root = params
         .install_dir
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| settings.install_path());
-    let slug = paths::slug_for_title(&entry.params.title);
-    let job_id = entry.snapshot().job_id;
-    let download_root = settings::resolve_download_dir(
-        &settings,
-        &install_root,
-        entry.params.download_dir.as_deref(),
-    );
-    let part = entry
-        .stored_paths()
-        .0
+    let slug = paths::slug_for_title(&params.title);
+    let part = resolve_part_path(settings, params, &install_root, stored_part);
+    let staging = stored_staging
         .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            download_root.join(format!(
-                ".{}-{}.part",
-                entry.params.game_id, entry.params.version_id
-            ))
-        });
-    let staging = entry
-        .staging_path()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| install_root.join(format!(".{slug}.staging-{}", short_id(&job_id))));
+        .unwrap_or_else(|| install_root.join(format!(".{slug}.staging-{}", short_id(job_id))));
     JobPaths {
         staging: Some(staging),
         part: Some(part),
     }
+}
+
+/// Path of the temporary archive for a job (#226).
+///
+/// A stored checkpoint always wins and is used exactly as recorded: flipping
+/// `downloadStaging` must never relocate a resumable `.part`. Otherwise the
+/// job's pinned download folder is used, then the staging policy.
+fn resolve_part_path(
+    settings: &LocalSettings,
+    params: &InstallParams,
+    install_root: &Path,
+    stored_part: Option<&str>,
+) -> PathBuf {
+    if let Some(stored) = stored_part.map(str::trim).filter(|value| !value.is_empty()) {
+        return PathBuf::from(stored);
+    }
+    let download_root = params
+        .download_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| settings.effective_download_dir(install_root));
+    download_root.join(format!(".{}-{}.part", params.game_id, params.version_id))
 }
 
 /// Can this persisted job still need its staging folder (#225)?
@@ -2333,29 +2360,73 @@ pub(crate) fn auto_resume_on_startup(app: &AppHandle) {
     tracing::info!(resumed, "auto-resumed interrupted downloads");
 }
 
-/// Full archive SHA-256 the server published for this version (#216).
+/// Server metadata for this version: the full-archive digest (#216) and the
+/// archive format the server publishes (#226).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct ArchiveMetadata {
+    /// Full archive SHA-256, when the server published one.
+    sha256: Option<String>,
+    /// `zip`, `7z`, `rar`… `None` on a legacy row or an older server.
+    format: Option<String>,
+}
+
+/// Game detail payload, read for the archive digest and format (#216/#226).
+#[derive(Debug, Deserialize)]
+struct GameDetail {
+    #[serde(default)]
+    versions: Vec<VersionMetadata>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VersionMetadata {
+    id: i64,
+    #[serde(default)]
+    content_sha256: Option<String>,
+    /// Published by newer servers; older ones omit the key entirely, so it is
+    /// read defensively as an `Option` and never blocks an install.
+    #[serde(default)]
+    archive_format: Option<String>,
+}
+
+impl GameDetail {
+    /// Digest and format for one version.
+    fn archive_metadata(&self, version_id: i64) -> ArchiveMetadata {
+        let Some(version) = self
+            .versions
+            .iter()
+            .find(|version| version.id == version_id)
+        else {
+            return ArchiveMetadata::default();
+        };
+        ArchiveMetadata {
+            sha256: version
+                .content_sha256
+                .as_deref()
+                .map(|digest| digest.trim().to_ascii_lowercase())
+                .filter(|digest| digest.len() == 64),
+            format: version
+                .archive_format
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_ascii_lowercase()),
+        }
+    }
+}
+
+/// Full archive SHA-256 and format the server published for this version
+/// (#216/#226).
 ///
 /// Read from the game detail payload (players can load it, unlike the editor
 /// version list). A missing digest means a legacy row or a backfill still
 /// running: the install proceeds with a warning instead of blocking. A failed
 /// request is logged and treated the same way, so an offline/local install is
 /// never held hostage by metadata.
-async fn expected_archive_sha256(state: &AppState, params: &InstallParams) -> Option<String> {
-    #[derive(Deserialize)]
-    struct Detail {
-        #[serde(default)]
-        versions: Vec<VersionDigest>,
-    }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct VersionDigest {
-        id: i64,
-        content_sha256: Option<String>,
-    }
-
+async fn expected_archive_metadata(state: &AppState, params: &InstallParams) -> ArchiveMetadata {
     let base = params.server_url.trim_end_matches('/');
     if base.is_empty() {
-        return None;
+        return ArchiveMetadata::default();
     }
     let url = format!("{base}/api/games/{}", params.game_id);
     let mut request = state.http.get(url).timeout(Duration::from_secs(20));
@@ -2369,9 +2440,9 @@ async fn expected_archive_sha256(state: &AppState, params: &InstallParams) -> Op
                 game_id = params.game_id,
                 version_id = params.version_id,
                 %error,
-                "could not read the archive hash; installing without strong verification"
+                "could not read the archive metadata; installing without strong verification"
             );
-            return None;
+            return ArchiveMetadata::default();
         }
     };
     if !response.status().is_success() {
@@ -2381,23 +2452,18 @@ async fn expected_archive_sha256(state: &AppState, params: &InstallParams) -> Op
             status = response.status().as_u16(),
             "the server did not return the game detail; installing without strong verification"
         );
-        return None;
+        return ArchiveMetadata::default();
     }
-    let Ok(detail) = response.json::<Detail>().await else {
-        return None;
+    let Ok(detail) = response.json::<GameDetail>().await else {
+        return ArchiveMetadata::default();
     };
-    let digest = detail
-        .versions
-        .into_iter()
-        .find(|version| version.id == params.version_id)
-        .and_then(|version| version.content_sha256)
-        .map(|digest| digest.trim().to_ascii_lowercase())
-        .filter(|digest| digest.len() == 64);
-    match digest.as_deref() {
+    let metadata = detail.archive_metadata(params.version_id);
+    match metadata.sha256.as_deref() {
         Some(digest) => tracing::info!(
             game_id = params.game_id,
             version_id = params.version_id,
             sha256 = digest,
+            archive_format = ?metadata.format,
             "server published the archive SHA-256; it will be verified before install"
         ),
         None => tracing::warn!(
@@ -2405,7 +2471,7 @@ async fn expected_archive_sha256(state: &AppState, params: &InstallParams) -> Op
             crate::archive_verify::legacy_warning(params.game_id, params.version_id)
         ),
     }
-    digest
+    metadata
 }
 
 /// The staging folder the transport actually wrote to (#225).
@@ -2467,7 +2533,8 @@ async fn execute(
 
     // Full archive hash published by the server (#216). Read once here so both
     // the local shortcut and the classic download verify the same value.
-    let mut expected_sha256 = expected_archive_sha256(&state, &params).await;
+    let mut archive_metadata = expected_archive_metadata(&state, &params).await;
+    let mut expected_sha256 = archive_metadata.sha256.clone();
     // Set when the classic transfer already proved the digest for `archive`.
     let mut verified_sha256: Option<String> = None;
 
@@ -2489,8 +2556,16 @@ async fn execute(
         archive = Some(local);
     }
 
-    let download_root =
-        settings::resolve_download_dir(&settings, &install_root, params.download_dir.as_deref());
+    // #226: the job's pinned folder wins; otherwise resolve the staging policy
+    // here too, so a restored job without a stored download folder cannot fall
+    // back to a folder the plan never charged.
+    let download_root = params
+        .download_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| settings.effective_download_dir(&install_root));
 
     // 2. Stream install (remote ZIP only): write the entries straight into
     // staging. The per-entry protocol (#115) is resumable. Non-ZIP archives
@@ -2558,10 +2633,14 @@ async fn execute(
                     status = status.as_u16(),
                     game_id = params.game_id,
                     version_id = params.version_id,
+                    archive_format = ?archive_metadata.format,
                     "per-entry stream unsupported; using the resumable download instead"
                 );
                 let stream_staging = job_paths.staging.clone().unwrap_or_else(|| staging.clone());
                 reset_staging(&stream_staging).await?;
+                // #226: name the format when the server published one, so the
+                // fallback is not a generic "not available" message.
+                let message = stream_fallback_message(archive_metadata.format.as_deref());
                 // The job is now a normal, resumable download: it pauses and
                 // resumes with HTTP Range and a `.part` file (#203/#208).
                 entry.update(|job| {
@@ -2570,10 +2649,7 @@ async fn execute(
                     job.entries_done = None;
                     job.entries_total = None;
                     job.current_entry = None;
-                    job.message = Some(
-                        "Streaming is not available for this archive; downloading instead"
-                            .to_string(),
-                    );
+                    job.message = Some(message);
                 });
                 entry.set_stream_completed(None);
                 entry.set_staging_path(None);
@@ -2707,8 +2783,12 @@ async fn execute(
                         );
                         // The archive may have been replaced since the first
                         // metadata read: refresh before re-downloading.
-                        if let Some(fresh) = expected_archive_sha256(&state, &params).await {
-                            expected_sha256 = Some(fresh);
+                        let fresh = expected_archive_metadata(&state, &params).await;
+                        if fresh.sha256.is_some() {
+                            expected_sha256 = fresh.sha256.clone();
+                        }
+                        if fresh.format.is_some() {
+                            archive_metadata.format = fresh.format;
                         }
                         drop(extract_slot.take());
                         continue;
@@ -4934,6 +5014,30 @@ fn download_message(title: &str) -> String {
     )
 }
 
+/// Honest copy when a per-entry stream is refused and the job falls back (#226).
+///
+/// The stream protocol only understands ZIP archives; when the server published
+/// the archive format, the message names it instead of a generic "not
+/// available". A `zip` answer (an older server without the per-entry routes)
+/// keeps the format out of the sentence, because it would read as a
+/// contradiction.
+fn stream_fallback_message(format: Option<&str>) -> String {
+    let format = format
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+        .filter(|value| value != "zip");
+    match format.as_deref() {
+        Some(format) => format!(
+            "This archive is a {format} file; streaming is ZIP-only, so Ludex downloads the archive and extracts it instead."
+        ),
+        None => {
+            "Streaming is ZIP-only; Ludex downloads this archive and extracts it instead."
+                .to_string()
+        }
+    }
+}
+
 /// Should this install use the ZIP tar stream instead of download+extract?
 ///
 /// The per-call `stream` flag wins over `settings.streamInstall`. Loopback
@@ -6889,6 +6993,135 @@ mod tests {
             ResumeMode::Keep,
         )
         .is_err());
+    }
+
+    fn install_params(download_dir: Option<&str>) -> InstallParams {
+        InstallParams {
+            game_id: 3,
+            version_id: 4,
+            server_url: "https://ludex.example.com".into(),
+            token: None,
+            title: "Elden Ring".into(),
+            version: Some("1.10".into()),
+            executable: None,
+            install_dir: None,
+            download_dir: download_dir.map(str::to_string),
+            install_location_id: None,
+            download_location_id: None,
+            expected_bytes: None,
+            stream: Some(false),
+            replace_path: None,
+        }
+    }
+
+    #[test]
+    fn planned_paths_follow_the_download_staging_policy() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.install_dir = "/games".into();
+        settings.download_dir = "/mnt/nas/Downloads".into();
+        settings.normalize(Path::new("/data"));
+
+        // `configured` keeps today's folder.
+        let configured = planned_paths_for(&settings, &install_params(None), None, None, "job-1");
+        assert_eq!(
+            configured.part,
+            Some(PathBuf::from("/mnt/nas/Downloads/.3-4.part"))
+        );
+
+        // #226: `installVolume` stages under the install root.
+        settings.download_staging = settings::DownloadStaging::InstallVolume;
+        let staged = planned_paths_for(&settings, &install_params(None), None, None, "job-1");
+        assert_eq!(
+            staged.part,
+            Some(PathBuf::from("/games/.ludex-tmp/.3-4.part"))
+        );
+        // `begin` pins the resolved folder on the job: same answer.
+        let pinned = planned_paths_for(
+            &settings,
+            &install_params(Some("/games/.ludex-tmp")),
+            None,
+            None,
+            "job-1",
+        );
+        assert_eq!(pinned.part, staged.part);
+
+        // A stored `.part` wins over the policy: never relocate a checkpoint,
+        // including after flipping the setting back.
+        for staging in [
+            settings::DownloadStaging::InstallVolume,
+            settings::DownloadStaging::Configured,
+        ] {
+            settings.download_staging = staging;
+            let resumed = planned_paths_for(
+                &settings,
+                &install_params(None),
+                Some("/mnt/nas/Downloads/.3-4.part"),
+                None,
+                "job-1",
+            );
+            assert_eq!(
+                resumed.part,
+                Some(PathBuf::from("/mnt/nas/Downloads/.3-4.part"))
+            );
+        }
+
+        // An explicit per-job download folder still wins.
+        let explicit = planned_paths_for(
+            &settings,
+            &install_params(Some("/mnt/fast")),
+            None,
+            None,
+            "job-1",
+        );
+        assert_eq!(explicit.part, Some(PathBuf::from("/mnt/fast/.3-4.part")));
+    }
+
+    #[test]
+    fn archive_metadata_reads_the_format_defensively() {
+        let detail: GameDetail = serde_json::from_value(serde_json::json!({
+            "versions": [
+                {
+                    "id": 1,
+                    "contentSha256": "  AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  ",
+                    "archiveFormat": " 7Z ",
+                },
+                { "id": 2 }
+            ]
+        }))
+        .expect("game detail");
+
+        let metadata = detail.archive_metadata(1);
+        assert_eq!(
+            metadata.sha256.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        assert_eq!(metadata.format.as_deref(), Some("7z"));
+
+        // A legacy row (or an older server) has neither key.
+        let legacy = detail.archive_metadata(2);
+        assert!(legacy.sha256.is_none());
+        assert!(legacy.format.is_none());
+
+        // An unknown version is not an error either.
+        assert_eq!(detail.archive_metadata(9), ArchiveMetadata::default());
+    }
+
+    #[test]
+    fn stream_fallback_names_the_format_and_the_zip_limit() {
+        let seven = stream_fallback_message(Some(" 7Z "));
+        assert!(seven.contains("7z"), "{seven}");
+        assert!(seven.contains("ZIP-only"), "{seven}");
+        assert!(seven.contains("downloads the archive"), "{seven}");
+
+        // Without a published format the message still explains the limit.
+        let unknown = stream_fallback_message(None);
+        assert!(unknown.contains("ZIP-only"), "{unknown}");
+        assert!(!unknown.contains("This archive is a"), "{unknown}");
+
+        // A 415 from an older server on a ZIP build must not contradict itself.
+        let zip = stream_fallback_message(Some("zip"));
+        assert!(!zip.contains("This archive is a"), "{zip}");
+        assert!(zip.contains("ZIP-only"), "{zip}");
     }
 
     #[test]

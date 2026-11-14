@@ -597,6 +597,25 @@ mod tests {
     }
 
     #[test]
+    fn install_volume_staging_counts_the_archive_on_the_install_volume() {
+        let root = std::env::temp_dir().join(format!(
+            "ludex-space-staging-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let install = root.join("games");
+        let staging = install.join(".ludex-tmp");
+        // #226: `installVolume` puts the archive next to the extracted tree, so
+        // the peak is one requirement on one volume, not two.
+        let plan = SpacePlan::build(Some(40 * GIB), None, &install, &staging, false, false);
+        assert_eq!(plan.requirements.len(), 1);
+        assert_eq!(plan.requirements[0].raw_bytes, 100 * GIB);
+        assert_eq!(plan.requirements[0].label, "archive + extracted files");
+        assert_eq!(plan.requirements[0].volume.path, root);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn stream_installs_never_reserve_the_archive() {
         let root = std::env::current_dir().unwrap();
         let plan = SpacePlan::build(Some(40 * GIB), None, &root, &root, true, false);

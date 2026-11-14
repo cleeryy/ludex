@@ -10,7 +10,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::settings::{LocalSettings, Location, LocationKind};
+use crate::settings::{DownloadStaging, LocalSettings, Location, LocationKind};
 use crate::util::human_bytes;
 
 /// Space kept free on an install/download volume. Extraction needs roughly the
@@ -253,7 +253,9 @@ pub fn same_filesystem(left: &Path, right: &Path) -> bool {
 ///
 /// `install_location` and `download_location` are location ids from the picker;
 /// `legacy_install`/`legacy_download` are direct paths from an older UI. The
-/// download fallback keeps the archive on the install volume.
+/// download folder follows `downloadStaging` (#226): `installVolume` stages the
+/// archive next to the install root, unless this job explicitly picked a
+/// download location or path, which always wins.
 pub fn plan_install(
     settings: &LocalSettings,
     install_location: Option<&str>,
@@ -276,27 +278,33 @@ pub fn plan_install(
         return Err("Choose an install location in Settings → Locations.".to_string());
     }
 
-    let download_dir = match download_location.filter(|value| !value.trim().is_empty()) {
-        Some(id) => settings.resolve_location(Some(id), LocationKind::Download)?,
-        None => {
-            if let Some(path) = legacy_download
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            {
-                PathBuf::from(path)
-            } else if let Some(location) = settings.default_location(LocationKind::Download) {
-                PathBuf::from(location.path.trim())
-            } else if !settings.download_dir.trim().is_empty() {
-                settings.download_path()
-            } else {
-                install_root.join(".ludex-tmp")
-            }
-        }
+    // An explicit choice for this job (the install dialog's picker) is never
+    // overridden by the global staging policy.
+    let explicit_download = match download_location.filter(|value| !value.trim().is_empty()) {
+        Some(id) => Some(settings.resolve_location(Some(id), LocationKind::Download)?),
+        None => legacy_download
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from),
     };
+    let staged_on_install_volume =
+        explicit_download.is_none() && settings.download_staging == DownloadStaging::InstallVolume;
+    let download_dir =
+        explicit_download.unwrap_or_else(|| settings.effective_download_dir(&install_root));
 
     let cross_filesystem = !same_filesystem(&install_root, &download_dir);
     let peak_note = if stream {
         "Streamed: files are unpacked while downloading, so no archive is stored.".to_string()
+    } else if staged_on_install_volume {
+        format!(
+            "The archive is staged in {} on the install volume so extraction reads it locally; peak usage there is roughly twice the archive size.{}",
+            download_dir.display(),
+            if settings.keep_archives {
+                " The archive is kept in that folder afterwards."
+            } else {
+                " The archive is deleted after extraction."
+            }
+        )
     } else if cross_filesystem {
         format!(
             "The archive is downloaded to {} and unpacked into {}. Peak usage is archive + extracted copy on two volumes.",
@@ -499,6 +507,40 @@ mod tests {
 
         let unknown = plan_install(&settings, Some("gone"), None, None, None, false);
         assert!(unknown.unwrap_err().contains("no longer exists"));
+    }
+
+    #[test]
+    fn plan_stages_on_the_install_volume_when_asked() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.locations = vec![
+            location("games", "Games", "/games", LocationKind::Install, true),
+            location("nas", "NAS", "/mnt/nas", LocationKind::Download, true),
+        ];
+        settings.normalize(Path::new("/data"));
+        // Default: the configured download location is used as today.
+        let configured = plan_install(&settings, None, None, None, None, false).unwrap();
+        assert_eq!(configured.download_dir, PathBuf::from("/mnt/nas"));
+
+        // #226: staging on the install volume overrides the configured one.
+        settings.download_staging = DownloadStaging::InstallVolume;
+        let plan = plan_install(&settings, None, None, None, None, false).unwrap();
+        assert_eq!(plan.install_root, PathBuf::from("/games"));
+        assert_eq!(plan.download_dir, PathBuf::from("/games/.ludex-tmp"));
+        assert!(plan.peak_note.contains("install volume"));
+        assert!(plan.peak_note.contains("deleted after extraction"));
+
+        // A kept archive is mentioned where it stays.
+        settings.keep_archives = true;
+        let kept = plan_install(&settings, None, None, None, None, false).unwrap();
+        assert!(kept.peak_note.contains("kept in that folder"));
+
+        // An explicit per-job choice still wins over the policy.
+        let picked = plan_install(&settings, None, Some("nas"), None, None, false).unwrap();
+        assert_eq!(picked.download_dir, PathBuf::from("/mnt/nas"));
+        assert!(!picked.peak_note.contains("install volume"));
+        let legacy =
+            plan_install(&settings, None, None, None, Some("D:\\Temp\\Ludex"), false).unwrap();
+        assert_eq!(legacy.download_dir, PathBuf::from("D:\\Temp\\Ludex"));
     }
 
     #[test]

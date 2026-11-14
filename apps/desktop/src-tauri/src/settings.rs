@@ -54,6 +54,64 @@ impl UpdateChannel {
     }
 }
 
+/// Where a new install stages its temporary archive (#226).
+///
+/// `configured` keeps the historical behaviour: the default download location,
+/// then `downloadDir`, then `{installDir}/.ludex-tmp`. `installVolume` always
+/// writes next to the install root, so a NAS `downloadDir` no longer forces the
+/// extraction to read the archive back over SMB.
+///
+/// The policy only decides where a **new** job writes. A job that already has a
+/// stored `.part` keeps it exactly (`install::planned_paths`), so flipping this
+/// setting never moves a resumable download.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum DownloadStaging {
+    #[default]
+    Configured,
+    InstallVolume,
+}
+
+impl DownloadStaging {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DownloadStaging::Configured => "configured",
+            DownloadStaging::InstallVolume => "installVolume",
+        }
+    }
+
+    /// Parse the setting, falling back to `configured` for anything unknown.
+    ///
+    /// A newer web bundle or a hand-edited file must not fail the whole
+    /// settings document: `load` would otherwise replace every setting with
+    /// defaults. The known value is matched case-insensitively.
+    pub fn parse(raw: &str) -> Self {
+        if raw
+            .trim()
+            .eq_ignore_ascii_case(DownloadStaging::InstallVolume.as_str())
+        {
+            DownloadStaging::InstallVolume
+        } else {
+            DownloadStaging::Configured
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for DownloadStaging {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // `null` and an unknown string both mean "not chosen": keep the
+        // historical staging instead of rejecting the payload.
+        let raw = Option::<String>::deserialize(deserializer)?;
+        Ok(raw
+            .as_deref()
+            .map(DownloadStaging::parse)
+            .unwrap_or_default())
+    }
+}
+
 /// What a named folder is used for (#99).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -141,6 +199,11 @@ pub struct LocalSettings {
     /// Where temporary archives are downloaded. Kept in sync with the default
     /// download location; empty means `{installDir}/.ludex-tmp`.
     pub download_dir: String,
+    /// Where a new install stages its archive (#226). `configured` uses the
+    /// download folder above; `installVolume` writes under
+    /// `{installRoot}/.ludex-tmp` so extraction reads it locally.
+    #[serde(default)]
+    pub download_staging: DownloadStaging,
     /// Named install/download/temp folders (#99). Empty in old settings files;
     /// `normalize` migrates the two single folders above into entries.
     pub locations: Vec<Location>,
@@ -514,6 +577,7 @@ impl Default for LocalSettings {
             install_dir: String::new(),
             install_root_confirmed: false,
             download_dir: String::new(),
+            download_staging: DownloadStaging::Configured,
             locations: Vec::new(),
             server_port: 0,
             stream_install: true,
@@ -987,6 +1051,35 @@ impl LocalSettings {
             .map(|location| PathBuf::from(location.path.trim()))
             .unwrap_or_else(|| PathBuf::from(&self.download_dir))
     }
+
+    /// Folder a new install stages its temporary archive in (#226).
+    ///
+    /// `installVolume` always answers `{install_root}/.ludex-tmp`, so the
+    /// extraction reads the archive locally even when the configured download
+    /// folder is a network share. `configured` keeps today's resolution: the
+    /// default download location, then `downloadDir`, then the same install
+    /// volume folder.
+    ///
+    /// This is only consulted when a job has no pinned download folder and no
+    /// stored `.part`; a resumable checkpoint is never relocated.
+    pub fn effective_download_dir(&self, install_root: &Path) -> PathBuf {
+        match self.download_staging {
+            DownloadStaging::InstallVolume => install_root.join(".ludex-tmp"),
+            DownloadStaging::Configured => self.configured_download_dir(install_root),
+        }
+    }
+
+    /// Today's download folder precedence, kept apart so `resolve_download_dir`
+    /// stays the single source for callers that do not know about #226.
+    fn configured_download_dir(&self, install_root: &Path) -> PathBuf {
+        if let Some(location) = self.default_location(LocationKind::Download) {
+            let path = location.path.trim();
+            if !path.is_empty() {
+                return PathBuf::from(path);
+            }
+        }
+        resolve_download_dir(self, install_root, None)
+    }
 }
 
 /// Stable comparison key for a GameVault root: separators normalised and
@@ -1109,7 +1202,9 @@ pub fn apply_legacy_folder_patch(
 ///
 /// Priority: the per-install `downloadDir` override, then the user setting,
 /// then `{installDir}/.ludex-tmp` so the archive lands on the same volume as
-/// the extracted game.
+/// the extracted game. The `downloadStaging` policy is applied by
+/// [`LocalSettings::effective_download_dir`] (#226); callers that resolve a
+/// *new* job's folder should use that instead.
 pub fn resolve_download_dir(
     settings: &LocalSettings,
     install_root: &Path,
@@ -1273,6 +1368,7 @@ mod tests {
         let json = serde_json::to_value(&settings).unwrap();
         assert_eq!(json["streamInstall"], true);
         assert_eq!(json["downloadDir"], "");
+        assert_eq!(json["downloadStaging"], "configured");
         assert_eq!(json["keepArchives"], false);
         assert_eq!(json["bandwidthLimitKib"], 0);
         assert_eq!(json["closeToTray"], true);
@@ -1606,6 +1702,83 @@ mod tests {
         assert_eq!(
             resolve_download_dir(&settings, install_root, Some("/tmp/custom")),
             PathBuf::from("/tmp/custom")
+        );
+    }
+
+    #[test]
+    fn download_staging_defaults_to_configured() {
+        let settings = LocalSettings::for_app_data(Path::new("/data"));
+        assert_eq!(settings.download_staging, DownloadStaging::Configured);
+        let json = serde_json::to_value(&settings).expect("serialize");
+        assert_eq!(json["downloadStaging"], "configured");
+
+        // A settings file written before #226 has no key at all.
+        let legacy: LocalSettings =
+            serde_json::from_value(serde_json::json!({ "installDir": "D:\\Games" }))
+                .expect("legacy settings");
+        assert_eq!(legacy.download_staging, DownloadStaging::Configured);
+        assert_eq!(legacy.install_dir, "D:\\Games");
+    }
+
+    #[test]
+    fn download_staging_accepts_install_volume_and_falls_back() {
+        let parsed: LocalSettings =
+            serde_json::from_value(serde_json::json!({ "downloadStaging": "installVolume" }))
+                .expect("installVolume");
+        assert_eq!(parsed.download_staging, DownloadStaging::InstallVolume);
+        assert_eq!(
+            serde_json::to_value(parsed).expect("serialize")["downloadStaging"],
+            "installVolume"
+        );
+
+        // Unknown values, the wrong case and `null` all keep today's staging
+        // instead of failing the whole settings document.
+        for raw in [
+            serde_json::json!("install-volume"),
+            serde_json::json!("futureMode"),
+            serde_json::json!(null),
+        ] {
+            let parsed: LocalSettings =
+                serde_json::from_value(serde_json::json!({ "downloadStaging": raw }))
+                    .expect("unknown staging falls back");
+            assert_eq!(parsed.download_staging, DownloadStaging::Configured);
+        }
+        assert_eq!(
+            DownloadStaging::parse("  INSTALLVOLUME "),
+            DownloadStaging::InstallVolume
+        );
+        assert_eq!(
+            DownloadStaging::parse("configured"),
+            DownloadStaging::Configured
+        );
+    }
+
+    #[test]
+    fn effective_download_dir_follows_the_staging_policy() {
+        let install_root = Path::new("/games");
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        // The default: whatever the configured download folder resolves to.
+        assert_eq!(
+            settings.effective_download_dir(install_root),
+            PathBuf::from("/games/.ludex-tmp")
+        );
+        settings.download_dir = "/mnt/nas/Downloads".into();
+        assert_eq!(
+            settings.effective_download_dir(install_root),
+            PathBuf::from("/mnt/nas/Downloads")
+        );
+
+        // `installVolume` stages next to the install, whatever is configured.
+        settings.download_staging = DownloadStaging::InstallVolume;
+        assert_eq!(
+            settings.effective_download_dir(install_root),
+            PathBuf::from("/games/.ludex-tmp")
+        );
+
+        // #226: the free function stays the historical, policy-free resolution.
+        assert_eq!(
+            resolve_download_dir(&settings, install_root, None),
+            PathBuf::from("/mnt/nas/Downloads")
         );
     }
 
