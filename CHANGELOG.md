@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.11] - 2026-11-15
+
 ### Added
 
 - VirusTotal scanning (#224): admins store a VirusTotal API key (AES-GCM at
