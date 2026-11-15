@@ -132,6 +132,54 @@ pub async fn pending_count(state: &AppState) -> i64 {
     .unwrap_or(0)
 }
 
+/// Stored archive SHA-256 for one version, computing and persisting it when
+/// the backfill has not reached the row yet (#224).
+///
+/// The VirusTotal scanner needs the strong hash before it can look a file up.
+/// Reading the archive here keeps the "hash under a library root, never an
+/// arbitrary path" rule in one place; the result lands in `content_sha256` so
+/// the next scan (and the download header) reuse it.
+pub async fn version_sha256(state: &AppState, version_id: i64) -> anyhow::Result<Option<String>> {
+    let row = db::query_as::<(
+        i64,
+        Option<i64>,
+        String,
+        i64,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )>(
+        "SELECT id, root_id, file_path, size, storage_backend, object_key, content_sha256
+         FROM game_versions WHERE id = ?",
+    )
+    .bind(version_id)
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some((id, root_id, file_path, size, storage_backend, object_key, stored)) = row else {
+        return Ok(None);
+    };
+    if let Some(digest) = stored.filter(|value| !value.is_empty()) {
+        return Ok(Some(digest));
+    }
+    let pending = PendingRow {
+        id,
+        root_id,
+        file_path,
+        size,
+        storage_backend,
+        object_key,
+    };
+    let Some(digest) = hash_version(state, &pending).await? else {
+        return Ok(None);
+    };
+    db::query("UPDATE game_versions SET content_sha256 = ? WHERE id = ?")
+        .bind(&digest)
+        .bind(id)
+        .execute(&state.pool)
+        .await?;
+    Ok(Some(digest))
+}
+
 /// Queues a background hash run when one is not already active.
 ///
 /// `limit` bounds the rows hashed by this run (`0` means every pending row).

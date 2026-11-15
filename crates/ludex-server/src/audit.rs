@@ -39,6 +39,9 @@ pub mod actions {
     pub const GAME_INGESTED: &str = "game.ingested";
     /// A library file was deleted.
     pub const GAME_DELETED: &str = "game.deleted";
+    /// A VirusTotal hash lookup completed for a game version (#224). The
+    /// metadata carries the hash, verdict, mode and source, never the API key.
+    pub const GAME_SCANNED: &str = "game.scanned";
 
     /// Summary of a bulk admin action (#209).
     pub const GAME_BULK_ACTION: &str = "game.bulk_action";

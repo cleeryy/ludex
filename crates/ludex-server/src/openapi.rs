@@ -2457,6 +2457,67 @@ pub const ROUTES: &[RouteDoc] = &[
         ),
         200,
     ),
+    // VirusTotal (#224)
+    route(
+        HttpMethod::Get,
+        "/admin/integrations/virustotal",
+        "VirusTotal",
+        "Read the VirusTotal key source, fingerprint, last error and quota",
+        Auth::Admin,
+        Payload::Schema("IntegrationStatus"),
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/admin/integrations/virustotal",
+            "VirusTotal",
+            "Store an encrypted API key (409 env_managed when the environment pins one)",
+            Auth::Admin,
+            Payload::Schema("IntegrationStatus"),
+        ),
+        "SaveVirustotalKeyRequest",
+    ),
+    route(
+        HttpMethod::Delete,
+        "/admin/integrations/virustotal",
+        "VirusTotal",
+        "Delete the stored API key (409 env_managed when the environment pins one)",
+        Auth::Admin,
+        Payload::Schema("IntegrationStatus"),
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/admin/integrations/virustotal/test",
+            "VirusTotal",
+            "Validate the active key, or the unsaved apiKey from the optional body",
+            Auth::Admin,
+            Payload::Schema("TestResponse"),
+        ),
+        200,
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/admin/virustotal/scan",
+                "VirusTotal",
+                "Hash a version and look it up (upload is explicit and consent-gated)",
+                Auth::Admin,
+                Payload::Schema("ScanResponse"),
+            ),
+            "ScanRequest",
+        ),
+        200,
+    ),
+    route(
+        HttpMethod::Get,
+        "/games/{id}/virustotal",
+        "VirusTotal",
+        "Cached VirusTotal reports for a game (never calls the API)",
+        Auth::Session,
+        Payload::Schema("GameScanReport"),
+    ),
 ];
 
 /// Concrete list shape used by `GET /api/games`.
@@ -2961,6 +3022,20 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::routes::backups::BackupCreated>()
         .schema_from::<crate::routes::backups::RestoreBackupRequest>()
         .schema_from::<crate::routes::backups::RestoreBackupResponse>()
+        .schema_from::<crate::virustotal::IntegrationStatus>()
+        .schema_from::<crate::virustotal::QuotaStatus>()
+        .schema_from::<crate::virustotal::KeySource>()
+        .schema_from::<crate::virustotal::TestResponse>()
+        .schema_from::<crate::virustotal::ScanRequest>()
+        .schema_from::<crate::routes::virustotal::ScanResponse>()
+        .schema_from::<crate::virustotal::ScanReport>()
+        .schema_from::<crate::virustotal::GameScanReport>()
+        .schema_from::<crate::virustotal::Verdict>()
+        .schema_from::<crate::virustotal::VtStats>()
+        .schema_from::<crate::virustotal::EngineHit>()
+        .schema_from::<crate::virustotal::ScanSource>()
+        .schema_from::<crate::virustotal::ScanMode>()
+        .schema_from::<crate::routes::virustotal::SaveVirustotalKeyRequest>()
         .schema_from::<crate::routes::artwork::ArtworkResponse>()
         .security_scheme(
             "bearerAuth",
@@ -3023,6 +3098,10 @@ pub fn document() -> OpenApi {
         (
             "Achievements",
             "Definitions, unlocks and local provider scans",
+        ),
+        (
+            "VirusTotal",
+            "Archive hash lookups, the encrypted API key and the daily quota",
         ),
     ]
     .into_iter()
