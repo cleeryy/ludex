@@ -15,6 +15,13 @@ All notable changes to Ludex are documented here. The format is based on
   Range/If-Range and a per-file hash, and exposes admin cache controls;
   `scripts/bench-file-manifest.sh` compares classic vs 4/8 parallel file
   downloads on a 40 GB 7z so the 1.5–2× gate can be measured before enabling it.
+- File-manifest install transport on the desktop, opt-in (#231): an
+  `installTransport` setting (classic/auto/files) downloads a validated manifest
+  with 4–8 parallel workers, per-file Range resume and SHA-256, commits through
+  temp + fsync + rename (never an archive, never client extraction), resumes
+  after a restart via schema-v20 checkpoints, charges the #222 ledger, reuses
+  the `verifying` phase, and falls back to classic with a visible message; the
+  default stays classic until the 40 GB benchmark clears the 1.5–2× gate.
 
 ## [0.4.12] - 2026-11-15
 

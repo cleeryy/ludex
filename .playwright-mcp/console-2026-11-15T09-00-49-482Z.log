@@ -1,0 +1,116 @@
+[28965591ms] [ERROR] %o
+
+%s
+
+%s
+ Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5180/src/state/auth.tsx?t=1794736064947:233:21)
+    at PreferencesProvider (http://localhost:5180/src/state/preferences.tsx?t=1794736064947:64:20)
+    at Object.react_stack_bottom_frame (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:20259:20)
+    at renderWithHooks (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:5918:24)
+    at updateFunctionComponent (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7763:21)
+    at beginWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:8843:20)
+    at runWithFiberInDEV (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:1133:72)
+    at performUnitOfWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13598:98)
+    at workLoopSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13461:43)
+    at renderRootSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13445:13) The above error occurred in the <PreferencesProvider> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7275
+[28967086ms] [ERROR] %o
+
+%s
+
+%s
+ Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5180/src/state/auth.tsx?t=1794762211745:233:21)
+    at DownloadsProvider (http://localhost:5180/src/state/downloads.tsx?t=1794762197140:56:20)
+    at Object.react_stack_bottom_frame (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:20259:20)
+    at renderWithHooks (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:5918:24)
+    at updateFunctionComponent (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7763:21)
+    at beginWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:8843:20)
+    at runWithFiberInDEV (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:1133:72)
+    at performUnitOfWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13598:98)
+    at workLoopSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13461:43)
+    at renderRootSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13445:13) The above error occurred in the <DownloadsProvider> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7275
+[28968090ms] [ERROR] %o
+
+%s
+
+%s
+ Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5180/src/state/auth.tsx?t=1794762215698:233:21)
+    at PreferencesProvider (http://localhost:5180/src/state/preferences.tsx?t=1794762211745:64:20)
+    at Object.react_stack_bottom_frame (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:20259:20)
+    at renderWithHooks (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:5918:24)
+    at updateFunctionComponent (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7763:21)
+    at beginWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:8843:20)
+    at runWithFiberInDEV (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:1133:72)
+    at performUnitOfWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13598:98)
+    at workLoopSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13461:43)
+    at renderRootSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13445:13) The above error occurred in the <PreferencesProvider> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7275
+[28971373ms] [ERROR] %o
+
+%s
+
+%s
+ Error: useI18n must be used inside I18nProvider
+    at useI18n (http://localhost:5180/src/lib/i18n.tsx?t=1794736064947:429:21)
+    at ConfigSyncDefaults (http://localhost:5180/src/app.tsx?t=1794736064947:310:37)
+    at Object.react_stack_bottom_frame (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:20259:20)
+    at renderWithHooks (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:5918:24)
+    at updateFunctionComponent (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7763:21)
+    at beginWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:8843:20)
+    at runWithFiberInDEV (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:1133:72)
+    at performUnitOfWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13598:98)
+    at workLoopSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13461:43)
+    at renderRootSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13445:13) The above error occurred in the <ConfigSyncDefaults> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7275
+[28972173ms] [ERROR] %o
+
+%s
+
+%s
+ Error: useI18n must be used inside I18nProvider
+    at useI18n (http://localhost:5180/src/lib/i18n.tsx?t=1794736064947:429:21)
+    at ConfigSyncDefaults (http://localhost:5180/src/app.tsx?t=1794736064947:310:37)
+    at Object.react_stack_bottom_frame (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:20259:20)
+    at renderWithHooks (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:5918:24)
+    at updateFunctionComponent (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7763:21)
+    at beginWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:8843:20)
+    at runWithFiberInDEV (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:1133:72)
+    at performUnitOfWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13598:98)
+    at workLoopSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13461:43)
+    at renderRootSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13445:13) The above error occurred in the <ConfigSyncDefaults> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7275
+[28973147ms] [ERROR] %o
+
+%s
+
+%s
+ Error: useI18n must be used inside I18nProvider
+    at useI18n (http://localhost:5180/src/lib/i18n.tsx?t=1794736064947:429:21)
+    at ConfigSyncDefaults (http://localhost:5180/src/app.tsx?t=1794736064947:310:37)
+    at Object.react_stack_bottom_frame (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:20259:20)
+    at renderWithHooks (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:5918:24)
+    at updateFunctionComponent (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7763:21)
+    at beginWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:8843:20)
+    at runWithFiberInDEV (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:1133:72)
+    at performUnitOfWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13598:98)
+    at workLoopSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13461:43)
+    at renderRootSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13445:13) The above error occurred in the <ConfigSyncDefaults> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7275
+[28977791ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:22164
+[28978818ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5180/#/bigpicture?lang=fr:0
+[29153030ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:22164
+[29153185ms] [ERROR] %o
+
+%s
+
+%s
+ Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5180/src/state/auth.tsx?t=1794762398374:233:21)
+    at PreferencesProvider (http://localhost:5180/src/state/preferences.tsx?t=1794762396155:64:20)
+    at Object.react_stack_bottom_frame (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:20259:20)
+    at renderWithHooks (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:5918:24)
+    at updateFunctionComponent (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7763:21)
+    at beginWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:8843:20)
+    at runWithFiberInDEV (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:1133:72)
+    at performUnitOfWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13598:98)
+    at workLoopSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13461:43)
+    at renderRootSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13445:13) The above error occurred in the <PreferencesProvider> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7275
+[29153267ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5180/#/bigpicture?lang=fr:0
