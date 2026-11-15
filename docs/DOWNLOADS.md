@@ -32,6 +32,57 @@ streaming and falling back:
 - 7z/RAR/unknown archive → "Download the archive, then extract".
 - Missing metadata (an older server) → "Checked when the download starts".
 
+## File-manifest transport (prototype, #231)
+
+The third transport is being measured, not shipped as a default: the server
+extracts an archive once into a cache keyed by the archive SHA-256, publishes a
+manifest, and serves the individual files. The client downloads files in
+parallel, verifies each one, and never stores an archive or extracts anything
+locally. It is **off unless `LUDEX_EXTRACTED_CACHE=1`** on the server, and the
+classic download stays the fallback.
+
+| | Classic | Stream install | File manifest (#231) |
+|---|---|---|---|
+| What the client keeps | Archive in `.part`, then extracts | Completed entries only | Files written straight into staging |
+| Formats | ZIP, RAR, 7z, `.exe` | ZIP only | ZIP, 7z, RAR (server extracts once) |
+| Resume unit | Archive byte offset | Entry | File |
+| Client CPU | Full extraction | Decompression per entry | **Checksums only** |
+| Server cost | Streaming read | Streaming read | One extraction + one hashing pass per archive digest |
+| Default | Yes | Yes | No (prototype) |
+
+Client behaviour:
+
+1. `GET /api/versions/{versionId}/manifest?token=` with the ticket from
+   `POST /api/games/{id}/download-ticket`.
+2. `409 extracted_cache_unavailable` (feature off, or the archive was not
+   extracted yet) → use the classic download. Never retry in a loop.
+3. `200` → for each file in `files`, download
+   `/api/versions/{versionId}/files/{path}?token=`, 4–8 at a time with one
+   `jobId`, resuming with `Range` from the last byte if a file was interrupted.
+4. Verify every file against `sha256` (and the returned
+   `X-Ludex-File-Sha256`) before the staging commit. A mismatch re-downloads the
+   file; it never reaches the install folder.
+5. Create `directories` (empty directories) and apply `mode`/`executable`,
+   then commit the install exactly like a stream install.
+
+The cache is prepared by an administrator, once per archive digest:
+`POST /api/admin/versions/{versionId}/extract` and poll until `status: "ready"`
+(`queued`/`extracting` carry `files`/`bytes` progress, `failed` carries
+`error`). The same route dedupes concurrent requests, so saving the same 40 GB
+archive twice does not extract it twice. `GET /api/admin/extracted-cache`
+shows the budget and the entries; `DELETE /api/admin/extracted-cache/{sha256}`
+drops one.
+
+Security is the same as a download: a ticket is bound to a game and a version,
+Bearer works for interactive use, the age gate applies, and the file route
+refuses `..`, absolute paths, backslashes and symlinks and serves only paths
+that are in the manifest under the cache root. Paths are canonicalised on every
+request, so a tampered cache entry cannot escape its tree.
+
+The measurement procedure (40 GB 7z, `scripts/bench-file-manifest.sh`, the
+1.5–2× gate and the table to fill) is in
+[PERFORMANCE.md](PERFORMANCE.md#server-side-extracted-cache-prototype-231).
+
 ## How the big launchers do it (and what we copy)
 
 They converged on the same shape: **immutable hash-addressed units + a

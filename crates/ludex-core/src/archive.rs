@@ -123,6 +123,13 @@ pub struct ExtractOptions {
     pub passwords: Vec<String>,
     /// Overwrite files that already exist in the destination.
     pub overwrite: bool,
+    /// Apply the archive's Unix permission bits to extracted files.
+    ///
+    /// Off by default so an extraction never changes how existing callers
+    /// behave. The extracted cache (#231) turns it on: the manifest publishes a
+    /// mode and an executable bit per file, and both must describe what the
+    /// archive meant, not what the process umask allowed.
+    pub preserve_modes: bool,
 }
 
 impl Default for ExtractOptions {
@@ -130,6 +137,7 @@ impl Default for ExtractOptions {
         Self {
             passwords: Vec::new(),
             overwrite: true,
+            preserve_modes: false,
         }
     }
 }
@@ -140,6 +148,7 @@ impl ExtractOptions {
         Self {
             passwords,
             overwrite: true,
+            preserve_modes: false,
         }
     }
 }
@@ -457,6 +466,7 @@ fn extract_zip(
         let mut writer = BufWriter::new(File::create(&out_path)?);
         let written = copy_with_progress(&mut entry, &mut writer, &mut sink)?;
         writer.flush()?;
+        apply_mode(opts, &out_path, &name, entry.unix_mode())?;
         report.files += 1;
         report.bytes = report.bytes.saturating_add(written);
         sink.finish_entry();
@@ -578,7 +588,7 @@ fn extract_rar_pass(
     let mut report = ExtractReport::default();
 
     while let Some(header) = archive.read_header().map_err(map_unrar_error)? {
-        let (name, is_directory, is_link, is_encrypted, size) = {
+        let (name, is_directory, is_link, is_encrypted, size, attributes) = {
             let entry = header.entry();
             (
                 entry.filename.to_string_lossy().to_string(),
@@ -586,6 +596,7 @@ fn extract_rar_pass(
                 is_link_attr(entry.file_attr),
                 entry.is_encrypted(),
                 entry.unpacked_size,
+                entry.file_attr,
             )
         };
 
@@ -615,6 +626,7 @@ fn extract_rar_pass(
         archive = header
             .extract_to(&out_path)
             .map_err(|error| map_unrar_extract_error(error, is_encrypted))?;
+        apply_mode(opts, &out_path, &name, rar_unix_mode(attributes))?;
         report.files += 1;
         report.bytes = report.bytes.saturating_add(size);
         sink.add_bytes(size);
@@ -763,6 +775,12 @@ fn extract_seven_zip_entry(
     let mut writer = BufWriter::new(File::create(&out_path)?);
     let written = copy_with_progress(reader, &mut writer, sink)?;
     writer.flush()?;
+    apply_mode(
+        opts,
+        &out_path,
+        &name,
+        seven_zip_unix_mode(entry.windows_attributes),
+    )?;
     report.files += 1;
     report.bytes = report.bytes.saturating_add(written);
     sink.finish_entry();
@@ -807,6 +825,33 @@ fn ensure_within(dest: &Path, out_path: &Path, name: &str) -> Result<(), Archive
     } else {
         Err(ArchiveError::UnsafeEntry(name.to_string()))
     }
+}
+
+/// Applies the archive's Unix permission bits to a freshly extracted file.
+///
+/// A no-op unless [`ExtractOptions::preserve_modes`] is set. The owner keeps
+/// read and write access even when the archive says otherwise: the server may
+/// hash, serve and delete the extracted file afterwards.
+fn apply_mode(
+    opts: &ExtractOptions,
+    path: &Path,
+    name: &str,
+    unix_mode: Option<u32>,
+) -> Result<(), ArchiveError> {
+    if !opts.preserve_modes {
+        return Ok(());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = tar_mode(name, unix_mode) | 0o600;
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, name, unix_mode);
+    }
+    Ok(())
 }
 
 /// Guards against NUL bytes in paths handed to the unrar FFI, which panics on
@@ -2285,6 +2330,66 @@ mod tests {
         let error = extract_archive(&path, temp.path(), &ExtractOptions::default(), &mut |_| {})
             .expect_err("unsupported");
         assert!(matches!(error, ArchiveError::UnsupportedFormat));
+    }
+
+    #[test]
+    fn preserve_modes_restores_the_archive_unix_bits() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let zip_path = temp.path().join("modes.zip");
+        {
+            use zip::write::SimpleFileOptions;
+            let file = File::create(&zip_path).expect("create zip");
+            let mut writer = zip::ZipWriter::new(file);
+            writer
+                .start_file(
+                    "game.bin",
+                    SimpleFileOptions::default().unix_permissions(0o750),
+                )
+                .expect("start file");
+            writer.write_all(b"#!/bin/sh\n").expect("write entry");
+            writer
+                .start_file(
+                    "data.txt",
+                    SimpleFileOptions::default().unix_permissions(0o640),
+                )
+                .expect("start file");
+            writer.write_all(b"data").expect("write entry");
+            writer.finish().expect("finish zip");
+        }
+
+        let dest = temp.path().join("plain");
+        extract_archive(&zip_path, &dest, &ExtractOptions::default(), &mut |_| {})
+            .expect("extract without modes");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(dest.join("game.bin"))
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode & 0o111, 0, "default extraction must not chmod");
+        }
+
+        let dest = temp.path().join("modes");
+        let opts = ExtractOptions {
+            preserve_modes: true,
+            ..ExtractOptions::default()
+        };
+        extract_archive(&zip_path, &dest, &opts, &mut |_| {}).expect("extract with modes");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |name: &str| {
+                fs::metadata(dest.join(name))
+                    .expect("metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777
+            };
+            assert_eq!(mode("game.bin"), 0o750);
+            assert_eq!(mode("data.txt"), 0o640);
+        }
     }
 
     #[test]

@@ -39,6 +39,7 @@ pub mod social;
 pub mod system;
 pub mod uploads;
 pub mod users;
+pub mod versions;
 pub mod virustotal;
 pub mod webhooks;
 
@@ -90,6 +91,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(remote_installs::router())
         .merge(devices::router())
         .merge(virustotal::router())
+        .merge(versions::router())
         .fallback(api_not_found)
 }
 

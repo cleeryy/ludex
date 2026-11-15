@@ -47,6 +47,7 @@ pub mod emulators;
 pub mod error;
 pub mod events;
 pub mod extract;
+pub mod extracted_cache;
 pub mod gamevault;
 pub mod ingest;
 pub mod integrity;
@@ -284,6 +285,9 @@ async fn prepare(config: Config) -> Result<Prepared> {
     let ingest_handle = ingest::handle(&ingest_ctx);
 
     let virustotal_scanner = std::sync::Arc::new(virustotal::Scanner::new(&config, http.clone()));
+    // Rebuilds the extracted-cache index from disk before the first request
+    // (#231). A no-op directory-wise while the feature is disabled.
+    let extracted_cache = std::sync::Arc::new(extracted_cache::ExtractedCache::open(&config).await);
     let state = AppState {
         config: Arc::new(config.clone()),
         pool,
@@ -356,6 +360,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
         // Single-stream clients keep the #195 reconnect budget; parallel
         // jobs get their own N-aware budget and part cap (#217).
         download_limits: Arc::new(download_limits::DownloadLimiter::new()),
+        extracted: extracted_cache,
     };
 
     let watcher_handle = watcher::start(&state).await;
@@ -376,8 +381,15 @@ async fn prepare(config: Config) -> Result<Prepared> {
         state.clone(),
         cancel_rx.clone(),
     ));
-    tokio::spawn(achievements::scheduled_worker(state.clone(), cancel_rx));
+    tokio::spawn(achievements::scheduled_worker(
+        state.clone(),
+        cancel_rx.clone(),
+    ));
     tokio::spawn(uploads::cleanup_worker(state.clone()));
+    tokio::spawn(extracted_cache::scheduled_worker(
+        state.clone(),
+        cancel_rx.clone(),
+    ));
     // Initial scan in the background; never blocks startup.
     let _ = state.scan_tx.try_send(ScanRequest::all());
 

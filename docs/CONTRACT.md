@@ -3986,6 +3986,82 @@ immediately; the scratch directory never outlives the request.
 Per-entry entries follow the same rules: sanitised relative paths, no links or
 special files, file modes preserved and chunked copies.
 
+## Server-side extracted cache + file manifest (#231, prototype, off by default)
+
+The prototype answers one question with a measurement: is it faster to extract
+a large archive **once on the server** and fetch the files in parallel than to
+download the archive and extract it on the client? It is gated:
+`LUDEX_EXTRACTED_CACHE` defaults to `0`, the classic download stays the
+fallback, and nothing is written while the feature is off.
+
+The cache is keyed by the archive's full content SHA-256
+(`game_versions.contentSha256`, #216) plus the extraction options key:
+
+```text
+{data_dir}/extracted/<archive_sha256>/
+    manifest.json   # formatVersion, optionsKey, archiveSha256, generatedAt,
+                    # totalBytes, fileCount, files[], directories[]
+    meta.json       # versionId, bytes, files, createdAt, lastUsedAt
+    files/          # extracted tree; manifest paths are relative to this root
+```
+
+Extraction runs into `.tmp-<sha256>-<uuid>/` and is published with a single
+`rename`, so a reader never sees a half-written tree and a crash leaves only a
+temporary directory that the startup scan removes. `archiveSha256` is the
+server-trusted identity; the client never supplies a cache key.
+
+| Method | Route | Notes |
+|---|---|---|
+| POST | `/api/admin/versions/{versionId}/extract` | administrator; starts or joins the extraction job → `ExtractStatus` (200). Dedupes by archive content, so concurrent polls never start a second extraction. `404 version_not_found`, `404 file_not_found` (missing archive), `409 content_hash_unavailable` when the version has no full hash yet (run `POST /api/integrity/content-hashes` first) |
+| GET | `/api/versions/{versionId}/manifest?token=` | download ticket or Bearer; `200` `{ versionId, archiveSha256, status: "ready", generatedAt, totalBytes, fileCount, files: [{ path, size, sha256, mode, executable }], directories: [string] }`. `files` is sorted by `path`; `directories` lists only directories that hold no file. `409 extracted_cache_unavailable` when disabled or not extracted |
+| GET | `/api/versions/{versionId}/files/{*path}?token=` | download ticket or Bearer; file bytes with exact `Content-Length`, single `Range` under a matching `If-Range` (`ETag` is the file SHA-256), `X-Ludex-File-Sha256`, `X-Ludex-Archive-Sha256`. `416 invalid_range` with `Content-Range: bytes */<size>`; `404 file_not_found` for an unknown path, `..`, an absolute path, a backslash or a symlink. Optional `jobId` / `X-Ludex-Job-Id` scopes the #217 concurrent cap (8 streams per job, 16 per address; the per-minute reconnect budgets do not apply because each file is one request, and the global rate limiter is the backstop) |
+| GET | `/api/admin/extracted-cache` | administrator; `{ enabled, root, budgetBytes, usedBytes, entries: [{ sha256, versionId, bytes, files, createdAt, lastUsedAt }] }` |
+| DELETE | `/api/admin/extracted-cache/{sha256}` | administrator; `204` when removed, `404 cache_entry_not_found`, `409 cache_entry_in_use` while a file is being served or the entry is being extracted |
+
+`ExtractStatus`:
+
+```ts
+type ExtractState = "queued" | "extracting" | "ready" | "failed" | "unavailable";
+interface ExtractStatus {
+  versionId: number;
+  archiveSha256: string;  // empty only when the cache is disabled and no hash is stored
+  status: ExtractState;
+  files: number;          // files delivered so far, then the final count
+  bytes: number;
+  error: string | null;   // "failed" detail; null otherwise
+}
+```
+
+Rules the server enforces:
+
+- **Caps.** At most 200 000 files, 128 GiB per file and 512 GiB extracted per
+  entry. `verify_archive` rejects an oversized archive before extraction; the
+  manifest walk re-checks what landed on disk and fails the entry otherwise.
+- **Symlinks and special files are refused.** The extractor already rejects
+  link entries; the manifest walk and the file route canonicalise every path
+  and refuse anything that resolves outside `files/`, so a cache entry can
+  never serve outside its own tree.
+- **Eviction.** Least-recently-used by `lastUsedAt`, a TTL for entries unused
+  for `LUDEX_EXTRACTED_CACHE_TTL_HOURS` (default 14 days) and the byte budget
+  after every insertion. An entry held by a live response (lease/refcount),
+  or with a running extraction, is never removed.
+- **Lifecycle.** A failed extraction deletes its temp directory and keeps the
+  failure reportable for 60 s; the next request retries. A restart rebuilds
+  the index from `meta.json` + `manifest.json` and deletes leftovers. Deleting
+  a version drops its entry unless another version still references the same
+  digest.
+- **Audit.** A successful extraction appends `version.extracted` with the
+  version id, archive digest, file count, bytes and duration.
+
+Configuration (see the configuration table below): `LUDEX_EXTRACTED_CACHE=1`,
+`LUDEX_EXTRACTED_CACHE_DIR` (default `{data_dir}/extracted`),
+`LUDEX_EXTRACTED_CACHE_BUDGET_BYTES` (default 200 GiB) and
+`LUDEX_EXTRACTED_CACHE_TTL_HOURS` (default 336, `0` disables the TTL).
+
+The measurement procedure and the 1.5-2x gate live in
+[PERFORMANCE.md](PERFORMANCE.md); the transport from the client's point of view
+is in [DOWNLOADS.md](DOWNLOADS.md).
+
 ## Shared Rust core API
 
 `ludex-core` exposes (server + desktop depend on it):
@@ -4316,6 +4392,10 @@ request untouched for two minutes is labelled "PC offline".
 | `LUDEX_DESKTOP_DOWNLOAD_TIMEOUT_SECONDS` | `5` (1–30) | Upstream timeout for release metadata and checksums (#164) |
 | `LUDEX_HEALTH_INTERVAL_HOURS` | `24` (`0` disables) | Scheduled Library Health Center reports (#165) |
 | `LUDEX_OPENAPI_DOCS` | `false` | Serve `/api/docs` |
+| `LUDEX_EXTRACTED_CACHE` | `0` | Server-side extracted cache + file manifest (#231, prototype) |
+| `LUDEX_EXTRACTED_CACHE_DIR` | `{data_dir}/extracted` | Cache root; one directory per archive SHA-256 |
+| `LUDEX_EXTRACTED_CACHE_BUDGET_BYTES` | `214748364800` (200 GiB) | Byte budget of the extracted cache |
+| `LUDEX_EXTRACTED_CACHE_TTL_HOURS` | `336` (14 days) | Evict an entry unused for that long; `0` disables the TTL |
 
 ## Achievements (#117, #118)
 

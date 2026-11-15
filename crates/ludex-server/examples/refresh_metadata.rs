@@ -64,6 +64,7 @@ async fn main() -> Result<()> {
         &config,
         http.clone(),
     ));
+    let extracted = Arc::new(ludex_server::extracted_cache::ExtractedCache::new(&config));
     let state = AppState {
         config: Arc::new(config),
         pool,
@@ -106,6 +107,7 @@ async fn main() -> Result<()> {
         friend_request_limits: Arc::new(ludex_server::security::AttemptCounter::disabled()),
         device_heartbeat_limits: Arc::new(ludex_server::security::AttemptCounter::disabled()),
         download_limits: Arc::new(ludex_server::download_limits::DownloadLimiter::disabled()),
+        extracted,
     };
 
     let ids = ludex_server::db::query_scalar::<i64>("SELECT id FROM games ORDER BY id")
