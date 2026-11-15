@@ -130,7 +130,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 19;
+const SCHEMA_VERSION: i64 = 20;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -531,6 +531,39 @@ const SCHEMA_V19: &str = r#"
 ALTER TABLE install_jobs ADD COLUMN verified_sha256 TEXT;
 "#;
 
+/// File-manifest transport (#231): the identity of the archive a job's files
+/// were derived from, plus one row per committed file. Both are keyed by job
+/// id, exactly like the stream checkpoint (#115), so a restart that reuses the
+/// job id continues where it stopped.
+///
+/// Nothing here records an archive on the client: the rows describe the files
+/// written into the staging folder, and a changed `archive_sha256` invalidates
+/// the whole checkpoint.
+const SCHEMA_V20: &str = r#"
+CREATE TABLE IF NOT EXISTS install_file_manifests (
+    job_id         TEXT    PRIMARY KEY,
+    game_id        INTEGER NOT NULL,
+    version_id     INTEGER NOT NULL,
+    archive_sha256 TEXT    NOT NULL,
+    staging        TEXT    NOT NULL,
+    total_bytes    INTEGER NOT NULL,
+    file_count     INTEGER NOT NULL,
+    created_at     TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS install_file_manifests_version_idx
+    ON install_file_manifests (game_id, version_id);
+
+CREATE TABLE IF NOT EXISTS install_job_files (
+    job_id       TEXT    NOT NULL,
+    path         TEXT    NOT NULL,
+    size         INTEGER NOT NULL,
+    sha256       TEXT    NOT NULL,
+    completed_at TEXT    NOT NULL,
+    PRIMARY KEY (job_id, path)
+);
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -675,6 +708,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
     if version < 19 {
         connection.execute_batch(SCHEMA_V19).map_err(|e| {
             format!("Could not add the verified archive digest to the desktop database: {e}")
+        })?;
+    }
+    if version < 20 {
+        connection.execute_batch(SCHEMA_V20).map_err(|e| {
+            format!("Could not add file-manifest checkpoints to the desktop database: {e}")
         })?;
     }
 
@@ -1826,6 +1864,220 @@ pub fn delete_stream_manifest(connection: &Connection, job_id: &str) -> Result<(
             params![job_id],
         )
         .map_err(|e| format!("Could not delete the stream manifest: {e}"))?;
+    Ok(())
+}
+
+/// Header of one file-manifest checkpoint (#231).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileManifestRecord {
+    pub job_id: String,
+    pub game_id: i64,
+    pub version_id: i64,
+    pub archive_sha256: String,
+    pub staging: String,
+    pub total_bytes: i64,
+    pub file_count: i64,
+    pub created_at: String,
+}
+
+/// Saves (or replaces) the manifest header of a file-manifest job.
+pub fn upsert_file_manifest(
+    connection: &Connection,
+    record: &FileManifestRecord,
+) -> Result<(), String> {
+    connection
+        .execute(
+            r#"
+            INSERT INTO install_file_manifests
+                (job_id, game_id, version_id, archive_sha256, staging,
+                 total_bytes, file_count, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(job_id) DO UPDATE SET
+                version_id     = excluded.version_id,
+                archive_sha256 = excluded.archive_sha256,
+                staging        = excluded.staging,
+                total_bytes    = excluded.total_bytes,
+                file_count     = excluded.file_count
+            "#,
+            params![
+                record.job_id,
+                record.game_id,
+                record.version_id,
+                record.archive_sha256,
+                record.staging,
+                record.total_bytes,
+                record.file_count,
+                record.created_at,
+            ],
+        )
+        .map_err(|e| format!("Could not record the file manifest: {e}"))?;
+    Ok(())
+}
+
+fn map_file_manifest(row: &rusqlite::Row<'_>) -> rusqlite::Result<FileManifestRecord> {
+    Ok(FileManifestRecord {
+        job_id: row.get(0)?,
+        game_id: row.get(1)?,
+        version_id: row.get(2)?,
+        archive_sha256: row.get(3)?,
+        staging: row.get(4)?,
+        total_bytes: row.get(5)?,
+        file_count: row.get(6)?,
+        created_at: row.get(7)?,
+    })
+}
+
+const FILE_MANIFEST_COLUMNS: &str =
+    "job_id, game_id, version_id, archive_sha256, staging, total_bytes, file_count, created_at";
+
+/// The file-manifest checkpoint of one job, when it has one.
+pub fn get_file_manifest(
+    connection: &Connection,
+    job_id: &str,
+) -> Result<Option<FileManifestRecord>, String> {
+    connection
+        .query_row(
+            &format!(
+                "SELECT {FILE_MANIFEST_COLUMNS} FROM install_file_manifests WHERE job_id = ?1"
+            ),
+            params![job_id],
+            map_file_manifest,
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the file manifest: {e}"))
+}
+
+/// Most recent file manifest for a game version, whatever job wrote it. The
+/// caller only adopts it when the archive SHA-256 still matches.
+pub fn latest_file_manifest_for_version(
+    connection: &Connection,
+    game_id: i64,
+    version_id: i64,
+) -> Result<Option<FileManifestRecord>, String> {
+    connection
+        .query_row(
+            &format!(
+                "SELECT {FILE_MANIFEST_COLUMNS} FROM install_file_manifests
+                 WHERE game_id = ?1 AND version_id = ?2
+                 ORDER BY created_at DESC LIMIT 1"
+            ),
+            params![game_id, version_id],
+            map_file_manifest,
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the file manifest: {e}"))
+}
+
+/// Drops the manifest header and every completed file of a job.
+pub fn delete_file_manifest(connection: &Connection, job_id: &str) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM install_job_files WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| format!("Could not clear the completed files: {e}"))?;
+    connection
+        .execute(
+            "DELETE FROM install_file_manifests WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| format!("Could not delete the file manifest: {e}"))?;
+    Ok(())
+}
+
+/// Deletes every manifest row for a game version except `keep_job_id`.
+pub fn prune_file_manifests(
+    connection: &Connection,
+    game_id: i64,
+    version_id: i64,
+    keep_job_id: &str,
+) -> Result<usize, String> {
+    let stale: Vec<String> = {
+        let mut statement = connection
+            .prepare(
+                "SELECT job_id FROM install_file_manifests
+                 WHERE game_id = ?1 AND version_id = ?2 AND job_id <> ?3",
+            )
+            .map_err(|e| format!("Could not read the file manifests: {e}"))?;
+        let rows = statement
+            .query_map(params![game_id, version_id, keep_job_id], |row| row.get(0))
+            .map_err(|e| format!("Could not read the file manifests: {e}"))?;
+        rows.filter_map(Result::ok).collect()
+    };
+    for job_id in &stale {
+        delete_file_manifest(connection, job_id)?;
+    }
+    Ok(stale.len())
+}
+
+/// Records one committed file. Called once per file, after its rename.
+pub fn record_job_file(
+    connection: &Connection,
+    job_id: &str,
+    path: &str,
+    size: u64,
+    sha256: &str,
+    completed_at: &str,
+) -> Result<(), String> {
+    connection
+        .execute(
+            r#"
+            INSERT INTO install_job_files (job_id, path, size, sha256, completed_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(job_id, path) DO UPDATE SET
+                size         = excluded.size,
+                sha256       = excluded.sha256,
+                completed_at = excluded.completed_at
+            "#,
+            params![
+                job_id,
+                path,
+                i64::try_from(size).unwrap_or(i64::MAX),
+                sha256,
+                completed_at,
+            ],
+        )
+        .map_err(|e| format!("Could not record {path}: {e}"))?;
+    Ok(())
+}
+
+/// Completed files of one job, as `(relative path, size)`.
+pub fn completed_job_files(
+    connection: &Connection,
+    job_id: &str,
+) -> Result<Vec<(String, u64)>, String> {
+    let mut statement = connection
+        .prepare("SELECT path, size FROM install_job_files WHERE job_id = ?1 ORDER BY path")
+        .map_err(|e| format!("Could not read the completed files: {e}"))?;
+    let rows = statement
+        .query_map(params![job_id], |row| {
+            let path: String = row.get(0)?;
+            let size: i64 = row.get(1)?;
+            Ok((path, size.max(0) as u64))
+        })
+        .map_err(|e| format!("Could not read the completed files: {e}"))?;
+    Ok(rows.filter_map(Result::ok).collect())
+}
+
+/// Drops one completed file whose copy is no longer on disk.
+pub fn forget_job_file(connection: &Connection, job_id: &str, path: &str) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM install_job_files WHERE job_id = ?1 AND path = ?2",
+            params![job_id, path],
+        )
+        .map_err(|e| format!("Could not forget {path}: {e}"))?;
+    Ok(())
+}
+
+/// Drops every completed file of a job (a changed archive, or a fresh start).
+pub fn clear_job_files(connection: &Connection, job_id: &str) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM install_job_files WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| format!("Could not clear the completed files: {e}"))?;
     Ok(())
 }
 
@@ -5173,5 +5425,106 @@ mod tests {
 
         delete_runtime_install(&connection, "umu-launcher").unwrap();
         assert!(list_runtime_installs(&connection).unwrap().is_empty());
+    }
+
+    fn file_manifest_row(job_id: &str, sha: &str) -> FileManifestRecord {
+        FileManifestRecord {
+            job_id: job_id.into(),
+            game_id: 3,
+            version_id: 4,
+            archive_sha256: sha.into(),
+            staging: format!("/games/.elden-ring.staging-{job_id}"),
+            total_bytes: 1_000,
+            file_count: 2,
+            created_at: "2026-11-15T00:00:00Z".into(),
+        }
+    }
+
+    /// #231: the per-file checkpoint survives a restart keyed by job id, and a
+    /// different archive invalidates it.
+    #[test]
+    fn file_manifest_checkpoints_round_trip_and_prune() {
+        let connection = open_in_memory_for_tests();
+        let sha = "a".repeat(64);
+        upsert_file_manifest(&connection, &file_manifest_row("job-files", &sha)).unwrap();
+        record_job_file(
+            &connection,
+            "job-files",
+            "Game/bin/a.bin",
+            512,
+            &"b".repeat(64),
+            "2026-11-15T00:00:10Z",
+        )
+        .unwrap();
+        record_job_file(
+            &connection,
+            "job-files",
+            "Game/bin/b.bin",
+            488,
+            &"c".repeat(64),
+            "2026-11-15T00:00:11Z",
+        )
+        .unwrap();
+
+        let stored = get_file_manifest(&connection, "job-files")
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.archive_sha256, sha);
+        assert_eq!(stored.file_count, 2);
+        assert_eq!(
+            completed_job_files(&connection, "job-files").unwrap(),
+            vec![
+                ("Game/bin/a.bin".to_string(), 512),
+                ("Game/bin/b.bin".to_string(), 488),
+            ]
+        );
+
+        // A file that is no longer on disk is forgotten without touching the
+        // winner.
+        forget_job_file(&connection, "job-files", "Game/bin/b.bin").unwrap();
+        assert_eq!(
+            completed_job_files(&connection, "job-files").unwrap(),
+            vec![("Game/bin/a.bin".to_string(), 512)]
+        );
+
+        // A second job of the same version prunes the first one's rows, so a
+        // restart cannot adopt a stale staging folder.
+        upsert_file_manifest(&connection, &file_manifest_row("job-new", &"d".repeat(64))).unwrap();
+        assert_eq!(
+            prune_file_manifests(&connection, 3, 4, "job-new").unwrap(),
+            1
+        );
+        assert!(get_file_manifest(&connection, "job-files")
+            .unwrap()
+            .is_none());
+        assert!(completed_job_files(&connection, "job-files")
+            .unwrap()
+            .is_empty());
+
+        // A changed archive clears the completed files but keeps the header so
+        // the next attest sees the new identity.
+        record_job_file(
+            &connection,
+            "job-new",
+            "Game/bin/a.bin",
+            512,
+            &"e".repeat(64),
+            "2026-11-15T00:00:12Z",
+        )
+        .unwrap();
+        clear_job_files(&connection, "job-new").unwrap();
+        assert!(completed_job_files(&connection, "job-new")
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            get_file_manifest(&connection, "job-new")
+                .unwrap()
+                .unwrap()
+                .archive_sha256,
+            "d".repeat(64)
+        );
+
+        delete_file_manifest(&connection, "job-new").unwrap();
+        assert!(get_file_manifest(&connection, "job-new").unwrap().is_none());
     }
 }

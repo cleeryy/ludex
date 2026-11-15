@@ -1504,6 +1504,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   locations: [],
   serverPort: 0,
   streamInstall: true,
+  installTransport: "classic",
   downloadStaging: "configured",
   keepArchives: false,
   archivePasswords: [],

@@ -5,8 +5,11 @@ import { installsAvailable } from "@/lib/install";
 import { isActiveJob, useDownloads, type Aggregate } from "@/state/downloads";
 import { canRetryJob, canRetryNow, isTrulyResumable, secondsUntilRetry } from "@/lib/install-retry";
 import {
+  fileManifestLabel,
+  isFileManifestJob,
   isVerifyingJob,
   isWaitingForSpaceJob,
+  manifestFallbackLabel,
   jobDisplaySpeed,
   jobProgressPercent,
   prefetchLabel,
@@ -517,6 +520,11 @@ function JobRow({
   const verifyLabel = verifyingLabel(job);
   const spaceLabel = spaceWaitLabel(job);
   const digestLabel = verifiedDigestLabel(job);
+  // #231: a file-manifest install never writes an archive, so the row names
+  // the files instead of the (non-existent) archive, and an explicit fallback
+  // is stated instead of being buried in the message.
+  const fileLabel = fileManifestLabel(job);
+  const fallbackLabel = manifestFallbackLabel(job);
 
   return (
     <article className="flex items-start gap-4 border-b border-line py-3.5" aria-label={t("{title}, {phase}", { title, phase: installPhaseLabel(job.phase) })}>
@@ -566,6 +574,7 @@ function JobRow({
                 speed > 0 && <span>{formatSpeed(speed)}</span>
               )}
               {eta && <span>{eta}</span>}
+              {fileLabel && <span className="text-signal-text">{fileLabel}</span>}
               {verifying && <span className="text-signal-text">{verifyLabel}</span>}
               {phaseElapsed && !verifying && (
                 <span>{t("{phase} for {duration}", { phase: installPhaseLabel(job.phase), duration: phaseElapsed })}</span>
@@ -575,7 +584,7 @@ function JobRow({
               {/* #225: a queued job has not touched a single entry yet, and
                   "0/N files" reads as a stall. The message line still carries
                   "Resuming from 12.4 GiB" when a checkpoint exists. */}
-              {job.entriesTotal && !(job.phase === "queued" && (job.entriesDone ?? 0) === 0) ? (
+              {job.entriesTotal && !fileLabel && !(job.phase === "queued" && (job.entriesDone ?? 0) === 0) ? (
                 <span>{t("{done}/{total} files", { done: job.entriesDone ?? 0, total: job.entriesTotal })}</span>
               ) : null}
             </>
@@ -613,8 +622,14 @@ function JobRow({
 
         {digestLabel && (
           <p className="mt-1 font-mono text-[10.5px] text-ink-3" title={job.verifiedSha256 ?? undefined}>
-            {t("Archive verified · {digest}", { digest: digestLabel })}
+            {isFileManifestJob(job)
+              ? t("Files verified · {digest}", { digest: digestLabel })
+              : t("Archive verified · {digest}", { digest: digestLabel })}
           </p>
+        )}
+
+        {fallbackLabel && (
+          <p className="mt-1 text-[11px] leading-snug text-signal-text">{fallbackLabel}</p>
         )}
 
         <div className="mt-2 flex flex-wrap items-center gap-x-1 gap-y-1">

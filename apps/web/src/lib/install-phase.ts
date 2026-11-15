@@ -20,6 +20,9 @@ export const UNKNOWN_EXTRACTION_PERCENT = 150;
 /** True while the archive is being re-hashed before extraction (#223). */
 export const isVerifyingJob = (job: InstallJob): boolean => job.phase === "verifying";
 
+/** True when the job downloads the server's files instead of an archive (#231). */
+export const isFileManifestJob = (job: InstallJob): boolean => job.fileManifest === true;
+
 /** True while the job waits for its disk reservation (#222). */
 export const isWaitingForSpaceJob = (job: InstallJob): boolean => job.phase === "waitingForSpace";
 
@@ -47,9 +50,30 @@ export function jobDisplaySpeed(job: InstallJob, smoothed?: number): number {
   return smoothed ?? job.speedBps;
 }
 
+/** "Downloading files 12/340" — no archive is written on this device (#231). */
+export function fileManifestLabel(job: InstallJob): string | null {
+  if (!isFileManifestJob(job) || job.phase !== "downloading") return null;
+  const total = job.entriesTotal ?? 0;
+  if (total <= 0) return t("Downloading files");
+  return t("Downloading files {done}/{total}", { done: job.entriesDone ?? 0, total });
+}
+
+/** The visible reason a file-manifest attempt fell back to the archive (#231). */
+export function manifestFallbackLabel(job: InstallJob): string | null {
+  if (job.manifestFallback !== true) return null;
+  return t("The server could not serve the file manifest; this install used the classic archive instead.");
+}
+
 /** "Verifying archive (42.5 GiB of 96.3 GiB)" while the rehash runs. */
 export function verifyingLabel(job: InstallJob): string | null {
   if (!isVerifyingJob(job)) return null;
+  // #231: the per-file digest check reports files, not archive bytes.
+  if (isFileManifestJob(job) && job.entriesTotal) {
+    return t("Verifying files ({done}/{total})", {
+      done: job.entriesDone ?? 0,
+      total: job.entriesTotal,
+    });
+  }
   if (job.bytesTotal && job.bytesTotal > 0) {
     return t("Verifying archive ({done} of {total})", {
       done: formatBytes(job.bytesDone),

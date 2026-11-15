@@ -12,6 +12,7 @@ mod console;
 mod db;
 mod diagnostics;
 mod elevate;
+mod file_manifest;
 mod game_config;
 mod game_executables;
 mod install;

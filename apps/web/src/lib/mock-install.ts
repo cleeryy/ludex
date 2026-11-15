@@ -171,6 +171,8 @@ function job(
     prefetching: false,
     space: null,
     verifiedSha256: null,
+    fileManifest: false,
+    manifestFallback: false,
   };
 }
 
@@ -415,6 +417,7 @@ const DEFAULT_SETTINGS: LocalSettings = {
   ],
   serverPort: 0,
   streamInstall: true,
+  installTransport: "classic",
   downloadStaging: "configured",
   keepArchives: false,
   archivePasswords: [],
@@ -562,6 +565,8 @@ export const mockInstalls = {
       prefetching: false,
       space: null,
       verifiedSha256: null,
+      fileManifest: false,
+      manifestFallback: false,
     };
     phaseEnds.set(id, now() + 1500);
     jobs = [next, ...jobs];
