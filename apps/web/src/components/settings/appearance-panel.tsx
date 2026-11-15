@@ -7,6 +7,7 @@ import { useToast } from "@/state/toasts";
 import { Badge, Button, Textarea } from "@/components/ui/controls";
 import { BigPictureLayoutPanel } from "@/components/big-picture/layout-panel";
 import { BigPictureSoundPanel } from "@/components/big-picture/sound-panel";
+import { ConsoleAppearancePanel } from "@/components/settings/console-appearance-panel";
 import { AA_FOCUS, AA_TEXT, ensureContrast, normalizeHex } from "@/theme/contrast";
 import { applyAccent, applyTint } from "@/theme/derive";
 import { BUILTIN_THEMES, builtinTheme, cssVarsFor, isBuiltinThemeId } from "@/theme/registry";
@@ -28,6 +29,8 @@ function themeLabel(id: BuiltinThemeId): string {
       return t("Midnight");
     case "light":
       return t("Paper");
+    case "soft":
+      return t("Soft");
     case "nord":
       return t("Nord");
     case "gruvbox":
@@ -54,7 +57,7 @@ function issueMessage(issue: ThemeIssue): string {
     case "bad-name":
       return t("The theme name must be between 1 and 48 characters.");
     case "bad-base":
-      return t("“{base}” is not a base theme. Use midnight, light, nord, gruvbox or amber.", {
+      return t("“{base}” is not a base theme. Use midnight, light, soft, nord, gruvbox or amber.", {
         base: issue.base ?? "",
       });
     case "bad-mode":
@@ -600,6 +603,8 @@ export function AppearancePanel() {
       </section>
 
       <BigPictureLayoutPanel />
+
+      <ConsoleAppearancePanel />
 
       <BigPictureSoundPanel />
 

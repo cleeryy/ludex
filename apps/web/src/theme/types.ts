@@ -50,7 +50,7 @@ export const COLOR_TOKEN_KEYS: readonly ThemeTokenKey[] = THEME_TOKEN_KEYS.filte
 );
 
 export type ThemeMode = "dark" | "light";
-export type BuiltinThemeId = "midnight" | "light" | "nord" | "gruvbox" | "amber";
+export type BuiltinThemeId = "midnight" | "light" | "soft" | "nord" | "gruvbox" | "amber";
 export type CustomThemeId = `custom:${string}`;
 export type ThemeSelection = "system" | BuiltinThemeId | CustomThemeId;
 

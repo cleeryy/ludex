@@ -90,7 +90,7 @@ export function GridLayout({
 
       <ShelfTabs nav={nav} />
 
-      <section className="bp-grid min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6 pt-4 scroll-pb-8 bp-pad-x" aria-label={t("Games")}>
+      <section className="bp-content bp-grid min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6 pt-4 scroll-pb-8 bp-pad-x" aria-label={t("Games")}>
         <motion.div
           key={nav.shelf?.id ?? "shelf"}
           className="grid gap-3 xl:gap-4"

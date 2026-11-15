@@ -86,7 +86,7 @@ export function LayoutPicker({
       transition={{ duration: reduceMotion ? REDUCED_FADE : MOTION_DURATION.fast }}
     >
       <motion.div
-        className="w-[min(1000px,94vw)] border border-line-2 bg-bg-deep p-5 shadow-palette"
+        className="bp-sheet w-[min(1000px,94vw)] p-5 shadow-palette"
         onClick={(event) => event.stopPropagation()}
         role="group"
         aria-label={t("Console layout")}
@@ -124,7 +124,7 @@ export function LayoutPicker({
                 onPointerEnter={() => onHighlight(position)}
                 aria-pressed={active}
                 className={cn(
-                  "flex flex-col gap-1.5 border p-1.5 text-start transition-colors duration-150",
+                  "flex flex-col gap-1.5 rounded-[var(--bp-radius-sm)] border p-1.5 text-start transition-colors duration-150",
                   focused ? "border-signal bg-surface-2" : "border-line hover:border-line-2 hover:bg-surface",
                 )}
               >

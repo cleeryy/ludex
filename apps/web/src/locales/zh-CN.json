@@ -5,7 +5,6 @@
   " and ": " 和 ",
   " or ": " 或 ",
   "…and {count} more": "…以及 {count} 更多",
-  "“{base}” is not a base theme. Use midnight, light, nord, gruvbox or amber.": "“{base}”不是基础主题。请使用 midnight、light、nord、gruvbox 或 amber。",
   "“{collection}” will be removed. The games stay in the library.": "“{collection}”将被删除。游戏留在库里。",
   "“{foreground}” on “{background}” is {ratio}:1; it needs {min}:1.": "“{background}”上的“{foreground}”为 {ratio}:1；它需要 {min}:1。",
   "“{name}” is now the active theme.": "“{name}”现在是活动主题。",

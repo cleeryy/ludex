@@ -5,7 +5,6 @@
   " and ": " と ",
   " or ": " または ",
   "…and {count} more": "…そして{count} 詳細",
-  "“{base}” is not a base theme. Use midnight, light, nord, gruvbox or amber.": "「{base}」はベーステーマではありません。midnight、light、nord、gruvbox、amber のいずれかを使用してください。",
   "“{collection}” will be removed. The games stay in the library.": "「{collection}」は削除されます。ゲームはライブラリに残ります。",
   "“{foreground}” on “{background}” is {ratio}:1; it needs {min}:1.": "「{background}」の「{foreground}」は {ratio}:1 です。 {min}:1 が必要です。",
   "“{name}” is now the active theme.": "「{name}」がアクティブなテーマになりました。",

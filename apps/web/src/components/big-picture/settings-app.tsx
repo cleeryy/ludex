@@ -105,13 +105,13 @@ export function SettingsApp({
       <div className="shrink-0 pb-0 pt-4 bp-pad-x sm:pt-5">
         <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-2">
           <div className="min-w-0">
-            <p className="font-mono text-[9.5px] uppercase tracking-[0.18em] text-signal">{t("System")}</p>
+            <p className="font-mono text-[9.5px] uppercase tracking-[0.18em] text-signal-text">{t("System")}</p>
             <h1 className="mt-1 text-[clamp(1.7rem,3vw,2.8rem)] font-semibold leading-[0.95] tracking-[-0.04em] text-ink">
               {t("Settings")}
             </h1>
           </div>
           {(accountName || serverLabel) && (
-            <div className="flex min-w-0 items-center gap-2.5 border border-line bg-bg-deep px-3 py-2">
+            <div className="bp-panel flex min-w-0 items-center gap-2.5 px-3 py-2">
               {accountName && <UserAvatar name={accountName} src={accountAvatar} size={26} />}
               <span className="min-w-0">
                 {accountName && (
@@ -131,7 +131,7 @@ export function SettingsApp({
 
         <p className="mt-2 max-w-[76ch] text-[12.5px] leading-relaxed text-ink-2">{meta.description()}</p>
 
-        <div role="group" aria-label={t("Settings")} className="mt-4 flex items-stretch gap-1 border-b border-line">
+        <div role="group" aria-label={t("Settings")} className="bp-tabs-strip mt-4 flex items-stretch gap-1 border-b border-line">
           {SETTINGS_SECTIONS.map((id) => {
             const tab = SETTINGS_SECTION_META[id];
             const Icon = tab.icon;
@@ -142,12 +142,11 @@ export function SettingsApp({
                 type="button"
                 tabIndex={-1}
                 aria-current={selected ? "true" : undefined}
+                data-bp-tab-active={selected ? "true" : undefined}
                 onClick={() => onSelectSection(id)}
                 className={cn(
-                  "inline-flex h-10 shrink-0 items-center gap-2 border-b-2 px-2.5 text-[12.5px] transition-colors duration-150",
-                  selected
-                    ? "border-signal text-ink"
-                    : "border-transparent text-ink-3 hover:text-ink-2",
+                  "bp-tab inline-flex h-10 shrink-0 items-center gap-2 px-2.5 text-[12.5px]",
+                  selected ? "text-ink" : "text-ink-3 hover:text-ink-2",
                 )}
               >
                 <Icon className={cn("size-3.5", selected ? "text-signal-text" : "text-ink-3")} aria-hidden="true" />
@@ -181,15 +180,14 @@ export function SettingsApp({
                       type="button"
                       data-system-active={selected ? "true" : undefined}
                       data-gamepad-target="true"
+                      data-bp-settings-row="true"
                       aria-current={selected ? "true" : undefined}
                       aria-disabled={disabled ? "true" : undefined}
                       aria-label={row.value ? `${row.label}: ${row.value}` : row.label}
                       onPointerEnter={() => onHighlight(index)}
                       onClick={() => onActivate(index)}
                       className={cn(
-                        "flex min-h-[58px] w-full items-center gap-4 border-b border-line px-2 py-2.5 text-start transition-colors duration-100 sm:min-h-[64px] sm:px-3",
-                        selected && "border-signal bg-surface-2",
-                        !selected && "hover:bg-surface/50",
+                        "bp-row mb-0.5 flex min-h-[58px] w-full items-center gap-4 px-2 py-2.5 text-start sm:min-h-[64px] sm:px-3",
                         disabled && "opacity-55",
                       )}
                     >
@@ -201,7 +199,7 @@ export function SettingsApp({
                       </span>
                       <span className="flex shrink-0 items-center justify-end gap-2">
                         {row.kind === "choice" && (
-                          <span className="flex items-center gap-1.5 border border-line bg-bg-deep px-2 py-1 text-[12px] text-ink-2">
+                          <span className="bp-panel flex items-center gap-1.5 px-2 py-1 text-[12px] text-ink-2">
                             <ChevronLeft className={cn("size-3.5", disabled ? "text-ink-3/50" : "text-ink-3")} aria-hidden="true" />
                             <span className="min-w-[9ch] max-w-[18ch] truncate text-center">{row.value}</span>
                             <ChevronRight className={cn("size-3.5", disabled ? "text-ink-3/50" : "text-ink-3")} aria-hidden="true" />
@@ -210,7 +208,7 @@ export function SettingsApp({
                         {row.kind === "toggle" && (
                           <span
                             className={cn(
-                              "border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.1em]",
+                              "rounded-[var(--bp-radius-pill)] border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.1em]",
                               row.value === t("On")
                                 ? "border-signal text-signal-text"
                                 : "border-line text-ink-3",
@@ -235,7 +233,7 @@ export function SettingsApp({
         </motion.div>
       </div>
 
-      <dl className="grid shrink-0 grid-cols-2 gap-x-6 gap-y-2 border-t border-line bg-bg-deep/40 py-3 bp-pad-x md:grid-cols-4">
+      <dl className="grid shrink-0 grid-cols-2 gap-x-6 gap-y-2 border-t py-3 bp-chrome bp-pad-x md:grid-cols-4">
         {[
           { label: t("Version"), value: `v${version}`, numeric: true },
           { label: t("Server"), value: serverLabel ?? t("Unavailable"), numeric: false },

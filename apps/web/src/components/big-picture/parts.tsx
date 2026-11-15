@@ -115,7 +115,7 @@ export function ShelfTabs({
       aria-label={t("Shelves")}
       className={cn(
         "nav-scroll flex shrink-0 items-stretch gap-1 overflow-x-auto",
-        dense ? "h-9 px-0" : "h-11 border-b border-line bp-pad-x",
+        dense ? "h-9 px-0" : "bp-tabs-strip h-11 border-b border-line bp-pad-x",
         className,
       )}
     >
@@ -126,11 +126,12 @@ export function ShelfTabs({
             key={shelf.id}
             type="button"
             aria-pressed={active}
+            data-bp-tab-active={active ? "true" : undefined}
             onClick={() => nav.selectShelf(position)}
             className={cn(
-              "inline-flex shrink-0 items-center gap-2 border-b-2 transition-colors duration-150",
+              "bp-tab inline-flex shrink-0 items-center gap-2",
               dense ? "px-2 text-[12px]" : "h-full px-3 text-[12.5px]",
-              active ? "border-signal text-ink" : "border-transparent text-ink-3 hover:text-ink-2",
+              active ? "text-ink" : "text-ink-3 hover:text-ink-2",
             )}
           >
             <span>{shelf.label}</span>
@@ -163,12 +164,15 @@ function InstalledDot({ className }: { className?: string }) {
  * off both the global gamepad mark and `:focus-visible` on them so a pad move
  * can never paint a second ring over this one.
  */
-function FocusRing() {
+function FocusRing({ overArt = false }: { overArt?: boolean }) {
   return (
     <span
       aria-hidden="true"
       data-bp-focus-ring="true"
-      className="pointer-events-none absolute -inset-[4px] z-10 rounded-[2px] ring-2 ring-signal ring-offset-2 ring-offset-stage"
+      className={cn(
+        "pointer-events-none absolute -inset-[4px] z-10 rounded-[var(--bp-radius-sm)] ring-2 ring-signal ring-offset-2",
+        overArt ? "ring-offset-stage" : "ring-offset-bg-deep",
+      )}
     />
   );
 }
@@ -223,6 +227,10 @@ export function RailCard({
 }) {
   const look = RAIL_CARD_VARIANTS[variant];
   const captionVisible = look.caption === "always" || selected;
+  // Dock and Spotlight paint their captions over the artwork; Shelf, Grid and
+  // Hero paint them on the chrome. A light palette must not put ink on box art,
+  // so the two over-art variants use the stage text tokens (#229).
+  const overArt = variant !== "rail";
   return (
     <button
       type="button"
@@ -233,20 +241,26 @@ export function RailCard({
       aria-current={selected ? "true" : undefined}
       aria-label={game.title}
       className={cn(
-        "group relative shrink-0 rounded-[2px] text-start bp-focus-move",
+        "group relative shrink-0 rounded-[var(--bp-radius-sm)] text-start bp-focus-move",
         selected ? look.selected : look.idle,
         className,
       )}
     >
       <div className="relative block">
         <GameCover title={game.title} coverUrl={game.coverUrl} index={game.id} showType={false} />
-        {selected && <FocusRing />}
+        {selected && <FocusRing overArt={overArt} />}
         {installed && <InstalledDot />}
       </div>
       <span
         className={cn(
           "mt-2 block truncate text-[12.5px]",
-          selected ? "text-ink" : "text-ink-3",
+          overArt
+            ? selected
+              ? "text-stage-ink"
+              : "text-stage-ink-2"
+            : selected
+              ? "text-ink"
+              : "text-ink-3",
           !captionVisible && "opacity-0 group-hover:opacity-100 group-focus:opacity-100",
         )}
       >
@@ -254,7 +268,8 @@ export function RailCard({
       </span>
       <span
         className={cn(
-          "num block truncate text-[9.5px] text-ink-3",
+          "num block truncate text-[9.5px]",
+          overArt ? "text-stage-ink-2" : "text-ink-3",
           !captionVisible && "opacity-0 group-hover:opacity-100 group-focus:opacity-100",
         )}
       >
@@ -338,8 +353,9 @@ export function CompactRow({
       onClick={() => nav.setIndex(position)}
       aria-current={selected ? "true" : undefined}
       aria-label={game.title}
+      data-bp-row="true"
       className={cn(
-        "group relative flex w-full items-center gap-3.5 border-b border-line px-4 py-2 text-start transition-colors duration-150 lg:gap-4 lg:px-5",
+        "group relative flex w-full items-center gap-3.5 px-4 py-2 text-start transition-colors duration-150 lg:gap-4 lg:px-5",
         selected ? "bg-surface-2" : "hover:bg-surface/70",
       )}
     >
@@ -465,7 +481,7 @@ export function BigPictureFooter({
   return (
     <motion.footer
       className={cn(
-        "relative flex min-h-10 shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-t border-line bg-bg-deep py-1.5 bp-pad-x text-[10.5px] text-ink-3",
+        "relative z-10 flex min-h-10 shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-t py-1.5 bp-chrome bp-pad-x text-[10.5px] text-ink-3",
         className,
       )}
       {...reveal(reduceMotion, { y: 6, delay: BOOT_DELAY.footer, duration: BOOT_DURATION })}

@@ -119,7 +119,7 @@ export function SystemBar({
   return (
     <motion.header
       aria-label={t("System")}
-      className="relative z-20 flex h-[var(--bp-bar-h)] shrink-0 items-stretch border-b border-line bg-bg-deep bp-pad-x"
+      className="relative z-20 flex h-[var(--bp-bar-h)] shrink-0 items-stretch border-b bp-chrome bp-pad-x"
       {...reveal(reduceMotion, { y: 6, delay: BOOT_DELAY.bar, duration: BOOT_DURATION })}
     >
       <div className="flex min-w-0 items-center gap-3">
@@ -134,7 +134,7 @@ export function SystemBar({
           </span>
         )}
         {consoleActive && (
-          <span className="hidden items-center gap-1.5 border border-line px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-signal-text sm:flex">
+          <span className="hidden items-center gap-1.5 rounded-[var(--bp-radius-pill)] border border-line px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-signal-text sm:flex">
             {t("console")}
           </span>
         )}
