@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ChevronLeft,
@@ -35,8 +35,18 @@ import type {
   AdminBulkPreview,
   AdminGameRow,
   AdminGameStatus,
+  ScanReport,
 } from "@/lib/types";
+import { isUnscanned } from "@/lib/virustotal";
 import { useToast } from "@/state/toasts";
+import {
+  VirusTotalCell,
+  VirusTotalLegend,
+  VirusTotalQueueStrip,
+  VirusTotalScanButton,
+  useVirusTotalQueue,
+  worstReport,
+} from "@/components/admin/virustotal-scan";
 import { EmptyState, ErrorState, PageHeader } from "@/components/page";
 import { Badge, Button, Checkbox, Field, Input, Skeleton } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
@@ -380,6 +390,52 @@ export function AdminGamesScreen() {
 
   const rows = list.data?.items ?? [];
   const counts = list.data?.counts;
+
+  // VirusTotal (#224): one cached report lookup per row, no polling. The scan
+  // queue invalidates these keys as its results land.
+  const vtQueries = useQueries({
+    queries: rows.map((row) => ({
+      queryKey: ["game-virustotal", row.id],
+      queryFn: () => api.gameVirusTotal(row.id),
+      staleTime: 60_000,
+      enabled: row.kind !== "rom" && row.availableVersionCount > 0,
+    })),
+  });
+  const vtByGame = new Map<number, ScanReport[] | undefined>(
+    rows.map((row, index) => [row.id, vtQueries[index]?.data?.versions]),
+  );
+  const queue = useVirusTotalQueue();
+  const queueRunning = Boolean(queue.queue && queue.remaining > 0);
+
+  // The strip disappears with the last scan; the result of the run is the
+  // table itself, so the toast only says the queue drained.
+  const finishedQueue = !queueRunning ? queue.queue : null;
+  useEffect(() => {
+    if (!finishedQueue) return;
+    push({
+      title: t("VirusTotal scan queue finished"),
+      description:
+        finishedQueue.failed > 0
+          ? t("{done} scanned, {failed} failed. Rescan the failed ones when you want.", {
+              done: finishedQueue.done,
+              failed: finishedQueue.failed,
+            })
+          : t("{count} archives scanned. Verdicts come from the report cache.", { count: finishedQueue.done }),
+      tone: finishedQueue.failed > 0 ? "danger" : "success",
+    });
+    queue.cancel();
+    // `queue.cancel` is stable and `push` comes from a context with no deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finishedQueue?.startedAt]);
+  const unscannedIds = rows
+    .filter(
+      (row) =>
+        row.kind !== "rom" &&
+        row.availableVersionCount > 0 &&
+        isUnscanned(worstReport(vtByGame.get(row.id))),
+    )
+    .map((row) => row.id);
+
   const total = list.data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / (list.data?.limit ?? ADMIN_PAGE_SIZE)));
   const allSelected = rows.length > 0 && rows.every((row) => selected.has(row.id));
@@ -425,6 +481,19 @@ export function AdminGamesScreen() {
         }
         description={t("Find, repair and remove any game in the library. File deletions never leave the resolved library root.")}
         actions={
+          <>
+          <Button
+            variant="default"
+            size="sm"
+            icon={<RefreshCw className="size-3.5" />}
+            disabled={unscannedIds.length === 0 || queueRunning}
+            title={t("Look up the archive hash of every game on this page that has no verdict yet")}
+            onClick={() => queue.start(unscannedIds)}
+          >
+            {unscannedIds.length > 0
+              ? t("Scan unscanned ({count})", { count: unscannedIds.length })
+              : t("All scanned")}
+          </Button>
           <Button
             variant="default"
             size="sm"
@@ -445,8 +514,13 @@ export function AdminGamesScreen() {
           >
             {t("Rescan library")}
           </Button>
+          </>
         }
       />
+
+      {queue.queue && queue.remaining > 0 && (
+        <VirusTotalQueueStrip queue={queue.queue} onCancel={queue.cancel} error={queue.error} />
+      )}
 
       <div className="mt-5 flex flex-wrap items-center gap-2 border-b border-line pb-3">
         {statusTabs.map((tab) => (
@@ -527,6 +601,15 @@ export function AdminGamesScreen() {
               onClick={() => startAction("refresh_metadata", [...selected])}
             >
               {t("Refresh metadata")}
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              icon={<RefreshCw className="size-3.5" />}
+              disabled={queueRunning}
+              onClick={() => queue.start([...selected])}
+            >
+              {t("Scan with VirusTotal")}
             </Button>
             <Button
               variant="default"
@@ -618,6 +701,7 @@ export function AdminGamesScreen() {
                 <th className="py-2 pe-3 text-end">{t("Versions")}</th>
                 <th className="py-2 pe-3 text-end">{t("Size")}</th>
                 <th className="py-2 pe-3 text-end">{t("Installed")}</th>
+                <th className="py-2 pe-3">{t("VirusTotal")}</th>
                 <th className="py-2 pe-3">{t("Updated")}</th>
                 <th className="w-20 py-2 text-end">{t("Actions")}</th>
               </tr>
@@ -657,16 +741,37 @@ export function AdminGamesScreen() {
                   </td>
                   <td className="num py-1.5 pe-3 text-end text-ink-2">{formatBytes(row.totalSize)}</td>
                   <td className="num py-1.5 pe-3 text-end text-ink-2">{row.installedReports}</td>
+                  <td className="py-1.5 pe-3">
+                    {row.kind === "rom" || row.availableVersionCount === 0 ? (
+                      <span className="text-[11px] text-ink-3">—</span>
+                    ) : (
+                      <VirusTotalCell
+                        reports={vtByGame.get(row.id)}
+                        scanning={Boolean(queue.queue?.ids.includes(row.id) && queueRunning)}
+                        onScan={() => queue.start([row.id])}
+                      />
+                    )}
+                  </td>
                   <td className="py-1.5 pe-3 text-ink-3">{formatRelative(row.updatedAt)}</td>
                   <td className="py-1.5 text-end">
-                    <Button variant="ghost" size="sm" onClick={() => setDrawer(row)}>
-                      {t("Details")}
-                    </Button>
+                    <div className="flex items-center justify-end gap-1">
+                      {row.kind !== "rom" && row.availableVersionCount > 0 && (
+                        <VirusTotalScanButton
+                          scanning={Boolean(queue.queue?.ids.includes(row.id) && queueRunning)}
+                          disabled={queueRunning}
+                          onClick={() => queue.start([row.id])}
+                        />
+                      )}
+                      <Button variant="ghost" size="sm" onClick={() => setDrawer(row)}>
+                        {t("Details")}
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <VirusTotalLegend />
         </div>
       )}
 

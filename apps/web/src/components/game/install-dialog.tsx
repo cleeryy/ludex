@@ -19,6 +19,7 @@ import {
 import { Button, Progress } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { Dialog } from "@/components/ui/dialog";
+import { VirusTotalArchiveWarning } from "@/components/game/virustotal";
 import { t, tn } from "@/lib/i18n";
 
 /** Keep in sync with `locations::FREE_SPACE_RESERVE_BYTES` (#99). */
@@ -371,6 +372,9 @@ export function InstallDialog({
           </div>
         </dl>
         <p className="text-[11.5px] leading-relaxed text-ink-3">{peakEstimateLabel(estimate, archiveOnInstallVolume)}</p>
+
+        {/* #224: advisory only. A malicious archive is loud, never blocking. */}
+        <VirusTotalArchiveWarning gameId={game.id} versionId={version.id} />
 
         {rollback && (
           <p className="border-l-2 border-signal pl-3 text-[12px] leading-relaxed text-signal-text">

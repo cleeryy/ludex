@@ -43,6 +43,8 @@ export function navLabel(destination: NavDestination): string {
       return t("News editor");
     case "metadata":
       return t("Metadata providers");
+    case "integrations":
+      return t("Integrations");
     case "authentication":
       return t("Authentication");
     case "observability":

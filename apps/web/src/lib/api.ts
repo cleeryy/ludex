@@ -107,6 +107,13 @@ import type {
   UploadSession,
   User,
   UserAchievements,
+  GameVirusTotalResponse,
+  VirusTotalIntegration,
+  VirusTotalKeyInput,
+  VirusTotalScanRequest,
+  VirusTotalScanResponse,
+  VirusTotalTestResult,
+  VirusTotalUploadRequest,
 } from "@/lib/types";
 
 /* --------------------------------------------------------------------------
@@ -409,6 +416,59 @@ export const api = {
     return USING_MOCKS
       ? mockApi.testMetadataProvider(tokenStore.get(), id, body)
       : request<ProviderTestResult>(`/admin/metadata-providers/${id}/test`, { method: "POST", body });
+  },
+
+  /* admin VirusTotal (#224) */
+  adminVirusTotal(): Promise<VirusTotalIntegration> {
+    return USING_MOCKS
+      ? mockApi.adminVirusTotal(tokenStore.get())
+      : request<VirusTotalIntegration>("/admin/integrations/virustotal");
+  },
+  saveVirusTotalKey(body: VirusTotalKeyInput): Promise<VirusTotalIntegration> {
+    return USING_MOCKS
+      ? mockApi.saveVirusTotalKey(tokenStore.get(), body)
+      : request<VirusTotalIntegration>("/admin/integrations/virustotal", { method: "PUT", body });
+  },
+  deleteVirusTotalKey(): Promise<VirusTotalIntegration> {
+    return USING_MOCKS
+      ? mockApi.deleteVirusTotalKey(tokenStore.get())
+      : request<VirusTotalIntegration>("/admin/integrations/virustotal", { method: "DELETE" });
+  },
+  /**
+   * Checks the key. `apiKey` is only sent for an unsaved key: the form tests
+   * what is typed before replacing a working key.
+   */
+  testVirusTotalKey(apiKey?: string): Promise<VirusTotalTestResult> {
+    const body = apiKey?.trim() ? { apiKey: apiKey.trim() } : undefined;
+    return USING_MOCKS
+      ? mockApi.testVirusTotalKey(tokenStore.get(), body)
+      : request<VirusTotalTestResult>("/admin/integrations/virustotal/test", { method: "POST", body });
+  },
+  scanVirusTotal(body: VirusTotalScanRequest): Promise<VirusTotalScanResponse> {
+    return USING_MOCKS
+      ? mockApi.scanVirusTotal(tokenStore.get(), body)
+      : request<VirusTotalScanResponse>("/admin/virustotal/scan", { method: "POST", body });
+  },
+  /**
+   * Public-sharing upload of one archive (#224). Gated in the UI by consent and
+   * the size limit; the request repeats the consent so the server can refuse
+   * a call that was not made from the warning dialog.
+   */
+  uploadVirusTotalVersion(body: VirusTotalUploadRequest): Promise<VirusTotalScanResponse> {
+    const payload = {
+      versionId: body.versionId,
+      mode: "upload" as const,
+      confirmUpload: true,
+      iUnderstand: body.iUnderstand,
+    };
+    return USING_MOCKS
+      ? mockApi.uploadVirusTotalVersion(tokenStore.get(), body)
+      : request<VirusTotalScanResponse>("/admin/virustotal/scan", { method: "POST", body: payload });
+  },
+  gameVirusTotal(gameId: number): Promise<GameVirusTotalResponse> {
+    return USING_MOCKS
+      ? mockApi.gameVirusTotal(tokenStore.get(), gameId)
+      : request<GameVirusTotalResponse>(`/games/${gameId}/virustotal`);
   },
 
   /* admin backups (#169) */

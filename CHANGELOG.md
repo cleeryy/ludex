@@ -6,6 +6,20 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- VirusTotal scanning (#224): admins store a VirusTotal API key (AES-GCM at
+  rest, `LUDEX_VIRUSTOTAL_API_KEY` override, masked fingerprint, test/save/
+  delete), scan archives by their full SHA-256 (nothing uploaded by default)
+  with a persisted 4/min + 500/day budget, cache TTLs, single-flight dedupe and
+  distinct invalid-key/quota/outage errors. Verdicts are
+  clean/suspicious/malicious/not_found/unknown and never turn unknown into
+  clean; audit `game.scanned`. The UI shows a badge and a detail popover (stats,
+  top detections, permalink, Scan now), an admin Integrations page with quota, a
+  Scan action/column and "Scan unscanned" queue in Admin → Games, an explicit
+  per-file upload (≤32 MB direct / ≤650 MB via upload URL, consent-gated, never
+  automatic), and a non-blocking warning before installing a flagged archive.
+
 ## [0.4.10] - 2026-11-15
 
 ### Added

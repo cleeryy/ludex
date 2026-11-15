@@ -115,6 +115,17 @@ import type {
   Role,
   SaveSnapshot,
   ScanStatus,
+  ScanReport,
+  VirusTotalDetection,
+  VirusTotalIntegration,
+  VirusTotalKeyInput,
+  VirusTotalScanRequest,
+  VirusTotalScanResponse,
+  VirusTotalStats,
+  VirusTotalTestResult,
+  VirusTotalUploadRequest,
+  GameVersion,
+  GameVirusTotalResponse,
   ServerAdminSettings,
   ServerConfig,
   SocialUser,
@@ -1094,6 +1105,210 @@ let demoProviders: MetadataProvider[] = [
     updatedAt: "2026-10-11T16:40:00Z",
   },
 ];
+
+/* ------------------------- VirusTotal demo (#224) ------------------------ */
+
+/**
+ * Demo switch, like the other `ludex.demo.*` keys. Unset means "mixed": the
+ * verdict is derived from the version id, so one library shows every badge.
+ */
+const STORAGE_VT = "ludex.demo.virustotal";
+
+const DEMO_VT_SCENARIOS = [
+  "clean",
+  "suspicious",
+  "malicious",
+  "not_found",
+  "unknown",
+  "disabled",
+  "quota_exceeded",
+  "error",
+] as const;
+
+type DemoVtScenario = (typeof DEMO_VT_SCENARIOS)[number];
+
+function demoVtScenario(): DemoVtScenario | "mixed" {
+  try {
+    const value = localStorage.getItem(STORAGE_VT);
+    return value && (DEMO_VT_SCENARIOS as readonly string[]).includes(value)
+      ? (value as DemoVtScenario)
+      : "mixed";
+  } catch {
+    return "mixed";
+  }
+}
+
+/** Same engine total VirusTotal reports for a typical archive. */
+const DEMO_VT_ENGINES_TOTAL = 72;
+
+const DEMO_VT_ENGINES = [
+  "Kaspersky",
+  "Microsoft",
+  "ESET-NOD32",
+  "CrowdStrike Falcon",
+  "Google",
+  "Fortinet",
+  "BitDefenderTheta",
+];
+
+const DEMO_VT_RESULTS = [
+  "Trojan.Win32.Agent",
+  "Wacatac.B!ml",
+  "PUA:Win32/Packunwan",
+  "Gen:Variant.Tedy",
+  "Win32:Evo-gen",
+];
+
+/** Demo key state; `null` key = feature disabled, as with no server key. */
+let demoVtKey: {
+  apiKey: string;
+  fingerprint: string;
+  addedAt: string;
+  lastUsedAt: string | null;
+  lastError: string | null;
+} | null = {
+  apiKey: "demo-virustotal-key-4f2a",
+  fingerprint: "...4f2a",
+  addedAt: "2026-11-02T08:14:00Z",
+  lastUsedAt: null,
+  lastError: null,
+};
+
+/**
+ * Reports produced by "Scan now" / bulk scan; keyed by version id. The scenario
+ * is kept with the report so flipping the demo switch shows the new state
+ * instead of a stale cached verdict.
+ */
+const demoVtReports = new Map<number, { scenario: DemoVtScenario; report: ScanReport }>();
+
+function demoSha256(seed: string): string {
+  let hash = hashString(seed);
+  let out = "";
+  for (let index = 0; index < 8; index += 1) {
+    hash = (hash * 1103515245 + 12345 + index * 7919) >>> 0;
+    out += hash.toString(16).padStart(8, "0");
+  }
+  return out.slice(0, 64);
+}
+
+function demoVtPermalink(sha256: string): string {
+  return `https://www.virustotal.com/gui/file/${sha256}`;
+}
+
+/** Scenario each version gets: the switch wins, otherwise a stable mix. */
+function demoVtScenarioFor(versionId: number): DemoVtScenario {
+  const scenario = demoVtScenario();
+  if (scenario !== "mixed") return scenario;
+  const pick = hashString(`vt-${versionId}`) % 8;
+  // One `unknown` in eight keeps the "we could not check" state visible without
+  // making a third of the demo library look permanently unscanned.
+  return (["clean", "clean", "not_found", "malicious", "suspicious", "clean", "unknown", "not_found"] as const)[pick];
+}
+
+function demoVtStats(verdict: DemoVtScenario): VirusTotalStats {
+  const empty: VirusTotalStats = { malicious: 0, suspicious: 0, undetected: 0, harmless: 0, timeout: 0, failure: 0 };
+  switch (verdict) {
+    case "clean":
+      return { ...empty, undetected: 5, harmless: DEMO_VT_ENGINES_TOTAL - 5 };
+    case "suspicious":
+      return { malicious: 0, suspicious: 3, undetected: 9, harmless: 60, timeout: 0, failure: 0 };
+    case "malicious":
+      return { malicious: 7, suspicious: 2, undetected: 12, harmless: 51, timeout: 0, failure: 0 };
+    default:
+      return empty;
+  }
+}
+
+function demoVtReason(verdict: DemoVtScenario): string | null {
+  switch (verdict) {
+    case "not_found":
+      return "VirusTotal has never seen this hash";
+    case "unknown":
+      return "VirusTotal returned 503 while looking this hash up";
+    case "disabled":
+      return "No VirusTotal API key is configured";
+    case "quota_exceeded":
+      return "429 QuotaExceededError: the daily limit is used up";
+    case "error":
+      return "The lookup timed out after 10 s";
+    default:
+      return null;
+  }
+}
+
+function demoVtDetections(verdict: DemoVtScenario): VirusTotalDetection[] {
+  const count = verdict === "malicious" ? 7 : verdict === "suspicious" ? 3 : 0;
+  return DEMO_VT_ENGINES.slice(0, count).map((engine, index) => ({
+    engine,
+    category: verdict === "suspicious" ? "suspicious" : "malicious",
+    result: DEMO_VT_RESULTS[index % DEMO_VT_RESULTS.length],
+    version: "24.1.2",
+  }));
+}
+
+function demoVtReport(gameId: number, version: GameVersion, fresh = false): ScanReport {
+  const scenario = demoVtScenarioFor(version.id);
+  const cached = demoVtReports.get(version.id);
+  if (cached && cached.scenario === scenario && !fresh) return clone(cached.report);
+  const sha256 = demoSha256(version.fileName);
+  const checkedAt = fresh
+    ? nowIso()
+    : new Date(Date.now() - 1000 * 60 * 60 * 26 - (gameId % 7) * 3_600_000).toISOString();
+  const known = scenario === "clean" || scenario === "suspicious" || scenario === "malicious";
+  const report: ScanReport = {
+    versionId: version.id,
+    sha256,
+    verdict: scenario,
+    stats: demoVtStats(scenario),
+    checkedAt,
+    source: fresh ? "api" : "cache",
+    permalink: known ? demoVtPermalink(sha256) : null,
+    meaningfulName: known ? version.fileName : null,
+    lastAnalysisDate: known ? checkedAt : null,
+    detections: demoVtDetections(scenario),
+    reason: demoVtReason(scenario),
+  };
+  demoVtReports.set(version.id, { scenario, report });
+  if (fresh && demoVtKey) demoVtKey.lastUsedAt = checkedAt;
+  return clone(report);
+}
+
+function demoVtIntegration(): VirusTotalIntegration {
+  const scenario = demoVtScenario();
+  const configured = scenario !== "disabled" && demoVtKey !== null;
+  const usedToday = scenario === "quota_exceeded" ? 500 : configured ? 137 : 0;
+  return {
+    configured,
+    source: configured ? "database" : "none",
+    fingerprint: configured ? demoVtKey?.fingerprint ?? null : null,
+    addedAt: configured ? demoVtKey?.addedAt ?? null : null,
+    lastUsedAt: configured ? demoVtKey?.lastUsedAt ?? null : null,
+    lastError:
+      scenario === "quota_exceeded"
+        ? "429 QuotaExceededError: the public API allows 500 lookups per day"
+        : scenario === "error"
+          ? "503 Service Unavailable from www.virustotal.com"
+          : scenario === "unknown"
+            ? "401 Wrong API key: check the key in VirusTotal → API key"
+            : configured
+              ? demoVtKey?.lastError ?? null
+              : null,
+    quota: {
+      dailyLimit: 500,
+      usedToday,
+      remaining: Math.max(0, 500 - usedToday),
+      resetAt: new Date(new Date().setUTCHours(24, 0, 0, 0)).toISOString(),
+    },
+  };
+}
+
+function demoGameForVersion(versionId: number): { game: GameDetail; version: GameVersion } | null {
+  for (const game of games) {
+    const version = game.versions.find((entry) => entry.id === versionId);
+    if (version) return { game, version };
+  }
+  return null;
+}
 
 function demoProviderCandidates(title: string): ProviderCandidate[] {
   return [
@@ -3269,6 +3484,113 @@ export const mockApi = {
       return { ok: false, candidates: [], error: "The demo provider is disabled; enable it to test it.", elapsedMs: 42 };
     }
     return { ok: true, candidates: demoProviderCandidates(title), statusCode: 200, elapsedMs: 128 };
+  },
+
+  /* admin VirusTotal (#224) */
+  async adminVirusTotal(token: string | null): Promise<VirusTotalIntegration> {
+    await latency();
+    requireDemoAdmin(token);
+    return demoVtIntegration();
+  },
+
+  async saveVirusTotalKey(token: string | null, body: VirusTotalKeyInput): Promise<VirusTotalIntegration> {
+    await latency();
+    requireDemoAdmin(token);
+    const apiKey = body.apiKey.trim();
+    if (apiKey.length < 20) fail(400, "invalid_virustotal_key", "A VirusTotal API key is 64 hexadecimal characters");
+    if (apiKey.toLowerCase().includes("invalid")) {
+      fail(400, "invalid_virustotal_key", "VirusTotal rejected this key (401)");
+    }
+    demoVtKey = {
+      apiKey,
+      fingerprint: `...${apiKey.slice(-4)}`,
+      addedAt: nowIso(),
+      lastUsedAt: null,
+      lastError: null,
+    };
+    return demoVtIntegration();
+  },
+
+  async deleteVirusTotalKey(token: string | null): Promise<VirusTotalIntegration> {
+    await latency();
+    requireDemoAdmin(token);
+    demoVtKey = null;
+    demoVtReports.clear();
+    return demoVtIntegration();
+  },
+
+  async testVirusTotalKey(
+    token: string | null,
+    body?: { apiKey?: string },
+  ): Promise<VirusTotalTestResult> {
+    await latency();
+    requireDemoAdmin(token);
+    const apiKey = body?.apiKey?.trim() || demoVtKey?.apiKey;
+    if (!apiKey) return { ok: false, message: "No key stored yet: paste a key first" };
+    if (apiKey.toLowerCase().includes("invalid")) {
+      return { ok: false, message: "401 Wrong API key: VirusTotal rejected this key" };
+    }
+    return { ok: true, message: "Key accepted · 500 lookups per day, 4 per minute" };
+  },
+
+  async scanVirusTotal(token: string | null, body: VirusTotalScanRequest): Promise<VirusTotalScanResponse> {
+    await latency();
+    requireDemoAdmin(token);
+    const scenario = demoVtScenario();
+    if (!demoVtKey || scenario === "disabled") {
+      fail(409, "virustotal_disabled", "No VirusTotal API key is configured");
+    }
+    const targets: { game: GameDetail; version: GameVersion }[] = [];
+    if (body.versionId != null) {
+      const found = demoGameForVersion(body.versionId);
+      if (!found) fail(404, "version_not_found", "Unknown version");
+      targets.push(found);
+    } else if (body.gameId != null) {
+      const game = games.find((entry) => entry.id === body.gameId);
+      if (!game) fail(404, "game_not_found", "Unknown game");
+      targets.push(...game.versions.map((version) => ({ game, version })));
+    } else {
+      fail(400, "scan_target_required", "Provide a gameId or a versionId");
+    }
+    const reports = targets.map(({ game, version }) => {
+      // A quota-exhausted or failing API still returns a report per version:
+      // the UI shows the reason, never a green badge.
+      return demoVtReport(game.id, version, true);
+    });
+    return { scans: reports };
+  },
+
+  async uploadVirusTotalVersion(
+    token: string | null,
+    body: VirusTotalUploadRequest,
+  ): Promise<VirusTotalScanResponse> {
+    await latency();
+    requireDemoAdmin(token);
+    if (body.iUnderstand !== "public-sharing") {
+      fail(422, "upload_consent_required", "Uploading needs the public-sharing confirmation");
+    }
+    if (!demoVtKey) fail(409, "virustotal_disabled", "No VirusTotal API key is configured");
+    const found = demoGameForVersion(body.versionId);
+    if (!found) fail(404, "version_not_found", "Unknown version");
+    if (found.version.size > 650 * MB) {
+      fail(
+        413,
+        "upload_too_large",
+        "This archive is larger than the 650 MB upload limit; only the hash lookup is available",
+      );
+    }
+    return { scans: [demoVtReport(found.game.id, found.version, true)] };
+  },
+
+  async gameVirusTotal(token: string | null, gameId: number): Promise<GameVirusTotalResponse> {
+    await latency();
+    currentUser(token);
+    const game = games.find((entry) => entry.id === gameId);
+    if (!game) fail(404, "game_not_found", "Unknown game");
+    return {
+      gameId,
+      versions: game.versions.map((version) => demoVtReport(game.id, version)),
+    };
   },
 
   /* admin backups (#169) */
