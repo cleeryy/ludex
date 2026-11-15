@@ -1,4 +1,5 @@
 import type { ControllerAction, ControllerProfile } from "@/lib/types";
+import type { PadFamily } from "@/lib/controller-identity";
 
 /**
  * Controller profile maths (#51), mirroring `ludex_core::gamepad`.
@@ -86,6 +87,61 @@ export function resolveControllerProfile(
   game: ControllerProfile | null | undefined,
 ): ControllerProfile {
   return game ?? global ?? presetProfile("xbox");
+}
+
+/** The built-in preset that fits a pad family; numbers/switch stay on Xbox. */
+export function presetForFamily(family: PadFamily): ControllerProfile {
+  switch (family) {
+    case "dualsense":
+      return presetProfile("dualsense");
+    case "steamdeck":
+      return presetProfile("steamdeck");
+    case "generic":
+      return presetProfile("generic");
+    default:
+      return presetProfile("xbox");
+  }
+}
+
+/**
+ * Nintendo-style A/B swap (#230): the two face buttons trade places, so a pad
+ * whose physical A sits on button 1 confirms with A. The glyph labels swap with
+ * it (`hintsFor`), which is what keeps a hint from lying.
+ */
+export function swapFaceButtons(profile: ControllerProfile): ControllerProfile {
+  const mappings = { ...profile.mappings };
+  const first = mappings.button0;
+  const second = mappings.button1;
+  if (second === undefined) delete mappings.button0;
+  else mappings.button0 = second;
+  if (first === undefined) delete mappings.button1;
+  else mappings.button1 = first;
+  return { ...profile, mappings };
+}
+
+/**
+ * A profile that cannot reach confirm, back or a direction would strand a
+ * controller-only player, so the resolver fills the gaps from the standard
+ * layout instead of returning an unmapped profile (#230).
+ */
+export function ensureNavigableProfile(profile: ControllerProfile): ControllerProfile {
+  const mapped = new Set(Object.values(profile.mappings));
+  const mappings = { ...profile.mappings };
+  if (!mapped.has("confirm")) {
+    mappings.button0 = "confirm";
+    mapped.add("confirm");
+  }
+  if (!mapped.has("back")) {
+    mappings.button1 = "back";
+    mapped.add("back");
+  }
+  if (!["left", "right", "up", "down"].some((action) => mapped.has(action))) {
+    mappings["axis0-"] = "left";
+    mappings["axis0+"] = "right";
+    mappings["axis1-"] = "up";
+    mappings["axis1+"] = "down";
+  }
+  return { ...profile, mappings };
 }
 
 /** Corrects one axis component. */

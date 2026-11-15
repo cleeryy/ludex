@@ -1,4 +1,5 @@
 import { CONTROLLER_PRESETS, presetProfile } from "@/lib/controller-profiles";
+import { familyFromPadId, padFamilyLabel, type PadFamily } from "@/lib/controller-identity";
 import { notifyPreferencesChanged } from "@/lib/preferences-events";
 import {
   sanitizeHapticsStrength,
@@ -27,7 +28,13 @@ import type { BigPictureLayout } from "./layout";
 
 /* -------------------------------- pad family ------------------------------- */
 
-export type PadFamily = "xbox" | "dualsense" | "steamdeck" | "generic";
+/**
+ * The family stays the type the hints and overlays speak; it now covers the
+ * Switch glyph set and the `numbers` theme (#230) and lives in
+ * `lib/controller-identity.ts` so the device store can share it.
+ */
+export type { PadFamily };
+export { padFamilyLabel };
 
 /**
  * Guesses the family from the pad id string the browser reports. A pad that
@@ -39,31 +46,9 @@ export function padFamily(
   id: string | null | undefined,
   profile?: Pick<ControllerProfile, "name"> | null,
 ): PadFamily {
-  const fromId = familyFromText(id);
+  const fromId = familyFromPadId(id);
   if (fromId) return fromId;
-  return familyFromText(profile?.name) ?? "generic";
-}
-
-function familyFromText(value: string | null | undefined): PadFamily | null {
-  if (!value) return null;
-  const text = value.toLowerCase();
-  if (/(steam ?deck|steamdeck)/.test(text)) return "steamdeck";
-  if (/(xbox|xinput)/.test(text)) return "xbox";
-  if (/(dualsense|dualshock|playstation|ps5|ps4|wireless controller|sony)/.test(text)) return "dualsense";
-  return null;
-}
-
-export function padFamilyLabel(family: PadFamily): string {
-  switch (family) {
-    case "xbox":
-      return "Xbox"; // pad family names, not interface copy
-    case "dualsense":
-      return "DualSense";
-    case "steamdeck":
-      return "Steam Deck";
-    case "generic":
-      return "Generic";
-  }
+  return familyFromPadId(profile?.name) ?? "generic";
 }
 
 /* ---------------------------------- hints ---------------------------------- */
@@ -131,6 +116,8 @@ export interface HintOptions {
   family: PadFamily;
   /** Keyboard hints when no pad is driving the screen. */
   connected: boolean;
+  /** Nintendo-style A/B swap: the confirm and back labels trade places. */
+  swapAB?: boolean;
 }
 
 const PAD_LABELS: Record<PadFamily, Record<HintInput, string[]>> = {
@@ -190,6 +177,38 @@ const PAD_LABELS: Record<PadFamily, Record<HintInput, string[]>> = {
     prevTab: ["L1"],
     nextTab: ["R1"],
   },
+  // Nintendo names the right-hand face button A and the bottom one B; the
+  // physical A sits on `button1` in the standard mapping, so the labels are
+  // swapped here and again by the per-device A/B toggle (#230).
+  switch: {
+    confirm: ["B"],
+    back: ["A"],
+    search: ["Y"],
+    downloads: ["X"],
+    shelf: ["L", "R"],
+    page: ["ZL", "ZR"],
+    menu: ["+", "Home"],
+    navigate: ["D-pad"],
+    vertical: ["D-pad"],
+    horizontal: ["D-pad"],
+    prevTab: ["L"],
+    nextTab: ["R"],
+  },
+  // The last-resort theme: the physical indices, honest for any pad.
+  numbers: {
+    confirm: ["1"],
+    back: ["2"],
+    search: ["3"],
+    downloads: ["4"],
+    shelf: ["5", "6"],
+    page: ["7", "8"],
+    menu: ["9", "10"],
+    navigate: ["D-pad"],
+    vertical: ["D-pad"],
+    horizontal: ["D-pad"],
+    prevTab: ["5"],
+    nextTab: ["6"],
+  },
 };
 
 /** Keyboard parity (#138): every controller action keeps a key binding. */
@@ -223,10 +242,16 @@ function keyboardNavigate(layout: BigPictureLayout): string[] {
  * controller the same list is expressed in keys, so mouse/keyboard players
  * keep parity and the strip never advertises an action the screen ignores.
  */
-export function hintsFor(context: HintContext, { layout, family, connected }: HintOptions): Hint[] {
+export function hintsFor(context: HintContext, { layout, family, connected, swapAB = false }: HintOptions): Hint[] {
   const pad = PAD_LABELS[family];
-  const keys = (input: HintInput): string[] =>
-    connected ? pad[input] : input === "navigate" ? keyboardNavigate(layout) : KEYBOARD_LABELS[input];
+  const keys = (input: HintInput): string[] => {
+    if (!connected) return input === "navigate" ? keyboardNavigate(layout) : KEYBOARD_LABELS[input];
+    // A/B swap moves the mapping and the glyphs together, so a hint can never
+    // name the button that no longer confirms (#230).
+    if (swapAB && input === "confirm") return pad.back;
+    if (swapAB && input === "back") return pad.confirm;
+    return pad[input];
+  };
 
   switch (context) {
     case "library":

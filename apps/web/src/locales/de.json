@@ -3806,5 +3806,19 @@
   "VirusTotal scan queue finished": "VirusTotal-Warteschlange abgeschlossen",
   "{done} scanned, {failed} failed. Rescan the failed ones when you want.": "{done} gescannt, {failed} fehlgeschlagen. Die fehlgeschlagenen später erneut prüfen.",
   "{count} archives scanned. Verdicts come from the report cache.": "{count} Archive gescannt. Die Urteile stammen aus dem Berichtscache.",
-  "Upload this file for analysis": "Diese Datei zur Analyse hochladen"
+  "Upload this file for analysis": "Diese Datei zur Analyse hochladen",
+  "{count} pad": "{count} Controller",
+  "{count} pads": "{count} Controller",
+  "Battery": "Akku",
+  "Connected pads": "Verbundene Controller",
+  "Fingerprint": "Fingerabdruck",
+  "Generic — remap if a button is wrong": "Generisch — neu belegen, wenn eine Taste falsch ist",
+  "Glyph theme": "Glyphen-Stil",
+  "Not connected": "Nicht verbunden",
+  "Numbers": "Zahlen",
+  "Profile": "Profil",
+  "Profiles are stored on this device by pad fingerprint. Two identical pads share one profile.": "Profile werden auf diesem Gerät nach dem Fingerabdruck des Controllers gespeichert. Zwei identische Controller teilen ein Profil.",
+  "Remembered pads": "Gemerkte Controller",
+  "Reset to automatic": "Auf Automatisch zurücksetzen",
+  "Swap A and B": "A und B tauschen"
 }

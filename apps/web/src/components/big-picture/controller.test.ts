@@ -408,3 +408,59 @@ describe("profile choices", () => {
     expect(inverted).toContain("Invert Y");
   });
 });
+
+/* --------------------------------------------------------------------------
+   #230: the Switch glyph set, the numbered theme and the per-device A/B swap.
+   The swap must move the mapping and the labels together, or a hint names a
+   button that no longer confirms.
+   -------------------------------------------------------------------------- */
+
+describe("glyph families added by the controller manager", () => {
+  const base = { layout: "shelf" as const, connected: true };
+
+  it("labels the Switch and Numbers families", () => {
+    expect(padFamilyLabel("switch")).toBe("Switch");
+    expect(padFamilyLabel("numbers")).toBe("Numbers");
+  });
+
+  it("detects a Switch pad and an unnamed Steam virtual pad", () => {
+    expect(padFamily("Pro Controller (STANDARD GAMEPAD Vendor: 057e Product: 2009)")).toBe("switch");
+    expect(padFamily("Steam Virtual Gamepad")).toBe("xbox");
+  });
+
+  it("names the Nintendo buttons and the numbered fallback", () => {
+    const switchHints = hintsFor("library", { ...base, family: "switch" });
+    expect(switchHints.find((hint) => hint.id === "play")?.keys).toEqual(["B"]);
+    expect(switchHints.find((hint) => hint.id === "exit")?.keys).toEqual(["A"]);
+    expect(switchHints.find((hint) => hint.id === "shelf")?.keys).toEqual(["L", "R"]);
+
+    const numbered = hintsFor("library", { ...base, family: "numbers" });
+    expect(numbered.find((hint) => hint.id === "play")?.keys).toEqual(["1"]);
+    expect(numbered.find((hint) => hint.id === "exit")?.keys).toEqual(["2"]);
+    expect(numbered.find((hint) => hint.id === "search")?.keys).toEqual(["3"]);
+    expect(numbered.find((hint) => hint.id === "downloads")?.keys).toEqual(["4"]);
+  });
+
+  it("swaps confirm and back labels with the A/B toggle, never leaving a lie", () => {
+    for (const family of ["xbox", "switch", "numbers", "dualsense"] as const) {
+      const normal = hintsFor("library", { ...base, family });
+      const swapped = hintsFor("library", { ...base, family, swapAB: true });
+      expect(swapped.find((hint) => hint.id === "play")?.keys).toEqual(
+        normal.find((hint) => hint.id === "exit")?.keys,
+      );
+      expect(swapped.find((hint) => hint.id === "exit")?.keys).toEqual(
+        normal.find((hint) => hint.id === "play")?.keys,
+      );
+      // The other hints are untouched.
+      expect(swapped.find((hint) => hint.id === "search")?.keys).toEqual(
+        normal.find((hint) => hint.id === "search")?.keys,
+      );
+    }
+  });
+
+  it("keeps the keyboard labels when a swap is stored without a pad", () => {
+    const hints = hintsFor("library", { ...base, family: "xbox", connected: false, swapAB: true });
+    expect(hints.find((hint) => hint.id === "play")?.keys).toEqual(["↵"]);
+    expect(hints.find((hint) => hint.id === "exit")?.keys).toEqual(["esc"]);
+  });
+});

@@ -3806,5 +3806,19 @@
   "VirusTotal scan queue finished": "VirusTotal 扫描队列已完成",
   "{done} scanned, {failed} failed. Rescan the failed ones when you want.": "已扫描 {done} 个，失败 {failed} 个。可随时重新扫描失败的项。",
   "{count} archives scanned. Verdicts come from the report cache.": "已扫描 {count} 个压缩包。判定来自报告缓存。",
-  "Upload this file for analysis": "上传此文件以进行分析"
+  "Upload this file for analysis": "上传此文件以进行分析",
+  "{count} pad": "{count} 个控制器",
+  "{count} pads": "{count} 个控制器",
+  "Battery": "电池",
+  "Connected pads": "已连接的控制器",
+  "Fingerprint": "指纹",
+  "Generic — remap if a button is wrong": "通用 — 按键不对时请重新映射",
+  "Glyph theme": "按键显示",
+  "Not connected": "未连接",
+  "Numbers": "数字",
+  "Profile": "配置",
+  "Profiles are stored on this device by pad fingerprint. Two identical pads share one profile.": "配置按控制器指纹保存在此设备上。两个同型号控制器共用一个配置。",
+  "Remembered pads": "已记住的控制器",
+  "Reset to automatic": "恢复自动",
+  "Swap A and B": "交换 A 和 B"
 }
