@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.13] - 2026-11-15
+
 ### Added
 
 - Server-side extracted cache and file-manifest transport, prototype and off by
