@@ -743,6 +743,17 @@ async fn delete_version(
     }
     transaction.commit().await.map_err(ApiError::from)?;
 
+    // The cache entry is keyed by archive content, so it is only dropped when
+    // no other version references the same digest (#231).
+    if let Some(sha256) = version.content_sha256.as_deref() {
+        crate::routes::versions::forget_version_cache(
+            &state,
+            sha256,
+            version.archive_hash.as_deref(),
+        )
+        .await;
+    }
+
     state.events.emit(
         crate::events::Event::new(crate::audit::actions::GAME_VERSION_DELETED, user.actor())
             .target("game", game_id.to_string())
@@ -1394,18 +1405,18 @@ async fn download_ticket(
 }
 
 /// Whether a game's age rating exceeds the account's limit (#39).
-fn age_blocked(limit: Option<u8>, rating: Option<u8>) -> bool {
+pub(crate) fn age_blocked(limit: Option<u8>, rating: Option<u8>) -> bool {
     matches!((limit, rating), (Some(limit), Some(rating)) if rating > limit)
 }
 
 /// A restricted game is indistinguishable from a missing one.
-fn age_not_found() -> ApiError {
+pub(crate) fn age_not_found() -> ApiError {
     ApiError::not_found("game_not_found", "Game not found")
 }
 
 /// Records an age-restricted access attempt without leaking the game to the
 /// caller.
-fn deny_age_restricted(state: &AppState, user: &AuthUser, game_id: i64) {
+pub(crate) fn deny_age_restricted(state: &AppState, user: &AuthUser, game_id: i64) {
     state.events.emit(
         crate::events::Event::new(crate::audit::actions::GAME_ACCESS_DENIED, user.actor())
             .target("game", game_id.to_string())
@@ -1417,7 +1428,10 @@ fn deny_age_restricted(state: &AppState, user: &AuthUser, game_id: i64) {
 }
 
 /// Reads a game's age rating, if any.
-async fn game_age_rating(state: &AppState, game_id: i64) -> Result<Option<u8>, ApiError> {
+pub(crate) async fn game_age_rating(
+    state: &AppState,
+    game_id: i64,
+) -> Result<Option<u8>, ApiError> {
     let rating = db::query_scalar::<Option<i64>>("SELECT age_rating FROM games WHERE id = ?")
         .bind(game_id)
         .fetch_optional(&state.pool)
@@ -2127,7 +2141,7 @@ async fn stage_object(state: &AppState, version: &VersionRow) -> Result<(PathBuf
     Ok((path, size))
 }
 
-async fn cleanup_staged(path: &std::path::Path, staged: bool) {
+pub(crate) async fn cleanup_staged(path: &std::path::Path, staged: bool) {
     if staged {
         let _ = tokio::fs::remove_file(path).await;
     }
@@ -2262,17 +2276,19 @@ async fn stream_version(
 
 /// A resolvable archive path for the stream endpoints: either the library file
 /// or an object-store archive staged under `{data_dir}/tmp`.
-struct StreamSource {
-    path: PathBuf,
-    staged: bool,
-    format: ArchiveFormat,
+///
+/// Shared with the extracted cache (#231), which extracts the same source.
+pub(crate) struct StreamSource {
+    pub(crate) path: PathBuf,
+    pub(crate) staged: bool,
+    pub(crate) format: ArchiveFormat,
 }
 
 /// Resolves the archive of a version and detects its format.
 ///
 /// Object-store archives are staged (the tar/manifest readers need random
 /// access) and removed by the caller/response once it is done with them.
-async fn resolve_stream_source(
+pub(crate) async fn resolve_stream_source(
     state: &AppState,
     version: &VersionRow,
 ) -> Result<StreamSource, ApiError> {
@@ -2369,17 +2385,20 @@ async fn stream_manifest(
 }
 
 /// A resolved single `Range` of one entry.
-struct EntryRange {
-    start: u64,
-    length: u64,
-    partial: bool,
+///
+/// Shared with the extracted-cache file route (#231) so both transports apply
+/// exactly the same `Range` rules.
+pub(crate) struct EntryRange {
+    pub(crate) start: u64,
+    pub(crate) length: u64,
+    pub(crate) partial: bool,
 }
 
 /// Resolves the `Range` header of an entry request against the entry size.
 ///
 /// `Err` means the range is malformed or unsatisfiable: the caller answers 416
 /// with `Content-Range: bytes */<size>`.
-fn resolve_entry_range(raw: Option<&str>, size: u64) -> Result<EntryRange, ()> {
+pub(crate) fn resolve_entry_range(raw: Option<&str>, size: u64) -> Result<EntryRange, ()> {
     let Some(raw) = raw else {
         return Ok(EntryRange {
             start: 0,

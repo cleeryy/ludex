@@ -42,6 +42,9 @@ pub mod actions {
     /// A VirusTotal hash lookup completed for a game version (#224). The
     /// metadata carries the hash, verdict, mode and source, never the API key.
     pub const GAME_SCANNED: &str = "game.scanned";
+    /// An archive was extracted into the server-side cache (#231). Metadata
+    /// carries the version id, archive digest, file count, bytes and duration.
+    pub const VERSION_EXTRACTED: &str = "version.extracted";
 
     /// Summary of a bulk admin action (#209).
     pub const GAME_BULK_ACTION: &str = "game.bulk_action";

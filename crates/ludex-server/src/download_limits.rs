@@ -256,6 +256,30 @@ impl DownloadLimiter {
             .map(|part| DownloadAdmission { _part: Some(part) })
     }
 
+    /// Admits one file stream of the extracted cache (#231).
+    ///
+    /// A file-manifest install issues **one request per file**, so the #217
+    /// per-minute reconnect budgets would throttle a large tree: only the
+    /// concurrency cap applies here. A job holds at most [`JOB_PARTS_MAX`]
+    /// streams and an address at most [`IP_PARTS_MAX`]; without a job id the
+    /// version id scopes the job, so a client that never names one still cannot
+    /// open more than eight streams for the same version. The global API rate
+    /// limiter remains the backstop for a hot loop.
+    pub fn admit_stream(
+        &self,
+        address: IpAddr,
+        version_id: i64,
+        job_id: Option<&str>,
+    ) -> Result<DownloadAdmission, LimitRejection> {
+        let address_key = address.to_string();
+        let job_key = match job_id {
+            Some(job_id) => format!("{address_key}:{job_id}"),
+            None => format!("{address_key}:version-{version_id}"),
+        };
+        self.reserve(&address_key, job_key)
+            .map(|part| DownloadAdmission { _part: Some(part) })
+    }
+
     fn reserve(&self, address_key: &str, job_key: String) -> Result<PartSlot, LimitRejection> {
         let mut counts = self
             .counts
@@ -329,6 +353,43 @@ mod tests {
         limiter
             .admit(address(), 7, Some("job-parts"))
             .expect("slot released");
+    }
+
+    #[test]
+    fn file_streams_are_capped_per_job_without_a_request_budget() {
+        let limiter = DownloadLimiter::new();
+        // Far more than the 240/min reconnect budget; a manifest install is one
+        // request per file and must not be throttled for that.
+        let mut open = Vec::new();
+        for _ in 0..JOB_PARTS_MAX {
+            open.push(
+                limiter
+                    .admit_stream(address(), 7, Some("install"))
+                    .expect("file stream admitted"),
+            );
+        }
+        let rejection = limiter
+            .admit_stream(address(), 7, Some("install"))
+            .expect_err("ninth concurrent file stream");
+        assert_eq!(rejection.scope, LimitScope::Parts);
+        open.clear();
+        for _ in 0..500 {
+            drop(
+                limiter
+                    .admit_stream(address(), 7, Some("install"))
+                    .expect("sequential file"),
+            );
+        }
+        // Without a job id the version scopes the cap.
+        let mut implicit = Vec::new();
+        for _ in 0..JOB_PARTS_MAX {
+            implicit.push(
+                limiter
+                    .admit_stream(address(), 8, None)
+                    .expect("implicit job"),
+            );
+        }
+        assert!(limiter.admit_stream(address(), 8, None).is_err());
     }
 
     #[test]

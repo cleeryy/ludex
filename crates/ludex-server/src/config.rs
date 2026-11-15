@@ -22,6 +22,10 @@ pub const DEFAULT_INTEGRITY_INTERVAL_HOURS: u64 = 168;
 pub const DEFAULT_LIBRARY_HEALTH_INTERVAL_HOURS: u64 = 24;
 /// Default grace period before an unreferenced media file is deleted.
 pub const DEFAULT_MEDIA_GC_GRACE_HOURS: u64 = 24;
+/// Default budget of the server-side extracted cache (#231): 200 GiB.
+pub const DEFAULT_EXTRACTED_CACHE_BUDGET_BYTES: u64 = 200 * 1024 * 1024 * 1024;
+/// Default TTL of an extracted-cache entry unused for that long (#231): 14 days.
+pub const DEFAULT_EXTRACTED_CACHE_TTL_HOURS: u64 = 24 * 14;
 /// Maximum JSON request body accepted by the API (10 MiB).
 pub const MAX_JSON_BYTES: usize = 10 * 1024 * 1024;
 /// Default maximum size of a single cloud save upload (2 GiB).
@@ -224,6 +228,16 @@ pub struct Config {
     /// Directory holding backup archives (#169). Defaults to
     /// `{data_dir}/backups`; `LUDEX_BACKUP_DIR` overrides it.
     pub backup_dir: PathBuf,
+    /// Serve the server-side extracted cache and file manifest (#231).
+    pub extracted_cache_enabled: bool,
+    /// Root of the extracted cache. Defaults to `{data_dir}/extracted`.
+    pub extracted_cache_dir: PathBuf,
+    /// Byte budget of the extracted cache (`LUDEX_EXTRACTED_CACHE_BUDGET_BYTES`).
+    pub extracted_cache_budget_bytes: u64,
+    /// Age after which an unused cache entry is evicted
+    /// (`LUDEX_EXTRACTED_CACHE_TTL_HOURS`, default 14 days). Zero disables the
+    /// TTL; the byte budget still applies.
+    pub extracted_cache_ttl: Duration,
     /// Connection string: `sqlite://…` (default) or `postgres://…`.
     pub database_url: String,
     /// Maximum pooled connections (`LUDEX_DATABASE_MAX_CONNECTIONS`).
@@ -390,6 +404,27 @@ impl Config {
         let backup_dir = env_opt("LUDEX_BACKUP_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| data_dir.join("backups"));
+        let extracted_cache_enabled = bool_env("LUDEX_EXTRACTED_CACHE");
+        let extracted_cache_dir = env_path(
+            "LUDEX_EXTRACTED_CACHE_DIR",
+            &data_dir.join("extracted").to_string_lossy(),
+        );
+        let extracted_cache_budget_bytes = match env_opt("LUDEX_EXTRACTED_CACHE_BUDGET_BYTES") {
+            Some(value) => value
+                .trim()
+                .parse::<u64>()
+                .context("LUDEX_EXTRACTED_CACHE_BUDGET_BYTES must be a non-negative integer")?,
+            None => DEFAULT_EXTRACTED_CACHE_BUDGET_BYTES,
+        };
+        let extracted_cache_ttl_hours = env_opt("LUDEX_EXTRACTED_CACHE_TTL_HOURS")
+            .map(|value| {
+                value
+                    .trim()
+                    .parse::<u64>()
+                    .context("LUDEX_EXTRACTED_CACHE_TTL_HOURS must be a non-negative integer")
+            })
+            .transpose()?
+            .unwrap_or(DEFAULT_EXTRACTED_CACHE_TTL_HOURS);
         let bind = env::var("LUDEX_BIND")
             .ok()
             .filter(|value| !value.trim().is_empty())
@@ -679,6 +714,10 @@ impl Config {
             games_dir,
             media_dir,
             backup_dir,
+            extracted_cache_enabled,
+            extracted_cache_dir,
+            extracted_cache_budget_bytes,
+            extracted_cache_ttl: Duration::from_secs(extracted_cache_ttl_hours * 3_600),
             database_url,
             database_max_connections,
             jwt_secret: env_opt("LUDEX_JWT_SECRET"),
@@ -786,12 +825,17 @@ impl Config {
         let database_url = default_database_url(&data_dir);
         let library_roots = vec![games_dir.clone()];
         let backup_dir = data_dir.join("backups");
+        let extracted_cache_dir = data_dir.join("extracted");
         Self {
             bind: SocketAddr::from(([127, 0, 0, 1], 0)),
             data_dir,
             games_dir: games_dir.clone(),
             media_dir,
             backup_dir,
+            extracted_cache_enabled: false,
+            extracted_cache_dir,
+            extracted_cache_budget_bytes: DEFAULT_EXTRACTED_CACHE_BUDGET_BYTES,
+            extracted_cache_ttl: Duration::from_secs(DEFAULT_EXTRACTED_CACHE_TTL_HOURS * 3_600),
             database_url,
             database_max_connections: crate::db::DEFAULT_MAX_CONNECTIONS,
             jwt_secret: None,

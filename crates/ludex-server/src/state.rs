@@ -105,6 +105,8 @@ pub struct AppState {
     /// single-stream clients (#195) plus job-scoped request and concurrent-part
     /// budgets for parallel ranged downloads (#217).
     pub download_limits: Arc<crate::download_limits::DownloadLimiter>,
+    /// Server-side extracted cache and file manifest transport (#231).
+    pub extracted: Arc<crate::extracted_cache::ExtractedCache>,
 }
 
 /// Counts the handlers currently reading each version's archive (#168).
@@ -223,6 +225,7 @@ impl AppState {
         );
         let http = reqwest::Client::new();
         let virustotal = Arc::new(crate::virustotal::Scanner::new(&config, http.clone()));
+        let extracted = Arc::new(crate::extracted_cache::ExtractedCache::new(&config));
         Self {
             config: Arc::new(config),
             pool,
@@ -269,6 +272,7 @@ impl AppState {
                 std::time::Duration::from_secs(60),
             )),
             download_limits: Arc::new(crate::download_limits::DownloadLimiter::new()),
+            extracted,
         }
     }
 }

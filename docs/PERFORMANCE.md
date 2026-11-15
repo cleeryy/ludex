@@ -218,6 +218,108 @@ deliberate and bounded:
 - The digest never crosses the disk as a sidecar file and is not a secret; it
   is logged by both sides for support.
 
+
+## Server-side extracted cache prototype (#231)
+
+The remaining client cost is the archive itself: a 40 GB 7z is downloaded,
+verified and extracted on the desktop. The prototype measured here extracts the
+archive **once on the server**, publishes a per-file manifest and lets the
+client fetch files in parallel over the same authenticated HTTPS, so no archive
+is stored on the client and no client CPU is spent decompressing.
+
+It is **off by default**. Enable it only for the campaign:
+
+```bash
+# on the server, then restart
+LUDEX_EXTRACTED_CACHE=1
+LUDEX_EXTRACTED_CACHE_BUDGET_BYTES=536870912000   # 500 GiB, must hold the tree
+LUDEX_EXTRACTED_CACHE_TTL_HOURS=336               # 14 days
+```
+
+Cost model, so the numbers are read correctly:
+
+- **One extraction per archive digest.** The server reads the archive once to
+  extract it, then once more to hash each extracted file for the manifest. That
+  second pass is the prototype's known cost (per-file SHA-256 is in the
+  contract); the field NAS measured ~500–580 MiB/s sequential, so budget
+  roughly `2 × archive_size / 550 MiB/s` of server disk time per 40 GB archive.
+- **Cache disk = extracted size**, which is about the archive size for a 7z
+  repack. The budget and the LRU/TTL sweeper keep it bounded; an entry being
+  served is never evicted.
+- **HTTP fan-out.** The client opens 4–8 file requests in parallel, each with
+  `Range` resume and its own SHA-256. The #217 job budgets apply per job id:
+  8 concurrent file streams, 240 part requests per minute per job, 16 per
+  address.
+- **Fallback.** `409 extracted_cache_unavailable` (disabled, not extracted yet)
+  means the client uses the classic download; it is not an error loop.
+
+### Exact 40 GB 7z procedure
+
+1. **Hash the version first** (the cache key is the archive digest):
+
+   ```bash
+   TOKEN=...        # administrator bearer token
+   BASE=https://ludex.example
+   GAME=12          # game id
+   VERSION=34       # version id (GET /api/games/{GAME} → versions[].id)
+
+   curl -fsS -X POST -H "Authorization: Bearer $TOKEN"      "$BASE/api/integrity/content-hashes"
+   # poll until versions[].contentSha256 is non-null
+   curl -fsS -H "Authorization: Bearer $TOKEN" "$BASE/api/games/$GAME" |      python3 -c 'import json,sys; print(json.load(sys.stdin)["versions"][0]["contentSha256"])'
+   ```
+
+2. **Extract once, in the background**, and watch the counters:
+
+   ```bash
+   curl -fsS -X POST -H "Authorization: Bearer $TOKEN"      "$BASE/api/admin/versions/$VERSION/extract"
+   # repeat until status is "ready" (files/bytes climb while extracting)
+   ```
+
+   Record the one-off wall time and `vmstat 1` / `iostat -x 1` on the server
+   during this step: it is the price the client no longer pays.
+
+3. **Run both transports** with the benchmark script. It downloads and extracts
+   the archive the old way, then installs the same version through the manifest
+   with `--jobs` parallel file requests, verifies every file, kills the client
+   mid-download to test resume, corrupts a file to test recovery, and prints the
+   table and the verdict:
+
+   ```bash
+   scripts/bench-file-manifest.sh      --url "$BASE" --token "$TOKEN" --game "$GAME" --version "$VERSION"      --jobs 8 --server-ssh pve3      --work /var/tmp/ludex-bench-40g
+   ```
+
+   `--jobs 4` repeats the manifest row at the lower concurrency; run both and
+   keep the better one, as the issue asks for 4/8. `--classic-only` and
+   `--manifest-only` re-run a single phase against an already warm cache.
+
+4. **Sample the server separately** while the script runs, so the summary is
+   not the only evidence: `vmstat 1`, `iostat -x 1`, `sar -n DEV 1`, and the
+   `ludex_http_requests_total{route=...}` / `ludex_http_request_duration_seconds`
+   deltas from `/metrics`. On the client, `pidstat -p <curl>` (or the desktop's
+   own CPU) separates download CPU from extraction CPU — the manifest path
+   should show almost no CPU, which is the qualitative win even when wall time
+   is close.
+
+5. **Decide with the gate.** The file-manifest path must be **≥ 1.5× faster
+   end to end** (or remove a large client cost such as CPU/extraction without
+   regressing reliability) to be kept. Record the printed table, the server
+   samples and the machine/network description in issue #231. Below 1.5× the
+   feature stays off (`LUDEX_EXTRACTED_CACHE=0`) and the classic download
+   remains the only transport.
+
+### Reading the result
+
+| Symptom | What it means |
+|---|---|
+| Manifest row barely faster, server CPU/disk near saturated | The server disk is the new bottleneck; the classic path was not the client's limit |
+| Manifest much faster, client CPU near zero | The win is client decompression and disk, not the network |
+| Resume row ~= missing bytes / link speed | Per-file resume works; nothing restarts from zero |
+| Corrupt row `NOT detected` | A client bug, not a server one: verification must happen before commit |
+| Cache `usedBytes` grows past `budgetBytes` | Eviction is refusing active entries; check for long-lived streams |
+
+The chunk-size and stream findings above are unchanged: this prototype does not
+bring back client-side parallel ranges (#217) and does not add a chunk store.
+
 ## What the user must measure
 
 On the actual setup (Proxmox host, Caddy, client), collect and record:
