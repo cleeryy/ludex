@@ -1508,6 +1508,8 @@ interface VtIntegrationStatus {
 }
 
 interface VtTestResult { ok: boolean; message: string; }
+/** `POST /api/admin/integrations/virustotal/test` — body optional. */
+interface VtTestRequest { apiKey?: string; }
 interface VtScanResponse { scans: ScanReport[]; }
 interface VtGameReport { gameId: number; versions: ScanReport[]; }
 ```
@@ -1517,8 +1519,8 @@ interface VtGameReport { gameId: number; versions: ScanReport[]; }
 | GET | `/api/admin/integrations/virustotal` | admin + `admin` scope → `VtIntegrationStatus` |
 | PUT | `/api/admin/integrations/virustotal` | `{ apiKey }` → `VtIntegrationStatus`; encrypted at rest (AES-256-GCM, purpose-bound AAD), never returned; 400 `invalid_api_key`; 409 `env_managed` |
 | DELETE | `/api/admin/integrations/virustotal` | 200 `VtIntegrationStatus`; 409 `env_managed` |
-| POST | `/api/admin/integrations/virustotal/test` | admin; `GET /users/{key}` → 200 `VtTestResult`; rejections are reported in the body, not as 5xx |
-| POST | `/api/admin/virustotal/scan` | admin; `{ gameId?, versionId?, mode?, force?, confirmUpload?, consent? }` → `VtScanResponse` |
+| POST | `/api/admin/integrations/virustotal/test` | admin; optional body `{ apiKey? }` → 200 `VtTestResult`; with `apiKey` the unsaved key is validated and never stored (its failure does not become `lastError`), without it the stored/env key is tested; `GET /users/{key}` is used and rejections are reported in the body, not as 5xx |
+| POST | `/api/admin/virustotal/scan` | admin; `{ gameId?, versionId?, mode?, force?, confirmUpload?, iUnderstand? }` (`consent?` is accepted as an alias) → `VtScanResponse` |
 | GET | `/api/games/{id}/virustotal` | authenticated (read scope) → `VtGameReport`; cached rows only, never calls the API |
 
 **Verdict mapping.** `malicious > 0` → `malicious` (it wins over every other
@@ -1541,11 +1543,22 @@ does the same and then hashes at most five executables/installers
 root, ranked installers first; every hash uses the same quota and returns its
 own `ScanReport` under the same `versionId`. `upload` is opt-in per file:
 it needs exactly one version, `confirmUpload: true` and
-`consent: "public-sharing"` (else 422 `upload_consent_required`), a local
-archive (422 `upload_requires_local_archive`), and ≤ 650 MB (413
-`upload_too_large`). Files ≤ 32 MB go to `POST /files`, larger ones through
-`GET /files/upload_url`. The report for an upload is `verdict: "unknown"` until
-VirusTotal finishes analysing it. No other mode ever uploads anything.
+`iUnderstand: "public-sharing"` (the server also accepts `consent` under that
+name; anything else is 422 `upload_consent_required`), a local archive (422
+`upload_requires_local_archive`), and ≤ 650 MB (413 `upload_too_large`). Files
+≤ 32 MB go to `POST /files`, larger ones through `GET /files/upload_url`. The
+report for an upload is `verdict: "unknown"` until VirusTotal finishes
+analysing it. No other mode ever uploads anything.
+
+```jsonc
+// POST /api/admin/virustotal/scan — explicit, consent-gated upload
+{
+  "versionId": 42,
+  "mode": "upload",
+  "confirmUpload": true,
+  "iUnderstand": "public-sharing"
+}
+```
 
 **Key precedence.** `LUDEX_VIRUSTOTAL_API_KEY` wins over the database row; the
 admin API reports `source: "env"` and refuses `PUT`/`DELETE` with 409

@@ -390,8 +390,27 @@ async fn environment_key_wins_and_cannot_be_changed() {
 #[tokio::test]
 async fn test_endpoint_reports_acceptance_and_rejection() {
     let fixture = Fixture::start().await;
-    fixture.save_key("vt-secret-abcd").await;
 
+    // An unsaved key can be validated before saving it.
+    let (status, body) = fixture
+        .server
+        .post(
+            "/api/admin/integrations/virustotal/test",
+            Some(&fixture.token),
+            Some(json!({ "apiKey": "transient-key-9999" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["ok"], true);
+    let (_, state) = fixture
+        .server
+        .get("/api/admin/integrations/virustotal", Some(&fixture.token))
+        .await;
+    assert_eq!(state["source"], "none", "testing must not store the key");
+    assert_eq!(state["lastError"], Value::Null);
+
+    // Without `apiKey` the stored key is used.
+    fixture.save_key("vt-secret-abcd").await;
     let (status, body) = fixture
         .server
         .post(
@@ -410,6 +429,24 @@ async fn test_endpoint_reports_acceptance_and_rejection() {
         .reject_key
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+
+    // A rejected unsaved key never becomes the stored integration's error.
+    let (status, body) = fixture
+        .server
+        .post(
+            "/api/admin/integrations/virustotal/test",
+            Some(&fixture.token),
+            Some(json!({ "apiKey": "transient-key-9999" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["ok"], false);
+    let (_, state) = fixture
+        .server
+        .get("/api/admin/integrations/virustotal", Some(&fixture.token))
+        .await;
+    assert_eq!(state["lastError"], Value::Null, "{state}");
+
     let (status, body) = fixture
         .server
         .post(
@@ -427,7 +464,7 @@ async fn test_endpoint_reports_acceptance_and_rejection() {
         "{body}"
     );
 
-    // The failure is surfaced as lastError, never as a fake clean.
+    // The stored-key failure is surfaced as lastError, never as a fake clean.
     let (_, status) = fixture
         .server
         .get("/api/admin/integrations/virustotal", Some(&fixture.token))
@@ -632,13 +669,30 @@ async fn upload_requires_consent_and_is_size_gated() {
                 "versionId": version_id,
                 "mode": "upload",
                 "confirmUpload": true,
-                "consent": "public-sharing"
+                "iUnderstand": "public-sharing"
             })),
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(only_scan(&body)["verdict"], "unknown");
     assert_eq!(fixture.mock.state.uploads(), 1);
+
+    // `consent` is the legacy name for the same acknowledgement.
+    let (status, body) = fixture
+        .server
+        .post(
+            "/api/admin/virustotal/scan",
+            Some(&fixture.token),
+            Some(json!({
+                "versionId": version_id,
+                "mode": "upload",
+                "confirmUpload": true,
+                "consent": "public-sharing"
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(fixture.mock.state.uploads(), 2);
 
     // 651 MB sparse file: refused with 413 and a clear message.
     let big = "Big Repack.zip";
@@ -656,7 +710,7 @@ async fn upload_requires_consent_and_is_size_gated() {
                 "versionId": big_version,
                 "mode": "upload",
                 "confirmUpload": true,
-                "consent": "public-sharing"
+                "iUnderstand": "public-sharing"
             })),
         )
         .await;
@@ -668,7 +722,7 @@ async fn upload_requires_consent_and_is_size_gated() {
             .is_some_and(|message| message.contains("650 MB")),
         "{body}"
     );
-    assert_eq!(fixture.mock.state.uploads(), 1, "nothing else was uploaded");
+    assert_eq!(fixture.mock.state.uploads(), 2, "nothing else was uploaded");
 }
 
 #[tokio::test]

@@ -2490,7 +2490,7 @@ pub const ROUTES: &[RouteDoc] = &[
             HttpMethod::Post,
             "/admin/integrations/virustotal/test",
             "VirusTotal",
-            "Validate the active key against GET /users/{key}",
+            "Validate the active key, or the unsaved apiKey from the optional body",
             Auth::Admin,
             Payload::Schema("TestResponse"),
         ),

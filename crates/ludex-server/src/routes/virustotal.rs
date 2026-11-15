@@ -46,6 +46,16 @@ pub struct SaveVirustotalKeyRequest {
     pub api_key: String,
 }
 
+/// `POST /api/admin/integrations/virustotal/test` body. The body is optional:
+/// `apiKey` tests an unsaved key, an empty body tests the stored/env key.
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TestVirustotalKeyRequest {
+    /// Unsaved key to validate. It is never stored.
+    #[serde(default)]
+    pub api_key: Option<String>,
+}
+
 /// `POST /api/admin/virustotal/scan` response.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -82,9 +92,21 @@ async fn remove(
 async fn test(
     State(state): State<AppState>,
     user: AuthUser,
+    body: axum::body::Bytes,
 ) -> Result<Json<TestResponse>, ApiError> {
     user.require_admin_access()?;
-    Ok(Json(virustotal::test_key(&state).await?))
+    // The body is optional so an empty POST tests the stored/env key, while
+    // `{ "apiKey": "..." }` validates a key before it is saved.
+    let api_key = if body.is_empty() {
+        None
+    } else {
+        let request: TestVirustotalKeyRequest = serde_json::from_slice(&body)
+            .map_err(|error| ApiError::bad_request("invalid_body", error.to_string()))?;
+        request.api_key
+    };
+    Ok(Json(
+        virustotal::test_key(&state, api_key.as_deref()).await?,
+    ))
 }
 
 async fn scan(

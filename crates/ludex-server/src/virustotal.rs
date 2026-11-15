@@ -410,7 +410,11 @@ pub struct ScanRequest {
     /// Required with `mode=upload`: explicit acknowledgement.
     #[serde(default)]
     pub confirm_upload: bool,
-    /// Required with `mode=upload`: must be `public-sharing`.
+    /// Required with `mode=upload`: must be `public-sharing`. The web client
+    /// sends it as `iUnderstand`; `consent` is accepted too.
+    #[serde(default)]
+    pub i_understand: Option<String>,
+    /// Legacy name for [`ScanRequest::i_understand`].
     #[serde(default)]
     pub consent: Option<String>,
 }
@@ -1283,31 +1287,47 @@ async fn record_use(state: &AppState, error: Option<&str>) {
     }
 }
 
-/// Validates the active key against `GET /users/{key}`.
-pub async fn test_key(state: &AppState) -> Result<TestResponse, ApiError> {
-    let key = match key_state(state).await {
-        KeyState::Key(key) => key,
-        KeyState::Missing => {
-            return Ok(TestResponse {
-                ok: false,
-                message: "No VirusTotal API key is configured.".to_string(),
-            })
-        }
-        KeyState::Unreadable(error) => {
-            return Ok(TestResponse {
-                ok: false,
-                message: error,
-            })
+/// Validates an API key against `GET /users/{key}`.
+///
+/// `provided` is the key from the request body: when present it is tested as
+/// given (never stored, never recorded as the integration's last error), which
+/// lets the admin screen validate a key before saving it. Without it the
+/// stored or environment key is used and its last-used/last-error state is
+/// updated as usual. Either way the call consumes one quota slot.
+pub async fn test_key(state: &AppState, provided: Option<&str>) -> Result<TestResponse, ApiError> {
+    let transient = provided.map(str::trim).filter(|key| !key.is_empty());
+    let (api_key, stored) = if let Some(key) = transient {
+        validate_key_material(key)?;
+        (key.to_string(), false)
+    } else {
+        match key_state(state).await {
+            KeyState::Key(key) => (key.key, true),
+            KeyState::Missing => {
+                return Ok(TestResponse {
+                    ok: false,
+                    message: "No VirusTotal API key is configured.".to_string(),
+                })
+            }
+            KeyState::Unreadable(error) => {
+                return Ok(TestResponse {
+                    ok: false,
+                    message: error,
+                })
+            }
         }
     };
     if let Err(rejection) = acquire_slot(state).await {
         let message = rejection.message();
-        record_use(state, Some(&message)).await;
+        if stored {
+            record_use(state, Some(&message)).await;
+        }
         return Ok(TestResponse { ok: false, message });
     }
-    match state.virustotal.transport().validate_key(&key.key).await {
+    match state.virustotal.transport().validate_key(&api_key).await {
         Ok(()) => {
-            record_use(state, None).await;
+            if stored {
+                record_use(state, None).await;
+            }
             Ok(TestResponse {
                 ok: true,
                 message: "VirusTotal accepted the API key.".to_string(),
@@ -1315,7 +1335,9 @@ pub async fn test_key(state: &AppState) -> Result<TestResponse, ApiError> {
         }
         Err(error) => {
             let message = error.message();
-            record_use(state, Some(&message)).await;
+            if stored {
+                record_use(state, Some(&message)).await;
+            }
             Ok(TestResponse { ok: false, message })
         }
     }
@@ -1566,10 +1588,16 @@ pub async fn scan(state: &AppState, request: ScanRequest) -> Result<Vec<ScanEntr
                 "Upload mode accepts exactly one version; pass versionId",
             ));
         }
-        if !request.confirm_upload || request.consent.as_deref() != Some(PUBLIC_SHARING_CONSENT) {
+        if !request.confirm_upload
+            || request
+                .i_understand
+                .as_deref()
+                .or(request.consent.as_deref())
+                != Some(PUBLIC_SHARING_CONSENT)
+        {
             return Err(ApiError::unprocessable(
                 "upload_consent_required",
-                "Uploading shares the file with VirusTotal's community and partners; pass confirmUpload=true and consent=\"public-sharing\"",
+                "Uploading shares the file with VirusTotal's community and partners; pass confirmUpload=true and iUnderstand=\"public-sharing\"",
             ));
         }
     }
@@ -2388,14 +2416,14 @@ mod tests {
     #[tokio::test]
     async fn invalid_key_and_quota_are_distinguishable() {
         let (state, transport) = fixture(|sha| Ok(report(sha, 0, 0))).await;
-        assert!(test_key(&state).await.expect("test").ok);
+        assert!(test_key(&state, None).await.expect("test").ok);
         assert_eq!(transport.validations.load(Ordering::SeqCst), 1);
 
         *transport
             .validation
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Err(VtError::InvalidKey);
-        let response = test_key(&state).await.expect("test");
+        let response = test_key(&state, None).await.expect("test");
         assert!(!response.ok);
         assert!(
             response.message.starts_with("invalid_key:"),
@@ -2407,6 +2435,37 @@ mod tests {
             .last_error
             .as_deref()
             .is_some_and(|error| error.starts_with("invalid_key:")));
+    }
+
+    #[tokio::test]
+    async fn unsaved_key_can_be_tested_without_touching_the_stored_one() {
+        let (state, transport) = fixture(|sha| Ok(report(sha, 0, 0))).await;
+        let response = test_key(&state, Some("transient-key-9999"))
+            .await
+            .expect("transient test");
+        assert!(response.ok);
+        assert_eq!(transport.validations.load(Ordering::SeqCst), 1);
+
+        // A rejected transient key is reported but never becomes lastError.
+        *transport
+            .validation
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Err(VtError::InvalidKey);
+        let response = test_key(&state, Some("transient-key-9999"))
+            .await
+            .expect("transient test");
+        assert!(!response.ok);
+        assert!(response.message.starts_with("invalid_key:"));
+        let status = integration_status(&state).await;
+        assert_eq!(status.source, KeySource::Env);
+        assert_eq!(status.last_error, None);
+
+        // Short keys are rejected before any request.
+        let error = test_key(&state, Some("short"))
+            .await
+            .expect_err("short key");
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert_eq!(transport.validations.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
