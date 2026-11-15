@@ -421,7 +421,12 @@ export function ArtPlate({
   const src = assetUrl(artUrl);
 
   return (
-    <div className={cn("overflow-hidden bg-bg-deep", className)} style={plateStyle(spec)} aria-hidden="true">
+    <div
+      className={cn("overflow-hidden bg-bg-deep", className)}
+      style={plateStyle(spec)}
+      data-bp-art="true"
+      aria-hidden="true"
+    >
       {demo ? (
         <svg className="h-full w-full" viewBox="0 0 300 400" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
           <Motif spec={spec} seed={seed} />

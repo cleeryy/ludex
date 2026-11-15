@@ -51,7 +51,7 @@ export function CompactLayout({
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <motion.section
           key={nav.shelf?.id ?? "shelf"}
-          className="nav-scroll min-h-0 flex-1 overflow-y-auto md:border-e md:border-line"
+          className="bp-content nav-scroll min-h-0 flex-1 overflow-y-auto md:border-e md:border-line"
           aria-label={t("Games")}
           {...shelfFrame}
           initial={shelfChanged ? shelfFrame.initial : false}

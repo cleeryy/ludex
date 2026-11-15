@@ -41,6 +41,7 @@ import type {
   ThemeIssue,
   ThemeMode,
   ThemeSelection,
+  ThemeTokens,
 } from "@/theme/types";
 
 export type LibraryView = "grid" | "list";
@@ -64,6 +65,10 @@ interface SettingsValue {
   base: BuiltinThemeId;
   accent: string | null;
   tint: string | null;
+  /** The token map currently painted at the document root (TV-safe included). */
+  tokens: ThemeTokens;
+  /** Big Picture's TV-safe variant is on; it enforces 7:1 text. */
+  tv: boolean;
   customThemes: ThemeFile[];
   contrast: ReturnType<typeof contrastReport>;
   setTheme: (theme: ThemeSelection) => void;
@@ -123,6 +128,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     [base, config.accent, config.tint],
   );
   const contrast = useMemo(() => contrastReport(effective), [effective]);
+  // The map actually painted at the document root, TV-safe variant included.
+  // Console appearance derives its Studio accent from this one (#229), so a
+  // console override can never drop a pair below the active contrast contract.
+  const renderedTokens = useMemo(
+    () => (tv ? tvTokens(effective) : effective),
+    [tv, effective],
+  );
 
   // The inline boot script already painted the stored variables. Re-applying
   // here keeps React, HMR and tests on the same source of truth. Big Picture
@@ -132,10 +144,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       tv
         ? {
             ...appearance,
-            vars: { ...appearance.vars, [resolved]: cssVarsFor(tvTokens(effective)) },
+            vars: { ...appearance.vars, [resolved]: cssVarsFor(renderedTokens) },
           }
         : appearance,
-    [appearance, tv, resolved, effective],
+    [appearance, tv, resolved, renderedTokens],
   );
 
   useLayoutEffect(() => {
@@ -283,6 +295,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       base: base.id,
       accent: config.accent,
       tint: config.tint,
+      tokens: renderedTokens,
+      tv,
       customThemes,
       contrast,
       setTheme,
@@ -302,6 +316,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       config.accent,
       config.tint,
       resolved,
+      renderedTokens,
+      tv,
       base.id,
       customThemes,
       contrast,

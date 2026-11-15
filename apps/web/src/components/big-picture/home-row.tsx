@@ -73,7 +73,7 @@ function HomeButton({
       <button
         {...common}
         className={cn(
-          "inline-flex h-[max(40px,calc(var(--bp-u)*48))] w-full items-center gap-2 border px-3 text-start",
+          "inline-flex h-[max(40px,calc(var(--bp-u)*48))] w-full items-center gap-2 rounded-[var(--bp-radius-sm)] border px-3 text-start",
           selected
             ? "border-signal bg-surface-2 text-ink"
             : "border-transparent text-ink-2 hover:border-line hover:bg-surface/60",
@@ -91,7 +91,7 @@ function HomeButton({
       <button
         {...common}
         className={cn(
-          "group flex min-w-[64px] flex-col items-center gap-1 px-2 py-1.5",
+          "bp-glass-tile group flex min-w-[64px] flex-col items-center gap-1 px-2 py-1.5",
           selected ? "text-signal-text" : "text-stage-ink-2 hover:text-stage-ink",
           item.disabled && "opacity-60",
         )}
@@ -111,8 +111,7 @@ function HomeButton({
     <button
       {...common}
       className={cn(
-        "group relative flex h-[var(--bp-home-h)] w-full min-w-0 flex-col justify-between border p-2.5 text-start sm:p-3",
-        selected ? "border-signal bg-surface-2" : "border-line bg-bg-deep/60 hover:border-line-2 hover:bg-surface/60",
+        "bp-tile group relative flex h-[var(--bp-home-h)] w-full min-w-0 flex-col justify-between p-2.5 text-start sm:p-3",
         item.disabled && "opacity-60",
       )}
     >
@@ -164,7 +163,7 @@ export function HomeRow({
     return (
       <motion.nav
         aria-label={t("System")}
-        className="relative z-10 shrink-0 border-t border-line bg-bg-deep bp-pad-x"
+        className="relative z-10 shrink-0 border-t bp-chrome bp-pad-x"
         {...boot}
       >
         <ul className="nav-scroll flex items-stretch gap-1 overflow-x-auto py-1.5">
@@ -211,7 +210,7 @@ export function HomeRow({
   return (
     <motion.nav
       aria-label={t("System")}
-      className="relative z-10 shrink-0 border-b border-line bg-bg-deep pb-2 pt-2 bp-pad-x"
+      className="bp-home relative z-10 shrink-0 border-b pb-2 pt-2 bp-pad-x"
       {...boot}
     >
       <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">

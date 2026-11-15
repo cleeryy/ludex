@@ -36,7 +36,7 @@ export function PowerApp({
 }) {
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain py-5 bp-pad-x" aria-label={t("Power")}>
-      <p className="font-mono text-[9.5px] uppercase tracking-[0.18em] text-signal">{t("System")}</p>
+      <p className="font-mono text-[9.5px] uppercase tracking-[0.18em] text-signal-text">{t("System")}</p>
       <h1 className="mt-1 text-[clamp(1.8rem,3.2vw,3rem)] font-semibold leading-[0.95] tracking-[-0.04em] text-ink">
         {t("Power")}
       </h1>
@@ -57,18 +57,14 @@ export function PowerApp({
                 data-gamepad-target="true"
                 data-bp-zone-item="true"
                 data-bp-zone-active={selected ? "true" : undefined}
+                data-tone={danger ? "danger" : undefined}
                 aria-current={selected ? "true" : undefined}
                 aria-disabled={action.enabled ? undefined : "true"}
                 aria-label={`${action.label} — ${action.enabled ? action.detail : action.reason ?? action.detail}`}
                 onPointerEnter={() => onHighlight(index)}
                 onClick={() => onChoose(index)}
                 className={cn(
-                  "group relative flex min-h-[128px] w-full flex-col justify-between gap-4 border p-4 text-start",
-                  selected
-                    ? danger
-                      ? "border-danger bg-surface-2"
-                      : "border-signal bg-surface-2"
-                    : "border-line bg-bg-deep/60 hover:border-line-2 hover:bg-surface/60",
+                  "bp-tile group relative flex min-h-[128px] w-full flex-col justify-between gap-4 p-4 text-start",
                   !action.enabled && "opacity-70",
                 )}
               >
@@ -95,7 +91,8 @@ export function PowerApp({
                 {selected && (
                   <span
                     aria-hidden="true"
-                    className={cn("pointer-events-none absolute inset-x-0 bottom-0 h-[2px]", danger ? "bg-danger" : "bg-signal")}
+                    data-bp-selected-rule="true"
+                    className={cn("pointer-events-none absolute inset-x-4 bottom-0 h-[2px]", danger ? "bg-danger" : "bg-signal")}
                   />
                 )}
               </button>

@@ -1,4 +1,10 @@
 import { t } from "@/lib/i18n";
+import type {
+  ConsoleAccentId,
+  ConsoleBackground,
+  ConsolePreset,
+  ConsoleRadius,
+} from "@/theme/console-appearance";
 import type { BigPictureLayout } from "./layout";
 
 /* --------------------------------------------------------------------------
@@ -38,5 +44,56 @@ export function layoutDescription(layout: BigPictureLayout): string {
       return t("Many covers at once, under a focused header. The fastest way to browse a big library.");
     case "compact":
       return t("Dense rows with a details pane, for large libraries and quick stepping.");
+  }
+}
+
+/* ------------------------- console appearance (#229) ------------------------ */
+
+export function consolePresetLabel(preset: ConsolePreset): string {
+  return preset === "soft" ? t("Soft") : t("Studio");
+}
+
+export function consolePresetDescription(preset: ConsolePreset): string {
+  return preset === "soft"
+    ? t("Rounded, translucent surfaces over blurred artwork, with a cream palette.")
+    : t("The original archive look: crisp hairlines, flat panels and the app theme.");
+}
+
+export function consoleAccentLabel(accent: ConsoleAccentId): string {
+  switch (accent) {
+    case "theme":
+      return t("Theme accent");
+    case "coral":
+      return t("Coral");
+    case "mint":
+      return t("Mint");
+    case "sky":
+      return t("Sky");
+    case "lilac":
+      return t("Lilac");
+    case "sun":
+      return t("Sun");
+  }
+}
+
+export function consoleBackgroundLabel(background: ConsoleBackground): string {
+  switch (background) {
+    case "artwork":
+      return t("Artwork");
+    case "solid":
+      return t("Solid");
+    case "gradient":
+      return t("Soft gradient");
+  }
+}
+
+export function consoleRadiusLabel(radius: ConsoleRadius): string {
+  switch (radius) {
+    case "soft":
+      return t("Soft");
+    case "round":
+      return t("Round");
+    case "sharp":
+      return t("Sharp");
   }
 }

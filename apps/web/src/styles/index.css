@@ -74,6 +74,41 @@
   --bp-bar-h: max(44px, calc(var(--bp-u) * 56));
   --bp-home-h: max(84px, calc(var(--bp-u) * 104));
   --bp-rail-card: 132px;
+
+  /*
+   * Console appearance (#229). The defaults are the Studio/archive material:
+   * flat panels, 2 px corners, no blur, no wallpaper. `console-appearance.ts`
+   * puts `data-console-appearance`, `data-console-background` and
+   * `data-console-radius` on the console root; the overrides below only
+   * relocate these tokens, never a component colour.
+   *
+   * Budget: every surface here is statically blurred and painted once. No
+   * `backdrop-filter` or wallpaper filter is ever animated — motion stays on
+   * transform/opacity, and `prefers-reduced-transparency` swaps the whole
+   * material back to an opaque token. A 4K blur pass is the expensive part, so
+   * keep it to three chrome surfaces (bar, dock, sheet) and one wallpaper.
+   */
+  --bp-radius-xs: 2px;
+  --bp-radius-sm: 2px;
+  --bp-radius-md: 2px;
+  --bp-radius-lg: 2px;
+  --bp-radius-pill: 999px;
+  --bp-material-filter: none;
+  --bp-material-chrome: var(--bg-deep);
+  --bp-material-card: var(--bg-deep);
+  --bp-material-sheet: var(--bg-deep);
+  --bp-material-panel: var(--bg-deep);
+  --bp-material-hover: var(--surface);
+  --bp-material-border: var(--line);
+  --bp-material-border-strong: var(--line-2);
+  --bp-material-shadow: none;
+  --bp-chrome-shadow: none;
+  --bp-wall: var(--bg-deep);
+  --bp-wall-wash: transparent;
+  --bp-wall-opacity: 0;
+  --bp-wall-blur: 0px;
+  --bp-art-filter: none;
+  --bp-art-scale: 1;
 }
 
 @media (min-width: 1024px) {
@@ -593,7 +628,7 @@
     position: relative;
     aspect-ratio: 3 / 4;
     overflow: hidden;
-    border-radius: 2px;
+    border-radius: var(--bp-radius-sm);
     container-type: inline-size;
     background: var(--c-base, var(--surface-2));
     isolation: isolate;
@@ -604,7 +639,7 @@
     position: absolute;
     inset: 0;
     border: 1px solid color-mix(in oklab, var(--ink) 12%, transparent);
-    border-radius: 2px;
+    border-radius: var(--bp-radius-sm);
     pointer-events: none;
     z-index: 3;
   }
@@ -904,6 +939,456 @@
     to {
       opacity: 1;
     }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Console materials (#229).
+
+   Unlayered on purpose: a material owns its background, border colour and
+   radius, so a layout utility cannot half-apply it. Components ask for a
+   material (`bp-chrome`, `bp-tile`, `bp-sheet`, `bp-panel`) and the preset
+   answers with the tokens defined above. The rules only ever read custom
+   properties, so every colour still comes from the active theme.
+
+   Stacking rule: translucent surfaces are top-level chrome only. A tile, row or
+   pill that sits on chrome uses an opaque token, so two light veils never
+   multiply into an unreadable wash.
+   --------------------------------------------------------------------------- */
+
+.bp-root {
+  /* Radius tokens default to the sharp scale; the choices below widen them. */
+  background: var(--bg-deep);
+  color: var(--ink);
+}
+
+.bp-root[data-console-radius="soft"] {
+  --bp-radius-xs: 6px;
+  --bp-radius-sm: 12px;
+  --bp-radius-md: 18px;
+  --bp-radius-lg: 24px;
+}
+
+.bp-root[data-console-radius="round"] {
+  --bp-radius-xs: 10px;
+  --bp-radius-sm: 18px;
+  --bp-radius-md: 26px;
+  --bp-radius-lg: 34px;
+}
+
+.bp-root[data-console-radius="sharp"] {
+  --bp-radius-xs: 2px;
+  --bp-radius-sm: 2px;
+  --bp-radius-md: 2px;
+  --bp-radius-lg: 2px;
+}
+
+/* Soft: milky chrome over a blurred, dimmed wallpaper. */
+.bp-root[data-console-appearance="soft"] {
+  --bp-material-filter: blur(22px) saturate(1.32);
+  --bp-material-chrome: color-mix(in oklab, var(--surface) 76%, transparent);
+  --bp-material-card: color-mix(in oklab, var(--elevated) 72%, transparent);
+  --bp-material-sheet: color-mix(in oklab, var(--surface-2) 92%, transparent);
+  --bp-material-panel: color-mix(in oklab, var(--surface) 94%, transparent);
+  --bp-material-hover: color-mix(in oklab, var(--elevated) 72%, transparent);
+  --bp-material-border: color-mix(in oklab, var(--line-2) 48%, transparent);
+  --bp-material-border-strong: color-mix(in oklab, var(--line-2) 66%, transparent);
+  --bp-material-shadow: 0 calc(var(--bp-u) * 8) calc(var(--bp-u) * 22) calc(var(--bp-u) * -12)
+    color-mix(in oklab, var(--shadow) 30%, transparent);
+  --bp-chrome-shadow: 0 0 calc(var(--bp-u) * 16) calc(var(--bp-u) * -12)
+    color-mix(in oklab, var(--shadow) 30%, transparent);
+  --bp-wall-blur: 26px;
+  --bp-wall: var(--stage);
+}
+
+.bp-root[data-console-appearance="soft"][data-console-background="artwork"] {
+  --bp-wall-opacity: 0.8;
+  --bp-wall-wash: color-mix(in oklab, var(--stage) 44%, transparent);
+  --bp-art-filter: blur(calc(var(--bp-u) * 18)) saturate(1.12);
+  --bp-art-scale: 1.05;
+}
+
+/* The stage plate is a still image: its blur is painted once and never ticks
+   with focus, scroll or a layout switch. */
+.bp-root[data-console-appearance="soft"][data-console-background="artwork"] [data-bp-art="true"] {
+  filter: var(--bp-art-filter);
+  transform: scale(var(--bp-art-scale));
+  transform-origin: center;
+}
+
+.bp-root[data-console-background="solid"] {
+  --bp-wall-opacity: 0;
+  --bp-wall-wash: transparent;
+}
+
+.bp-root[data-console-appearance="soft"][data-console-background="solid"] {
+  /* No artwork behind the chrome: the tiles can be nearly opaque and still
+     keep the soft edge. */
+  --bp-material-card: color-mix(in oklab, var(--elevated) 92%, transparent);
+}
+
+.bp-root[data-console-appearance="soft"][data-console-background="gradient"] {
+  --bp-material-card: color-mix(in oklab, var(--elevated) 86%, transparent);
+  --bp-wall: linear-gradient(
+    155deg,
+    color-mix(in oklab, var(--stage) 84%, var(--signal)) 0%,
+    var(--stage) 68%
+  );
+}
+
+.bp-root[data-console-appearance="studio"][data-console-background="gradient"] {
+  --bp-wall: linear-gradient(155deg, var(--bg-deep) 0%, var(--surface) 100%);
+}
+
+/* The two canvases that replace the wallpaper: the art plate steps aside. */
+.bp-root[data-console-background="solid"] [data-bp-art="true"],
+.bp-root[data-console-background="gradient"] [data-bp-art="true"] {
+  display: none;
+}
+
+.bp-root[data-console-background="solid"] .bp-shade,
+.bp-root[data-console-background="solid"] .hero-shade,
+.bp-root[data-console-background="solid"] .backdrop-shade,
+.bp-root[data-console-background="solid"] .bp-top-shade,
+.bp-root[data-console-background="gradient"] .bp-shade,
+.bp-root[data-console-background="gradient"] .hero-shade,
+.bp-root[data-console-background="gradient"] .backdrop-shade,
+.bp-root[data-console-background="gradient"] .bp-top-shade {
+  display: none;
+}
+
+/*
+ * The static wallpaper: one fixed layer behind every chrome surface. The blur
+ * is applied to a still bitmap and never ticks with focus or scroll; the wash
+ * keeps 10-foot text readable over bright box art.
+ */
+.bp-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--bp-wall);
+}
+
+.bp-backdrop-art {
+  position: absolute;
+  inset: -6%;
+  filter: blur(var(--bp-wall-blur)) saturate(1.18);
+  opacity: var(--bp-wall-opacity);
+  transform: translate3d(0, 0, 0);
+}
+
+/* The plate inside the wallpaper is already blurred by its wrapper; the stage
+   blur rule must not run twice. */
+.bp-root[data-console-background="artwork"] .bp-backdrop [data-bp-art="true"] {
+  filter: none;
+  transform: none;
+}
+
+.bp-backdrop-wash {
+  position: absolute;
+  inset: 0;
+  background: var(--bp-wall-wash);
+}
+
+/*
+ * Structural chrome: bar, rails, dock and footer. One static blur over the
+ * still wallpaper; the material itself never animates its filter.
+ */
+.bp-chrome {
+  background: var(--bp-material-chrome);
+  border-color: var(--bp-material-border);
+  box-shadow: var(--bp-chrome-shadow);
+  -webkit-backdrop-filter: var(--bp-material-filter);
+  backdrop-filter: var(--bp-material-filter);
+}
+
+.bp-tile {
+  background: var(--bp-material-card);
+  border: 1px solid var(--bp-material-border);
+  border-radius: var(--bp-radius-md);
+  box-shadow: var(--bp-material-shadow);
+  transition:
+    transform var(--dur-1) var(--ease-out),
+    background-color var(--dur-1) var(--ease),
+    border-color var(--dur-1) var(--ease),
+    box-shadow var(--dur-1) var(--ease);
+}
+
+/* Tiles are translucent but never blurred on their own: a tile lifts on focus,
+   and a moving backdrop-filter re-filters its backdrop every frame. The tile
+   material reads the already-blurred wallpaper instead. */
+
+.bp-tile:hover {
+  background: var(--bp-material-hover);
+  border-color: var(--bp-material-border-strong);
+}
+
+.bp-tile[data-bp-zone-active="true"],
+.bp-tile[data-home-active="true"],
+.bp-tile[data-system-active="true"] {
+  /* Selected tiles are the one opaque step: a second veil would double-light
+     the material and drop the label below 4.5:1 over bright art. */
+  background: var(--surface-2);
+  border-color: color-mix(in oklab, var(--signal) 74%, var(--line-2));
+  box-shadow: var(--bp-material-shadow);
+}
+
+.bp-sheet {
+  background: var(--bp-material-sheet);
+  border: 1px solid var(--bp-material-border-strong);
+  border-radius: var(--bp-radius-lg);
+  box-shadow: var(--bp-material-shadow);
+  -webkit-backdrop-filter: var(--bp-material-filter);
+  backdrop-filter: var(--bp-material-filter);
+}
+
+.bp-panel {
+  background: var(--bp-material-panel);
+  border: 1px solid var(--bp-material-border);
+  border-radius: var(--bp-radius-md);
+}
+
+/* Rows inside a sheet or a full-screen app are flat until they are active. */
+.bp-row {
+  border: 1px solid transparent;
+  border-radius: var(--bp-radius-sm);
+  transition:
+    background-color var(--dur-1) var(--ease),
+    border-color var(--dur-1) var(--ease);
+}
+
+.bp-row:hover {
+  background: var(--bp-material-hover);
+}
+
+.bp-row[data-overlay-active="true"],
+.bp-row[data-system-active="true"] {
+  background: var(--surface-2);
+  border-color: var(--signal);
+}
+
+.bp-root[data-console-appearance="soft"] .bp-row[data-overlay-active="true"],
+.bp-root[data-console-appearance="soft"] .bp-row[data-system-active="true"] {
+  border-color: color-mix(in oklab, var(--signal) 58%, var(--line-2));
+}
+
+/*
+ * Tabs are an underline in Studio and a soft pill in Soft. Both are the same
+ * data attribute, so the input model does not change with the look.
+ */
+.bp-tab {
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  transition:
+    background-color var(--dur-1) var(--ease),
+    color var(--dur-1) var(--ease),
+    border-color var(--dur-1) var(--ease);
+}
+
+.bp-tab[data-bp-tab-active="true"] {
+  border-bottom-color: var(--signal);
+  color: var(--ink);
+}
+
+.bp-root[data-console-appearance="soft"] .bp-tab {
+  border-bottom: 0;
+  border-radius: var(--bp-radius-pill);
+}
+
+.bp-root[data-console-appearance="soft"] .bp-tab[data-bp-tab-active="true"] {
+  background: var(--surface-2);
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--line-2) 40%, transparent);
+}
+
+/* The system row that floats over artwork. */
+.bp-glass-tile {
+  border-radius: var(--bp-radius-md);
+  border: 1px solid transparent;
+  transition:
+    background-color var(--dur-1) var(--ease),
+    border-color var(--dur-1) var(--ease);
+}
+
+.bp-root[data-console-appearance="soft"] .bp-glass-tile {
+  border-color: color-mix(in oklab, var(--sheen) 12%, transparent);
+  background: color-mix(in oklab, var(--stage) 38%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
+}
+
+.bp-root[data-console-appearance="soft"] .bp-glass-tile[data-bp-zone-active="true"] {
+  border-color: var(--signal);
+  background: color-mix(in oklab, var(--stage) 58%, transparent);
+  /* The glass does not travel: a moving backdrop-filter re-filters on every
+     frame, which is the one blur cost this screen refuses. */
+  transform: none;
+}
+
+/* A full-screen app is opaque: it is a room, not a pane. */
+.bp-app-screen {
+  background: var(--bg-deep);
+}
+
+/* Large scroll containers stay opaque on purpose: a blurred backdrop behind a
+   scrolling list repaints on every frame. Artwork above them can still bleed
+   into the small chrome strips, which are static. */
+.bp-content {
+  background: var(--bg-deep);
+}
+
+.bp-tabs-strip {
+  background: var(--bg-deep);
+}
+
+.bp-root[data-console-appearance="soft"] .bp-tabs-strip {
+  border-bottom-color: transparent;
+}
+
+/* The home row is the chrome itself in Studio and a transparent shelf in Soft,
+   where each tile carries its own material. */
+.bp-home {
+  background: var(--bg-deep);
+  border-color: var(--line);
+}
+
+.bp-root[data-console-appearance="soft"] .bp-home {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.bp-root[data-console-appearance="soft"] .bp-tab {
+  height: calc(var(--bp-u) * 34);
+  align-self: center;
+}
+
+.bp-root[data-console-appearance="soft"] .bp-tab:hover {
+  background: var(--bp-material-hover);
+}
+
+/* The archive's selection rule belongs to the flat look; the soft tile uses
+   its border and shadow instead. */
+.bp-root[data-console-appearance="soft"] [data-bp-zone-underline],
+.bp-root[data-console-appearance="soft"] [data-bp-selected-rule] {
+  display: none;
+}
+
+.bp-tile[data-tone="danger"][data-bp-zone-active="true"] {
+  border-color: var(--danger);
+}
+
+/* Compact list rows read as separate soft rows; Studio keeps its hairlines. */
+[data-bp-row="true"] {
+  border-bottom: 1px solid var(--line);
+}
+
+.bp-root[data-console-appearance="soft"] [data-bp-row="true"] {
+  border-bottom-color: transparent;
+  border-radius: var(--bp-radius-sm);
+  margin-block: 2px;
+}
+
+.bp-root[data-console-appearance="soft"] .bp-app-screen {
+  background:
+    radial-gradient(
+      120% 90% at 15% 0%,
+      color-mix(in oklab, var(--surface) 92%, transparent) 0%,
+      transparent 62%
+    ),
+    var(--bg-deep);
+}
+
+/* Soft shadows replace the archive's hard offset shadows inside the console. */
+.bp-root[data-console-appearance="soft"] .shadow-palette,
+.bp-root[data-console-appearance="soft"] .shadow-panel,
+.bp-root[data-console-appearance="soft"] .shadow-dialog {
+  box-shadow: 0 calc(var(--bp-u) * 28) calc(var(--bp-u) * 64) calc(var(--bp-u) * -24)
+    color-mix(in oklab, var(--shadow) 34%, transparent);
+}
+
+.bp-root[data-console-appearance="soft"] .shadow-hero {
+  box-shadow: 0 calc(var(--bp-u) * 30) calc(var(--bp-u) * 60) calc(var(--bp-u) * -26)
+    color-mix(in oklab, var(--shadow) 40%, transparent);
+}
+
+.bp-root[data-console-appearance="soft"] .shadow-cover {
+  box-shadow: 0 calc(var(--bp-u) * 14) calc(var(--bp-u) * 30) calc(var(--bp-u) * -18)
+    color-mix(in oklab, var(--shadow) 34%, transparent);
+}
+
+/*
+ * Reduced transparency: keep the layout, drop the glass. Opaque surfaces with
+ * the same borders and radii read identically at ten feet and cost nothing.
+ */
+@media (prefers-reduced-transparency: reduce) {
+  .bp-root[data-console-appearance="soft"] {
+    --bp-material-chrome: var(--surface);
+    --bp-material-card: var(--elevated);
+    --bp-material-sheet: var(--surface-2);
+    --bp-material-panel: var(--surface);
+    --bp-material-hover: var(--elevated);
+    --bp-material-border: var(--line);
+    --bp-material-border-strong: var(--line-2);
+  }
+
+  /* Direct declarations: a token override on `.bp-root` would lose to the
+     preset's more specific block. */
+  .bp-root .bp-chrome,
+  .bp-root .bp-sheet,
+  .bp-root .bp-tile,
+  .bp-root .bp-glass-tile {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .bp-root[data-console-appearance="soft"][data-console-background="artwork"] [data-bp-art="true"] {
+    filter: none;
+    transform: none;
+  }
+
+  .bp-root .bp-backdrop-art {
+    filter: none;
+    opacity: 0;
+  }
+
+  .bp-root .bp-glass-tile {
+    background: var(--stage);
+  }
+}
+
+/*
+ * High contrast: opaque chrome, ink borders, no veil. The theme's TV-safe
+ * tokens already lift the text to 7:1; this only removes the material.
+ */
+@media (prefers-contrast: more) {
+  .bp-root[data-console-appearance="soft"] {
+    --bp-material-chrome: var(--surface);
+    --bp-material-card: var(--surface-2);
+    --bp-material-sheet: var(--surface-2);
+    --bp-material-panel: var(--surface);
+    --bp-material-hover: var(--elevated);
+    --bp-material-border: var(--line-2);
+    --bp-material-border-strong: var(--ink-3);
+  }
+
+  .bp-root .bp-chrome,
+  .bp-root .bp-sheet,
+  .bp-root .bp-tile,
+  .bp-root .bp-glass-tile {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .bp-root[data-console-appearance="soft"][data-console-background="artwork"] [data-bp-art="true"] {
+    filter: none;
+    transform: none;
+  }
+
+  .bp-root .bp-backdrop-art {
+    filter: none;
+    opacity: 0;
   }
 }
 

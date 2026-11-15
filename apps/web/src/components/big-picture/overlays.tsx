@@ -87,7 +87,7 @@ export function OverlayShell({
         data-big-picture-overlay={context}
         onClick={(event) => event.stopPropagation()}
         className={cn(
-          "flex max-h-[86dvh] w-full flex-col border border-line-2 bg-bg-deep shadow-palette",
+          "bp-sheet flex max-h-[86dvh] w-full flex-col shadow-palette",
           wide ? "max-w-[900px]" : "max-w-[560px]",
         )}
         {...enter}
@@ -138,8 +138,7 @@ export function OverlayRow({
       onClick={onChoose}
       onPointerEnter={onHighlight}
       className={cn(
-        "flex w-full items-center gap-3 border px-3 py-2.5 text-start transition-colors duration-100",
-        active ? "border-signal bg-surface-2" : "border-transparent hover:border-line hover:bg-surface/60",
+        "bp-row flex w-full items-center gap-3 px-3 py-2.5 text-start text-ink",
         tone === "danger" && "text-danger",
       )}
     >

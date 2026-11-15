@@ -78,7 +78,28 @@ import {
   type BigPictureLayout,
   type MoveDirection,
 } from "@/components/big-picture/layout";
-import { layoutLabel } from "@/components/big-picture/labels";
+import {
+  consoleAccentLabel,
+  consoleBackgroundLabel,
+  consolePresetDescription,
+  consolePresetLabel,
+  consoleRadiusLabel,
+  layoutLabel,
+} from "@/components/big-picture/labels";
+import { ConsoleBackdrop } from "@/components/big-picture/console-backdrop";
+import { useConsoleAppearance } from "@/components/big-picture/use-console-appearance";
+import {
+  CONSOLE_ACCENT_IDS,
+  CONSOLE_BACKGROUNDS,
+  CONSOLE_PRESETS,
+  CONSOLE_RADII,
+  DEFAULT_CONSOLE_APPEARANCE,
+  consoleAttributes,
+  consoleTokens,
+  consoleVars,
+  cycleChoice,
+  withConsolePreset,
+} from "@/theme/console-appearance";
 import { jobPercent, type BigPictureLayoutProps } from "@/components/big-picture/model";
 import { useBigPictureNavigation, type BigPictureShelf } from "@/components/big-picture/navigation";
 import { BigPictureFooter } from "@/components/big-picture/parts";
@@ -190,13 +211,22 @@ export function BigPictureScreen() {
   const { push } = useToast();
   const { user, updateLocale } = useAuth();
   const { locale, deviceOverride, setLocale, clearDeviceOverride } = useI18n();
-  const { theme, resolved, setTheme } = useSettings();
+  const {
+    theme,
+    resolved,
+    setTheme,
+    tokens: themeTokens,
+    accent: themeAccent,
+    tint: themeTint,
+    tv,
+  } = useSettings();
   const queryClient = useQueryClient();
   const { data, isPending, isError, error, isFetching, refetch } = useAllGames();
   const installed = useInstalledMap();
   const downloads = useDownloads();
   const launch = useLaunchGame();
   const [layout, setLayout] = useBigPictureLayout();
+  const [consoleAppearance, setConsoleAppearance] = useConsoleAppearance();
   const [installOpen, setInstallOpen] = useState(false);
   const [entranceDone, setEntranceDone] = useState(false);
   const [layoutTouched, setLayoutTouched] = useState(false);
@@ -500,6 +530,23 @@ export function BigPictureScreen() {
   const installedGame = selected ? installed.get(selected.id) : undefined;
   const job = selected ? downloads.jobForGame(selected.id) : undefined;
   const percent = jobPercent(job);
+
+  // #229: the console material. Soft swaps in the cream palette plus the
+  // curated accent; Studio keeps the app's rendered (TV-safe) token map and
+  // only lets the accent refine it. Every path runs through derive.ts, so a
+  // combination that cannot hold 4.5:1 falls back instead of shipping.
+  const consoleTheme = useMemo(
+    () =>
+      consoleTokens(consoleAppearance, {
+        tokens: themeTokens,
+        accent: themeAccent,
+        tint: themeTint,
+        mode: resolved,
+        tv,
+      }),
+    [consoleAppearance, themeTokens, themeAccent, themeTint, resolved, tv],
+  );
+  const backdropArt = detail.data?.backgroundUrl ?? selected?.backgroundUrl ?? null;
 
   const serversQuery = useQuery({
     queryKey: ["servers"],
@@ -1586,11 +1633,48 @@ export function BigPictureScreen() {
           kind: "choice",
         },
         {
+          id: "console-preset",
+          label: t("Console style"),
+          detail: consolePresetDescription(consoleAppearance.preset),
+          value: consolePresetLabel(consoleAppearance.preset),
+          kind: "choice",
+        },
+        {
+          id: "console-accent",
+          label: t("Accent"),
+          detail: t("A curated console accent. Theme accent follows the appearance settings."),
+          value: consoleAccentLabel(consoleAppearance.accent),
+          kind: "choice",
+        },
+        {
+          id: "console-background",
+          label: t("Background"),
+          detail: t("What the console floats over. Artwork keeps the selected game behind the chrome."),
+          value: consoleBackgroundLabel(consoleAppearance.background),
+          kind: "choice",
+        },
+        {
+          id: "console-radius",
+          label: t("Corners"),
+          detail: t("How round the tiles, panels and sheets are. Sharp keeps the archive's 2 px edge."),
+          value: consoleRadiusLabel(consoleAppearance.radius),
+          kind: "choice",
+        },
+        {
           id: "theme",
           label: t("Theme"),
           detail: t("Theme applies to this browser; language is saved to your account."),
           value: themeValue,
           kind: "choice",
+          disabled: consoleAppearance.preset === "soft",
+          reason: t("The Soft console style uses its own cream palette. Switch Console style to Studio to follow the app theme."),
+        },
+        {
+          id: "console-reset",
+          label: t("Reset console appearance"),
+          detail: t("Back to Soft, artwork, theme accent and soft corners."),
+          value: t("Reset"),
+          kind: "action",
         },
       ];
     }
@@ -1688,6 +1772,40 @@ export function BigPictureScreen() {
         emit("confirm");
         cycleLayout(1);
         return;
+      case "console-preset":
+        emit("confirm");
+        setConsoleAppearance(
+          withConsolePreset(
+            consoleAppearance,
+            cycleChoice(CONSOLE_PRESETS, consoleAppearance.preset, 1),
+          ),
+        );
+        return;
+      case "console-accent":
+        emit("confirm");
+        setConsoleAppearance({
+          ...consoleAppearance,
+          accent: cycleChoice(CONSOLE_ACCENT_IDS, consoleAppearance.accent, 1),
+        });
+        return;
+      case "console-background":
+        emit("confirm");
+        setConsoleAppearance({
+          ...consoleAppearance,
+          background: cycleChoice(CONSOLE_BACKGROUNDS, consoleAppearance.background, 1),
+        });
+        return;
+      case "console-radius":
+        emit("confirm");
+        setConsoleAppearance({
+          ...consoleAppearance,
+          radius: cycleChoice(CONSOLE_RADII, consoleAppearance.radius, 1),
+        });
+        return;
+      case "console-reset":
+        emit("confirm");
+        setConsoleAppearance(DEFAULT_CONSOLE_APPEARANCE);
+        return;
       case "theme":
         emit("confirm");
         cycleTheme(1);
@@ -1756,6 +1874,36 @@ export function BigPictureScreen() {
         emit("move");
         cycleLayout(delta);
         return;
+      case "console-preset":
+        emit("move");
+        setConsoleAppearance(
+          withConsolePreset(
+            consoleAppearance,
+            cycleChoice(CONSOLE_PRESETS, consoleAppearance.preset, delta),
+          ),
+        );
+        return;
+      case "console-accent":
+        emit("move");
+        setConsoleAppearance({
+          ...consoleAppearance,
+          accent: cycleChoice(CONSOLE_ACCENT_IDS, consoleAppearance.accent, delta),
+        });
+        return;
+      case "console-background":
+        emit("move");
+        setConsoleAppearance({
+          ...consoleAppearance,
+          background: cycleChoice(CONSOLE_BACKGROUNDS, consoleAppearance.background, delta),
+        });
+        return;
+      case "console-radius":
+        emit("move");
+        setConsoleAppearance({
+          ...consoleAppearance,
+          radius: cycleChoice(CONSOLE_RADII, consoleAppearance.radius, delta),
+        });
+        return;
       case "theme":
         emit("move");
         cycleTheme(delta);
@@ -1807,7 +1955,7 @@ export function BigPictureScreen() {
         : collections.length === 0
           ? { detail: t("No collections yet.") }
           : { detail: t("{count} games", { count: totalCollectionGames }) },
-    settings: { detail: `${layoutLabel(layout)} · ${themeValue}` },
+    settings: { detail: `${layoutLabel(layout)} · ${consolePresetLabel(consoleAppearance.preset)}` },
     power: { detail: consoleActive ? t("End session") : t("Quit") },
   };
 
@@ -2212,8 +2360,18 @@ export function BigPictureScreen() {
   );
 
   return (
-    <div ref={rootRef} className="flex h-dvh flex-col overflow-hidden bg-bg-deep text-ink">
+    <div
+      ref={rootRef}
+      className="bp-root relative flex h-dvh flex-col overflow-hidden text-ink"
+      style={consoleVars(consoleTheme)}
+      {...consoleAttributes(consoleAppearance)}
+    >
       <div className="grain" aria-hidden="true" />
+      <ConsoleBackdrop
+        background={consoleAppearance.background}
+        title={selected?.title ?? ""}
+        artUrl={backdropArt}
+      />
 
       <SystemBar
         user={user}
@@ -2269,7 +2427,7 @@ export function BigPictureScreen() {
             {level.kind === "app" && (
               <motion.div
                 key={level.id}
-                className="absolute inset-0 z-10 flex min-h-0 flex-col bg-bg-deep"
+                className="bp-app-screen absolute inset-0 z-10 flex min-h-0 flex-col"
                 data-bp-screen={level.id}
                 {...transitionOf("screenPush", { reduce: reduceMotion, instant: instantMotion })}
                 {...exitOf("screenPop", { reduce: reduceMotion, instant: instantMotion })}

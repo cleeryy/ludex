@@ -93,7 +93,7 @@ export function ShelfLayout({
       </section>
 
       <section
-        className="relative shrink-0 border-t border-line pb-3 pt-1.5 bp-pad-x"
+        className="relative shrink-0 border-t bp-chrome pb-3 pt-1.5 bp-pad-x"
         aria-label={t("Games")}
       >
         <div className="flex items-center justify-between gap-4">

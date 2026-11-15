@@ -5,7 +5,6 @@
   " and ": " y ",
   " or ": " o ",
   "…and {count} more": "…y {count} más",
-  "“{base}” is not a base theme. Use midnight, light, nord, gruvbox or amber.": "“{base}” no es un tema base. Utilice medianoche, luz, nord, gruvbox o ámbar.",
   "“{collection}” will be removed. The games stay in the library.": "Se eliminará “{collection}”. Los juegos se quedan en la biblioteca.",
   "“{foreground}” on “{background}” is {ratio}:1; it needs {min}:1.": "“{foreground}” en “{background}” es {ratio}:1; necesita {min}:1.",
   "“{name}” is now the active theme.": "“{name}” es ahora el tema activo.",

@@ -72,7 +72,7 @@ export function HeroLayout({
       </section>
 
       <section
-        className="relative shrink-0 border-t border-line pb-2.5 pt-1.5"
+        className="relative shrink-0 border-t bp-chrome pb-2.5 pt-1.5"
         aria-label={t("Games")}
       >
         <motion.div
