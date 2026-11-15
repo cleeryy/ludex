@@ -39,6 +39,7 @@ pub mod social;
 pub mod system;
 pub mod uploads;
 pub mod users;
+pub mod virustotal;
 pub mod webhooks;
 
 use axum::Router;
@@ -88,6 +89,7 @@ pub fn api_router(saves_max_bytes: u64) -> Router<AppState> {
         .merge(observability::router())
         .merge(remote_installs::router())
         .merge(devices::router())
+        .merge(virustotal::router())
         .fallback(api_not_found)
 }
 

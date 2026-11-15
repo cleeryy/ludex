@@ -194,6 +194,50 @@ async fn postgres_backend_covers_core_flows() {
         .expect("read migrations")
         .count() as i64;
     assert_eq!(applied, expected, "all migrations applied");
+
+    // The VirusTotal mirror (#224) accepts the persisted quota and cache rows.
+    db::query(
+        "INSERT INTO virustotal_budget (day, used) VALUES (?, ?)
+         ON CONFLICT (day) DO UPDATE SET used = excluded.used",
+    )
+    .bind("2026-01-01")
+    .bind(2_i64)
+    .execute(&pool)
+    .await
+    .expect("virusTotal budget row");
+    let used: i64 = db::query_scalar::<i64>("SELECT used FROM virustotal_budget WHERE day = ?")
+        .bind("2026-01-01")
+        .fetch_one(&pool)
+        .await
+        .expect("read the budget row");
+    assert_eq!(used, 2);
+    db::query(
+        "INSERT INTO virustotal_cache
+            (sha256, size_bytes, verdict, stats_json, engine_hits_json,
+             last_analysis_date, checked_at, ttl_seconds, permalink)
+         VALUES (?, ?, 'clean', '{}', '[]', NULL, ?, ?, NULL)",
+    )
+    .bind("a".repeat(64))
+    .bind(1_i64)
+    .bind(db::db_time(db::now()))
+    .bind(604_800_i64)
+    .execute(&pool)
+    .await
+    .expect("virusTotal cache row");
+    let cached: i64 = db::query_scalar::<i64>("SELECT COUNT(*) FROM virustotal_cache")
+        .fetch_one(&pool)
+        .await
+        .expect("count the cache rows");
+    assert_eq!(cached, 1);
+    db::query("DELETE FROM virustotal_cache")
+        .execute(&pool)
+        .await
+        .expect("cleanup cache");
+    db::query("DELETE FROM virustotal_budget WHERE day = ?")
+        .bind("2026-01-01")
+        .execute(&pool)
+        .await
+        .expect("cleanup budget");
     pool.close().await;
 
     // Library list.

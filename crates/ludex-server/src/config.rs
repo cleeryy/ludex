@@ -364,6 +364,21 @@ pub struct Config {
     pub achievement_galaxy_db: Option<PathBuf>,
     /// Allow non-loopback targets for the JSON provider (tests only).
     pub achievement_allow_remote_apis: bool,
+    /// VirusTotal API key pinned by `LUDEX_VIRUSTOTAL_API_KEY` (#224). When
+    /// set it wins over the encrypted database key, and the admin API refuses
+    /// to overwrite or delete it.
+    pub virustotal_api_key: Option<String>,
+    /// Base URL of the VirusTotal API. `LUDEX_VIRUSTOTAL_API_BASE` overrides
+    /// it (tests point it at a local mock).
+    pub virustotal_api_base: String,
+    /// Accepted VirusTotal requests per minute (`LUDEX_VIRUSTOTAL_PER_MINUTE`,
+    /// default 4 matching the public API).
+    pub virustotal_per_minute: u32,
+    /// Accepted VirusTotal requests per UTC day
+    /// (`LUDEX_VIRUSTOTAL_DAILY_LIMIT`, default 500).
+    pub virustotal_daily_limit: i64,
+    /// Timeout for one VirusTotal request (`LUDEX_VIRUSTOTAL_TIMEOUT_MS`).
+    pub virustotal_request_timeout: Duration,
 }
 
 impl Config {
@@ -628,6 +643,35 @@ impl Config {
                     .collect()
             });
         let achievement_galaxy_db = env_opt("LUDEX_ACHIEVEMENT_GALAXY_DB").map(PathBuf::from);
+        let virustotal_per_minute = env_opt("LUDEX_VIRUSTOTAL_PER_MINUTE")
+            .map(|value| {
+                value
+                    .trim()
+                    .parse::<u32>()
+                    .context("LUDEX_VIRUSTOTAL_PER_MINUTE must be a non-negative integer")
+            })
+            .transpose()?
+            .unwrap_or(crate::virustotal::PER_MINUTE_LIMIT);
+        let virustotal_daily_limit = env_opt("LUDEX_VIRUSTOTAL_DAILY_LIMIT")
+            .map(|value| {
+                value
+                    .trim()
+                    .parse::<i64>()
+                    .context("LUDEX_VIRUSTOTAL_DAILY_LIMIT must be a non-negative integer")
+            })
+            .transpose()?
+            .unwrap_or(crate::virustotal::DAILY_LIMIT)
+            .max(0);
+        let virustotal_request_timeout = env_opt("LUDEX_VIRUSTOTAL_TIMEOUT_MS")
+            .map(|value| {
+                value
+                    .trim()
+                    .parse::<u64>()
+                    .context("LUDEX_VIRUSTOTAL_TIMEOUT_MS must be a positive integer")
+            })
+            .transpose()?
+            .map(Duration::from_millis)
+            .unwrap_or(Duration::from_secs(20));
 
         Ok(Self {
             bind,
@@ -721,6 +765,15 @@ impl Config {
             achievement_local_api_urls,
             achievement_galaxy_db,
             achievement_allow_remote_apis: bool_env("LUDEX_ACHIEVEMENT_ALLOW_REMOTE_APIS"),
+            virustotal_api_key: env_opt("LUDEX_VIRUSTOTAL_API_KEY")
+                .filter(|value| !value.trim().is_empty()),
+            virustotal_api_base: env_opt("LUDEX_VIRUSTOTAL_API_BASE")
+                .map(|value| value.trim_end_matches('/').to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| crate::virustotal::API_BASE.to_string()),
+            virustotal_per_minute,
+            virustotal_daily_limit,
+            virustotal_request_timeout,
         })
     }
 
@@ -810,6 +863,11 @@ impl Config {
                 .collect(),
             achievement_galaxy_db: None,
             achievement_allow_remote_apis: false,
+            virustotal_api_key: None,
+            virustotal_api_base: crate::virustotal::API_BASE.to_string(),
+            virustotal_per_minute: crate::virustotal::PER_MINUTE_LIMIT,
+            virustotal_daily_limit: crate::virustotal::DAILY_LIMIT,
+            virustotal_request_timeout: Duration::from_secs(20),
         }
     }
 

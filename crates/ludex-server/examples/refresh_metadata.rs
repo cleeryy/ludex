@@ -60,6 +60,10 @@ async fn main() -> Result<()> {
         .context("bootstrap library roots")?;
     let (scan_tx, _scan_rx) = mpsc::channel(1);
     let storage = ludex_server::storage::ArchiveStorage::from_config(&config);
+    let virustotal = Arc::new(ludex_server::virustotal::Scanner::new(
+        &config,
+        http.clone(),
+    ));
     let state = AppState {
         config: Arc::new(config),
         pool,
@@ -82,6 +86,7 @@ async fn main() -> Result<()> {
         achievement_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         backup_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         content_hashes: Arc::new(ludex_server::content_hash::ContentHasher::default()),
+        virustotal,
         storage,
         metrics: Arc::new(ludex_server::metrics::Metrics::default()),
         ingest: None,

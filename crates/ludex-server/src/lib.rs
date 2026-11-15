@@ -77,6 +77,7 @@ pub mod storage;
 pub mod stream;
 pub mod totp;
 pub mod uploads;
+pub mod virustotal;
 pub mod watcher;
 pub mod web;
 pub mod webhooks;
@@ -282,6 +283,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
     };
     let ingest_handle = ingest::handle(&ingest_ctx);
 
+    let virustotal_scanner = std::sync::Arc::new(virustotal::Scanner::new(&config, http.clone()));
     let state = AppState {
         config: Arc::new(config.clone()),
         pool,
@@ -298,6 +300,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
         webhooks_notify: Arc::new(tokio::sync::Notify::new()),
         watcher: Arc::new(RwLock::new(watcher::WatcherStatus::default())),
         watcher_handle: Arc::new(RwLock::new(None)),
+        virustotal: virustotal_scanner,
         integrity_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         media_gc_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         library_health_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),

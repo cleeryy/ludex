@@ -66,6 +66,9 @@ pub struct AppState {
     pub backup_busy: Arc<AtomicBool>,
     /// Full archive SHA-256 backfill state (#216).
     pub content_hashes: Arc<crate::content_hash::ContentHasher>,
+    /// VirusTotal lookup scanner: injectable transport, single-flight table and
+    /// the in-memory per-minute window (#224).
+    pub virustotal: Arc<crate::virustotal::Scanner>,
     /// Game archive storage (local disk or S3-compatible bucket).
     pub storage: ArchiveStorage,
     /// In-process Prometheus registry.
@@ -218,6 +221,8 @@ impl AppState {
             config.mfa_attempt_limit,
             std::time::Duration::from_secs(300),
         );
+        let http = reqwest::Client::new();
+        let virustotal = Arc::new(crate::virustotal::Scanner::new(&config, http.clone()));
         Self {
             config: Arc::new(config),
             pool,
@@ -225,7 +230,7 @@ impl AppState {
             started_at: Instant::now(),
             scan: Arc::new(RwLock::new(ScanStatus::default())),
             scan_tx,
-            http: reqwest::Client::new(),
+            http,
             igdb: None,
             providers: Arc::new(RwLock::new(Vec::new())),
             oidc: Arc::new(RwLock::new(None)),
@@ -240,6 +245,7 @@ impl AppState {
             achievement_busy: Arc::new(AtomicBool::new(false)),
             backup_busy: Arc::new(AtomicBool::new(false)),
             content_hashes: Arc::new(crate::content_hash::ContentHasher::default()),
+            virustotal,
             storage,
             metrics: Arc::new(Metrics::default()),
             ingest: None,

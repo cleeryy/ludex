@@ -1448,6 +1448,118 @@ short error) with a 30-day retention. Writes emit
 changed field names, never the token. Field mapping validation accepts only the
 canonical fields above and dot-separated object keys.
 
+## VirusTotal (#224)
+
+Administrators can store a VirusTotal API key and have Ludex report whether an
+archive — or an executable next to it — is clean, suspicious, malicious, or
+honestly unknown. Lookups are **hash only** by default: Ludex sends one
+`GET /files/{sha256}` per unique hash using the full archive SHA-256 it already
+stores (`contentSha256`, #216). Nothing is uploaded unless an administrator
+explicitly asks for it for one file, with consent in the same request.
+
+The public API allows 4 requests/minute and 500/day. Ludex enforces both: the
+daily counter is persisted (`virustotal_budget`) so a restart does not reset it,
+and the per-minute window is in memory. Refused requests never leave the
+machine and report `quota_exceeded`.
+
+```ts
+type VtVerdict =
+  | "clean" | "suspicious" | "malicious"      // API answer
+  | "not_found"                               // HTTP 404: never seen, NOT clean
+  | "unknown"                                 // outage, timeout, unhashed archive
+  | "disabled"                                // no API key configured
+  | "quota_exceeded"                          // local or VirusTotal rate limit
+  | "error";                                  // VirusTotal rejected the key
+
+type VtSource = "cache" | "api";
+type VtMode = "hash" | "hash_and_binaries" | "upload";
+
+interface VtStats {
+  malicious: number; suspicious: number; undetected: number;
+  harmless: number; timeout: number; failure: number;
+  /** Sum of the buckets above: the "N/72" denominator. */
+  totalEngines: number;
+}
+
+interface ScanReport {
+  versionId: number;
+  /** Full SHA-256 that was looked up ("" when the archive could not be hashed). */
+  sha256: string;
+  verdict: VtVerdict;
+  stats: VtStats;
+  checkedAt: string;              // RFC 3339
+  source: VtSource;
+  permalink: string | null;       // https://www.virustotal.com/gui/file/<sha256>
+}
+
+interface QuotaStatus {
+  dailyLimit: number; usedToday: number; remaining: number; resetAt: string;
+}
+
+interface VtIntegrationStatus {
+  configured: boolean;
+  source: "env" | "database" | "none";
+  fingerprint: string | null;     // "...last4", never the key
+  addedAt: string | null;
+  lastUsedAt: string | null;
+  /** Prefixed with `invalid_key:` / `quota_exceeded:` / `outage:`. */
+  lastError: string | null;
+  quota: QuotaStatus;
+}
+
+interface VtTestResult { ok: boolean; message: string; }
+interface VtScanResponse { scans: ScanReport[]; }
+interface VtGameReport { gameId: number; versions: ScanReport[]; }
+```
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/admin/integrations/virustotal` | admin + `admin` scope → `VtIntegrationStatus` |
+| PUT | `/api/admin/integrations/virustotal` | `{ apiKey }` → `VtIntegrationStatus`; encrypted at rest (AES-256-GCM, purpose-bound AAD), never returned; 400 `invalid_api_key`; 409 `env_managed` |
+| DELETE | `/api/admin/integrations/virustotal` | 200 `VtIntegrationStatus`; 409 `env_managed` |
+| POST | `/api/admin/integrations/virustotal/test` | admin; `GET /users/{key}` → 200 `VtTestResult`; rejections are reported in the body, not as 5xx |
+| POST | `/api/admin/virustotal/scan` | admin; `{ gameId?, versionId?, mode?, force?, confirmUpload?, consent? }` → `VtScanResponse` |
+| GET | `/api/games/{id}/virustotal` | authenticated (read scope) → `VtGameReport`; cached rows only, never calls the API |
+
+**Verdict mapping.** `malicious > 0` → `malicious` (it wins over every other
+counter); else `suspicious > 0` → `suspicious`; else a known file → `clean`.
+HTTP 404 → `not_found`; 401/403 → `error` (`lastError` starts `invalid_key:`);
+429 or an exhausted local budget → `quota_exceeded`; 5xx/timeout/network →
+`unknown` (`outage:`); no key → `disabled`. `unknown`, `not_found`, `disabled`,
+`quota_exceeded` and `error` are never presented or stored as `clean`.
+
+**Cache.** Keyed by SHA-256 with the raw-ish stats and detections. `clean` and
+`not_found` live 7 days, `suspicious` 1 day, `malicious` for an effectively
+indefinite period (100 years; the constant is `MALICIOUS_TTL_SECONDS`). A fresh
+row answers `source: "cache"` with no request; `force: true` re-checks.
+Concurrent scans of the same hash share one request (single-flight). Failures
+are not cached, so a later scan retries.
+
+**Modes.** `hash` (default) looks the archive hash up. `hash_and_binaries`
+does the same and then hashes at most five executables/installers
+(`exe`, `msi`, `dmg`, `pkg`, `appimage`) found beside the archive on a local
+root, ranked installers first; every hash uses the same quota and returns its
+own `ScanReport` under the same `versionId`. `upload` is opt-in per file:
+it needs exactly one version, `confirmUpload: true` and
+`consent: "public-sharing"` (else 422 `upload_consent_required`), a local
+archive (422 `upload_requires_local_archive`), and ≤ 650 MB (413
+`upload_too_large`). Files ≤ 32 MB go to `POST /files`, larger ones through
+`GET /files/upload_url`. The report for an upload is `verdict: "unknown"` until
+VirusTotal finishes analysing it. No other mode ever uploads anything.
+
+**Key precedence.** `LUDEX_VIRUSTOTAL_API_KEY` wins over the database row; the
+admin API reports `source: "env"` and refuses `PUT`/`DELETE` with 409
+`env_managed`. Responses expose only the `...last4` fingerprint. The key never
+appears in logs, audit events or error messages.
+
+**Configuration.** `LUDEX_VIRUSTOTAL_API_BASE` (default
+`https://www.virustotal.com/api/v3`), `LUDEX_VIRUSTOTAL_PER_MINUTE` (4),
+`LUDEX_VIRUSTOTAL_DAILY_LIMIT` (500) and `LUDEX_VIRUSTOTAL_TIMEOUT_MS` (20000).
+
+**Audit.** Every looked-up hash emits `game.scanned` with `gameId`,
+`versionId`, `sha256`, `verdict`, `mode` and `source`; never the key. The
+verdict is advisory: it never deletes, quarantines or blocks an install.
+
 ## Library
 
 | Method | Route | Notes |
