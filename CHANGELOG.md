@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-11-15
+
 ### Added
 
 - Console mode rename and first motion pass (#229): user-facing "Big Picture"
