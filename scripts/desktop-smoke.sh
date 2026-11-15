@@ -68,11 +68,16 @@ echo "PASS: Ludex desktop window opened under Xvfb"
 # version and the build commit in {appDataDir}/logs/ludex.log. The check runs
 # off the window setup path, so give it a moment after the window appears.
 SELF_CHECK="${XDG_DATA_HOME:-$HOME/.local/share}/cloud.cleeryy.ludex/logs/ludex.log"
+# The log file is created (and says "file logging enabled") before the
+# self-check line is appended, so wait for the content, not just the file.
+version_seen=0
 for _ in $(seq 1 15); do
-  [[ -s "$SELF_CHECK" ]] && break
+  if [[ -s "$SELF_CHECK" ]] && grep -q "ludex version=" "$SELF_CHECK"; then
+    version_seen=1
+    break
+  fi
   sleep 1
 done
-[[ -s "$SELF_CHECK" ]] || fail "startup self-check did not write $SELF_CHECK"
-grep -q "ludex version=" "$SELF_CHECK" || fail "startup self-check has no version line in $SELF_CHECK"
+[[ "$version_seen" -eq 1 ]] || fail "startup self-check has no version line in $SELF_CHECK"
 grep -q 'exe="' "$SELF_CHECK" || fail "startup self-check has no executable path in $SELF_CHECK"
 echo "PASS: startup self-check logged the running executable and version"
