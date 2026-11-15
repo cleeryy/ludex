@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.14] - 2026-11-15
+
 ### Changed
 
 - Classic extraction is much faster (#232): ZIP entries extract in parallel
