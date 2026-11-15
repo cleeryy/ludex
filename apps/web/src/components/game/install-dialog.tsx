@@ -231,6 +231,10 @@ export function InstallDialog({
     { archiveFormat: version.archiveFormat, streamSupported: version.streamSupported },
     settings?.streamInstall ?? true,
   );
+  // #231: an opt-in file transport is neither a stream nor an archive, so the
+  // dialog never promises an archive it may not download.
+  const fileTransport =
+    settings?.installTransport === "files" || settings?.installTransport === "auto";
 
   return (
     <Dialog
@@ -346,7 +350,9 @@ export function InstallDialog({
               className="h-10 text-[12px]"
             />
             <p className="text-[10.5px] leading-relaxed text-ink-3">
-              {transport === "stream"
+              {fileTransport
+                ? t("Files from the server when its extracted cache is ready; otherwise the classic archive.")
+                : transport === "stream"
                 ? t("Streaming entries, no archive kept")
                 : transport === "archive"
                   ? stagingOnInstall

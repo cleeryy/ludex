@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   SPACE_MARGIN_FLOOR_BYTES,
   UNKNOWN_EXTRACTION_PERCENT,
+  fileManifestLabel,
+  isFileManifestJob,
   isPrefetchingJob,
   isVerifyingJob,
   isWaitingForSpaceJob,
   jobDisplaySpeed,
   jobProgressPercent,
+  manifestFallbackLabel,
   peakEstimate,
   peakEstimateLabel,
   prefetchLabel,
@@ -51,6 +54,44 @@ function job(overrides: Partial<InstallJob> = {}): InstallJob {
     ...overrides,
   };
 }
+
+describe("file-manifest transport (#231)", () => {
+  it("names the files instead of an archive while the manifest path runs", () => {
+    const files = job({
+      phase: "downloading",
+      fileManifest: true,
+      entriesDone: 12,
+      entriesTotal: 340,
+      bytesDone: 2 * GIB,
+      bytesTotal: 40 * GIB,
+    });
+    expect(isFileManifestJob(files)).toBe(true);
+    // No archive exists on this device, so the row says "Downloading files".
+    expect(fileManifestLabel(files)).toBe("Downloading files 12/340");
+    expect(fileManifestLabel(job({ phase: "verifying", fileManifest: true }))).toBeNull();
+    expect(fileManifestLabel(job())).toBeNull();
+
+    // The digest line names files, not an archive.
+    expect(verifyingLabel(job({ phase: "verifying", fileManifest: true, entriesDone: 12, entriesTotal: 340 }))).toBe(
+      "Verifying files (12/340)",
+    );
+    expect(verifyingLabel(job({ phase: "verifying", bytesDone: 5 * GIB, bytesTotal: 10 * GIB }))).toContain(
+      "Verifying archive",
+    );
+  });
+
+  it("states the fallback instead of hiding it in the message", () => {
+    expect(manifestFallbackLabel(job({ manifestFallback: true }))).toBe(
+      "The server could not serve the file manifest; this install used the classic archive instead.",
+    );
+    expect(manifestFallbackLabel(job())).toBeNull();
+  });
+
+  it("keeps the classic labels for a job without the manifest flag", () => {
+    expect(fileManifestLabel(job({ phase: "extracting" }))).toBeNull();
+    expect(jobProgressPercent(job({ fileManifest: true, bytesDone: 5 * GIB, bytesTotal: 10 * GIB }))).toBe(50);
+  });
+});
 
 describe("install phases (#221/#222/#223)", () => {
   it("narrates download, verify and done instead of a stuck 100 %", () => {

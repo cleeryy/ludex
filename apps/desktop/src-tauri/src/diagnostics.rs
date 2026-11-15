@@ -707,6 +707,8 @@ mod tests {
             prefetching: false,
             space: None,
             verified_sha256: None,
+            file_manifest: false,
+            manifest_fallback: false,
         };
         let rows = store.download_jobs(vec![job]);
         assert_eq!(rows.len(), 1);

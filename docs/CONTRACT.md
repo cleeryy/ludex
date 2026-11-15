@@ -1968,6 +1968,7 @@ interface LocalSettings {
   locations: InstallLocation[]; // named install/download/temp folders (#99)
   serverPort: number;           // preferred embedded port, 0 = random
   streamInstall: boolean;       // remote ZIP installs stream per-entry instead of storing the archive
+  installTransport?: "auto" | "classic" | "files"; // #231: how a version is transported; `classic` (default, missing = classic) downloads + verifies + extracts the archive, `auto` uses the server's extracted files when the manifest is already ready, `files` also asks the local server to extract first. Any manifest failure falls back to the classic archive once
   downloadStaging: "configured" | "installVolume"; // #226: where the archive is staged; default "configured" (download folder), installVolume stages it next to the install so a NAS download folder is not read back over SMB
   keepArchives: boolean;        // keep the downloaded archive after install
   archivePasswords: string[];   // tried in order
@@ -2438,7 +2439,9 @@ interface InstallJob {
   queuePosition: number | null; // install queue slot (#202); null when finished or from an older build
   prefetching: boolean;         // archive downloads ahead of its turn, another job holds the extractor (#221)
   space: InstallSpaceStatus | null; // peak disk requirement and volume (#222); ok=false while waiting
-  verifiedSha256: string | null;    // archive digest proved before extraction (#216/#223)
+  verifiedSha256: string | null;    // archive digest proved before extraction (#216/#223), or the manifest's archiveSha256 (#231)
+  fileManifest?: boolean;          // #231: this attempt downloads the server's files; no archive is written and nothing is extracted here
+  manifestFallback?: boolean;      // #231: a file-manifest attempt fell back to the classic archive; `message` carries the reason
 }
 
 interface InstallSpaceStatus {  // #222
@@ -3109,17 +3112,63 @@ adds `install_jobs.queue_position` (#202): a compact `0..n` slot per active job
 that survives a restart; terminal rows carry `NULL`, so a finished or cancelled
 job never leaves a gap. Schema v19 adds `install_jobs.verified_sha256` (#223):
 the digest proved before extraction, so Downloads can show it after a restart
-without rehashing the archive. The scheduler admits the lowest position into a
-**download** slot (1, or 2 with `downloadConcurrency`) and a single
-**extract/commit** slot (#221); the phase strings persisted in `install_jobs`
-are the `as_str()` values, so `waitingForSpace` is stored as
-`waiting_for_space` and `verifying` as `verifying`. Stream and classic jobs
-share the same queue; a stream job holds both slots because it writes while it
-downloads.
+without rehashing the archive. Schema v20 adds the file-manifest checkpoint
+(#231): `install_file_manifests` (job id, game/version, `archive_sha256`,
+staging folder, total bytes, file count) and `install_job_files` (one row per
+committed file: relative path, size, SHA-256, completed_at). The rows describe
+files written into the staging folder; a different `archive_sha256` invalidates
+the whole checkpoint and the install restarts from zero. The scheduler admits
+the lowest position into a **download** slot (1, or 2 with
+`downloadConcurrency`) and a single **extract/commit** slot (#221); the phase
+strings persisted in `install_jobs` are the `as_str()` values, so
+`waitingForSpace` is stored as `waiting_for_space` and `verifying` as
+`verifying`. Stream, file-manifest and classic jobs share the same queue; a
+stream job holds both slots because it writes while it downloads, and a
+file-manifest job holds the download slot for its whole run (no prefetch).
 Local archive extraction
 uses `GET /api/games/{id}/versions/{vid}/local-path` when the embedded server is
 in local mode; remote installs download with Range resume and delete the temp
 archive by default (`keepArchives` setting false).
+
+### File-manifest transport (#231)
+
+Opt-in, measurement-gated prototype. `installTransport` selects it; the default
+`classic` path is unchanged and is the only fallback.
+
+- `auto` probes `GET /api/versions/{vid}/manifest?token=` once. A ready manifest
+  is used; anything else continues with the normal stream/archive transport and
+  never asks the server to extract anything.
+- `files` additionally sends `POST /api/admin/versions/{vid}/extract` **when the
+  server is the embedded local server** (the only place the desktop is known to
+  hold the admin role), then polls the manifest for up to 120 s (2 s interval).
+  A remote install probes only.
+- Before the first byte the job re-charges the #222 ledger with the manifest's
+  `totalBytes` on the install volume (no archive bytes: nothing is written
+  here) and runs a free-space preflight with the same 5 % + 2 GiB margin.
+- Files are downloaded by a 4–8 worker pool. The budget is
+  `parallelPartsMax` from `GET /api/config`, clamped to 4..8 (4 when the server
+  does not advertise it). Each file has its own `Range` resume from
+  `{staging}/.ludex-parts/{index}.part`, a SHA-256 check against the manifest
+  (plus `X-Ludex-File-Sha256` when the server sends it), and a commit sequence
+  of mkdir → fsync → rename into `{staging}/{path}`. Mode/executable bits are
+  applied on Unix. The staging folder is then moved into the install folder by
+  the unchanged `move_dir` commit.
+- A corrupt body is deleted and downloaded again (up to 3 attempts per file);
+  it is never renamed into place. A completed file is recorded in
+  `install_job_files`, so a restart that reuses the job id (paused job, app
+  restart, "install again") skips it. A file whose recorded size no longer
+  matches the copy on disk is downloaded again.
+- `verifying` is reused for the per-file digest check and reports file X/Y
+  through `entriesDone`/`entriesTotal` and `message`.
+- Any manifest failure (409 `extracted_cache_unavailable`, 404, 5xx, an unsafe
+  or inconsistent manifest, a file that cannot be served) falls back **once**
+  to the classic archive. The job sets `manifestFallback: true`, states the
+  reason in `message`, discards the file checkpoint and starts from a clean
+  staging folder. The classic path itself is untouched.
+- A file-manifest install records `archiveHash: null` (there is no archive to
+  fingerprint); update detection therefore relies on the version id until the
+  server publishes its fingerprint. `verifiedSha256` carries the manifest's
+  `archiveSha256`.
 
 ### Desktop integrations (#7, #12, #13, #14, #116)
 

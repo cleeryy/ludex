@@ -1357,6 +1357,14 @@ export interface LocalSettings {
   /** Remote ZIP installs stream a tar of the archive entries instead of storing it. */
   streamInstall: boolean;
   /**
+   * How a version is transported (#231). `classic` downloads and extracts the
+   * whole archive (the default and the fallback); `auto` uses the server's
+   * extracted files when they are already ready; `files` asks the server to
+   * extract first and falls back to the classic archive once. Absent means
+   * `classic`.
+   */
+  installTransport?: "auto" | "classic" | "files";
+  /**
    * Where the archive is staged while it downloads (#226): the configured
    * download folder, or the install drive so a network download folder is not
    * read back over SMB. Absent means `configured`.
@@ -2612,6 +2620,17 @@ export interface InstallJob {
   installPath: string | null;
   /** True when the job used a stream install instead of download+extract (#114). */
   stream: boolean;
+  /**
+   * True when this job uses the server's file manifest (#231): the files are
+   * downloaded directly and verified one by one, so no archive ever touches
+   * this device. Absent on rows written before the transport existed.
+   */
+  fileManifest?: boolean;
+  /**
+   * True once a file-manifest attempt fell back to the classic archive (#231).
+   * `message` carries the reason the row shows.
+   */
+  manifestFallback?: boolean;
   /**
    * True when a real checkpoint exists (`.part` file, completed stream entries,
    * or a paused job). The UI labels the action "Resume" only then; otherwise it

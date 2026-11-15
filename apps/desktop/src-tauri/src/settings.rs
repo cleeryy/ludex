@@ -251,6 +251,11 @@ pub struct LocalSettings {
     pub update_channel: UpdateChannel,
     /// Check for app updates shortly after startup (at most once per 24 h).
     pub check_updates_on_startup: bool,
+    /// How a version is transported to this device (#231). `classic` stays the
+    /// default and the fallback; `auto` and `files` opt into the server's
+    /// extracted cache and its file manifest.
+    #[serde(default)]
+    pub install_transport: InstallTransportMode,
     /// Last successful or attempted update check, RFC 3339. Used for the
     /// once-per-24 h throttle; cleared by a manual check.
     pub last_update_check_at: Option<String>,
@@ -578,6 +583,82 @@ pub const fn default_download_retry_window_secs() -> u64 {
     6 * 60 * 60
 }
 
+/// How a version is transported to this device (#231).
+///
+/// `classic` is the historical path — download the whole archive, verify it,
+/// extract it — and stays the default and the fallback. `auto` uses the
+/// server's extracted cache when the manifest is already ready and falls back
+/// silently when it is not. `files` asks the server to extract first, downloads
+/// the files in parallel and falls back to the classic archive once, with a
+/// visible message, if the cache cannot serve this version.
+///
+/// The path is a prototype gated on measurement (#231): the classic archive
+/// remains the reference for reliability and for every container without a
+/// server-side manifest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum InstallTransportMode {
+    Auto,
+    #[default]
+    Classic,
+    Files,
+}
+
+impl InstallTransportMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InstallTransportMode::Auto => "auto",
+            InstallTransportMode::Classic => "classic",
+            InstallTransportMode::Files => "files",
+        }
+    }
+
+    /// Parse the setting, falling back to `classic` for anything unknown so a
+    /// newer web bundle cannot break an older desktop.
+    pub fn parse(raw: &str) -> Self {
+        if raw
+            .trim()
+            .eq_ignore_ascii_case(InstallTransportMode::Files.as_str())
+        {
+            InstallTransportMode::Files
+        } else if raw
+            .trim()
+            .eq_ignore_ascii_case(InstallTransportMode::Auto.as_str())
+        {
+            InstallTransportMode::Auto
+        } else {
+            InstallTransportMode::Classic
+        }
+    }
+
+    /// True when the job should try the file manifest before the archive.
+    pub fn wants_files(self) -> bool {
+        matches!(
+            self,
+            InstallTransportMode::Auto | InstallTransportMode::Files
+        )
+    }
+
+    /// True when the job may ask the server to build the cache (explicit only:
+    /// an `auto` install never triggers a server-side extraction).
+    pub fn warms_cache(self) -> bool {
+        matches!(self, InstallTransportMode::Files)
+    }
+}
+
+impl<'de> Deserialize<'de> for InstallTransportMode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = Option::<String>::deserialize(deserializer)?;
+        Ok(raw
+            .as_deref()
+            .map(InstallTransportMode::parse)
+            .unwrap_or_default())
+    }
+}
+
 /// Parallel downloads (#221). One by default: the pipeline already overlaps
 /// the next download with the current extraction, and two transfers only help
 /// on a fast link with a slow disk.
@@ -622,6 +703,7 @@ impl Default for LocalSettings {
             download_retry_window_secs: default_download_retry_window_secs(),
             auto_resume_downloads: default_auto_resume_downloads(),
             download_concurrency: default_download_concurrency(),
+            install_transport: InstallTransportMode::Classic,
             close_to_tray: true,
             native_title_bar: false,
             update_channel: UpdateChannel::Stable,
@@ -2282,6 +2364,42 @@ mod tests {
         settings.normalize(Path::new("/data"));
         assert_eq!(settings.download_concurrency, 1);
         assert_eq!(legacy.download_concurrency, 1);
+    }
+
+    #[test]
+    fn install_transport_defaults_to_classic_and_parses_every_mode() {
+        let settings = LocalSettings::default();
+        assert_eq!(settings.install_transport, InstallTransportMode::Classic);
+        assert!(!settings.install_transport.wants_files());
+
+        // A settings file from before #231 has no key: the classic archive wins
+        // and the prototype stays off until the user asks for it.
+        let raw = serde_json::json!({ "installDir": "/games" });
+        let legacy: LocalSettings = serde_json::from_value(raw).unwrap();
+        assert_eq!(legacy.install_transport, InstallTransportMode::Classic);
+
+        assert_eq!(
+            InstallTransportMode::parse("auto"),
+            InstallTransportMode::Auto
+        );
+        assert_eq!(
+            InstallTransportMode::parse(" FILES "),
+            InstallTransportMode::Files
+        );
+        assert_eq!(
+            InstallTransportMode::parse("nonsense"),
+            InstallTransportMode::Classic
+        );
+        assert!(InstallTransportMode::Auto.wants_files());
+        assert!(!InstallTransportMode::Auto.warms_cache());
+        assert!(InstallTransportMode::Files.wants_files());
+        assert!(InstallTransportMode::Files.warms_cache());
+
+        // The JSON round-trip the web UI relies on.
+        let mut settings = LocalSettings::default();
+        settings.install_transport = InstallTransportMode::Files;
+        let encoded = serde_json::to_value(&settings).unwrap();
+        assert_eq!(encoded["installTransport"], "files");
     }
 
     #[test]
