@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.12] - 2026-11-15
+
 ### Added
 
 - Console has a soft, Switch-like appearance (#229): a new `soft` theme
