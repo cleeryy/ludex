@@ -6,6 +6,23 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Console has a soft, Switch-like appearance (#229): a new `soft` theme
+  (cream surfaces, restrained coral accent, soft shadows, rounded tiles), static
+  backdrop blur on the chrome, artwork/gradient backgrounds, a radius scale and
+  curated accents. Console → Settings → Appearance exposes Soft/Studio, accent,
+  background and corners with instant preview; `prefers-reduced-transparency`
+  and `prefers-contrast` fall back to opaque/high-contrast surfaces.
+
+- Any controller is usable with a remembered profile (#230): a stable USB
+  vendor/product fingerprint (or a normalised-name hash), a device-local
+  `ludex.controllers.v1` store, per-device profile assignment (Auto/Account/
+  Game/Preset), glyph themes including Switch/Numbers and Steam Input virtual
+  pads, A/B swap, and a controller manager listing connected and remembered
+  pads. Non-standard mappings get a safe generic fallback (hat/trigger aware)
+  and a "Reset to automatic" escape instead of a dead end.
+
 ## [0.4.11] - 2026-11-15
 
 ### Added
