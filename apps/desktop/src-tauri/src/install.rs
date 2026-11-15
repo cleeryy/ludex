@@ -3102,13 +3102,15 @@ async fn execute(
             let passwords = settings.archive_passwords.clone();
             let entry_for_extract = Arc::clone(entry);
             let app_for_extract = app.clone();
+            let cancel_for_extract = entry.cancel.clone();
             let extraction = tokio::task::spawn_blocking(move || {
                 let mut last_emit: Option<Instant> = None;
                 crate::bridge::extract_archive(
                     &archive_for_extract,
                     &staging_for_extract,
                     &passwords,
-                    &mut |entries_done, entries_total, bytes_done, bytes_total| {
+                    Some(cancel_for_extract),
+                    &mut |update| {
                         let now = Instant::now();
                         let ready = last_emit
                             .map(|last| now.duration_since(last) >= Duration::from_millis(250))
@@ -3118,19 +3120,31 @@ async fn execute(
                         }
                         last_emit = Some(now);
 
-                        let (done, total) = match (bytes_done, bytes_total) {
-                            (done, Some(total)) if total > 0 => (done, Some(total)),
-                            _ => (entries_done, entries_total),
+                        let (done, total) = if update.bytes_total > 0 {
+                            (update.bytes_done, Some(update.bytes_total))
+                        } else {
+                            (update.entries_done, Some(update.entries_total))
                         };
-                        let message = match entries_total {
-                            Some(total) => format!("Extracting {entries_done}/{total} files"),
-                            None => "Extracting archive".to_string(),
-                        };
+                        // #232: the message carries the rate and a real ETA
+                        // while the archive is unpacked, instead of a bar that
+                        // only moves with the file count.
+                        let mut message = format!(
+                            "Extracting {}/{} files",
+                            update.entries_done, update.entries_total
+                        );
+                        if update.bytes_per_second > 0 {
+                            message
+                                .push_str(&format!(" · {}", format_speed(update.bytes_per_second)));
+                        }
+                        if let Some(eta) = update.eta_seconds {
+                            message.push_str(&format!(" · {} left", format_eta(eta)));
+                        }
+                        let speed = update.bytes_per_second;
                         entry_for_extract.update(|job| {
                             job.phase = InstallPhase::Extracting;
                             job.bytes_done = done;
                             job.bytes_total = total;
-                            job.speed_bps = 0;
+                            job.speed_bps = speed;
                             job.clear_reconnect();
                             job.message = Some(message);
                         });
@@ -3141,8 +3155,16 @@ async fn execute(
             })
             .await
             .map_err(|e| Failure::Failed(format!("The extraction task failed: {e}")))?;
-            extraction
-                .map_err(|error| Failure::Failed(extraction_failure(&effective_staging, error)))?;
+            if let Err(error) = extraction {
+                // #232: a cancel during extraction is a cancellation, not a
+                // corrupt archive. It wins over the error message so the job
+                // reports "cancelled" and keeps the staging.
+                check_cancel(&entry.cancel)?;
+                return Err(Failure::Failed(extraction_failure(
+                    &effective_staging,
+                    error,
+                )));
+            }
 
             // The archive is no longer needed once extraction succeeded.
             if let Some(part) = downloaded.as_deref() {
@@ -4823,6 +4845,24 @@ fn human_duration(duration: Duration) -> String {
     }
 }
 
+/// `412 MB/s` for the extraction message (#232); decimal megabytes, like the
+/// download UI.
+fn format_speed(bytes_per_second: u64) -> String {
+    let megabytes = bytes_per_second as f64 / 1_000_000.0;
+    if megabytes >= 100.0 {
+        format!("{megabytes:.0} MB/s")
+    } else if megabytes >= 1.0 {
+        format!("{megabytes:.1} MB/s")
+    } else {
+        format!("{:.0} KB/s", bytes_per_second as f64 / 1_000.0)
+    }
+}
+
+/// `2 min` / `45 s` for the extraction ETA (#232).
+fn format_eta(seconds: u64) -> String {
+    human_duration(Duration::from_secs(seconds))
+}
+
 /// Exponential backoff with ±25 % jitter, capped by the tuning.
 pub(crate) fn retry_delay(attempt: u32, tuning: DownloadTuning<'_>) -> Duration {
     let exponent = attempt.saturating_sub(1).min(10);
@@ -5979,6 +6019,18 @@ mod tests {
         assert_eq!(parse_content_range_total("bytes 0-0/*"), None);
         assert_eq!(parse_content_range_total("bytes */4096"), Some(4096));
         assert_eq!(parse_content_range_total("bytes */"), None);
+    }
+
+    /// #232: the extraction message states the measured rate and a real ETA,
+    /// in units a user can read.
+    #[test]
+    fn extraction_speed_and_eta_are_human_readable() {
+        assert_eq!(format_speed(412_000_000), "412 MB/s");
+        assert_eq!(format_speed(47_600_000), "47.6 MB/s");
+        assert_eq!(format_speed(512_000), "512 KB/s");
+        assert_eq!(format_eta(45), "45 s");
+        assert_eq!(format_eta(150), "2 min");
+        assert_eq!(format_eta(7_200), "2 h");
     }
 
     /// #231: a file-manifest job keeps no archive, so the ledger must charge

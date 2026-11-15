@@ -320,6 +320,195 @@ Cost model, so the numbers are read correctly:
 The chunk-size and stream findings above are unchanged: this prototype does not
 bring back client-side parallel ranges (#217) and does not add a chunk store.
 
+## Archive extraction (#232)
+
+The classic path downloads an archive, verifies it and unpacks it on the
+desktop. Extraction was single-threaded for every format, with a 1 MiB write
+buffer and one entry at a time. That is the right place to look when a 40 GB
+repack takes minutes after the download already finished.
+
+### What changed
+
+- **ZIP: parallel entries.** The entry list is validated in one pass (names,
+  `..`, links, `ensure_within`) and the directory entries are created before
+  any worker starts, so an unsafe entry is rejected before a byte is written
+  and the failure never depends on which worker was scheduled first. Up to
+  eight workers then inflate independent entries, each with its own
+  `ZipArchive` handle (the `zip` crate hands out one mutable entry borrow at a
+  time, so a shared handle would serialise the inflate again). Work is claimed
+  from an atomic index, progress is aggregated on the calling thread from
+  atomics plus a coalescing channel, and a failure is recorded with its entry
+  index so the lowest index wins. Auto worker count is
+  `available_parallelism`, capped at 8, and stays at one for archives under
+  4 MiB where thread start-up costs more than the inflate;
+  `ExtractOptions::zip_workers` / `LUDEX_EXTRACT_WORKERS` override it.
+- **7z: native `7zz`/`7z` when installed.** 7-Zip's LZMA2 decoder is faster
+  than `sevenz-rust2` and `-mmt=on` decodes independent blocks in parallel.
+  The binary is detected once per environment value (`LUDEX_SEVEN_ZIP` forces a
+  path, `crate`/`off` forces the Rust decoder), progress is parsed from
+  `-bsp1` percentages, and every expected file is checked for presence and
+  size afterwards. Any failure — missing binary, exit code ≥ 2, a file that is
+  not there, an encrypted archive (7-Zip would take the password on its command
+  line) — falls back to the crate. Nothing is bundled.
+- **RAR: unchanged backend, honest about it.** RAR5 solid archives are one
+  compressed stream; entry N+1 cannot be decoded before entry N. libunrar
+  stays, directories are pre-created, libunrar writes each entry directly (no
+  scratch copy on this path), and cancel is polled between entries. A 4 MiB
+  user-space buffer is not applicable here: libunrar owns the write syscalls,
+  so the archive layer cannot size them.
+- **I/O.** 4 MiB `BufWriter` per extracted entry and 1 MiB read chunks (was
+  64 KiB); 4 MiB is where a sequential write stops issuing a syscall every
+  8 KiB. The #223 digest sidecar already prevents a second full read: an
+  archive whose sidecar matches is not rehashed, and a fresh download hashes
+  while writing, so extraction never re-reads the archive to verify it.
+- **Progress, ETA, cancel.** `ExtractProgress` now carries
+  `bytes_per_second`, `entries_per_second` and `eta_seconds` (the average since
+  the call, not a rolling window, so the ETA does not jump when a large entry
+  starts). `ExtractOptions::cancel` is checked between entries and every 1 MiB
+  chunk and surfaces as `ArchiveError::Cancelled`; the desktop maps it to a
+  cancelled job and keeps the staging directory. The job message reads
+  `Extracting 1234/5678 files · 412 MB/s · 2 min left`.
+
+### Measured on the dev box
+
+Host: CT 119, 8 vCPU, Proxmox `home`, thin-provisioned SSD, page cache warm,
+archive read and extracted on the same filesystem, Linux, release build.
+Archive: 512 MiB (8 × 64 MiB) of mixed text/random data, 157 MiB deflated ZIP.
+Command: `scripts/bench-extract.sh --bin <target>/release/examples/extract
+--workers 1,2,4,8 --runs 2 --cancel-after 5 <archive>`.
+
+| backend | workers | wall | MB/s | cores | peak RSS |
+|---|---|---|---|---|---|
+| zip | 1 | 1.33 s | 123 | 1.0 | 5–6 MiB |
+| zip | 2 | 0.69–0.70 s | 235 | 1.9–2.0 | 8 MiB |
+| zip | 4 | 0.44–0.53 s | 310–373 | 3.2–3.3 | 12–13 MiB |
+| zip | 8 | 0.35 s | 469 | 4.4 | 23 MiB |
+
+Best of 2–3 runs; the spread is the thin-pool write cache, not the code.
+
+**Parallel vs sequential ZIP: 3.80× — passes the 1.5× gate.** Copies are
+bandwidth-bound past four workers (4.4 cores busy, 469 MB/s), which is the
+expected shape on an SSD; a slower disk or a NAS flattens it sooner.
+
+7z, same payload (`7z a -mx=5 -mmt=on`), 512 MiB extracted:
+
+| backend | wall | MB/s | cores | peak RSS |
+|---|---|---|---|---|
+| sevenz-rust2 | 17.1–17.3 s | 9.4–9.5 | 1.0 | 13 MiB |
+| system `7z` 23.01, non-solid | 3.4–3.6 s | 45–48 | 4.3–4.5 | 337 MiB |
+| system `7z` 23.01, `-ms=on` (solid) | 4.2 s | 38.8 | 3.8 | 337 MiB |
+
+**Native vs crate 7z: 4.8–5.0× non-solid, 4.1× solid — passes the gate.** Two
+effects stack: a faster decoder (~1.7×) and parallel block decode. 7-Zip ≥ 22
+decodes LZMA2 on several threads even for a solid block; the older `p7zip`
+16.02 does not, so on a distro that ships only 16.02 expect the decoder speedup
+and no `-mmt` win on solid archives. Peak RSS is 7z's dictionary (~337 MiB for
+`-mx=5`), not ours; a `-mx=9` scene repack needs more (1 GiB+), which is why the
+crate fallback stays.
+
+Cancellation: **0.00 s measured latency** (sub-10 ms, below the 10 ms clock
+resolution of `time`) after a 0.17 s request on 8 workers, exit code 3
+(`Cancelled`), staging directory kept.
+
+RAR: not benchmarked on this host (no RAR creator installed); the fixtures
+cover correctness. RAR5 solid extraction is sequential by design — libunrar
+saturates one core, and claiming otherwise would be a lie. The only wins there
+are I/O and cancel, not threads.
+
+### Inflate backend: measured, kept `flate2`
+
+`libdeflate` is a one-shot (whole-buffer) decoder, which does not fit the
+streaming `Read` path without loading entries in memory, so the honest
+comparison is `zlib-ng` as a drop-in for `flate2`/`miniz_oxide`. Measured with
+`zip = { features = ["deflate-zlib-ng"] }` on the same archive:
+
+| workers | miniz_oxide | zlib-ng | gain |
+|---|---|---|---|
+| 1 | 1.33 s | 1.14 s | 1.17× |
+| 8 | 0.35 s | 0.32 s | 1.09× |
+
+Below the 1.5× gate, and it would add `cmake` + a C compiler to every target
+the desktop app builds for (Windows, macOS, Linux) for a 9 % end-to-end win on
+an already parallel path. **Kept `flate2`/`miniz_oxide`.** To revisit, add the
+feature to `crates/ludex-core/Cargo.toml` and re-run the table above.
+
+### Disk, Defender and long paths (advice, with the trade-offs)
+
+- **Local SSD, not SMB/NAS.** Extraction reads the whole archive once. When
+  `downloadDir` is a network share and the install is local, the archive is
+  read over SMB for the digest *and* again for extraction; `downloadStaging =
+  installVolume` (#226) writes the `.part` next to the install and deletes it
+  after extraction, so both passes are local. This is a setting, not new code.
+- **Windows Defender.** Real-time scanning runs on every extracted file; on a
+  100k-file tree that can dominate the wall time. Excluding the install and
+  download folders removes it. Trade-off: files written there are not scanned,
+  so an infected repack lands unscanned — only do this for a library you trust,
+  and run a scheduled full scan instead. Never disable Defender globally. Add
+  the exclusion for the two folders, not for `C:\`.
+- **Long paths (Windows).** Enable `LongPathsEnabled=1`
+  (`HKLM\SYSTEM\CurrentControlSet\Control\FileSystem`) before extracting deep
+  game trees; without it the OS returns `ERROR_PATH_NOT_FOUND` at 260
+  characters, which surfaces as an extraction failure naming the entry.
+- **Antivirus/backup agents** that open every new file (OneDrive sync of the
+  install folder is the usual culprit) turn a streaming write into a random-I/O
+  storm. Keep the install root out of cloud-sync folders.
+
+### The 40 GB procedure
+
+1. Put the archive on the disk you actually install from (local SSD) and pick a
+   scratch root on the same filesystem, e.g.
+   `ARCHIVE=/srv/games/Game-Repack.zip`, `SCRATCH=/var/tmp/ludex-extract-40g`.
+2. Build the harness once, in release:
+
+   ```bash
+   CARGO_TARGET_DIR=/root/ludex-target cargo build --release -p ludex-core --example extract
+   BIN=/root/ludex-target/release/examples/extract
+   ```
+
+3. Run the rows, one format per archive. `--runs 1` is enough at this size; the
+   run is minutes, not milliseconds.
+
+   ```bash
+   # ZIP: 1 worker (sequential) vs 2/4/8 (parallel); cancel latency at the end
+   scripts/bench-extract.sh --bin "$BIN" --dest "$SCRATCH" \
+     --workers 1,2,4,8 --runs 1 --cancel-after 20 "$ARCHIVE"
+
+   # 7z: crate vs the system binary, then repeat with a solid archive
+   scripts/bench-extract.sh --bin "$BIN" --dest "$SCRATCH" --runs 1 "$ARCHIVE.7z"
+
+   # RAR: one sequential row; the script prints the honest note
+   scripts/bench-extract.sh --bin "$BIN" --dest "$SCRATCH" --runs 1 "$ARCHIVE.rar"
+   ```
+
+4. While a row runs, sample it: `iostat -x 1`, `vmstat 1`,
+   `pidstat -p <pid> 1` (CPU per thread is the evidence for or against
+   parallelism), `nproc`, and free memory.
+5. Cold vs warm: `sync; echo 3 > /proc/sys/vm/drop_caches` between rows (Linux,
+   root; on Windows use RAMMap `-E`) and record both. A cold run is the honest
+   number for a first install.
+6. Defender A/B, Windows: one row with the install/download folders excluded
+   (`Add-MpPreference -ExclusionPath`), then remove the exclusion
+   (`Remove-MpPreference -ExclusionPath`) immediately after and record both.
+   State the exclusion in the result; do not leave it in place by accident.
+7. Keep the printed table, the `iostat`/`pidstat` samples and the host
+   description (CPU, disk model, filesystem, Defender state, cold/warm) in
+   #232. The gate is 1.5× on the same archive and host; ZIP and 7z must show
+   it, RAR is expected not to.
+8. Cancellation: the `--cancel-after 20` row prints the measured latency
+   (`wall − 20 s`); pass it in #232 with the staging directory size it left
+   behind.
+
+### Reading the result
+
+| Symptom | What it means |
+|---|---|
+| ZIP speedup < 2× with 8 workers | The disk or the network share is the ceiling; check `iostat` and `pidstat` per thread |
+| ZIP barely faster, one core busy | Workers are not being used: check `LUDEX_EXTRACT_WORKERS`, the archive entry count and the 4 MiB auto threshold |
+| 7z native row ≈ crate row | The system binary is p7zip 16 (no MT decode) or the archive is solid; check `7z i` |
+| 7z native much faster but RSS > 1 GiB | `-mx=9` scene archive: the dictionary, not a leak; the crate path stays as a memory-safe fallback |
+| RAR slower than everything | Expected: solid, sequential, one core |
+| Cancel latency > 1 s | A single entry larger than the remaining work: cancel is polled per 1 MiB chunk, so this should not happen — report it |
+
 ## What the user must measure
 
 On the actual setup (Proxmox host, Caddy, client), collect and record:
@@ -334,6 +523,9 @@ On the actual setup (Proxmox host, Caddy, client), collect and record:
 4. `iostat -x 1` and `top` on the server during the Caddy run.
 5. Caddy access log lines for the same request (status + duration), and the
    new `download stream closed` lines from the server log.
+6. For extraction, the `scripts/bench-extract.sh` table of one large archive
+   per format (procedure and gate above); `--self-check` validates the parsing
+   and verdict logic offline.
 
 The numbers decide the next step: a faster `aria2c` means parallel ranges are
 worth implementing; equal numbers mean the link/disk/proxy is the ceiling and

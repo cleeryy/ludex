@@ -728,7 +728,8 @@ pub async fn repair_install(app: &AppHandle, game_id: i64) -> Result<RepairRepor
             &extract_archive_path,
             &extract_staging,
             &passwords,
-            &mut |entries_done, entries_total, bytes_done, bytes_total| {
+            None,
+            &mut |update| {
                 if last.elapsed() < Duration::from_millis(250) {
                     return;
                 }
@@ -738,11 +739,11 @@ pub async fn repair_install(app: &AppHandle, game_id: i64) -> Result<RepairRepor
                     RepairProgress {
                         game_id,
                         phase: "extracting".to_string(),
-                        files_done: entries_done,
-                        files_total: entries_total.unwrap_or(0),
-                        bytes_done,
-                        bytes_total: bytes_total.unwrap_or(0),
-                        message: format!("Extracting {entries_done} files"),
+                        files_done: update.entries_done,
+                        files_total: update.entries_total,
+                        bytes_done: update.bytes_done,
+                        bytes_total: update.bytes_total,
+                        message: format!("Extracting {} files", update.entries_done),
                     },
                 );
             },
@@ -1117,7 +1118,7 @@ mod tests {
 
         let archive_path = root.join("game.zip");
         fs::write(&archive_path, &archive_bytes).unwrap();
-        bridge::extract_archive(&archive_path, &install, &[], &mut |_, _, _, _| {}).unwrap();
+        bridge::extract_archive(&archive_path, &install, &[], None, &mut |_| {}).unwrap();
         let manifest = manifest::build_manifest(&install, &mut |_| {}).unwrap();
 
         // Damage the install: delete one file and truncate another.
@@ -1151,7 +1152,7 @@ mod tests {
         assert_eq!(fs::read(&part).unwrap(), archive_bytes);
 
         let staging = root.join("staging");
-        bridge::extract_archive(&part, &staging, &[], &mut |_, _, _, _| {}).unwrap();
+        bridge::extract_archive(&part, &staging, &[], None, &mut |_| {}).unwrap();
         let restored = restore_files(&staging, &install, &damaged, &mut |_, _| {});
         assert_eq!(restored.repaired.len(), 2);
         assert!(restored.failed.is_empty());
