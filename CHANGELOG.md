@@ -6,6 +6,16 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- Classic extraction is much faster (#232): ZIP entries extract in parallel
+  (up to 8 workers, measured 3.8× on 8 vCPU), 7z uses a system `7z`/`7zz` with
+  `-mmt=on` when present (measured 4.8–5×, clean fallback to the crate), RAR
+  stays sequential and says so, 4 MiB buffers and pre-created directories
+  reduce I/O, extraction reports entries/bytes per second and a real ETA, and
+  cancel stops within ~10 ms while keeping staging. The inflate-backend
+  alternative (zlib-ng, 1.1×) was measured and rejected.
+
 ## [0.4.13] - 2026-11-15
 
 ### Added
