@@ -6,6 +6,16 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Server-side extracted cache and file-manifest transport, prototype and off by
+  default (#231): with `LUDEX_EXTRACTED_CACHE=1` the server extracts an archive
+  once into a content-addressed cache (per-file SHA-256 manifest, modes, empty
+  dirs, TTL/LRU/budget eviction, dedup, leases), serves files with
+  Range/If-Range and a per-file hash, and exposes admin cache controls;
+  `scripts/bench-file-manifest.sh` compares classic vs 4/8 parallel file
+  downloads on a 40 GB 7z so the 1.5–2× gate can be measured before enabling it.
+
 ## [0.4.12] - 2026-11-15
 
 ### Added
