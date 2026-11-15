@@ -346,12 +346,16 @@ async fn totp_enrollment_login_challenge_replay_and_recovery_codes() {
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
     assert_eq!(body["error"]["code"], "invalid_mfa_code");
 
-    // The right code issues the session.
+    // The right code issues the session. The exact string is captured once so
+    // the replay below sends the same digits even if the TOTP step rolls over
+    // between the two requests (recomputing it would produce a fresh, valid
+    // code and make the replay test flaky).
+    let login_code = code_for(&secret);
     let (status, signed_in) = server
         .post(
             "/api/auth/login/mfa",
             None,
-            Some(json!({ "challengeToken": challenge_token, "code": code_for(&secret) })),
+            Some(json!({ "challengeToken": challenge_token, "code": login_code })),
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{signed_in}");
@@ -377,7 +381,7 @@ async fn totp_enrollment_login_challenge_replay_and_recovery_codes() {
             None,
             Some(json!({
                 "challengeToken": challenge["challengeToken"],
-                "code": code_for(&secret),
+                "code": login_code,
             })),
         )
         .await;
