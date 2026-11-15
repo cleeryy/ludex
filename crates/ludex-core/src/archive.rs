@@ -1,9 +1,19 @@
 //! Archive detection, verification and streaming extraction.
 //!
 //! Supports ZIP (including Zip64), RAR (RAR4/RAR5) and 7z. Extraction is
-//! streaming: entries are copied in 64 KiB chunks and never loaded whole in
+//! streaming: entries are copied in 1 MiB chunks and never loaded whole in
 //! memory. Every entry path is validated before writing, so archives cannot
 //! escape the destination directory.
+//!
+//! ZIP entries are independent, so they are inflated by up to
+//! [`MAX_ZIP_WORKERS`] threads (#232). One archive handle per worker keeps the
+//! `zip` crate's `&mut` borrow per entry intact; the central directory is
+//! re-parsed per worker, which costs a few milliseconds against a 40 GB
+//! archive. 7z uses a system `7zz`/`7z` binary when one is installed (its
+//! LZMA2 decoder is faster and `-mmt` decodes several blocks in parallel),
+//! and falls back to `sevenz-rust2` when the binary is absent, fails, or the
+//! archive is encrypted. RAR stays on libunrar: RAR5 solid archives are
+//! sequential by design.
 //!
 //! ```
 //! use std::path::Path;
@@ -11,9 +21,15 @@
 //! assert!(format.is_err());
 //! ```
 
+use std::ffi::OsString;
+use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use sevenz_rust2::{Archive as SevenZipArchive, Password, SevenZArchiveEntry, SevenZReader};
@@ -24,11 +40,37 @@ use zip::result::ZipError;
 /// Maximum accepted length of an archive entry path, in bytes.
 pub const MAX_ENTRY_PATH_LEN: usize = 1024;
 
+/// Upper bound on parallel ZIP extraction workers (#232).
+///
+/// Disk throughput stops improving well before this on a SATA SSD and the
+/// per-worker write buffer is 4 MiB, so eight readers cost 32 MiB of RAM at
+/// worst. `ExtractOptions::zip_workers` can lower it; nothing can raise it.
+pub const MAX_ZIP_WORKERS: usize = 8;
+
 /// Size of the copy buffer used during extraction.
-const COPY_BUFFER_SIZE: usize = 64 * 1024;
+///
+/// 1 MiB keeps the syscall count low on a 40 GB archive without a memory
+/// cost worth counting: seventy such buffers are 70 MiB.
+const COPY_BUFFER_SIZE: usize = 1024 * 1024;
+
+/// Write buffer per extracted entry (#232).
+///
+/// The desktop path used 1 MiB; 4 MiB is the point where a sequential write
+/// of a 200 MiB entry stops issuing 16k syscalls. The buffer is allocated per
+/// entry, so a tree of tiny files pays an allocator call, not 4 MiB of pages.
+const WRITE_BUFFER_SIZE: usize = 4 * 1024 * 1024;
 
 /// Progress is reported at most every mebibyte written.
 const PROGRESS_STEP_BYTES: u64 = 1024 * 1024;
+
+/// How often the parallel aggregator drains the shared counters (#232).
+const PROGRESS_TICK: Duration = Duration::from_millis(100);
+
+/// Environment override for the number of ZIP workers (#232).
+const WORKER_ENV: &str = "LUDEX_EXTRACT_WORKERS";
+
+/// Environment override for the system 7-Zip binary (#232).
+const SEVEN_ZIP_ENV: &str = "LUDEX_SEVEN_ZIP";
 
 /// Archive container formats understood by Ludex.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -90,6 +132,12 @@ pub enum ArchiveError {
     /// The requested entry index is not in the archive.
     #[error("archive entry not found")]
     EntryNotFound,
+    /// [`ExtractOptions::cancel`] asked the extractor to stop (#232).
+    ///
+    /// Nothing is rolled back: the caller owns the staging directory and
+    /// decides whether to keep the partial tree for a resume or delete it.
+    #[error("extraction cancelled")]
+    Cancelled,
 }
 
 impl ArchiveError {
@@ -130,6 +178,21 @@ pub struct ExtractOptions {
     /// mode and an executable bit per file, and both must describe what the
     /// archive meant, not what the process umask allowed.
     pub preserve_modes: bool,
+    /// Parallel ZIP workers (#232). `0` means auto.
+    ///
+    /// Auto uses [`std::thread::available_parallelism`], capped by
+    /// [`MAX_ZIP_WORKERS`], and stays at one worker for tiny archives where
+    /// the thread setup would cost more than the inflate. A non-zero value is
+    /// honoured as-is up to the cap, which is what the benchmarks and the
+    /// tests use.
+    pub zip_workers: usize,
+    /// Stop the extraction when this returns `true` (#232).
+    ///
+    /// Checked between entries and every [`COPY_BUFFER_SIZE`] chunk, so a
+    /// 40 GB single-entry ZIP still cancels in about one chunk. The extractor
+    /// returns [`ArchiveError::Cancelled`] and leaves the destination as it
+    /// is; a caller that stages keeps the stage.
+    pub cancel: Option<CancelCheck>,
 }
 
 impl Default for ExtractOptions {
@@ -138,6 +201,8 @@ impl Default for ExtractOptions {
             passwords: Vec::new(),
             overwrite: true,
             preserve_modes: false,
+            zip_workers: 0,
+            cancel: None,
         }
     }
 }
@@ -147,9 +212,49 @@ impl ExtractOptions {
     pub fn with_passwords(passwords: Vec<String>) -> Self {
         Self {
             passwords,
-            overwrite: true,
-            preserve_modes: false,
+            ..ExtractOptions::default()
         }
+    }
+
+    /// Returns `true` when [`ExtractOptions::cancel`] has been triggered.
+    fn is_cancelled(&self) -> bool {
+        self.cancel.as_ref().is_some_and(CancelCheck::is_cancelled)
+    }
+}
+
+/// A cheap, thread-safe cancellation check polled by the extractor (#232).
+///
+/// The archive layer never owns the source of truth: the desktop wraps its
+/// `CancellationToken`, the server can wrap an `Arc<AtomicBool>`. The closure
+/// is called from worker threads, so it must stay allocation-free in the
+/// common case.
+#[derive(Clone)]
+pub struct CancelCheck {
+    check: Arc<dyn Fn() -> bool + Send + Sync>,
+}
+
+impl CancelCheck {
+    /// Wraps any `Fn() -> bool` that is safe to poll from several threads.
+    pub fn new(check: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+        Self {
+            check: Arc::new(check),
+        }
+    }
+
+    /// Builds a check over a shared flag the caller can raise.
+    pub fn from_flag(flag: Arc<AtomicBool>) -> Self {
+        Self::new(move || flag.load(Ordering::Relaxed))
+    }
+
+    /// Returns `true` once cancellation was requested.
+    pub fn is_cancelled(&self) -> bool {
+        (self.check)()
+    }
+}
+
+impl fmt::Debug for CancelCheck {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("CancelCheck(..)")
     }
 }
 
@@ -166,6 +271,16 @@ pub struct ExtractProgress {
     pub bytes_done: u64,
     /// Entry currently being written.
     pub current_file: String,
+    /// Average bytes written per second since the call started.
+    ///
+    /// The average, not a rolling window: an ETA built from it never jumps
+    /// when a large entry starts (#232).
+    pub bytes_per_second: u64,
+    /// Average files finished per second since the call started.
+    pub entries_per_second: u64,
+    /// Seconds left for the remaining declared bytes, when `bytes_total` is
+    /// known and at least one byte per second was written.
+    pub eta_seconds: Option<u64>,
 }
 
 /// Result of [`extract_archive`].
@@ -349,7 +464,11 @@ fn seven_zip_is_encrypted(archive: &SevenZipArchive) -> bool {
 /// The destination directory is created when missing. Passwords from
 /// [`ExtractOptions::passwords`] are tried in order. Absolute paths, `..`,
 /// drive letters, NUL bytes and link entries are rejected with
-/// [`ArchiveError::UnsafeEntry`].
+/// [`ArchiveError::UnsafeEntry`], and an unsafe entry is rejected before any
+/// file is written (the whole entry list is validated first). ZIP entries are
+/// inflated on several threads (#232); 7z uses a system binary when present;
+/// RAR is sequential by design. [`ExtractOptions::cancel`] stops the run
+/// between entries and is surfaced as [`ArchiveError::Cancelled`].
 pub fn extract_archive(
     path: &Path,
     dest: &Path,
@@ -416,63 +535,431 @@ pub fn sanitize_entry_path(name: &str) -> Result<PathBuf, ArchiveError> {
     Ok(safe)
 }
 
+/// One file entry of a ZIP archive, resolved before extraction starts.
+#[derive(Debug, Clone, Copy)]
+struct ZipPlanEntry {
+    index: usize,
+    size: u64,
+}
+
+/// Result of writing one plan entry.
+enum EntryOutcome {
+    /// The file was written; carries the number of bytes written.
+    Written(u64),
+    /// The entry was skipped (`overwrite == false` and the file exists).
+    Skipped,
+}
+
 fn extract_zip(
     path: &Path,
     dest: &Path,
     opts: &ExtractOptions,
     progress: &mut dyn FnMut(ExtractProgress),
 ) -> Result<ExtractReport, ArchiveError> {
-    let file = File::open(path)?;
-    let mut archive = ZipArchive::new(BufReader::new(file)).map_err(map_zip_error)?;
+    let plan = plan_zip_entries(path, dest)?;
+    let entries_total = plan.len();
+    let bytes_total = plan.iter().map(|entry| entry.size).sum();
 
-    let mut entries_total = 0;
-    let mut bytes_total = 0_u64;
-    for index in 0..archive.len() {
-        let entry = archive.by_index_raw(index).map_err(map_zip_error)?;
-        if entry.is_dir() {
-            continue;
-        }
-        entries_total += 1;
-        bytes_total = bytes_total.saturating_add(entry.size());
+    let workers = zip_worker_count(entries_total, bytes_total, opts);
+    if workers > 1 {
+        return extract_zip_parallel(path, dest, opts, &plan, progress, workers);
     }
 
     let mut sink = Sink::new(progress, entries_total, bytes_total);
+    let file = File::open(path)?;
+    let mut archive =
+        ZipArchive::new(BufReader::with_capacity(COPY_BUFFER_SIZE, file)).map_err(map_zip_error)?;
     let mut report = ExtractReport::default();
 
+    for entry in &plan {
+        match extract_zip_entry(&mut archive, entry.index, dest, opts, &mut sink)? {
+            EntryOutcome::Written(bytes) => {
+                report.files += 1;
+                report.bytes = report.bytes.saturating_add(bytes);
+            }
+            EntryOutcome::Skipped => {}
+        }
+    }
+
+    Ok(report)
+}
+
+/// Validates every entry and creates the directory entries before any file is
+/// written (#232).
+///
+/// Doing the security pass first is what makes parallel extraction safe: an
+/// unsafe entry is rejected before a worker can write, and a failure cannot
+/// depend on which worker happened to be scheduled first. It also lets the
+/// workers create their own parents without racing on `create_dir_all`.
+fn plan_zip_entries(path: &Path, dest: &Path) -> Result<Vec<ZipPlanEntry>, ArchiveError> {
+    let file = File::open(path)?;
+    let mut archive =
+        ZipArchive::new(BufReader::with_capacity(COPY_BUFFER_SIZE, file)).map_err(map_zip_error)?;
+    let mut plan = Vec::with_capacity(archive.len());
+
     for index in 0..archive.len() {
-        let mut entry = open_zip_entry(&mut archive, index, opts)?;
+        let entry = archive.by_index_raw(index).map_err(map_zip_error)?;
         let name = entry.name().to_string();
-        let relative = sanitize_entry_path(&name)?;
 
         if entry.is_dir() {
-            fs::create_dir_all(dest.join(relative))?;
+            if !name.is_empty() {
+                let relative = sanitize_entry_path(&name)?;
+                fs::create_dir_all(dest.join(relative))?;
+            }
             continue;
         }
         if entry.is_symlink() {
             return Err(ArchiveError::UnsafeEntry(format!("link entry: {name}")));
         }
 
-        let out_path = dest.join(&relative);
-        ensure_within(dest, &out_path, &name)?;
-        if let Some(parent) = out_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        if !opts.overwrite && out_path.exists() {
-            sink.skip_entry(&name);
-            continue;
-        }
-
-        sink.begin_entry(&name);
-        let mut writer = BufWriter::new(File::create(&out_path)?);
-        let written = copy_with_progress(&mut entry, &mut writer, &mut sink)?;
-        writer.flush()?;
-        apply_mode(opts, &out_path, &name, entry.unix_mode())?;
-        report.files += 1;
-        report.bytes = report.bytes.saturating_add(written);
-        sink.finish_entry();
+        let relative = sanitize_entry_path(&name)?;
+        ensure_within(dest, &dest.join(&relative), &name)?;
+        plan.push(ZipPlanEntry {
+            index,
+            size: entry.size(),
+        });
     }
 
-    Ok(report)
+    Ok(plan)
+}
+
+/// Number of ZIP workers for this archive (#232).
+///
+/// Auto stays at one worker below a few mebibytes: the thread start-up and the
+/// extra central-directory parse cost more than the inflate of a small game
+/// patch. An explicit `zip_workers` (tests, benchmark) is honoured up to
+/// [`MAX_ZIP_WORKERS`].
+fn zip_worker_count(entries: usize, bytes_total: u64, opts: &ExtractOptions) -> usize {
+    if entries <= 1 {
+        return 1;
+    }
+    let requested = if opts.zip_workers > 0 {
+        Some(opts.zip_workers)
+    } else {
+        std::env::var(WORKER_ENV)
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .filter(|workers| *workers > 0)
+    };
+    match requested {
+        Some(workers) => workers.min(MAX_ZIP_WORKERS).min(entries),
+        None if bytes_total < 4 * 1024 * 1024 => 1,
+        None => std::thread::available_parallelism()
+            .map(|parallelism| parallelism.get())
+            .unwrap_or(1)
+            .min(MAX_ZIP_WORKERS)
+            .min(entries),
+    }
+}
+
+/// Shared state between the ZIP workers and the progress aggregator (#232).
+struct ZipShared {
+    bytes_done: AtomicU64,
+    entries_done: AtomicU64,
+    files_done: AtomicU64,
+    current_file: Mutex<String>,
+    stop: AtomicBool,
+    cancelled: AtomicBool,
+}
+
+impl ZipShared {
+    fn new() -> Self {
+        Self {
+            bytes_done: AtomicU64::new(0),
+            entries_done: AtomicU64::new(0),
+            files_done: AtomicU64::new(0),
+            current_file: Mutex::new(String::new()),
+            stop: AtomicBool::new(false),
+            cancelled: AtomicBool::new(false),
+        }
+    }
+
+    fn set_current(&self, name: &str) {
+        let mut current = self
+            .current_file
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        current.clear();
+        current.push_str(name);
+    }
+
+    fn current(&self) -> String {
+        self.current_file
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+}
+
+/// Progress sink handed to a ZIP worker: atomics plus a coalesced wake-up.
+struct ZipSink<'a> {
+    shared: &'a ZipShared,
+    wake: mpsc::SyncSender<()>,
+    since_wake: u64,
+}
+
+impl<'a> ZipSink<'a> {
+    fn new(shared: &'a ZipShared, wake: mpsc::SyncSender<()>) -> Self {
+        Self {
+            shared,
+            wake,
+            since_wake: 0,
+        }
+    }
+
+    fn wake(&self) {
+        // A bounded channel of one coalesces: a full queue already means the
+        // aggregator has a tick pending, so dropping this one loses nothing.
+        let _ = self.wake.try_send(());
+    }
+}
+
+impl EntrySink for ZipSink<'_> {
+    fn begin_entry(&mut self, name: &str) {
+        self.shared.set_current(name);
+        self.wake();
+    }
+
+    fn add_bytes(&mut self, bytes: u64) {
+        self.shared.bytes_done.fetch_add(bytes, Ordering::Relaxed);
+        self.since_wake += bytes;
+        if self.since_wake >= PROGRESS_STEP_BYTES {
+            self.since_wake = 0;
+            self.wake();
+        }
+    }
+
+    fn finish_entry(&mut self) {
+        self.shared.entries_done.fetch_add(1, Ordering::Relaxed);
+        self.shared.files_done.fetch_add(1, Ordering::Relaxed);
+        self.since_wake = 0;
+        self.wake();
+    }
+
+    fn skip_entry(&mut self, name: &str) {
+        self.shared.set_current(name);
+        self.shared.entries_done.fetch_add(1, Ordering::Relaxed);
+        self.since_wake = 0;
+        self.wake();
+    }
+}
+
+/// Aggregates worker counters into `ExtractProgress` on the calling thread.
+struct ZipReporter<'a> {
+    shared: &'a ZipShared,
+    callback: &'a mut dyn FnMut(ExtractProgress),
+    entries_total: usize,
+    bytes_total: u64,
+    started: Instant,
+    last_bytes: u64,
+    last_emit: Instant,
+}
+
+impl ZipReporter<'_> {
+    fn tick(&mut self, force: bool) {
+        let bytes = self.shared.bytes_done.load(Ordering::Relaxed);
+        let now = Instant::now();
+        let advanced = bytes.saturating_sub(self.last_bytes) >= PROGRESS_STEP_BYTES;
+        if !force && !advanced && now.duration_since(self.last_emit) < PROGRESS_TICK {
+            return;
+        }
+        self.last_bytes = bytes;
+        self.last_emit = now;
+
+        let entries_done = self.shared.entries_done.load(Ordering::Relaxed) as usize;
+        let (bytes_per_second, entries_per_second, eta_seconds) =
+            rate_snapshot(self.started, bytes, self.bytes_total, entries_done);
+        (self.callback)(ExtractProgress {
+            entries_total: self.entries_total,
+            entries_done,
+            bytes_total: self.bytes_total,
+            bytes_done: bytes,
+            current_file: self.shared.current(),
+            bytes_per_second,
+            entries_per_second,
+            eta_seconds,
+        });
+    }
+}
+
+/// Extracts ZIP entries on `workers` threads (#232).
+///
+/// Each worker owns its `ZipArchive` handle: the `zip` crate hands out one
+/// mutable entry borrow at a time, so sharing a handle would need a lock per
+/// entry and serialise the inflate again. Errors are recorded with their
+/// entry index and the lowest index wins, so the reported failure does not
+/// depend on thread scheduling.
+fn extract_zip_parallel(
+    path: &Path,
+    dest: &Path,
+    opts: &ExtractOptions,
+    plan: &[ZipPlanEntry],
+    progress: &mut dyn FnMut(ExtractProgress),
+    workers: usize,
+) -> Result<ExtractReport, ArchiveError> {
+    let bytes_total = plan.iter().map(|entry| entry.size).sum::<u64>();
+    let shared = ZipShared::new();
+    let next = AtomicUsize::new(0);
+    let failure: Mutex<Option<(usize, ArchiveError)>> = Mutex::new(None);
+    let (wake, signals) = mpsc::sync_channel::<()>(1);
+    let started = Instant::now();
+
+    let mut reporter = ZipReporter {
+        shared: &shared,
+        callback: progress,
+        entries_total: plan.len(),
+        bytes_total,
+        started,
+        last_bytes: 0,
+        last_emit: started,
+    };
+    reporter.tick(true);
+
+    // One handle per worker, opened before any work starts: a handle that
+    // cannot be opened is a normal `ZipError` (corrupt directory, a file that
+    // disappeared), not an opaque I/O failure inside a thread.
+    let mut archives = Vec::with_capacity(workers);
+    for _ in 0..workers {
+        let file = File::open(path)?;
+        archives.push(
+            ZipArchive::new(BufReader::with_capacity(COPY_BUFFER_SIZE, file))
+                .map_err(map_zip_error)?,
+        );
+    }
+
+    std::thread::scope(|scope| -> Result<(), ArchiveError> {
+        for worker in 0..workers {
+            let wake = wake.clone();
+            let shared = &shared;
+            let next = &next;
+            let failure = &failure;
+            let Some(mut archive) = archives.pop() else {
+                return Err(ArchiveError::Io(io::Error::other(
+                    "missing ZIP worker handle",
+                )));
+            };
+            let handle = std::thread::Builder::new()
+                .name(format!("ludex-zip-{worker}"))
+                .spawn_scoped(scope, move || {
+                    let mut sink = ZipSink::new(shared, wake);
+
+                    loop {
+                        if shared.stop.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        if opts.is_cancelled() {
+                            shared.cancelled.store(true, Ordering::Relaxed);
+                            break;
+                        }
+                        let slot = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(entry) = plan.get(slot) else {
+                            break;
+                        };
+                        match extract_zip_entry(&mut archive, entry.index, dest, opts, &mut sink) {
+                            // Counters were updated through the sink as the
+                            // entry was written; only failures need handling.
+                            Ok(EntryOutcome::Written(_)) | Ok(EntryOutcome::Skipped) => {}
+                            Err(ArchiveError::Cancelled) => {
+                                shared.cancelled.store(true, Ordering::Relaxed);
+                                break;
+                            }
+                            Err(error) => {
+                                record_zip_failure(failure, entry.index, error);
+                                shared.stop.store(true, Ordering::Relaxed);
+                                break;
+                            }
+                        }
+                    }
+                });
+            if let Err(error) = handle {
+                return Err(ArchiveError::Io(error));
+            }
+        }
+
+        // Drop the last sender owned by this thread so losing every worker
+        // disconnects the channel.
+        drop(wake);
+
+        loop {
+            match signals.recv_timeout(PROGRESS_TICK) {
+                Ok(()) => reporter.tick(false),
+                Err(mpsc::RecvTimeoutError::Timeout) => reporter.tick(false),
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        reporter.tick(true);
+        Ok(())
+    })?;
+
+    if let Some((_, error)) = failure
+        .into_inner()
+        .unwrap_or_else(|error| error.into_inner())
+    {
+        return Err(error);
+    }
+    if shared.cancelled.load(Ordering::Relaxed) {
+        return Err(ArchiveError::Cancelled);
+    }
+
+    Ok(ExtractReport {
+        files: shared.files_done.load(Ordering::Relaxed) as usize,
+        bytes: shared.bytes_done.load(Ordering::Relaxed),
+    })
+}
+
+/// Keeps the failure with the lowest entry index (#232).
+fn record_zip_failure(
+    failure: &Mutex<Option<(usize, ArchiveError)>>,
+    index: usize,
+    error: ArchiveError,
+) {
+    let mut guard = failure.lock().unwrap_or_else(|poison| poison.into_inner());
+    let replace = guard
+        .as_ref()
+        .map(|(existing, _)| index < *existing)
+        .unwrap_or(true);
+    if replace {
+        *guard = Some((index, error));
+    }
+}
+
+/// Opens, validates and writes one ZIP entry.
+fn extract_zip_entry<S: EntrySink + ?Sized>(
+    archive: &mut ZipArchive<BufReader<File>>,
+    index: usize,
+    dest: &Path,
+    opts: &ExtractOptions,
+    sink: &mut S,
+) -> Result<EntryOutcome, ArchiveError> {
+    let mut entry = open_zip_entry(archive, index, opts)?;
+    let name = entry.name().to_string();
+    let relative = sanitize_entry_path(&name)?;
+
+    if entry.is_dir() {
+        fs::create_dir_all(dest.join(relative))?;
+        return Ok(EntryOutcome::Skipped);
+    }
+    if entry.is_symlink() {
+        return Err(ArchiveError::UnsafeEntry(format!("link entry: {name}")));
+    }
+
+    let out_path = dest.join(&relative);
+    ensure_within(dest, &out_path, &name)?;
+    if let Some(parent) = out_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    if !opts.overwrite && out_path.exists() {
+        sink.skip_entry(&name);
+        return Ok(EntryOutcome::Skipped);
+    }
+
+    sink.begin_entry(&name);
+    let mut writer = BufWriter::with_capacity(WRITE_BUFFER_SIZE, File::create(&out_path)?);
+    let written = copy_with_progress(&mut entry, &mut writer, opts.cancel.as_ref(), sink)?;
+    writer.flush()?;
+    apply_mode(opts, &out_path, &name, entry.unix_mode())?;
+    sink.finish_entry();
+    Ok(EntryOutcome::Written(written))
 }
 
 fn open_zip_entry<'a>(
@@ -573,6 +1060,14 @@ fn rar_listing(path: &Path, password: Option<&str>) -> Result<(usize, u64), Arch
     Ok((files, bytes))
 }
 
+/// Extracts a RAR archive through libunrar (#232 keeps the FFI).
+///
+/// RAR5 solid archives compress the whole file set as one stream: entry N+1
+/// cannot be decoded before entry N, so there is nothing to parallelise. The
+/// RAR path is honestly sequential; the only wins here are I/O (directories
+/// pre-created, entry data written once by libunrar, no scratch copy) and the
+/// cancellation check between entries, which lets a cancel keep the staging
+/// directory instead of finishing a 40 GB unpack.
 fn extract_rar_pass(
     path: &Path,
     dest: &Path,
@@ -588,6 +1083,12 @@ fn extract_rar_pass(
     let mut report = ExtractReport::default();
 
     while let Some(header) = archive.read_header().map_err(map_unrar_error)? {
+        if opts.is_cancelled() {
+            // Dropping the archive handle closes libunrar's reader; the
+            // caller keeps the staging directory as it is.
+            return Err(ArchiveError::Cancelled);
+        }
+
         let (name, is_directory, is_link, is_encrypted, size, attributes) = {
             let entry = header.entry();
             (
@@ -636,6 +1137,15 @@ fn extract_rar_pass(
     Ok(report)
 }
 
+/// Extracts a 7z archive, using a system 7-Zip binary when one is available
+/// (#232) and `sevenz-rust2` otherwise.
+///
+/// The native path is skipped for encrypted archives: 7-Zip takes the password
+/// on its command line, which would leak it into the process list, whereas the
+/// crate keeps it in memory. It is also skipped when an entry violates the
+/// path rules, before any binary runs. A native failure (missing file, wrong
+/// exit code, CRC) falls back to the crate, so the result never depends on the
+/// binary being correct.
 fn extract_seven_zip(
     path: &Path,
     dest: &Path,
@@ -653,8 +1163,26 @@ fn extract_seven_zip(
         entries_total += 1;
         bytes_total = bytes_total.saturating_add(entry.size());
     }
+    validate_seven_zip_entries(&metadata)?;
 
     let mut sink = Sink::new(progress, entries_total, bytes_total);
+
+    // Encrypted archives stay on the crate path: 7-Zip takes the password on
+    // its command line, which would leak it into the process list. A
+    // configured password list alone is not a reason to skip the binary — an
+    // unencrypted archive needs no `-p`, and any surprise falls back.
+    if !encrypted {
+        if let Some(binary) = seven_zip_binary() {
+            match extract_seven_zip_native(&binary, path, dest, opts, &metadata, &mut sink) {
+                Ok(report) => return Ok(report),
+                Err(error @ ArchiveError::Cancelled) => return Err(error),
+                // Any other failure falls through to the crate: a broken or
+                // too-old binary must never fail an install the crate can do.
+                Err(_) => sink.reset(),
+            }
+        }
+    }
+
     let mut last_password_error: Option<ArchiveError> = None;
 
     for password in password_candidates(opts) {
@@ -679,6 +1207,10 @@ fn extract_seven_zip(
         let mut failure: Option<ArchiveError> = None;
         let outcome = reader.for_each_entries(|entry, entry_reader| {
             if failure.is_some() {
+                return Ok(false);
+            }
+            if opts.is_cancelled() {
+                failure = Some(ArchiveError::Cancelled);
                 return Ok(false);
             }
             match extract_seven_zip_entry(entry, entry_reader, dest, opts, &mut sink, &mut report) {
@@ -734,6 +1266,310 @@ fn open_seven_zip_for_extraction(
     Err(last_password_error.unwrap_or(ArchiveError::PasswordRequired))
 }
 
+/// Rejects unsafe names and link entries before a backend writes anything.
+///
+/// The crate path checks each entry as it reaches it; doing it up front also
+/// covers the native path, where an unvalidated `..` would be handed to
+/// 7-Zip instead of being refused by our own writer.
+fn validate_seven_zip_entries(archive: &SevenZipArchive) -> Result<(), ArchiveError> {
+    for entry in &archive.files {
+        if entry.is_anti_item() {
+            continue;
+        }
+        let name = entry.name().to_string();
+        if entry.is_directory() {
+            if !name.is_empty() {
+                sanitize_entry_path(&name)?;
+            }
+            continue;
+        }
+        if is_link_attr(entry.windows_attributes) {
+            return Err(ArchiveError::UnsafeEntry(format!("link entry: {name}")));
+        }
+        sanitize_entry_path(&name)?;
+    }
+    Ok(())
+}
+
+/// Resolves the system 7-Zip binary, honouring `LUDEX_SEVEN_ZIP` (#232).
+///
+/// The answer is cached, and the cache is keyed by the environment value so a
+/// test (or a user changing the override) re-detects instead of restarting the
+/// process. `LUDEX_SEVEN_ZIP=crate` (also `off`, `none`, `0`, `false`) forces
+/// the Rust decoder; a path or a program name forces that binary.
+fn seven_zip_binary() -> Option<PathBuf> {
+    static CACHE: Mutex<Option<(Option<String>, Option<PathBuf>)>> = Mutex::new(None);
+
+    let requested = std::env::var(SEVEN_ZIP_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let mut cache = CACHE.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some((cached, binary)) = cache.as_ref() {
+        if *cached == requested {
+            return binary.clone();
+        }
+    }
+    let resolved = resolve_seven_zip_binary(requested.as_deref());
+    *cache = Some((requested, resolved.clone()));
+    resolved
+}
+
+fn resolve_seven_zip_binary(requested: Option<&str>) -> Option<PathBuf> {
+    if let Some(value) = requested {
+        if matches!(
+            value.to_ascii_lowercase().as_str(),
+            "0" | "off" | "none" | "false" | "crate"
+        ) {
+            return None;
+        }
+        let candidate = PathBuf::from(value);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        return find_in_path(value);
+    }
+
+    for name in seven_zip_candidates() {
+        if let Some(found) = find_in_path(name) {
+            return Some(found);
+        }
+    }
+    #[cfg(windows)]
+    {
+        for variable in ["ProgramW6432", "ProgramFiles"] {
+            let Ok(base) = std::env::var(variable) else {
+                continue;
+            };
+            let candidate = PathBuf::from(base).join("7-Zip").join("7z.exe");
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+/// Program names tried in `PATH`, best first.
+fn seven_zip_candidates() -> &'static [&'static str] {
+    #[cfg(windows)]
+    {
+        &["7zz.exe", "7z.exe", "7za.exe"]
+    }
+    #[cfg(not(windows))]
+    {
+        &["7zz", "7z", "7za"]
+    }
+}
+
+fn find_in_path(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for directory in std::env::split_paths(&path) {
+        let candidate = directory.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Extracts the archive with `7z x -mmt=on -bsp1` (#232).
+///
+/// 7-Zip's LZMA2 decoder is faster than the pure-Rust one and `-mmt` decodes
+/// independent blocks in parallel; a solid archive is one block and stays
+/// single-threaded, which is exactly the honest limit of this path. The
+/// function verifies every expected file and its size before reporting
+/// success, so a binary that silently skipped an entry triggers the crate
+/// fallback instead of publishing a partial tree.
+fn extract_seven_zip_native(
+    binary: &Path,
+    archive: &Path,
+    dest: &Path,
+    opts: &ExtractOptions,
+    metadata: &SevenZipArchive,
+    sink: &mut Sink<'_>,
+) -> Result<ExtractReport, ArchiveError> {
+    let mut command = Command::new(binary);
+    command.arg("x").arg("-y").arg("-bsp1").arg("-mmt=on");
+    let mut out_dir = OsString::from("-o");
+    out_dir.push(dest);
+    command.arg(out_dir).arg("--").arg(archive);
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = command.spawn().map_err(ArchiveError::Io)?;
+
+    let stderr = child.stderr.take().map(|mut handle| {
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            let _ = handle.read_to_string(&mut text);
+            text
+        })
+    });
+
+    let bytes_total = sink.bytes_total();
+    let (percent_tx, percent_rx) = mpsc::channel::<u8>();
+    let stdout = child.stdout.take();
+    let reader = stdout.map(|mut handle| {
+        std::thread::spawn(move || {
+            let mut pending = Vec::new();
+            let mut chunk = [0_u8; 4096];
+            loop {
+                match handle.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => {
+                        for byte in &chunk[..read] {
+                            if *byte == b'%' {
+                                if let Some(percent) = parse_trailing_percent(&pending) {
+                                    let _ = percent_tx.send(percent);
+                                }
+                                pending.clear();
+                            } else if pending.len() < 32 {
+                                pending.push(*byte);
+                            }
+                        }
+                    }
+                }
+            }
+        })
+    });
+
+    let mut stdout_open = reader.is_some();
+    let status = loop {
+        if opts.is_cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            if let Some(handle) = reader {
+                let _ = handle.join();
+            }
+            return Err(ArchiveError::Cancelled);
+        }
+        match child.try_wait().map_err(ArchiveError::Io)? {
+            Some(status) => break status,
+            None => {
+                if stdout_open {
+                    match percent_rx.recv_timeout(PROGRESS_TICK) {
+                        Ok(percent) => sink.set_bytes_done(bytes_total * u64::from(percent) / 100),
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        Err(mpsc::RecvTimeoutError::Disconnected) => stdout_open = false,
+                    }
+                } else {
+                    std::thread::sleep(PROGRESS_TICK / 2);
+                }
+            }
+        }
+    };
+
+    if let Some(handle) = reader {
+        let _ = handle.join();
+    }
+    // Drain whatever progress arrived with the last block.
+    while let Ok(percent) = percent_rx.try_recv() {
+        sink.set_bytes_done(bytes_total * u64::from(percent) / 100);
+    }
+    let stderr = stderr
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or_default();
+
+    if let Some(error) = seven_zip_exit_error(&status, &stderr) {
+        return Err(error);
+    }
+
+    let report = verify_native_seven_zip(dest, opts, metadata)?;
+    sink.finish_all(report.files, report.bytes);
+    Ok(report)
+}
+
+/// Reads the digits that end a 7-Zip progress field (` 42%`, `100%`).
+fn parse_trailing_percent(pending: &[u8]) -> Option<u8> {
+    let digits: Vec<u8> = pending
+        .iter()
+        .rev()
+        .take_while(|byte| byte.is_ascii_digit())
+        .copied()
+        .collect();
+    if digits.is_empty() {
+        return None;
+    }
+    let text: String = digits.iter().rev().map(|byte| char::from(*byte)).collect();
+    text.parse::<u8>().ok().filter(|percent| *percent <= 100)
+}
+
+/// Maps a 7-Zip exit code to an error, or `None` for success (#232).
+///
+/// 0 is success and 1 is a warning (for example a locked file); the size
+/// verification right after decides whether the tree is complete, so a
+/// warning is not fatal on its own. Everything else is a real failure and
+/// triggers the crate fallback.
+fn seven_zip_exit_error(status: &ExitStatus, stderr: &str) -> Option<ArchiveError> {
+    let detail = stderr.trim();
+    let detail = if detail.is_empty() {
+        "no diagnostics".to_string()
+    } else {
+        detail.lines().next().unwrap_or_default().to_string()
+    };
+    match status.code() {
+        Some(0) | Some(1) => None,
+        Some(2) => Some(ArchiveError::InvalidArchive(format!(
+            "7z reported a fatal error: {detail}"
+        ))),
+        Some(7) => Some(ArchiveError::InvalidArchive(format!(
+            "7z rejected the command line: {detail}"
+        ))),
+        Some(8) => Some(ArchiveError::Io(io::Error::other(format!(
+            "7z ran out of memory: {detail}"
+        )))),
+        Some(255) => Some(ArchiveError::Cancelled),
+        other => Some(ArchiveError::Io(io::Error::other(format!(
+            "7z exited with {other:?}: {detail}"
+        )))),
+    }
+}
+
+/// Checks that the native binary wrote every expected file at its declared
+/// size, and applies the archive modes when asked.
+fn verify_native_seven_zip(
+    dest: &Path,
+    opts: &ExtractOptions,
+    metadata: &SevenZipArchive,
+) -> Result<ExtractReport, ArchiveError> {
+    let mut report = ExtractReport::default();
+    for entry in &metadata.files {
+        if entry.is_directory() || entry.is_anti_item() {
+            continue;
+        }
+        let name = entry.name().to_string();
+        let relative = sanitize_entry_path(&name)?;
+        let out_path = dest.join(&relative);
+        let meta = fs::metadata(&out_path).map_err(|error| {
+            ArchiveError::InvalidArchive(format!("7z did not write {name}: {error}"))
+        })?;
+        if !meta.is_file() {
+            return Err(ArchiveError::InvalidArchive(format!(
+                "7z wrote a non-file for {name}"
+            )));
+        }
+        if meta.len() != entry.size() {
+            return Err(ArchiveError::InvalidArchive(format!(
+                "7z wrote {} bytes for {name}, expected {}",
+                meta.len(),
+                entry.size()
+            )));
+        }
+        apply_mode(
+            opts,
+            &out_path,
+            &name,
+            seven_zip_unix_mode(entry.windows_attributes),
+        )?;
+        report.files += 1;
+        report.bytes = report.bytes.saturating_add(meta.len());
+    }
+    Ok(report)
+}
+
 fn extract_seven_zip_entry(
     entry: &SevenZArchiveEntry,
     reader: &mut dyn Read,
@@ -772,8 +1608,8 @@ fn extract_seven_zip_entry(
     }
 
     sink.begin_entry(&name);
-    let mut writer = BufWriter::new(File::create(&out_path)?);
-    let written = copy_with_progress(reader, &mut writer, sink)?;
+    let mut writer = BufWriter::with_capacity(WRITE_BUFFER_SIZE, File::create(&out_path)?);
+    let written = copy_with_progress(reader, &mut writer, opts.cancel.as_ref(), sink)?;
     writer.flush()?;
     apply_mode(
         opts,
@@ -798,15 +1634,22 @@ fn password_candidates(opts: &ExtractOptions) -> Vec<Option<&str>> {
     candidates
 }
 
-/// Copies `reader` into `writer`, reporting progress per 64 KiB chunk.
-fn copy_with_progress(
+/// Copies `reader` into `writer`, reporting progress per chunk (#232).
+///
+/// Cancellation is polled once per chunk (1 MiB), so the caller stops about
+/// one chunk after the flag is raised instead of finishing a 40 GB entry.
+fn copy_with_progress<S: EntrySink + ?Sized>(
     reader: &mut dyn Read,
     writer: &mut dyn Write,
-    sink: &mut Sink<'_>,
+    cancel: Option<&CancelCheck>,
+    sink: &mut S,
 ) -> Result<u64, ArchiveError> {
     let mut buffer = vec![0_u8; COPY_BUFFER_SIZE];
     let mut total = 0_u64;
     loop {
+        if cancel.is_some_and(CancelCheck::is_cancelled) {
+            return Err(ArchiveError::Cancelled);
+        }
         let read = reader.read(&mut buffer)?;
         if read == 0 {
             break;
@@ -875,11 +1718,44 @@ fn is_link_attr(attributes: u32) -> bool {
     }
 }
 
-/// Buffered progress reporter shared by all backends.
+/// Average rate and ETA since `started` (#232).
+fn rate_snapshot(
+    started: Instant,
+    bytes_done: u64,
+    bytes_total: u64,
+    entries_done: usize,
+) -> (u64, u64, Option<u64>) {
+    let seconds = started.elapsed().as_secs_f64();
+    // Below a quarter second the division amplifies scheduler noise into a
+    // rate nobody should act on.
+    if seconds < 0.25 {
+        return (0, 0, None);
+    }
+    let bytes_per_second = (bytes_done as f64 / seconds) as u64;
+    let entries_per_second = (entries_done as f64 / seconds) as u64;
+    let eta_seconds = (bytes_per_second > 0 && bytes_total > bytes_done)
+        .then(|| (bytes_total - bytes_done) / bytes_per_second);
+    (bytes_per_second, entries_per_second, eta_seconds)
+}
+
+/// Progress events consumed by the extraction loops (#232).
+///
+/// One trait for the sequential `Sink` and the shared parallel `ZipSink`, so
+/// the per-entry code is written once and the worker path never touches the
+/// caller's `FnMut` from a thread.
+trait EntrySink {
+    fn begin_entry(&mut self, name: &str);
+    fn add_bytes(&mut self, bytes: u64);
+    fn finish_entry(&mut self);
+    fn skip_entry(&mut self, name: &str);
+}
+
+/// Buffered progress reporter shared by the sequential backends.
 struct Sink<'a> {
     callback: &'a mut dyn FnMut(ExtractProgress),
     progress: ExtractProgress,
     last_emitted_bytes: u64,
+    started: Instant,
 }
 
 impl<'a> Sink<'a> {
@@ -896,8 +1772,12 @@ impl<'a> Sink<'a> {
                 bytes_total,
                 bytes_done: 0,
                 current_file: String::new(),
+                bytes_per_second: 0,
+                entries_per_second: 0,
+                eta_seconds: None,
             },
             last_emitted_bytes: 0,
+            started: Instant::now(),
         };
         sink.emit();
         sink
@@ -908,6 +1788,33 @@ impl<'a> Sink<'a> {
         self.progress.bytes_done = 0;
         self.progress.current_file.clear();
         self.last_emitted_bytes = 0;
+        // A retry re-measures: the previous password attempt must not drag the
+        // rate and ETA of the attempt that succeeds.
+        self.started = Instant::now();
+        self.emit();
+    }
+
+    fn bytes_total(&self) -> u64 {
+        self.progress.bytes_total
+    }
+
+    /// Sets the written byte count from a coarse progress source (7-Zip
+    /// reports percentages) without ever moving it backwards.
+    fn set_bytes_done(&mut self, bytes: u64) {
+        if bytes > self.progress.bytes_done {
+            self.progress.bytes_done = bytes;
+            if bytes.saturating_sub(self.last_emitted_bytes) >= PROGRESS_STEP_BYTES {
+                self.emit();
+            }
+        }
+    }
+
+    /// Publishes the final snapshot after a backend that does not report per
+    /// file (the native 7-Zip path).
+    fn finish_all(&mut self, files: usize, bytes: u64) {
+        self.progress.entries_done = self.progress.entries_done.max(files);
+        self.progress.bytes_done = self.progress.bytes_done.max(bytes);
+        self.progress.current_file.clear();
         self.emit();
     }
 
@@ -943,7 +1850,34 @@ impl<'a> Sink<'a> {
 
     fn emit(&mut self) {
         self.last_emitted_bytes = self.progress.bytes_done;
+        let (bytes_per_second, entries_per_second, eta_seconds) = rate_snapshot(
+            self.started,
+            self.progress.bytes_done,
+            self.progress.bytes_total,
+            self.progress.entries_done,
+        );
+        self.progress.bytes_per_second = bytes_per_second;
+        self.progress.entries_per_second = entries_per_second;
+        self.progress.eta_seconds = eta_seconds;
         (self.callback)(self.progress.clone());
+    }
+}
+
+impl EntrySink for Sink<'_> {
+    fn begin_entry(&mut self, name: &str) {
+        Sink::begin_entry(self, name);
+    }
+
+    fn add_bytes(&mut self, bytes: u64) {
+        Sink::add_bytes(self, bytes);
+    }
+
+    fn finish_entry(&mut self) {
+        Sink::finish_entry(self);
+    }
+
+    fn skip_entry(&mut self, name: &str) {
+        Sink::skip_entry(self, name);
     }
 }
 
@@ -2229,6 +3163,11 @@ mod tests {
 
     #[test]
     fn seven_zip_roundtrip() {
+        // Pinned to the crate decoder: the native path has its own tests and
+        // must not make this one depend on what is installed on the host.
+        let _guard = seven_zip_env_lock();
+        std::env::set_var(SEVEN_ZIP_ENV, "crate");
+
         let temp = tempfile::tempdir().expect("tempdir");
         let archive_path = temp.path().join("library.7z");
         write_seven_zip(
@@ -2252,6 +3191,7 @@ mod tests {
                 snapshots.push(p)
             })
             .expect("extract 7z");
+        std::env::remove_var(SEVEN_ZIP_ENV);
         assert_eq!(extracted.files, 3);
         assert_eq!(
             fs::read(dest.join("Game/sub/game.sh")).expect("read"),
@@ -2264,6 +3204,11 @@ mod tests {
 
     #[test]
     fn seven_zip_password_retry() {
+        // Encrypted archives always take the crate path; pin it so a host
+        // with a system 7-Zip cannot change the run.
+        let _guard = seven_zip_env_lock();
+        std::env::set_var(SEVEN_ZIP_ENV, "crate");
+
         let temp = tempfile::tempdir().expect("tempdir");
         let source = temp.path().join("source");
         fs::create_dir_all(source.join("Game")).expect("mkdir");
@@ -2301,6 +3246,7 @@ mod tests {
         let opts = ExtractOptions::with_passwords(vec!["wrong".into(), "ludex-test".into()]);
         let extracted = extract_archive(&archive_path, &dest, &opts, &mut |_| {})
             .expect("extract with second password");
+        std::env::remove_var(SEVEN_ZIP_ENV);
         assert_eq!(extracted.files, 1);
         assert_eq!(
             fs::read(dest.join("Game/file.txt")).expect("read"),
@@ -3010,5 +3956,496 @@ mod tests {
             zip_stream_manifest(&text),
             Err(ArchiveError::UnsupportedFormat)
         ));
+    }
+
+    // -----------------------------------------------------------------------
+    // Parallel ZIP extraction (#232)
+    // -----------------------------------------------------------------------
+
+    fn write_deflate_zip(path: &Path, entries: &[(&str, &[u8])]) {
+        use zip::write::SimpleFileOptions;
+
+        let file = File::create(path).expect("create zip");
+        let mut writer = zip::ZipWriter::new(file);
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        for (name, data) in entries {
+            writer.start_file(*name, options).expect("start file");
+            writer.write_all(data).expect("write entry");
+        }
+        writer.finish().expect("finish zip");
+    }
+
+    /// Every extracted file, sorted, so two runs can be compared byte for byte.
+    fn tree_snapshot(root: &Path) -> Vec<(String, Vec<u8>)> {
+        let mut files = Vec::new();
+        for entry in walkdir::WalkDir::new(root)
+            .sort_by_file_name()
+            .into_iter()
+            .filter_map(Result::ok)
+        {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let relative = entry
+                .path()
+                .strip_prefix(root)
+                .expect("inside root")
+                .to_string_lossy()
+                .replace('\\', "/");
+            files.push((relative, fs::read(entry.path()).expect("read")));
+        }
+        files.sort_by(|left, right| left.0.cmp(&right.0));
+        files
+    }
+
+    /// Deflate data that compresses, like a real game archive.
+    fn compressible(len: usize, seed: u8) -> Vec<u8> {
+        (0..len)
+            .map(|index| seed.wrapping_add((index % 251) as u8))
+            .collect()
+    }
+
+    fn zip_options(workers: usize) -> ExtractOptions {
+        ExtractOptions {
+            zip_workers: workers,
+            ..ExtractOptions::default()
+        }
+    }
+
+    #[test]
+    fn zip_parallel_matches_sequential() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("library.zip");
+        let first = compressible(1_500_000, 3);
+        let second = compressible(900_000, 91);
+        let entries: Vec<(&str, &[u8])> = vec![
+            ("Game/big-a.bin", first.as_slice()),
+            ("Game/sub/big-b.bin", second.as_slice()),
+            ("Game/readme.txt", b"hello" as &[u8]),
+            ("Game/empty.txt", b""),
+            ("Game/deep/nested/last.bin", &second[..1000]),
+        ];
+        write_deflate_zip(&archive, &entries);
+
+        let sequential_dir = temp.path().join("sequential");
+        let parallel_dir = temp.path().join("parallel");
+        let mut sequential_progress = Vec::new();
+        let sequential = extract_archive(
+            &archive,
+            &sequential_dir,
+            &zip_options(1),
+            &mut |progress| sequential_progress.push(progress),
+        )
+        .expect("sequential extract");
+        let mut parallel_progress = Vec::new();
+        let parallel = extract_archive(&archive, &parallel_dir, &zip_options(6), &mut |progress| {
+            parallel_progress.push(progress)
+        })
+        .expect("parallel extract");
+
+        assert_eq!(sequential.files, 5);
+        assert_eq!(parallel.files, sequential.files);
+        assert_eq!(parallel.bytes, sequential.bytes);
+        assert_eq!(
+            parallel.bytes,
+            (first.len() + second.len() + 5 + 1000) as u64
+        );
+        assert_eq!(tree_snapshot(&sequential_dir), tree_snapshot(&parallel_dir));
+
+        let last = parallel_progress.last().expect("progress");
+        assert_eq!(last.entries_total, 5);
+        assert_eq!(last.entries_done, 5);
+        assert_eq!(last.bytes_total, parallel.bytes);
+        assert_eq!(last.bytes_done, parallel.bytes);
+    }
+
+    #[test]
+    fn zip_parallel_result_does_not_depend_on_entry_order() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let alpha = compressible(700_000, 11);
+        let beta = compressible(300_000, 200);
+        let forward = temp.path().join("forward.zip");
+        let backward = temp.path().join("backward.zip");
+        write_deflate_zip(
+            &forward,
+            &[
+                ("a/first.bin", alpha.as_slice()),
+                ("a/second.bin", beta.as_slice()),
+                ("a/third.txt", b"third" as &[u8]),
+            ],
+        );
+        write_deflate_zip(
+            &backward,
+            &[
+                ("a/third.txt", b"third" as &[u8]),
+                ("a/second.bin", beta.as_slice()),
+                ("a/first.bin", alpha.as_slice()),
+            ],
+        );
+
+        let forward_dir = temp.path().join("forward");
+        let backward_dir = temp.path().join("backward");
+        let forward_report =
+            extract_archive(&forward, &forward_dir, &zip_options(4), &mut |_| {}).expect("forward");
+        let backward_report =
+            extract_archive(&backward, &backward_dir, &zip_options(8), &mut |_| {})
+                .expect("backward");
+
+        assert_eq!(forward_report, backward_report);
+        assert_eq!(tree_snapshot(&forward_dir), tree_snapshot(&backward_dir));
+    }
+
+    #[test]
+    fn zip_parallel_surfaces_a_deterministic_failure() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("conflict.zip");
+        // `game` is already a file in the destination, so the second entry
+        // cannot create its parent directory: index 1 always fails, whatever
+        // the worker count and scheduling.
+        write_deflate_zip(
+            &archive,
+            &[
+                ("game", b"file" as &[u8]),
+                ("game/child.txt", b"child" as &[u8]),
+                ("other.txt", b"other" as &[u8]),
+            ],
+        );
+
+        let mut destinations = Vec::new();
+        for name in ["sequential", "parallel"] {
+            let dest = temp.path().join(name);
+            fs::create_dir_all(&dest).expect("dest");
+            fs::write(dest.join("game"), b"pre-existing").expect("blocker");
+            destinations.push(dest);
+        }
+
+        let sequential_error =
+            extract_archive(&archive, &destinations[0], &zip_options(1), &mut |_| {})
+                .expect_err("must fail");
+        let parallel_error =
+            extract_archive(&archive, &destinations[1], &zip_options(4), &mut |_| {})
+                .expect_err("must fail");
+
+        assert!(matches!(sequential_error, ArchiveError::Io(_)));
+        assert!(matches!(parallel_error, ArchiveError::Io(_)));
+        // Same entry, same message: the failure does not depend on which
+        // worker reached the conflict first.
+        assert_eq!(parallel_error.to_string(), sequential_error.to_string());
+    }
+
+    #[test]
+    fn zip_parallel_writes_large_entries() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("large.zip");
+        let first = compressible(8 * 1024 * 1024, 7);
+        let second = compressible(8 * 1024 * 1024, 190);
+        write_deflate_zip(
+            &archive,
+            &[
+                ("Game/one.bin", first.as_slice()),
+                ("Game/two.bin", second.as_slice()),
+            ],
+        );
+
+        let dest = temp.path().join("out");
+        let report =
+            extract_archive(&archive, &dest, &zip_options(4), &mut |_| {}).expect("extract");
+        assert_eq!(report.files, 2);
+        assert_eq!(report.bytes, 16 * 1024 * 1024);
+        assert_eq!(fs::read(dest.join("Game/one.bin")).expect("read"), first);
+        assert_eq!(fs::read(dest.join("Game/two.bin")).expect("read"), second);
+    }
+
+    #[test]
+    fn zip_cancel_stops_the_run_and_keeps_the_staging_directory() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("huge.zip");
+        let block = compressible(2 * 1024 * 1024, 42);
+        let names: Vec<String> = (0..40)
+            .map(|index| format!("Game/part-{index:02}.bin"))
+            .collect();
+        let entries: Vec<(&str, &[u8])> = names
+            .iter()
+            .map(|name| (name.as_str(), block.as_slice()))
+            .collect();
+        write_deflate_zip(&archive, &entries);
+
+        let dest = temp.path().join("staging");
+        // Cancel on the eighth poll: each worker checks once per entry and
+        // once per chunk, so a handful of entries land and the rest stop.
+        let polls = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&polls);
+        let cancel = CancelCheck::new(move || counter.fetch_add(1, Ordering::Relaxed) + 1 >= 8);
+        let options = ExtractOptions {
+            zip_workers: 4,
+            cancel: Some(cancel),
+            ..ExtractOptions::default()
+        };
+
+        let error = extract_archive(&archive, &dest, &options, &mut |_| {}).expect_err("cancelled");
+        assert!(matches!(error, ArchiveError::Cancelled), "{error:?}");
+        assert!(dest.is_dir(), "the staging directory is kept");
+
+        let written = tree_snapshot(&dest);
+        assert!(
+            written.len() < 40,
+            "cancel must stop before the whole archive, wrote {}",
+            written.len()
+        );
+    }
+
+    #[test]
+    fn rate_snapshot_computes_rates_and_eta() {
+        let started = Instant::now() - Duration::from_secs(2);
+        let (bytes_per_second, entries_per_second, eta_seconds) =
+            rate_snapshot(started, 2 * 1024 * 1024, 4 * 1024 * 1024, 4);
+        assert!(
+            (1_000_000..=2 * 1024 * 1024 / 2).contains(&bytes_per_second),
+            "{bytes_per_second}"
+        );
+        assert!(
+            (1..=2).contains(&entries_per_second),
+            "{entries_per_second}"
+        );
+        assert_eq!(eta_seconds, Some(2));
+
+        // Too early to divide by, and nothing left to wait for.
+        assert_eq!(
+            rate_snapshot(Instant::now(), 10, 20, 1),
+            (0, 0, None),
+            "a fresh run has no usable rate yet"
+        );
+        assert_eq!(
+            rate_snapshot(Instant::now() - Duration::from_secs(2), 20, 20, 2).2,
+            None
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Native 7-Zip path (#232)
+    // -----------------------------------------------------------------------
+
+    /// Serialises the tests that change `LUDEX_SEVEN_ZIP`: the environment is
+    /// process-wide and cargo runs tests on several threads.
+    fn seven_zip_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        use std::sync::OnceLock;
+        static LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
+    /// Writes a fake `7z` shell script.
+    ///
+    /// `golden` is copied into the `-o` directory, `progress` adds the
+    /// `\r`-separated percentage lines a real 7-Zip prints, and `exit_code`
+    /// is what the script returns after the copy.
+    #[cfg(unix)]
+    fn fake_seven_zip(dir: &Path, golden: &Path, exit_code: i32, progress: bool) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let script = dir.join(format!(
+            "fake-7z-{}-{exit_code}.sh",
+            if progress { "progress" } else { "quiet" }
+        ));
+        let progress_line = if progress {
+            // `%%` because the fake script is POSIX sh: `printf` reads a lone
+            // `%` as a conversion directive and prints nothing.
+            "printf '  10%%\\r  55%%\\r 100%%\\r\\n'"
+        } else {
+            ":"
+        };
+        let body = format!(
+            "#!/bin/sh\n\
+             out=''\n\
+             for arg in \"$@\"; do\n\
+               case \"$arg\" in\n\
+                 -o*) out=${{arg#-o}} ;;\n\
+               esac\n\
+             done\n\
+             [ -n \"$out\" ] || exit 7\n\
+             mkdir -p \"$out\" || exit 2\n\
+             cp -R '{golden}/.' \"$out\"/ || exit 2\n\
+             touch \"$out/.fake-7z-ran\"\n\
+             {progress_line}\n\
+             exit {exit_code}\n",
+            golden = golden.display()
+        );
+        fs::write(&script, body).expect("write fake 7z");
+        let mut permissions = fs::metadata(&script).expect("stat").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script, permissions).expect("chmod");
+        script
+    }
+
+    #[cfg(unix)]
+    fn golden_tree(root: &Path, entries: &[(&str, &[u8])]) {
+        for (name, data) in entries {
+            let path = root.join(name);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).expect("mkdir");
+            }
+            fs::write(path, data).expect("write golden");
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn seven_zip_uses_the_system_binary_when_present() {
+        let _guard = seven_zip_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("library.7z");
+        let entries: Vec<(&str, &[u8])> = vec![
+            ("Game/game.sh", b"#!/bin/sh\n" as &[u8]),
+            ("Game/data.bin", b"payload" as &[u8]),
+        ];
+        write_seven_zip(&archive, &entries);
+        let golden = temp.path().join("golden");
+        golden_tree(&golden, &entries);
+        let script = fake_seven_zip(temp.path(), &golden, 0, true);
+        std::env::set_var(SEVEN_ZIP_ENV, &script);
+
+        let dest = temp.path().join("out");
+        let report = extract_archive(&archive, &dest, &ExtractOptions::default(), &mut |_| {})
+            .expect("native extract");
+        std::env::remove_var(SEVEN_ZIP_ENV);
+
+        assert_eq!(report.files, 2);
+        assert_eq!(report.bytes, 10 + 7);
+        // The crate path never creates this marker, so its presence proves the
+        // binary ran.
+        assert!(dest.join(".fake-7z-ran").exists());
+        assert_eq!(
+            fs::read(dest.join("Game/data.bin")).expect("read"),
+            b"payload"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn seven_zip_native_progress_reports_percentages() {
+        let _guard = seven_zip_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("library.7z");
+        let block = compressible(1024 * 1024, 5);
+        let entries: Vec<(&str, &[u8])> = vec![
+            ("Game/a.bin", block.as_slice()),
+            ("Game/b.bin", block.as_slice()),
+            ("Game/c.bin", block.as_slice()),
+        ];
+        write_seven_zip(&archive, &entries);
+        let golden = temp.path().join("golden");
+        golden_tree(&golden, &entries);
+        let script = fake_seven_zip(temp.path(), &golden, 0, true);
+        std::env::set_var(SEVEN_ZIP_ENV, &script);
+
+        let dest = temp.path().join("out");
+        let mut snapshots = Vec::new();
+        extract_archive(
+            &archive,
+            &dest,
+            &ExtractOptions::default(),
+            &mut |progress| snapshots.push(progress),
+        )
+        .expect("native extract");
+        std::env::remove_var(SEVEN_ZIP_ENV);
+
+        let total = 3 * 1024 * 1024;
+        assert!(
+            snapshots
+                .iter()
+                .any(|progress| progress.bytes_done > 0 && progress.bytes_done < total),
+            "expected an intermediate 7z percentage, got {} snapshots",
+            snapshots.len()
+        );
+        let last = snapshots.last().expect("progress");
+        assert_eq!(last.entries_total, 3);
+        assert_eq!(last.entries_done, 3);
+        assert_eq!(last.bytes_total, total);
+        assert_eq!(last.bytes_done, total);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn seven_zip_native_failure_falls_back_to_the_crate() {
+        let _guard = seven_zip_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("library.7z");
+        let entries: Vec<(&str, &[u8])> = vec![("Game/game.sh", b"#!/bin/sh\n" as &[u8])];
+        write_seven_zip(&archive, &entries);
+        let golden = temp.path().join("golden");
+        golden_tree(&golden, &entries);
+        // Exit 2 after writing nothing: the crate must finish the job.
+        let script = fake_seven_zip(temp.path(), &golden, 2, false);
+        std::env::set_var(SEVEN_ZIP_ENV, &script);
+
+        let dest = temp.path().join("out");
+        let report = extract_archive(&archive, &dest, &ExtractOptions::default(), &mut |_| {})
+            .expect("fallback extract");
+        std::env::remove_var(SEVEN_ZIP_ENV);
+
+        assert_eq!(report.files, 1);
+        assert_eq!(
+            fs::read(dest.join("Game/game.sh")).expect("read"),
+            b"#!/bin/sh\n"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn seven_zip_override_can_force_the_crate() {
+        let _guard = seven_zip_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("library.7z");
+        let entries: Vec<(&str, &[u8])> = vec![("Game/data.bin", b"payload" as &[u8])];
+        write_seven_zip(&archive, &entries);
+        std::env::set_var(SEVEN_ZIP_ENV, "crate");
+
+        let dest = temp.path().join("out");
+        let report = extract_archive(&archive, &dest, &ExtractOptions::default(), &mut |_| {})
+            .expect("crate extract");
+        std::env::remove_var(SEVEN_ZIP_ENV);
+
+        assert_eq!(report.files, 1);
+        assert_eq!(
+            fs::read(dest.join("Game/data.bin")).expect("read"),
+            b"payload"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn seven_zip_missing_override_binary_falls_back() {
+        let _guard = seven_zip_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("library.7z");
+        write_seven_zip(&archive, &[("Game/data.bin", b"payload")]);
+        std::env::set_var(SEVEN_ZIP_ENV, "/nonexistent/7z-for-tests");
+
+        let dest = temp.path().join("out");
+        let report = extract_archive(&archive, &dest, &ExtractOptions::default(), &mut |_| {})
+            .expect("crate extract");
+        std::env::remove_var(SEVEN_ZIP_ENV);
+
+        assert_eq!(report.files, 1);
+        assert_eq!(
+            fs::read(dest.join("Game/data.bin")).expect("read"),
+            b"payload"
+        );
+    }
+
+    #[test]
+    fn rar_cancel_returns_cancelled() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = fixture("rar5.rar");
+        let dest = temp.path().join("out");
+        let cancel = CancelCheck::new(|| true);
+        let options = ExtractOptions {
+            cancel: Some(cancel),
+            ..ExtractOptions::default()
+        };
+        let error = extract_archive(&archive, &dest, &options, &mut |_| {}).expect_err("cancelled");
+        assert!(matches!(error, ArchiveError::Cancelled), "{error:?}");
     }
 }

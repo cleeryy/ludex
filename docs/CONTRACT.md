@@ -3617,6 +3617,18 @@ stops every write. Each applied change appears in the Backups tab with
   deletes the bytes and the cache and retries once from zero; the failure keeps
   both digests. Verification runs after the download slot is released, so the
   next download can start while a 96 GB archive hashes.
+- **Extracting phase (#232).** The classic path unpacks into the staging folder
+  with the shared `ludex_core::archive` extractor. ZIP entries are inflated by
+  up to eight workers (capped by the CPU count; `LUDEX_EXTRACT_WORKERS`
+  overrides it for a diagnosis, 1 forces the sequential path), 7z uses a
+  system `7zz`/`7z` binary when one is installed (`LUDEX_SEVEN_ZIP=crate`
+  forces the Rust decoder) and falls back to it on any failure, and RAR stays
+  sequential because RAR5 solid archives are. `bytesDone`/`bytesTotal` are the
+  archive's declared uncompressed bytes, `speedBps` is the measured average,
+  and `message` carries `Extracting 1234/5678 files · 412 MB/s · 2 min left`.
+  A cancel is polled between entries and every 1 MiB chunk: the job ends
+  `cancelled`, the downloaded archive and the staging folder are kept, and the
+  partial tree is not published.
 - **Bandwidth limit.** `bandwidthLimitKib` caps the copy loop of archive
   downloads, repairs and stream installs. 0 means unlimited. The cap is read
   when a transfer starts. The field keeps its KiB/s storage for compatibility;
