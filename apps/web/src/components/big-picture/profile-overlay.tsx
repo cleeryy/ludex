@@ -1,7 +1,7 @@
 import { motion, useReducedMotion } from "motion/react";
 import { Check, Gamepad2, Gauge, Vibrate } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { t } from "@/lib/i18n";
+import { t, tn } from "@/lib/i18n";
 import type { HapticsStrength } from "@/lib/gamepad-core";
 import type { ControllerProfile } from "@/lib/types";
 import type { PadFamily, ProfileOption } from "./controller";
@@ -29,6 +29,7 @@ export function ProfileOverlay({
   haptics,
   strength,
   family,
+  pad = null,
   ...shell
 }: {
   active: number;
@@ -42,6 +43,8 @@ export function ProfileOverlay({
   /** Rumble intensity on this device (#198). */
   strength: HapticsStrength;
   family: PadFamily;
+  /** Compact identity line for the pad driving the console (#230). */
+  pad?: { label: string; fingerprint: string; count: number } | null;
 } & Omit<Parameters<typeof OverlayShell>[0], "children" | "title" | "subtitle">) {
   const reduce = useReducedMotion();
   return (
@@ -56,6 +59,15 @@ export function ProfileOverlay({
         <span className="text-ink-2">{padFamilyLabel(family)}</span>
         <span aria-hidden="true">·</span>
         <span className="truncate">{profileSummary(profile)}</span>
+        {pad && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="truncate" title={pad.fingerprint}>
+              {pad.label}
+            </span>
+            {pad.count > 1 && <span>· {tn(pad.count, "{count} pad", "{count} pads")}</span>}
+          </>
+        )}
         {!profile.vibration && (
           <span className="text-ink-3">
             · {t("Vibration")}: {t("Disabled")}

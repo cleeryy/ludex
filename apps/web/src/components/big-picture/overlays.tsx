@@ -42,6 +42,7 @@ export function OverlayShell({
   layout,
   connected,
   family,
+  swapAB = false,
   reduceMotion,
   instant = false,
   kind = "panel",
@@ -55,6 +56,8 @@ export function OverlayShell({
   layout: BigPictureLayout;
   connected: boolean;
   family: PadFamily;
+  /** Nintendo-style A/B swap: hint labels follow the mapped buttons (#230). */
+  swapAB?: boolean;
   reduceMotion: boolean | null;
   /** A held key opened it: land on the final frame. */
   instant?: boolean;
@@ -99,7 +102,7 @@ export function OverlayShell({
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">{children}</div>
         <footer className="shrink-0 border-t border-line px-4 py-2 text-[10.5px] text-ink-3 sm:px-5">
-          <HintStrip context={context} layout={layout} connected={connected} family={family} />
+          <HintStrip context={context} layout={layout} connected={connected} family={family} swapAB={swapAB} />
         </footer>
       </motion.section>
     </motion.div>

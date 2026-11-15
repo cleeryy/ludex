@@ -13,7 +13,11 @@ import type { ConsoleStatus, GameSummary } from "@/lib/types";
 import { useAllGames, useInstalledMap, useLaunchGame } from "@/lib/hooks";
 import { useGamepad, gamepadDebugEnabled, focusGamepadTarget, type ActionSource, type GamepadAction } from "@/lib/gamepad";
 import { GamepadDebugPanel } from "@/components/gamepad/gamepad-debug";
-import { useControllerProfile } from "@/lib/use-controller-profile";
+import { axisSamplesFor, pickActivePad, useConnectedPads, useControllerDevices } from "@/lib/use-controller-devices";
+import { resolveProfileForPad } from "@/lib/controller-resolve";
+import { sourceFromId, sourceId } from "@/lib/controller-devices";
+import { presetProfile } from "@/lib/controller-profiles";
+import { identityLabel, padFingerprint, shortFingerprint } from "@/lib/controller-identity";
 import { uiSound } from "@/lib/ui-sound";
 import { clampVolume, stepVolume, type CueId } from "@/lib/ui-sound-specs";
 import { useAuth } from "@/state/auth";
@@ -25,13 +29,13 @@ import { InstallDialog } from "@/components/game/install-dialog";
 import { Button } from "@/components/ui/controls";
 import { ENTRANCE_MS } from "@/components/big-picture/entrance";
 import {
+  AUTO_PROFILE_ID,
   cycleHapticsStrength,
   hapticsActive,
   hapticsStrengthLabel,
   padFamily,
   padFamilyLabel,
   profileOptions,
-  resolveProfileChoice,
   withBigPictureDefaults,
 } from "@/components/big-picture/controller";
 import { cueForCommand } from "@/components/big-picture/cues";
@@ -571,24 +575,62 @@ export function BigPictureScreen() {
   // The controller profiles (#51) that drive navigation. The automatic choice
   // is what the library screen resolves (account, then per-game override); an
   // explicit choice is a device preference and applies to the next press.
-  const accountProfile = useControllerProfile(selected?.id ?? null);
   const profilesQuery = useQuery({
     queryKey: ["controller-profiles"],
     queryFn: () => api.controllerProfiles(),
     staleTime: 5 * 60_000,
   });
+  const accountProfile = profilesQuery.data?.global?.profile ?? presetProfile("xbox");
+  const gameProfile =
+    profilesQuery.data?.games.find((entry) => entry.gameId === selected?.id)?.profile ?? null;
   const profileChoices = useMemo(
     () => profileOptions(profilesQuery.data, accountProfile),
     [profilesQuery.data, accountProfile],
   );
-  const selectedProfile = useMemo(
-    () => resolveProfileChoice(profileChoices, prefs.profileId, accountProfile),
-    [profileChoices, prefs.profileId, accountProfile],
+  // #230: the pad's own fingerprint picks the profile first (Account / Game /
+  // Preset), then the automatic chain above. A pad that reconnects with the
+  // same fingerprint gets the same profile back; a non-standard pad gets the
+  // generic fallback instead of a dead end.
+  const connectedPads = useConnectedPads();
+  const [devices, deviceStore] = useControllerDevices();
+  const activePad = useMemo(
+    () => pickActivePad(connectedPads, devices.last),
+    [connectedPads, devices.last],
+  );
+  const padSources = useMemo(
+    () => ({
+      accountProfile,
+      gameProfile,
+      gameId: selected?.id ?? null,
+      presets: profilesQuery.data?.presets,
+      prefsProfileId: prefs.profileId,
+    }),
+    [accountProfile, gameProfile, selected?.id, profilesQuery.data?.presets, prefs.profileId],
+  );
+  const padResolution = useMemo(
+    () =>
+      resolveProfileForPad(
+        activePad?.id ?? null,
+        padFamily(activePad?.id ?? null, accountProfile),
+        devices,
+        {
+          ...padSources,
+          pad: activePad,
+          samples: activePad ? axisSamplesFor(activePad.identity.fingerprint) : null,
+        },
+      ),
+    [activePad, devices, padSources, accountProfile],
   );
   const activeProfile = useMemo(
-    () => withBigPictureDefaults(selectedProfile.profile),
-    [selectedProfile],
+    () => withBigPictureDefaults(padResolution.profile),
+    [padResolution],
   );
+  // The profile overlay ticks the profile the pad will really use: its device
+  // entry first, then the console-wide choice.
+  const selectedProfileId =
+    padResolution.source.kind === "auto"
+      ? prefs.profileId ?? AUTO_PROFILE_ID
+      : sourceId(padResolution.source);
   const haptics = hapticsActive(prefs, activeProfile);
 
   // Couch search (#138): the query is debounced so a fast typist does not
@@ -1181,7 +1223,7 @@ export function BigPictureScreen() {
     if (next === "search") {
       setSearchIndex(0);
     } else if (next === "profiles") {
-      const current = profileChoices.findIndex((option) => option.id === selectedProfile.id);
+      const current = profileChoices.findIndex((option) => option.id === selectedProfileId);
       setOverlayIndex(Math.max(0, current));
     } else if (next === "exit") {
       // Default to "Stay": a reflex A press must never quit the app.
@@ -1312,7 +1354,11 @@ export function BigPictureScreen() {
         const option = profileChoices[index];
         if (option) {
           emit("confirm");
-          updatePrefs({ profileId: option.id === "auto" ? null : option.id });
+          const id = option.id === "auto" ? null : option.id;
+          updatePrefs({ profileId: id });
+          // #230: with a pad attached the choice belongs to that pad too, or
+          // the device entry would keep overriding it on the next press.
+          if (activePad) deviceStore.assign(activePad.identity, { source: sourceFromId(option.id) });
           return;
         }
         if (index === profileChoices.length) {
@@ -1552,6 +1598,16 @@ export function BigPictureScreen() {
   };
   const gamepad = useGamepad(onGamepad, {
     profile: activeProfile,
+    // #230: resolves the pad that is actually driving the UI, so a second pad
+    // or a reconnect never inherits the first pad's profile.
+    resolveProfile: (pad) =>
+      withBigPictureDefaults(
+        resolveProfileForPad(pad?.id ?? null, padFamily(pad?.id ?? null, accountProfile), devices, {
+          ...padSources,
+          pad,
+          samples: pad ? axisSamplesFor(padFingerprint(pad.id, undefined, { mapping: pad.mapping }).fingerprint) : null,
+        }).profile,
+      ),
     debug,
     haptics,
     hapticsStrength: prefs.hapticsStrength,
@@ -1559,7 +1615,42 @@ export function BigPictureScreen() {
     cueHaptics: true,
   });
   pulseRef.current = gamepad.pulse;
-  const padFamilyName = padFamily(gamepad.id, activeProfile);
+  // The hook may have switched pads since the render above (the pad that last
+  // produced input wins), so name the pad it settled on, not the guess.
+  const shownPad =
+    connectedPads.find((pad) => pad.index === gamepad.index && pad.id === gamepad.id) ?? activePad;
+  const padResolutionNow =
+    shownPad === activePad
+      ? padResolution
+      : resolveProfileForPad(
+          shownPad?.id ?? null,
+          padFamily(shownPad?.id ?? null, accountProfile),
+          devices,
+          {
+            ...padSources,
+            pad: shownPad,
+            samples: shownPad ? axisSamplesFor(shownPad.identity.fingerprint) : null,
+          },
+        );
+  const padFamilyName = padResolutionNow.glyphFamily;
+  const swapAB = padResolutionNow.swapAB;
+  const padSummary = shownPad
+    ? {
+        label: identityLabel(shownPad.identity),
+        fingerprint: shortFingerprint(shownPad.identity.fingerprint),
+        count: connectedPads.filter(
+          (pad) => pad.identity.fingerprint === shownPad.identity.fingerprint,
+        ).length,
+      }
+    : null;
+
+  // Remember which pad drove the console: the manager lists it as the last
+  // used one and the overlay can name it after a reload. Written on change
+  // only, never per frame.
+  useEffect(() => {
+    if (!gamepad.connected) return;
+    deviceStore.touch(padResolutionNow.identity.fingerprint);
+  }, [gamepad.connected, deviceStore, padResolutionNow.identity.fingerprint]);
 
   // After a layout switch the ring must come back to the same surface. A zone
   // the new layout does not draw falls back to the game row; a surviving zone
@@ -2326,6 +2417,7 @@ export function BigPictureScreen() {
     layout,
     connected: gamepad.connected,
     family: padFamilyName,
+    swapAB,
     reduceMotion,
     instant: instantMotion,
     onClose: () => closeOverlay(),
@@ -2472,7 +2564,8 @@ export function BigPictureScreen() {
         layout={layout}
         connected={gamepad.connected}
         family={padFamilyName}
-        profileName={selectedProfile.profile.name}
+        swapAB={swapAB}
+        profileName={padResolutionNow.profile.name}
         context={footerContext}
         haptics={haptics}
       />
@@ -2519,8 +2612,9 @@ export function BigPictureScreen() {
               activateOverlay(index);
             }}
             options={profileChoices}
-            selectedId={selectedProfile.id}
-            profile={activeProfile}
+            selectedId={selectedProfileId}
+            profile={padResolutionNow.profile}
+            pad={padSummary}
             haptics={prefs.haptics}
             strength={prefs.hapticsStrength}
           />
@@ -2603,6 +2697,7 @@ export function BigPictureScreen() {
             layout={layout}
             connected={gamepad.connected}
             family={padFamilyName}
+            swapAB={swapAB}
             reduceMotion={reduceMotion}
             instant={instantMotion}
             onClose={() => setPendingPower(null)}

@@ -3515,5 +3515,19 @@
   "Theme, language, Console mode and update preferences follow your account. Install paths, bandwidth, streaming paths and tokens stay on this device.": "Tema, lingua, modalità Console e preferenze di aggiornamento seguono il tuo account. Percorsi di installazione, banda, percorsi di streaming e token restano su questo dispositivo.",
   "This system does not deliver the Guide button to apps, so Double Home cannot fire. LB+RB+Start is the default and opens the overlay.": "Questo sistema non consegna il tasto Guide alle app, quindi Double Home non può scattare. LB+RB+Start è il gesto predefinito e apre l’overlay.",
   "Window shown": "Finestra mostrata",
-  "Monitor: {monitor}": "Monitor: {monitor}"
+  "Monitor: {monitor}": "Monitor: {monitor}",
+  "{count} pad": "{count} controller",
+  "{count} pads": "{count} controller",
+  "Battery": "Batteria",
+  "Connected pads": "Controller collegati",
+  "Fingerprint": "Impronta",
+  "Generic — remap if a button is wrong": "Generico — rimappa se un pulsante è sbagliato",
+  "Glyph theme": "Tema dei glifi",
+  "Not connected": "Non collegato",
+  "Numbers": "Numeri",
+  "Profile": "Profilo",
+  "Profiles are stored on this device by pad fingerprint. Two identical pads share one profile.": "I profili sono salvati su questo dispositivo in base all'impronta del controller. Due controller identici condividono un profilo.",
+  "Remembered pads": "Controller memorizzati",
+  "Reset to automatic": "Ripristina automatico",
+  "Swap A and B": "Inverti A e B"
 }

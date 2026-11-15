@@ -95,6 +95,12 @@ export interface GamepadState {
 export interface GamepadOptions {
   enabled?: boolean;
   profile?: ControllerProfile | null;
+  /**
+   * Re-resolves the profile for the pad that is actually driving the UI
+   * (#230). The screen passes the device-aware resolver, so two different pads
+   * connected at once each keep their own mapping across a reconnect.
+   */
+  resolveProfile?: (pad: PadLike | null) => ControllerProfile | null;
   debug?: boolean;
   /** The Big Picture haptics preference; `false` silences every pattern. */
   haptics?: boolean;
@@ -173,7 +179,15 @@ export function useGamepad(
   const handlerRef = useRef(onAction);
   handlerRef.current = onAction;
   const profileRef = useRef<ControllerProfile>(options.profile ?? presetProfile("xbox"));
-  profileRef.current = options.profile ?? presetProfile("xbox");
+  if (!options.resolveProfile) profileRef.current = options.profile ?? presetProfile("xbox");
+  // A new resolver closure means the device map or the profile choice changed:
+  // re-apply it on the next frame, even when the same pad stayed connected.
+  const resolveRef = useRef(options.resolveProfile);
+  const resolveTickRef = useRef(0);
+  if (resolveRef.current !== options.resolveProfile) {
+    resolveRef.current = options.resolveProfile;
+    resolveTickRef.current += 1;
+  }
   const debugRef = useRef(debug);
   debugRef.current = debug;
   const hapticsRef = useRef(options.haptics ?? true);
@@ -206,6 +220,15 @@ export function useGamepad(
     let selection: PadSelection = { activeIndex: null, connected: [] };
     let activity: PadActivity | null = null;
     let preferredIndex: number | null = null;
+    let appliedResolveTick = -1;
+
+    /** Installs the device-aware profile for the pad that just became active. */
+    const applyResolvedProfile = (pad: PadLike | null) => {
+      const resolver = resolveRef.current;
+      if (!resolver) return;
+      const next = resolver(pad);
+      if (next) profileRef.current = next;
+    };
 
     const padsNow = (): PadLike[] => {
       try {
@@ -254,6 +277,7 @@ export function useGamepad(
       if (key !== currentKey) {
         currentKey = key;
         resetRepeatTracker(repeat);
+        applyResolvedProfile(pad);
         publish(pad);
         if (debugRef.current) {
           console.debug(
@@ -351,6 +375,10 @@ export function useGamepad(
       if (disposed) return;
       const pad = syncPad();
       activePad = pad;
+      if (appliedResolveTick !== resolveTickRef.current) {
+        appliedResolveTick = resolveTickRef.current;
+        applyResolvedProfile(pad);
+      }
       debugFrame(pad, now);
       if (!pad) {
         modalOpen = false;

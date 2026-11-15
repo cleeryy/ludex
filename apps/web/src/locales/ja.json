@@ -3806,5 +3806,19 @@
   "VirusTotal scan queue finished": "VirusTotal スキャンキューが完了しました",
   "{done} scanned, {failed} failed. Rescan the failed ones when you want.": "{done} 件完了、{failed} 件失敗。失敗したものはいつでも再スキャンできます。",
   "{count} archives scanned. Verdicts come from the report cache.": "{count} 件のアーカイブをスキャンしました。判定はレポートのキャッシュから取得します。",
-  "Upload this file for analysis": "このファイルを解析のためにアップロード"
+  "Upload this file for analysis": "このファイルを解析のためにアップロード",
+  "{count} pad": "コントローラー {count} 台",
+  "{count} pads": "コントローラー {count} 台",
+  "Battery": "バッテリー",
+  "Connected pads": "接続中のコントローラー",
+  "Fingerprint": "フィンガープリント",
+  "Generic — remap if a button is wrong": "汎用 — ボタンが違う場合は再割り当てしてください",
+  "Glyph theme": "ボタン表示",
+  "Not connected": "未接続",
+  "Numbers": "番号",
+  "Profile": "プロファイル",
+  "Profiles are stored on this device by pad fingerprint. Two identical pads share one profile.": "プロファイルはコントローラーのフィンガープリントごとにこのデバイスへ保存されます。同じ型の 2 台は 1 つのプロファイルを共有します。",
+  "Remembered pads": "保存済みのコントローラー",
+  "Reset to automatic": "自動に戻す",
+  "Swap A and B": "A と B を入れ替える"
 }

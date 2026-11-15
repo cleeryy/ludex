@@ -3806,5 +3806,19 @@
   "VirusTotal scan queue finished": "Cola de VirusTotal finalizada",
   "{done} scanned, {failed} failed. Rescan the failed ones when you want.": "{done} analizados, {failed} fallidos. Vuelve a analizar los fallidos cuando quieras.",
   "{count} archives scanned. Verdicts come from the report cache.": "{count} archivos analizados. Los veredictos vienen de la caché de informes.",
-  "Upload this file for analysis": "Subir este archivo para su análisis"
+  "Upload this file for analysis": "Subir este archivo para su análisis",
+  "{count} pad": "{count} mando",
+  "{count} pads": "{count} mandos",
+  "Battery": "Batería",
+  "Connected pads": "Mandos conectados",
+  "Fingerprint": "Huella",
+  "Generic — remap if a button is wrong": "Genérico: reasigna si un botón no responde bien",
+  "Glyph theme": "Tema de glifos",
+  "Not connected": "No conectado",
+  "Numbers": "Números",
+  "Profile": "Perfil",
+  "Profiles are stored on this device by pad fingerprint. Two identical pads share one profile.": "Los perfiles se guardan en este dispositivo según la huella del mando. Dos mandos idénticos comparten un perfil.",
+  "Remembered pads": "Mandos recordados",
+  "Reset to automatic": "Volver a automático",
+  "Swap A and B": "Intercambiar A y B"
 }

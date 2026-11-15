@@ -3806,5 +3806,19 @@
   "VirusTotal scan queue finished": "VirusTotal tarama kuyruğu tamamlandı",
   "{done} scanned, {failed} failed. Rescan the failed ones when you want.": "{done} tarandı, {failed} başarısız. Başarısız olanları istediğinizde yeniden tarayın.",
   "{count} archives scanned. Verdicts come from the report cache.": "{count} arşiv tarandı. Kararlar rapor önbelleğinden gelir.",
-  "Upload this file for analysis": "Bu dosyayı analiz için yükle"
+  "Upload this file for analysis": "Bu dosyayı analiz için yükle",
+  "{count} pad": "{count} denetleyici",
+  "{count} pads": "{count} denetleyici",
+  "Battery": "Pil",
+  "Connected pads": "Bağlı denetleyiciler",
+  "Fingerprint": "Parmak izi",
+  "Generic — remap if a button is wrong": "Genel — bir düğme yanlışsa yeniden atayın",
+  "Glyph theme": "Sembol teması",
+  "Not connected": "Bağlı değil",
+  "Numbers": "Sayılar",
+  "Profile": "Profil",
+  "Profiles are stored on this device by pad fingerprint. Two identical pads share one profile.": "Profiller bu cihazda denetleyici parmak izine göre saklanır. İki aynı denetleyici tek profili paylaşır.",
+  "Remembered pads": "Hatırlanan denetleyiciler",
+  "Reset to automatic": "Otomatiğe döndür",
+  "Swap A and B": "A ve B'yi değiştir"
 }

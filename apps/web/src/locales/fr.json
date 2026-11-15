@@ -3835,5 +3835,21 @@
   "The original archive look: crisp hairlines, flat panels and the app theme.": "Le look archive d'origine : filets nets, panneaux plats et thème de l'application.",
   "The Soft console style uses its own cream palette. Switch Console style to Studio to follow the app theme.": "Le style de console Doux utilise sa propre palette crème. Passez le style de console à Studio pour suivre le thème de l'application.",
   "Theme accent": "Accent du thème",
-  "What the console floats over. Artwork keeps the selected game behind the chrome.": "Ce sur quoi la console se pose. « Visuel » garde le jeu sélectionné derrière l'interface."
+  "What the console floats over. Artwork keeps the selected game behind the chrome.": "Ce sur quoi la console se pose. « Visuel » garde le jeu sélectionné derrière l'interface.",
+  "{count} pad": "{count} manette",
+  "{count} pads": "{count} manettes",
+  "Battery": "Batterie",
+  "Connected pads": "Manettes connectées",
+  "Fingerprint": "Empreinte",
+  "Generic — remap if a button is wrong": "Générique — remappez si un bouton est incorrect",
+  "Glyph theme": "Thème des glyphes",
+  "Not connected": "Non connectée",
+  "Numbers": "Chiffres",
+  "Profile": "Profil",
+  "Profiles are stored on this device by pad fingerprint. Two identical pads share one profile.": "Les profils sont stockés sur cet appareil selon l'empreinte de la manette. Deux manettes identiques partagent un profil.",
+  "Remembered pads": "Manettes mémorisées",
+  "Reset to automatic": "Rétablir l'automatique",
+  "Swap A and B": "Inverser A et B",
+  "{count} pads|one": "{count} manette",
+  "{count} pads|other": "{count} manettes"
 }

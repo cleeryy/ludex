@@ -434,15 +434,17 @@ export function HintStrip({
   layout,
   connected,
   family,
+  swapAB = false,
   className,
 }: {
   context: HintContext;
   layout: BigPictureLayout;
   connected: boolean;
   family: PadFamily;
+  swapAB?: boolean;
   className?: string;
 }) {
-  const hints = hintsFor(context, { layout, family, connected });
+  const hints = hintsFor(context, { layout, family, connected, swapAB });
   return (
     <div className={cn("flex flex-wrap items-center gap-x-4 gap-y-1", className)}>
       {hints.map((hint) => (
@@ -463,6 +465,7 @@ export function BigPictureFooter({
   layout,
   connected,
   family,
+  swapAB = false,
   profileName,
   context,
   haptics,
@@ -471,6 +474,8 @@ export function BigPictureFooter({
   layout: BigPictureLayout;
   connected: boolean;
   family: PadFamily;
+  /** Nintendo-style A/B swap: the hint labels follow the mapping (#230). */
+  swapAB?: boolean;
   /** Active controller profile name, shown as the indicator. */
   profileName: string;
   context: HintContext;
@@ -486,7 +491,7 @@ export function BigPictureFooter({
       )}
       {...reveal(reduceMotion, { y: 6, delay: BOOT_DELAY.footer, duration: BOOT_DURATION })}
     >
-      <HintStrip context={context} layout={layout} connected={connected} family={family} />
+      <HintStrip context={context} layout={layout} connected={connected} family={family} swapAB={swapAB} />
       <span className="ms-auto hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] xl:flex">
         <Gamepad2 className="size-3.5" aria-hidden="true" />
         {connected ? (
