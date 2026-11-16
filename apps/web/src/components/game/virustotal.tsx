@@ -38,11 +38,12 @@ import { Dialog } from "@/components/ui/dialog";
 import { Popover } from "@/components/ui/popover";
 import { SettingsGroup } from "@/components/settings/settings-section";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /** `GET /api/games/{id}/virustotal`, cached per game. */
 export function useGameVirusTotal(gameId: number, enabled = true) {
   return useQuery<GameVirusTotalResponse>({
-    queryKey: ["game-virustotal", gameId],
+    queryKey: qk.virustotal.forGame(gameId),
     queryFn: () => api.gameVirusTotal(gameId),
     enabled: enabled && Number.isFinite(gameId) && gameId > 0,
     staleTime: 60_000,
@@ -191,7 +192,7 @@ export function VirusTotalDetail({
   const scan = useMutation({
     mutationFn: () => api.scanVirusTotal({ versionId: report!.versionId, force: true }),
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["game-virustotal", gameId] });
+      void queryClient.invalidateQueries({ queryKey: qk.virustotal.forGame(gameId) });
     },
   });
 
@@ -378,7 +379,7 @@ export function UploadDialog({
       api.uploadVirusTotalVersion({ versionId: report.versionId, iUnderstand: "public-sharing" }),
     onSuccess: () => {
       setError(null);
-      void queryClient.invalidateQueries({ queryKey: ["game-virustotal", gameId] });
+      void queryClient.invalidateQueries({ queryKey: qk.virustotal.forGame(gameId) });
       onOpenChange(false);
     },
     onError: (cause: Error) => setError(cause.message),

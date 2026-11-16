@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { ErrorState, PageHeader } from "@/components/page";
 import { t, tr } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 function roleOptions(): { value: Role; label: string }[] {
   return [
@@ -61,11 +62,11 @@ export function InvitationsScreen() {
   const [formError, setFormError] = useState<string | null>(null);
 
   const { data, isPending, isError, error, refetch } = useQuery({
-    queryKey: ["invitations"],
+    queryKey: qk.invitations,
     queryFn: () => api.listInvitations(),
   });
 
-  const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["invitations"] });
+  const invalidate = () => void queryClient.invalidateQueries({ queryKey: qk.invitations });
 
   const create = useMutation({
     mutationFn: () =>

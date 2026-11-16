@@ -14,6 +14,7 @@ import {
   subscribeWizard,
 } from "@/lib/onboarding";
 import { useAuth } from "@/state/auth";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Compact checklist shown after the wizard is skipped or closed (#119). It
@@ -26,9 +27,9 @@ export function GettingStartedCard({ className }: { className?: string }) {
   const [dismissed, setDismissed] = useState(() => gettingStartedDismissed());
   const desktop = installsAvailable();
 
-  const stats = useQuery({ queryKey: ["stats"], queryFn: () => api.stats(), enabled: Boolean(user), staleTime: 30_000 });
+  const stats = useQuery({ queryKey: qk.stats, queryFn: () => api.stats(), enabled: Boolean(user), staleTime: 30_000 });
   const settings = useQuery({
-    queryKey: ["desktop-settings"],
+    queryKey: qk.desktopSettings,
     queryFn: () => installBridge.settings(),
     enabled: Boolean(user) && desktop,
   });

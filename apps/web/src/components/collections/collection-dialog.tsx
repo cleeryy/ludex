@@ -12,6 +12,7 @@ import { Button, Checkbox, Field, Input, Segmented, Switch, Textarea } from "@/c
 import { Dialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 const EMPTY_RULES: SmartRules = { match: "all", rules: [] };
 
@@ -41,7 +42,7 @@ export function CollectionDialog({
   const [error, setError] = useState<string | null>(null);
 
   const members = useQuery({
-    queryKey: ["collection", collection?.id, "games"],
+    queryKey: qk.collections.editorGames(collection?.id),
     queryFn: () => api.collectionGames(collection!.id, 1, 200),
     enabled: open && editing && collection?.kind === "manual",
   });
@@ -115,9 +116,9 @@ export function CollectionDialog({
           if (toAdd.length) await api.addCollectionGames(collection.id, toAdd);
           for (const id of toRemove) await api.removeCollectionGame(collection.id, id);
         }
-        await queryClient.invalidateQueries({ queryKey: ["collections"] });
-        await queryClient.invalidateQueries({ queryKey: ["collection", collection.id] });
-        await queryClient.invalidateQueries({ queryKey: ["collection", collection.id, "games"] });
+        await queryClient.invalidateQueries({ queryKey: qk.collections.root });
+        await queryClient.invalidateQueries({ queryKey: qk.collections.detail(collection.id) });
+        await queryClient.invalidateQueries({ queryKey: qk.collections.editorGames(collection.id) });
         push({ title: t("Collection updated"), tone: "success" });
       } else {
         const created = await api.createCollection({
@@ -128,7 +129,7 @@ export function CollectionDialog({
           rules: kind === "smart" ? rules : undefined,
           gameIds: kind === "manual" ? selected : undefined,
         });
-        await queryClient.invalidateQueries({ queryKey: ["collections"] });
+        await queryClient.invalidateQueries({ queryKey: qk.collections.root });
         push({ title: t("Collection created"), description: created.name, tone: "success" });
       }
       onOpenChange(false);

@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { errorMessage } from "@/lib/http";
 import { formatBytes, formatRating, formatYear, sortLabel, stateLabel, formatPercent } from "@/lib/format";
-import { isNative, native } from "@/lib/native";
+import { native } from "@/lib/native";
 import type { GameListQuery, GameSummary, InstalledGame } from "@/lib/types";
 import { useBookmark, useGenres, useInstalledGames, useLaunchGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
 import { useInstallingPercent } from "@/state/downloads";
@@ -57,6 +57,7 @@ import { LibrarySearch } from "@/components/library/search-field";
 import { Badge, Button, Segmented, Skeleton } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { t, tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 export type LibraryMode = "library" | "recent" | "bookmarks" | "index";
 
@@ -108,7 +109,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   const { user } = useAuth();
   const { view, setView } = useSettings();
   const genres = useGenres();
-  const platforms = useQuery({ queryKey: ["platforms"], queryFn: () => api.listPlatforms(), staleTime: 60_000 });
+  const platforms = useQuery({ queryKey: qk.platforms, queryFn: () => api.listPlatforms(), staleTime: 60_000 });
   const shelves = (platforms.data ?? []).filter((platform) => platform.gameCount > 0).slice(0, 8);
   const installedGames = useInstalledGames();
   const installs = installedGames.data ?? NO_INSTALLS;
@@ -174,7 +175,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
           : { ...filterQuery(filters), limit: 200 };
 
   const { data, isPending, isError, error, refetch } = useQuery({
-    queryKey: ["games", mode, query],
+    queryKey: qk.games.list(mode, query),
     queryFn: () => api.listGames(query),
   });
 
@@ -182,7 +183,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   // The toggle is the only way to bring them back; a deep link to a game page
   // still resolves without it.
   const missingCount = useQuery({
-    queryKey: ["games-missing-count"],
+    queryKey: qk.games.missingCount,
     queryFn: () => api.listGames({ status: "missing", limit: 1 }),
     staleTime: 60_000,
   });
@@ -262,9 +263,9 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
         tone: "success",
       });
       setImportEntry(null);
-      await queryClient.invalidateQueries({ queryKey: ["installed"] });
-      await queryClient.invalidateQueries({ queryKey: ["recent-games"] });
-      await queryClient.invalidateQueries({ queryKey: ["games"] });
+      await queryClient.invalidateQueries({ queryKey: qk.installed });
+      await queryClient.invalidateQueries({ queryKey: qk.recentGames.root });
+      await queryClient.invalidateQueries({ queryKey: qk.games.root });
     } catch (cause) {
       push({ title: t("Could not remove the import"), description: errorMessage(cause), tone: "danger" });
     } finally {
@@ -643,15 +644,11 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 update={updates.get(entry.gameId)}
                 onBookmark={() => toggleBookmark(entry.game)}
                 onPlay={
-                  isNative() && entry.install
+                  entry.install
                     ? () => launch.mutate({ id: entry.gameId, title: entry.title, executable: entry.install?.executable })
                     : undefined
                 }
-                onUpdate={
-                  isNative() && updates.has(entry.gameId)
-                    ? () => updateGame.mutate({ id: entry.gameId, title: entry.title })
-                    : undefined
-                }
+                onUpdate={() => updateGame.mutate({ id: entry.gameId, title: entry.title })}
               />
             ))}
           </div>

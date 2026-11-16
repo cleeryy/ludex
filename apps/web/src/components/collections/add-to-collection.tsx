@@ -7,6 +7,7 @@ import { useToast } from "@/state/toasts";
 import { Button, Input } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /** Adds one game to an existing manual collection, or creates a new one. */
 export function AddToCollectionDialog({
@@ -27,7 +28,7 @@ export function AddToCollectionDialog({
   const [name, setName] = useState("");
 
   const collections = useQuery({
-    queryKey: ["collections"],
+    queryKey: qk.collections.root,
     queryFn: () => api.listCollections(),
     enabled: open,
   });
@@ -37,8 +38,8 @@ export function AddToCollectionDialog({
     setBusyId(collectionId);
     try {
       const result = await api.addCollectionGames(collectionId, [gameId]);
-      await queryClient.invalidateQueries({ queryKey: ["collections"] });
-      await queryClient.invalidateQueries({ queryKey: ["collection", collectionId] });
+      await queryClient.invalidateQueries({ queryKey: qk.collections.root });
+      await queryClient.invalidateQueries({ queryKey: qk.collections.detail(collectionId) });
       push({
         title: result.added ? "Added to collection" : "Already in that collection",
         description: result.added ? `${gameTitle} is now in ${collectionName}.` : `${gameTitle} was already there.`,
@@ -58,7 +59,7 @@ export function AddToCollectionDialog({
     setCreating(true);
     try {
       const collection = await api.createCollection({ name: trimmed, gameIds: [gameId] });
-      await queryClient.invalidateQueries({ queryKey: ["collections"] });
+      await queryClient.invalidateQueries({ queryKey: qk.collections.root });
       push({ title: t("Collection created"), description: t("{game} is the first game in {collection}.", { game: gameTitle, collection: collection.name }), tone: "success" });
       setName("");
       onOpenChange(false);

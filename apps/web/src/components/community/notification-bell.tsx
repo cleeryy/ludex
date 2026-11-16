@@ -9,6 +9,7 @@ import { t } from "@/lib/i18n";
 import { IconButton } from "@/components/ui/controls";
 import { Popover } from "@/components/ui/popover";
 import { useDropdown } from "@/components/ui/select";
+import { qk } from "@/lib/query-keys";
 
 function notificationText(item: AppNotification): string {
   const name = item.actor?.displayName ?? item.actor?.username ?? t("Someone");
@@ -62,14 +63,14 @@ export function NotificationBell() {
   const queryClient = useQueryClient();
   const menu = useDropdown();
   const query = useQuery({
-    queryKey: ["notifications", "bell"],
+    queryKey: qk.notifications.bell(),
     queryFn: () => api.notifications(10),
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
 
   const invalidate = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    await queryClient.invalidateQueries({ queryKey: qk.notifications.root });
   };
   const read = useMutation({ mutationFn: (id: number) => api.readNotification(id), onSuccess: invalidate });
   const readAll = useMutation({ mutationFn: () => api.readAllNotifications(), onSuccess: invalidate });

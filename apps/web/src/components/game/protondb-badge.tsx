@@ -4,6 +4,7 @@ import { isNative, native } from "@/lib/native";
 import type { ProtonDbRating } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * ProtonDB rating for a game (#91).
@@ -14,7 +15,7 @@ import { t } from "@/lib/i18n";
  */
 export function ProtonDbBadge({ gameId }: { gameId: number }) {
   const query = useQuery({
-    queryKey: ["protondb", gameId],
+    queryKey: qk.protondb(gameId),
     queryFn: () => native.protondbRating(gameId),
     enabled: isNative() && Number.isFinite(gameId) && gameId > 0,
     staleTime: 6 * 60 * 60 * 1000,

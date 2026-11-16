@@ -21,6 +21,7 @@ import { Badge, Button, Checkbox, Field, Input, Progress, Skeleton, Switch } fro
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 const VT_DOCS_URL = "https://docs.virustotal.com/reference/overview";
 
@@ -38,12 +39,12 @@ export function VirusTotalIntegrationCard() {
   const [deleting, setDeleting] = useState(false);
 
   const { data, isPending, isError, error, refetch } = useQuery({
-    queryKey: ["admin-virustotal"],
+    queryKey: qk.admin.virusTotal,
     queryFn: () => api.adminVirusTotal(),
   });
 
   const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ["admin-virustotal"] });
+    void queryClient.invalidateQueries({ queryKey: qk.admin.virusTotal });
   };
 
   const test = useMutation({
@@ -370,7 +371,7 @@ function VirusTotalRescanSection({ configured }: { configured: boolean }) {
   } | null>(null);
 
   const { data, isPending, isError, error, refetch } = useQuery({
-    queryKey: ["admin-virustotal-rescan"],
+    queryKey: qk.admin.virusTotalRescan,
     queryFn: () => api.adminVirusTotalRescan(),
   });
 
@@ -379,8 +380,8 @@ function VirusTotalRescanSection({ configured }: { configured: boolean }) {
       api.saveVirusTotalRescan(body),
     onSuccess: (status) => {
       setDraft(null);
-      queryClient.setQueryData(["admin-virustotal-rescan"], status);
-      void queryClient.invalidateQueries({ queryKey: ["admin-virustotal"] });
+      queryClient.setQueryData(qk.admin.virusTotalRescan, status);
+      void queryClient.invalidateQueries({ queryKey: qk.admin.virusTotal });
       push({
         title: status.enabled ? t("Periodic re-check enabled") : t("Periodic re-check disabled"),
         description: status.nextRunAt
@@ -395,8 +396,8 @@ function VirusTotalRescanSection({ configured }: { configured: boolean }) {
   const run = useMutation({
     mutationFn: () => api.runVirusTotalRescan(),
     onSuccess: (status) => {
-      queryClient.setQueryData(["admin-virustotal-rescan"], status);
-      void queryClient.invalidateQueries({ queryKey: ["admin-virustotal"] });
+      queryClient.setQueryData(qk.admin.virusTotalRescan, status);
+      void queryClient.invalidateQueries({ queryKey: qk.admin.virusTotal });
       push({
         title: t("Re-check pass finished"),
         description: t("{scanned} archive(s) refreshed, {remaining} still outstanding.", {

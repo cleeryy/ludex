@@ -12,6 +12,7 @@ import { useAuth } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { Badge, Button } from "@/components/ui/controls";
 import { DevicePicker, preferredDeviceId, rememberPreferredDevice, useDevices } from "@/components/game/device-picker";
+import { qk } from "@/lib/query-keys";
 
 /**
  * "Install on the desktop" action for the browser/mobile client (#167).
@@ -43,7 +44,7 @@ export function RemoteInstallAction({
   };
 
   const { data } = useQuery({
-    queryKey: ["remote-installs"],
+    queryKey: qk.remoteInstalls,
     queryFn: () => api.listRemoteInstalls(),
     enabled,
     staleTime: 15_000,
@@ -60,7 +61,7 @@ export function RemoteInstallAction({
         targetDeviceId,
       }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["remote-installs"] });
+      void queryClient.invalidateQueries({ queryKey: qk.remoteInstalls });
       push({
         title: t("Install queued"),
         description: target

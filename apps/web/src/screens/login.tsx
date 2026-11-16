@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, CheckCircle2, KeyRound, Loader2, RotateCcw } from "lucide-react";
-import { api, assetUrl, getApiBase, USING_MOCKS } from "@/lib/api";
+import { api, assetUrl, USING_MOCKS } from "@/lib/api";
 import { MOCK_PASSWORD } from "@/lib/mock-credentials";
 import { errorMessage } from "@/lib/http";
 import { isNative, native } from "@/lib/native";
@@ -16,8 +16,9 @@ import {
 import { useAuth } from "@/state/auth";
 import { AuthLayout } from "@/components/auth-layout";
 import { Button, Field, Input } from "@/components/ui/controls";
-import { originOf, safeRedirectUrl } from "@/lib/safe-url";
+import { safeRedirectUrl } from "@/lib/safe-url";
 import { tr, t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 type HandoffPhase = "idle" | "sending" | "done" | "error";
 
@@ -52,7 +53,7 @@ export function LoginScreen() {
   const [handoffError, setHandoffError] = useState<string | null>(null);
 
   const config = useQuery({
-    queryKey: ["config"],
+    queryKey: qk.config,
     queryFn: () => api.config(),
     staleTime: 60_000,
     retry: 0,
@@ -182,7 +183,7 @@ export function LoginScreen() {
       navigate("/login?oidc_code=demo-sso", { replace: true });
       return;
     }
-    const url = assetUrl("/api/auth/oidc/start");
+    const url = api.oidcStartUrl();
     if (url) window.location.assign(url);
   };
 
@@ -192,7 +193,7 @@ export function LoginScreen() {
     // with an origin allow list: the server it belongs to, or this page. A
     // value pointing anywhere else falls back to the local login page instead
     // of turning the sign-in screen into an open redirect (#266).
-    const serverOrigin = originOf(getApiBase(), window.location.href);
+    const serverOrigin = api.serverOrigin(window.location.href);
     const url =
       safeRedirectUrl(desktopAddress, [serverOrigin, window.location.origin], window.location.href) ??
       assetUrl("/#/login");

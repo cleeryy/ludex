@@ -23,6 +23,7 @@ import { useUpdater } from "@/components/updates/update-provider";
 import { ExternalAnchor, ReleaseNotes } from "@/components/updates/parts";
 import { Badge, Button, Progress, Segmented, Skeleton } from "@/components/ui/controls";
 import { ConfirmDialog } from "@/components/ui/dialog";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Update center (#163).
@@ -400,7 +401,7 @@ function DesktopUpdateCenter() {
 
 function BrowserUpdateNotes() {
   const health = useQuery({
-    queryKey: ["health"],
+    queryKey: qk.health,
     queryFn: () => api.health(),
     staleTime: 60_000,
     retry: false,

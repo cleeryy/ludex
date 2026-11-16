@@ -15,6 +15,7 @@ import {
 import { UserAvatar } from "@/components/community/user-avatar";
 import { SettingsGroup } from "@/components/settings/settings-section";
 import { Button } from "@/components/ui/controls";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Account avatar block (#183): current preview, file picker, drag/drop,
@@ -75,10 +76,10 @@ export function AvatarPanel({ displayName }: { displayName: string }) {
   const invalidate = async () => {
     await refreshUser();
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["my-profile"] }),
-      queryClient.invalidateQueries({ queryKey: ["community-users"] }),
-      queryClient.invalidateQueries({ queryKey: ["community-feed"] }),
-      queryClient.invalidateQueries({ queryKey: ["community-user", user?.id] }),
+      queryClient.invalidateQueries({ queryKey: qk.myProfile }),
+      queryClient.invalidateQueries({ queryKey: qk.community.users }),
+      queryClient.invalidateQueries({ queryKey: qk.community.feed }),
+      queryClient.invalidateQueries({ queryKey: qk.community.user(user?.id) }),
     ]);
   };
 

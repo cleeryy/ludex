@@ -10,6 +10,7 @@ import { Badge, Button, Checkbox, Field, Input } from "@/components/ui/controls"
 import { Dialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { t, tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /** Path relative to the adopted folder, for the candidate picker. */
 function relativeToFolder(path: string, folder: string): string {
@@ -146,10 +147,10 @@ export function AdoptInstallDialog({
         replace: needsReplace ? replace : false,
         title,
       });
-      await queryClient.invalidateQueries({ queryKey: ["installed"] });
-      await queryClient.invalidateQueries({ queryKey: ["recent-games"] });
-      await queryClient.invalidateQueries({ queryKey: ["game", gameId] });
-      await queryClient.invalidateQueries({ queryKey: ["games"] });
+      await queryClient.invalidateQueries({ queryKey: qk.installed });
+      await queryClient.invalidateQueries({ queryKey: qk.recentGames.root });
+      await queryClient.invalidateQueries({ queryKey: qk.game.detail(gameId) });
+      await queryClient.invalidateQueries({ queryKey: qk.games.root });
       push({
         title: t("{title} is linked", { title }),
         description: t("Ludex now starts {title} from {folder}. Nothing was copied or moved.", {

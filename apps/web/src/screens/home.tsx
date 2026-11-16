@@ -28,6 +28,7 @@ import { GettingStartedCard } from "@/components/onboarding/getting-started";
 import { EmptyState, ErrorState, SectionHeader } from "@/components/page";
 import { Button, Skeleton } from "@/components/ui/controls";
 import { t, tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /** Source label for an imported or adopted entry (#13, #116, #129). */
 function sourceLabel(source: string): string {
@@ -71,7 +72,7 @@ export function HomeScreen() {
 
   const { data, isPending, isError, error, refetch } = useAllGames();
   const games = data?.items ?? [];
-  const collectionsQuery = useQuery({ queryKey: ["collections"], queryFn: () => api.listCollections() });
+  const collectionsQuery = useQuery({ queryKey: qk.collections.root, queryFn: () => api.listCollections() });
   const shelves = (collectionsQuery.data ?? []).slice(0, 4);
 
   const played = useMemo(
@@ -88,7 +89,7 @@ export function HomeScreen() {
   );
 
   const heroDetail = useQuery({
-    queryKey: ["game", hero?.id],
+    queryKey: qk.game.detail(hero?.id),
     queryFn: () => api.getGame(hero!.id),
     enabled: Boolean(hero),
     staleTime: 60_000,

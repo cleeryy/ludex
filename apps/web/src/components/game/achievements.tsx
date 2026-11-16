@@ -9,6 +9,7 @@ import { useToast } from "@/state/toasts";
 import { EmptyState, SectionHeader } from "@/components/page";
 import { Badge, Button, Progress, Skeleton } from "@/components/ui/controls";
 import { t , tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Achievement section of the game page: progress, definitions and the local
@@ -28,7 +29,7 @@ export function AchievementsPanel({
   const [scanning, setScanning] = useState(false);
 
   const { data, isPending, isError, error } = useQuery({
-    queryKey: ["game-achievements", gameId],
+    queryKey: qk.achievements.forGame(gameId),
     queryFn: () => api.gameAchievements(gameId),
   });
 
@@ -47,8 +48,8 @@ export function AchievementsPanel({
             : `${report.found} definitions read, ${report.unlocked} new unlock${report.unlocked === 1 ? "" : "s"}.`,
         tone: failed.length > 0 ? "danger" : "success",
       });
-      await queryClient.invalidateQueries({ queryKey: ["game-achievements", gameId] });
-      await queryClient.invalidateQueries({ queryKey: ["me-achievements"] });
+      await queryClient.invalidateQueries({ queryKey: qk.achievements.forGame(gameId) });
+      await queryClient.invalidateQueries({ queryKey: qk.achievements.me });
     } catch (cause) {
       push({ title: t("Scan failed"), description: errorMessage(cause), tone: "danger" });
     } finally {

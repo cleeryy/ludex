@@ -7,11 +7,12 @@ import { useIsAdmin } from "@/state/auth";
 import { EmptyState, ErrorState, PageHeader } from "@/components/page";
 import { Button, Skeleton } from "@/components/ui/controls";
 import { t , tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 export function NewsScreen() {
   const isAdmin = useIsAdmin();
   const { data, isPending, isError, error, refetch } = useQuery({
-    queryKey: ["news"],
+    queryKey: qk.news,
     queryFn: () => api.listNews(),
   });
 

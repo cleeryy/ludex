@@ -10,6 +10,7 @@ import type { GameDetail } from "@/lib/types";
 import { Button } from "@/components/ui/controls";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { useToast } from "@/state/toasts";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Editor-only dialog replacing a game's cover or background (#38).
@@ -73,8 +74,8 @@ export function ArtworkDialog({
       push({ title: `${kind === "cover" ? "Cover" : "Background"} updated`, tone: "success" });
       setFiles((current) => ({ ...current, [kind]: undefined }));
       setPreviews((current) => ({ ...current, [kind]: undefined }));
-      await queryClient.invalidateQueries({ queryKey: ["game", game.id] });
-      await queryClient.invalidateQueries({ queryKey: ["games"] });
+      await queryClient.invalidateQueries({ queryKey: qk.game.detail(game.id) });
+      await queryClient.invalidateQueries({ queryKey: qk.games.root });
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -95,8 +96,8 @@ export function ArtworkDialog({
         description: "Provider artwork or the placeholder is used again.",
         tone: "success",
       });
-      await queryClient.invalidateQueries({ queryKey: ["game", game.id] });
-      await queryClient.invalidateQueries({ queryKey: ["games"] });
+      await queryClient.invalidateQueries({ queryKey: qk.game.detail(game.id) });
+      await queryClient.invalidateQueries({ queryKey: qk.games.root });
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {

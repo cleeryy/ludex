@@ -20,6 +20,7 @@ import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/
 import { Badge, Button, Progress, Skeleton } from "@/components/ui/controls";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 const DESTRUCTIVE: HealthAction[] = ["remove_version", "remove_orphan_game", "media_gc_apply"];
 
@@ -170,7 +171,7 @@ export function LibraryHealthScreen() {
   const [gcPreview, setGcPreview] = useState<LibraryHealthMediaGc | null>(null);
 
   const health = useQuery({
-    queryKey: ["library-health", severity, category, limit],
+    queryKey: qk.libraryHealth.list(severity, category, limit),
     queryFn: () =>
       api.libraryHealth({
         severity: severity === "all" ? undefined : severity,
@@ -191,7 +192,7 @@ export function LibraryHealthScreen() {
   }, [report]);
 
   const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ["library-health"] });
+    void queryClient.invalidateQueries({ queryKey: qk.libraryHealth.root });
   };
 
   const start = useMutation({

@@ -27,6 +27,7 @@ import { PreferencesSyncPanel } from "@/components/settings/preferences-sync";
 import { SecurityBody } from "@/components/settings/security-panel";
 import type { DesktopSettingsController } from "@/components/settings/use-desktop-settings";
 import { GettingStartedCard } from "@/components/onboarding/getting-started";
+import { qk } from "@/lib/query-keys";
 
 /** Account: who you are, the password, and the page other members can see. */
 export function AccountBody() {
@@ -40,7 +41,7 @@ export function AccountBody() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const profileQuery = useQuery({ queryKey: ["my-profile"], queryFn: () => api.myProfile() });
+  const profileQuery = useQuery({ queryKey: qk.myProfile, queryFn: () => api.myProfile() });
   const [publicProfile, setPublicProfile] = useState(false);
   const [presenceEnabled, setPresenceEnabled] = useState(false);
   const [friendsActivity, setFriendsActivity] = useState(false);
@@ -48,7 +49,7 @@ export function AccountBody() {
   const [bio, setBio] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
 
-  const prefsQuery = useQuery({ queryKey: ["notification-prefs"], queryFn: () => api.notificationPrefs() });
+  const prefsQuery = useQuery({ queryKey: qk.notificationPrefs, queryFn: () => api.notificationPrefs() });
   const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
 
   useEffect(() => {
@@ -104,9 +105,9 @@ export function AccountBody() {
         displayName: displayName.trim() || null,
         bio: bio.trim() || null,
       });
-      await queryClient.invalidateQueries({ queryKey: ["my-profile"] });
-      await queryClient.invalidateQueries({ queryKey: ["community-users"] });
-      await queryClient.invalidateQueries({ queryKey: ["community-feed"] });
+      await queryClient.invalidateQueries({ queryKey: qk.myProfile });
+      await queryClient.invalidateQueries({ queryKey: qk.community.users });
+      await queryClient.invalidateQueries({ queryKey: qk.community.feed });
       push({ title: t("Community profile saved"), tone: "success" });
     } catch (cause) {
       push({ title: t("Could not save the profile"), description: errorMessage(cause), tone: "danger" });

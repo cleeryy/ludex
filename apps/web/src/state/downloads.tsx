@@ -34,6 +34,7 @@ import {
   type SpeedPoint,
 } from "@/lib/eta";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 const ACTIVE_PHASES: ReadonlySet<InstallJob["phase"]> = new Set([
   "queued",
@@ -436,7 +437,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
   );
 
   const gamesQuery = useQuery({
-    queryKey: ["games", "all"],
+    queryKey: qk.games.all(),
     queryFn: () => api.listGames({ limit: 200 }),
     enabled: available && Boolean(user),
     staleTime: 60_000,
@@ -648,13 +649,13 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       }
     }
     if (installedChanged) {
-      void queryClient.invalidateQueries({ queryKey: ["installed"] });
-      void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
-      void queryClient.invalidateQueries({ queryKey: ["game-updates"] });
-      void queryClient.invalidateQueries({ queryKey: ["games"] });
-      void queryClient.invalidateQueries({ queryKey: ["game"] });
+      void queryClient.invalidateQueries({ queryKey: qk.installed });
+      void queryClient.invalidateQueries({ queryKey: qk.recentGames.root });
+      void queryClient.invalidateQueries({ queryKey: qk.gameUpdates });
+      void queryClient.invalidateQueries({ queryKey: qk.games.root });
+      void queryClient.invalidateQueries({ queryKey: qk.game.root });
       // A finished install has a new folder to scan for the executable picker (#143).
-      void queryClient.invalidateQueries({ queryKey: ["game-executables"] });
+      void queryClient.invalidateQueries({ queryKey: qk.gameExecutables.root });
     }
   }, [jobs, available, titleFor, push, queryClient]);
 

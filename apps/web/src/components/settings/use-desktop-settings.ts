@@ -7,6 +7,7 @@ import { setTitleBarPreference } from "@/lib/window-chrome";
 import type { LocalSettings, LauncherId } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 export interface DesktopSettingsController {
   /** Installs (and therefore the desktop settings) exist on this surface. */
@@ -45,7 +46,7 @@ export function useDesktopSettings(): DesktopSettingsController {
   const [saving, setSaving] = useState(false);
 
   const query = useQuery({
-    queryKey: ["desktop-settings"],
+    queryKey: qk.desktopSettings,
     queryFn: () => installBridge.settings(),
     enabled: available,
   });
@@ -73,7 +74,7 @@ export function useDesktopSettings(): DesktopSettingsController {
       await native.setNativeTitleBar(next);
       // Refresh the saved snapshot so "Unsaved changes" stays honest. Skipped
       // while the form holds other edits: the refetch resets the draft.
-      if (!dirty) await queryClient.invalidateQueries({ queryKey: ["desktop-settings"] });
+      if (!dirty) await queryClient.invalidateQueries({ queryKey: qk.desktopSettings });
     } catch (cause) {
       update({ nativeTitleBar: !next });
       setTitleBarPreference(!next);
@@ -105,7 +106,7 @@ export function useDesktopSettings(): DesktopSettingsController {
     try {
       const saved = await installBridge.saveLauncherSources(sources);
       if (saved) {
-        queryClient.setQueryData<LocalSettings | null>(["desktop-settings"], (current) =>
+        queryClient.setQueryData<LocalSettings | null>(qk.desktopSettings, (current) =>
           current ? { ...current, launcherSources: saved.launcherSources } : current,
         );
       }
@@ -124,12 +125,12 @@ export function useDesktopSettings(): DesktopSettingsController {
     setSaving(true);
     try {
       await installBridge.saveSettings(draft);
-      await queryClient.invalidateQueries({ queryKey: ["desktop-settings"] });
-      await queryClient.invalidateQueries({ queryKey: ["desktop-locations"] });
-      await queryClient.invalidateQueries({ queryKey: ["desktop-storage-suggestions"] });
-      await queryClient.invalidateQueries({ queryKey: ["title-bar-info"] });
-      await queryClient.invalidateQueries({ queryKey: ["compat-scan"] });
-      await queryClient.invalidateQueries({ queryKey: ["cloud-save-status"] });
+      await queryClient.invalidateQueries({ queryKey: qk.desktopSettings });
+      await queryClient.invalidateQueries({ queryKey: qk.desktopLocations });
+      await queryClient.invalidateQueries({ queryKey: qk.desktopStorageSuggestions });
+      await queryClient.invalidateQueries({ queryKey: qk.titleBarInfo });
+      await queryClient.invalidateQueries({ queryKey: qk.compatScan });
+      await queryClient.invalidateQueries({ queryKey: qk.cloudSaveStatus.root });
       push({ title: t("Desktop settings saved"), tone: "success" });
     } catch (cause) {
       push({ title: t("Could not save the settings"), description: errorMessage(cause), tone: "danger" });

@@ -12,6 +12,7 @@ import { Select } from "@/components/ui/select";
 import { SectionHeader } from "@/components/page";
 import { cn } from "@/lib/cn";
 import { tr, t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 function modeOptions(): { value: LaunchMode; label: string; hint: string }[] {
   return [
@@ -65,21 +66,21 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
   const queryClient = useQueryClient();
 
   const scan = useQuery({
-    queryKey: ["compat-scan"],
+    queryKey: qk.compatScan,
     queryFn: () => native.compatScan(),
     enabled: isNative(),
     staleTime: 60_000,
     retry: false,
   });
   const savedQuery = useQuery({
-    queryKey: ["launch-options", gameId],
+    queryKey: qk.launchOptions(gameId),
     queryFn: () => native.getLaunchOptions(gameId),
     enabled: isNative(),
     retry: false,
   });
   const linux = Boolean(scan.data?.linux);
   const prefixQuery = useQuery({
-    queryKey: ["prefix-info", gameId],
+    queryKey: qk.prefixInfo(gameId),
     queryFn: () => native.winePrefixInfo(gameId),
     enabled: isNative() && linux && Boolean(savedQuery.data),
     staleTime: 20_000,
@@ -124,9 +125,9 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
       const next = await native.setLaunchOptions(gameId, { ...draft, env: textToEnv(envText) });
       setDraft(next);
       setEnvText(envToText(next.env));
-      await queryClient.invalidateQueries({ queryKey: ["launch-options", gameId] });
-      await queryClient.invalidateQueries({ queryKey: ["prefix-info", gameId] });
-      await queryClient.invalidateQueries({ queryKey: ["protondb", gameId] });
+      await queryClient.invalidateQueries({ queryKey: qk.launchOptions(gameId) });
+      await queryClient.invalidateQueries({ queryKey: qk.prefixInfo(gameId) });
+      await queryClient.invalidateQueries({ queryKey: qk.protondb(gameId) });
       push({
         title: t("Linux options saved"),
         description: t("{title} will start with the {profile} profile.", { title, profile: modeOptions().find((option) => option.value === next.mode)?.label ?? next.mode }),

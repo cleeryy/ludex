@@ -11,6 +11,7 @@ import { Badge, Button, Progress } from "@/components/ui/controls";
 import { SectionHeader } from "@/components/page";
 import { cn } from "@/lib/cn";
 import { t, tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Verify / repair panel (#37) for an installed game. Verification compares the
@@ -96,8 +97,8 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
       const next = await installBridge.repairInstall(gameId);
       setRepair(next);
       setReport(next.verify);
-      void queryClient.invalidateQueries({ queryKey: ["installed"] });
-      void queryClient.invalidateQueries({ queryKey: ["game-executables"] });
+      void queryClient.invalidateQueries({ queryKey: qk.installed });
+      void queryClient.invalidateQueries({ queryKey: qk.gameExecutables.root });
       push({
         title: next.fallback ? "Repair needs a reinstall" : `${title} repaired`,
         description: next.message,

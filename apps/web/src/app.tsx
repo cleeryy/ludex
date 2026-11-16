@@ -44,6 +44,7 @@ import { ShareScreen } from "@/screens/share";
 import { DownloadScreen } from "@/screens/download";
 import { RegisterScreen } from "@/screens/register";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Route-level splitting (#237): the console and the admin area are large and
@@ -239,7 +240,7 @@ function ConfigSyncDefaults() {
   const { locale, accountLocale } = useI18n();
   const { user } = useAuth();
   const profile = useQuery({
-    queryKey: ["my-profile"],
+    queryKey: qk.myProfile,
     queryFn: () => api.myProfile(),
     enabled: isNative() && Boolean(user),
     staleTime: 60_000,

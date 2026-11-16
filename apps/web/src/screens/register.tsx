@@ -8,6 +8,7 @@ import { useAuth } from "@/state/auth";
 import { AuthLayout } from "@/components/auth-layout";
 import { Button, Field, Input } from "@/components/ui/controls";
 import { t, tr } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Invitation landing page (#166): `/register?invite=<token>`.
@@ -29,7 +30,7 @@ export function RegisterScreen() {
   const [busy, setBusy] = useState(false);
 
   const preview = useQuery({
-    queryKey: ["invitation", invite],
+    queryKey: qk.invitation(invite),
     queryFn: () => api.invitationPreview(invite),
     enabled: Boolean(invite),
     retry: 0,

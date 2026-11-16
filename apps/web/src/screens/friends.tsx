@@ -12,6 +12,7 @@ import { PresenceBadge, isOnline } from "@/components/community/friend-presence"
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Field, Input, Skeleton } from "@/components/ui/controls";
 import { t, tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 function displayName(user: Friend["user"]): string {
   return user.displayName ?? user.username;
@@ -29,30 +30,30 @@ export function FriendsScreen() {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const friendsQuery = useQuery({
-    queryKey: ["friends"],
+    queryKey: qk.friends.root,
     queryFn: () => api.friends(),
     refetchInterval: 60_000,
   });
   const presenceQuery = useQuery({
-    queryKey: ["friends-presence"],
+    queryKey: qk.friends.presence,
     queryFn: () => api.friendsPresence(),
     refetchInterval: 30_000,
   });
   const activity = useInfiniteQuery({
-    queryKey: ["friends-activity"],
+    queryKey: qk.friends.activity,
     queryFn: ({ pageParam }) => api.friendsActivity(20, pageParam),
     initialPageParam: undefined as number | undefined,
     getNextPageParam: (last) => last.nextBefore ?? undefined,
   });
-  const profile = useQuery({ queryKey: ["my-profile"], queryFn: () => api.myProfile() });
+  const profile = useQuery({ queryKey: qk.myProfile, queryFn: () => api.myProfile() });
 
   const invalidate = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["friends"] }),
-      queryClient.invalidateQueries({ queryKey: ["friends-presence"] }),
-      queryClient.invalidateQueries({ queryKey: ["friends-activity"] }),
-      queryClient.invalidateQueries({ queryKey: ["notifications"] }),
-      queryClient.invalidateQueries({ queryKey: ["community-feed"] }),
+      queryClient.invalidateQueries({ queryKey: qk.friends.root }),
+      queryClient.invalidateQueries({ queryKey: qk.friends.presence }),
+      queryClient.invalidateQueries({ queryKey: qk.friends.activity }),
+      queryClient.invalidateQueries({ queryKey: qk.notifications.root }),
+      queryClient.invalidateQueries({ queryKey: qk.community.feed }),
     ]);
   };
 

@@ -13,6 +13,7 @@ import { ElevationConfirm } from "@/components/ui/elevation-confirm";
 import { SettingsSwitchRow } from "@/components/settings/settings-section";
 import { RemotePlayPanel } from "@/components/settings/remote-play-panel";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Settings → Streaming (#97, #98).
@@ -156,13 +157,13 @@ function SunshinePanel({
   const [syncError, setSyncError] = useState<{ message: string; needsElevation: boolean } | null>(null);
 
   const status = useQuery({
-    queryKey: ["sunshine-status"],
+    queryKey: qk.sunshine.status,
     queryFn: () => native.sunshineStatus(),
     retry: false,
     staleTime: 15_000,
   });
   const preview = useQuery({
-    queryKey: ["sunshine-preview", status.data?.appsPath ?? "none"],
+    queryKey: qk.sunshine.preview(status.data?.appsPath ?? "none"),
     queryFn: () => native.sunshinePreview(),
     retry: false,
     enabled: Boolean(status.data?.appsPath),
@@ -170,9 +171,9 @@ function SunshinePanel({
   });
 
   const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["sunshine-status"] });
-    await queryClient.invalidateQueries({ queryKey: ["sunshine-preview"] });
-    await queryClient.invalidateQueries({ queryKey: ["stream-target"] });
+    await queryClient.invalidateQueries({ queryKey: qk.sunshine.status });
+    await queryClient.invalidateQueries({ queryKey: qk.sunshine.previewRoot });
+    await queryClient.invalidateQueries({ queryKey: qk.streamTarget.root });
   };
 
   const sync = async (dryRun: boolean) => {
@@ -529,7 +530,7 @@ function MoonlightPanel({
   update: (patch: Partial<LocalSettings>) => void;
 }) {
   const status = useQuery({
-    queryKey: ["moonlight-status"],
+    queryKey: qk.moonlightStatus,
     queryFn: () => native.moonlightStatus(),
     retry: false,
     staleTime: 15_000,

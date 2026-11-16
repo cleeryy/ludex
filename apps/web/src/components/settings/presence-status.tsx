@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { native } from "@/lib/native";
 import type { PresenceStatus as PresenceStatusPayload } from "@/lib/types";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Live Discord presence state from the desktop worker (#12). Reads the saved
@@ -9,7 +10,7 @@ import { t } from "@/lib/i18n";
  */
 export function PresenceStatus({ enabled }: { enabled: boolean }) {
   const { data } = useQuery<PresenceStatusPayload>({
-    queryKey: ["presence-status"],
+    queryKey: qk.presenceStatus,
     queryFn: () => native.presenceStatus(),
     refetchInterval: 5000,
     staleTime: 2000,

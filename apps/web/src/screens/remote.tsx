@@ -34,6 +34,7 @@ import { GameCover } from "@/components/art/cover";
 import { EmptyState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Progress } from "@/components/ui/controls";
 import { DevicePicker, deviceSummary, preferredDeviceId, rememberPreferredDevice, useDevices } from "@/components/game/device-picker";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Phone-first remote install queue (#167).
@@ -54,7 +55,7 @@ export function RemoteScreen() {
   const queryClient = useQueryClient();
 
   const { data, isPending, isError, error, refetch, isFetching } = useQuery({
-    queryKey: ["remote-installs"],
+    queryKey: qk.remoteInstalls,
     queryFn: () => api.listRemoteInstalls(),
     enabled: Boolean(user),
     // Only poll while something is moving: a settled queue is a static list.
@@ -62,7 +63,7 @@ export function RemoteScreen() {
       query.state.data?.some((install) => isRemoteActive(install.status)) ? 5_000 : false,
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["remote-installs"] });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: qk.remoteInstalls });
 
   const devices = useDevices(Boolean(user));
   const deviceList = devices.data ?? [];

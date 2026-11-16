@@ -8,11 +8,12 @@ import { mockInstalls } from "@/lib/mock-install";
 import type { GameDetail, GameList, GameSummary, GameUpdate, InstalledGame } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { t, tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /** Installed games, merged into the server library when running in Tauri. */
 export function useInstalledGames() {
   return useQuery({
-    queryKey: ["installed"],
+    queryKey: qk.installed,
     queryFn: () => (USING_MOCKS ? mockInstalls.installed() : native.listInstalled()),
     enabled: isNative() || USING_MOCKS,
     staleTime: 10_000,
@@ -23,7 +24,7 @@ export function useInstalledGames() {
 /** The whole library, used by Home, Downloads and the install manager. */
 export function useAllGames() {
   return useQuery({
-    queryKey: ["games", "all"],
+    queryKey: qk.games.all(),
     queryFn: () => api.listGames({ limit: 200 }),
     staleTime: 60_000,
   });
@@ -76,7 +77,7 @@ export function flattenLibraryPages(pages: readonly GameList[]): LibraryPages {
  */
 export function useLibraryGames() {
   const query = useInfiniteQuery({
-    queryKey: ["games", "all", "pages"],
+    queryKey: qk.games.pages(),
     queryFn: ({ pageParam }) => api.listGames({ limit: LIBRARY_PAGE_SIZE, page: pageParam }),
     initialPageParam: 1,
     getNextPageParam: (lastPage, pages) => nextLibraryPage(lastPage, pages.length),
@@ -100,7 +101,7 @@ export function useLibraryGames() {
 /** Recently launched games on this device, newest first (Home + tray). */
 export function useRecentGames(limit = 6) {
   return useQuery({
-    queryKey: ["recent-games", limit],
+    queryKey: qk.recentGames.byLimit(limit),
     queryFn: () => (USING_MOCKS ? mockInstalls.installed() : native.listRecentGames(limit)),
     enabled: isNative() || USING_MOCKS,
     staleTime: 15_000,
@@ -113,7 +114,7 @@ export function useRecentGames(limit = 6) {
  */
 export function useGameUpdates() {
   return useQuery({
-    queryKey: ["game-updates"],
+    queryKey: qk.gameUpdates,
     queryFn: () => (USING_MOCKS ? Promise.resolve([]) : native.checkGameUpdates()),
     enabled: isNative() && !USING_MOCKS,
     staleTime: 5 * 60_000,
@@ -129,7 +130,7 @@ export function useUpdateMap(): Map<number, GameUpdate> {
 /** Desktop playtime: totals, per-day buckets and recent sessions. */
 export function useGamePlaytime(gameId: number, enabled = true) {
   return useQuery({
-    queryKey: ["playtime", gameId],
+    queryKey: qk.playtime.forGame(gameId),
     queryFn: () => native.getGamePlaytime(gameId),
     enabled: isNative() && enabled && Number.isFinite(gameId),
     staleTime: 30_000,
@@ -148,8 +149,8 @@ export function useUpdateGame() {
         title: t("Updating {title}", { title: game.title }),
         description: t("The previous install stays playable until the new files are in place."),
       });
-      void queryClient.invalidateQueries({ queryKey: ["game-updates"] });
-      void queryClient.invalidateQueries({ queryKey: ["games"] });
+      void queryClient.invalidateQueries({ queryKey: qk.gameUpdates });
+      void queryClient.invalidateQueries({ queryKey: qk.games.root });
     },
     onError: (error: Error) => {
       push({ title: t("Could not start the update"), description: error.message, tone: "danger" });
@@ -164,7 +165,7 @@ export function useInstalledMap(): Map<number, InstalledGame> {
 
 export function useGenres() {
   const { data } = useQuery({
-    queryKey: ["facets", "genres"],
+    queryKey: qk.facets.genres,
     queryFn: () => api.listGames({ limit: 200 }),
     staleTime: 5 * 60_000,
   });
@@ -180,14 +181,14 @@ export function useBookmark() {
   return useMutation({
     mutationFn: ({ id, bookmarked }: { id: number; bookmarked: boolean }) => api.setBookmark(id, bookmarked),
     onMutate: async ({ id, bookmarked }) => {
-      await queryClient.cancelQueries({ queryKey: ["games"] });
-      queryClient.setQueriesData<GameList>({ queryKey: ["games"] }, (current) =>
+      await queryClient.cancelQueries({ queryKey: qk.games.root });
+      queryClient.setQueriesData<GameList>({ queryKey: qk.games.root }, (current) =>
         current
           ? { ...current, items: current.items.map((game) => (game.id === id ? { ...game, bookmarked } : game)) }
           : current,
       );
-      queryClient.setQueryData<GameDetail>(["game", id], (current) => (current ? { ...current, bookmarked } : current));
-      queryClient.setQueryData<GameList>(["palette-games"], (current) =>
+      queryClient.setQueryData<GameDetail>(qk.game.detail(id), (current) => (current ? { ...current, bookmarked } : current));
+      queryClient.setQueryData<GameList>(qk.paletteGames, (current) =>
         current
           ? { ...current, items: current.items.map((game) => (game.id === id ? { ...game, bookmarked } : game)) }
           : current,
@@ -195,11 +196,11 @@ export function useBookmark() {
     },
     onError: (error: Error) => {
       push({ title: t("Bookmark not saved"), description: error.message, tone: "danger" });
-      void queryClient.invalidateQueries({ queryKey: ["games"] });
+      void queryClient.invalidateQueries({ queryKey: qk.games.root });
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["games"] });
-      void queryClient.invalidateQueries({ queryKey: ["game"] });
+      void queryClient.invalidateQueries({ queryKey: qk.games.root });
+      void queryClient.invalidateQueries({ queryKey: qk.game.root });
     },
   });
 }
@@ -221,10 +222,10 @@ export function useLaunchGame({ silent = false }: { silent?: boolean } = {}) {
       if (!silent) {
         push({ title: t("{title} is starting", { title: game.title }), description: t("Playtime is recorded when the game exits.") });
       }
-      void queryClient.invalidateQueries({ queryKey: ["games"] });
-      void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
+      void queryClient.invalidateQueries({ queryKey: qk.games.root });
+      void queryClient.invalidateQueries({ queryKey: qk.recentGames.root });
       // #191: the game page flips to Resume without waiting for the next poll.
-      void queryClient.invalidateQueries({ queryKey: ["game-session", game.id] });
+      void queryClient.invalidateQueries({ queryKey: qk.gameSession.forGame(game.id) });
     },
     onError: (error: Error) => {
       if (silent) return;
@@ -242,7 +243,7 @@ export function useLaunchGame({ silent = false }: { silent?: boolean } = {}) {
  */
 export function useGameSession(gameId: number, enabled = true) {
   return useQuery({
-    queryKey: ["game-session", gameId],
+    queryKey: qk.gameSession.forGame(gameId),
     queryFn: () => native.gameSession(gameId),
     enabled: isNative() && enabled && Number.isFinite(gameId),
     refetchInterval: 2_500,
@@ -289,11 +290,11 @@ export function useForceCloseGame(gameId: number) {
       push({ title: t("Could not close the game"), description: error.message, tone: "danger" });
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["game-session", gameId] });
-      void queryClient.invalidateQueries({ queryKey: ["playtime", gameId] });
-      void queryClient.invalidateQueries({ queryKey: ["installed"] });
-      void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
-      void queryClient.invalidateQueries({ queryKey: ["game", gameId] });
+      void queryClient.invalidateQueries({ queryKey: qk.gameSession.forGame(gameId) });
+      void queryClient.invalidateQueries({ queryKey: qk.playtime.forGame(gameId) });
+      void queryClient.invalidateQueries({ queryKey: qk.installed });
+      void queryClient.invalidateQueries({ queryKey: qk.recentGames.root });
+      void queryClient.invalidateQueries({ queryKey: qk.game.detail(gameId) });
     },
   });
 }
@@ -311,12 +312,12 @@ export function useNativeEvents() {
 
     void (async () => {
       const offExited = await native.onGameExited(({ gameId, minutesPlayed, exitCode, immediateExit }) => {
-        void queryClient.invalidateQueries({ queryKey: ["installed"] });
-        void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
-        void queryClient.invalidateQueries({ queryKey: ["playtime", gameId] });
-        void queryClient.invalidateQueries({ queryKey: ["game-session", gameId] });
-        void queryClient.invalidateQueries({ queryKey: ["game", gameId] });
-        void queryClient.invalidateQueries({ queryKey: ["games"] });
+        void queryClient.invalidateQueries({ queryKey: qk.installed });
+        void queryClient.invalidateQueries({ queryKey: qk.recentGames.root });
+        void queryClient.invalidateQueries({ queryKey: qk.playtime.forGame(gameId) });
+        void queryClient.invalidateQueries({ queryKey: qk.gameSession.forGame(gameId) });
+        void queryClient.invalidateQueries({ queryKey: qk.game.detail(gameId) });
+        void queryClient.invalidateQueries({ queryKey: qk.games.root });
         // #187: a game that dies within seconds is a failed launch, not a
         // session; show the exit code (NTSTATUS values in hex) instead of
         // silently doing nothing.
@@ -372,10 +373,10 @@ export function useNativeEvents() {
         void native
           .launchGame({ gameId })
           .then(() => {
-            void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
-            void queryClient.invalidateQueries({ queryKey: ["games"] });
+            void queryClient.invalidateQueries({ queryKey: qk.recentGames.root });
+            void queryClient.invalidateQueries({ queryKey: qk.games.root });
             // #191: a tray launch while the game page is open flips it to Resume.
-            void queryClient.invalidateQueries({ queryKey: ["game-session"] });
+            void queryClient.invalidateQueries({ queryKey: qk.gameSession.root });
           })
           .catch((cause: Error) => push({ title: t("Could not launch the game"), description: cause.message, tone: "danger" }));
       });
@@ -393,8 +394,8 @@ export function useNativeEvents() {
       if (cancelled) return;
       void native.remoteInstallsSync().then((result) => {
         if (cancelled || result.claimed.length === 0) return;
-        void queryClient.invalidateQueries({ queryKey: ["remote-installs"] });
-        void queryClient.invalidateQueries({ queryKey: ["install-jobs"] });
+        void queryClient.invalidateQueries({ queryKey: qk.remoteInstalls });
+        void queryClient.invalidateQueries({ queryKey: qk.installJobs });
         push({
           title: t("Remote install started"),
           description: tn(

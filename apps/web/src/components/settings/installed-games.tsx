@@ -26,6 +26,7 @@ import { Badge, Button, Checkbox, Field, Input } from "@/components/ui/controls"
 import { Select } from "@/components/ui/select";
 import { AdoptInstallDialog } from "@/components/game/adopt-install";
 import { t, tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /** Comparison key for a folder path in the UI only. */
 function pathKey(value: string): string {
@@ -102,7 +103,7 @@ function GameVaultImportPanel() {
   const { push } = useToast();
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({
-    queryKey: ["desktop-settings"],
+    queryKey: qk.desktopSettings,
     queryFn: () => installBridge.settings(),
     enabled: isNative(),
   });
@@ -143,7 +144,7 @@ function GameVaultImportPanel() {
   };
 
   const refreshSettings = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["desktop-settings"] });
+    await queryClient.invalidateQueries({ queryKey: qk.desktopSettings });
   };
 
   const resetScan = () => {
@@ -294,9 +295,9 @@ function GameVaultImportPanel() {
     setError(null);
     try {
       const report = await native.adoptGameVaultInstallations(scannedRoots, entries);
-      await queryClient.invalidateQueries({ queryKey: ["installed"] });
-      await queryClient.invalidateQueries({ queryKey: ["recent-games"] });
-      await queryClient.invalidateQueries({ queryKey: ["games"] });
+      await queryClient.invalidateQueries({ queryKey: qk.installed });
+      await queryClient.invalidateQueries({ queryKey: qk.recentGames.root });
+      await queryClient.invalidateQueries({ queryKey: qk.games.root });
       push({
         title: tn(report.adopted.length, "1 folder linked", "{count} folders linked"),
         description:

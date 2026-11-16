@@ -6,13 +6,14 @@ import { useToast } from "@/state/toasts";
 import { PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Skeleton } from "@/components/ui/controls";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 export function ScanScreen() {
   const { push } = useToast();
   const queryClient = useQueryClient();
 
   const { data, isPending } = useQuery({
-    queryKey: ["scan"],
+    queryKey: qk.scan,
     queryFn: () => api.scanStatus(),
     refetchInterval: (query) => (query.state.data?.running ? 1500 : 10_000),
   });
@@ -21,7 +22,7 @@ export function ScanScreen() {
     mutationFn: () => api.startScan(),
     onSuccess: () => {
       push({ title: t("Scan started"), description: t("New files appear as they are indexed."), tone: "success" });
-      void queryClient.invalidateQueries({ queryKey: ["scan"] });
+      void queryClient.invalidateQueries({ queryKey: qk.scan });
     },
     onError: (error: Error) => push({ title: t("Scan did not start"), description: error.message, tone: "danger" }),
   });

@@ -10,6 +10,7 @@ import { Badge, Button, Field, Input } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { Dialog } from "@/components/ui/dialog";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 const EXPIRY_OPTIONS = [
   { value: "0", label: t("Does not expire") },
@@ -39,7 +40,7 @@ export function CollectionSharePanel({ collection }: { collection: Collection })
   const [createdToken, setCreatedToken] = useState<string | null>(null);
 
   const links = useQuery({
-    queryKey: ["collection-shares", collection.id],
+    queryKey: qk.collectionShares.forCollection(collection.id),
     queryFn: () => api.collectionShares(collection.id),
     enabled: collection.owned,
   });
@@ -56,7 +57,7 @@ export function CollectionSharePanel({ collection }: { collection: Collection })
       setPassword("");
       setLabel("");
       setOpen(false);
-      void queryClient.invalidateQueries({ queryKey: ["collection-shares", collection.id] });
+      void queryClient.invalidateQueries({ queryKey: qk.collectionShares.forCollection(collection.id) });
       push({ title: t("Share link created"), description: t("Copy it now; the full link is shown only once."), tone: "success" });
     } catch (cause) {
       push({ title: t("Could not create the share link"), description: errorMessage(cause), tone: "danger" });
@@ -69,7 +70,7 @@ export function CollectionSharePanel({ collection }: { collection: Collection })
     setRevoking(link.id);
     try {
       await api.revokeCollectionShare(collection.id, link.id);
-      void queryClient.invalidateQueries({ queryKey: ["collection-shares", collection.id] });
+      void queryClient.invalidateQueries({ queryKey: qk.collectionShares.forCollection(collection.id) });
       push({ title: t("Share link revoked"), description: t("It stops working immediately."), tone: "success" });
     } catch (cause) {
       push({ title: t("Could not revoke the share link"), description: errorMessage(cause), tone: "danger" });

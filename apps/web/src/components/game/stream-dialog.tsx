@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import { Badge, Button, Skeleton } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Stream a published Ludex game through the local Moonlight client (#98).
@@ -34,7 +35,7 @@ export function StreamDialog({
   const [error, setError] = useState<string | null>(null);
 
   const target = useQuery({
-    queryKey: ["stream-target", gameId],
+    queryKey: qk.streamTarget.forGame(gameId),
     queryFn: () => native.streamTarget(gameId),
     enabled: open && isNative(),
     retry: false,

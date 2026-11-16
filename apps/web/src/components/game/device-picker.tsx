@@ -3,6 +3,7 @@ import { Monitor } from "lucide-react";
 import { api } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import type { Device } from "@/lib/types";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Polls the account's registered PCs (#184).
@@ -13,7 +14,7 @@ import type { Device } from "@/lib/types";
  */
 export function useDevices(enabled = true) {
   return useQuery({
-    queryKey: ["devices"],
+    queryKey: qk.devices,
     queryFn: () => api.listDevices(),
     enabled,
     refetchInterval: 15_000,

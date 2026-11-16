@@ -17,6 +17,7 @@ import { Badge, Button, Checkbox, Field, Input, Skeleton } from "@/components/ui
 import { Dialog } from "@/components/ui/dialog";
 import { useToast } from "@/state/toasts";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Editor-only dialog for the manual metadata match (#135).
@@ -66,7 +67,7 @@ export function MatchMetadataDialog({
   }, [open, game.id, game.title, game.releaseDate]);
 
   const search = useQuery({
-    queryKey: ["metadata-candidates", game.id, submitted.q, submitted.year, submitted.provider ?? "*"],
+    queryKey: qk.metadata.candidates(game.id, submitted.q, submitted.year, submitted.provider),
     queryFn: () =>
       api.metadataCandidates(game.id, {
         q: submitted.q,
@@ -149,8 +150,8 @@ export function MatchMetadataDialog({
         providerId: selected.providerId,
         replaceManual,
       });
-      await queryClient.invalidateQueries({ queryKey: ["game", game.id] });
-      await queryClient.invalidateQueries({ queryKey: ["games"] });
+      await queryClient.invalidateQueries({ queryKey: qk.game.detail(game.id) });
+      await queryClient.invalidateQueries({ queryKey: qk.games.root });
       push({
         title: t("Metadata matched"),
         description: t("The title, cover and provider record now follow the selected match."),

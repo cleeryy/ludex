@@ -10,6 +10,7 @@ import { SectionHeader } from "@/components/page";
 import { ExecutableField } from "@/components/game/executable-picker";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * The executable/parameters the desktop app uses to start the game (#143).
@@ -77,7 +78,7 @@ export function StartupCommandPanel({
       if (canPick && nextExecutable) {
         try {
           await native.setExecutable(game.id, nextExecutable);
-          await queryClient.invalidateQueries({ queryKey: ["installed"] });
+          await queryClient.invalidateQueries({ queryKey: qk.installed });
         } catch (cause) {
           localExecutableSaved = false;
           push({
@@ -88,7 +89,7 @@ export function StartupCommandPanel({
         }
       }
       if (localExecutableSaved) push({ title: t("Startup command saved"), tone: "success" });
-      await queryClient.invalidateQueries({ queryKey: ["game", game.id] });
+      await queryClient.invalidateQueries({ queryKey: qk.game.detail(game.id) });
     } catch (cause) {
       push({ title: t("Could not save"), description: errorMessage(cause), tone: "danger" });
     } finally {

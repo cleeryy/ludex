@@ -8,7 +8,7 @@ import {
   type PreferencesResponse,
 } from "@/lib/preferences";
 import { t } from "@/lib/i18n";
-import { toSafeUrl, type SafeUrl } from "@/lib/safe-url";
+import { toSafeUrl, originOf, type SafeUrl } from "@/lib/safe-url";
 import { CONTROLLER_PRESETS, presetProfile } from "@/lib/controller-profiles";
 import type {
   AchievementScanReport,
@@ -190,10 +190,17 @@ export const REQUEST_TIMEOUT_MS = 30_000;
 type RequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
+  /** Multipart body; the browser sets its boundary. Takes precedence over `body`. */
+  form?: FormData;
   query?: Record<string, string | number | boolean | undefined | null>;
   auth?: boolean;
   /** Extra request headers, e.g. `If-Match` for the preference document. */
   headers?: Record<string, string>;
+  /**
+   * Public route (#9/#173): never attach the session token and never sign the
+   * account out on a 401, which there only means "wrong share password".
+   */
+  public?: boolean;
 };
 
 const timeoutError = (): ApiError =>
@@ -215,11 +222,12 @@ function buildUrl(path: string, query?: RequestOptions["query"]): string {
   return qs ? `${url}?${qs}` : url;
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+/** One JSON request for both adapters; exported for the thin domain clients (#237). */
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json", ...options.headers };
   const token = tokenStore.get();
-  if (options.auth !== false && token) headers.Authorization = `Bearer ${token}`;
-  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  if (!options.public && options.auth !== false && token) headers.Authorization = `Bearer ${token}`;
+  if (options.body !== undefined && !options.form) headers["Content-Type"] = "application/json";
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -228,7 +236,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     response = await fetch(buildUrl(path, options.query), {
       method: options.method ?? "GET",
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: options.form ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
       signal: controller.signal,
     });
   } catch {
@@ -240,7 +248,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     clearTimeout(timer);
   }
 
-  if (response.status === 401) {
+  if (response.status === 401 && !options.public) {
     tokenStore.clear();
     window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
   }
@@ -267,6 +275,90 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   return payload as T;
+}
+
+/**
+ * Public fetch for the share routes (#9/#173): the same decoding and error
+ * envelope, without the bearer token and without the global sign-out on a 401.
+ */
+export function publicRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return request<T>(path, { ...options, public: true });
+}
+
+/** Multipart upload through the one request engine (timeout and 401 policy shared). */
+export function formRequest<T>(path: string, form: FormData, method: "POST" | "PUT" | "PATCH" = "POST"): Promise<T> {
+  return request<T>(path, { method, form });
+}
+
+/** Result of probing a candidate server before it is saved (#24). */
+export interface HealthProbe {
+  /** The server answered HTTP, whatever the status. */
+  reachable: boolean;
+  status: number | null;
+  version: string | null;
+  latencyMs: number;
+}
+
+/**
+ * `GET {base}/api/health` against a candidate server. The probe targets a URL
+ * that is not the active API base yet, so it cannot go through `request`; the
+ * fetch still lives here so screens never build an endpoint.
+ */
+export async function probeHealth(
+  base: string,
+  token: string | null,
+  timeoutMs = 8_000,
+): Promise<HealthProbe> {
+  const started = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${base}/api/health`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      signal: controller.signal,
+    });
+    const latencyMs = Date.now() - started;
+    const payload = (await response.json().catch(() => null)) as { version?: string } | null;
+    return { reachable: true, status: response.status, version: payload?.version ?? null, latencyMs };
+  } catch {
+    return { reachable: false, status: null, version: null, latencyMs: Date.now() - started };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Authenticated file download (#169, #26): fetch, the shared 401 policy and a
+ * browser save. No request timeout: a backup or a save archive can legitimately
+ * take minutes, and aborting it would truncate the file.
+ */
+async function downloadFile(path: string, fallbackName: string): Promise<void> {
+  const token = tokenStore.get();
+  let response: Response;
+  try {
+    response = await fetch(buildUrl(path), {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+  } catch {
+    throw new ApiError(0, "network_error", t("Cannot reach the server. Check that it is running."));
+  }
+  if (response.status === 401) {
+    tokenStore.clear();
+    window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+  }
+  if (!response.ok) {
+    throw new ApiError(response.status, "download_failed", saveErrorMessage(response.status));
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const filename = filenameFromDisposition(disposition) ?? fallbackName;
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
 const query = (q: GameListQuery): Record<string, string | number | boolean | undefined> => ({
@@ -302,6 +394,21 @@ export const api = {
   },
   config(): Promise<ServerConfig> {
     return USING_MOCKS ? mockApi.config() : request<ServerConfig>("/config", { auth: false });
+  },
+  /**
+   * Where the browser sends the user to start OIDC (#175). The URL goes through
+   * `assetUrl` so a hostile base cannot redirect off-origin (#266).
+   */
+  oidcStartUrl(): SafeUrl | null {
+    return assetUrl("/api/auth/oidc/start");
+  },
+  /** Origin that owns the desktop handoff redirect; the local page as fallback. */
+  serverOrigin(fallback: string): string | null {
+    return originOf(baseUrl, fallback);
+  },
+  /** Prometheus endpoint shown on the admin observability page (#266 sink). */
+  metricsUrl(): SafeUrl | null {
+    return toSafeUrl(`${baseUrl}/metrics`);
   },
   /**
    * Public desktop download metadata (#164): installer links for the requested
@@ -552,32 +659,7 @@ export const api = {
       await mockApi.downloadAdminBackup(tokenStore.get(), name);
       return;
     }
-    const token = tokenStore.get();
-    let response: Response;
-    try {
-      response = await fetch(buildUrl(`/admin/backups/${encodeURIComponent(name)}/download`), {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
-    } catch {
-      throw new ApiError(0, "network_error", t("Cannot reach the server. Check that it is running."));
-    }
-    if (response.status === 401) {
-      tokenStore.clear();
-      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
-    }
-    if (!response.ok) {
-      throw new ApiError(response.status, "download_failed", saveErrorMessage(response.status));
-    }
-    const blob = await response.blob();
-    const disposition = response.headers.get("Content-Disposition") ?? "";
-    const filename = filenameFromDisposition(disposition) ?? name;
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.rel = "noopener";
-    anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    await downloadFile(`/admin/backups/${encodeURIComponent(name)}/download`, name);
   },
 
   /* games */
@@ -953,35 +1035,7 @@ export const api = {
       await mockApi.downloadSave(tokenStore.get(), id);
       return;
     }
-    const token = tokenStore.get();
-    let response: Response;
-    try {
-      response = await fetch(buildUrl(`/saves/${id}/download`), {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
-    } catch {
-      throw new ApiError(0, "network_error", t("Cannot reach the server. Check that it is running."));
-    }
-
-    if (response.status === 401) {
-      tokenStore.clear();
-      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
-    }
-
-    if (!response.ok) {
-      throw new ApiError(response.status, "download_failed", saveErrorMessage(response.status));
-    }
-
-    const blob = await response.blob();
-    const disposition = response.headers.get("Content-Disposition") ?? "";
-    const filename = filenameFromDisposition(disposition) ?? `ludex-save-${id}.zip`;
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.rel = "noopener";
-    anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    await downloadFile(`/saves/${id}/download`, `ludex-save-${id}.zip`);
   },
 
   /* collections */

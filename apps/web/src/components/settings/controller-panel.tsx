@@ -19,6 +19,7 @@ import { Badge, Button, Field, Input, Switch } from "@/components/ui/controls";
 import { SectionHeader } from "@/components/page";
 import { Select } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Controller profile editor (#51). Renders the account-wide profile in
@@ -38,7 +39,7 @@ export function ControllerPanel({
 }) {
   const queryClient = useQueryClient();
   const { push } = useToast();
-  const profiles = useQuery({ queryKey: ["controller-profiles"], queryFn: () => api.controllerProfiles() });
+  const profiles = useQuery({ queryKey: qk.controllerProfiles, queryFn: () => api.controllerProfiles() });
   const stored = gameId === null ? profiles.data?.global?.profile : profiles.data?.games.find((entry) => entry.gameId === gameId)?.profile;
   const [draft, setDraft] = useState<ControllerProfile>(() => presetProfile("xbox"));
   const [saving, setSaving] = useState(false);
@@ -102,7 +103,7 @@ export function ControllerPanel({
     setSaving(true);
     try {
       await api.saveControllerProfile(gameId, draft);
-      await queryClient.invalidateQueries({ queryKey: ["controller-profiles"] });
+      await queryClient.invalidateQueries({ queryKey: qk.controllerProfiles });
       push({ title: t("Controller profile saved"), tone: "success" });
     } catch (cause) {
       push({ title: t("Could not save the controller profile"), description: errorMessage(cause), tone: "danger" });
@@ -114,7 +115,7 @@ export function ControllerPanel({
   const remove = async () => {
     try {
       await api.deleteControllerProfile(gameId ?? 0);
-      await queryClient.invalidateQueries({ queryKey: ["controller-profiles"] });
+      await queryClient.invalidateQueries({ queryKey: qk.controllerProfiles });
       setDraft(presetProfile("xbox"));
       push({ title: t("Controller profile reset"), tone: "success" });
     } catch (cause) {

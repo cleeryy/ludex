@@ -37,6 +37,7 @@ import { Button, IconButton, Input, Progress, Skeleton, Switch } from "@/compone
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { EmptyState, SectionHeader } from "@/components/page";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 const MAX_SAVE_BYTES = 2 * 1024 ** 3;
 
@@ -60,13 +61,13 @@ export function CloudSavesPanel({
   const queryClient = useQueryClient();
   const native = cloudSavesAvailable();
   const saves = useQuery({
-    queryKey: ["saves", gameId],
+    queryKey: qk.saves.forGame(gameId),
     queryFn: () => api.listSaves(gameId),
   });
   // #159: one bounded request per page open, no polling, no retry loop. A slow
   // or failed status only affects this panel; the game page already rendered.
   const cloud = useQuery({
-    queryKey: ["cloud-save-status", gameId],
+    queryKey: qk.cloudSaveStatus.forGame(gameId),
     queryFn: () => cloudSaves.status(gameId),
     enabled: native,
     staleTime: 30_000,
@@ -174,7 +175,7 @@ export function CloudSavesPanel({
     const unlisteners: Array<() => void> = [];
     const refresh = (id: number) => {
       if (id === gameId) {
-        void queryClient.invalidateQueries({ queryKey: ["cloud-save-status", gameId] });
+        void queryClient.invalidateQueries({ queryKey: qk.cloudSaveStatus.forGame(gameId) });
       }
     };
     void Promise.all([
@@ -202,7 +203,7 @@ export function CloudSavesPanel({
     setSearching(true);
     void cloudSaves
       .detect(gameId)
-      .then(() => queryClient.invalidateQueries({ queryKey: ["cloud-save-status", gameId] }))
+      .then(() => queryClient.invalidateQueries({ queryKey: qk.cloudSaveStatus.forGame(gameId) }))
       .catch((cause) => {
         // The panel already explains the missing paths; a detection failure is
         // not worth a second toast.
@@ -240,8 +241,8 @@ export function CloudSavesPanel({
     [],
   );
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["saves", gameId] });
-  const invalidateStatus = () => queryClient.invalidateQueries({ queryKey: ["cloud-save-status", gameId] });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: qk.saves.forGame(gameId) });
+  const invalidateStatus = () => queryClient.invalidateQueries({ queryKey: qk.cloudSaveStatus.forGame(gameId) });
 
   // Manual retry is rate-limited: a slow server or a failing command must not
   // be hammered by repeated clicks (#159).
@@ -340,7 +341,7 @@ export function CloudSavesPanel({
     try {
       await cloudSaves.setSync(gameId, enabled);
       await invalidateStatus();
-      await queryClient.invalidateQueries({ queryKey: ["desktop-settings"] });
+      await queryClient.invalidateQueries({ queryKey: qk.desktopSettings });
       push({
         title: enabled ? "Automatic backup on" : "Automatic backup off",
         description: enabled ? "Save files are archived after each session." : "No automatic uploads for this game.",
@@ -380,7 +381,7 @@ export function CloudSavesPanel({
     setSyncing(true);
     try {
       const next = await cloudSaves.syncNow(gameId);
-      queryClient.setQueryData(["cloud-save-status", gameId], next);
+      queryClient.setQueryData(qk.cloudSaveStatus.forGame(gameId), next);
       await invalidate();
       describeSync(next);
     } catch (cause) {

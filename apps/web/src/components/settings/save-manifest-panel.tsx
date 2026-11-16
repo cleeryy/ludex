@@ -11,6 +11,7 @@ import { t } from "@/lib/i18n";
 import { useToast } from "@/state/toasts";
 import { SectionHeader } from "@/components/page";
 import { Badge, Button, Input, Switch } from "@/components/ui/controls";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Settings → Saves (#153): the Ludusavi save-path database Ludex manages.
@@ -35,7 +36,7 @@ export function SaveManifestPanel({
   const [busy, setBusy] = useState<"update" | "remove" | null>(null);
 
   const status = useQuery({
-    queryKey: ["ludusavi-manifest"],
+    queryKey: qk.ludusaviManifest,
     queryFn: () => installBridge.manifestStatus(),
     retry: false,
     staleTime: 30_000,
@@ -46,7 +47,7 @@ export function SaveManifestPanel({
     let disposed = false;
     let off: (() => void) | undefined;
     void native.onSaveManifestUpdated((update) => {
-      if (!disposed) queryClient.setQueryData(["ludusavi-manifest"], update);
+      if (!disposed) queryClient.setQueryData(qk.ludusaviManifest, update);
     }).then((unlisten) => {
       if (disposed) unlisten();
       else off = unlisten;
@@ -69,7 +70,7 @@ export function SaveManifestPanel({
     setBusy("update");
     try {
       const next = await installBridge.updateManifest();
-      queryClient.setQueryData(["ludusavi-manifest"], next);
+      queryClient.setQueryData(qk.ludusaviManifest, next);
       push({
         title: next.updated
           ? t("Save database updated")
@@ -90,7 +91,7 @@ export function SaveManifestPanel({
     setBusy("remove");
     try {
       const next = await installBridge.removeManifest();
-      queryClient.setQueryData(["ludusavi-manifest"], next);
+      queryClient.setQueryData(qk.ludusaviManifest, next);
       push({
         title: t("Cached save database removed"),
         description: t("Save detection now uses a manifest you installed yourself or the paths you added manually."),

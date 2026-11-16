@@ -11,6 +11,7 @@ import { EmptyState, ErrorState, PageHeader } from "@/components/page";
 import { Button, Field, IconButton, Input, Skeleton, Textarea } from "@/components/ui/controls";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { t , tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 export function AdminNewsScreen() {
   const { push } = useToast();
@@ -19,11 +20,11 @@ export function AdminNewsScreen() {
   const [deleteTarget, setDeleteTarget] = useState<NewsPost | null>(null);
 
   const { data, isPending, isError, error, refetch } = useQuery({
-    queryKey: ["news"],
+    queryKey: qk.news,
     queryFn: () => api.listNews(),
   });
 
-  const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["news"] });
+  const invalidate = () => void queryClient.invalidateQueries({ queryKey: qk.news });
 
   const remove = useMutation({
     mutationFn: (id: number) => api.deleteNews(id),

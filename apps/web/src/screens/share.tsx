@@ -14,6 +14,7 @@ import { PublicPage } from "@/components/public-page";
 import { WindowControls, useWindowChrome } from "@/components/shell/window-controls";
 import { Badge, Button, Field, Input, Skeleton } from "@/components/ui/controls";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Public share page (#9): reachable logged out at `#/share/{token}`.
@@ -25,7 +26,7 @@ export function ShareScreen() {
   const { token } = useParams<{ token: string }>();
   const shareToken = token ?? "";
   const view = useQuery({
-    queryKey: ["public-share", shareToken],
+    queryKey: qk.publicShare(shareToken),
     queryFn: () => getPublicShare(shareToken),
     enabled: shareToken.length > 0,
     // A bad link is a final answer, not a transient failure: show it at once.

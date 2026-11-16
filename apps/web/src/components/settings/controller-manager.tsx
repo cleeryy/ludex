@@ -23,6 +23,7 @@ import { profileOptions, type ProfileOption } from "@/components/big-picture/con
 import { Badge, Button, Switch } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /* --------------------------------------------------------------------------
    The controller manager (#230).
@@ -41,7 +42,7 @@ export function ControllerManager() {
   const pads = useConnectedPads();
   const [devices, store] = useControllerDevices();
   const profiles = useQuery({
-    queryKey: ["controller-profiles"],
+    queryKey: qk.controllerProfiles,
     queryFn: () => api.controllerProfiles(),
     staleTime: 5 * 60_000,
   });
@@ -237,7 +238,7 @@ function glyphThemeLabel(theme: GlyphTheme): string {
 function useNativeBattery(): Map<string, { level: number; charging: boolean }> {
   const enabled = isNative();
   const query = useQuery({
-    queryKey: ["overlay-status"],
+    queryKey: qk.overlay.status,
     queryFn: () => native.overlayStatus(),
     enabled,
     staleTime: 5_000,
