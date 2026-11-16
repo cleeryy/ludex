@@ -6,6 +6,17 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- A download crash can no longer brick startup (#234): the desktop release
+  builds with `panic = "unwind"` (+5.3 MiB), install/resume/verify workers run
+  under `catch_unwind` so a panic becomes a job error (keeping `.part`/staging)
+  instead of killing the app, a persisted two-strike startup circuit breaker
+  parks a job that crashed the app twice ("Resume disabled after repeated
+  crashes…"), markers are cleared after 15 s healthy or a clean exit, manual
+  resume resets the streak, and `LUDEX_SAFE_MODE=1`/`--safe-mode` skips
+  auto-resume.
+
 ### Changed
 
 - VirusTotal bulk scans keep running across routes (#238): the 4/min queue is
