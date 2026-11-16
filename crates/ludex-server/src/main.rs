@@ -110,9 +110,19 @@ async fn import_gamevault(args: Vec<String>) -> anyhow::Result<()> {
     }
 
     if !outcome.credentials.is_empty() {
+        // Deliberate one-time credential handoff (#266): the CLI import prints
+        // the generated temporary passwords exactly once because there is no
+        // other channel to reach the importing administrator. Nothing is
+        // logged, persisted or audited, the command documents the behaviour
+        // (`--help`), and every account must change the password on first use.
         println!();
         println!("Temporary passwords (shown once, never stored):");
         for credential in &outcome.credentials {
+            // Intentional one-time terminal print in the import CLI,
+            // documented above and in `main --help`; the credential never
+            // reaches a log or an audit event (see
+            // `gamevault::tests::credentials_never_debug_their_password`).
+            // codeql[rust/cleartext-logging]
             println!("  {}  {}", credential.username, credential.password);
         }
         println!("Ask each user to change their password after signing in.");

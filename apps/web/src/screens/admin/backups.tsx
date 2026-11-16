@@ -410,8 +410,11 @@ export function BackupsScreen() {
       </Dialog>
 
       {deleting && (
+        // The dialog is mounted only when there is a backup to delete, so it is
+        // always open; comparing the narrowed value to `null` again was dead
+        // code (#266).
         <ConfirmDialog
-          open={deleting !== null}
+          open
           onOpenChange={(open) => {
             if (!open) setDeleting(null);
           }}

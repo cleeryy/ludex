@@ -264,8 +264,12 @@ pub fn start_with_opener(
     .to_rfc3339();
 
     open(&login_url(&server_url, &state)).map_err(|error| {
+        // Bind the error explicitly: the implicit `{error}` capture is easy to
+        // miss when reading the message, and the explicit argument keeps the
+        // variable a real use (#266).
         format!(
             "Could not open your browser: {error}. Open {fallback} instead.",
+            error = error,
             fallback = web_login_url(&server_url)
         )
     })?;

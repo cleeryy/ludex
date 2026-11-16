@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, CheckCircle2, KeyRound, Loader2, RotateCcw } from "lucide-react";
-import { api, assetUrl, USING_MOCKS } from "@/lib/api";
+import { api, assetUrl, getApiBase, USING_MOCKS } from "@/lib/api";
 import { MOCK_PASSWORD } from "@/lib/mock";
 import { errorMessage } from "@/lib/http";
 import { isNative, native } from "@/lib/native";
@@ -16,6 +16,7 @@ import {
 import { useAuth } from "@/state/auth";
 import { AuthLayout } from "@/components/auth-layout";
 import { Button, Field, Input } from "@/components/ui/controls";
+import { originOf, safeRedirectUrl } from "@/lib/safe-url";
 import { tr, t } from "@/lib/i18n";
 
 type HandoffPhase = "idle" | "sending" | "done" | "error";
@@ -187,7 +188,14 @@ export function LoginScreen() {
 
   /** "Open web login" fallback: the same page, without the handoff. */
   const openWebLogin = () => {
-    const url = desktopAddress ?? assetUrl("/#/login");
+    // `desktopAddress` comes back from the server, so it is a redirect target
+    // with an origin allow list: the server it belongs to, or this page. A
+    // value pointing anywhere else falls back to the local login page instead
+    // of turning the sign-in screen into an open redirect (#266).
+    const serverOrigin = originOf(getApiBase(), window.location.href);
+    const url =
+      safeRedirectUrl(desktopAddress, [serverOrigin, window.location.origin], window.location.href) ??
+      assetUrl("/#/login");
     if (!url) return;
     if (isNative()) {
       void native.openExternalUrl(url).catch((cause) => setOidcError(errorMessage(cause)));

@@ -297,4 +297,19 @@ describe("release notes", () => {
     expect(stripInlineMarkdown("Tom &amp; Jerry &quot;HD&quot;")).toBe('Tom & Jerry "HD"');
     expect(stripInlineMarkdown("  many   spaces  ")).toBe("many spaces");
   });
+
+  it("cannot rebuild a tag from nested or escaped markup", () => {
+    // One pass of strip-then-decode leaves `&lt;script&gt;` and `script>`; the
+    // fixpoint loop keeps the output free of raw angle brackets (#266).
+    for (const hostile of [
+      "<<b>b>plain",
+      "&amp;lt;script&amp;gt;alert(1)",
+      "<scr<script>ipt>alert(1)",
+      "<img src=x onerror=alert(1)>",
+    ]) {
+      const text = stripInlineMarkdown(hostile);
+      expect(text, hostile).not.toMatch(/<[^>]*>/);
+      expect(text, hostile).not.toContain("&amp;");
+    }
+  });
 });

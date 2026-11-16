@@ -52,6 +52,9 @@ describe("navigation table", () => {
   });
 
   it("only links to routes the router declares", () => {
+    // Escape every regexp metacharacter, backslash first: escaping only `/`
+    // and `-` leaves `\` and `.` active and makes the assertion lie (#266).
+    const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     for (const destination of NAV_DESTINATIONS) {
       const route = navPath(destination).replace(/^\//, "");
       if (route === "") {
@@ -60,7 +63,7 @@ describe("navigation table", () => {
         expect(
           appSource,
           `app.tsx has no route for ${destination.to}`,
-        ).toMatch(new RegExp(`path="/?${route.replace(/[/-]/g, "\\$&")}"`));
+        ).toMatch(new RegExp(`path="/?${escapeRegExp(route)}"`));
       }
     }
   });

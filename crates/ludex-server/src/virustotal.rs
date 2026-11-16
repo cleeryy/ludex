@@ -533,15 +533,65 @@ pub struct HttpTransport {
     timeout: Duration,
 }
 
+/// Returns `true` for an `http://` URL pointing at a loopback address.
+///
+/// That is the only plaintext base accepted: the integration tests run a mock
+/// VirusTotal on `127.0.0.1`, and loopback traffic never leaves the machine.
+/// Any other `http://` base is refused, because `GET /users/{key}` puts the API
+/// key in the URL path.
+fn is_loopback_http(url: &str) -> bool {
+    let Ok(parsed) = url::Url::parse(url) else {
+        return false;
+    };
+    if parsed.scheme() != "http" {
+        return false;
+    }
+    match parsed.host() {
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        Some(url::Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
+        None => false,
+    }
+}
+
+/// `true` when the transport may send credentials to this base URL.
+fn is_secure_base(url: &str) -> bool {
+    url.to_ascii_lowercase().starts_with("https://") || is_loopback_http(url)
+}
+
 impl HttpTransport {
     /// Builds the transport from the shared server client.
+    ///
+    /// `GET /users/{key}` carries the API key in the path, so the base URL must
+    /// be HTTPS. A plaintext value (an `http://` override in the environment)
+    /// is replaced by the public endpoint instead of sending the key over the
+    /// wire in clear text. Loopback is the one exception: the integration tests
+    /// run a mock on `127.0.0.1` (#266).
     #[must_use]
     pub fn new(client: reqwest::Client, base: impl Into<String>, timeout: Duration) -> Self {
+        let requested = base.into();
+        let trimmed = requested.trim();
+        let base = if is_secure_base(trimmed) {
+            trimmed.trim_end_matches('/').to_string()
+        } else {
+            if !trimmed.is_empty() && trimmed.trim_end_matches('/') != API_BASE {
+                tracing::warn!(
+                    "LUDEX_VIRUSTOTAL_API_BASE is not HTTPS; using the public VirusTotal endpoint"
+                );
+            }
+            API_BASE.to_string()
+        };
         Self {
             client,
-            base: base.into().trim_end_matches('/').to_string(),
+            base,
             timeout,
         }
+    }
+
+    /// Base URL actually used, exposed for the configuration tests.
+    #[must_use]
+    pub fn base(&self) -> &str {
+        &self.base
     }
 }
 
@@ -601,9 +651,19 @@ impl VtTransport for HttpTransport {
     fn validate_key<'a>(&'a self, api_key: &'a str) -> TransportFuture<'a, Result<(), VtError>> {
         Box::pin(async move {
             let url = format!("{}/users/{}", self.base, api_key);
-            let response = self
-                .client
-                .get(&url)
+            // Belt and braces: `new` already refuses a non-HTTPS base (loopback
+            // excepted for the mock), and this keeps a future refactor from
+            // sending the key in clear text.
+            if !is_secure_base(&url) {
+                return Err(VtError::Transport(
+                    "refusing to send the API key over plaintext".to_string(),
+                ));
+            }
+            // HTTPS is enforced above and in `HttpTransport::new`; see
+            // `plaintext_api_base_is_refused`.
+            // codeql[rust/cleartext-transmission]
+            let request = self.client.get(&url);
+            let response = request
                 .header("x-apikey", api_key)
                 .timeout(self.timeout)
                 .send()
@@ -2084,6 +2144,45 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use tokio::sync::mpsc;
+
+    /// Evidence for `rust/cleartext-transmission` (#266): the production
+    /// transport never keeps a non-loopback `http://` base, so the API key in
+    /// `/users/{key}` cannot travel in clear text. Plaintext is allowed only for
+    /// the loopback mock the integration tests run.
+    #[test]
+    fn plaintext_api_base_is_refused() {
+        let transport = HttpTransport::new(
+            reqwest::Client::new(),
+            "http://virustotal.example.test/api/v3",
+            Duration::from_secs(1),
+        );
+        assert_eq!(transport.base(), API_BASE);
+
+        for plaintext in [
+            "http://10.0.0.5/api/v3",
+            "http://192.168.1.20:8080/api/v3",
+            "http://[fe80::1]/api/v3",
+        ] {
+            let transport =
+                HttpTransport::new(reqwest::Client::new(), plaintext, Duration::from_secs(1));
+            assert_eq!(transport.base(), API_BASE, "{plaintext}");
+        }
+
+        let secure = HttpTransport::new(
+            reqwest::Client::new(),
+            "https://vt.example.test/api/v3/",
+            Duration::from_secs(1),
+        );
+        assert_eq!(secure.base(), "https://vt.example.test/api/v3");
+
+        // The mock runs on loopback and stays plaintext.
+        let mock = HttpTransport::new(
+            reqwest::Client::new(),
+            "http://127.0.0.1:8123",
+            Duration::from_secs(1),
+        );
+        assert_eq!(mock.base(), "http://127.0.0.1:8123");
+    }
 
     /// In-memory transport recording calls and returning canned answers.
     struct MockTransport {

@@ -12,6 +12,7 @@ import {
   Webhook,
 } from "lucide-react";
 import { api, getApiBase } from "@/lib/api";
+import { toSafeUrl } from "@/lib/safe-url";
 import { errorMessage } from "@/lib/http";
 import { formatBytes, formatDate, formatRelative } from "@/lib/format";
 import { t } from "@/lib/i18n";
@@ -523,7 +524,8 @@ function IntegrityPanel({ data }: { data: ObservabilitySnapshot }) {
 }
 
 function LinksPanel({ data }: { data: ObservabilitySnapshot }) {
-  const metricsUrl = `${getApiBase()}/metrics`;
+  // A link target is a URL sink: validate it like every other one (#266).
+  const metricsUrl = toSafeUrl(`${getApiBase()}/metrics`);
   const linkClass =
     "inline-flex items-center gap-1.5 text-[12.5px] text-ink-2 underline decoration-line-2 underline-offset-4 transition-colors duration-[120ms] hover:text-ink";
   return (
@@ -535,7 +537,7 @@ function LinksPanel({ data }: { data: ObservabilitySnapshot }) {
       />
       <div className="flex flex-col gap-3 border-t border-line pt-4 text-[12.5px]">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <a href={metricsUrl} target="_blank" rel="noreferrer" className={linkClass}>
+          <a href={metricsUrl ?? undefined} target="_blank" rel="noreferrer" className={linkClass}>
             <Radio className="size-3.5" aria-hidden="true" />
             {t("Metrics endpoint")}
             <ArrowUpRight className="size-3" aria-hidden="true" />

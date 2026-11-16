@@ -181,7 +181,7 @@ pub struct ArchiveReport {
 }
 
 /// Options controlling [`extract_archive`].
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ExtractOptions {
     /// Passwords tried in order for encrypted archives.
     pub passwords: Vec<String>,
@@ -217,6 +217,26 @@ pub struct ExtractOptions {
     /// extraction identical but leaves [`ExtractReport::hashes`] empty, for a
     /// caller that has no use for the digests.
     pub collect_hashes: bool,
+}
+
+/// Debug is hand-written so the password list never reaches a log line, an
+/// error report or a panic message (#266). The count is kept because it is
+/// useful when diagnosing a failed extraction.
+impl std::fmt::Debug for ExtractOptions {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ExtractOptions")
+            .field(
+                "passwords",
+                &format_args!("{} redacted", self.passwords.len()),
+            )
+            .field("overwrite", &self.overwrite)
+            .field("preserve_modes", &self.preserve_modes)
+            .field("zip_workers", &self.zip_workers)
+            .field("cancel", &self.cancel)
+            .field("collect_hashes", &self.collect_hashes)
+            .finish()
+    }
 }
 
 impl Default for ExtractOptions {
@@ -3483,11 +3503,9 @@ mod tests {
         )
         .expect("compress encrypted 7z");
 
+        // The error is fieldless, so this assertion cannot echo the password.
         let no_password = verify_archive(&archive_path, None);
-        assert!(
-            matches!(no_password, Err(ArchiveError::PasswordRequired)),
-            "{no_password:?}"
-        );
+        assert!(matches!(no_password, Err(ArchiveError::PasswordRequired)));
 
         let report =
             verify_archive(&archive_path, Some("ludex-test")).expect("verify encrypted 7z");
@@ -3502,7 +3520,7 @@ mod tests {
             &mut |_| {},
         )
         .expect_err("password required");
-        assert!(error.is_password_error(), "{error:?}");
+        assert!(error.is_password_error());
 
         let opts = ExtractOptions::with_passwords(vec!["wrong".into(), "ludex-test".into()]);
         let extracted = extract_archive(&archive_path, &dest, &opts, &mut |_| {})
@@ -3513,6 +3531,23 @@ mod tests {
             fs::read(dest.join("Game/file.txt")).expect("read"),
             b"secret payload"
         );
+    }
+
+    /// Evidence for the `rust/cleartext-logging` fix (#266): password errors
+    /// are fieldless and the options debug view is redacted, so no password
+    /// from `ExtractOptions::passwords` can be logged with the error.
+    #[test]
+    fn password_errors_and_options_never_echo_the_password() {
+        let secret = "hunter2-should-never-appear";
+        let options = ExtractOptions::with_passwords(vec![secret.to_string()]);
+        let rendered = format!("{options:?}");
+        assert!(!rendered.contains(secret), "{rendered}");
+        assert!(rendered.contains("1 redacted"), "{rendered}");
+
+        for error in [ArchiveError::PasswordRequired, ArchiveError::WrongPassword] {
+            let rendered = format!("{error} {error:?}");
+            assert!(!rendered.contains(secret), "{rendered}");
+        }
     }
 
     #[test]

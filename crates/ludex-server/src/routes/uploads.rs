@@ -26,6 +26,7 @@ use crate::models::{
     part_len, total_parts, CompleteUploadResponse, CreateUploadRequest, UploadPartResponse,
     UploadRow, UploadSession,
 };
+use crate::paths;
 use crate::state::AppState;
 use crate::uploads;
 
@@ -91,7 +92,8 @@ async fn create(
 
     let chunk_size = i64::try_from(state.config.upload_chunk_bytes).unwrap_or(16 * 1024 * 1024);
     let id = uuid::Uuid::new_v4().to_string();
-    tokio::fs::create_dir_all(uploads::upload_dir(&state.config.data_dir, &id))
+    let dir = uploads::upload_dir(&state.config.data_dir, &id)?;
+    tokio::fs::create_dir_all(&dir)
         .await
         .map_err(ApiError::from)?;
     let now = db::db_time(db::now());
@@ -122,10 +124,8 @@ async fn progress(
     ApiPath(id): ApiPath<String>,
 ) -> Result<Json<UploadSession>, ApiError> {
     let row = fetch_owned(&state, &user, &id).await?;
-    let parts = uploads::received_parts(
-        &uploads::upload_dir(&state.config.data_dir, &id),
-        total_parts(row.size, row.chunk_size),
-    );
+    let dir = uploads::upload_dir(&state.config.data_dir, &id)?;
+    let parts = uploads::received_parts(&dir, total_parts(row.size, row.chunk_size));
     Ok(Json(row.to_public(parts)))
 }
 
@@ -158,11 +158,17 @@ async fn receive_part(
         ));
     }
 
-    let path = uploads::part_path(&state.config.data_dir, &id, part);
+    let path = uploads::part_path(&state.config.data_dir, &id, part)?;
     let temporary = path.with_extension("part.tmp");
+    // `path` is `{data_dir}/uploads/{id}/{part}.part` where `id` passed
+    // `paths::component` in `fetch_row` and `part` is an i64; see
+    // `uploads::tests::destinations_stay_inside_the_library`.
+    // codeql[rust/path-injection]
     tokio::fs::write(&temporary, &body)
         .await
         .map_err(ApiError::from)?;
+    // Same confined path, renamed in place.
+    // codeql[rust/path-injection]
     tokio::fs::rename(&temporary, &path)
         .await
         .map_err(ApiError::from)?;
@@ -173,10 +179,8 @@ async fn receive_part(
         .await
         .map_err(ApiError::from)?;
 
-    let parts = uploads::received_parts(
-        &uploads::upload_dir(&state.config.data_dir, &id),
-        expected_parts,
-    );
+    let dir = uploads::upload_dir(&state.config.data_dir, &id)?;
+    let parts = uploads::received_parts(&dir, expected_parts);
     Ok(Json(UploadPartResponse {
         id,
         part,
@@ -202,7 +206,7 @@ async fn complete(
         ));
     }
 
-    let dir = uploads::upload_dir(&state.config.data_dir, &id);
+    let dir = uploads::upload_dir(&state.config.data_dir, &id)?;
     let expected_parts = total_parts(row.size, row.chunk_size);
     let parts = uploads::received_parts(&dir, expected_parts);
     if i64::try_from(parts.len()).unwrap_or(0) != expected_parts {
@@ -212,7 +216,10 @@ async fn complete(
         ));
     }
     for part in 0..expected_parts {
-        let path = uploads::part_path(&state.config.data_dir, &id, part);
+        let path = uploads::part_path(&state.config.data_dir, &id, part)?;
+        // Confined by `part_path`; see
+        // `uploads::tests::destinations_stay_inside_the_library`.
+        // codeql[rust/path-injection]
         let size = tokio::fs::metadata(&path)
             .await
             .map_err(|_| ApiError::bad_request("upload_incomplete", "A chunk is missing"))?
@@ -225,12 +232,19 @@ async fn complete(
         }
     }
 
-    let destination = uploads::unique_destination(&state.config.games_dir, &row.file_name);
-    let temporary = state.config.games_dir.join(format!(".upload-{id}.tmp"));
+    let destination = uploads::unique_destination(&state.config.games_dir, &row.file_name)?;
+    let temporary = uploads::temporary_destination(&state.config.games_dir, &id)?;
+    // Resolve symlinks before writing: the lexical join above already confines
+    // both paths, and this catches a link planted inside the library root.
+    paths::canonical_within(&state.config.games_dir, &destination).await?;
+    paths::canonical_within(&state.config.games_dir, &temporary).await?;
     let assembled = uploads::assemble(&dir, row.size, row.chunk_size, &temporary).await;
     let (size, hash) = match assembled {
         Ok(value) => value,
         Err(error) => {
+            // `temporary` is a single component under `games_dir`, checked by
+            // `paths::canonical_within` above.
+            // codeql[rust/path-injection]
             let _ = tokio::fs::remove_file(&temporary).await;
             mark_error(&state, &id, &format!("could not assemble chunks: {error}")).await;
             return Err(ApiError::internal());
@@ -238,6 +252,8 @@ async fn complete(
     };
 
     if size != row.size {
+        // Same confined temporary path.
+        // codeql[rust/path-injection]
         let _ = tokio::fs::remove_file(&temporary).await;
         let message = format!("Assembled {} bytes, expected {}", size, row.size);
         mark_error(&state, &id, &message).await;
@@ -245,6 +261,8 @@ async fn complete(
     }
     if let Some(expected) = row.sha256.as_deref() {
         if !hash.eq_ignore_ascii_case(expected) {
+            // Same confined temporary path.
+            // codeql[rust/path-injection]
             let _ = tokio::fs::remove_file(&temporary).await;
             mark_error(&state, &id, "SHA-256 does not match the declared hash").await;
             return Err(ApiError::unprocessable(
@@ -254,6 +272,10 @@ async fn complete(
         }
     }
 
+    // `temporary` and `destination` are single components under `games_dir`
+    // (checked by `paths::canonical_within`); see
+    // `uploads::tests::destinations_stay_inside_the_library`.
+    // codeql[rust/path-injection]
     tokio::fs::rename(&temporary, &destination)
         .await
         .map_err(ApiError::from)?;
@@ -344,6 +366,12 @@ fn completed_response(row: UploadRow) -> Result<Json<CompleteUploadResponse>, Ap
 }
 
 async fn fetch_row(state: &AppState, id: &str) -> Result<UploadRow, ApiError> {
+    // The id arrives from the request path and is used to build storage paths:
+    // require a single directory entry before the row lookup, so a traversal
+    // attempt never reaches `uploads::upload_dir`.
+    if paths::component(id).is_err() {
+        return Err(ApiError::not_found("upload_not_found", "Upload not found"));
+    }
     db::query_as::<UploadRow>(
         "SELECT id, user_id, file_name, size, sha256, chunk_size, status,
                 game_id, version_id, error, created_at, updated_at

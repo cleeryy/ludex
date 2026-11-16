@@ -1108,8 +1108,11 @@ interface SaveSnapshot {
 | DELETE | `/api/saves/{id}` | owner (or admin), 204 |
 
 Storage: `{data_dir}/saves/{user_id}/{game_id}/{snapshot_id}-{sanitized_name}`.
-A user can never see another user's snapshots. Automatic uploads are pruned to
-the newest **10 per user and game**; manual snapshots are never pruned. The
+The file name is sanitised again on read, so a tampered row cannot escape the
+user/game directory; a stored name that cannot be confined is `400
+invalid_path` (#266). A user can never see another user's snapshots. Automatic
+uploads are pruned to the newest **10 per user and game**; manual snapshots are
+never pruned. The
 desktop game page shows the latest snapshot, last upload/restore, effective
 automatic-backup toggle and a conflict dialog; `lib/cloud-saves.ts` wraps the
 Tauri commands. The browser build can still upload/download manual archives and
@@ -4450,6 +4453,10 @@ interface UploadSession {
   completed upload is idempotent. Errors: 400 `upload_incomplete` /
   `invalid_part_size`, 422 `size_mismatch` / `hash_mismatch`.
 - `DELETE /api/uploads/{id}` abandons the upload and removes its chunks.
+- An `{id}` that is not a single path component (separator, `.`, `..`, control
+  character) is `404 upload_not_found`; a stored archive name that cannot be
+  confined to the library root is `400 invalid_path`. Neither touches the
+  filesystem (#266).
 - Unfinished uploads older than `LUDEX_UPLOAD_TTL_HOURS` (default 24 h) are
   removed lazily on the next initiate and by an hourly worker.
 

@@ -339,7 +339,6 @@ pub struct KnownFolderInputs {
 impl KnownFolderInputs {
     /// Read the process environment and, on Windows, ask the shell API for the
     /// known folders that have one.
-    #[allow(unused_mut, unused_variables)]
     pub fn from_process(platform: Platform) -> Self {
         let mut env = BTreeMap::new();
         for (key, value) in std::env::vars_os() {
@@ -348,16 +347,32 @@ impl KnownFolderInputs {
                 env.insert(key, PathBuf::from(value));
             }
         }
-        let mut inputs = Self {
+        Self {
             env,
-            api: BTreeMap::new(),
-        };
-        #[cfg(windows)]
-        if platform == Platform::Windows {
-            inputs.api = windows_known_folders();
+            api: shell_known_folders(platform),
         }
-        inputs
     }
+}
+
+/// Known folders reported by the shell API, or none on a platform without one.
+///
+/// Split out so the non-Windows build has no unused parameter or binding: the
+/// configuration is compiled in per target instead of being disabled with
+/// `#[allow(unused_variables)]` (#266).
+#[cfg(windows)]
+fn shell_known_folders(platform: Platform) -> BTreeMap<String, PathBuf> {
+    if platform == Platform::Windows {
+        windows_known_folders()
+    } else {
+        BTreeMap::new()
+    }
+}
+
+#[cfg(not(windows))]
+fn shell_known_folders(_platform: Platform) -> BTreeMap<String, PathBuf> {
+    // Only Windows exposes SHGetKnownFolderPath; elsewhere the environment is
+    // the whole input.
+    BTreeMap::new()
 }
 
 /// Resolved roots for one platform.

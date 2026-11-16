@@ -1,0 +1,23 @@
+# CodeQL configuration (#266).
+#
+# The scan runs `security-and-quality` over the whole repository. Only
+# generated output is ignored here: it is rebuilt from source in the same job,
+# and an alert on a bundled artefact is not actionable in the source tree.
+#
+# Test files are deliberately NOT excluded. The quality suite flags a naive
+# regexp in `*.test.ts` as readily as one in production, and hiding the tests
+# would also hide a real regression in a test helper. The four sanitisation
+# alerts those files produced (#266) were fixed in place instead.
+name: "Ludex CodeQL configuration"
+
+paths-ignore:
+  - "**/node_modules/**"
+  - "**/target/**"
+  - "apps/web/dist/**"
+  - "apps/web/coverage/**"
+  - "docs/assets/screenshots/**"
+  - "e2e/test-results/**"
+  - "e2e/playwright-report/**"
+
+# Rust is analysed with `build-mode: none` (rust-analyzer extraction), so no
+# build command is configured here.
