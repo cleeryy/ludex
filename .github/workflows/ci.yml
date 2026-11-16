@@ -120,6 +120,263 @@ jobs:
       - name: Test web helpers
         run: pnpm --filter @ludex/web test
 
+  # Coverage (#263). Three jobs because the three test suites live in three
+  # different build systems: the root workspace, the desktop crate (its own
+  # workspace) and the web app. Each one uploads an lcov file as an artifact
+  # and, when a CODECOV_TOKEN secret exists, to Codecov with its own flag.
+  #
+  # `secrets` is not available in a step-level `if`, so the token is mapped to
+  # an env var and the upload is gated on that: forks and a token-less
+  # repository still get the artifact, they just skip the upload.
+  coverage-rust:
+    name: Coverage (Rust workspace)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      # Soft floor, advisory until the first baseline PRs land (#263): the
+      # step fails but the job does not. Measured baseline on 2026-11-16:
+      # 83.85 % lines / 83.34 % regions (cargo llvm-cov --workspace
+      # --all-targets). Ratchet it up in the same commit that raises the
+      # number in docs/CI.md.
+      COVERAGE_MIN_LINES: "80"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Measure coverage
+        run: |
+          set -euo pipefail
+          cargo llvm-cov --workspace --all-targets --locked \
+            --lcov --output-path lcov.info
+          cargo llvm-cov report --summary-only | tee coverage-summary.txt
+
+      - name: Coverage floor (advisory)
+        continue-on-error: true
+        run: cargo llvm-cov report --fail-under-lines "${COVERAGE_MIN_LINES}"
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### Rust workspace coverage"
+            echo
+            echo '```'
+            cat coverage-summary.txt 2>/dev/null || echo "no report"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-rust-workspace
+          path: |
+            lcov.info
+            coverage-summary.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload to Codecov
+        if: env.CODECOV_TOKEN != ''
+        uses: codecov/codecov-action@v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          flags: server
+          fail_ci_if_error: false
+
+  coverage-web:
+    name: Coverage (web)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      # Advisory floor. `test:coverage` writes coverage/coverage-summary.json
+      # (json-summary reporter), which is what the next step reads.
+      COVERAGE_MIN_LINES: "17"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "${{ hashFiles('pnpm-lock.yaml') != '' && 'pnpm' || '' }}"
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+          else
+            pnpm install --no-frozen-lockfile
+          fi
+
+      - name: Measure coverage
+        run: pnpm --filter @ludex/web test:coverage
+
+      - name: Coverage floor (advisory)
+        continue-on-error: true
+        run: |
+          lines="$(node -e "const s=require('./apps/web/coverage/coverage-summary.json').total; process.stdout.write(String(s.lines.pct))")"
+          echo "lines: ${lines}% (floor ${COVERAGE_MIN_LINES}%)"
+          node -e "process.exit(Number(process.argv[1]) >= Number(process.argv[2]) ? 0 : 1)" \
+            "$lines" "${COVERAGE_MIN_LINES}"
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-web
+          path: apps/web/coverage
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload to Codecov
+        if: env.CODECOV_TOKEN != ''
+        uses: codecov/codecov-action@v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: apps/web/coverage/lcov.info
+          flags: web
+          fail_ci_if_error: false
+
+  # The desktop crate compiles 684 dependencies with instrumentation, so this
+  # job only runs on non-PR events and on pull requests that touch the crate.
+  # A desktop-only PR pays ~10 minutes; a docs or server PR does not.
+  coverage-desktop:
+    name: Coverage (desktop crate)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      # Provisional: measured on the first main run, then ratcheted the same
+      # way as the workspace floor.
+      COVERAGE_MIN_LINES: "25"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether this run is in scope
+        id: scope
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --name-only "${{ github.event.pull_request.base.sha }}...HEAD" \
+            -- apps/desktop/src-tauri | grep -q .; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Desktop coverage skipped"
+              echo
+              echo "No change under \`apps/desktop/src-tauri\` in this pull request."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Install Tauri system dependencies
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          for attempt in 1 2 3; do
+            sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+              libwebkit2gtk-4.1-dev librsvg2-dev patchelf libgtk-3-dev \
+              libxdo-dev libssl-dev libudev-dev libayatana-appindicator3-dev && break
+            echo "apt attempt $attempt failed; retrying in 15s" >&2
+            sleep 15
+          done
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev librsvg2-dev patchelf libgtk-3-dev \
+            libxdo-dev libssl-dev libudev-dev libayatana-appindicator3-dev
+
+      - name: Install Rust
+        if: steps.scope.outputs.run == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache Rust
+        if: steps.scope.outputs.run == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+          shared-key: desktop-coverage
+
+      - name: Install cargo-llvm-cov
+        if: steps.scope.outputs.run == 'true'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Measure coverage
+        if: steps.scope.outputs.run == 'true'
+        working-directory: apps/desktop/src-tauri
+        run: |
+          set -euo pipefail
+          cargo llvm-cov --locked --lib --lcov --output-path lcov.info
+          cargo llvm-cov report --summary-only | tee coverage-summary.txt
+
+      - name: Coverage floor (advisory)
+        if: steps.scope.outputs.run == 'true'
+        continue-on-error: true
+        working-directory: apps/desktop/src-tauri
+        run: cargo llvm-cov report --fail-under-lines "${COVERAGE_MIN_LINES}"
+
+      - name: Job summary
+        if: always() && steps.scope.outputs.run == 'true'
+        run: |
+          {
+            echo "### Desktop crate coverage"
+            echo
+            echo '```'
+            cat apps/desktop/src-tauri/coverage-summary.txt 2>/dev/null || echo "no report"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage artifact
+        if: always() && steps.scope.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-desktop
+          path: |
+            apps/desktop/src-tauri/lcov.info
+            apps/desktop/src-tauri/coverage-summary.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload to Codecov
+        if: steps.scope.outputs.run == 'true' && env.CODECOV_TOKEN != ''
+        uses: codecov/codecov-action@v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: apps/desktop/src-tauri/lcov.info
+          flags: desktop
+          fail_ci_if_error: false
+
   docker:
     name: Docker image (build only)
     runs-on: ubuntu-24.04

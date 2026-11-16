@@ -1,0 +1,243 @@
+# Supply-chain scans (#263): Trivy, cargo-deny, pnpm audit and dependency
+# review. CodeQL lives in codeql.yml (GitHub shows it in the Security tab) and
+# coverage lives in ci.yml next to the suites it measures.
+#
+# Design notes:
+# - Everything here is cache-free and fast except the image scan, which pulls
+#   the published image and therefore runs on a schedule, not on PRs.
+# - `paths`/`paths-ignore` filters are deliberately absent: a required check
+#   that is skipped by a path filter leaves the pull request blocked forever.
+# - Accepted risks go to .trivyignore.yaml (Trivy) and deny.toml (RustSec),
+#   both documented in docs/CI.md.
+
+name: Security
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  schedule:
+    # Weekly drift check: new advisories for dependencies that did not change.
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  trivy-filesystem:
+    name: Security (Trivy filesystem)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Scans dependency manifests (Cargo.lock, pnpm-lock.yaml), committed
+      # secrets and infra misconfiguration. node_modules/target are skipped:
+      # the lockfiles already cover the dependency graph and the build output
+      # is not what ships.
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-fs.sarif
+          # Without this the action keeps every severity in the SARIF output
+          # even though `severity` filtered the exit code.
+          limit-severities-for-sarif: true
+          ignore-unfixed: false
+          exit-code: "1"
+          trivyignores: .trivyignore.yaml
+          skip-dirs: node_modules,target,apps/desktop/src-tauri/target,coverage,dist,.git
+          # A Docker build-context ignore file, not a Dockerfile: the parser
+          # would otherwise log a false "unknown instruction" error.
+          skip-files: docker/Dockerfile.dockerignore
+
+      - name: Upload SARIF to the Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-filesystem
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-filesystem-sarif
+          path: trivy-fs.sarif
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Weekly only: the published image is what operators run, and only a release
+  # or an edge build changes it. PR-time image coverage would mean an extra
+  # 8-minute Docker build on every pull request for little signal (the source
+  # scan above already covers the dependency graph).
+  trivy-image:
+    name: Security (Trivy image)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ghcr.io/${{ github.repository_owner }}/ludex:latest
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-image.sarif
+          limit-severities-for-sarif: true
+          ignore-unfixed: false
+          exit-code: "1"
+          trivyignores: .trivyignore.yaml
+
+      - name: Upload SARIF to the Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-sarif
+          path: trivy-image.sarif
+          if-no-files-found: ignore
+          retention-days: 14
+
+  deps:
+    name: Security (cargo deny)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # cargo-deny shells out to `cargo metadata`, so the registry/index cache
+      # is what matters here, not the build cache.
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      # Advisories (RustSec), version bans, the license allowlist and the
+      # source allowlist. Policy: deny.toml.
+      - name: cargo deny (workspace)
+        id: workspace
+        run: cargo deny check advisories bans licenses sources
+
+      # The desktop crate is its own workspace with its own lockfile: licenses
+      # of the bundle we actually ship are gated here.
+      - name: cargo deny (desktop licenses, bans, sources)
+        id: desktop-policy
+        working-directory: apps/desktop/src-tauri
+        run: cargo deny check bans licenses sources
+
+      # Advisory until the pending zip 2.x -> 9.x / tokio-tar upgrade lands in
+      # the desktop lockfile (#263). Reported, never blocks a pull request.
+      - name: cargo deny advisories (desktop, advisory)
+        id: desktop-advisories
+        continue-on-error: true
+        working-directory: apps/desktop/src-tauri
+        run: cargo deny check advisories
+
+      - name: Job summary
+        if: always()
+        env:
+          WORKSPACE: ${{ steps.workspace.outcome }}
+          DESKTOP_POLICY: ${{ steps.desktop-policy.outcome }}
+          DESKTOP_ADVISORIES: ${{ steps.desktop-advisories.outcome }}
+        run: |
+          {
+            echo "### Dependency policy"
+            echo
+            echo "| Scope | Check | Result |"
+            echo "| --- | --- | --- |"
+            echo "| Workspace | advisories, bans, licenses, sources | ${WORKSPACE} |"
+            echo "| Desktop crate | bans, licenses, sources | ${DESKTOP_POLICY} |"
+            echo "| Desktop crate | advisories (advisory) | ${DESKTOP_ADVISORIES} |"
+            echo
+            echo "See docs/CI.md for the accepted-risk process."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  pnpm-audit:
+    name: Security (pnpm audit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # `--prod` on purpose: a vulnerability in a dev-only tool cannot reach a
+      # shipped bundle, and gating on dev deps makes the check unmaintainable.
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=high
+
+  dependency-review:
+    name: Security (dependency review)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Diffs the dependency graph of the base and head commits: a pull
+      # request that adds a vulnerable package fails before it can be merged.
+      - name: Dependency review
+        uses: actions/dependency-review-action@v5.0.0
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
