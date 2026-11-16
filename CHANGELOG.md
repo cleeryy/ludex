@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.15] - 2026-11-16
+
 ### Changed
 
 - The launcher-style download is the automatic default (#235): `downloadPolicy`

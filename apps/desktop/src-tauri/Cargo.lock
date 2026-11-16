@@ -1852,7 +1852,7 @@ dependencies = [
  "libc",
  "libudev-sys",
  "log",
- "nix",
+ "nix 0.31.3",
  "objc2-core-foundation",
  "objc2-io-kit",
  "uuid 1.29.2",
@@ -2879,7 +2879,7 @@ checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
 name = "ludex-core"
-version = "0.4.14"
+version = "0.4.15"
 dependencies = [
  "chrono",
  "crc32fast",
@@ -2894,12 +2894,12 @@ dependencies = [
  "utoipa",
  "uuid 1.29.2",
  "walkdir",
- "zip 9.5.0",
+ "zip 9.6.0",
 ]
 
 [[package]]
 name = "ludex-desktop"
-version = "0.4.14"
+version = "0.4.15"
 dependencies = [
  "chrono",
  "crc32fast",
@@ -2942,7 +2942,7 @@ dependencies = [
 
 [[package]]
 name = "ludex-server"
-version = "0.4.14"
+version = "0.4.15"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -3207,6 +3207,18 @@ name = "nix"
 version = "0.31.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
+dependencies = [
+ "bitflags 2.13.2",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+]
+
+[[package]]
+name = "nix"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77730ed34f01f4990cb2ea67fec715ecebc6fab9a6396cf83c5529b13f581bdc"
 dependencies = [
  "bitflags 2.13.2",
  "cfg-if",
@@ -5720,7 +5732,7 @@ dependencies = [
  "tokio",
  "url",
  "windows-sys 0.61.2",
- "zip 9.5.0",
+ "zip 9.6.0",
 ]
 
 [[package]]
@@ -7484,9 +7496,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.5.0"
+version = "9.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0700e6c427aff64acdbf02e85fbfd946c2ee12319d1af013092f3a2178914ff8"
+checksum = "80cc68510ea7553c30a69c732de5278e94183f68765af6c642dbccefd6ec777e"
 dependencies = [
  "aes 0.9.4",
  "bzip2",
@@ -7500,7 +7512,7 @@ dependencies = [
  "libc",
  "lzma-rust2 0.25.0",
  "memchr",
- "nix",
+ "nix 0.32.0",
  "pbkdf2",
  "ppmd-rust",
  "sha1",
