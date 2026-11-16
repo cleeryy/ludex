@@ -47,7 +47,7 @@ pub fn encrypt(
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
     let ciphertext = cipher
         .encrypt(
-            Nonce::from_slice(&nonce_bytes),
+            &Nonce::try_from(&nonce_bytes[..]).expect("12-byte nonce"),
             Payload {
                 msg: plaintext.as_bytes(),
                 aad,
@@ -80,7 +80,7 @@ pub fn decrypt(
         .context("build AES-256-GCM cipher")?;
     let plaintext = cipher
         .decrypt(
-            Nonce::from_slice(nonce_bytes),
+            &Nonce::try_from(nonce_bytes).expect("12-byte nonce"),
             Payload {
                 msg: ciphertext,
                 aad,

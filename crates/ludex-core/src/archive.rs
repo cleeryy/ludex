@@ -2589,7 +2589,7 @@ fn stream_seven_zip_as_tar<W: Write>(
                 return Ok(true);
             }
             let result = (|| -> Result<(), ArchiveError> {
-                let relative = sanitize_entry_path(&entry.name())?;
+                let relative = sanitize_entry_path(entry.name())?;
                 let name = tar_name(&relative);
                 let mode = tar_mode(&name, seven_zip_unix_mode(entry.windows_attributes));
                 let tar_entry = TarEntry {
@@ -2700,7 +2700,7 @@ fn collect_seven_zip_tar_entries(archive: &SevenZipArchive) -> Result<Vec<TarEnt
                 entry.name()
             )));
         }
-        let relative = sanitize_entry_path(&entry.name())?;
+        let relative = sanitize_entry_path(entry.name())?;
         let name = tar_name(&relative);
         let mode = tar_mode(&name, seven_zip_unix_mode(entry.windows_attributes));
         entries.push(TarEntry {
