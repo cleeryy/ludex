@@ -1975,7 +1975,7 @@ interface LocalSettings {
   bandwidthLimitKib: number;    // global cap stored in KiB/s; the UI presents Mb/s (#199), 0 = unlimited
   downloadStallTimeoutSecs: number; // idle seconds before a download reconnects with Range (#195), default 30, clamped 5..600
   downloadRetryWindowSecs: number;  // automatic retry window in seconds (#212), default 21600 (6 h), 0 = until the app closes, clamped 60..604800 otherwise
-  autoResumeDownloads: boolean;      // re-enter interrupted downloads on launch (#212), default true; never a paused/cancelled job
+  autoResumeDownloads: boolean;      // re-enter interrupted downloads on launch (#212), default true; never a paused/cancelled job; two consecutive unclean launches park the job instead (#234); LUDEX_SAFE_MODE=1 skips it
   downloadConcurrency: number;       // parallel archive downloads (#221), default 1, clamped 1..2; extraction stays serialised
   closeToTray: boolean;         // closing the window hides to the tray (default true)
   nativeTitleBar: boolean;      // OS title bar instead of Ludex's own (#111), default false
@@ -2896,7 +2896,7 @@ interface RemotePlayCleanup {
 | `install_game` | `{ gameId, versionId, serverUrl, token, title, version?, executable?, installDir?, downloadDir?, locationId?, downloadLocationId?, expectedBytes?, stream? }` | `InstallJob` (starts background; survives dialog close). `locationId`/`downloadLocationId` pick #99 named locations; `installDir` is the direct-root override used while a #145 recommendation is not saved yet; `expectedBytes` is the archive size used for the peak disk estimate (archive + extracted × 1.5 + margin, #222). A job that cannot fit yet is queued as `waitingForSpace` instead of failing; an unknown id or a read-only/missing location still fails immediately |
 | `cancel_install` | `{ jobId }` | `null` |
 | `pause_install` | `{ jobId }` | `InstallJob` (`paused`; keeps the `.part`) |
-| `resume_install` | `{ jobId, mode? }` | `InstallJob`; continues the **same** job (#205/#208). Accepts `paused`, `error`, `interrupted` and `cancelled` rows, including a job persisted by a previous app run: the worker is rebuilt from `install_job_params`, keeps the `.part`/staging path and the per-entry checkpoint, and never creates a second history row. `mode` is `null`/`"keep"` (same transport), `"download"` (explicit retry as a download) or `"stream"` (explicit restart of the per-entry stream); both reuse the job id. A `done` job or an unknown/legacy row without parameters is refused with a clear reason |
+| `resume_install` | `{ jobId, mode? }` | `InstallJob`; continues the **same** job (#205/#208). Accepts `paused`, `error`, `interrupted` and `cancelled` rows, including a job persisted by a previous app run: the worker is rebuilt from `install_job_params`, keeps the `.part`/staging path and the per-entry checkpoint, and never creates a second history row. `mode` is `null`/`"keep"` (same transport), `"download"` (explicit retry as a download) or `"stream"` (explicit restart of the per-entry stream); both reuse the job id. A `done` job or an unknown/legacy row without parameters is refused with a clear reason. A manual resume also clears the automatic-resume failure streak, including a job parked by the startup circuit breaker (#234) |
 | `retry_install_now` | `{ jobId }` | `InstallJob` (#212); wakes a download waiting in a retry backoff. Same job id, same offset, same attempt budget. Refused with a string error when the job is not `reconnecting` or is from a previous session |
 | `set_download_network_state` | `{ online }` | `null` (#212); the web shell forwards `navigator.onLine` (and the `online`/`offline` events). While offline, download and stream retries park without consuming an attempt |
 | `get_install_job` | `{ jobId }` | `InstallJob` |
@@ -3666,6 +3666,23 @@ stops every write. Each applied change appears in the Backups tab with
   paused, cancelled and genuinely failed jobs are never auto-resumed. The same
   job id, `.part` offset and stream checkpoint are reused, so one history row
   remains.
+- **Crash-loop guard (#234).** The desktop release profile uses
+  `panic = "unwind"` and every install/resume worker future is polled inside
+  `crash_guard::guard_worker`: a panic fails **that job** (`error` with the panic
+  message and `file:line`), keeps the `.part`/staging folder, and the app keeps
+  running. `verify_install` is guarded the same way. A native fault (segfault,
+  OOM kill) still cannot be caught, so the startup path also keeps a persisted
+  circuit breaker: before each automatic resume it writes a `{jobId, at}` marker
+  (`resume_markers`) and clears it only after the app has been healthy for 15 s
+  (a clean exit clears it too, so a quick launch/quit is not a crash).
+  A marker still present at the next launch increments `resume_failures[jobId]`;
+  after **two consecutive unclean launches** the job is not resumed again. It
+  stays `error` with "Resume disabled after repeated crashes — keep the partial
+  file and retry manually", the `.part` is untouched and the UI always opens.
+  A manual `resume_install` resets the streak and continues the same job.
+  `LUDEX_SAFE_MODE=1` or `ludex --safe-mode` skips all automatic resume for
+  support. A contained panic is also recorded in the local diagnostics store
+  with the job id and panic location.
 - **Download diagnostics (#211/#212).** `diagnostics_status.downloads` carries up
   to 10 in-memory jobs with the redacted `lastError`, `attempt`, `offset`
   (bytes already on disk), `bytesTotal`, `httpStatus`, `nextRetryAt` and

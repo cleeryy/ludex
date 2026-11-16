@@ -35,6 +35,20 @@ pub(crate) const INTERRUPTED_MESSAGE: &str =
 pub(crate) const LEGACY_INTERRUPTED_MESSAGE: &str =
     "Ludex closed before this install finished. Install again to resume.";
 
+/// Message of a job the startup circuit breaker refused to resume (#234).
+///
+/// Deliberately not one of the `INTERRUPTED_*` messages:
+/// `interrupted_install_jobs` must never pick a parked row up again.
+pub(crate) const RESUME_DISABLED_MESSAGE: &str =
+    "Resume disabled after repeated crashes — keep the partial file and retry manually";
+
+/// How long the app must stay up before the startup markers are cleared (#234).
+///
+/// Long enough that a worker panicking right after the resume loop has already
+/// failed its job (contained) or crashed the process (marker kept), short
+/// enough that a healthy launch does not leave a marker behind.
+const RESUMED_HEALTHY_AFTER: Duration = Duration::from_secs(15);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum InstallPhase {
@@ -530,6 +544,16 @@ impl ResumeMode {
     }
 }
 
+/// Who asked for a resume (#234).
+///
+/// Only a human clears the automatic-resume failure streak: the startup path
+/// must keep counting consecutive unclean launches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResumeOrigin {
+    Startup,
+    Manual,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct InstallErrorEvent {
@@ -673,7 +697,7 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
     // adopts a resumable job of the same version and transport.
     if params.replace_path.is_none() {
         if let Some(existing) = adoptable_job(&state, &params, stream_requested_now) {
-            return resume_entry(app, existing, ResumeMode::Keep);
+            return resume_entry(app, existing, ResumeMode::Keep, ResumeOrigin::Manual);
         }
     }
 
@@ -1402,7 +1426,7 @@ pub fn resume_with_mode(
                 entry.staging_path(),
                 entry.stream_completed(),
             ));
-            return resume_entry(app, rebuilt, mode);
+            return resume_entry(app, rebuilt, mode, ResumeOrigin::Manual);
         }
         let entry =
             if mode == ResumeMode::Keep || mode.stream_flag(snapshot.stream) == snapshot.stream {
@@ -1415,7 +1439,7 @@ pub fn resume_with_mode(
                     entry.stream_completed(),
                 ))
             };
-        return resume_entry(app, entry, mode);
+        return resume_entry(app, entry, mode, ResumeOrigin::Manual);
     }
 
     // A job from a previous app run: rebuild it from the persisted row.
@@ -1437,7 +1461,7 @@ pub fn resume_with_mode(
 
     let token = state.settings_snapshot().token.clone();
     let entry = Arc::new(entry_from_persisted(record, params_record, token, mode)?);
-    resume_entry(app, entry, mode)
+    resume_entry(app, entry, mode, ResumeOrigin::Manual)
 }
 
 /// Picks a failed/paused job of the same version so `install_game` doubles as
@@ -1558,6 +1582,7 @@ fn resume_entry(
     app: &AppHandle,
     entry: Arc<JobEntry>,
     mode: ResumeMode,
+    origin: ResumeOrigin,
 ) -> Result<InstallJob, String> {
     let state = app.state::<AppState>();
     let job_id = entry.snapshot().job_id.clone();
@@ -1580,6 +1605,12 @@ fn resume_entry(
     }
     jobs.insert(job_id.clone(), Arc::clone(&entry));
     drop(jobs);
+
+    // #234: an explicit Resume is a fresh decision by the user, so the job gets
+    // its full two-strike budget again. The startup path never resets it.
+    if origin == ResumeOrigin::Manual {
+        reset_resume_failures_for(app, &job_id);
+    }
 
     // An explicit transport change restarts from zero: drop the checkpoint the
     // new mode cannot use (the classic path then downloads the archive).
@@ -1941,12 +1972,82 @@ impl Drop for RunGuard<'_> {
 
 async fn run(app: AppHandle, job_id: String, download_slot: SlotGuard) {
     let mut download_slot = Some(download_slot);
-    run_job(app.clone(), job_id, &mut download_slot).await;
+    // #234: everything a worker touches is ultimately data from the network or
+    // an archive, so the whole job future is polled inside `catch_unwind`. A
+    // panic becomes a failed job with its `.part`/staging intact; the process
+    // (and therefore every other download and the UI) survives.
+    let outcome =
+        crate::crash_guard::guard_worker(run_job(app.clone(), job_id.clone(), &mut download_slot))
+            .await;
     // Both slots are free again: start the next download in queue order. This
     // also picks up a resume that landed while the worker was finishing a
     // pause, so a job never stays queued without a worker.
     drop(download_slot);
+    if let Err(panic) = outcome {
+        contain_worker_panic(&app, &job_id, &panic);
+    }
     dispatch(&app);
+}
+
+/// Turn a contained worker panic into a normal job failure (#234).
+///
+/// The `.part` file and the staging folder are kept exactly as they were: the
+/// next manual Resume continues from them. `RunGuard` has already cleared the
+/// `running` flag while the stack unwound, and every `JobEntry` lock recovers
+/// from poisoning, so the registry stays usable.
+fn contain_worker_panic(app: &AppHandle, job_id: &str, panic: &crate::crash_guard::PanicDetails) {
+    let state = app.state::<AppState>();
+    state.space.release(job_id);
+    let entry = match state.jobs.lock() {
+        Ok(jobs) => jobs.get(job_id).cloned(),
+        Err(poisoned) => poisoned.into_inner().get(job_id).cloned(),
+    };
+    let Some(entry) = entry else {
+        tracing::error!(
+            job_id = %job_id,
+            message = %panic.describe(),
+            "an install worker panicked after its job left the queue"
+        );
+        return;
+    };
+    let job = entry.snapshot();
+    let (part_path, _) = entry.stored_paths();
+    tracing::error!(
+        job_id = %job_id,
+        game_id = job.game_id,
+        version_id = job.version_id,
+        phase = ?job.phase,
+        part_path = ?part_path,
+        bytes_done = job.bytes_done,
+        transport = if job.stream { "stream" } else { "archive" },
+        message = %panic.message,
+        panic_location = ?panic.location,
+        "install worker panicked; the job is failed and the partial file is kept"
+    );
+    // #171/#234: the crash report names the job, so a field occurrence is
+    // diagnosable without asking the user to reinstall.
+    state.diagnostics.record(
+        "panic",
+        &format!(
+            "install worker panic (job {job_id}, game {}, version {}): {}",
+            job.game_id,
+            job.version_id,
+            panic.describe()
+        ),
+        Some(job.game_id),
+        None,
+        None,
+        panic.location.as_deref(),
+        &[],
+    );
+    finalize_error(
+        app,
+        &entry,
+        format!(
+            "The download crashed: {}. The partial file was kept — retry it manually.",
+            panic.describe()
+        ),
+    );
 }
 
 async fn run_job(app: AppHandle, job_id: String, download_slot: &mut Option<SlotGuard>) {
@@ -2311,20 +2412,43 @@ pub(crate) fn persist(app: &AppHandle, entry: &JobEntry) {
 /// parameters. A user-paused or cancelled job is never included, and a real
 /// failure (404, disk full) carries a different message and is skipped too.
 /// `resume_entry` reuses the recorded queue position, so the order survives.
+///
+/// #234: this is also the startup crash-loop guard. Safe mode skips the whole
+/// path, every resume writes a marker first, and a job that already survived
+/// two unclean launches is parked instead of started a third time.
 pub(crate) fn auto_resume_on_startup(app: &AppHandle) {
     let state = app.state::<AppState>();
     let settings = state.settings_snapshot();
+    // #234: support escape hatch. Nothing below runs, so no worker touches a
+    // suspicious `.part` and the app always opens on a usable Downloads screen.
+    if crate::crash_guard::safe_mode_requested_now() {
+        tracing::warn!(
+            env = crate::crash_guard::SAFE_MODE_ENV,
+            flag = crate::crash_guard::SAFE_MODE_FLAG,
+            "safe mode: automatic download resume is disabled for this launch"
+        );
+        return;
+    }
     if !settings.auto_resume_downloads {
         tracing::info!("auto-resume of interrupted downloads is disabled");
         return;
     }
 
-    let records = {
+    let (records, failures) = {
         let Ok(connection) = state.db.lock() else {
             tracing::warn!("could not read interrupted downloads: database unavailable");
             return;
         };
-        match db::interrupted_install_jobs(
+        // Markers describe the *previous* launch: reconcile them before this
+        // one writes its own.
+        let failures = match db::reconcile_resume_markers(&connection, &now_rfc3339()) {
+            Ok(failures) => failures,
+            Err(error) => {
+                tracing::warn!(error = %error, "could not reconcile the startup resume markers");
+                Vec::new()
+            }
+        };
+        let records = match db::interrupted_install_jobs(
             &connection,
             INTERRUPTED_MESSAGE,
             LEGACY_INTERRUPTED_MESSAGE,
@@ -2334,16 +2458,33 @@ pub(crate) fn auto_resume_on_startup(app: &AppHandle) {
                 tracing::warn!(error = %error, "could not list interrupted downloads");
                 return;
             }
-        }
+        };
+        (records, failures)
     };
     if records.is_empty() {
         return;
     }
 
     let token = settings.token.clone();
-    let mut resumed = 0usize;
+    let mut resumed: Vec<String> = Vec::new();
+    let mut parked = 0usize;
     for record in records {
         let job_id = record.job_id.clone();
+        let previous_failures = failures
+            .iter()
+            .find(|(failed, _)| *failed == job_id)
+            .map(|(_, failures)| *failures)
+            .unwrap_or(0);
+        // #234: two consecutive unclean launches mean this job (or its partial
+        // file) is what kills the app. Park it; only a human Resume restarts it.
+        if crate::crash_guard::startup_resume_decision(previous_failures)
+            == crate::crash_guard::StartupResume::Park
+        {
+            park_repeated_crash(app, &record, previous_failures);
+            parked += 1;
+            continue;
+        }
+
         let already_active = state
             .jobs
             .lock()
@@ -2367,19 +2508,209 @@ pub(crate) fn auto_resume_on_startup(app: &AppHandle) {
             );
             continue;
         };
-        match entry_from_persisted(record, params, token.clone(), ResumeMode::Keep) {
-            Ok(entry) => match resume_entry(app, Arc::new(entry), ResumeMode::Keep) {
-                Ok(_) => resumed += 1,
+
+        // #234: everything a field report needs, before the worker starts. The
+        // next crash must be diagnosable from the log alone, without a reinstall.
+        tracing::info!(
+            job_id = %job_id,
+            game_id = record.game_id,
+            version_id = record.version_id,
+            phase = %record.phase,
+            bytes_done = record.bytes_done,
+            bytes_total = ?record.bytes_total,
+            transport = if record.stream { "stream" } else { "archive" },
+            part_path = ?record.part_path,
+            part_bytes = record
+                .part_path
+                .as_deref()
+                .and_then(|path| std::fs::metadata(path).ok())
+                .map(|metadata| metadata.len()),
+            staging_path = ?record.staging_path,
+            resumable = record.resumable,
+            last_error = ?record.error,
+            resume_failures = previous_failures,
+            "auto-resuming an interrupted download"
+        );
+
+        // #234: the marker is committed *before* the worker exists. A row still
+        // present at the next launch is the evidence of an unclean startup.
+        let marked = match state.db.lock() {
+            Ok(connection) => match db::set_resume_marker(&connection, &job_id, &now_rfc3339()) {
+                Ok(()) => true,
                 Err(error) => {
-                    tracing::warn!(job_id = %job_id, error = %error, "could not auto-resume a download")
+                    tracing::warn!(job_id = %job_id, error = %error, "could not write the startup resume marker");
+                    false
                 }
             },
+            Err(_) => false,
+        };
+
+        match entry_from_persisted(record, params, token.clone(), ResumeMode::Keep) {
+            Ok(entry) => {
+                match resume_entry(
+                    app,
+                    Arc::new(entry),
+                    ResumeMode::Keep,
+                    ResumeOrigin::Startup,
+                ) {
+                    Ok(_) => {
+                        if marked {
+                            resumed.push(job_id.clone());
+                        }
+                    }
+                    Err(error) => {
+                        if marked {
+                            clear_resume_marker(app, &job_id);
+                        }
+                        tracing::warn!(job_id = %job_id, error = %error, "could not auto-resume a download")
+                    }
+                }
+            }
             Err(error) => {
+                if marked {
+                    clear_resume_marker(app, &job_id);
+                }
                 tracing::warn!(job_id = %job_id, error = %error, "could not rebuild an interrupted download")
             }
         }
     }
-    tracing::info!(resumed, "auto-resumed interrupted downloads");
+    tracing::info!(
+        resumed = resumed.len(),
+        parked,
+        "auto-resumed interrupted downloads"
+    );
+    if !resumed.is_empty() {
+        schedule_resume_health_check(app, resumed);
+    }
+}
+
+/// Drop one marker whose resume never actually started (#234).
+fn clear_resume_marker(app: &AppHandle, job_id: &str) {
+    let state = app.state::<AppState>();
+    if let Ok(connection) = state.db.lock() {
+        if let Err(error) = db::delete_resume_marker(&connection, job_id) {
+            tracing::warn!(job_id = %job_id, error = %error, "could not clear the startup resume marker");
+        }
+    };
+}
+
+/// Reset the automatic-resume failure streak for one job (#234).
+fn reset_resume_failures_for(app: &AppHandle, job_id: &str) {
+    let state = app.state::<AppState>();
+    if let Ok(connection) = state.db.lock() {
+        if let Err(error) = db::reset_resume_failures(&connection, job_id) {
+            tracing::warn!(job_id = %job_id, error = %error, "could not reset the automatic resume failure count");
+        }
+    };
+}
+
+/// Park a job the circuit breaker refuses to resume (#234).
+///
+/// The row becomes `error` with [`RESUME_DISABLED_MESSAGE`], which
+/// `interrupted_install_jobs` and therefore this function never pick up again.
+/// `.part`, staging and the stored parameters stay untouched: a manual Resume
+/// still continues the download, and the UI shows the error with that reason.
+fn park_repeated_crash(app: &AppHandle, record: &db::InstallJobRecord, failures: u32) {
+    let state = app.state::<AppState>();
+    let job_id = record.job_id.as_str();
+    let parked = match state.db.lock() {
+        Ok(connection) => {
+            match db::park_install_job(&connection, job_id, RESUME_DISABLED_MESSAGE, &now_rfc3339())
+            {
+                Ok(parked) => parked,
+                Err(error) => {
+                    tracing::warn!(job_id = %job_id, error = %error, "could not park the interrupted download");
+                    false
+                }
+            }
+        }
+        Err(_) => false,
+    };
+    tracing::error!(
+        job_id = %job_id,
+        game_id = record.game_id,
+        version_id = record.version_id,
+        failures,
+        part_path = ?record.part_path,
+        bytes_done = record.bytes_done,
+        parked,
+        "automatic resume disabled after repeated crashes; the partial file is kept"
+    );
+    if parked {
+        // #171/#234: a crash-loop park is a support case. Keep a local report
+        // naming the job so the bundle explains the state without a reinstall.
+        state.diagnostics.record(
+            "install",
+            &format!(
+                "auto-resume parked job {job_id} (game {}, version {}) after {failures} unclean startups: {RESUME_DISABLED_MESSAGE}",
+                record.game_id, record.version_id
+            ),
+            Some(record.game_id),
+            None,
+            None,
+            None,
+            &[],
+        );
+    }
+}
+
+/// A clean shutdown is not a crash (#234).
+///
+/// `RunEvent::Exit` runs on a normal quit, so any marker still around belongs
+/// to a launch that ended cleanly before the 15 s health window. Drop it (and
+/// its streak): a quick launch/quit cycle must never park a job.
+pub(crate) fn clear_resume_markers_on_clean_exit(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if let Ok(connection) = state.db.lock() {
+        match db::resume_markers(&connection) {
+            Ok(markers) => {
+                for marker in markers {
+                    let _ = db::delete_resume_marker(&connection, &marker.job_id);
+                    let _ = db::reset_resume_failures(&connection, &marker.job_id);
+                }
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "could not read the startup resume markers on exit")
+            }
+        }
+    };
+}
+
+/// Clear the startup markers once the app proved it can stay up (#234).
+///
+/// Runs on a detached task so nothing on the startup path waits 15 s. A job
+/// that reaches this point has not taken the process down, so its streak is
+/// reset: only *consecutive* unclean launches count.
+fn schedule_resume_health_check(app: &AppHandle, job_ids: Vec<String>) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(RESUMED_HEALTHY_AFTER).await;
+        let state = handle.state::<AppState>();
+        let mut cleared = 0usize;
+        match state.db.lock() {
+            Ok(connection) => {
+                for job_id in &job_ids {
+                    if let Err(error) = db::delete_resume_marker(&connection, job_id) {
+                        tracing::warn!(job_id = %job_id, error = %error, "could not clear the startup resume marker");
+                        continue;
+                    }
+                    if let Err(error) = db::reset_resume_failures(&connection, job_id) {
+                        tracing::warn!(job_id = %job_id, error = %error, "could not reset the automatic resume failure count");
+                    }
+                    cleared += 1;
+                }
+            }
+            Err(_) => {
+                tracing::warn!("could not clear the startup resume markers: database unavailable");
+                return;
+            }
+        }
+        tracing::info!(
+            cleared,
+            healthy_after_secs = RESUMED_HEALTHY_AFTER.as_secs(),
+            "startup resume markers cleared after a healthy launch"
+        );
+    });
 }
 
 /// Server metadata for this version: the full-archive digest (#216) and the

@@ -280,6 +280,23 @@ curl -fsSL "https://github.com/cleeryy/ludex/releases/latest/download/latest.jso
 - Truncate a copy of an artifact and confirm the updater rejects it.
 - Confirm `latest` resolves to the stable release (prereleases are skipped).
 
+## Desktop crash containment (#234)
+
+The desktop release profile sets `panic = "unwind"` on purpose. Download,
+extraction and verification workers are polled inside
+`crash_guard::guard_worker`, so a panic fails one job instead of taking the app
+down. Never change it back to `panic = "abort"` without replacing that
+containment first: with `abort` a malformed `.part` or archive can crash the
+process, and the startup auto-resume turns that into a crash loop on every
+launch. Reviewing a PR that touches `[profile.release]` in
+`apps/desktop/src-tauri/Cargo.toml` is part of the release checklist.
+
+Support can start the app with `LUDEX_SAFE_MODE=1` (or `ludex --safe-mode`) to
+skip every automatic resume and open Downloads with the suspicious job visible.
+The two-strike circuit breaker (`resume_markers` / `resume_failures` tables)
+parks such a job after two consecutive unclean launches; a manual Resume clears
+the streak.
+
 ## Pre-release checklist
 
 - [ ] `main` is green, including the required `E2E` check.
@@ -291,6 +308,8 @@ curl -fsSL "https://github.com/cleeryy/ludex/releases/latest/download/latest.jso
 - [ ] `docs/DEPLOY.md` / `docs/GITOPS.md` are current.
 - [ ] `scripts/e2e.sh` passes locally or on a PR.
 - [ ] No secrets, dumps or game files are in the diff.
+- [ ] `apps/desktop/src-tauri/Cargo.toml` still sets `panic = "unwind"`
+      (desktop crash containment, #234).
 
 ## Stable tag process
 
