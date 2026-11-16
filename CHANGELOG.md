@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.16] - 2026-11-16
+
 ### Added
 
 - Flagship repository presentation (#262): the README is rewritten with badges,
