@@ -47,16 +47,15 @@ test.describe("console shell", () => {
   test("deep links open a surface and Escape returns to the shell root", async ({ page }) => {
     const errors = watchConsole(page);
 
-    // Today: /bigpicture?app=settings. The 2.0 shell keeps this reachable as a
-    // URL (route segment); the assertion is on the surface, not the syntax.
-    await page.goto(consoleUrl("?app=settings"));
+    // The 2.0 shell addresses surfaces as route segments (#267).
+    await page.goto(consoleUrl("/settings"));
     const settingsHeading = page.getByRole("heading", { name: /^settings$/i });
     await expect(settingsHeading).toBeVisible();
 
     // B/Escape always returns to the exact previous target.
     await page.keyboard.press("Escape");
     await expect(settingsHeading).toHaveCount(0);
-    await expect(page).not.toHaveURL(/app=settings/);
+    await expect(page).not.toHaveURL(/\/settings/);
     await expect(page).toHaveTitle(/console/i);
 
     errors.assertClean();

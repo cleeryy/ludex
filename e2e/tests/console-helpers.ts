@@ -3,16 +3,16 @@ import { readFileSync } from "node:fs";
 /**
  * Shared console evidence helpers (#270).
  *
- * `CONSOLE_PATH` is the one knob the Phase 0.6 suites need: the shell lives at
- * `/bigpicture` today and moves to `/console` when the `console_v2` shell lands
- * (#267). Point it at the new route instead of editing four specs:
+ * `CONSOLE_PATH` is the one knob the Phase 0.6 suites need. The shell now
+ * lives at `/console` (#267) and `/bigpicture` only redirects. Override it
+ * instead of editing four specs:
  *
  *   LUDEX_E2E_CONSOLE_PATH=/console pnpm --filter @ludex/e2e test
  *
  * The deep-link suffix is a separate override because the 2.0 shell replaces
  * `?app=settings` with a route segment.
  */
-export const CONSOLE_PATH = (process.env.LUDEX_E2E_CONSOLE_PATH ?? "/bigpicture").replace(/\/+$/, "");
+export const CONSOLE_PATH = (process.env.LUDEX_E2E_CONSOLE_PATH ?? "/console").replace(/\/+$/, "");
 
 export function consoleUrl(suffix = ""): string {
   return `/#${CONSOLE_PATH}${suffix}`;
