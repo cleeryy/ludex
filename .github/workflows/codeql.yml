@@ -1,0 +1,67 @@
+# CodeQL code scanning (#263): Rust and JavaScript/TypeScript.
+#
+# Rust support is GA in CodeQL (codeql-action v4) and uses `build-mode: none`:
+# the extractor runs rust-analyzer over the workspace instead of a full build,
+# so the job needs rustup/cargo on the runner but no Cargo target cache.
+#
+# If code scanning is ever switched to "default setup" in the repository
+# settings, delete this workflow first: GitHub refuses to process an advanced
+# configuration while the default setup is enabled.
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Weekly, offset from the Security workflow so the two do not queue on the
+    # same runners at the same minute.
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+      actions: read # required to read workflow run metadata on private forks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: rust
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Documented runner requirement for Rust analysis: rustup + cargo.
+      - name: Install Rust
+        if: matrix.language == 'rust'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-and-quality
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}

@@ -1,0 +1,412 @@
+# CI and supply chain
+
+Every gate that runs on a pull request, on `main`, on a tag or on a schedule —
+what it protects, how to reproduce it locally, and how an accepted risk is
+recorded. The workflow files are the source of truth for *what* runs; this page
+explains *why* it runs and what to do when it goes red.
+
+## Job map
+
+Four workflows, one job name per gate. Branch protection (see
+[Required checks](#branch-protection)) references these names verbatim: renaming
+a job renames a required check.
+
+### `.github/workflows/ci.yml` — build, test, coverage
+
+Triggers: every push to `main`, every pull request, manual.
+Concurrency: one run per ref, a new push cancels the previous run.
+
+| Job name | What it gates | Time (warm cache) |
+| --- | --- | --- |
+| `Rust (fmt, clippy, test)` | `cargo fmt --check`, `clippy -D warnings`, 607 workspace tests | ~4 min 30 s |
+| `Rust (PostgreSQL backend)` | the two PostgreSQL integration tests against `postgres:16-alpine` | ~2 min |
+| `Web (install, build, typecheck)` | i18n gate (strict coverage advisory), `vite build`, `tsc --noEmit`, 888 vitest tests | ~1 min 10 s |
+| `Desktop (cargo check)` | the desktop crate compiles (Linux) | ~1 min 30 s |
+| `Desktop (fmt, clippy, test)` | desktop `fmt`/`clippy`/`cargo test --lib` (839 tests) | ~6 min |
+| `Desktop (Windows cargo check)` | the 49 `cfg(windows)` sites compile on MSVC before merge | ~8 min |
+| `Desktop (macOS cargo check)` | the desktop crate compiles on Apple Silicon | ~1 min 30 s |
+| `E2E` | `scripts/e2e.sh` (Playwright, 5 specs) against a real server | ~3 min |
+| `Desktop smoke (xvfb)` | the Tauri window opens under Xvfb (advisory, `continue-on-error`) | ~3 min 30 s |
+| `Coverage (Rust workspace)` | `cargo llvm-cov` + Codecov/artifact (#263) | ~7 min |
+| `Coverage (web)` | `vitest --coverage` + Codecov/artifact (#263) | ~2 min |
+| `Coverage (desktop crate)` | `cargo llvm-cov --lib` for the desktop crate, pull requests that touch it only | ~12 min |
+| `Edge desktop (Linux x64/Windows x64)` | rolling `edge` prerelease, `main` only | 9–14 min |
+| `Edge release (main)` | edge server tarball, `main` only | ~3 min |
+
+### `.github/workflows/security.yml` — supply chain
+
+Triggers: every push to `main`, every pull request, weekly (`23 4 * * 1`),
+manual.
+
+| Job name | What it gates | Time |
+| --- | --- | --- |
+| `Security (Trivy filesystem)` | HIGH/CRITICAL vulnerabilities in `Cargo.lock`/`pnpm-lock.yaml`, committed secrets, Dockerfile/compose misconfiguration; SARIF to the Security tab | ~2 min |
+| `Security (Trivy image)` | the published `ghcr.io/cleeryy/ludex:latest` image, weekly and manual only | ~2 min |
+| `Security (cargo deny)` | RustSec advisories, license allowlist, source allowlist (`deny.toml`) | ~3 min |
+| `Security (pnpm audit)` | `pnpm audit --prod --audit-level=high` | ~1 min |
+| `Security (dependency review)` | pull-request dependency diff, fails on high/critical additions | ~1 min |
+
+### `.github/workflows/codeql.yml` — static analysis
+
+Triggers: push to `main`, pull requests, weekly (`41 5 * * 1`), manual.
+
+| Job name | What it gates | Time |
+| --- | --- | --- |
+| `CodeQL (rust)` | CodeQL `security-and-quality` queries over the Rust workspace | ~5 min |
+| `CodeQL (javascript-typescript)` | CodeQL `security-and-quality` over the web/desktop JS | ~2 min |
+
+Both use `build-mode: none` (CodeQL GA for Rust since 2025-10): the extractor
+runs rust-analyzer instead of a full `cargo build`, so the job needs rustup but
+no target cache.
+
+> **Do not enable code scanning "default setup"** in the repository settings
+> while this workflow exists. GitHub refuses to process an advanced
+> configuration when the default setup is on; pick one.
+
+### `.github/workflows/release.yml` — tags only
+
+Unchanged except for the SBOM job. `v*` tags run E2E, create the release, build
+the server, the three desktop bundles and the GHCR image.
+
+| Job name | What it gates |
+| --- | --- |
+| `Verify (E2E)` | the tag commit passes the browser gate |
+| `Server binary (linux x86_64)` | tarball + `.sha256` asset |
+| `SBOM (CycloneDX)` | CycloneDX JSON SBOMs for the workspace, the desktop crate and the pnpm graph, attached to the release and kept 90 days as an artifact |
+| `Desktop (… )` | three signed desktop bundles |
+| `Docker image (GHCR)` | `ghcr.io/cleeryy/ludex` |
+
+### Pull-request budget
+
+The new gates add roughly **12 minutes of wall clock to a pull request that
+touches the desktop crate**, and about **6 minutes** to a server or web pull
+request, because everything runs in parallel with the existing Docker build
+(8 minutes, still the critical path). `Coverage (desktop crate)` short-circuits
+in seconds when no file under `apps/desktop/src-tauri` changed.
+
+## Coverage
+
+Three producers, one convention: an `lcov.info` file plus a summary, uploaded as
+a workflow artifact on every run, and pushed to Codecov when the
+`CODECOV_TOKEN` secret exists.
+
+| Flag | Producer | Files measured |
+| --- | --- | --- |
+| `server` | `Coverage (Rust workspace)` | `crates/ludex-core`, `crates/ludex-server` |
+| `desktop` | `Coverage (desktop crate)` | `apps/desktop/src-tauri/src` |
+| `web` | `Coverage (web)` | `apps/web/src` (tests and `.d.ts` excluded) |
+
+Baseline measured on 2026-11-16:
+
+| Suite | Lines | Regions | Functions |
+| --- | --- | --- | --- |
+| Rust workspace | 83.85 % | 83.34 % | 82.47 % |
+| Web (`vitest`) | 18.13 % | — | 14.56 % |
+| Desktop crate | not measured yet (first `main` run) | — | — |
+
+The floors live in each job's `COVERAGE_MIN_LINES` environment variable and in
+`codecov.yml`:
+
+- the floor step is `continue-on-error: true` — it fails loudly in the log but
+  never blocks a pull request while the baseline settles;
+- the Codecov `project` and `patch` statuses are `informational` for the same
+  reason;
+- **ratchet**: when a suite exceeds its floor by more than a point, raise the
+  floor in the same pull request that raises the number, and update the table
+  above. When the signal has been stable for a couple of weeks, drop
+  `continue-on-error` and flip `informational` to `false`.
+
+Local reproduction:
+
+```bash
+# Rust workspace (install once: cargo install cargo-llvm-cov)
+cargo llvm-cov --workspace --all-targets --lcov --output-path lcov.info
+cargo llvm-cov report --summary-only
+open target/llvm-cov/html/index.html   # or: xdg-open
+
+# desktop crate (its own workspace)
+cd apps/desktop/src-tauri
+cargo llvm-cov --lib --lcov --output-path lcov.info
+
+# web
+pnpm --filter @ludex/web test:coverage
+# report: apps/web/coverage/lcov-report/index.html
+```
+
+`cargo llvm-cov` needs the `llvm-tools-preview` component:
+`rustup component add llvm-tools-preview`.
+
+### Codecov token
+
+`CODECOV_TOKEN` is **optional**. Without it the upload steps are skipped (the
+token is mapped to an env var because `secrets` is not available in a step
+`if`), the artifacts are still published, and the job summary still shows the
+numbers. To enable Codecov: install the Codecov GitHub app on the repository,
+copy the token from codecov.io, and `gh secret set CODECOV_TOKEN`. Codecov needs
+the app installed to comment on pull requests.
+
+Badge (add it to the README badge strip once the token exists — before that the
+badge renders "unknown", which is why it is not in the README yet):
+
+```html
+<a href="https://codecov.io/gh/cleeryy/ludex"><img src="https://codecov.io/gh/cleeryy/ludex/branch/main/graph/badge.svg" alt="Coverage"></a>
+```
+
+## Security scans
+
+### Trivy
+
+Two runs of the same scanner with different inputs:
+
+```bash
+# filesystem: lockfiles, secrets, Dockerfile/compose — what a PR can break
+trivy fs --scanners vuln,secret,misconfig \
+  --severity HIGH,CRITICAL \
+  --ignorefile .trivyignore.yaml \
+  --skip-dirs node_modules,target,apps/desktop/src-tauri/target,coverage,dist,.git \
+  --skip-files docker/Dockerfile.dockerignore \
+  --exit-code 1 .
+
+# image: the artifact operators actually run (weekly)
+docker pull ghcr.io/cleeryy/ludex:latest
+trivy image --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml \
+  --exit-code 1 ghcr.io/cleeryy/ludex:latest
+```
+
+Both runs write SARIF and `github/codeql-action/upload-sarif` publishes it to
+the **Security → Code scanning** tab, so a finding has a home beyond the job
+log. `limit-severities-for-sarif: true` keeps the SARIF at HIGH/CRITICAL too —
+without it the action widens the report back to every severity.
+
+The image scan is weekly on purpose: the `ci.yml` Docker job builds the image on
+every pull request but never pushes it, and a second 8-minute Docker build for a
+scan that mostly re-checks the base image is not worth the wall clock.
+
+### `cargo deny`
+
+Policy file: [`deny.toml`](../deny.toml). Four checks: `advisories` (RustSec),
+`bans`, `licenses`, `sources`.
+
+```bash
+cargo install cargo-deny --locked   # or: cargo binstall cargo-deny
+cargo deny check                    # all four, from the repository root
+
+# the desktop crate is a separate workspace with its own lockfile
+cd apps/desktop/src-tauri
+cargo deny check bans licenses sources
+cargo deny check advisories          # informational in CI, see below
+```
+
+The license allowlist is the AGPL-3.0-compatible set we can redistribute in a
+linked binary: permissive licenses (MIT, Apache-2.0, BSD-2/3, ISC, Zlib, 0BSD,
+Unicode-3.0, Unlicense, CC0, MIT-0, BSL-1.0, CDLA-Permissive-2.0, bzip2-1.0.6),
+`MPL-2.0` (file-level copyleft, fine as long as MPL files stay MPL), the
+`Apache-2.0 WITH LLVM-exception` form that toolchain crates use, and
+`AGPL-3.0-or-later` for our own crates. Adding a license is a policy change and
+belongs in the same pull request as the dependency that needs it.
+
+`cargo deny` is the single dependency gate. `cargo audit` uses the same RustSec
+database with a second ignore list, and two lists that must stay in sync is how
+you end up ignoring an advisory forever; `cargo deny check advisories` is the
+supported path here.
+
+**Desktop advisories are informational.** The desktop lockfile still resolves
+`zip 2.6.1` and `tokio-tar 0.3.1`; both need a dependency refresh (the workspace
+already runs `zip 9`) and are recorded in `.trivyignore.yaml` with an expiry
+date. Until that lands, the desktop advisories step reports instead of blocking,
+and the license/bans/sources checks on the same crate stay blocking.
+
+### `pnpm audit`
+
+```bash
+pnpm audit --prod --audit-level=high
+```
+
+`--prod` only: a vulnerable dev-only tool cannot reach a shipped bundle, and
+gating on the dev tree makes the check unmaintainable. Advisories are patched
+through Dependabot (`.github/dependabot.yml`, weekly).
+
+### Dependency review
+
+`actions/dependency-review-action` diffs the dependency graph between the base
+and the head of a pull request and fails when a newly added package has a
+high/critical advisory. It only runs on pull requests; there is nothing to
+review on a push.
+
+### CodeQL
+
+Both languages run over the source tree; results land in the Security tab with
+the `security-and-quality` query pack. A new alert appears on the pull request
+that introduced it. Triage is: fix it, or dismiss it in the Security tab with a
+reason — there is no allowlist file for CodeQL, GitHub's own dismissal workflow
+is the record.
+
+## Accepted-risk process
+
+Every scanner needs a way to say "we know, and we accept it". Three files, one
+rule: an entry always carries a **reason**, an **owner** (the pull request or
+issue that will remove it) and a **date**.
+
+| Scanner | File | Entry |
+| --- | --- | --- |
+| Trivy (vulnerabilities, secrets, misconfiguration) | `.trivyignore.yaml` | `id`, optional `paths`, `statement`, `expired_at` |
+| RustSec advisories | `deny.toml` → `[advisories] ignore` | `{ id, reason }` (the reason carries the review date) |
+| Licenses | `deny.toml` → `[licenses] allow` / `exceptions` | a comment explaining the compatibility argument |
+
+Rules:
+
+1. **Never ignore by severity or by path glob.** Ignore the specific finding ID
+   for the specific path. A blanket rule is invisible six months later.
+2. **Always set `expired_at`** on a Trivy entry. The day it passes, the scan
+   turns red on its own; that is the reminder, not a calendar entry.
+3. **Fix first.** An accepted risk is for a finding with no upgrade path yet, or
+   for an upgrade that belongs to another pull request. "Too expensive to fix
+   today" is not a reason.
+4. **Review the file in dependency pull requests.** Dependabot bumps are the
+   moment to delete an entry, not to add one.
+5. When an entry is accepted, say so in the pull request description so the
+   decision is searchable: finding, why, who removes it, when.
+
+Current accepted risks (2026-11-16): three vulnerabilities in
+`apps/desktop/src-tauri/Cargo.lock` (`zip` 2.6.1 ×2, `tokio-tar` 0.3.1) and
+`RUSTSEC-2026-0459` (`libsqlite3-sys` 0.30.1, bundled SQLite, `deny.toml`). All
+four disappear with the pending dependency refresh.
+
+## Releases: SBOM
+
+`SBOM (CycloneDX)` runs on every `v*` tag and produces one CycloneDX JSON file
+per unit we ship:
+
+| File | Producer |
+| --- | --- |
+| `ludex-core.cdx.json`, `ludex-server.cdx.json` | `cargo cyclonedx --format json --all` |
+| `ludex-desktop.cdx.json` | `cargo cyclonedx --format json` in `apps/desktop/src-tauri` |
+| `ludex-web.cdx.json` | `cdxgen -t pnpm` |
+
+`cyclonedx-npm` is npm-only; this repository is a pnpm workspace, so the web SBOM
+comes from `@cyclonedx/cdxgen` (pinned in the workflow), which reads
+`pnpm-lock.yaml`. Files are attached to the GitHub release and kept 90 days as
+the `sbom-cyclonedx` artifact.
+
+Local reproduction:
+
+```bash
+cargo install cargo-cyclonedx --locked
+cargo cyclonedx --format json --all
+(cd apps/desktop/src-tauri && cargo cyclonedx --format json)
+npx --yes @cyclonedx/cdxgen@12.9.2 -t pnpm -o ludex-web.cdx.json .
+```
+
+## Branch protection
+
+Required checks are documented here and applied by
+[`scripts/setup-branch-protection.sh`](../scripts/setup-branch-protection.sh),
+which is idempotent (a single `PUT` replaces the whole protection object):
+
+```bash
+scripts/setup-branch-protection.sh --dry-run   # print the payload
+scripts/setup-branch-protection.sh --show      # current protection
+scripts/setup-branch-protection.sh             # apply
+```
+
+Required today:
+
+- `Rust (fmt, clippy, test)`
+- `Rust (PostgreSQL backend)`
+- `Web (install, build, typecheck)`
+- `Desktop (cargo check)`
+- `Desktop (fmt, clippy, test)`
+- `Desktop (Windows cargo check)`
+- `E2E`
+- `Docker image (build only)`
+- `Coverage (Rust workspace)`
+- `Security (Trivy filesystem)`
+- `Security (cargo deny)`
+- `Security (pnpm audit)`
+
+Deliberately **not** required yet — observe them for a couple of weeks first:
+
+- `Coverage (web)`, `Coverage (desktop crate)` — new baselines, tuned floors;
+- `CodeQL (rust)`, `CodeQL (javascript-typescript)` — expect the first pass to
+  find pre-existing alerts;
+- `Security (dependency review)` — first run against the current graph;
+- `Desktop (macOS cargo check)`, `Desktop smoke (xvfb)` — runner-variance;
+- `Security (Trivy image)` — schedule-only, it never reports on a pull request,
+  so requiring it would block merges forever.
+
+Promote one with `scripts/setup-branch-protection.sh --add "<job name>"` and
+move the line up in this list.
+
+`ENFORCE_ADMINS=true` is the default: the rules apply to the repository owner
+too. That removes the "push straight to `main`" escape hatch; use
+`ENFORCE_ADMINS=false` while bootstrapping if you need it, and remember that
+`.github/workflows/*` changes only take effect after the new job names exist on
+`main` (branch protection cannot require a check that has never run).
+
+Two constraints that shape this list:
+
+- **No `paths`/`paths-ignore` filters on required workflows.** A required check
+  skipped by a path filter stays "expected" and blocks the pull request forever.
+- **Job names are API surface.** Renaming a job in a workflow renames the
+  required check; update this file and re-run the script in the same change.
+
+## Secrets
+
+| Secret | Required? | Used by |
+| --- | --- | --- |
+| `GITHUB_TOKEN` | automatic | Trivy SARIF upload, dependency review, release uploads, GHCR |
+| `CODECOV_TOKEN` | optional | the three coverage upload steps (skipped when absent) |
+| `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | required for releases | desktop bundle signing |
+
+No other secret is needed. Fork pull requests run with a read-only token, which
+is why the coverage upload is gated on the token and the SARIF upload is allowed
+to be a no-op there.
+
+## Local cheatsheet
+
+```bash
+# the whole Rust gate
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --all-targets
+
+# the desktop gate (own workspace, own lockfile)
+cd apps/desktop/src-tauri
+cargo fmt -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked --offline --lib
+
+# the web gate
+pnpm --filter @ludex/web i18n:check
+pnpm --filter @ludex/web build
+pnpm --filter @ludex/web exec tsc --noEmit
+pnpm --filter @ludex/web test
+
+# E2E
+pnpm e2e:install && scripts/e2e.sh
+
+# supply chain
+cargo deny check
+pnpm audit --prod --audit-level=high
+trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL \
+  --ignorefile .trivyignore.yaml --skip-dirs node_modules,target \
+  --skip-files docker/Dockerfile.dockerignore --exit-code 1 .
+
+# workflows themselves
+actionlint   # after installing it, see https://github.com/rhysd/actionlint
+```
+
+## Known gaps
+
+- **No secret scanning in CI beyond Trivy's scanner.** GitHub's native secret
+  scanning and push protection are enabled at the repository level; a Trivy
+  secret finding is a second net, not a replacement.
+- **`dependency-review-action` needs the dependency graph.** Public repository:
+  enabled by default. If it ever reports "dependency graph not found", check
+  Settings → Code security.
+- **No Windows/macOS security scan.** Trivy and `cargo deny` run on Linux. The
+  desktop crate is still gated on Windows by the cargo check job, but a
+  Windows-only dependency is only audited through the shared lockfile.
+- **The SBOM is generated from lockfiles, not from the built binary.** A
+  `cargo auditable` / Syft pass over the release artifacts would close the gap
+  between "what the lockfile says" and "what the binary contains".

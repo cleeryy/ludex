@@ -1,0 +1,37 @@
+# Codecov configuration (#263).
+#
+# Codecov is optional: without the CODECOV_TOKEN secret the CI jobs still
+# publish the `coverage-*` artifacts, Codecov is just never updated. Both
+# statuses are `informational` on purpose: the coverage signal is new, the
+# first pull requests should not be blocked by it. Flip `informational` to
+# false (and set a real `target`) once the baseline is stable.
+
+coverage:
+  precision: 2
+  round: down
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        informational: true
+    patch:
+      default:
+        target: 50%
+        informational: true
+
+flags:
+  server:
+    paths:
+      - crates/
+  desktop:
+    paths:
+      - apps/desktop/src-tauri/
+  web:
+    paths:
+      - apps/web/src/
+
+comment:
+  layout: "condensed_header, diff, flags, files"
+  behavior: default
+  require_changes: false

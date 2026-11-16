@@ -1,0 +1,64 @@
+# cargo-deny policy for Ludex (#263).
+#
+# The project ships under AGPL-3.0-or-later (LICENSE, Cargo.toml), so the
+# allowlist below is the set of licenses we can legally redistribute in a
+# binary that links them. Every entry is a deliberate decision; adding one is
+# a policy change and belongs in the same pull request as the dependency.
+#
+# Reference: https://embarkstudios.github.io/cargo-deny/
+# Run locally: cargo deny check        (see docs/CI.md)
+
+[advisories]
+version = 2
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# A yanked crate is a warning, not a build break: the lockfile still builds it
+# and forcing an upgrade mid-release is how you get an unshipped hotfix.
+yanked = "warn"
+# Accepted advisories live here as `{ id, reason }` objects with an explicit
+# review date in the reason. Keep it empty unless there is no upgrade path.
+ignore = [
+  { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys 0.30.1 bundles SQLite 3.53.2 (CVE-2026-119375, WAL file written by an untrusted party). The server owns its /data directory and never opens a database an attacker wrote. Fix = rusqlite 0.41 / libsqlite3-sys 0.39 (Rust >= 1.89); dependency upgrade tracked separately. Review by 2026-12-15." },
+]
+
+[licenses]
+# Permissive licenses, plus MPL-2.0 (file-level copyleft: compatible with an
+# AGPL-3.0 distribution as long as the MPL files stay MPL) and AGPL itself for
+# the workspace crates.
+allow = [
+  "0BSD",
+  "AGPL-3.0-or-later",
+  "Apache-2.0",
+  # target-lexicon (pulled in by the Tauri toolchain crates) and friends.
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "bzip2-1.0.6",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+# Crates whose license text needs a human decision (bundled third-party code
+# under a different license, missing SPDX metadata, …). Empty on purpose:
+# anything that needs an entry here needs a review first.
+exceptions = []
+
+[bans]
+# Duplicate major versions are normal in this tree (two sqlx backends, tauri
+# stack); the audit is about knowing them, not blocking them.
+multiple-versions = "allow"
+wildcards = "warn"
+highlight = "all"
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

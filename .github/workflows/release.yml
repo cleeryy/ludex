@@ -171,6 +171,81 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: gh release upload "$TAG" dist/*.tar.gz dist/*.sha256 --clobber
 
+  # CycloneDX SBOMs (#263) for everything the release ships: the Rust
+  # workspace, the desktop crate (its own workspace) and the pnpm graph.
+  # CycloneDX JSON because it is the format both cargo-cyclonedx and cdxgen
+  # emit, and the one GitHub's dependency submission understands.
+  sbom:
+    name: SBOM (CycloneDX)
+    runs-on: ubuntu-24.04
+    needs: create-release
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Only the registry/index cache matters: cargo-cyclonedx resolves the
+      # dependency graph and never links anything.
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+
+      - name: Install cargo-cyclonedx
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-cyclonedx
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Rust workspace SBOMs
+        run: |
+          set -euo pipefail
+          mkdir -p dist/sbom
+          cargo cyclonedx --format json --all
+          # cargo-cyclonedx writes <package>.cdx.json next to each Cargo.toml.
+          find crates -maxdepth 2 -name '*.cdx.json' -print -exec cp {} dist/sbom/ \;
+          ls -l dist/sbom
+
+      - name: Desktop SBOM
+        working-directory: apps/desktop/src-tauri
+        run: |
+          set -euo pipefail
+          cargo cyclonedx --format json
+          find . -maxdepth 1 -name '*.cdx.json' -exec cp {} ../../../dist/sbom/ \;
+
+      # cyclonedx-npm only understands npm lockfiles; this repository is a pnpm
+      # workspace, so cdxgen (which reads pnpm-lock.yaml) generates the web
+      # SBOM. Docs: docs/CI.md.
+      - name: Web SBOM
+        run: |
+          set -euo pipefail
+          npx --yes @cyclonedx/cdxgen@12.9.2 -t pnpm \
+            -o dist/sbom/ludex-web.cdx.json .
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: dist/sbom/*.cdx.json
+          retention-days: 90
+
+      - name: Attach the SBOMs to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ls -l dist/sbom
+          gh release upload "$TAG" dist/sbom/*.cdx.json --clobber
+
   desktop:
     name: Desktop (${{ matrix.label }})
     runs-on: ${{ matrix.platform }}
