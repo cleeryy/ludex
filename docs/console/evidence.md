@@ -1,8 +1,9 @@
 # Console 2.0 evidence (#270)
 
 Phase 0.6 of [the blueprint](README.md#phases-and-gates): the fake-pad harness,
-the TV screenshot matrix and the two hardware checklists. This page says what
-is automated today, what is still `fixme`, and exactly how to run each gate.
+the TV screenshot matrix, the performance probe and the two hardware checklists.
+This page says what is automated, how to repeat it, and which checks still
+belong to a human.
 
 Related issues: [#270](https://github.com/cleeryy/ludex/issues/270) (this
 evidence), [#267](https://github.com/cleeryy/ludex/issues/267) (`/console`
@@ -18,15 +19,16 @@ screenshots).
 | Fake pad drives the real input loop | **Automated** | `e2e/pad.ts`, `e2e/tests/06-console.spec.ts` |
 | Direct boot, deep link, Escape/back | **Automated** | `e2e/tests/06-console.spec.ts` |
 | 1920×1080 evidence frame | **Automated** | `e2e/tests/06-console.spec.ts` |
+| Overlay single-dispatch (one press, one action) | **Automated** | `e2e/tests/06-console.spec.ts` |
 | 720p / 1080p / 4K + 5% overscan | **Automated** (capture only) | `e2e/tests/07-console-visual.spec.ts` |
-| Overlay single-dispatch | `fixme` until #267 | `e2e/tests/06-console.spec.ts` |
-| 24u floor, Cabinet anti-slop, desktop leaks | `fixme` until #267/#268 | `e2e/tests/08-console-antislop.spec.ts` |
-| WebKitGTK Gamepad API spike | **Manual** | checklist below |
-| Windows + Sunshine/Moonlight | **Manual** | checklist below |
+| 24u floor, Cabinet anti-slop, desktop leaks | **Automated** | `e2e/tests/08-console-antislop.spec.ts` |
+| TV boot / rail frames / long tasks / heap / rAF loops | **Automated**, opt-in | `e2e/tests/09-console-perf.spec.ts`, [PERFORMANCE.md](PERFORMANCE.md) |
+| WebKitGTK Gamepad API + rail frames | **Partial, not hardware** | `e2e/webkitgtk-spike.py`, [WEBKITGTK.md](WEBKITGTK.md) |
+| Windows + Sunshine/Moonlight | **Manual, not run** | [NATIVE-CHECKLIST.md](NATIVE-CHECKLIST.md) |
 
-A `fixme` test is reported as skipped: the harness is ready and CI stays green.
-Enable each one in the PR that makes it pass — never delete it (a rule without
-a test is gone in three releases).
+Nothing is `fixme` any more: every gate that the 2.0 shell can satisfy has a
+passing test, and the checks that need hardware are documented as manual rather
+than skipped behind a green run.
 
 ## Fake-pad suite
 
@@ -66,26 +68,22 @@ pnpm e2e                           # reuse a running harness (same env vars)
 pnpm --filter @ludex/e2e exec playwright test tests/06-console.spec.ts
 ```
 
-Today the shell is `/bigpicture`. When #267 lands `/console`, point the suites
-at it instead of editing them:
-
-```bash
-LUDEX_E2E_CONSOLE_PATH=/console pnpm --filter @ludex/e2e test
-```
-
-`e2e/tests/console-helpers.ts` also carries the screenshot/PNG helpers and
-`isConsoleUrl`, so a route move is a one-line change there.
+The shell is `/console` (#267); `/bigpicture` only redirects.
+`e2e/tests/console-helpers.ts` resolves the path from
+`LUDEX_E2E_CONSOLE_PATH` (default `/console`) and carries the screenshot/PNG
+helpers and `isConsoleUrl`.
 
 ### Tests added
 
 | Test | Asserts |
 |---|---|
-| boots straight into the console shell from a direct URL | Direct `/bigpicture` (or `/console`) boots the shell, not the desktop; no desktop sidebar; title is the console title. |
-| deep links open a surface and Escape walks back | `?app=settings` opens Settings; Escape returns to the shell root, then either the desktop (v0.4) or the Power confirm surface (2.0). |
+| boots straight into the console shell from a direct URL | Direct `/console` boots the shell, not the desktop; no desktop sidebar; title is the console title. |
+| deep links open a surface and Escape returns to the shell root | `/console/settings` opens Settings; Escape closes the surface without leaving the shell. |
+| Escape at the shell root backs out | B/Escape at the root opens the Power confirm (default Cancel) or returns to the desktop; never a silent exit. |
 | fake pad drives the real input loop | With `?gamepadDebug=1`, a fake D-pad press shows up as a decoded action in the diagnostics panel; hot-unplug/hot-plug is observed. |
 | captures the 1920×1080 evidence frame | PNG is exactly 1920×1080 and not a blank frame. |
-| `fixme` overlay single-dispatch | One press with the overlay open must move one step (double-dispatch gate, #267). |
-| `fixme` 24u floor / Cabinet rules / desktop leaks | Skill §9 anti-slop gates; the v0.4 shell still violates them. |
+| overlay single-dispatch | Start opens the quick-actions sheet; one D-pad Down moves the ring exactly one row; B returns to the same cover. Catches both a double dispatch and a dead controller path. |
+| 24u floor / Cabinet rules / desktop leaks | Reads the rendered `/console` DOM: no visible text under 24 px at 1080p, no layout picker or Soft/pastel token, a room attribute from `theme/console-room.ts`, and no toast, desktop dialog, pad layer or desktop route. |
 
 ## Screenshot matrix
 
@@ -109,80 +107,52 @@ Never commit a raw 4K PNG.
 Overscan rule of thumb: if it is information, it must survive the 90% crop; if
 it only exists in the outer 5%, it will not be read from a couch.
 
-## WebKitGTK Gamepad API spike
+## Performance probe
 
-Tauri on Linux (WebKitGTK) is the weakest target and the one the TV build
-ships. Run this before locking the Console 2.0 visuals; record the result in the
-table below and in #270.
+`e2e/tests/09-console-perf.spec.ts` seeds a 48-game shelf in the harness games
+directory, scans it through the public API, then measures on 1920×1080:
 
-### Procedure
+- boot to home (cold and warm) with Navigation Timing + FCP,
+- rail scroll frame deltas while a fake pad holds a direction (p50/p95/p99/max,
+  frames over 16.7 ms and over 33.3 ms),
+- long tasks during boot and during the scroll,
+- `performance.memory.usedJSHeapSize` after a forced GC at 5 s and after 30 s
+  idle,
+- the number of distinct requestAnimationFrame chains still scheduling work and
+  the callbacks per frame.
 
-1. `pnpm --filter @ludex/web build`, then `pnpm --filter @ludex/desktop dev`
-   (Tauri dev window, the same WebKitGTK engine as the packaged app).
-2. Open Console mode, then append `?gamepadDebug=1` to the route
-   (`/#/bigpicture?gamepadDebug=1`). The diagnostics panel shows pad id, index,
-   mapping, resolved profile, axes/buttons, last action, and the stream state.
-3. Connect an Xbox pad (xpad driver) and a DualSense (hid-playstation) if
-   available; repeat with a generic/8BitDo pad in XInput mode.
+It is opt-in because it writes 48 archives and idles for 30 s:
 
-### Checks
+```bash
+LUDEX_E2E_PERF=1 scripts/e2e.sh
+# or, against an already running harness:
+LUDEX_E2E_PERF=1 pnpm --filter @ludex/e2e exec playwright test tests/09-console-perf.spec.ts
+```
 
-| # | Check | Pass condition | Go/No-go |
-|---|---|---|---|
-| 1 | API presence | `navigator.getGamepads` exists and returns the pad; `mapping === "standard"`. | **Go** if standard, otherwise the profile layer still works via raw indices — document it. |
-| 2 | Button/axis mapping | A/B/X/Y, D-pad, sticks, LB/RB, LT/RT, Start/Guide decode to the expected actions in the panel. | **Go** if all of them; any dead input blocks the visual lock. |
-| 3 | Hot-plug | Unplug/replug mid-session: the panel goes to "no pad" and back without a reload; inputs resume. | **Go** if it recovers; if it needs a reload, the Rust/gilrs fallback is required before ship. |
-| 4 | Timestamp | `timestamp` advances while the pad is used (compare two debug frames). | **Go** if it advances; the app does not read it for pad selection (some builds refresh every frame), so a static value is a warning, not a blocker. |
-| 5 | 60 fps rail | Hold a D-pad direction on a 5.5-cover rail; the scroll holds ~60 fps (DevTools performance panel, no long frames > 20 ms). | **Go** at 1080p on the weakest device; otherwise profile before the visual lock. |
-| 6 | Focus/back | B/Escape returns to the exact previous target; no dead end after a dialog. | **Go** if every surface backs out. |
+The report is printed as `console-perf {...}` and attached to the test as
+`console-perf.json`. The measured numbers, the machine and the sub-budget
+breakdown live in [PERFORMANCE.md](PERFORMANCE.md).
 
-Fallback if 1–3 fail: read pads in Rust with `gilrs` and emit a normalized
-input event over the Tauri bridge; the web input layer keeps the same action
-names so the tests and profiles do not change. Design it before the visuals are
-frozen — after that it is a rewrite.
+## Hardware gates
 
-Record:
+The two checks that need hardware are their own documents now, so the procedure
+is one source of truth:
 
-| Date | Device | WebKitGTK/Tauri version | 1 | 2 | 3 | 4 | 5 | Verdict |
-|---|---|---|---|---|---|---|---|---|
-| | | | | | | | | |
-
-## Windows + Sunshine/Moonlight checklist
-
-The TV path is: Windows host runs Sunshine and publishes the Ludex window;
-Moonlight on the TV decodes it. The Console must survive a real gamepad, a
-real overlay and a real sleep.
-
-### Prerequisites
-
-- Windows host with the Ludex desktop build (WebView2), a controller, Sunshine
-  paired with the Moonlight client.
-- Moonlight set to 1080p60 for the first pass, 4K for the second.
-- A game configured to launch borderless (the overlay path).
-
-### Checklist
-
-| # | Step | Pass condition | Done |
-|---|---|---|---|
-| 1 | Launch Ludex normally, then start it again with `--console` | The second instance promotes the existing window to Console mode; no duplicate window, no data loss. | ☐ |
-| 2 | Moonlight 1080p60: navigate the Console for two minutes | No stutter, no dropped input, rail scroll smooth; no visible compression artefacts on focus. | ☐ |
-| 3 | Moonlight 4K: same pass | Readable at 10 feet, no layout overflow, overscan safe. | ☐ |
-| 4 | Hot-plug a controller mid-session | Input resumes without a reload; the SystemBar updates. | ☐ |
-| 5 | Open the in-app overlay over a borderless game (Sunshine overlay path) | Overlay is visible above the game, controller works in it, closing returns focus to the game. | ☐ |
-| 6 | Launch a game from the Console, then quit it | Focus returns to the Console at the same target; no black frame, no lost fullscreen. | ☐ |
-| 7 | Power → Sleep, then wake | Session resumes; the Console is still the active screen; no stuck input. | ☐ |
-| 8 | Power → Quit (after a confirm that defaults to Cancel) | Process exits cleanly, Sunshine ends the stream, no orphan window. | ☐ |
-| 9 | Pull the network cable mid-download | Offline state is honest; the library stays usable; no toast storm. | ☐ |
-| 10 | Start the stream without a controller, then connect one | The Console stays keyboard-navigable; the pad takes over on first press. | ☐ |
-
-Sign-off: date, host build, Sunshine/Moonlight versions, and any deviation in
-the #270 thread.
+- [WEBKITGTK.md](WEBKITGTK.md) — WebKitGTK 2.52.6 Gamepad API surface and rail
+  frames on this host, the blocked pad checks, and the exact desk procedure.
+  Status: **not verified on hardware**.
+- [NATIVE-CHECKLIST.md](NATIVE-CHECKLIST.md) — Windows + Sunshine/Moonlight at
+  1080p60 and 4K, controller hot-plug, overlay over borderless, sleep/quit,
+  second-instance promotion, focus return, with the evidence each check needs.
+  Status: **not run**.
 
 ## What this lane does not cover
 
 - Playwright runs Chromium only: it proves the web input loop, not WebKitGTK
-  or WebView2. The two checklists above are the native gates.
-- Memory budgets (< 380 MB UHD / < 300 MB FHD) need a real Tauri process; a
-  browser tab measurement is not evidence.
+  or WebView2. Those are the two hardware gates above.
+- The process memory budgets (< 380 MB UHD / < 300 MB FHD) are measured as the
+  renderer's JS heap by the probe — a lower bound. The `ludex.exe` commit size
+  at 1080p and 4K is the real measurement and lives in
+  [NATIVE-CHECKLIST.md](NATIVE-CHECKLIST.md).
 - The visual captures are not pixel-diffed. Baselines are approved by a human
   through #265; a diff gate can be added once the Cabinet shell stops moving.

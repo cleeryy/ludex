@@ -11,7 +11,11 @@ This is the source of truth for the Console 2.0 / rebrand work. The short contra
 | [design.md](research/design.md) | Cabinet brand/UX direction, tokens, IA, screen-by-screen blueprint, customization, motion/sound, anti-slop |
 | [architecture.md](research/architecture.md) | Shell/provider/input architecture, native power/window, data boundaries, migration phases, gates |
 
-Evidence for the Phase 0.6 gates: [evidence.md](evidence.md) — fake-pad suite, 720p/1080p/4K + overscan matrix, WebKitGTK and Windows/Sunshine/Moonlight checklists (#270).
+Evidence for the Phase 0.6 gates: [evidence.md](evidence.md) (fake-pad suite and
+the 720p/1080p/4K + overscan matrix), [PERFORMANCE.md](PERFORMANCE.md) (TV boot,
+rail frames, long tasks, heap, rAF loops), [WEBKITGTK.md](WEBKITGTK.md) (engine
+spike, not verified on hardware) and [NATIVE-CHECKLIST.md](NATIVE-CHECKLIST.md)
+(Windows + Sunshine/Moonlight, with evidence rules) — #270.
 
 ## Verdict
 
@@ -138,6 +142,32 @@ boxes and proves the safe area is empty.
 - [#268](https://github.com/cleeryy/ludex/issues/268) — Cabinet rebrand and design system.
 - [#269](https://github.com/cleeryy/ludex/issues/269) — console surfaces (install/downloads/settings/power/search/offline/native policy).
 - [#270](https://github.com/cleeryy/ludex/issues/270) — fake-pad E2E, TV performance, hardware validation and rollout.
+
+## Rollout state (2026-11-16)
+
+Console 2.0 is **shipped behind a device flag, default off**. Nothing on the
+desktop changes until the machine in front of the television asks for it.
+
+| Piece | State |
+|---|---|
+| `/console/*` shell | On main (#267). Lazy sibling of the desktop shell in the same SPA. |
+| Cabinet rooms and compositions | On main (#268). Three compositions (Stage, Wall, List); the layout picker is gone. |
+| Console surfaces (install, downloads, settings, power, search, offline, native power) | On main (#269). |
+| Device flag | `ludex.console.shell` in `localStorage`, read by `lib/console-flag.ts`. **Default off**: the desktop home stays the desktop home. A `/console` deep link always boots the Console, and native Console mode (`ludex --console`) enters it regardless of the flag. |
+| Old route | `/bigpicture` is a one-release redirect to `/console` (`LegacyConsoleRedirect` in `app.tsx`). Old links, the Sunshine shortcut and `overlay_show_big_picture` keep working through it. |
+| Desktop settings | Settings → Console exposes the shell flag and the console appearance panel, so a TV device can opt in without a devtools console. |
+
+**Deletion gate for the old screen.** `BigPictureScreen` and the components it
+alone owned can only be deleted after the new shell is the default on dogfood
+hardware for one release. The gate is: the flag flipped on, the native checklist
+passed (`NATIVE-CHECKLIST.md`), no `/bigpicture`-only surface left, and the
+redirect removed in the same PR that deletes the screen. Until then the old
+route stays as a redirect, never as a second shell.
+
+**Promotion of the default.** Flipping `console_v2` to on by default is a
+product decision made after dogfooding, not a code cleanup. When it happens: the
+flag reader returns `true`, the old screen and its layouts are deleted, the
+redirect is dropped, README screenshots and the CHANGELOG are updated together.
 
 ## Phases and gates
 

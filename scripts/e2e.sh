@@ -234,6 +234,11 @@ export LUDEX_E2E_GAME_TITLE="Ludex E2E Game"
 export LUDEX_E2E_GAME_FILE="Ludex E2E Game (2024).zip"
 export LUDEX_E2E_DESCRIPTION="A deterministic end-to-end test game."
 export LUDEX_E2E_INGEST_TITLE="Ingested E2E Game"
+# The console perf probe (#270) seeds its own shelf in the games directory and
+# stamps the report with the exact commit and host it measured.
+export LUDEX_E2E_GAMES_DIR="$MAIN_GAMES"
+export LUDEX_E2E_COMMIT="$(git rev-parse HEAD)"
+export LUDEX_E2E_HOST="$(uname -srm)"
 
 pnpm --dir "$ROOT/e2e" exec playwright test
 
