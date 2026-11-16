@@ -322,6 +322,16 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
   const [overlay, setOverlay] = useState<BigPictureOverlay | null>(() => overlayForSurface(surface));
   const [overlayIndex, setOverlayIndex] = useState(0);
   const overlayReturnRef = useRef<"library" | "home" | "actions" | "app">("library");
+  /**
+   * The re-focus a closed sheet owes the surface it covered (#270). It is an
+   * intent run from a commit effect, not a `setTimeout`: a timer raced the
+   * scope pop, so the pop's snapshot restore could land *after* the ring was
+   * already back on the card and take the mark away for a frame. A passive
+   * effect always runs after the child scope's unmount cleanup, which fixes the
+   * order — the restore goes back on the surface, then this intent, the fresher
+   * of the two, is drawn last.
+   */
+  const overlayFocusRef = useRef<(() => void) | null>(null);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
@@ -1160,15 +1170,27 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     setOverlay(null);
     if (!refocus) return;
     const target = overlayReturnRef.current;
-    // The card exists again after the overlay unmounts; the navigation hook's
-    // ref already holds the new selection, so the ring lands on the right one.
-    window.setTimeout(() => {
+    // The card exists again once the sheet has unmounted, and the navigation
+    // hook's ref already holds the new selection (a search pick moves it while
+    // the sheet is up), so the ring lands on the right one.
+    overlayFocusRef.current = () => {
       if (target === "home") focusSurface("home");
       else if (target === "actions") focusActions(actionIndexRef.current);
       else if (target === "app") focusSurface("app");
-      else nav.focusSelected();
-    }, 0);
+      else navRef.current.focusSelected();
+    };
   };
+
+  // The sheet is gone and the input scope has restored what it covered; draw
+  // the surface's own target last (see `overlayFocusRef`).
+  const sheetOpen = Boolean(overlay || pendingPower || launchPlate);
+  useEffect(() => {
+    if (sheetOpen) return;
+    const intent = overlayFocusRef.current;
+    if (!intent) return;
+    overlayFocusRef.current = null;
+    intent();
+  }, [sheetOpen]);
 
   /** Would this direction change an overlay's highlight? Edge presses are silent. */
   const overlayWillMove = (direction: MoveDirection): boolean => {
