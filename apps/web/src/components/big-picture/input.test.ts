@@ -107,7 +107,6 @@ describe("keyboard parity", () => {
     expect(routeKey(null, "m")).toEqual({ type: "open", overlay: "menu" });
     expect(routeKey(null, "p")).toEqual({ type: "open", overlay: "profiles" });
     expect(routeKey(null, "d")).toEqual({ type: "open", overlay: "downloads" });
-    expect(routeKey(null, "l")).toEqual({ type: "layout" });
     expect(routeKey(null, "g")).toEqual({ type: "game" });
   });
 

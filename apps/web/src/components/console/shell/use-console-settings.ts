@@ -5,46 +5,51 @@ import { clampVolume, stepVolume, type CueId } from "@/lib/ui-sound-specs";
 import { useAuth } from "@/state/auth";
 import { useI18n } from "@/lib/i18n";
 import type { SettingsRow } from "@/components/big-picture/settings-app";
-import { cycleHapticsStrength, hapticsStrengthLabel, type BigPictureControllerPrefs } from "@/components/big-picture/controller";
+import { hapticsStrengthLabel, type BigPictureControllerPrefs } from "@/components/big-picture/controller";
 import {
+  artworkAccentNote,
   consoleAccentLabel,
-  consoleBackgroundLabel,
-  consolePresetDescription,
-  consolePresetLabel,
-  consoleRadiusLabel,
+  consoleCornersLabel,
+  consoleDensityLabel,
+  consoleHapticsLabel,
+  consoleKnobDescription,
+  consoleMotionLabel,
+  consoleRoomDescription,
+  consoleRoomLabel,
+  consoleSoundLabel,
+  consoleWallLabel,
+  layoutDescription,
   layoutLabel,
 } from "@/components/big-picture/labels";
 import { wrapIndex, type SettingsSectionId } from "@/components/big-picture/system-zones";
 import { BIG_PICTURE_LAYOUTS, type BigPictureLayout } from "@/components/big-picture/layout";
 import {
-  CONSOLE_ACCENT_IDS,
-  CONSOLE_BACKGROUNDS,
-  CONSOLE_PRESETS,
-  CONSOLE_RADII,
-  DEFAULT_CONSOLE_APPEARANCE,
+  KNOB_VALUES,
   cycleChoice,
-  withConsolePreset,
-  type ConsoleAppearance,
-} from "@/theme/console-appearance";
+  resetConsoleRoom,
+  withConsoleRoom,
+  type ConsoleRoomSettings,
+} from "@/theme/console-room";
 import type { ControllerProfile } from "@/lib/types";
 import type { ThemeSelection } from "@/theme/types";
 
 /**
- * The Console settings app's model (#267).
+ * The Console settings app's model (#267, #268).
  *
- * Four rooms — language, appearance, controllers, streaming — displayed as
- * eight knobs each in the shell, no Apply: every change lands immediately and
- * is read back by the shell. The logic used to be three hundred lines inside
- * the screen; it is the same logic, with the devices and the appearance store
- * injected so it can be tested and read on its own.
+ * Four sections — language, appearance, controllers, streaming — one row per
+ * knob, no Apply: every change lands immediately and is read back by the shell.
+ * Appearance is the Cabinet room: four rooms and eight knobs, with the
+ * composition toggle and a reset that restores the room's own answers.
  */
 export interface ConsoleSettingsInput {
   section: SettingsSectionId;
   layout: BigPictureLayout;
   setLayout: (layout: BigPictureLayout) => void;
   markLayoutTouched: () => void;
-  appearance: ConsoleAppearance;
-  setAppearance: (appearance: ConsoleAppearance) => void;
+  room: ConsoleRoomSettings;
+  setRoom: (room: ConsoleRoomSettings) => void;
+  /** A validation-ready artwork accent, or null when the cover has none. */
+  artworkAccent: string | null;
   theme: ThemeSelection;
   resolved: "dark" | "light";
   setTheme: (theme: ThemeSelection) => void;
@@ -80,8 +85,9 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
     layout,
     setLayout,
     markLayoutTouched,
-    appearance,
-    setAppearance,
+    room,
+    setRoom,
+    artworkAccent,
     theme,
     resolved,
     setTheme,
@@ -168,40 +174,74 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
     if (section === "appearance") {
       const themeValue =
         themeChoice === "system" ? t("Follow the system") : themeChoice === "dark" ? t("Dark") : t("Light");
+      const accentNote =
+        room.accent === "artwork" && artworkAccent !== null
+          ? artworkAccentNote(true)
+          : room.accent === "artwork"
+            ? artworkAccentNote(false)
+            : null;
       return [
         {
           id: "layout",
-          label: t("Layout"),
-          detail: t("Change how the library is presented."),
+          label: t("Composition"),
+          detail: layoutDescription(layout),
           value: layoutLabel(layout),
           kind: "choice",
         },
         {
-          id: "console-preset",
-          label: t("Console style"),
-          detail: consolePresetDescription(appearance.preset),
-          value: consolePresetLabel(appearance.preset),
+          id: "knob-room",
+          label: t("Room"),
+          detail: consoleRoomDescription(room.room),
+          value: consoleRoomLabel(room.room),
           kind: "choice",
         },
         {
-          id: "console-accent",
+          id: "knob-accent",
           label: t("Accent"),
-          detail: t("A curated console accent. Theme accent follows the appearance settings."),
-          value: consoleAccentLabel(appearance.accent),
+          detail: accentNote ?? consoleKnobDescription("accent"),
+          value: consoleAccentLabel(room.accent),
           kind: "choice",
         },
         {
-          id: "console-background",
-          label: t("Background"),
-          detail: t("What the console floats over. Artwork keeps the selected game behind the chrome."),
-          value: consoleBackgroundLabel(appearance.background),
+          id: "knob-wall",
+          label: t("Wall"),
+          detail: consoleKnobDescription("wall"),
+          value: consoleWallLabel(room.wall),
           kind: "choice",
         },
         {
-          id: "console-radius",
+          id: "knob-corners",
           label: t("Corners"),
-          detail: t("How round the tiles, panels and sheets are. Sharp keeps the archive's 2 px edge."),
-          value: consoleRadiusLabel(appearance.radius),
+          detail: consoleKnobDescription("corners"),
+          value: consoleCornersLabel(room.corners),
+          kind: "choice",
+        },
+        {
+          id: "knob-density",
+          label: t("Density"),
+          detail: consoleKnobDescription("density"),
+          value: consoleDensityLabel(room.density),
+          kind: "choice",
+        },
+        {
+          id: "knob-motion",
+          label: t("Motion"),
+          detail: consoleKnobDescription("motion"),
+          value: consoleMotionLabel(room.motion),
+          kind: "choice",
+        },
+        {
+          id: "knob-sound",
+          label: t("Sound"),
+          detail: consoleKnobDescription("sound"),
+          value: consoleSoundLabel(room.sound),
+          kind: "choice",
+        },
+        {
+          id: "knob-haptics",
+          label: t("Haptics"),
+          detail: consoleKnobDescription("haptics"),
+          value: consoleHapticsLabel(room.haptics),
           kind: "choice",
         },
         {
@@ -213,8 +253,8 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
         },
         {
           id: "console-reset",
-          label: t("Reset console appearance"),
-          detail: t("Back to Studio, artwork, theme accent and sharp corners."),
+          label: t("Reset section"),
+          detail: t("Back to the room's own wall, corners, density, motion, sound and haptics."),
           value: t("Reset"),
           kind: "action",
         },
@@ -233,21 +273,21 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
           id: "vibration",
           label: t("Vibration"),
           detail: t("Switch the pad setup and vibration."),
-          value: prefs.haptics ? t("On") : t("Off"),
+          value: room.haptics !== "off" ? t("On") : t("Off"),
           kind: "toggle",
         },
         {
           id: "haptics-strength",
           label: t("Haptics strength"),
           detail: t("Standard or strong rumble on this device. Off silences the pad."),
-          value: hapticsStrengthLabel(prefs.hapticsStrength),
+          value: hapticsStrengthLabel(room.haptics),
           kind: "choice",
         },
         {
           id: "sound",
           label: t("UI sounds"),
           detail: t("Short cues for movement, confirmations and launches. Silent while a game runs."),
-          value: prefs.sound.enabled ? t("On") : t("Off"),
+          value: room.sound !== "off" ? t("On") : t("Off"),
           kind: "toggle",
         },
         {
@@ -263,8 +303,8 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
           detail: t("Plays the confirm cue."),
           value: t("Play"),
           kind: "action",
-          disabled: !prefs.sound.enabled || clampVolume(prefs.sound.volume) <= 0,
-          reason: prefs.sound.enabled ? t("Volume is at 0 %.") : t("UI sounds are off."),
+          disabled: room.sound === "off" || clampVolume(prefs.sound.volume) <= 0,
+          reason: room.sound === "off" ? t("UI sounds are off.") : t("Volume is at 0 %."),
         },
         {
           id: "haptics-test",
@@ -316,25 +356,41 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
         emit("confirm");
         cycleLayout(1);
         return;
-      case "console-preset":
+      case "knob-room":
         emit("confirm");
-        setAppearance(withConsolePreset(appearance, cycleChoice(CONSOLE_PRESETS, appearance.preset, 1)));
+        setRoom(withConsoleRoom(room, cycleChoice(KNOB_VALUES.room, room.room, 1)));
         return;
-      case "console-accent":
+      case "knob-accent":
         emit("confirm");
-        setAppearance({ ...appearance, accent: cycleChoice(CONSOLE_ACCENT_IDS, appearance.accent, 1) });
+        setRoom({ ...room, accent: cycleChoice(KNOB_VALUES.accent, room.accent, 1) });
         return;
-      case "console-background":
+      case "knob-wall":
         emit("confirm");
-        setAppearance({ ...appearance, background: cycleChoice(CONSOLE_BACKGROUNDS, appearance.background, 1) });
+        setRoom({ ...room, wall: cycleChoice(KNOB_VALUES.wall, room.wall, 1) });
         return;
-      case "console-radius":
+      case "knob-corners":
         emit("confirm");
-        setAppearance({ ...appearance, radius: cycleChoice(CONSOLE_RADII, appearance.radius, 1) });
+        setRoom({ ...room, corners: cycleChoice(KNOB_VALUES.corners, room.corners, 1) });
+        return;
+      case "knob-density":
+        emit("confirm");
+        setRoom({ ...room, density: cycleChoice(KNOB_VALUES.density, room.density, 1) });
+        return;
+      case "knob-motion":
+        emit("confirm");
+        setRoom({ ...room, motion: cycleChoice(KNOB_VALUES.motion, room.motion, 1) });
+        return;
+      case "knob-sound":
+        emit("confirm");
+        setRoom({ ...room, sound: cycleChoice(KNOB_VALUES.sound, room.sound, 1) });
+        return;
+      case "knob-haptics":
+        emit("confirm");
+        setRoom({ ...room, haptics: cycleChoice(KNOB_VALUES.haptics, room.haptics, 1) });
         return;
       case "console-reset":
         emit("confirm");
-        setAppearance(DEFAULT_CONSOLE_APPEARANCE);
+        setRoom(resetConsoleRoom(room));
         return;
       case "theme":
         emit("confirm");
@@ -345,26 +401,21 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
         return;
       case "vibration": {
         emit("confirm");
-        const next = !prefs.haptics;
-        updatePrefs({
-          haptics: next,
-          hapticsStrength: next && prefs.hapticsStrength === "off" ? "standard" : prefs.hapticsStrength,
-        });
+        setRoom({ ...room, haptics: room.haptics === "off" ? "standard" : "off" });
         return;
       }
       case "haptics-strength": {
         emit("confirm");
-        const next = cycleHapticsStrength(prefs.hapticsStrength, 1);
-        updatePrefs({ hapticsStrength: next, haptics: next !== "off" });
+        setRoom({ ...room, haptics: cycleChoice(KNOB_VALUES.haptics, room.haptics, 1) });
         return;
       }
       case "sound": {
-        const next = { ...prefs.sound, enabled: !prefs.sound.enabled };
-        // Apply before the cue: turning sound on should click once, turning it
-        // off should go quiet immediately.
-        uiSound.setPrefs(next);
+        // The sound knob owns the on/off and the reduced set; the cue plays
+        // after the new preference is applied, so muting is immediate.
+        const next = cycleChoice(KNOB_VALUES.sound, room.sound, 1);
+        uiSound.setPrefs({ ...prefs.sound, enabled: next !== "off" });
         emit("confirm");
-        updatePrefs({ sound: next });
+        setRoom({ ...room, sound: next });
         return;
       }
       case "sound-volume": {
@@ -404,21 +455,37 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
         emit("move");
         cycleLayout(delta);
         return;
-      case "console-preset":
+      case "knob-room":
         emit("move");
-        setAppearance(withConsolePreset(appearance, cycleChoice(CONSOLE_PRESETS, appearance.preset, delta)));
+        setRoom(withConsoleRoom(room, cycleChoice(KNOB_VALUES.room, room.room, delta)));
         return;
-      case "console-accent":
+      case "knob-accent":
         emit("move");
-        setAppearance({ ...appearance, accent: cycleChoice(CONSOLE_ACCENT_IDS, appearance.accent, delta) });
+        setRoom({ ...room, accent: cycleChoice(KNOB_VALUES.accent, room.accent, delta) });
         return;
-      case "console-background":
+      case "knob-wall":
         emit("move");
-        setAppearance({ ...appearance, background: cycleChoice(CONSOLE_BACKGROUNDS, appearance.background, delta) });
+        setRoom({ ...room, wall: cycleChoice(KNOB_VALUES.wall, room.wall, delta) });
         return;
-      case "console-radius":
+      case "knob-corners":
         emit("move");
-        setAppearance({ ...appearance, radius: cycleChoice(CONSOLE_RADII, appearance.radius, delta) });
+        setRoom({ ...room, corners: cycleChoice(KNOB_VALUES.corners, room.corners, delta) });
+        return;
+      case "knob-density":
+        emit("move");
+        setRoom({ ...room, density: cycleChoice(KNOB_VALUES.density, room.density, delta) });
+        return;
+      case "knob-motion":
+        emit("move");
+        setRoom({ ...room, motion: cycleChoice(KNOB_VALUES.motion, room.motion, delta) });
+        return;
+      case "knob-sound":
+        emit("move");
+        setRoom({ ...room, sound: cycleChoice(KNOB_VALUES.sound, room.sound, delta) });
+        return;
+      case "knob-haptics":
+        emit("move");
+        setRoom({ ...room, haptics: cycleChoice(KNOB_VALUES.haptics, room.haptics, delta) });
         return;
       case "theme":
         emit("move");
@@ -426,15 +493,14 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
         return;
       case "sound-volume": {
         const next = { ...prefs.sound, volume: stepVolume(prefs.sound.volume, delta) };
-        uiSound.setPrefs(next);
+        uiSound.setPrefs({ ...next, enabled: room.sound !== "off" });
         emit("move");
         updatePrefs({ sound: next });
         return;
       }
       case "haptics-strength": {
         emit("move");
-        const next = cycleHapticsStrength(prefs.hapticsStrength, delta);
-        updatePrefs({ hapticsStrength: next, haptics: next !== "off" });
+        setRoom({ ...room, haptics: cycleChoice(KNOB_VALUES.haptics, room.haptics, delta) });
         return;
       }
       default:

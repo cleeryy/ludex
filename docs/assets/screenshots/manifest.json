@@ -1,41 +1,48 @@
 {
-  "appVersion": "0.4.14",
-  "commit": "9d6318f",
-  "generatedAt": "2026-11-16T12:07:20.631Z",
+  "appVersion": "0.4.17",
+  "commit": "f4da701",
+  "generatedAt": "2026-11-16T16:53:56.470Z",
   "generator": "e2e/screenshots.mjs",
   "notes": [
     "Captured from the web build compiled with VITE_USE_MOCKS=true (demo adapter, no server).",
     "Locale en-US, reduced motion, fixed clock at 2026-11-16T10:24:00Z.",
     "YouTube is blocked: trailer thumbnails are a neutral Ludex poster, the facade and play button are the real UI.",
     "Desktop images are 1920x1080 captures resized to 1600 px wide (PNG, adaptive 82 quality palette).",
+    "Console captures use the Night room and the Stage or Wall composition (#268); the 720p/1080p/4K + overscan set lives in docs/assets/screenshots/console/.",
     "Mobile images are 390x844 viewports at 2x, kept at 780 px wide (JPEG q82)."
   ],
   "shots": [
     {
       "set": "readme",
-      "name": "console-soft",
-      "path": "docs/assets/screenshots/readme/console-soft.png",
-      "route": "/bigpicture",
+      "name": "console-stage",
+      "path": "docs/assets/screenshots/readme/console-stage.png",
+      "route": "/console",
       "viewport": "1920x1080",
       "dpr": 1,
       "theme": "dark",
-      "consolePreset": "soft",
+      "consoleRoom": {
+        "room": "night",
+        "layout": "shelf"
+      },
       "locale": "en-US",
-      "bytes": 185814,
-      "alt": "Console mode with the Soft appearance: cream rounded tiles, artwork backdrop and the recently played shelf"
+      "bytes": 83679,
+      "alt": "Console Stage: the selected game on a warm charcoal stage, one rail of five and a half covers, and the Search · Library · Downloads · Settings · Power band"
     },
     {
       "set": "readme",
-      "name": "console-studio",
-      "path": "docs/assets/screenshots/readme/console-studio.png",
-      "route": "/bigpicture",
+      "name": "console-wall",
+      "path": "docs/assets/screenshots/readme/console-wall.png",
+      "route": "/console",
       "viewport": "1920x1080",
       "dpr": 1,
       "theme": "dark",
-      "consolePreset": "studio",
+      "consoleRoom": {
+        "room": "night",
+        "layout": "grid"
+      },
       "locale": "en-US",
-      "bytes": 128365,
-      "alt": "Console mode with the Studio appearance: the darker archive surface, square corners and sharp artwork"
+      "bytes": 95122,
+      "alt": "Console Wall: the same library as a grid of covers under shelf chips, with the stage header keeping the primary action in reach"
     },
     {
       "set": "readme",
@@ -45,9 +52,9 @@
       "viewport": "1920x1080",
       "dpr": 1,
       "theme": "dark",
-      "consolePreset": null,
+      "consoleRoom": null,
       "locale": "en-US",
-      "bytes": 101804,
+      "bytes": 109821,
       "alt": "Downloads queue: one active download with a real progress bar and speed, remaining jobs queued with positions"
     },
     {
@@ -58,9 +65,9 @@
       "viewport": "1920x1080",
       "dpr": 1,
       "theme": "dark",
-      "consolePreset": null,
+      "consoleRoom": null,
       "locale": "en-US",
-      "bytes": 132183,
+      "bytes": 123536,
       "alt": "Game page for HITMAN 3: cover, rating, size, versions, playtime, download and progress"
     },
     {
@@ -71,9 +78,9 @@
       "viewport": "1920x1080",
       "dpr": 1,
       "theme": "dark",
-      "consolePreset": null,
+      "consoleRoom": null,
       "locale": "en-US",
-      "bytes": 222277,
+      "bytes": 204575,
       "alt": "Library grid in the dark Midnight theme: 20 demo games with covers, filters and a 73% install badge"
     },
     {
@@ -84,9 +91,9 @@
       "viewport": "1920x1080",
       "dpr": 1,
       "theme": "light",
-      "consolePreset": null,
+      "consoleRoom": null,
       "locale": "en-US",
-      "bytes": 172212,
+      "bytes": 160886,
       "alt": "The same library grid in the light theme, with warm paper surfaces"
     },
     {
@@ -97,9 +104,9 @@
       "viewport": "1920x1080",
       "dpr": 1,
       "theme": "dark",
-      "consolePreset": null,
+      "consoleRoom": null,
       "locale": "en-US",
-      "bytes": 103365,
+      "bytes": 64185,
       "alt": "Admin games manager: a dense table with availability, versions, size, installs and VirusTotal verdicts"
     },
     {
@@ -110,9 +117,9 @@
       "viewport": "1920x1080",
       "dpr": 1,
       "theme": "dark",
-      "consolePreset": null,
+      "consoleRoom": null,
       "locale": "en-US",
-      "bytes": 51711,
+      "bytes": 51151,
       "alt": "Admin ingest: the download queue that adds archives to the library from a URL"
     },
     {
@@ -123,9 +130,9 @@
       "viewport": "1920x1080",
       "dpr": 1,
       "theme": "dark",
-      "consolePreset": null,
+      "consoleRoom": null,
       "locale": "en-US",
-      "bytes": 104318,
+      "bytes": 97803,
       "alt": "Integrations: VirusTotal key status, daily quota and the periodic re-check policy"
     },
     {
@@ -136,9 +143,9 @@
       "viewport": "1920x1080",
       "dpr": 1,
       "theme": "dark",
-      "consolePreset": null,
+      "consoleRoom": null,
       "locale": "en-US",
-      "bytes": 181836,
+      "bytes": 211541,
       "alt": "Home: continue playing hero, installs on this device and recently played shelf"
     },
     {
@@ -149,9 +156,9 @@
       "viewport": "1920x1080",
       "dpr": 1,
       "theme": "dark",
-      "consolePreset": null,
+      "consoleRoom": null,
       "locale": "en-US",
-      "bytes": 53069,
+      "bytes": 54964,
       "alt": "Settings: account, appearance, downloads, saves, streaming and integrations in one place"
     },
     {
@@ -162,9 +169,9 @@
       "viewport": "390x844",
       "dpr": 2,
       "theme": "dark",
-      "consolePreset": null,
+      "consoleRoom": null,
       "locale": "en-US",
-      "bytes": 110318,
+      "bytes": 108889,
       "alt": "Phone layout of the downloads queue with progress and queue positions"
     },
     {
@@ -175,9 +182,9 @@
       "viewport": "390x844",
       "dpr": 2,
       "theme": "dark",
-      "consolePreset": null,
+      "consoleRoom": null,
       "locale": "en-US",
-      "bytes": 67935,
+      "bytes": 92066,
       "alt": "Phone layout of a game page: poster, metadata, install button and sections"
     },
     {
@@ -188,9 +195,9 @@
       "viewport": "390x844",
       "dpr": 2,
       "theme": "dark",
-      "consolePreset": null,
+      "consoleRoom": null,
       "locale": "en-US",
-      "bytes": 94557,
+      "bytes": 94373,
       "alt": "Phone layout of the home screen: continue playing, installs and the bottom tab bar"
     },
     {
@@ -201,15 +208,15 @@
       "viewport": "390x844",
       "dpr": 2,
       "theme": "dark",
-      "consolePreset": null,
+      "consoleRoom": null,
       "locale": "en-US",
-      "bytes": 96595,
+      "bytes": 96815,
       "alt": "Phone layout of the library: two-column cover grid with filters"
     }
   ],
-  "totalBytes": 1806359,
+  "totalBytes": 1649406,
   "previous": {
-    "commit": "9d6318f",
-    "generatedAt": "2026-11-16T12:06:31.681Z"
+    "commit": "e5f47ae",
+    "generatedAt": "2026-11-16T16:11:04.558Z"
   }
 }

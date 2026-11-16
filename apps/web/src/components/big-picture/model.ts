@@ -4,7 +4,7 @@ import type { BigPictureLayout } from "./layout";
 import type { BigPictureNavigation } from "./navigation";
 
 /* --------------------------------------------------------------------------
-   The contract between the Big Picture screen and its four views (#141).
+   The contract between the console screen and its compositions (#141, #268).
    Every layout receives the same object: one selection model, one set of
    actions, one install state. A view decides composition, never data.
    -------------------------------------------------------------------------- */
@@ -29,8 +29,10 @@ export interface BigPictureLayoutProps {
   /** Play / Install / Download / Installing, built by the screen. */
   primary: ReactNode;
   onOpenGame: (gameId: number) => void;
-  /** Opens the quick menu scoped to the selected game (Spotlight action row). */
+  /** Opens the quick menu scoped to the selected game. */
   onOpenMenu: () => void;
+  /** Collections live inside Library as a chip, not as a band destination. */
+  onOpenCollections: () => void;
 }
 
 /** Percent done for a job; `0` while the total size is still unknown. */

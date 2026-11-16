@@ -1,232 +1,98 @@
-import type { ComponentType } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { Download, Layers, Library, Play, Power, Settings } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { reveal } from "./entrance";
+import { Glyph, type GlyphName } from "./glyphs";
 import { BOOT_DELAY, BOOT_DURATION } from "./motion";
 import { HOME_ITEM_IDS, type HomeItemId } from "./system-zones";
 
 /* --------------------------------------------------------------------------
-   The home row (#196, #197).
+   The console band (#268).
 
-   One row of system tiles, one focus zone, three placements. Above the games
-   it is the console header (shelf, hero, grid, compact); under the games it is
-   the Dock; over the artwork it is the Spotlight's function row. Left/Right
-   wraps in every placement, the direction back to the games follows the
-   layout, and a tile with no backing feature stays visible with the reason in
-   its detail instead of disappearing under the ring.
+   Five destinations, one row, text and glyphs — not six equal tiles with corner
+   icons and `01–06` indexes. State lives in the bar; destinations live here; no
+   item appears twice. The band is the bottom zone of the home axis, so Down
+   from the games reaches it and Up returns, exactly like the rail.
+
+   A destination with a live count (Downloads) shows the count in mono and the
+   dot as its unread badge. Nothing else carries an ornament.
    -------------------------------------------------------------------------- */
 
-type Icon = ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
-
-const ITEM_META: Record<HomeItemId, { icon: Icon; label: () => string; short?: () => string }> = {
-  continue: { icon: Play, label: () => t("Continue playing"), short: () => t("Continue") },
-  library: { icon: Library, label: () => t("Library") },
-  downloads: { icon: Download, label: () => t("Downloads") },
-  collections: { icon: Layers, label: () => t("Collections") },
-  settings: { icon: Settings, label: () => t("Settings") },
-  power: { icon: Power, label: () => t("Power") },
+const BAND_META: Record<HomeItemId, { glyph: GlyphName; label: () => string }> = {
+  search: { glyph: "search", label: () => t("Search") },
+  library: { glyph: "library", label: () => t("Library") },
+  downloads: { glyph: "downloads", label: () => t("Downloads") },
+  settings: { glyph: "settings", label: () => t("Settings") },
+  power: { glyph: "power", label: () => t("Power") },
 };
 
-export interface HomeItemDetail {
-  detail: string;
+export interface BandItemDetail {
+  /** Sentence-case reason or state; never a second label. */
+  detail?: string;
+  /** Mono count beside the label (downloads). */
+  count?: number;
   disabled?: boolean;
+  /** The dot: an unread or in-flight event on this destination. */
+  dot?: boolean;
 }
 
-export type HomeRowVariant = "row" | "dock" | "overlay";
-
-function HomeButton({
-  id,
-  index,
-  selected,
-  item,
-  variant,
-  onHighlight,
-  onChoose,
-}: {
-  id: HomeItemId;
-  index: number;
-  selected: boolean;
-  item: HomeItemDetail;
-  variant: HomeRowVariant;
-  onHighlight: (index: number) => void;
-  onChoose: (index: number) => void;
-}) {
-  const { icon: Icon, label } = ITEM_META[id];
-  const shortLabel = ITEM_META[id].short ?? label;
-  const common = {
-    type: "button" as const,
-    "data-home-active": selected ? "true" : undefined,
-    "data-gamepad-target": "true",
-    "data-bp-zone-item": "true",
-    "data-bp-zone-active": selected ? "true" : undefined,
-    "aria-current": selected ? ("true" as const) : undefined,
-    "aria-disabled": item.disabled ? ("true" as const) : undefined,
-    "aria-label": `${label()} — ${item.detail}`,
-    onPointerEnter: () => onHighlight(index),
-    onClick: () => onChoose(index),
-  };
-
-  if (variant === "dock") {
-    return (
-      <button
-        {...common}
-        className={cn(
-          "inline-flex h-[max(40px,calc(var(--bp-u)*56))] w-full items-center gap-2 rounded-[var(--bp-radius-sm)] border px-3 text-start",
-          selected
-            ? "border-signal bg-surface-2 text-ink"
-            : "border-transparent text-ink-2 hover:border-line hover:bg-surface/60",
-          item.disabled && "opacity-60",
-        )}
-      >
-        <Icon className={cn("size-[calc(var(--bp-u)*22)] shrink-0", selected ? "text-signal-text" : "text-ink-3")} aria-hidden="true" />
-        <span className="min-w-0 truncate text-bp-body font-medium leading-none">{label()}</span>
-      </button>
-    );
-  }
-
-  if (variant === "overlay") {
-    return (
-      <button
-        {...common}
-        className={cn(
-          "bp-glass-tile group flex min-w-[64px] flex-col items-center gap-1 px-2 py-1.5",
-          selected ? "text-signal-text" : "text-stage-ink-2 hover:text-stage-ink",
-          item.disabled && "opacity-60",
-        )}
-      >
-        <Icon className="size-[calc(var(--bp-u)*28)] shrink-0" aria-hidden="true" />
-        <span className="max-w-[14ch] truncate font-mono text-bp-micro uppercase tracking-[0.08em]">{shortLabel()}</span>
-        <span
-          aria-hidden="true"
-          data-bp-zone-underline="true"
-          className="h-[2px] w-6 origin-center bg-signal"
-        />
-      </button>
-    );
-  }
-
-  return (
-    <button
-      {...common}
-      className={cn(
-        "bp-tile group relative flex h-[var(--bp-home-h)] w-full min-w-0 flex-col justify-between p-2.5 text-start sm:p-3",
-        item.disabled && "opacity-60",
-      )}
-    >
-      <span className="flex w-full items-start justify-between gap-2">
-        <span className="num shrink-0 font-mono text-bp-micro leading-none text-ink-3">
-          {String(index + 1).padStart(2, "0")}
-        </span>
-        <Icon className={cn("size-[calc(var(--bp-u)*28)] shrink-0", selected ? "text-signal-text" : "text-ink-3")} aria-hidden="true" />
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate text-bp-body font-semibold leading-tight text-ink">
-          {label()}
-        </span>
-        <span className="mt-0.5 block truncate font-mono text-bp-micro uppercase tracking-[0.08em] text-ink-3">
-          {item.detail}
-        </span>
-      </span>
-      <span
-        aria-hidden="true"
-        data-bp-zone-underline="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] origin-center bg-signal"
-      />
-    </button>
-  );
-}
-
-export function HomeRow({
+export function HomeBand({
   active,
   focused,
   details,
   onHighlight,
   onChoose,
-  placement = "row",
   settled = false,
 }: {
   active: number;
   focused: boolean;
-  details: Record<HomeItemId, HomeItemDetail>;
+  details: Record<HomeItemId, BandItemDetail>;
   onHighlight: (index: number) => void;
   onChoose: (index: number) => void;
-  /** Where the shell draws the row; the layout decides, not the row. */
-  placement?: HomeRowVariant;
-  /** The #142 cascade already played: re-enter without replaying it. */
+  /** The boot cascade already played: re-enter without replaying it. */
   settled?: boolean;
 }) {
   const reduceMotion = useReducedMotion();
   const boot = reveal(reduceMotion, { y: 6, delay: BOOT_DELAY.home, duration: BOOT_DURATION, settled });
-  if (placement === "dock") {
-    return (
-      <motion.nav
-        aria-label={t("System")}
-        className="relative z-10 shrink-0 border-t bp-chrome bp-pad-x"
-        {...boot}
-      >
-        <ul className="nav-scroll flex items-stretch gap-1 overflow-x-auto py-1.5">
-          {HOME_ITEM_IDS.map((id, index) => (
-            <li key={id} className="min-w-0 shrink-0">
-              <HomeButton
-                id={id}
-                index={index}
-                selected={focused && index === active}
-                item={details[id]}
-                variant="dock"
-                onHighlight={onHighlight}
-                onChoose={onChoose}
-              />
-            </li>
-          ))}
-        </ul>
-      </motion.nav>
-    );
-  }
-
-  if (placement === "overlay") {
-    return (
-      <motion.nav aria-label={t("System")} className="relative z-10" {...boot}>
-        <ul className="flex items-center gap-0.5">
-          {HOME_ITEM_IDS.map((id, index) => (
-            <li key={id} className="min-w-0">
-              <HomeButton
-                id={id}
-                index={index}
-                selected={focused && index === active}
-                item={details[id]}
-                variant="overlay"
-                onHighlight={onHighlight}
-                onChoose={onChoose}
-              />
-            </li>
-          ))}
-        </ul>
-      </motion.nav>
-    );
-  }
-
   return (
     <motion.nav
       aria-label={t("System")}
-      className="bp-home relative z-10 shrink-0 border-b pb-2 pt-2 bp-pad-x"
+      className="bp-band relative z-10 shrink-0 border-t bp-pad-x"
       {...boot}
     >
-      <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        {HOME_ITEM_IDS.map((id, index) => (
-          <li key={id} className="min-w-0">
-            <HomeButton
-              id={id}
-              index={index}
-              selected={focused && index === active}
-              item={details[id]}
-              variant="row"
-              onHighlight={onHighlight}
-              onChoose={onChoose}
-            />
-          </li>
-        ))}
+      <ul className="flex items-stretch gap-1 overflow-x-auto py-2 nav-scroll">
+        {HOME_ITEM_IDS.map((id, index) => {
+          const meta = BAND_META[id];
+          const item = details[id];
+          const selected = focused && index === active;
+          return (
+            <li key={id} className="min-w-0 shrink-0">
+              <button
+                type="button"
+                data-home-active={selected ? "true" : undefined}
+                data-gamepad-target="true"
+                data-bp-zone-item="true"
+                data-bp-zone-active={selected ? "true" : undefined}
+                data-bp-band-item="true"
+                aria-current={selected ? "true" : undefined}
+                aria-disabled={item.disabled ? "true" : undefined}
+                aria-label={item.detail ? `${meta.label()} — ${item.detail}` : meta.label()}
+                onPointerEnter={() => onHighlight(index)}
+                onClick={() => onChoose(index)}
+                className={cn("bp-band-item", item.disabled && "opacity-60")}
+              >
+                <Glyph name={meta.glyph} className="size-[calc(var(--bp-u)*28)] shrink-0" />
+                <span className="truncate text-bp-body font-medium leading-none">
+                  {meta.label()}
+                </span>
+                {typeof item.count === "number" && item.count > 0 && (
+                  <span className="num text-bp-meta leading-none text-ink-3">{item.count}</span>
+                )}
+                {item.dot && <span className="bp-dot" aria-hidden="true" />}
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </motion.nav>
   );

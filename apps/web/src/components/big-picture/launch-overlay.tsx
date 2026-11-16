@@ -120,7 +120,10 @@ export function LaunchPlate({
       </motion.div>
 
       <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col gap-3 p-6 sm:p-10">
-        <p className="font-mono text-bp-meta uppercase tracking-[0.16em] text-signal">{copy.eyebrow}</p>
+        <p className="flex items-center gap-2.5 text-bp-meta text-signal-text">
+          <span className="bp-dot" aria-hidden="true" />
+          {copy.eyebrow}
+        </p>
         <h2 className="max-w-[24ch] truncate text-bp-title font-semibold leading-[1.05] tracking-[-0.02em] text-ink sm:text-bp-hero">
           {title}
         </h2>
@@ -151,7 +154,7 @@ export function LaunchPlate({
 
         {dismissable && (
           <div>
-            <Button variant="ghost" onClick={onDismiss}>
+            <Button variant="ghost" className="bp-button" onClick={onDismiss}>
               {t("Back")}
             </Button>
           </div>

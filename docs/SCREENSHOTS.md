@@ -35,12 +35,18 @@ The same screen in both built-in themes; the README picks one with `prefers-colo
 
 ### Console mode
 
-Console mode is the ten-foot shell that Sunshine publishes as a single `Ludex` app. The two
-appearance presets share the layout, the navigation and the sound language.
+Console mode is the ten-foot shell that Sunshine publishes as a single `Ludex` app. It is
+the Cabinet: warm charcoal, matte panels, one lit game, signal yellow as the only chromatic
+event. Three compositions share the room, the navigation and the sound language: **Stage**,
+**Wall** and **List**.
 
-![Console mode, Soft appearance: cream rounded tiles over blurred key art](assets/screenshots/readme/console-soft.png)
+![Console Stage: the selected game on a warm charcoal stage, one rail of covers and the system band](assets/screenshots/readme/console-stage.png)
 
-![Console mode, Studio appearance: dark sharp archive surfaces over artwork](assets/screenshots/readme/console-studio.png)
+![Console Wall: the library as a grid of covers under shelf chips](assets/screenshots/readme/console-wall.png)
+
+The 720p, 1080p and 4K captures, plus a 5 % overscan crop of each, live in
+`docs/assets/screenshots/console/`; `manifest.json` there records the safe-area
+measurements.
 
 ### Admin
 

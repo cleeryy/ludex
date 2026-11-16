@@ -1,33 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import {
-  BatteryCharging,
-  BatteryFull,
-  BatteryLow,
-  BatteryMedium,
-  Download,
-  Gamepad2,
-  Power,
-  RefreshCw,
-  Wifi,
-  WifiOff,
-} from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatPercent } from "@/lib/format";
 import { t, useI18n } from "@/lib/i18n";
 import type { User } from "@/lib/types";
 import { useActiveCount, useQueueSummary } from "@/state/downloads";
-import { Wordmark } from "@/components/brand";
+import { Monogram } from "@/components/brand";
 import { UserAvatar } from "@/components/community/user-avatar";
 import { reveal } from "./entrance";
+import { Glyph } from "./glyphs";
 import { BOOT_DELAY, BOOT_DURATION } from "./motion";
 
 /* --------------------------------------------------------------------------
-   The console system bar (#196).
+   The console bar (#196, #268).
 
-   Status only, never a focus stop: at three metres a camera is useful and a
-   dashboard is not. Every figure uses tabular numerals and a fixed slot, so a
-   percentage ticking to 100 % never reflows the bar under the player's eyes.
+   Status only, never a focus stop: at three metres a clock is useful and a
+   dashboard is not. The bar carries the monogram, not the wordmark — a 17px
+   wordmark is a grey smear at three metres — and every word is sentence case.
+   Mono is reserved for the figures: clock, counts, percentages, battery.
+
+   No dead glyphs: Power moved to the band, so the bar no longer ends on a
+   control that does nothing.
    -------------------------------------------------------------------------- */
 
 export interface SystemBarProps {
@@ -70,16 +63,6 @@ function useMinuteClock(intl: string): { label: string; iso: string } {
   );
 }
 
-function BatteryGlyph({ level, charging }: { level: number; charging: boolean }) {
-  const Icon = charging ? BatteryCharging : level >= 70 ? BatteryFull : level >= 35 ? BatteryMedium : BatteryLow;
-  return (
-    <span className="flex items-center gap-1">
-      <Icon className="size-4" aria-hidden="true" />
-      <span className="num text-bp-meta text-ink-2">{level}%</span>
-    </span>
-  );
-}
-
 function Slot({
   children,
   className,
@@ -92,7 +75,10 @@ function Slot({
   return (
     <div
       title={title}
-      className={cn("flex min-w-0 shrink-0 items-center gap-2 px-3 font-mono text-bp-micro uppercase tracking-[0.12em] text-ink-3", className)}
+      className={cn(
+        "flex min-w-0 shrink-0 items-center gap-2 px-3 text-bp-meta text-ink-3",
+        className,
+      )}
     >
       {children}
     </div>
@@ -126,27 +112,17 @@ export function SystemBar({
 
   return (
     <motion.header
-      aria-label={t("System")}
-      className="relative z-20 flex h-[var(--bp-bar-h)] shrink-0 items-stretch overflow-hidden border-b bp-chrome bp-pad-x"
+      aria-label={t("Status")}
+      data-bp-bleed-top="true"
+      className="relative z-20 flex shrink-0 items-stretch overflow-hidden border-b bp-chrome bp-pad-x"
       {...reveal(reduceMotion, { y: 6, delay: BOOT_DELAY.bar, duration: BOOT_DURATION })}
     >
       <div className="flex min-w-0 shrink items-center gap-3">
-        <Wordmark height={17} />
-        {/* #237: the eyebrow is the first thing to go. At 390 px the wordmark
-            and the clock are the whole bar; the label used to paint under the
-            avatar. */}
-        <span className="hidden font-mono text-bp-micro uppercase tracking-[0.18em] text-ink-3 sm:inline">
-          {t("Console")}
-        </span>
+        <Monogram size={28} className="h-[calc(var(--bp-u)*28)] w-auto text-ink" />
         {refreshing && (
-          <span role="status" className="flex items-center gap-1.5 font-mono text-bp-micro uppercase tracking-[0.14em] text-ink-3">
-            <RefreshCw className="size-3 animate-spin [animation-duration:1.8s] motion-reduce:animate-none" aria-hidden="true" />
-            <span className="sr-only">{t("Refreshing")}</span>
-          </span>
-        )}
-        {consoleActive && (
-          <span className="hidden items-center gap-1.5 rounded-[var(--bp-radius-pill)] border border-line px-2 py-0.5 font-mono text-bp-micro uppercase tracking-[0.14em] text-signal-text sm:flex">
-            {t("console")}
+          <span role="status" className="flex items-center gap-1.5 text-bp-meta text-ink-3">
+            <span className="bp-dot animate-pulse motion-reduce:animate-none" aria-hidden="true" />
+            <span className="truncate">{t("Refreshing")}</span>
           </span>
         )}
       </div>
@@ -156,9 +132,9 @@ export function SystemBar({
           <Slot className="max-w-[30ch]" title={t("Signed in as {name}", { name })}>
             <UserAvatar name={name} src={user?.avatarUrl} size={22} />
             <span className="hidden min-w-0 flex-col justify-center leading-tight sm:flex">
-              <span className="truncate text-bp-meta normal-case tracking-normal text-ink-2">@{user?.username}</span>
+              <span className="truncate text-bp-meta text-ink-2">@{user?.username}</span>
               {serverLabel && (
-                <span className="hidden max-w-[16ch] truncate text-bp-micro tracking-[0.08em] text-ink-3 lg:block">
+                <span className="hidden max-w-[16ch] truncate text-bp-meta text-ink-3 lg:block">
                   {serverLabel}
                 </span>
               )}
@@ -166,30 +142,43 @@ export function SystemBar({
           </Slot>
         )}
 
-        <Slot title={undefined} className={online ? "hidden sm:flex" : "hidden text-ink-2 sm:flex"}>
-          {online ? (
-            <Wifi className="size-3.5 text-ok" aria-hidden="true" />
-          ) : (
-            <WifiOff className="size-3.5 text-warn" aria-hidden="true" />
-          )}
-          <span className={online ? "text-ink-2" : "text-warn"}>{online ? t("Online") : t("Offline")}</span>
+        <Slot className={cn("hidden sm:flex", !online && "text-warn")}>
+          <span
+            className={cn("bp-dot", !online && "bg-warn")}
+            data-tone={online ? undefined : "muted"}
+            aria-hidden="true"
+          />
+          <span className="truncate">{online ? t("Online") : t("Offline")}</span>
         </Slot>
 
         {downloads > 0 && (
           <Slot className="hidden sm:flex" title={t("{count} downloading", { count: downloads })}>
-            <Download className="size-3.5 text-signal-text" aria-hidden="true" />
+            <Glyph name="downloads" className="size-[calc(var(--bp-u)*20)] text-signal-text" />
             <span className="num text-ink-2">{downloads}</span>
             {downloadsPercent !== null && (
-              <span className="num min-w-[4ch] text-end text-ink-3">{formatPercent(downloadsPercent)}</span>
+              <span className="num min-w-[4ch] text-end text-ink-3">
+                {formatPercent(downloadsPercent)}
+              </span>
             )}
           </Slot>
         )}
 
         {padConnected && (
           <Slot className="hidden md:flex" title={padFamily}>
-            <Gamepad2 className="size-3.5 text-signal-text" aria-hidden="true" />
-            <span className="max-w-[12ch] truncate normal-case tracking-normal text-ink-2">{padFamily}</span>
-            {padBattery !== null && <BatteryGlyph level={padBattery} charging={padCharging} />}
+            <span className="bp-dot" aria-hidden="true" />
+            <span className="max-w-[12ch] truncate text-ink-2">{padFamily}</span>
+            {padBattery !== null && (
+              <span className="flex items-center gap-1">
+                <span className="num text-ink-2">{padBattery}%</span>
+                {padCharging && <Glyph name="check" className="size-[calc(var(--bp-u)*18)]" />}
+              </span>
+            )}
+          </Slot>
+        )}
+
+        {consoleActive && (
+          <Slot className="hidden lg:flex" title={t("Console mode")}>
+            <span className="truncate">{t("Console mode")}</span>
           </Slot>
         )}
 
@@ -197,10 +186,6 @@ export function SystemBar({
           <time dateTime={clock.iso} aria-live="off" className="num text-bp-meta text-ink-2">
             {clock.label}
           </time>
-        </Slot>
-
-        <Slot className="pe-0">
-          <Power className="size-3.5 text-signal-text" aria-hidden="true" />
         </Slot>
       </div>
     </motion.header>

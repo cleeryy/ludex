@@ -1,11 +1,11 @@
 import { motion, useReducedMotion } from "motion/react";
-import { Check, Gamepad2, Gauge, Vibrate } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t, tn } from "@/lib/i18n";
 import type { HapticsStrength } from "@/lib/gamepad-core";
 import type { ControllerProfile } from "@/lib/types";
 import type { PadFamily, ProfileOption } from "./controller";
 import { hapticsStrengthLabel, padFamilyLabel, profileSummary } from "./controller";
+import { Glyph } from "./glyphs";
 import { OverlayRow, OverlayShell } from "./overlays";
 
 /* --------------------------------------------------------------------------
@@ -55,7 +55,7 @@ export function ProfileOverlay({
       {...shell}
     >
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-2 font-mono text-bp-meta text-ink-3">
-        <Gamepad2 className="size-3.5 text-signal-text" aria-hidden="true" />
+        <Glyph name="pad" className="size-[calc(var(--bp-u)*24)] text-signal-text" />
         <span className="text-ink-2">{padFamilyLabel(family)}</span>
         <span aria-hidden="true">·</span>
         <span className="truncate">{profileSummary(profile)}</span>
@@ -88,7 +88,7 @@ export function ProfileOverlay({
                 detail={`${option.detail} · ${profileSummary(option.profile)}`}
                 trailing={
                   selected ? (
-                    <Check className="size-4 text-signal-text" strokeWidth={3} aria-hidden="true" />
+                    <Glyph name="check" className="size-[calc(var(--bp-u)*24)] text-signal-text" />
                   ) : undefined
                 }
               />
@@ -102,7 +102,7 @@ export function ProfileOverlay({
           active={active === options.length}
           onChoose={() => onChoose(options.length)}
           onHighlight={() => onHighlight(options.length)}
-          icon={<Vibrate className={cn("size-4", haptics ? "text-signal-text" : "text-ink-3")} aria-hidden="true" />}
+          icon={<Glyph name="vibrate" className={cn("size-[calc(var(--bp-u)*24)]", haptics ? "text-signal-text" : "text-ink-3")} />}
           label={t("Vibration")}
           detail={t("Vibrate on focus and confirm when the pad supports it.")}
           trailing={
@@ -125,13 +125,11 @@ export function ProfileOverlay({
           active={active === options.length + 1}
           onChoose={() => onChoose(options.length + 1)}
           onHighlight={() => onHighlight(options.length + 1)}
-          icon={<Gauge className={cn("size-4", strength !== "off" ? "text-signal-text" : "text-ink-3")} aria-hidden="true" />}
+          icon={<Glyph name="settings" className={cn("size-[calc(var(--bp-u)*24)]", strength !== "off" ? "text-signal-text" : "text-ink-3")} />}
           label={t("Haptics strength")}
           detail={t("Standard or strong rumble on this device.")}
           trailing={
-            <span className="font-mono text-bp-micro uppercase tracking-[0.1em] text-ink-2">
-              {hapticsStrengthLabel(strength)}
-            </span>
+            <span className="text-bp-meta text-ink-2">{hapticsStrengthLabel(strength)}</span>
           }
         />
       </div>

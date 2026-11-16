@@ -92,7 +92,8 @@ describe("contextual button hints", () => {
   it("names Xbox buttons in the library and keeps every action advertised", () => {
     const hints = hintsFor("library", base);
     const ids = hints.map((hint) => hint.id);
-    expect(ids).toEqual(["select", "shelf", "play", "search", "downloads", "menu", "exit"]);
+    // #268: A is the primary action, not a second movement hint.
+    expect(ids).toEqual(["play", "shelf", "menu", "select", "search", "downloads", "exit"]);
     expect(hints.find((hint) => hint.id === "play")?.keys).toEqual(["A"]);
     expect(hints.find((hint) => hint.id === "search")?.keys).toEqual(["X"]);
     expect(hints.find((hint) => hint.id === "menu")?.keys).toEqual(["Menu", "Guide"]);
@@ -115,14 +116,12 @@ describe("contextual button hints", () => {
   });
 
   it("keeps the keyboard hint honest per layout", () => {
-    const rail = hintsFor("library", { ...base, connected: false, layout: "shelf" });
-    const grid = hintsFor("library", { ...base, connected: false, layout: "grid" });
-    const dock = hintsFor("library", { ...base, connected: false, layout: "dock" });
-    const spotlight = hintsFor("library", { ...base, connected: false, layout: "spotlight" });
-    expect(rail.find((hint) => hint.id === "select")?.keys).toEqual(["←", "→"]);
-    expect(grid.find((hint) => hint.id === "select")?.keys).toEqual(["←", "→", "↑", "↓"]);
-    expect(dock.find((hint) => hint.id === "select")?.keys).toEqual(["←", "→"]);
-    expect(spotlight.find((hint) => hint.id === "select")?.keys).toEqual(["←", "→"]);
+    const stage = hintsFor("library", { ...base, connected: false, layout: "shelf" });
+    const wall = hintsFor("library", { ...base, connected: false, layout: "grid" });
+    const list = hintsFor("library", { ...base, connected: false, layout: "compact" });
+    expect(stage.find((hint) => hint.id === "select")?.keys).toEqual(["←", "→"]);
+    expect(wall.find((hint) => hint.id === "select")?.keys).toEqual(["←", "→", "↑", "↓"]);
+    expect(list.find((hint) => hint.id === "select")?.keys).toEqual(["←", "→", "↑", "↓"]);
     for (const layout of BIG_PICTURE_LAYOUTS) {
       expect(hintsFor("library", { ...base, layout }).length).toBe(7);
     }
@@ -134,7 +133,6 @@ describe("contextual button hints", () => {
     expect(hintsFor("exit", base).map((hint) => hint.id)).toEqual(["choose", "select", "close"]);
     expect(hintsFor("profiles", base).map((hint) => hint.id)).toEqual(["choose", "apply", "close"]);
     expect(hintsFor("downloads", base).map((hint) => hint.id)).toEqual(["choose", "open", "close"]);
-    expect(hintsFor("picker", base).map((hint) => hint.id)).toEqual(["choose", "apply", "close"]);
     expect(hintsFor("actions", base).map((hint) => hint.id)).toEqual(["navigate", "select", "back"]);
   });
 

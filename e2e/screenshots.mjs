@@ -79,12 +79,12 @@ const SHOTS = [
     alt: "The same library grid in the light theme, with warm paper surfaces" },
   { set: "readme", name: "game-page", route: "game", scheme: "dark", waitFor: "h1",
     alt: "Game page for HITMAN 3: cover, rating, size, versions, playtime, download and progress" },
-  { set: "readme", name: "console-soft", route: "/console", scheme: "dark", waitFor: "h1",
-    console: "soft", hold: 1400,
-    alt: "Console mode with the Soft appearance: cream rounded tiles, artwork backdrop and the recently played shelf" },
-  { set: "readme", name: "console-studio", route: "/console", scheme: "dark", waitFor: "h1",
-    console: "studio", press: ["ArrowRight", "ArrowRight", "ArrowRight"], hold: 1600,
-    alt: "Console mode with the Studio appearance: the darker archive surface, square corners and sharp artwork" },
+  { set: "readme", name: "console-stage", route: "/console", scheme: "dark", waitFor: "h1",
+    console: { room: "night", layout: "shelf" }, hold: 1600,
+    alt: "Console Stage: the selected game on a warm charcoal stage, one rail of five and a half covers, and the Search · Library · Downloads · Settings · Power band" },
+  { set: "readme", name: "console-wall", route: "/console", scheme: "dark", waitFor: "h1",
+    console: { room: "night", layout: "grid" }, hold: 1600,
+    alt: "Console Wall: the same library as a grid of covers under shelf chips, with the stage header keeping the primary action in reach" },
   { set: "readme", name: "downloads", route: "/downloads", scheme: "dark", waitFor: "h1",
     alt: "Downloads queue: one active download with a real progress bar and speed, remaining jobs queued with positions" },
 
@@ -219,28 +219,36 @@ function seedScript() {
   sessionStorage.setItem("ludex.onboarding.skipped", "1");
 }
 
-/** Console appearance is stored per server; resolve the key the app will read. */
-async function seedConsoleAppearance(page, preset) {
+/**
+ * The Cabinet room is stored per server (#268); resolve the key the app reads
+ * and write a v3 record with the composition the capture needs.
+ */
+async function seedConsoleRoom(page, { room = "night", layout = "shelf" } = {}) {
   await page.evaluate(
-    ({ preset }) => {
+    ({ room, layout }) => {
       const servers = JSON.parse(localStorage.getItem("ludex.servers.v1") ?? "[]");
       const active = localStorage.getItem("ludex.activeServer.v1");
       const scoped = servers.find((server) => server.id === active);
-      const key = scoped ? `ludex.server.${scoped.id}.ludex.console.appearance` : "ludex.console.appearance";
+      const prefix = scoped ? `ludex.server.${scoped.id}.` : "";
+      localStorage.setItem(`${prefix}ludex.bigPicture.layout`, layout);
       localStorage.setItem(
-        key,
+        `${prefix}ludex.console.room`,
         JSON.stringify({
-          v: 1,
-          appearance: {
-            preset,
+          v: 3,
+          room: {
+            room,
             accent: "theme",
-            background: "artwork",
-            radius: preset === "soft" ? "soft" : "sharp",
+            wall: "artwork",
+            corners: "soft",
+            density: "comfortable",
+            motion: "full",
+            sound: "reduced",
+            haptics: "standard",
           },
         }),
       );
     },
-    { preset },
+    { room, layout },
   );
 }
 
@@ -407,7 +415,7 @@ try {
     await page.goto(`${base}/#/`, { waitUntil: "domcontentloaded" });
     await settle(page, "main, h1", 300);
 
-    if (shot.console) await seedConsoleAppearance(page, shot.console);
+    if (shot.console) await seedConsoleRoom(page, shot.console);
 
     const route = shot.route === "game" ? await resolveGameRoute(page, GAME_TITLE) : shot.route;
     // A distinct query string forces a real document load on the target route,
@@ -415,9 +423,8 @@ try {
     await page.goto(`${base}/?shot=${shot.name}#${route}`, { waitUntil: "domcontentloaded" });
     try {
       await settle(page, shot.waitFor, 700);
-      // A real interaction on the console shelf (keyboard navigation), not a
-      // seeded state: it selects the second demo game so the hero artwork is
-      // not the same flat plate in both appearance captures.
+      // A real interaction (keyboard navigation), not a seeded state, where a
+      // shot asks for one: the selection moves on screen as a player would.
       for (const key of shot.press ?? []) {
         await page.keyboard.press(key);
         await page.waitForTimeout(300);
@@ -488,7 +495,7 @@ try {
     viewport: shot.viewport,
     dpr: shot.dpr,
     theme: shot.scheme ?? "dark",
-    consolePreset: shot.console ?? null,
+    consoleRoom: shot.console ?? null,
     locale: "en-US",
     bytes: shot.bytes,
     alt: shot.alt,
@@ -511,6 +518,7 @@ try {
       "Locale en-US, reduced motion, fixed clock at 2026-11-16T10:24:00Z.",
       "YouTube is blocked: trailer thumbnails are a neutral Ludex poster, the facade and play button are the real UI.",
       "Desktop images are 1920x1080 captures resized to 1600 px wide (PNG, adaptive 82 quality palette).",
+      "Console captures use the Night room and the Stage or Wall composition (#268); the 720p/1080p/4K + overscan set lives in docs/assets/screenshots/console/.",
       "Mobile images are 390x844 viewports at 2x, kept at 780 px wide (JPEG q82).",
     ],
     shots: manifestShots,

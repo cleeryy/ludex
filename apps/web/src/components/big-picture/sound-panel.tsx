@@ -1,9 +1,9 @@
-import { Check, Volume2, VolumeX, Vibrate } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { firstRumblePad, pulsePad } from "@/lib/gamepad";
 import { uiSound } from "@/lib/ui-sound";
 import { Switch } from "@/components/ui/controls";
+import { Glyph } from "./glyphs";
 import {
   clampVolume,
   type CueId,
@@ -40,12 +40,12 @@ function SoundToggle({
   detail: string;
   icon: "sound" | "haptics";
 }) {
-  const Icon = icon === "sound" ? (enabled ? Volume2 : VolumeX) : Vibrate;
+  const glyph = icon === "sound" ? (enabled ? "volume" : "volumeOff") : "vibrate";
   return (
     <div className="flex items-start justify-between gap-4 border-b border-line py-3">
       <div className="min-w-0">
         <p className="flex items-center gap-2 text-bp-body font-medium text-ink">
-          <Icon className={cn("size-3.5", enabled ? "text-signal-text" : "text-ink-3")} aria-hidden="true" />
+          <Glyph name={glyph} className={cn("size-[calc(var(--bp-u)*22)]", enabled ? "text-signal-text" : "text-ink-3")} />
           {label}
         </p>
         <p className="mt-1 max-w-[58ch] text-bp-meta leading-relaxed text-ink-3">{detail}</p>
@@ -80,7 +80,7 @@ function StrengthChoice({
                 : "border-line text-ink-3 hover:border-line-2 hover:text-ink-2",
             )}
           >
-            {active && <Check className="size-3" strokeWidth={3} aria-hidden="true" />}
+            {active && <Glyph name="check" className="size-[calc(var(--bp-u)*20)]" />}
             {hapticsStrengthLabel(option)}
           </button>
         );
@@ -118,7 +118,7 @@ export function BigPictureSoundPanel() {
             {t("Short cues for movement, confirmations and launches. Silent while a game runs.")}
           </p>
         </div>
-        <span className="font-mono text-bp-micro uppercase tracking-[0.12em] text-ink-3">
+        <span className="text-bp-meta text-ink-3">
           {sound.enabled ? t("Now: {value}", { value: `${percent}%` }) : t("Sound is off")}
         </span>
       </div>
@@ -187,7 +187,7 @@ export function BigPictureSoundPanel() {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="font-mono text-bp-micro uppercase tracking-[0.14em] text-ink-3">{t("Test")}</span>
+        <span className="text-bp-meta text-ink-3">{t("Test")}</span>
         {TEST_CUES.map((entry) => (
           <button
             key={entry.cue}
@@ -211,7 +211,7 @@ export function BigPictureSoundPanel() {
             "hover:border-line-2 hover:text-ink disabled:opacity-55",
           )}
         >
-          <Vibrate className="size-3.5" aria-hidden="true" />
+          <Glyph name="vibrate" className="size-[calc(var(--bp-u)*20)]" />
           {t("Test pulse")}
         </button>
       </div>

@@ -1,31 +1,34 @@
 /* --------------------------------------------------------------------------
-   Big Picture layouts (#141, #197).
+   Console compositions (#141, #197, #268).
 
-   Six ways to read the same shelf at ten feet: the shelf Big Picture always
-   had, a Dock that puts the system row under one large rail, a Spotlight that
-   lets the selected game take over the screen, a PlayStation-style hero, a
-   Steam-style cover grid and a dense list. Everything that can be decided
-   without the DOM lives here — the registry, the persisted choice, the grid
-   geometry and the direction-to-step mapping — so every view shares one
-   navigation model instead of six copies of it.
+   Three ways to read the same shelf at ten feet, down from six: **Stage** (the
+   selected game and one captioned rail), **Wall** (a cover grid) and **List**
+   (dense rows, the accessible toggle). The ids stay `shelf`, `grid` and
+   `compact` because they are the persisted values and the code paths; the
+   player only ever reads Stage, Wall and List.
+
+   Everything that can be decided without the DOM lives here — the registry, the
+   persisted choice, the grid geometry and the direction-to-step mapping — so
+   every view shares one navigation model. The six-way registry asked the player
+   to be a designer before they could play; this one is a decision.
    -------------------------------------------------------------------------- */
 
-import { atLibraryTop, zoneAfterMove } from "./system-zones";
+import { atLibraryBottom, atLibraryTop, zoneAfterMove } from "./system-zones";
 
-export type BigPictureLayout = "shelf" | "dock" | "spotlight" | "hero" | "grid" | "compact";
+export type BigPictureLayout = "shelf" | "grid" | "compact";
 
-/** Registry order is the order of the settings cards and of the switcher. */
-export const BIG_PICTURE_LAYOUTS: readonly BigPictureLayout[] = [
-  "shelf",
-  "dock",
-  "spotlight",
-  "hero",
-  "grid",
-  "compact",
-];
+/** Registry order is the order of the settings row and the toggle. */
+export const BIG_PICTURE_LAYOUTS: readonly BigPictureLayout[] = ["shelf", "grid", "compact"];
 
-/** The shelf is the layout Big Picture has always had, so it stays the default. */
+/** Stage is the Cabinet home: one object, one rail. */
 export const DEFAULT_BIG_PICTURE_LAYOUT: BigPictureLayout = "shelf";
+
+/** Ids the six-layout build wrote; each maps to the composition that replaces it. */
+const RETIRED_LAYOUTS: Readonly<Record<string, BigPictureLayout>> = {
+  dock: "shelf",
+  spotlight: "shelf",
+  hero: "shelf",
+};
 
 /**
  * Browser-local preference, scoped per server by `scopedStorageKey` like the
@@ -38,9 +41,17 @@ export function isBigPictureLayout(value: unknown): value is BigPictureLayout {
   return typeof value === "string" && (BIG_PICTURE_LAYOUTS as readonly string[]).includes(value);
 }
 
-/** Anything unknown (old value, hand-edited storage, `null`) falls back to shelf. */
+/**
+ * Anything unknown falls back to Stage. A value from the retired six-layout
+ * registry resolves to the composition that replaces it (Dock, Spotlight and
+ * Hero all became Stage), so an upgrade never resets a player's choice.
+ */
 export function sanitizeLayout(value: unknown): BigPictureLayout {
-  return isBigPictureLayout(value) ? value : DEFAULT_BIG_PICTURE_LAYOUT;
+  if (isBigPictureLayout(value)) return value;
+  if (typeof value === "string" && value in RETIRED_LAYOUTS) {
+    return RETIRED_LAYOUTS[value] ?? DEFAULT_BIG_PICTURE_LAYOUT;
+  }
+  return DEFAULT_BIG_PICTURE_LAYOUT;
 }
 
 /* ------------------------------- persistence ------------------------------- */
@@ -83,8 +94,8 @@ export type MoveDirection = "left" | "right" | "up" | "down";
 export type LayoutStep =
   | { type: "move"; index: number }
   | { type: "shelf"; delta: -1 | 1 }
-  /** The game row has run out: the ring belongs to the shell's system surfaces. */
-  | { type: "zone"; target: "home" | "actions" }
+  /** The game row has run out: the ring belongs to another zone. */
+  | { type: "zone"; target: "actions" | "home" }
   | { type: "none" };
 
 export interface StepInput {
@@ -101,17 +112,17 @@ export interface StepInput {
  * in CSS pixels; `layout-grid.tsx` writes the same number into
  * `grid-template-columns`, so the DOM and the keyboard can never disagree.
  *
- * 4K gets eight covers across, 1080p seven, a small laptop five: the grid is
- * the layout for "show me a lot at once", and every step down keeps tiles
- * wide enough to read a title at three metres.
+ * 4K gets eight covers across, 1080p six, a small laptop four: the grid is the
+ * composition for "show me a lot at once", and every step down keeps tiles wide
+ * enough to read a title at three metres.
  */
 const GRID_COLUMNS: ReadonlyArray<readonly [number, number]> = [
-  [2560, 8],
-  [1680, 7],
-  [1360, 6],
-  [1024, 5],
-  [760, 4],
-  [520, 3],
+  [3000, 8],
+  [1680, 6],
+  [1360, 5],
+  [1024, 4],
+  [760, 3],
+  [520, 2],
   [0, 2],
 ];
 
@@ -151,43 +162,38 @@ export function gridStepIndex(index: number, delta: number, columns: number, tot
 }
 
 /**
- * The one direction model every layout obeys. Moving left/right on a rail
- * walks the rail; in the grid, up/down walk the rows; in the list, up/down walk
- * the rows and left/right change shelf, because the tabs sit along the top.
- * Shoulders change shelf everywhere, triggers jump a page (#138).
+ * The one direction model every layout obeys (#268). Home is three zones on one
+ * axis: the stage actions on top, the games, then the band at the bottom.
  *
- * Vertical travel that runs out of games is a zone step (#196, #197): the
- * layout decides whether that means the system row above (shelf, hero, grid,
- * compact), the dock underneath (dock) or the quick actions (spotlight).
- * `zoneAfterMove` owns the graph; this function only knows when the game row
- * can no longer move.
+ *   - Stage: Left/Right walk the rail; Up is the stage actions; Down is the band.
+ *   - Wall: Left/Right walk the grid, Up/Down walk the rows; leaving the first
+ *     row upwards is the actions, leaving the last row downwards is the band.
+ *   - List: Up/Down walk the rows, Left/Right change shelf; the same two exits.
+ *
+ * Shoulders change shelf everywhere, triggers jump a page.
  */
 export function stepForLayout({ layout, direction, index, total, columns }: StepInput): LayoutStep {
   if (total <= 0) return { type: "none" };
   const horizontal = direction === "left" || direction === "right";
   const delta: -1 | 1 = direction === "left" || direction === "up" ? -1 : 1;
-  const atTop = atLibraryTop({ layout, index, columns });
-  const zoneStep = (): LayoutStep => {
-    const target = zoneAfterMove("library", direction, { layout, atLibraryTop: atTop });
-    return target === "library" ? { type: "none" } : { type: "zone", target };
-  };
 
-  switch (layout) {
-    case "shelf":
-    case "hero":
-    case "dock":
-    case "spotlight":
-      if (horizontal) return { type: "move", index: stepIndex(index, delta, total) };
-      return zoneStep();
-    case "grid":
-      if (horizontal) return { type: "move", index: stepIndex(index, delta, total) };
-      if (delta < 0 && atTop) return { type: "zone", target: "home" };
-      return { type: "move", index: gridStepIndex(index, delta, columns, total) };
-    case "compact":
-      if (horizontal) return { type: "shelf", delta };
-      if (delta < 0 && atTop) return { type: "zone", target: "home" };
-      return { type: "move", index: stepIndex(index, delta, total) };
+  // The list changes shelf sideways; every composition walks its games
+  // horizontally otherwise.
+  if (layout === "compact" && horizontal) return { type: "shelf", delta };
+  if (horizontal) return { type: "move", index: stepIndex(index, delta, total) };
+
+  // Vertical travel that runs out of games is a zone step. `zoneAfterMove` owns
+  // the graph; this function only knows when the games can no longer move.
+  const target = zoneAfterMove("library", direction, {
+    layout,
+    atLibraryTop: atLibraryTop({ layout, index, columns }),
+    atLibraryBottom: atLibraryBottom({ layout, index, columns, total }),
+  });
+  if (target !== "library") return { type: "zone", target };
+  if (layout === "grid") {
+    return { type: "move", index: gridStepIndex(index, delta, columns, total) };
   }
+  return { type: "move", index: stepIndex(index, delta, total) };
 }
 
 /* -------------------------------- page jumps ------------------------------- */
@@ -197,11 +203,10 @@ export const RAIL_PAGE_STEP = 5;
 export const LIST_PAGE_STEP = 10;
 
 /**
- * LT/RT (and PageUp/PageDown) jump a page instead of one step (#138). Every
- * rail — shelf, hero, dock, spotlight — moves along the shelf by
- * {@link RAIL_PAGE_STEP} covers, the list by {@link LIST_PAGE_STEP} rows, and
- * the grid by two full rows — one screenful at ten feet. Every jump clamps, so
- * the ring never wraps behind the player's back.
+ * LT/RT (and PageUp/PageDown) jump a page instead of one step (#138). The rail
+ * moves by {@link RAIL_PAGE_STEP} covers, the list by {@link LIST_PAGE_STEP}
+ * rows, and the wall by two full rows — one screenful at ten feet. Every jump
+ * clamps, so the ring never wraps behind the player's back.
  */
 export function pageStepForLayout({ layout, direction, index, total, columns }: StepInput): LayoutStep {
   if (total <= 0) return { type: "none" };
@@ -215,9 +220,6 @@ export function pageStepForLayout({ layout, direction, index, total, columns }: 
     case "compact":
       return { type: "move", index: stepIndex(index, delta * LIST_PAGE_STEP, total) };
     case "shelf":
-    case "hero":
-    case "dock":
-    case "spotlight":
       return { type: "move", index: stepIndex(index, delta * RAIL_PAGE_STEP, total) };
   }
 }

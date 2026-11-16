@@ -1,27 +1,22 @@
 import type { BigPictureLayout, MoveDirection } from "./layout";
 
 /* --------------------------------------------------------------------------
-   The console shell's navigation model (#196).
+   The console shell's navigation model (#196, #268).
 
-   Big Picture already owns the game grid. A console shell adds surfaces that
-   are not games — the home row, Settings and Power — so "what does Up mean"
-   can no longer live in the shelf geometry alone. This module is the pure part:
-   which zone owns a direction, how a short ring of system tiles wraps, how the
-   level stack opens and closes, and which settings section a shoulder lands on.
+   Console home is one axis with three zones: the **stage actions** on top, the
+   games, then the **band** at the bottom. Settings and Power replace the games
+   but keep the bar and the hints.
 
-   The screen only applies these decisions. Keeping them here means the state
-   machine is covered without a DOM, and the keyboard and the pad cannot drift
-   apart.
+   This module is the pure part: which zone owns a direction, how the five band
+   destinations wrap, how the level stack opens and closes, and which settings
+   section a shoulder lands on. The screen only applies these decisions, so the
+   keyboard and the pad cannot drift apart.
    -------------------------------------------------------------------------- */
 
-/**
- * The focus graph around the game grid (#196, extended by #197): the system
- * row, the games themselves, and — in the Spotlight layout — the quick-action
- * row under the title. A layout only exposes the zones it actually draws.
- */
-export type FocusZone = "home" | "library" | "actions";
+/** The focus graph: stage actions, the games, the band. */
+export type FocusZone = "actions" | "library" | "home";
 
-/** Console surfaces that replace the grid but keep the system bar. */
+/** Console surfaces that replace the games but keep the shell. */
 export type SystemAppId = "settings" | "power";
 
 export type ShellLevel =
@@ -30,7 +25,6 @@ export type ShellLevel =
 
 export const LIBRARY_LEVEL: ShellLevel = { kind: "library" };
 
-/** Left/right on a short ring wraps; a dead end at Power would be a trap. */
 export function wrapIndex(index: number, delta: number, count: number): number {
   if (!Number.isFinite(index) || count <= 0) return 0;
   const current = Math.trunc(index);
@@ -42,104 +36,57 @@ export interface ZoneMoveOptions {
   /** The layout whose zone graph applies. */
   layout: BigPictureLayout;
   /** True when Up would otherwise run out of game rows. */
-  atLibraryTop: boolean;
+  atLibraryTop?: boolean;
+  /** True when Down would otherwise run out of game rows. */
+  atLibraryBottom?: boolean;
 }
 
 /**
- * Up from the first game row enters the home row; Down from the home row
- * returns to the game grid. Left/right and every other direction stay in the
- * zone they started in, so the ring never jumps between zones sideways.
- *
- * #197 makes the graph per layout: the Dock puts the system row *under* the
- * games, the Spotlight adds an action row under the title, and a rail with a
- * single row always hands Up to the home row instead of cycling shelves.
+ * Up from the first game row reaches the stage actions; Down from the last row
+ * reaches the band. Inside the row every direction stays where it started, so
+ * the ring never jumps zones sideways. The Stage rail is a single row, so both
+ * exits are always available there.
  */
 export function zoneAfterMove(
   zone: FocusZone,
   direction: MoveDirection,
-  { layout, atLibraryTop }: ZoneMoveOptions,
+  { layout, atLibraryTop, atLibraryBottom = false }: ZoneMoveOptions,
 ): FocusZone {
   if (zone === "library") {
-    switch (layout) {
-      case "dock":
-        return direction === "down" ? "home" : "library";
-      case "spotlight":
-        if (direction === "up") return "home";
-        if (direction === "down") return "actions";
-        return "library";
-      case "shelf":
-      case "hero":
-        return direction === "up" ? "home" : "library";
-      case "grid":
-      case "compact":
-        return direction === "up" && atLibraryTop ? "home" : "library";
+    if (direction === "up") {
+      return layout === "shelf" || atLibraryTop === true ? "actions" : "library";
     }
+    if (direction === "down") {
+      return layout === "shelf" || atLibraryBottom ? "home" : "library";
+    }
+    return "library";
   }
-  return direction === zoneExit(layout, zone) ? "library" : zone;
+  if (zone === "actions") return direction === "down" ? "library" : "actions";
+  return direction === "up" ? "library" : "home";
 }
 
-/** Zones a layout exposes, top to bottom. */
+/** Every composition draws the same three zones, top to bottom. */
 export function zonesForLayout(layout: BigPictureLayout): readonly FocusZone[] {
-  switch (layout) {
-    case "dock":
-      return ["library", "home"];
-    case "spotlight":
-      return ["home", "library", "actions"];
-    case "shelf":
-    case "hero":
-    case "grid":
-    case "compact":
-      return ["home", "library"];
-  }
+  void layout;
+  return ["actions", "library", "home"];
 }
 
-/**
- * The direction that leaves a secondary zone and lands back on the selected
- * game. The Dock row sits at the bottom, so Up goes back to the games; every
- * other placement is above the row.
- */
-export function zoneExit(layout: BigPictureLayout, zone: Exclude<FocusZone, "library">): MoveDirection {
-  if (zone === "actions") return "up";
-  return layout === "dock" ? "up" : "down";
+/** The direction that leaves a secondary zone and lands back on the games. */
+export function zoneExit(_layout: BigPictureLayout, zone: Exclude<FocusZone, "library">): MoveDirection {
+  return zone === "actions" ? "down" : "up";
 }
 
-/**
- * After a layout switch, a zone the new layout does not draw cannot keep the
- * ring: it falls back to the game row. A zone that survives keeps its place.
- */
+/** After a layout switch the zone graph is identical; the ring keeps its zone. */
 export function restoreZone(layout: BigPictureLayout, zone: FocusZone): FocusZone {
   return zonesForLayout(layout).includes(zone) ? zone : "library";
 }
 
-/** Where the shell renders the system row for each layout (#197). */
-export type HomeRowPlacement = "row" | "dock" | "overlay";
-
-export function homeRowPlacement(layout: BigPictureLayout): HomeRowPlacement {
-  switch (layout) {
-    case "dock":
-      return "dock";
-    case "spotlight":
-      return "overlay";
-    case "shelf":
-    case "hero":
-    case "grid":
-    case "compact":
-      return "row";
-  }
-}
-
 /**
- * The home row is ordered left to right. The ids are stable because the screen
- * builds live details per slot; the component owns the labels and icons.
+ * The band is Search · Library · Downloads · Settings · Power (#268): five
+ * destinations, one row, no Collections tile and no "continue" duplicate of the
+ * stage's own Play button. Collections is a shelf inside Library.
  */
-export const HOME_ITEM_IDS = [
-  "continue",
-  "library",
-  "downloads",
-  "collections",
-  "settings",
-  "power",
-] as const;
+export const HOME_ITEM_IDS = ["search", "library", "downloads", "settings", "power"] as const;
 
 export type HomeItemId = (typeof HOME_ITEM_IDS)[number];
 
@@ -160,7 +107,7 @@ export function isSettingsSection(value: unknown): value is SettingsSectionId {
 /** LB/RB move one category and wrap, so the last tab is not a dead end. */
 export function stepSettingsSection(section: SettingsSectionId, delta: number): SettingsSectionId {
   const index = SETTINGS_SECTIONS.indexOf(section);
-  return SETTINGS_SECTIONS[wrapIndex(index, delta, SETTINGS_SECTIONS.length)];
+  return SETTINGS_SECTIONS[wrapIndex(index, delta, SETTINGS_SECTIONS.length)] as SettingsSectionId;
 }
 
 export function isSystemApp(value: unknown): value is SystemAppId {
@@ -171,7 +118,7 @@ export function openSystemApp(id: SystemAppId): ShellLevel {
   return { kind: "app", id };
 }
 
-/** B always lands on the grid, never on another app and never outside Big Picture. */
+/** B always lands on the games, never on another app and never outside Console. */
 export function closeSystemApp(): ShellLevel {
   return { kind: "library" };
 }
@@ -184,10 +131,9 @@ export function sameLevel(a: ShellLevel, b: ShellLevel): boolean {
 /* ------------------------------ URL state -------------------------------- */
 
 /**
- * The shell level is URL state (`?app=settings&section=language`) for one
- * concrete reason: changing the language remounts the provider tree, and the
- * app has to come back where it was instead of dropping the player on the
- * grid. It also makes a console surface deep-linkable.
+ * The shell level is URL state (`?app=settings&section=language`): changing the
+ * language remounts the provider tree, and the app has to come back where it
+ * was. It also makes a console surface deep-linkable.
  */
 export function levelFromSearch(search: string): ShellLevel {
   const params = new URLSearchParams(search.startsWith("?") ? search : `?${search}`);
@@ -209,24 +155,34 @@ export interface LibraryEdgeInput {
   columns: number;
 }
 
-/**
- * Whether Up at this slot should leave the grid. The rails are a single row, so
- * Up always reaches the home row (shelf, hero and spotlight, whose system row
- * floats over the art); the Dock's row is below the games, so Up is a dead end
- * there; the grid and the list hand Up over on their first row. This keeps
- * every layout usable without changing what Up means inside it.
- */
+/** Whether Up at this slot leaves the games. The Stage rail is one row. */
 export function atLibraryTop({ layout, index, columns }: LibraryEdgeInput): boolean {
   switch (layout) {
     case "shelf":
-    case "hero":
-    case "spotlight":
       return true;
-    case "dock":
-      return false;
     case "grid":
       return index < Math.max(1, columns);
     case "compact":
       return index === 0;
+  }
+}
+
+/** Whether Down at this slot leaves the games for the band. */
+export function atLibraryBottom({
+  layout,
+  index,
+  total,
+  columns,
+}: LibraryEdgeInput & { total: number }): boolean {
+  if (total <= 0) return true;
+  switch (layout) {
+    case "shelf":
+      return true;
+    case "grid": {
+      const width = Math.max(1, columns);
+      return Math.floor(index / width) >= Math.floor((total - 1) / width);
+    }
+    case "compact":
+      return index >= total - 1;
   }
 }

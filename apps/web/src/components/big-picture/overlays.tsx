@@ -1,18 +1,5 @@
 import type { ReactNode } from "react";
 import { motion } from "motion/react";
-import {
-  Download,
-  Gamepad2,
-  Layers,
-  LayoutGrid,
-  LogOut,
-  Play,
-  Power,
-  RefreshCw,
-  Search,
-  Settings,
-  type LucideIcon,
-} from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatPercent } from "@/lib/format";
 import { t, tn } from "@/lib/i18n";
@@ -22,6 +9,7 @@ import { Progress } from "@/components/ui/controls";
 import type { HintContext, PadFamily } from "./controller";
 import type { BigPictureLayout } from "./layout";
 import { MOTION_DURATION, REDUCED_FADE, exitOf, transitionOf } from "./motion";
+import { Glyph, type GlyphName } from "./glyphs";
 import { HintStrip } from "./parts";
 
 /* --------------------------------------------------------------------------
@@ -96,12 +84,14 @@ export function OverlayShell({
         {...enter}
         {...leave}
       >
-        <header className="shrink-0 border-b border-line px-4 py-3 sm:px-5">
-          <h2 className="text-bp-body font-semibold leading-tight text-ink">{title}</h2>
+        <header className="shrink-0 border-b border-line px-5 py-3">
+          <h2 className="text-bp-title font-semibold leading-tight tracking-[-0.02em] text-ink">
+            {title}
+          </h2>
           {subtitle && <p className="mt-1 text-bp-meta leading-relaxed text-ink-3">{subtitle}</p>}
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">{children}</div>
-        <footer className="shrink-0 border-t border-line px-4 py-2 text-bp-meta text-ink-3 sm:px-5">
+        <footer className="shrink-0 border-t border-line px-5 py-2 text-bp-meta text-ink-3">
           <HintStrip context={context} layout={layout} connected={connected} family={family} swapAB={swapAB} className="text-bp-body" />
         </footer>
       </motion.section>
@@ -157,64 +147,59 @@ export function OverlayRow({
 
 /* ------------------------------- command menu ------------------------------ */
 
-export type CommandId = "play" | "game" | "search" | "downloads" | "profiles" | "layout" | "settings" | "exit";
+export type CommandId = "play" | "game" | "search" | "downloads" | "profiles" | "settings" | "exit";
 
 export interface CommandDefinition {
   id: CommandId;
-  icon: LucideIcon;
+  glyph: GlyphName;
   label: () => string;
   detail?: () => string;
 }
 
 /**
  * The Start/Guide menu. Order is the couch order: act on the selected game,
- * find, queue, controller, layout, settings, leave. Every entry has a keyboard
- * parity (`↵`, G, `/`, D, P, L, M, Esc) and the exit entry asks again before
- * leaving.
+ * find, queue, controller, settings, leave. Every entry has a keyboard parity
+ * (`↵`, G, `/`, D, P, M, Esc) and the exit entry asks again before leaving.
+ * The layout picker is gone: the composition toggle lives in Settings, where a
+ * preference belongs, not in the middle of a game session.
  */
 export const COMMAND_ITEMS: readonly CommandDefinition[] = [
   {
     id: "play",
-    icon: Play,
+    glyph: "play",
     label: () => t("Play or install"),
   },
   {
     id: "game",
-    icon: Gamepad2,
+    glyph: "library",
     label: () => t("Game page"),
   },
   {
     id: "search",
-    icon: Search,
+    glyph: "search",
     label: () => t("Search the library"),
     detail: () => t("Find a game without a keyboard."),
   },
   {
     id: "downloads",
-    icon: Download,
+    glyph: "downloads",
     label: () => t("Downloads"),
     detail: () => t("Downloads keep running while this is open."),
   },
   {
     id: "profiles",
-    icon: Gamepad2,
+    glyph: "settings",
     label: () => t("Controller profile"),
     detail: () => t("Switch the pad setup and vibration."),
   },
   {
-    id: "layout",
-    icon: LayoutGrid,
-    label: () => t("Layout"),
-    detail: () => t("Change how the library is presented."),
-  },
-  {
     id: "settings",
-    icon: Settings,
+    glyph: "settings",
     label: () => t("Settings"),
   },
   {
     id: "exit",
-    icon: LogOut,
+    glyph: "power",
     label: () => t("Power"),
     detail: () => t("Quit"),
   },
@@ -240,14 +225,13 @@ export function CommandMenu({
     >
       <ul className="flex flex-col gap-0.5">
         {COMMAND_ITEMS.map((item, index) => {
-          const Icon = item.icon;
           return (
             <li key={item.id}>
               <OverlayRow
                 active={index === active}
                 onChoose={() => onChoose(index)}
                 onHighlight={() => onHighlight(index)}
-                icon={<Icon className="size-4" aria-hidden="true" />}
+                icon={<Glyph name={item.glyph} className="size-[calc(var(--bp-u)*26)]" />}
                 label={item.label()}
                 detail={item.detail?.()}
                 tone={item.id === "exit" ? "danger" : undefined}
@@ -305,7 +289,7 @@ export function CollectionsOverlay({
             active={active === 0}
             onChoose={onRetry}
             onHighlight={() => onHighlight(0)}
-            icon={<RefreshCw className="size-4" aria-hidden="true" />}
+            icon={<Glyph name="back" className="size-[calc(var(--bp-u)*26)]" />}
             label={t("Try again")}
             detail={t("Unavailable")}
           />
@@ -320,7 +304,7 @@ export function CollectionsOverlay({
                 active={index === active}
                 onChoose={() => onChoose(index)}
                 onHighlight={() => onHighlight(index)}
-                icon={<Layers className="size-4" aria-hidden="true" />}
+                icon={<Glyph name="library" className="size-[calc(var(--bp-u)*26)]" />}
                 label={collection.name}
                 detail={`${tn(collection.gameCount, "1 game", "{count} games")} · ${
                   collection.isPublic ? t("Public") : t("Private")
@@ -368,7 +352,7 @@ export function ConfirmPanel({
             active={active === 0}
             onChoose={() => onChoose(0)}
             onHighlight={() => onHighlight(0)}
-            icon={<Power className="size-4" aria-hidden="true" />}
+            icon={<Glyph name="power" className="size-[calc(var(--bp-u)*26)]" />}
             label={confirmLabel}
             detail={t("Confirm")}
             tone={tone}
@@ -449,7 +433,7 @@ export function DownloadsOverlay({
                   active={index === active}
                   onChoose={() => onChoose(index)}
                   onHighlight={() => onHighlight(index)}
-                  icon={<Download className="size-4" aria-hidden="true" />}
+                  icon={<Glyph name="downloads" className="size-[calc(var(--bp-u)*26)]" />}
                   label={titleFor(job)}
                   detail={
                     <span className="flex items-center gap-2">
@@ -457,7 +441,6 @@ export function DownloadsOverlay({
                       {percent !== null && <span className="num">{formatPercent(percent)}</span>}
                     </span>
                   }
-                  trailing={percent !== null ? `${Math.round(percent)}%` : undefined}
                 />
                 {percent !== null && (
                   <Progress

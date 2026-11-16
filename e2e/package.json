@@ -9,7 +9,9 @@
     "test:ui": "playwright test --ui",
     "report": "playwright show-report",
     "install:browsers": "playwright install chromium",
-    "screenshots": "node screenshots.mjs"
+    "screenshots": "node screenshots.mjs",
+    "console:screenshots": "node console-screenshots.mjs",
+    "brand:assets": "node cabinet-assets.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",

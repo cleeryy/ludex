@@ -1,26 +1,27 @@
-import type { ComponentType } from "react";
-import { Gamepad2, LogOut, Moon, Power, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { Glyph, type GlyphName } from "./glyphs";
 import type { PowerAction, PowerActionId } from "./power";
 
 /* --------------------------------------------------------------------------
-   The Power surface (#196).
+   The Power surface (#196, #268).
 
-   Big tiles, not a dropdown: the player is holding a controller and the one
-   thing this screen must never do is make "Quit" look like "Cancel". The
+   Four rows, not a tile grid: Sleep · Restart · Quit · Sign out, each with one
+   line of what it does. The player is holding a controller and the one thing
+   this screen must never do is make "Quit" look like "Cancel": the
    confirmation lives one level up and always starts on Cancel.
+
+   No `01–04` index, no equal-card composition, no danger fill before the player
+   has actually chosen the destructive action.
    -------------------------------------------------------------------------- */
 
-type Icon = ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
-
-const ACTION_ICONS: Record<PowerActionId, Icon> = {
-  "end-session": LogOut,
-  sleep: Moon,
-  restart: RotateCcw,
-  quit: Power,
-  "quit-game": Gamepad2,
-  exit: LogOut,
+const ACTION_GLYPHS: Record<PowerActionId, GlyphName> = {
+  "end-session": "signout",
+  sleep: "sleep",
+  restart: "restart",
+  quit: "power",
+  "quit-game": "play",
+  exit: "back",
 };
 
 export function PowerApp({
@@ -35,18 +36,19 @@ export function PowerApp({
   onChoose: (index: number) => void;
 }) {
   return (
-    <section className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain py-5 bp-pad-x" aria-label={t("Power")}>
-      <p className="font-mono text-bp-micro uppercase tracking-[0.18em] text-signal-text">{t("System")}</p>
-      <h1 className="mt-1 text-[clamp(1.8rem,3.2vw,calc(var(--bp-u)*48))] font-semibold leading-[0.95] tracking-[-0.04em] text-ink">
+    <section
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain py-5 bp-pad-x"
+      aria-label={t("Power")}
+    >
+      <h1 className="text-bp-title font-semibold leading-[1.05] tracking-[-0.02em] text-ink">
         {t("Power")}
       </h1>
-      <p className="mt-2 max-w-[62ch] text-bp-meta leading-relaxed text-ink-2">
+      <p className="mt-1 max-w-[62ch] text-bp-meta leading-relaxed text-ink-2">
         {t("Everything here works with the controller. B closes this menu.")}
       </p>
 
-      <ul className="mt-5 grid max-w-[980px] grid-cols-1 gap-2.5 sm:grid-cols-2">
+      <ul className="mt-5 max-w-[980px]">
         {actions.map((action, index) => {
-          const Icon = ACTION_ICONS[action.id];
           const selected = index === active;
           const danger = action.tone === "danger";
           return (
@@ -55,8 +57,7 @@ export function PowerApp({
                 type="button"
                 data-system-active={selected ? "true" : undefined}
                 data-gamepad-target="true"
-                data-bp-zone-item="true"
-                data-bp-zone-active={selected ? "true" : undefined}
+                data-bp-settings-row="true"
                 data-tone={danger ? "danger" : undefined}
                 aria-current={selected ? "true" : undefined}
                 aria-disabled={action.enabled ? undefined : "true"}
@@ -64,23 +65,28 @@ export function PowerApp({
                 onPointerEnter={() => onHighlight(index)}
                 onClick={() => onChoose(index)}
                 className={cn(
-                  "bp-tile group relative flex min-h-[calc(var(--bp-u)*128)] w-full flex-col justify-between gap-4 p-4 text-start",
+                  "bp-row relative mb-1 flex min-h-[calc(var(--bp-u)*88)] w-full items-center gap-5 px-4 py-3 text-start",
+                  selected && "bg-surface-2",
                   !action.enabled && "opacity-70",
                 )}
               >
-                <span className="flex w-full items-start justify-between gap-3">
-                  <Icon
-                    className={cn(
-                      "size-[calc(var(--bp-u)*34)] shrink-0",
-                      danger ? "text-danger" : selected ? "text-signal-text" : "text-ink-2",
-                    )}
+                {selected && (
+                  <span
                     aria-hidden="true"
+                    className={cn(
+                      "pointer-events-none absolute inset-y-3 start-0 w-[calc(var(--bp-u)*3)]",
+                      danger ? "bg-danger" : "bg-signal",
+                    )}
                   />
-                  <span className="num font-mono text-bp-micro uppercase tracking-[0.12em] text-ink-3">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                </span>
-                <span className="min-w-0">
+                )}
+                <Glyph
+                  name={ACTION_GLYPHS[action.id]}
+                  className={cn(
+                    "size-[calc(var(--bp-u)*32)] shrink-0",
+                    danger ? "text-danger" : selected ? "text-signal-text" : "text-ink-2",
+                  )}
+                />
+                <span className="min-w-0 flex-1">
                   <span className="block text-bp-body font-semibold leading-tight text-ink">
                     {action.label}
                   </span>
@@ -88,13 +94,6 @@ export function PowerApp({
                     {action.enabled ? action.detail : action.reason ?? action.detail}
                   </span>
                 </span>
-                {selected && (
-                  <span
-                    aria-hidden="true"
-                    data-bp-selected-rule="true"
-                    className={cn("pointer-events-none absolute inset-x-4 bottom-0 h-[2px]", danger ? "bg-danger" : "bg-signal")}
-                  />
-                )}
               </button>
             </li>
           );

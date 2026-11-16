@@ -20,9 +20,9 @@ import { jobPercent } from "./model";
 import { LIST_PAGE_STEP, RAIL_PAGE_STEP, pageStepForLayout } from "./layout";
 
 /* --------------------------------------------------------------------------
-   #141: the layout registry, the persisted preference and the direction model
-   that all four views share. Pure functions only, so the suite stays fast and
-   the screen can trust the geometry without a DOM.
+   #268: the three console compositions (Stage, Wall, List), the persisted
+   preference and the direction model they share. Pure functions only, so the
+   suite stays fast and the screen can trust the geometry without a DOM.
    -------------------------------------------------------------------------- */
 
 function memoryStorage(entries: Record<string, string> = {}): LayoutStorage & { entries: Map<string, string> } {
@@ -36,37 +36,47 @@ function memoryStorage(entries: Record<string, string> = {}): LayoutStorage & { 
   };
 }
 
-describe("big picture layout registry", () => {
-  it("lists the six layouts in switch order, shelf first", () => {
-    expect(BIG_PICTURE_LAYOUTS).toEqual(["shelf", "dock", "spotlight", "hero", "grid", "compact"]);
+describe("console composition registry", () => {
+  it("lists Stage, Wall and List, Stage first", () => {
+    expect(BIG_PICTURE_LAYOUTS).toEqual(["shelf", "grid", "compact"]);
     expect(DEFAULT_BIG_PICTURE_LAYOUT).toBe("shelf");
     expect(BIG_PICTURE_LAYOUTS).toContain(DEFAULT_BIG_PICTURE_LAYOUT);
   });
 
-  it("recognises the six ids and nothing else", () => {
+  it("recognises the three ids and nothing else", () => {
     for (const layout of BIG_PICTURE_LAYOUTS) expect(isBigPictureLayout(layout)).toBe(true);
-    for (const value of ["Shelf", "tiles", "", null, undefined, 3, {}]) {
+    for (const value of ["Stage", "tiles", "", null, undefined, 3, {}]) {
       expect(isBigPictureLayout(value)).toBe(false);
       expect(sanitizeLayout(value)).toBe("shelf");
     }
   });
 
-  it("keeps the registry order stable for the switcher and the settings cards", () => {
+  it("maps the four retired layouts onto the composition that replaces them", () => {
+    // The six-layout build stored one of these; an upgrade must not reset the
+    // player's choice, and the replacement is the closest reading of the shelf.
+    expect(sanitizeLayout("dock")).toBe("shelf");
+    expect(sanitizeLayout("spotlight")).toBe("shelf");
+    expect(sanitizeLayout("hero")).toBe("shelf");
+    expect(sanitizeLayout("grid")).toBe("grid");
+    expect(sanitizeLayout("compact")).toBe("compact");
+  });
+
+  it("keeps the registry order stable for the settings row", () => {
     expect(BIG_PICTURE_LAYOUTS.map((layout) => sanitizeLayout(layout))).toEqual([...BIG_PICTURE_LAYOUTS]);
     expect(new Set(BIG_PICTURE_LAYOUTS).size).toBe(BIG_PICTURE_LAYOUTS.length);
   });
 });
 
-describe("big picture layout persistence", () => {
-  it("defaults to shelf without storage", () => {
+describe("console composition persistence", () => {
+  it("defaults to Stage without storage", () => {
     expect(readLayout(null)).toBe("shelf");
     expect(readLayout(undefined)).toBe("shelf");
   });
 
-  it("reads a stored layout and ignores junk", () => {
+  it("reads a stored layout, migrates a retired one and ignores junk", () => {
     expect(readLayout(memoryStorage({ [BIG_PICTURE_LAYOUT_KEY]: "grid" }))).toBe("grid");
-    expect(readLayout(memoryStorage({ [BIG_PICTURE_LAYOUT_KEY]: "dock" }))).toBe("dock");
-    expect(readLayout(memoryStorage({ [BIG_PICTURE_LAYOUT_KEY]: "spotlight" }))).toBe("spotlight");
+    expect(readLayout(memoryStorage({ [BIG_PICTURE_LAYOUT_KEY]: "compact" }))).toBe("compact");
+    expect(readLayout(memoryStorage({ [BIG_PICTURE_LAYOUT_KEY]: "spotlight" }))).toBe("shelf");
     expect(readLayout(memoryStorage({ [BIG_PICTURE_LAYOUT_KEY]: "tiles" }))).toBe("shelf");
     expect(readLayout(memoryStorage({ [BIG_PICTURE_LAYOUT_KEY]: "" }))).toBe("shelf");
     expect(readLayout(memoryStorage())).toBe("shelf");
@@ -96,27 +106,27 @@ describe("big picture layout persistence", () => {
       },
     };
     expect(readLayout(blocked)).toBe("shelf");
-    expect(writeLayout(blocked, "hero")).toBe("hero");
+    expect(writeLayout(blocked, "grid")).toBe("grid");
   });
 });
 
 describe("grid geometry", () => {
   it("maps TV and laptop widths to cover columns", () => {
     expect(gridColumns(3840)).toBe(8);
-    expect(gridColumns(2560)).toBe(8);
-    expect(gridColumns(1920)).toBe(7);
-    expect(gridColumns(1680)).toBe(7);
-    expect(gridColumns(1366)).toBe(6);
-    expect(gridColumns(1024)).toBe(5);
-    expect(gridColumns(800)).toBe(4);
-    expect(gridColumns(520)).toBe(3);
+    expect(gridColumns(2560)).toBe(6);
+    expect(gridColumns(1920)).toBe(6);
+    expect(gridColumns(1680)).toBe(6);
+    expect(gridColumns(1366)).toBe(5);
+    expect(gridColumns(1024)).toBe(4);
+    expect(gridColumns(800)).toBe(3);
+    expect(gridColumns(520)).toBe(2);
     expect(gridColumns(390)).toBe(2);
   });
 
   it("falls back to the 1080p grid for a missing width", () => {
-    expect(gridColumns(0)).toBe(7);
-    expect(gridColumns(-1)).toBe(7);
-    expect(gridColumns(Number.NaN)).toBe(7);
+    expect(gridColumns(0)).toBe(6);
+    expect(gridColumns(-1)).toBe(6);
+    expect(gridColumns(Number.NaN)).toBe(6);
   });
 
   it("clamps the index into the list", () => {
@@ -155,55 +165,43 @@ describe("grid geometry", () => {
 describe("layout direction model", () => {
   const base = { index: 2, total: 10, columns: 5 };
 
-  it("moves a rail sideways and hands vertical travel to the shell", () => {
+  it("Stage: sideways walks the rail, Up is the actions, Down is the band", () => {
     expect(stepForLayout({ ...base, layout: "shelf", direction: "left" })).toEqual({ type: "move", index: 1 });
     expect(stepForLayout({ ...base, layout: "shelf", direction: "right" })).toEqual({ type: "move", index: 3 });
-    expect(stepForLayout({ ...base, layout: "shelf", direction: "up" })).toEqual({ type: "zone", target: "home" });
-    expect(stepForLayout({ ...base, layout: "shelf", direction: "down" })).toEqual({ type: "none" });
-    expect(stepForLayout({ ...base, layout: "hero", direction: "up" })).toEqual({ type: "zone", target: "home" });
-    expect(stepForLayout({ ...base, layout: "hero", direction: "down" })).toEqual({ type: "none" });
-  });
-
-  it("dock: Down enters the dock, Up is a dead end, Left/Right clamp", () => {
-    expect(stepForLayout({ ...base, layout: "dock", direction: "down" })).toEqual({ type: "zone", target: "home" });
-    expect(stepForLayout({ ...base, layout: "dock", direction: "up" })).toEqual({ type: "none" });
-    expect(stepForLayout({ ...base, layout: "dock", direction: "left" })).toEqual({ type: "move", index: 1 });
-    expect(stepForLayout({ ...base, layout: "dock", direction: "right" })).toEqual({ type: "move", index: 3 });
-    expect(stepForLayout({ ...base, index: 0, layout: "dock", direction: "left" })).toEqual({ type: "move", index: 0 });
-    expect(stepForLayout({ ...base, index: 9, layout: "dock", direction: "right" })).toEqual({ type: "move", index: 9 });
-  });
-
-  it("spotlight: Up reaches the icons, Down reaches the actions", () => {
-    expect(stepForLayout({ ...base, layout: "spotlight", direction: "up" })).toEqual({ type: "zone", target: "home" });
-    expect(stepForLayout({ ...base, layout: "spotlight", direction: "down" })).toEqual({
+    expect(stepForLayout({ ...base, layout: "shelf", direction: "up" })).toEqual({
       type: "zone",
       target: "actions",
     });
-    expect(stepForLayout({ ...base, layout: "spotlight", direction: "left" })).toEqual({ type: "move", index: 1 });
-    expect(stepForLayout({ ...base, layout: "spotlight", direction: "right" })).toEqual({ type: "move", index: 3 });
+    expect(stepForLayout({ ...base, layout: "shelf", direction: "down" })).toEqual({
+      type: "zone",
+      target: "home",
+    });
   });
 
-  it("walks the grid in both axes and leaves from the first row", () => {
+  it("Wall: rows inside the wall, actions above the first row, band under the last", () => {
     expect(stepForLayout({ ...base, layout: "grid", direction: "left" })).toEqual({ type: "move", index: 1 });
-    expect(stepForLayout({ ...base, layout: "grid", direction: "right" })).toEqual({ type: "move", index: 3 });
     expect(stepForLayout({ ...base, layout: "grid", direction: "down" })).toEqual({ type: "move", index: 7 });
     expect(stepForLayout({ ...base, index: 7, layout: "grid", direction: "up" })).toEqual({ type: "move", index: 2 });
     expect(stepForLayout({ ...base, index: 3, layout: "grid", direction: "up" })).toEqual({
       type: "zone",
-      target: "home",
+      target: "actions",
     });
     expect(stepForLayout({ ...base, index: 9, layout: "grid", direction: "down" })).toEqual({
-      type: "move",
-      index: 9,
+      type: "zone",
+      target: "home",
     });
   });
 
-  it("walks the list vertically and changes shelf sideways", () => {
+  it("List: rows vertically, shelves sideways, the same two exits", () => {
     expect(stepForLayout({ ...base, layout: "compact", direction: "down" })).toEqual({ type: "move", index: 3 });
     expect(stepForLayout({ ...base, layout: "compact", direction: "up" })).toEqual({ type: "move", index: 1 });
     expect(stepForLayout({ ...base, layout: "compact", direction: "left" })).toEqual({ type: "shelf", delta: -1 });
     expect(stepForLayout({ ...base, layout: "compact", direction: "right" })).toEqual({ type: "shelf", delta: 1 });
     expect(stepForLayout({ ...base, index: 0, layout: "compact", direction: "up" })).toEqual({
+      type: "zone",
+      target: "actions",
+    });
+    expect(stepForLayout({ ...base, index: 9, layout: "compact", direction: "down" })).toEqual({
       type: "zone",
       target: "home",
     });
@@ -218,8 +216,8 @@ describe("layout direction model", () => {
   });
 
   it("a zone step never changes the selected game", () => {
-    const zone = stepForLayout({ ...base, layout: "spotlight", direction: "down" });
-    expect(zone).toEqual({ type: "zone", target: "actions" });
+    const zone = stepForLayout({ ...base, layout: "shelf", direction: "down" });
+    expect(zone).toEqual({ type: "zone", target: "home" });
     expect("index" in zone).toBe(false);
   });
 });
@@ -231,18 +229,6 @@ describe("page jumps", () => {
     expect(pageStepForLayout({ ...base, layout: "shelf", direction: "right" })).toEqual({
       type: "move",
       index: 6 + RAIL_PAGE_STEP,
-    });
-    expect(pageStepForLayout({ ...base, layout: "hero", direction: "left" })).toEqual({
-      type: "move",
-      index: 6 - RAIL_PAGE_STEP,
-    });
-    expect(pageStepForLayout({ ...base, layout: "dock", direction: "right" })).toEqual({
-      type: "move",
-      index: 6 + RAIL_PAGE_STEP,
-    });
-    expect(pageStepForLayout({ ...base, layout: "spotlight", direction: "left" })).toEqual({
-      type: "move",
-      index: 6 - RAIL_PAGE_STEP,
     });
     expect(pageStepForLayout({ ...base, layout: "shelf", direction: "left", index: 1 })).toEqual({
       type: "move",

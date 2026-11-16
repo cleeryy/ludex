@@ -1,6 +1,5 @@
 import { memo, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { Gamepad2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   formatBytes,
@@ -16,34 +15,28 @@ import { t } from "@/lib/i18n";
 import type { GameSummary, InstallJob } from "@/lib/types";
 import { GameCover } from "@/components/art/cover";
 import { Kbd } from "@/components/ui/controls";
-import {
-  hintsFor,
-  padFamilyLabel,
-  type HintContext,
-  type HintId,
-  type PadFamily,
-} from "./controller";
+import { hintsFor, padFamilyLabel, type HintContext, type HintId, type PadFamily } from "./controller";
 import { reveal } from "./entrance";
 import type { BigPictureLayout } from "./layout";
 import { BOOT_DELAY, BOOT_DURATION } from "./motion";
 import type { BigPictureNavigation } from "./navigation";
 
 /* --------------------------------------------------------------------------
-   Pieces every Big Picture layout shares (#141): the selected game's meta
-   line, its progress sentence, the shelf tabs, the three card shapes and the
-   hint strip. Each layout composes these; none of them re-implements the
-   information or the focus ring, so the four layouts stay one product.
+   Pieces every console composition shares (#141, #268): the stage copy, the
+   chips, the card shapes, the bracket and the single hint strip.
+
+   Cabinet rules applied here once, so six components cannot drift:
+   - words are sentence case in the UI face; mono is only numerals and units;
+   - one bracket per selected object: a signal block on the leading edge and a
+     1px warm rim. No second outline, no glow;
+   - the caption sits under the selected cover only;
+   - `text-bp-meta` (24u) is the floor.
    -------------------------------------------------------------------------- */
 
 export function SelectedEyebrow({ game, className }: { game: GameSummary; className?: string }) {
   return (
-    <span
-      className={cn(
-        "flex items-center gap-2.5 font-mono text-bp-micro uppercase tracking-[0.16em] text-signal",
-        className,
-      )}
-    >
-      <span className="h-px w-8 bg-signal" aria-hidden="true" />
+    <span className={cn("flex items-center gap-2.5 text-bp-meta text-ink-2", className)}>
+      <span className="bp-dot" aria-hidden="true" />
       {game.lastPlayedAt ? t("Continue playing") : t("From the library")}
     </span>
   );
@@ -59,65 +52,86 @@ export function MetaLine({
   className?: string;
 }) {
   const minutes = formatMinutes(game.minutesPlayed);
+  const rating = formatRating(game.rating);
   return (
-    <div className={cn("flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-bp-meta text-stage-ink-2", className)}>
-      <span>{formatYear(game.releaseDate)}</span>
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-x-5 gap-y-1 text-bp-meta text-stage-ink-2",
+        className,
+      )}
+    >
+      <span className="num">{formatYear(game.releaseDate)}</span>
       <span>{stateLabel(game.state)}</span>
-      {formatRating(game.rating) && <span>{formatRating(game.rating)} / 100</span>}
-      {minutes && <span>{t("{duration} played", { duration: minutes })}</span>}
-      {game.lastPlayedAt && (
+      {rating && (
         <span>
-          {t("Last played")} {formatRelative(game.lastPlayedAt)}
+          <span className="num">{rating}</span> / <span className="num">100</span>
         </span>
       )}
-      {installed && <span className="text-stage-ok">{t("Installed")}</span>}
+      {minutes && (
+        <span>
+          <span className="num">{minutes}</span> {t("played")}
+        </span>
+      )}
+      {game.lastPlayedAt && (
+        <span>
+          {t("Last played")} <span className="num">{formatRelative(game.lastPlayedAt)}</span>
+        </span>
+      )}
+      {installed && <span>{t("Installed")}</span>}
     </div>
   );
 }
 
-export function ProgressLine({ job, percent, className }: { job: InstallJob; percent: number | null; className?: string }) {
+export function ProgressLine({
+  job,
+  percent,
+  className,
+}: {
+  job: InstallJob;
+  percent: number | null;
+  className?: string;
+}) {
   return (
-    <p className={cn("flex flex-wrap items-baseline gap-x-3 font-mono text-bp-meta text-stage-ink-2", className)}>
-      <span className="text-signal">{percent !== null ? formatPercent(percent) : t("Preparing")}</span>
+    <p className={cn("flex flex-wrap items-baseline gap-x-3 text-bp-meta text-stage-ink-2", className)}>
+      <span className="num text-signal-text">
+        {percent !== null ? formatPercent(percent) : t("Preparing")}
+      </span>
       {job.bytesTotal && (
-        <span>{t("{done} of {total}", { done: formatBytes(job.bytesDone), total: formatBytes(job.bytesTotal) })}</span>
+        <span>
+          <span className="num">{formatBytes(job.bytesDone)}</span> {t("of")}{" "}
+          <span className="num">{formatBytes(job.bytesTotal)}</span>
+        </span>
       )}
-      {job.speedBps > 0 && <span>{formatSpeed(job.speedBps)}</span>}
+      {job.speedBps > 0 && <span className="num">{formatSpeed(job.speedBps)}</span>}
     </p>
   );
 }
 
 export function ActionRow({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("flex flex-wrap items-center gap-2", className)}>{children}</div>;
+  return <div className={cn("flex flex-wrap items-center gap-3", className)}>{children}</div>;
 }
 
-/* ---------------------------------- tabs ---------------------------------- */
+/* ---------------------------------- chips --------------------------------- */
 
 /**
- * Shelf tabs. Shoulders switch them, the arrows do in the rail layouts, and a
- * mouse can click one. They are not in the gamepad target list: the library's
- * focus model is one ring on one game, and moving it into the chrome would
- * make B ambiguous.
+ * Shelf chips: Recent, All games, then Collections. They are not in the gamepad
+ * target list — the library's focus model is one ring on one game — but they
+ * are real buttons for a mouse and a keyboard, and shoulders still switch them.
  */
-export function ShelfTabs({
+export function ShelfChips({
   nav,
-  dense = false,
+  onOpenCollections,
   className,
 }: {
   nav: BigPictureNavigation;
-  /** Rail layouts put the tabs inside the rail header: shorter, no extra rule. */
-  dense?: boolean;
+  onOpenCollections?: () => void;
   className?: string;
 }) {
   return (
     <div
       role="group"
       aria-label={t("Shelves")}
-      className={cn(
-        "nav-scroll flex shrink-0 items-stretch gap-1 overflow-x-auto",
-        dense ? "h-[calc(var(--bp-u)*40)] px-0" : "bp-tabs-strip h-[calc(var(--bp-u)*56)] border-b border-line bp-pad-x",
-        className,
-      )}
+      className={cn("nav-scroll flex shrink-0 items-center gap-2 overflow-x-auto", className)}
     >
       {nav.shelves.map((shelf, position) => {
         const active = position === nav.shelfIndex;
@@ -129,24 +143,27 @@ export function ShelfTabs({
             data-bp-tab-active={active ? "true" : undefined}
             onClick={() => nav.selectShelf(position)}
             className={cn(
-              "bp-tab inline-flex shrink-0 items-center gap-2",
-              dense ? "px-2 text-bp-meta" : "h-full px-3 text-bp-meta",
-              active ? "text-ink" : "text-ink-3 hover:text-ink-2",
+              "bp-chip inline-flex shrink-0 items-center gap-2",
+              active
+                ? "border-line-2 bg-surface-2 text-ink"
+                : "border-transparent text-ink-3 hover:text-ink-2",
             )}
           >
-            <span>{shelf.label}</span>
-            <span className={cn("num text-bp-micro", active ? "text-signal-text" : "text-ink-3")}>
+            <span className="truncate">{shelf.label}</span>
+            <span className={cn("num", active ? "text-signal-text" : "text-ink-3")}>
               {shelf.games.length}
             </span>
           </button>
         );
       })}
-      {!dense && (
-        <span className="ms-auto hidden items-center gap-1.5 self-center pe-2 font-mono text-bp-micro uppercase tracking-[0.12em] text-ink-3 md:flex">
-          <Kbd>LB</Kbd>
-          <Kbd>RB</Kbd>
-          {t("shelf")}
-        </span>
+      {onOpenCollections && (
+        <button
+          type="button"
+          onClick={onOpenCollections}
+          className="bp-chip inline-flex shrink-0 items-center gap-2 border-transparent text-ink-3 hover:text-ink-2"
+        >
+          {t("Collections")}
+        </button>
       )}
     </div>
   );
@@ -154,83 +171,34 @@ export function ShelfTabs({
 
 /* --------------------------------- cards --------------------------------- */
 
-function InstalledDot({ className }: { className?: string }) {
-  return <span className={cn("absolute start-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-ok", className)} aria-hidden="true" />;
-}
-
 /**
- * The selection ring, hugging the cover (#141, #218). It is the only outline a
- * game card ever wears: cards carry `data-bp-card`, and the stylesheet turns
- * off both the global gamepad mark and `:focus-visible` on them so a pad move
- * can never paint a second ring over this one.
+ * The bracket (#268): a 6u signal block on the leading edge and a 1px warm rim.
+ * It is drawn by the selected object only, so a pad move can never paint a
+ * second outline over it.
  */
-function FocusRing({ overArt = false }: { overArt?: boolean }) {
+export function Bracket({ inset = false }: { inset?: boolean }) {
   return (
-    <span
-      aria-hidden="true"
-      data-bp-focus-ring="true"
-      className={cn(
-        "pointer-events-none absolute -inset-[4px] z-10 rounded-[var(--bp-radius-sm)] ring-2 ring-signal ring-offset-2",
-        overArt ? "ring-offset-stage" : "ring-offset-bg-deep",
-      )}
-    />
+    <>
+      <span aria-hidden="true" data-bp-bracket="true" />
+      <span aria-hidden="true" data-bp-rim="true" data-bp-rim-inset={inset ? "true" : undefined} />
+    </>
   );
 }
 
-/**
- * Focus behaviour per layout (#197). The rail is the original shelf card; the
- * Dock lifts and enlarges the selected tile; the Spotlight keeps it still and
- * lets the backdrop move. Both new variants show the caption under the
- * selected tile only, and never scale under reduced motion.
- */
-export type RailCardVariant = "rail" | "dock" | "spotlight";
-
-const RAIL_CARD_VARIANTS: Record<
-  RailCardVariant,
-  { selected: string; idle: string; caption: "always" | "selected" }
-> = {
-  rail: {
-    selected: "scale-[1.03] opacity-100",
-    idle: "opacity-70 hover:opacity-100",
-    caption: "always",
-  },
-  dock: {
-    selected:
-      "origin-bottom scale-[1.12] -translate-y-[4px] opacity-100 motion-reduce:scale-100 motion-reduce:translate-y-0",
-    idle: "origin-bottom opacity-55 hover:opacity-80",
-    caption: "selected",
-  },
-  spotlight: {
-    selected: "origin-bottom scale-[1.08] opacity-100 motion-reduce:scale-100",
-    idle: "origin-bottom opacity-50 hover:opacity-80",
-    caption: "selected",
-  },
-};
-
-/** Rail card, used by every horizontal layout. */
+/** Rail card: cover, and a caption under the selected cover only. */
 function RailCardBase({
   game,
   position,
   selected,
   nav,
-  installed,
   className,
-  variant = "rail",
 }: {
   game: GameSummary;
   position: number;
   selected: boolean;
   nav: BigPictureNavigation;
-  installed: boolean;
   className?: string;
-  variant?: RailCardVariant;
 }) {
-  const look = RAIL_CARD_VARIANTS[variant];
-  const captionVisible = look.caption === "always" || selected;
-  // Dock and Spotlight paint their captions over the artwork; Shelf, Grid and
-  // Hero paint them on the chrome. A light palette must not put ink on box art,
-  // so the two over-art variants use the stage text tokens (#229).
-  const overArt = variant !== "rail";
   return (
     <button
       type="button"
@@ -241,65 +209,46 @@ function RailCardBase({
       aria-current={selected ? "true" : undefined}
       aria-label={game.title}
       className={cn(
-        "group relative shrink-0 rounded-[var(--bp-radius-sm)] text-start bp-focus-move",
-        selected ? look.selected : look.idle,
+        "group relative shrink-0 text-start bp-focus-move bp-rail-card",
+        selected ? "opacity-100" : "opacity-70 hover:opacity-100",
         className,
       )}
     >
       <div className="relative block">
         <GameCover title={game.title} coverUrl={game.coverUrl} index={game.id} showType={false} />
-        {selected && <FocusRing overArt={overArt} />}
-        {installed && <InstalledDot />}
+        {selected && <Bracket />}
       </div>
       <span
+        aria-hidden={!selected}
         className={cn(
-          "mt-2 line-clamp-2 text-bp-meta leading-snug",
-          overArt
-            ? selected
-              ? "text-stage-ink"
-              : "text-stage-ink-2"
-            : selected
-              ? "text-ink"
-              : "text-ink-3",
-          !captionVisible && "opacity-0 group-hover:opacity-100 group-focus:opacity-100",
+          "mt-2 block truncate text-bp-meta leading-snug",
+          selected ? "text-ink" : "invisible",
         )}
       >
         {game.title}
-      </span>
-      <span
-        className={cn(
-          "num block truncate text-bp-micro",
-          overArt ? "text-stage-ink-2" : "text-ink-3",
-          !captionVisible && "opacity-0 group-hover:opacity-100 group-focus:opacity-100",
-        )}
-      >
-        {formatYear(game.releaseDate)}
-        {selected ? ` · ${stateLabel(game.state)}` : ""}
       </span>
     </button>
   );
 }
 
 /**
- * Memoised (#237): the console screen re-renders on every download sample while
- * an install runs. A card whose game/selection/install state did not change
- * keeps its DOM and its inline SVG cover.
+ * Memoised (#237): the screen re-renders on every download sample while an
+ * install runs. A card whose game/selection state did not change keeps its DOM
+ * and its inline SVG cover.
  */
 export const RailCard = memo(RailCardBase);
 
-/** Cover grid card: the caption sits under the plate, the ring hugs the plate. */
+/** Wall card: the caption sits under the plate, the bracket hugs the plate. */
 function GridCardBase({
   game,
   position,
   selected,
   nav,
-  installed,
 }: {
   game: GameSummary;
   position: number;
   selected: boolean;
   nav: BigPictureNavigation;
-  installed: boolean;
 }) {
   return (
     <button
@@ -312,19 +261,19 @@ function GridCardBase({
       aria-label={game.title}
       className="group relative flex w-full min-w-0 flex-col gap-1.5 text-start"
     >
-      <div
-        className="relative block"
-        data-bp-zone-item="true"
-        data-bp-zone-active={selected ? "true" : undefined}
-      >
+      <div className="relative block" data-bp-zone-item="true" data-bp-zone-active={selected ? "true" : undefined}>
         <GameCover title={game.title} coverUrl={game.coverUrl} index={game.id} showType={false} />
-        {selected && <FocusRing />}
-        {installed && <InstalledDot />}
+        {selected && <Bracket />}
       </div>
-      <span className={cn("line-clamp-2 text-bp-meta leading-snug", selected ? "text-ink" : "text-ink-2")}>
+      <span
+        className={cn(
+          "line-clamp-2 min-h-[2.5em] text-bp-meta leading-snug",
+          selected ? "text-ink" : "text-ink-2",
+        )}
+      >
         {game.title}
       </span>
-      <span className="num block truncate text-bp-micro text-ink-3">
+      <span className="num block truncate text-bp-meta text-ink-3">
         {formatYear(game.releaseDate)}
         {selected ? ` · ${stateLabel(game.state)}` : ""}
       </span>
@@ -334,13 +283,12 @@ function GridCardBase({
 
 export const GridCard = memo(GridCardBase);
 
-/** One dense list row: index, plate, title, state, live progress. */
-function CompactRowBase({
+/** One list row: plate, title, state, live progress. No index, no second ring. */
+function ListRowBase({
   game,
   position,
   selected,
   nav,
-  installed,
   job,
   percent,
 }: {
@@ -348,7 +296,6 @@ function CompactRowBase({
   position: number;
   selected: boolean;
   nav: BigPictureNavigation;
-  installed: boolean;
   job: InstallJob | undefined;
   percent: number | null;
 }) {
@@ -364,46 +311,46 @@ function CompactRowBase({
       aria-label={game.title}
       data-bp-row="true"
       className={cn(
-        "group relative flex w-full items-center gap-3.5 px-4 py-2 text-start transition-colors duration-150 lg:gap-4 lg:px-5",
+        "group relative flex w-full items-center gap-4 px-4 py-2.5 text-start",
         selected ? "bg-surface-2" : "hover:bg-surface/70",
       )}
     >
-      <span className={cn("num w-6 shrink-0 text-bp-meta", selected ? "text-signal-text" : "text-ink-3")}>
-        {String(position + 1).padStart(2, "0")}
-      </span>
-      <div className="relative block h-[46px] w-[34px] shrink-0">
+      <div className="relative block h-[calc(var(--bp-u)*52)] w-[calc(var(--bp-u)*39)] shrink-0">
         <GameCover title={game.title} coverUrl={game.coverUrl} index={game.id} showType={false} />
-        {installed && <InstalledDot className="start-1 top-1" />}
       </div>
       <span className="min-w-0 flex-1">
         <span className={cn("block truncate text-bp-body leading-tight", selected ? "text-ink" : "text-ink-2")}>
           {game.title}
         </span>
-        <span className="num mt-0.5 block truncate text-bp-micro text-ink-3">
-          {formatYear(game.releaseDate)} · {stateLabel(game.state)}
-          {minutes ? ` · ${t("{duration} played", { duration: minutes })}` : ""}
+        <span className="mt-1 block truncate text-bp-meta text-ink-3">
+          <span className="num">{formatYear(game.releaseDate)}</span> · {stateLabel(game.state)}
+          {minutes ? (
+            <>
+              {" · "}
+              <span className="num">{minutes}</span> {t("played")}
+            </>
+          ) : null}
         </span>
       </span>
       {job && (
-        <span className="num shrink-0 text-bp-meta text-signal">{percent !== null ? formatPercent(percent) : t("Preparing")}</span>
+        <span className="num shrink-0 text-bp-meta text-signal-text">
+          {percent !== null ? formatPercent(percent) : t("Preparing")}
+        </span>
       )}
       {selected && (
-        <>
-          <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 start-0 w-[3px] bg-signal" />
-          <span aria-hidden="true" className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-signal" />
-        </>
+        <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 start-0 w-[calc(var(--bp-u)*3)] bg-signal" />
       )}
     </button>
   );
 }
 
-export const CompactRow = memo(CompactRowBase);
+export const ListRow = memo(ListRowBase);
 
 /* --------------------------------- footer --------------------------------- */
 
 function Hint({ keys, children }: { keys: ReactNode; children: ReactNode }) {
   return (
-    <span className="flex items-center gap-1.5">
+    <span className="flex items-center gap-2 text-bp-meta">
       {keys}
       {children}
     </span>
@@ -434,12 +381,7 @@ const HINT_COPY: Record<HintId, () => string> = {
   tabs: () => t("Tabs"),
 };
 
-/**
- * The hint strip (#138). It reads the same registry as the input router, so a
- * context can never advertise a button it does not honour: the library, the
- * quick switcher and every overlay pass their own context, and a DualSense
- * names Cross where an Xbox names A.
- */
+/** One hint strip, max three hints, ordered by frequency (A first). */
 export function HintStrip({
   context,
   layout,
@@ -455,9 +397,9 @@ export function HintStrip({
   swapAB?: boolean;
   className?: string;
 }) {
-  const hints = hintsFor(context, { layout, family, connected, swapAB });
+  const hints = hintsFor(context, { layout, family, connected, swapAB }).slice(0, 3);
   return (
-    <div className={cn("flex flex-wrap items-center gap-x-4 gap-y-1", className)}>
+    <div className={cn("flex flex-wrap items-center gap-x-5 gap-y-1", className)}>
       {hints.map((hint) => (
         <Hint key={hint.id} keys={hint.keys.map((key) => <Kbd key={key}>{key}</Kbd>)}>
           {HINT_COPY[hint.id]()}
@@ -468,9 +410,9 @@ export function HintStrip({
 }
 
 /**
- * The Big Picture footer: contextual hints on the left, the active pad and
- * profile on the right — the profile indicator a player needs to know which
- * mapping is driving the screen (#138).
+ * The console footer: one hint strip on the left, the active pad on the right.
+ * When a sheet is open the screen hides this footer, so a surface can never show
+ * two strips.
  */
 export function BigPictureFooter({
   layout,
@@ -485,9 +427,7 @@ export function BigPictureFooter({
   layout: BigPictureLayout;
   connected: boolean;
   family: PadFamily;
-  /** Nintendo-style A/B swap: the hint labels follow the mapping (#230). */
   swapAB?: boolean;
-  /** Active controller profile name, shown as the indicator. */
   profileName: string;
   context: HintContext;
   haptics: boolean;
@@ -496,20 +436,22 @@ export function BigPictureFooter({
   const reduceMotion = useReducedMotion();
   return (
     <motion.footer
+      data-bp-footer="true"
+      data-bp-bleed-bottom="true"
       className={cn(
-        "relative z-10 flex min-h-10 shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-t py-1.5 bp-chrome bp-pad-x text-bp-meta text-ink-3",
+        "relative z-10 flex min-h-10 shrink-0 flex-wrap items-center gap-x-6 gap-y-1 border-t pt-2 text-bp-meta text-ink-3 bp-chrome bp-pad-x",
         className,
       )}
       {...reveal(reduceMotion, { y: 6, delay: BOOT_DELAY.footer, duration: BOOT_DURATION })}
     >
-      <HintStrip context={context} layout={layout} connected={connected} family={family} swapAB={swapAB} className="text-bp-body" />
-      <span className="ms-auto hidden items-center gap-1.5 font-mono text-bp-micro uppercase tracking-[0.12em] xl:flex">
-        <Gamepad2 className="size-3.5" aria-hidden="true" />
+      <HintStrip context={context} layout={layout} connected={connected} family={family} swapAB={swapAB} />
+      <span className="ms-auto hidden items-center gap-2 xl:flex">
         {connected ? (
           <>
+            <span className="bp-dot" aria-hidden="true" />
             <span className="text-ink-2">{padFamilyLabel(family)}</span>
             <span aria-hidden="true">·</span>
-            <span className="max-w-[18ch] truncate normal-case tracking-normal text-ink-3">{profileName}</span>
+            <span className="max-w-[18ch] truncate">{profileName}</span>
             {haptics && <span className="text-signal-text">{t("vibration")}</span>}
           </>
         ) : (

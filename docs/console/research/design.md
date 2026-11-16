@@ -1,5 +1,11 @@
 # Ludex Console 2.0 — brand and UX blueprint
 
+> **Status:** the Cabinet system shipped in #268. Rooms replaced presets, the
+> six layouts became Stage / Wall / List, and the 20u type step is gone. Read
+> "Shipped in #268" in [the blueprint](../README.md) before quoting a preset or
+> a layout from this research record; the decisions here are the rationale, not
+> the current API.
+
 **Author:** Designer (read-only turn). No repository files were modified.
 **Date:** 2026-11-16. **Repo:** `7199a2c` + `#237` merged (Studio default, 10-foot type, pad escape).
 **Scope:** product identity, Console 2.0 visual language, design system, IA, screen blueprints, customization, motion/sound, implementation plan.
