@@ -87,6 +87,9 @@ const IntegrationsScreen = lazy(() =>
 const BackupsScreen = lazy(() =>
   import("@/screens/admin/backups").then((module) => ({ default: module.BackupsScreen })),
 );
+const ExtractedCacheScreen = lazy(() =>
+  import("@/screens/admin/cache").then((module) => ({ default: module.ExtractedCacheScreen })),
+);
 const UploadScreen = lazy(() =>
   import("@/screens/admin/upload").then((module) => ({ default: module.UploadScreen })),
 );
@@ -458,6 +461,14 @@ export function App() {
                     element={
                       <RequireAdmin>
                         <ObservabilityScreen />
+                      </RequireAdmin>
+                    }
+                  />
+                  <Route
+                    path="admin/cache"
+                    element={
+                      <RequireAdmin>
+                        <ExtractedCacheScreen />
                       </RequireAdmin>
                     }
                   />

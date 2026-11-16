@@ -27,6 +27,7 @@ import type {
   BackupRestoreInput,
   BackupRestoreResult,
   BackupVerification,
+  CacheOverview,
   Collection,
   CollectionGamesResponse,
   CollectionImportInput,
@@ -46,6 +47,7 @@ import type {
   Emulator,
   EmulatorDefault,
   EmulatorLaunch,
+  ExtractStatus,
   Friend,
   FriendRequest,
   FriendRequestInput,
@@ -660,6 +662,33 @@ export const api = {
       return;
     }
     await downloadFile(`/admin/backups/${encodeURIComponent(name)}/download`, name);
+  },
+
+  /* extracted cache (#231) */
+  /**
+   * Budget, usage and ready entries of the server's extracted cache. The
+   * overview is honest when the feature is off: `enabled: false`, no entries.
+   */
+  extractedCache(): Promise<CacheOverview> {
+    return USING_MOCKS
+      ? mockApi.extractedCache(tokenStore.get())
+      : request<CacheOverview>("/admin/extracted-cache");
+  },
+  /**
+   * Starts (or joins) the extraction of one version's archive. Calling it
+   * again is the status poll: the server dedupes a concurrent request, so the
+   * same route reports `queued`/`extracting`/`ready`/`failed`.
+   */
+  extractVersion(versionId: number): Promise<ExtractStatus> {
+    return USING_MOCKS
+      ? mockApi.extractVersion(tokenStore.get(), versionId)
+      : request<ExtractStatus>(`/admin/versions/${versionId}/extract`, { method: "POST" });
+  },
+  /** Drops one cache entry. `409 cache_entry_in_use` when it is being served. */
+  evictExtractedCache(sha256: string): Promise<void> {
+    return USING_MOCKS
+      ? mockApi.evictExtractedCache(tokenStore.get(), sha256)
+      : request(`/admin/extracted-cache/${encodeURIComponent(sha256)}`, { method: "DELETE" });
   },
 
   /* games */

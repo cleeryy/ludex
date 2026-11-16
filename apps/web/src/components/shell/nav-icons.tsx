@@ -3,6 +3,7 @@ import {
   Archive,
   Bookmark,
   Clock,
+  Database,
   Download,
   Film,
   Gamepad2,
@@ -48,6 +49,7 @@ const ICONS: Record<NavIconName, LucideIcon> = {
   server: Server,
   activity: Activity,
   backup: Archive,
+  cache: Database,
   settings: Settings,
 };
 

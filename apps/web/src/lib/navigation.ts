@@ -32,6 +32,7 @@ export type NavIconName =
   | "authentication"
   | "server"
   | "backup"
+  | "cache"
   | "activity"
   | "settings";
 
@@ -289,6 +290,14 @@ export const NAV_DESTINATIONS = [
     labelKey: "Backups",
     group: "admin",
     icon: "backup",
+    visibility: "admin",
+  },
+  {
+    id: "extracted-cache",
+    to: "/admin/cache",
+    labelKey: "Extracted cache",
+    group: "admin",
+    icon: "cache",
     visibility: "admin",
   },
   {

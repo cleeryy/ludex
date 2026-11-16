@@ -47,6 +47,7 @@ import {
   VirusTotalScanButton,
   worstReport,
 } from "@/components/admin/virustotal-scan";
+import { PrepareTransport } from "@/components/admin/prepare-transport";
 import { EmptyState, ErrorState, PageHeader } from "@/components/page";
 import { Badge, Button, Checkbox, Field, Input, Skeleton } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
@@ -118,10 +119,19 @@ function Drawer({
   onAction: (action: AdminBulkAction, ids: number[]) => void;
 }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const detail = useQuery({
     queryKey: qk.game.detail(row.id),
     queryFn: () => api.getGame(row.id),
     enabled: true,
+  });
+  // "Prepare file transport" is only meaningful when the server has a cache;
+  // the overview is the same key the cache screen reads, so it is fetched once.
+  const cache = useQuery({
+    queryKey: qk.admin.extractedCache,
+    queryFn: () => api.extractedCache(),
+    enabled: detail.isSuccess,
+    staleTime: 60_000,
   });
 
   return (
@@ -210,9 +220,9 @@ function Drawer({
           ) : (
             <div className="mt-2 flex flex-col divide-y divide-line border-y border-line">
               {[...(detail.data?.versions ?? []), ...(detail.data?.missingVersions ?? [])].map((version) => (
-                <div key={version.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2 text-[12px]">
+                <div key={version.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 py-2 text-[12px]">
                   <span className="min-w-0 break-all font-mono text-[11.5px]">{version.fileName}</span>
-                  <span className="flex items-center gap-2">
+                  <span className="flex flex-wrap items-center justify-end gap-2">
                     {version.missing ? (
                       <Badge tone="danger">{t("Missing")}</Badge>
                     ) : version.rootUnavailable ? (
@@ -220,6 +230,21 @@ function Drawer({
                     ) : (
                       <Badge tone="outline">{formatBytes(version.size)}</Badge>
                     )}
+                    <PrepareTransport
+                      versionId={version.id}
+                      archiveFormat={version.archiveFormat}
+                      cacheEnabled={cache.data?.enabled ?? false}
+                      cacheKnown={!cache.isPending}
+                      cacheError={cache.isError ? errorMessage(cache.error) : null}
+                      unavailableReason={
+                        version.missing
+                          ? t("This version is no longer available")
+                          : version.rootUnavailable
+                            ? t("The library root holding this archive is offline")
+                            : null
+                      }
+                      onReady={() => void queryClient.invalidateQueries({ queryKey: qk.admin.extractedCache })}
+                    />
                   </span>
                 </div>
               ))}
