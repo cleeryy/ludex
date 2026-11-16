@@ -98,6 +98,31 @@ without reading logs.
 - Switching between stable and early persists the channel and re-checks
   immediately. Early installs show the edge warning in the center.
 
+### Desktop database schema across channels
+
+The desktop index (SQLite) is migrated forward automatically, with two
+safeguards that the release process relies on:
+
+- **Before the first migration statement**, the app writes a snapshot next to
+  the database: `index-backup-<UTC stamp>-v<old version>.db` (the three newest
+  are kept, older ones are pruned). The snapshot uses `VACUUM INTO`, so it is a
+  consistent file even with WAL active, and a failed migration rollback uses the
+  database itself (DDL is transactional since v0.4.x). A migration that fails
+  leaves the file at its old `user_version` and retries on the next launch; the
+  snapshot is the manual escape hatch when retries keep failing.
+- **A newer database is refused, never downgraded.** Going from `edge` back to
+  `stable` (or installing an older release) opens a file whose `user_version`
+  is higher than the build supports. The app shows
+  "This library was opened by a newer Ludex (database version N, this build
+  supports M)" and names the backup folder. To recover: update back to the
+  newer build, or restore/copy a `<name>-backup-*.db` snapshot over the index
+  (or move the index aside to start with an empty library).
+
+When a release adds a desktop migration, state the new `SCHEMA_VERSION` in the
+changelog entry and keep the snapshot/prune behaviour covered by
+`db::tests::an_old_database_is_backed_up_then_migrated` and
+`db::tests::opening_a_newer_database_is_refused_with_a_recovery_path`.
+
 ### Windows install layout (updates, #186)
 
 A Windows update only works when the installer replaces the executable the app

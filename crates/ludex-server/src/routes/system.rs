@@ -136,7 +136,7 @@ async fn setup(
     .returning_id_optional(&mut transaction)
     .await
     .map_err(|error| {
-        if is_unique_violation(&error) {
+        if crate::db::is_unique_violation(&error) {
             ApiError::conflict("username_taken", "Username is already taken")
         } else {
             ApiError::from(error)
@@ -227,13 +227,4 @@ async fn config(State(state): State<AppState>) -> Result<Json<ServerConfig>, Api
         default_locale,
         parallel_parts_max: crate::download_limits::JOB_PARTS_MAX as u32,
     }))
-}
-
-/// Maps a SQLite unique-constraint failure to a conflict.
-#[must_use]
-pub(crate) fn is_unique_violation(error: &sqlx::Error) -> bool {
-    match error {
-        sqlx::Error::Database(database) => database.is_unique_violation(),
-        _ => false,
-    }
 }

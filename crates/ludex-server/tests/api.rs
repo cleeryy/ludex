@@ -712,6 +712,84 @@ async fn progress_bookmarks_playtime_and_stats() {
     server.stop().await;
 }
 
+/// The desktop outbox retries a playtime report until it is acknowledged; a
+/// retry after a crash between "server applied it" and "desktop marked it
+/// synced" must not add the minutes twice (Wave 2 data safety).
+#[tokio::test]
+async fn playtime_message_is_idempotent_and_legacy_reports_stay_additive() {
+    let server = TestServer::start().await;
+    let (token, _) = server.setup().await;
+    server.write_game("Hades (2020).zip", 1024 * 1024);
+    run_scan(&server, &token).await;
+
+    let (_, list) = server.get("/api/games?sort=title", Some(&token)).await;
+    let game_id = list["items"][0]["id"].as_i64().expect("game id");
+
+    let report = |message: Option<&str>| {
+        let mut body = json!({ "minutes": 30 });
+        if let Some(message) = message {
+            body["messageId"] = json!(message);
+        }
+        body
+    };
+
+    // First delivery applies.
+    let (status, progress) = server
+        .post(
+            &format!("/api/games/{game_id}/playtime"),
+            Some(&token),
+            Some(report(Some("session-1"))),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{progress}");
+    assert_eq!(progress["minutesPlayed"], 30);
+
+    // A replay of the same message is acknowledged without changing totals.
+    let (status, progress) = server
+        .post(
+            &format!("/api/games/{game_id}/playtime"),
+            Some(&token),
+            Some(report(Some("session-1"))),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{progress}");
+    assert_eq!(progress["minutesPlayed"], 30, "{progress}");
+
+    // A different message is a different session.
+    let (status, progress) = server
+        .post(
+            &format!("/api/games/{game_id}/playtime"),
+            Some(&token),
+            Some(report(Some("session-2"))),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{progress}");
+    assert_eq!(progress["minutesPlayed"], 60, "{progress}");
+
+    // Clients that send no message id keep the additive contract.
+    let (status, progress) = server
+        .post(
+            &format!("/api/games/{game_id}/playtime"),
+            Some(&token),
+            Some(report(None)),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{progress}");
+    assert_eq!(progress["minutesPlayed"], 90, "{progress}");
+
+    // Only two session rows exist: the replay never wrote one.
+    let (status, _) = server
+        .post(
+            &format!("/api/games/{game_id}/playtime"),
+            Some(&token),
+            Some(json!({ "minutes": 5, "messageId": "x".repeat(129) })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    server.stop().await;
+}
+
 #[tokio::test]
 async fn downloads_support_tickets_ranges_and_media_cache() {
     let server = TestServer::start().await;

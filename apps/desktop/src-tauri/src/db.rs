@@ -115,6 +115,8 @@ pub struct PendingSession {
     pub id: String,
     pub game_id: i64,
     pub minutes: i64,
+    /// Failed deliveries so far; drives the bounded backoff.
+    pub attempts: i64,
 }
 
 /// Projected rating cached by `protondb_rating` (#91).
@@ -130,7 +132,16 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 22;
+const SCHEMA_VERSION: i64 = 23;
+
+/// Pre-migration snapshots kept next to the database (`<name>-backup-<stamp>.db`).
+const BACKUP_RETENTION: usize = 3;
+
+/// Maximum failed deliveries for one playtime outbox message.
+///
+/// After this many failures the row keeps its minutes and its error but is no
+/// longer retried automatically; a later launch does not hammer a dead server.
+pub const PLAYTIME_SYNC_MAX_ATTEMPTS: i64 = 5;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -599,6 +610,30 @@ const SCHEMA_V22: &str = r#"
 ALTER TABLE install_manifests ADD COLUMN trusted_archive_sha256 TEXT;
 "#;
 
+/// The playtime outbox (Wave 2 data safety).
+///
+/// A finished session is written locally with `synced = 0` and only flipped to
+/// 1 once the server acknowledged it — the table *is* the queue, so a crash
+/// never loses minutes. These columns make a retry observable and bounded:
+///
+/// * `sync_attempts` counts failed deliveries (bounded budget, see
+///   `PLAYTIME_SYNC_MAX_ATTEMPTS`);
+/// * `sync_next_at` is the RFC 3339 instant of the next allowed attempt, so a
+///   server outage backs off instead of hammering;
+/// * `sync_error` keeps the last failure for the UI/support, never dropped
+///   because the row still holds unsent playtime.
+///
+/// `synced = 1` rows keep their columns for history; `mark_session_synced`
+/// clears them.
+const SCHEMA_V23: &str = r#"
+ALTER TABLE sessions ADD COLUMN sync_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE sessions ADD COLUMN sync_next_at  TEXT;
+ALTER TABLE sessions ADD COLUMN sync_error    TEXT;
+
+CREATE INDEX IF NOT EXISTS sessions_sync_due_idx
+    ON sessions (synced, sync_next_at);
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -641,134 +676,315 @@ pub fn open(path: &Path) -> Result<Connection, String> {
             "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;",
         )
         .map_err(|e| format!("Could not initialise the desktop database: {e}"))?;
-    migrate(&connection)?;
+    prepare_and_migrate(&connection, path)?;
     Ok(connection)
 }
 
-fn migrate(connection: &Connection) -> Result<(), String> {
-    let version: i64 = connection
+/// Refuses a downgrade, snapshots the file, then migrates.
+///
+/// Order matters: the version is read first (a newer file must never be
+/// touched), the snapshot is taken before any statement runs (a failed
+/// migration must always have a restore point), and only then does
+/// [`migrate`] open its transaction.
+fn prepare_and_migrate(connection: &Connection, path: &Path) -> Result<(), String> {
+    let version = read_user_version(connection)?;
+    if version > SCHEMA_VERSION {
+        return Err(downgrade_error(path, version));
+    }
+    if version >= SCHEMA_VERSION {
+        return Ok(());
+    }
+    backup_before_migration(connection, path, version)?;
+    migrate(connection)
+}
+
+/// Clear, actionable message for a database written by a newer build.
+///
+/// This is the edge-channel trap: the updater can move a user forward and then
+/// a stable build opens the same file. SQLite happily reads a newer schema, so
+/// without this guard the old code would run queries against columns it does
+/// not know and corrupt rows silently. Never auto-downgrade.
+fn downgrade_error(path: &Path, version: i64) -> String {
+    let location = path
+        .parent()
+        .map(|directory| directory.display().to_string())
+        .unwrap_or_else(|| path.display().to_string());
+    format!(
+        "This library was opened by a newer Ludex (database version {version}, this build supports {SCHEMA_VERSION}). \
+         Update Ludex to open it again. If you need to go back to an older build, restore one of the pre-migration \
+         backups from {location} (files named {prefix}*.db) over {} or move it aside to start with an empty library.",
+        path.file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| "the database".to_string()),
+        prefix = backup_prefix(path),
+    )
+}
+
+fn read_user_version(connection: &Connection) -> Result<i64, String> {
+    connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(|e| format!("Could not read the desktop database version: {e}"))?;
+        .map_err(|e| format!("Could not read the desktop database version: {e}"))
+}
 
-    if version < 1 {
-        connection
-            .execute_batch(SCHEMA_V1)
-            .map_err(|e| format!("Could not create the desktop database schema: {e}"))?;
-    }
-    if version < 2 {
-        connection
-            .execute_batch(SCHEMA_V2)
-            .map_err(|e| format!("Could not create the install job table: {e}"))?;
-    }
-    if version < 3 {
-        connection
-            .execute_batch(SCHEMA_V3)
-            .map_err(|e| format!("Could not create the install manifest table: {e}"))?;
-    }
-    if version < 4 {
-        connection
-            .execute_batch(SCHEMA_V4)
-            .map_err(|e| format!("Could not upgrade the desktop database for playtime: {e}"))?;
-    }
-    if version < 5 {
-        connection
-            .execute_batch(SCHEMA_V5)
-            .map_err(|e| format!("Could not add external imports to the desktop database: {e}"))?;
-    }
-    if version < 6 {
-        connection
-            .execute_batch(SCHEMA_V6)
-            .map_err(|e| format!("Could not add stream flags to the desktop database: {e}"))?;
-    }
-    if version < 7 {
-        connection
-            .execute_batch(SCHEMA_V7)
-            .map_err(|e| format!("Could not add Linux compatibility tables: {e}"))?;
-    }
-    if version < 8 {
-        connection
-            .execute_batch(SCHEMA_V8)
-            .map_err(|e| format!("Could not add save detection to the desktop database: {e}"))?;
-    }
-    if version < 9 {
-        connection
-            .execute_batch(SCHEMA_V9)
-            .map_err(|e| format!("Could not add cloud save sync to the desktop database: {e}"))?;
-    }
-    if version < 10 {
-        connection
-            .execute_batch(SCHEMA_V10)
-            .map_err(|e| format!("Could not add resumable stream checkpoints: {e}"))?;
-    }
-    if version < 11 {
-        connection
-            .execute_batch(SCHEMA_V11)
-            .map_err(|e| format!("Could not add game config edits to the desktop database: {e}"))?;
-    }
-    if version < 12 {
-        connection.execute_batch(SCHEMA_V12).map_err(|e| {
-            format!("Could not add common config fields to the desktop database: {e}")
-        })?;
-    }
-    if version < 13 {
-        connection
-            .execute_batch(SCHEMA_V13)
-            .map_err(|e| format!("Could not add save candidates to the desktop database: {e}"))?;
-    }
-    if version < 14 {
-        connection.execute_batch(SCHEMA_V14).map_err(|e| {
-            format!("Could not add automatic save-folder promotion to the desktop database: {e}")
-        })?;
-    }
-    if version < 15 {
-        connection
-            .execute_batch(SCHEMA_V15)
-            .map_err(|e| format!("Could not add runtime installs to the desktop database: {e}"))?;
-    }
-    if version < 16 {
-        connection.execute_batch(SCHEMA_V16).map_err(|e| {
-            format!("Could not add the launch working directory to the desktop database: {e}")
-        })?;
-    }
-    if version < 17 {
-        connection.execute_batch(SCHEMA_V17).map_err(|e| {
-            format!("Could not add resumable install parameters to the desktop database: {e}")
-        })?;
-    }
-    if version < 18 {
-        connection.execute_batch(SCHEMA_V18).map_err(|e| {
-            format!("Could not add the install queue order to the desktop database: {e}")
-        })?;
-    }
-    if version < 19 {
-        connection.execute_batch(SCHEMA_V19).map_err(|e| {
-            format!("Could not add the verified archive digest to the desktop database: {e}")
-        })?;
-    }
-    if version < 20 {
-        connection.execute_batch(SCHEMA_V20).map_err(|e| {
-            format!("Could not add file-manifest checkpoints to the desktop database: {e}")
-        })?;
-    }
-    if version < 21 {
-        connection.execute_batch(SCHEMA_V21).map_err(|e| {
-            format!("Could not add the startup resume circuit breaker to the desktop database: {e}")
-        })?;
-    }
-    if version < 22 {
-        connection.execute_batch(SCHEMA_V22).map_err(|e| {
-            format!("Could not add the trusted archive digest to the desktop database: {e}")
-        })?;
-    }
+/// `ludex-desktop-backup-<stamp>.db` next to `desktop.db`.
+fn backup_prefix(path: &Path) -> String {
+    let stem = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or_else(|| "ludex".to_string());
+    format!("{stem}-backup-")
+}
 
-    if version < SCHEMA_VERSION {
-        connection
-            .pragma_update(None, "user_version", SCHEMA_VERSION)
-            .map_err(|e| format!("Could not record the desktop database version: {e}"))?;
-    }
+/// In-memory databases have no file to snapshot (and `VACUUM INTO` would just
+/// waste a write); tests use them heavily.
+fn is_memory_database(path: &Path) -> bool {
+    let text = path.to_string_lossy();
+    text.is_empty()
+        || text == ":memory:"
+        || text.starts_with("file::memory:")
+        || text.contains("mode=memory")
+}
 
-    // Future migrations: bump SCHEMA_VERSION and add `if version < N` blocks.
+/// Snapshots the index with `VACUUM INTO` before a migration touches it.
+///
+/// Only the last [`BACKUP_RETENTION`] snapshots are kept. A failing backup
+/// aborts the migration on purpose: migrating without a restore point is how a
+/// half-applied schema becomes a permanent startup brick. A brand-new database
+/// (`version < 1`) is not backed up — there is nothing to lose yet.
+fn backup_before_migration(
+    connection: &Connection,
+    path: &Path,
+    version: i64,
+) -> Result<(), String> {
+    if version < 1 || is_memory_database(path) {
+        return Ok(());
+    }
+    let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%S%3fZ").to_string();
+    backup_with_stamp(connection, path, version, &stamp)
+}
+
+fn backup_with_stamp(
+    connection: &Connection,
+    path: &Path,
+    version: i64,
+    stamp: &str,
+) -> Result<(), String> {
+    let Some(directory) = path.parent() else {
+        return Ok(());
+    };
+    let target = directory.join(format!(
+        "{}{}-v{:04}.db",
+        backup_prefix(path),
+        stamp,
+        version
+    ));
+    connection
+        .execute("VACUUM INTO ?1", params![target.to_string_lossy()])
+        .map_err(|e| {
+            format!(
+                "Could not back up the desktop database before upgrading it ({}): {e}",
+                target.display()
+            )
+        })?;
+    prune_backups(directory, &backup_prefix(path));
     Ok(())
+}
+
+/// Keeps the newest [`BACKUP_RETENTION`] snapshots, deleting older ones.
+///
+/// Pruning is best-effort: a snapshot that cannot be removed is not a reason to
+/// fail startup.
+fn prune_backups(directory: &Path, prefix: &str) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    let mut backups: Vec<std::path::PathBuf> = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().starts_with(prefix))
+                .unwrap_or(false)
+                && path.extension().is_some_and(|extension| extension == "db")
+        })
+        .collect();
+    // Names start with the UTC stamp, so lexical order is chronological.
+    backups.sort();
+    while backups.len() > BACKUP_RETENTION {
+        let oldest = backups.remove(0);
+        let _ = std::fs::remove_file(oldest);
+    }
+}
+
+/// One schema step. The list is append-only: bump [`SCHEMA_VERSION`] and push
+/// an entry; never edit or reorder a shipped `SCHEMA_Vn`.
+struct Migration {
+    version: i64,
+    sql: &'static str,
+    /// Prefix of the user-facing error (`Could not <context>: <sqlite error>`).
+    context: &'static str,
+}
+
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        sql: SCHEMA_V1,
+        context: "create the desktop database schema",
+    },
+    Migration {
+        version: 2,
+        sql: SCHEMA_V2,
+        context: "create the install job table",
+    },
+    Migration {
+        version: 3,
+        sql: SCHEMA_V3,
+        context: "create the install manifest table",
+    },
+    Migration {
+        version: 4,
+        sql: SCHEMA_V4,
+        context: "upgrade the desktop database for playtime",
+    },
+    Migration {
+        version: 5,
+        sql: SCHEMA_V5,
+        context: "add external imports to the desktop database",
+    },
+    Migration {
+        version: 6,
+        sql: SCHEMA_V6,
+        context: "add stream flags to the desktop database",
+    },
+    Migration {
+        version: 7,
+        sql: SCHEMA_V7,
+        context: "add Linux compatibility tables",
+    },
+    Migration {
+        version: 8,
+        sql: SCHEMA_V8,
+        context: "add save detection to the desktop database",
+    },
+    Migration {
+        version: 9,
+        sql: SCHEMA_V9,
+        context: "add cloud save sync to the desktop database",
+    },
+    Migration {
+        version: 10,
+        sql: SCHEMA_V10,
+        context: "add resumable stream checkpoints",
+    },
+    Migration {
+        version: 11,
+        sql: SCHEMA_V11,
+        context: "add game config edits to the desktop database",
+    },
+    Migration {
+        version: 12,
+        sql: SCHEMA_V12,
+        context: "add common config fields to the desktop database",
+    },
+    Migration {
+        version: 13,
+        sql: SCHEMA_V13,
+        context: "add save candidates to the desktop database",
+    },
+    Migration {
+        version: 14,
+        sql: SCHEMA_V14,
+        context: "add automatic save-folder promotion to the desktop database",
+    },
+    Migration {
+        version: 15,
+        sql: SCHEMA_V15,
+        context: "add runtime installs to the desktop database",
+    },
+    Migration {
+        version: 16,
+        sql: SCHEMA_V16,
+        context: "add the launch working directory to the desktop database",
+    },
+    Migration {
+        version: 17,
+        sql: SCHEMA_V17,
+        context: "add resumable install parameters to the desktop database",
+    },
+    Migration {
+        version: 18,
+        sql: SCHEMA_V18,
+        context: "add the install queue order to the desktop database",
+    },
+    Migration {
+        version: 19,
+        sql: SCHEMA_V19,
+        context: "add the verified archive digest to the desktop database",
+    },
+    Migration {
+        version: 20,
+        sql: SCHEMA_V20,
+        context: "add file-manifest checkpoints to the desktop database",
+    },
+    Migration {
+        version: 21,
+        sql: SCHEMA_V21,
+        context: "add the startup resume circuit breaker to the desktop database",
+    },
+    Migration {
+        version: 22,
+        sql: SCHEMA_V22,
+        context: "add the trusted archive digest to the desktop database",
+    },
+    Migration {
+        version: 23,
+        sql: SCHEMA_V23,
+        context: "add the playtime outbox to the desktop database",
+    },
+];
+
+/// Applies every pending step in one transaction.
+///
+/// SQLite has transactional DDL, so a failure anywhere (disk full, a duplicate
+/// column left by an older crash, a corrupted page) rolls back both the schema
+/// and the `user_version` write. The next launch retries from the same
+/// version instead of re-running an `ALTER TABLE` that already half-applied.
+fn migrate(connection: &Connection) -> Result<(), String> {
+    migrate_with(connection, MIGRATIONS, SCHEMA_VERSION)
+}
+
+fn migrate_with(
+    connection: &Connection,
+    migrations: &[Migration],
+    target: i64,
+) -> Result<(), String> {
+    let version = read_user_version(connection)?;
+    if version > SCHEMA_VERSION {
+        // Same guard as `prepare_and_migrate`, for direct callers and tests.
+        return Err(format!(
+            "Refusing to migrate a desktop database at version {version}: this build supports {SCHEMA_VERSION}"
+        ));
+    }
+    if version >= target {
+        return Ok(());
+    }
+    let transaction = connection
+        .unchecked_transaction()
+        .map_err(|e| format!("Could not start the desktop database upgrade: {e}"))?;
+    for migration in migrations {
+        if migration.version <= target && version < migration.version {
+            transaction
+                .execute_batch(migration.sql)
+                .map_err(|e| format!("Could not {}: {e}", migration.context))?;
+        }
+    }
+    transaction
+        .pragma_update(None, "user_version", target)
+        .map_err(|e| format!("Could not record the desktop database version: {e}"))?;
+    transaction
+        .commit()
+        .map_err(|e| format!("Could not commit the desktop database upgrade: {e}"))
 }
 
 /// A fresh in-memory index with every migration applied. Tests only.
@@ -1411,18 +1627,36 @@ pub fn recent_sessions(
 }
 
 pub fn pending_sessions(connection: &Connection) -> Result<Vec<PendingSession>, String> {
+    pending_sessions_due(connection, &crate::util::now_rfc3339())
+}
+
+/// Sessions the outbox should deliver at `now` (RFC 3339, UTC).
+///
+/// A session enters the queue with `sync_attempts = 0`; after a failure it is
+/// retried only once `sync_next_at` is due. Rows whose attempt budget is spent
+/// (`sync_attempts` at the cap, `sync_next_at` cleared) are kept with their
+/// `sync_error` for support but are never retried automatically.
+pub fn pending_sessions_due(
+    connection: &Connection,
+    now: &str,
+) -> Result<Vec<PendingSession>, String> {
     let mut statement = connection
         .prepare(
-            "SELECT id, game_id, minutes FROM sessions WHERE synced = 0 AND minutes > 0 ORDER BY started_at ASC LIMIT 200",
+            "SELECT id, game_id, minutes, sync_attempts FROM sessions
+             WHERE synced = 0 AND minutes > 0
+               AND (sync_attempts = 0
+                    OR (sync_next_at IS NOT NULL AND sync_next_at <= ?1))
+             ORDER BY started_at ASC LIMIT 200",
         )
         .map_err(|e| format!("Could not read pending playtime: {e}"))?;
 
     let rows = statement
-        .query_map([], |row| {
+        .query_map(params![now], |row| {
             Ok(PendingSession {
                 id: row.get(0)?,
                 game_id: row.get(1)?,
                 minutes: row.get(2)?,
+                attempts: row.get(3)?,
             })
         })
         .map_err(|e| format!("Could not read pending playtime: {e}"))?;
@@ -1434,10 +1668,39 @@ pub fn pending_sessions(connection: &Connection) -> Result<Vec<PendingSession>, 
     Ok(sessions)
 }
 
+/// Marks one outbox message as acknowledged and clears its retry state.
+///
+/// The `synced = 0` guard makes a late duplicate a no-op: two workers that
+/// both delivered the same message cannot un-sync it.
 pub fn mark_session_synced(connection: &Connection, id: &str) -> Result<(), String> {
     connection
-        .execute("UPDATE sessions SET synced = 1 WHERE id = ?1", params![id])
+        .execute(
+            "UPDATE sessions SET synced = 1, sync_next_at = NULL, sync_error = NULL
+              WHERE id = ?1",
+            params![id],
+        )
         .map_err(|e| format!("Could not mark playtime as synced: {e}"))?;
+    Ok(())
+}
+
+/// Persists a failed delivery for the bounded retry worker.
+///
+/// `next_attempt_at = None` means the budget is spent (or the server rejected
+/// the message for good): the row keeps its error and is no longer picked up.
+pub fn record_session_sync_failure(
+    connection: &Connection,
+    id: &str,
+    attempts: i64,
+    next_attempt_at: Option<&str>,
+    error: &str,
+) -> Result<(), String> {
+    connection
+        .execute(
+            "UPDATE sessions SET sync_attempts = ?2, sync_next_at = ?3, sync_error = ?4
+              WHERE id = ?1 AND synced = 0",
+            params![id, attempts.max(0), next_attempt_at, error],
+        )
+        .map_err(|e| format!("Could not record the playtime retry: {e}"))?;
     Ok(())
 }
 
@@ -3875,30 +4138,9 @@ mod tests {
     use super::*;
 
     fn memory_database() -> Connection {
-        let connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch(SCHEMA_V1).unwrap();
-        connection.execute_batch(SCHEMA_V2).unwrap();
-        connection.execute_batch(SCHEMA_V3).unwrap();
-        connection.execute_batch(SCHEMA_V4).unwrap();
-        connection.execute_batch(SCHEMA_V5).unwrap();
-        connection.execute_batch(SCHEMA_V6).unwrap();
-        connection.execute_batch(SCHEMA_V7).unwrap();
-        connection.execute_batch(SCHEMA_V8).unwrap();
-        connection.execute_batch(SCHEMA_V9).unwrap();
-        connection.execute_batch(SCHEMA_V10).unwrap();
-        connection.execute_batch(SCHEMA_V11).unwrap();
-        connection.execute_batch(SCHEMA_V12).unwrap();
-        connection.execute_batch(SCHEMA_V13).unwrap();
-        connection.execute_batch(SCHEMA_V14).unwrap();
-        connection.execute_batch(SCHEMA_V15).unwrap();
-        connection.execute_batch(SCHEMA_V16).unwrap();
-        connection.execute_batch(SCHEMA_V17).unwrap();
-        connection.execute_batch(SCHEMA_V18).unwrap();
-        connection.execute_batch(SCHEMA_V19).unwrap();
-        connection.execute_batch(SCHEMA_V20).unwrap();
-        connection.execute_batch(SCHEMA_V21).unwrap();
-        connection.execute_batch(SCHEMA_V22).unwrap();
-        connection
+        // Always the real runner: a hand-written list of `SCHEMA_Vn` drifts the
+        // moment a migration is added.
+        open_in_memory_for_tests()
     }
 
     #[test]
@@ -4421,6 +4663,8 @@ mod tests {
                 .unwrap();
             assert_eq!(version, SCHEMA_VERSION);
         }
+        // A new database has nothing to lose: no snapshot is written.
+        assert!(backup_files(&root).is_empty());
         {
             let connection = open(&path).unwrap();
             let jobs: i64 = connection
@@ -5965,5 +6209,333 @@ mod tests {
         .unwrap();
         let ids: Vec<&str> = selected.iter().map(|row| row.job_id.as_str()).collect();
         assert_eq!(ids, vec!["job-interrupted"]);
+    }
+
+    /* ------------------------------------------- migration safety (Wave 2) */
+
+    fn temp_database_dir(label: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "ludex-db-{label}-{}",
+            crate::util::short_id(&uuid::Uuid::new_v4().to_string())
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn backup_files(directory: &Path) -> Vec<std::path::PathBuf> {
+        let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(directory)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .map(|name| name.to_string_lossy().contains("-backup-"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        files.sort();
+        files
+    }
+
+    #[test]
+    fn the_migration_table_covers_every_version_once() {
+        let versions: Vec<i64> = MIGRATIONS
+            .iter()
+            .map(|migration| migration.version)
+            .collect();
+        assert_eq!(
+            versions,
+            (1..=SCHEMA_VERSION).collect::<Vec<_>>(),
+            "bump SCHEMA_VERSION and append exactly one migration entry"
+        );
+    }
+
+    #[test]
+    fn opening_a_newer_database_is_refused_with_a_recovery_path() {
+        let root = temp_database_dir("newer");
+        let path = root.join("ludex-desktop.db");
+        let newer = SCHEMA_VERSION + 1;
+        {
+            let connection = Connection::open(&path).unwrap();
+            connection
+                .pragma_update(None, "user_version", newer)
+                .unwrap();
+        }
+
+        let error = open(&path).unwrap_err();
+        assert!(error.contains("newer Ludex"), "{error}");
+        assert!(error.contains(&format!("version {newer}")), "{error}");
+        assert!(
+            error.contains(&format!("supports {SCHEMA_VERSION}")),
+            "{error}"
+        );
+        // The message names the backup pattern, so a user can recover without
+        // reading source.
+        assert!(error.contains("-backup-"), "{error}");
+
+        // Nothing was migrated or downgraded behind the error.
+        let connection = Connection::open(&path).unwrap();
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, newer);
+        assert!(backup_files(&root).is_empty());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_failing_migration_rolls_back_the_schema_and_the_version() {
+        let connection = Connection::open_in_memory().unwrap();
+        let migrations = [
+            Migration {
+                version: 1,
+                sql: "CREATE TABLE kept (id INTEGER PRIMARY KEY);",
+                context: "create the kept table",
+            },
+            Migration {
+                version: 2,
+                sql: "CREATE TABLE later (id INTEGER PRIMARY KEY);
+                      CREATE TABLE later (id INTEGER PRIMARY KEY);",
+                context: "create the later table",
+            },
+        ];
+
+        let error = migrate_with(&connection, &migrations, 2).unwrap_err();
+        assert!(
+            error.contains("Could not create the later table"),
+            "{error}"
+        );
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 0, "a failed migration must not record a version");
+        let tables: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                  WHERE type = 'table' AND name IN ('kept', 'later')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 0, "no statement of the failed batch may survive");
+
+        // The same connection still migrates with the real list: a rollback
+        // leaves a retryable database, not a brick.
+        migrate(&connection).unwrap();
+    }
+
+    #[test]
+    fn an_old_database_is_backed_up_then_migrated() {
+        let root = temp_database_dir("fixture");
+        let path = root.join("ludex-desktop.db");
+        const FIXTURE_VERSION: i64 = 18;
+        {
+            let connection = Connection::open(&path).unwrap();
+            connection
+                .execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
+                .unwrap();
+            migrate_with(&connection, MIGRATIONS, FIXTURE_VERSION).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO installed_games
+                        (game_id, version_id, title, install_path, installed_at)
+                     VALUES (7, 1, 'Hades', '/games/hades', '2026-01-01T00:00:00Z')",
+                    [],
+                )
+                .unwrap();
+            let version: i64 = connection
+                .pragma_query_value(None, "user_version", |row| row.get(0))
+                .unwrap();
+            assert_eq!(version, FIXTURE_VERSION);
+        }
+
+        let connection = open(&path).unwrap();
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let title: String = connection
+            .query_row(
+                "SELECT title FROM installed_games WHERE game_id = 7",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(title, "Hades");
+        // The v23 outbox columns exist on the migrated fixture.
+        let outbox: Option<String> = connection
+            .query_row(
+                "SELECT sync_error FROM sessions WHERE id = 'missing'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .unwrap();
+        assert!(outbox.is_none());
+
+        let backups = backup_files(&root);
+        assert_eq!(backups.len(), 1, "{backups:?}");
+        assert!(
+            backups[0]
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .ends_with("-v0018.db"),
+            "{:?}",
+            backups[0]
+        );
+        // The snapshot is the pre-migration file: old version, old schema.
+        let snapshot = Connection::open(&backups[0]).unwrap();
+        let snapshot_version: i64 = snapshot
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(snapshot_version, FIXTURE_VERSION);
+
+        // Re-opening a current database never snapshots again.
+        drop(connection);
+        open(&path).unwrap();
+        assert_eq!(backup_files(&root).len(), 1);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn pre_migration_backups_are_pruned_to_the_retention_limit() {
+        let root = temp_database_dir("prune");
+        let path = root.join("ludex-desktop.db");
+        let connection = Connection::open(&path).unwrap();
+        migrate(&connection).unwrap();
+
+        for stamp in [
+            "20261101T000000000Z",
+            "20261102T000000000Z",
+            "20261103T000000000Z",
+            "20261104T000000000Z",
+            "20261105T000000000Z",
+        ] {
+            backup_with_stamp(&connection, &path, SCHEMA_VERSION - 1, stamp).unwrap();
+        }
+
+        let backups = backup_files(&root);
+        assert_eq!(backups.len(), BACKUP_RETENTION, "{backups:?}");
+        assert!(backups[0]
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains("20261103T"));
+        assert!(backups[2]
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains("20261105T"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /* ---------------------------------------------- playtime outbox (Wave 2) */
+
+    fn finished_session(connection: &Connection, id: &str, game_id: i64, minutes: i64) {
+        insert_session(connection, id, game_id, "2026-11-16T10:00:00Z").unwrap();
+        finish_session(
+            connection,
+            id,
+            "2026-11-16T10:30:00Z",
+            minutes,
+            minutes * 60,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn playtime_outbox_respects_backoff_and_its_budget() {
+        let connection = memory_database();
+        finished_session(&connection, "session-a", 5, 30);
+
+        // A fresh session is due immediately.
+        let due = pending_sessions_due(&connection, "2026-11-16T11:00:00Z").unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].attempts, 0);
+
+        // One failure schedules the next attempt; the worker sees nothing
+        // before it and the row keeps its minutes.
+        record_session_sync_failure(
+            &connection,
+            "session-a",
+            1,
+            Some("2026-11-16T11:00:30Z"),
+            "server unreachable",
+        )
+        .unwrap();
+        assert!(pending_sessions_due(&connection, "2026-11-16T11:00:10Z")
+            .unwrap()
+            .is_empty());
+        let due = pending_sessions_due(&connection, "2026-11-16T11:00:30Z").unwrap();
+        assert_eq!(due[0].attempts, 1);
+
+        // The budget is spent: no further automatic attempt, but the message
+        // is still local (unsynced) with its error.
+        record_session_sync_failure(
+            &connection,
+            "session-a",
+            PLAYTIME_SYNC_MAX_ATTEMPTS,
+            None,
+            "server unreachable (automatic retries exhausted)",
+        )
+        .unwrap();
+        assert!(pending_sessions_due(&connection, "2027-01-01T00:00:00Z")
+            .unwrap()
+            .is_empty());
+        let (synced, minutes, error): (i64, i64, Option<String>) = connection
+            .query_row(
+                "SELECT synced, minutes, sync_error FROM sessions WHERE id = 'session-a'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(synced, 0);
+        assert_eq!(minutes, 30);
+        assert!(error.unwrap().contains("exhausted"));
+    }
+
+    #[test]
+    fn marking_a_session_synced_clears_its_retry_state() {
+        let connection = memory_database();
+        finished_session(&connection, "session-b", 6, 12);
+        record_session_sync_failure(
+            &connection,
+            "session-b",
+            2,
+            Some("2026-11-16T11:02:00Z"),
+            "timeout",
+        )
+        .unwrap();
+
+        mark_session_synced(&connection, "session-b").unwrap();
+
+        let (synced, next, error): (i64, Option<String>, Option<String>) = connection
+            .query_row(
+                "SELECT synced, sync_next_at, sync_error FROM sessions WHERE id = 'session-b'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(synced, 1);
+        assert!(next.is_none());
+        assert!(error.is_none());
+        assert!(pending_sessions_due(&connection, "2027-01-01T00:00:00Z")
+            .unwrap()
+            .is_empty());
+
+        // A late duplicate ack is a no-op, not an un-sync.
+        mark_session_synced(&connection, "session-b").unwrap();
+        let synced: i64 = connection
+            .query_row(
+                "SELECT synced FROM sessions WHERE id = 'session-b'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(synced, 1);
     }
 }

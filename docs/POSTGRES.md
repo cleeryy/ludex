@@ -84,7 +84,7 @@ PostgreSQL.
 ## Schema and migrations
 
 `crates/ludex-server/migrations_postgres/` mirrors `migrations/` (SQLite) version
-for version: `0001` … `0019`, same table names, same `_sqlx_migrations`
+for version: `0001` … `0034`, same table names, same `_sqlx_migrations`
 bookkeeping. The server selects the directory from the backend and applies
 pending migrations at startup, under a lock, exactly like SQLite.
 
@@ -121,6 +121,14 @@ really differ, the code branches on the backend:
 | Scalar `MAX(a, b)` | two-argument `MAX` | `CASE WHEN a > b THEN a ELSE b END` |
 | Generated ids | `RETURNING id` (SQLite 3.35+) | `RETURNING id` |
 | Boolean columns | `INTEGER` | `BIGINT` |
+| Unique violation | `SQLITE_CONSTRAINT` 1555/2067, "UNIQUE constraint failed: …" | SQLSTATE `23505` |
+
+Unique-violation detection is centralised in `db::is_unique_violation`; it reads
+the error code first and only falls back to the message text for engines that
+report none. Never match `"UNIQUE constraint failed"` in a route: that string
+does not exist on PostgreSQL, where the same conflict must still map to a
+`409`/`400` rather than a `500`. Multi-statement invariants go through
+`Database::with_tx`, which commits or rolls back on both backends.
 
 `crates/ludex-server/tests/postgres.rs` exercises migrations, setup, login, the
 game list and filters, stats, collections (including the case-insensitive

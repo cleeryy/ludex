@@ -429,6 +429,37 @@ async fn postgres_backend_covers_core_flows() {
     assert_eq!(count, 1);
     pool.close().await;
 
+    // Unique mapping on PostgreSQL: the same duplicate the desktop reports as
+    // a conflict must be recognised without the SQLite message text (Wave 2).
+    let pool = db::connect(&url).await.expect("pool");
+    let duplicate = db::query(
+        "INSERT INTO users (username, password_hash, role, activated, created_at, updated_at)
+         VALUES (?, 'x', 'user', 1, 'now', 'now')",
+    )
+    .bind("admin")
+    .execute(&pool)
+    .await
+    .expect_err("duplicate username");
+    assert!(
+        db::is_unique_violation(&duplicate),
+        "unique violation not recognised on PostgreSQL: {duplicate}"
+    );
+    let (code, message) = match &duplicate {
+        sqlx::Error::Database(database) => (
+            database.code().map(|code| code.to_string()),
+            database.message().to_string(),
+        ),
+        other => panic!("unexpected error shape: {other}"),
+    };
+    assert_eq!(code.as_deref(), Some("23505"));
+    assert!(
+        !message
+            .to_ascii_lowercase()
+            .contains("unique constraint failed"),
+        "this backend must be PostgreSQL, not SQLite: {message}"
+    );
+    pool.close().await;
+
     // Core gaming tables (#51/#52): emulator registry, case-insensitive name
     // uniqueness and controller profiles.
     let response = fixture
