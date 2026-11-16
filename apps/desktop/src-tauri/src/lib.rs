@@ -30,6 +30,7 @@ mod oidc_login;
 mod overlay;
 mod paths;
 mod pipeline;
+mod power;
 mod prefix;
 mod presence;
 mod process;
@@ -64,6 +65,7 @@ mod updates;
 mod util;
 mod webview_profile;
 mod window_focus;
+mod window_policy;
 
 use tauri::{Manager, RunEvent, WindowEvent};
 use tracing_subscriber::EnvFilter;
@@ -142,23 +144,22 @@ pub fn run() {
                 // Close-to-tray (#15) hides the main window instead of quitting;
                 // #228: closing the overlay must never hide Ludex. A console
                 // session (#172) has no tray and must close for real so Moonlight
-                // sees it end.
-                match overlay::close_request_action(
+                // sees it end. #269: the whole decision comes from one policy.
+                match window_policy::close_request_action(
                     window.label(),
-                    tray::close_to_tray(app),
-                    console::active(app),
+                    window_policy::current(app),
                 ) {
-                    overlay::CloseRequestAction::HideToTray => {
+                    window_policy::CloseAction::HideToTray => {
                         api.prevent_close();
                         tray::hide_window(app);
                     }
-                    overlay::CloseRequestAction::CloseOverlay => {
+                    window_policy::CloseAction::CloseOverlay => {
                         api.prevent_close();
                         if let Err(error) = overlay::close(app, "window") {
                             tracing::debug!(error = %error, "could not close the overlay window");
                         }
                     }
-                    overlay::CloseRequestAction::Close => {}
+                    window_policy::CloseAction::Close => {}
                 }
             }
         })
@@ -203,10 +204,11 @@ pub fn run() {
             if console_mode.active {
                 let _ = console::apply_window(app.handle());
             } else {
-                // Window chrome (#111): the base config is undecorated for Windows
-                // and Linux, so this only does work when the user asked for the
+                // Window chrome (#111) and fullscreen are applied from the one
+                // policy (#269): the base config is undecorated for Windows and
+                // Linux, so this only does work when the user asked for the
                 // native title bar back. macOS keeps its native chrome.
-                chrome::apply(app.handle(), settings.native_title_bar);
+                let _ = window_policy::apply(app.handle());
                 tray::init(app.handle()).map_err(std::io::Error::other)?;
             }
             // Discord Rich Presence (#12): off unless enabled in settings.
@@ -398,6 +400,10 @@ pub fn run() {
             commands::apply_account_preferences,
             commands::console_mode,
             commands::exit_console,
+            window_policy::window_state,
+            power::quit_app,
+            power::system_sleep,
+            power::sleep_capability,
             commands::sunshine_status,
             commands::sunshine_preview,
             commands::sunshine_sync,

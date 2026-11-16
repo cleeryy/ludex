@@ -2801,7 +2801,6 @@
   "Skipped": "スキップ済み",
   "Skips hidden entries, extracted game trees, Redist, Support, Tools and uninstallers.": "非表示のエントリ、抽出されたゲーム ツリー、Redist、サポート、ツール、およびアンインストーラーをスキップします。",
   "Skips the current wait and retries immediately": "現在の待機を飛ばしてすぐに再試行します",
-  "Sleep keeps the session running. Press a button on the controller to wake the PC.": "スリープ中もセッションは維持されます。コントローラーのボタンを押すと PC が起きます。",
   "Sleep this PC": "この PC をスリープ",
   "Smart": "頭いい",
   "Smart list": "スマートリスト",
@@ -3926,5 +3925,9 @@
   "“{query}”": "「{query}」",
   "“{title}” is already {source}. Linking this folder replaces that Ludex entry. Its files are left alone.": "「{title}」はすでに{source}になっています。このフォルダーをリンクすると、Ludex エントリが置き換えられます。そのファイルはそのまま残されます。",
   "“{token}” is not a hex colour with three or six digits.": "「{token}」は 3 桁または 6 桁の 16 進カラーではありません。",
-  "…and {count} more": "…そして{count} 詳細"
+  "…and {count} more": "…そして{count} 詳細",
+  "Quit {title} before sleeping this PC.": "この PC をスリープする前に {title} を終了してください。",
+  "Sleeps this PC until you wake it.": "この PC をスリープし、起こすまで停止します。",
+  "Sleeps this PC. {count} active download(s) pause until you wake it.": "この PC をスリープします。{count} 件のダウンロードは再開するまで一時停止します。",
+  "This machine cannot suspend.": "このマシンはスリープできません。"
 }

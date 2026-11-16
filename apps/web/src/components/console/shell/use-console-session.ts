@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { isNative, native } from "@/lib/native";
 import { t } from "@/lib/i18n";
+import { useWindowPolicy } from "@/lib/window-policy";
 import type { ConsoleStatus } from "@/lib/types";
-import { fullscreenRestoreOnExit, shouldEnterFullscreen } from "@/components/big-picture/fullscreen";
+import { bigPictureFullscreenPlan, fullscreenRestoreOnExit } from "@/components/big-picture/fullscreen";
 import { useConsoleNotice } from "@/components/console/surfaces/console-notice";
 
 /**
@@ -116,13 +117,25 @@ export function useConsoleSession(): ConsoleSession {
   }, []);
 
   // The console owns the OS window in the desktop app: enter real fullscreen on
-  // mount and hand the window back on the way out. In console mode (#172) the
-  // native window is already fullscreen — or was deliberately started windowed
-  // — so this only fills in for a manual visit.
+  // mount and hand the window back on the way out.
+  //
+  // #269: Rust resolves the window policy once (`window://state`); this reads it
+  // instead of re-deriving fullscreen from `console_mode()` plus
+  // `isFullscreen()` (#233). A console session — fullscreen or `--windowed` —
+  // owns its window and is never touched from here. With no policy (older
+  // desktop) the plan falls back to the pre-#269 console inference.
+  const windowPolicy = useWindowPolicy();
+  // A primitive: an unchanged plan must not re-run the effect when a settings
+  // save emits a new policy object.
+  const fullscreenPlan = bigPictureFullscreenPlan({
+    native: isNative(),
+    policy: windowPolicy,
+    legacyConsoleReady: consoleMode !== null,
+    legacyConsoleActive: consoleActive,
+    legacyConsoleFullscreen: consoleMode?.fullscreen === true,
+  });
   useEffect(() => {
-    if (!isNative()) return;
-    if (consoleMode === null) return;
-    if (consoleActive && !consoleMode.fullscreen) return;
+    if (fullscreenPlan !== "take-over") return;
     let unmounted = false;
     let wasFullscreen = false;
     let entered = false;
@@ -132,18 +145,7 @@ export function useConsoleSession(): ConsoleSession {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const win = getCurrentWindow();
         wasFullscreen = await win.isFullscreen();
-        if (unmounted) return;
-        if (
-          !shouldEnterFullscreen({
-            isNative: true,
-            consoleReady: true,
-            consoleActive,
-            consoleFullscreen: consoleMode?.fullscreen === true,
-            alreadyFullscreen: wasFullscreen,
-          })
-        ) {
-          return;
-        }
+        if (unmounted || wasFullscreen) return;
         await win.setFullscreen(true);
         entered = true;
       } catch (cause) {
@@ -174,7 +176,7 @@ export function useConsoleSession(): ConsoleSession {
         }
       });
     };
-  }, [notify, consoleMode, consoleActive]);
+  }, [notify, fullscreenPlan]);
 
   const exit = useCallback(() => {
     // A console session (#172) has one exit: quit back to the host desktop.

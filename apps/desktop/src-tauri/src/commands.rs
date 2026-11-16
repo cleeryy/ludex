@@ -45,6 +45,7 @@ use crate::streaming;
 use crate::updater::{self, UpdateStatus};
 use crate::updates::{self, GameUpdate};
 use crate::util::{merge_json, now_rfc3339};
+use crate::window_policy;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -125,6 +126,9 @@ pub fn save_settings(
     // The title bar preference is saved with the rest of the form; apply it so
     // the window never needs a restart (#111).
     chrome::apply(&app, saved.native_title_bar);
+    // #269: close-to-tray, native chrome and the overlay host are part of the
+    // window policy; the web shell reads the refreshed one instead of guessing.
+    window_policy::emit(&app);
     // #221/#222: a raised download concurrency or a new location can let a
     // queued install start right away instead of at the next completion.
     install::dispatch(&app);
@@ -144,6 +148,7 @@ pub fn set_native_title_bar(
 ) -> Result<LocalSettings, String> {
     let next = state.update_settings(|settings| settings.native_title_bar = enabled)?;
     chrome::apply(&app, next.native_title_bar);
+    window_policy::emit(&app);
     Ok(next)
 }
 

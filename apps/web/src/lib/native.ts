@@ -117,6 +117,28 @@ export function nativeUnavailable(): Error {
   return new Error(t("That needs the Ludex desktop app. The browser build can browse and download."));
 }
 
+/**
+ * The window policy resolved by Rust (#269). The web reads this instead of
+ * inferring fullscreen from `console_mode` plus `isFullscreen()` (#233).
+ */
+export interface WindowPolicy {
+  decorations: boolean;
+  fullscreen: boolean;
+  tray: boolean;
+  closeAction: "hideToTray" | "close" | "closeOverlay";
+  overlayHost: "inApp" | "window" | "disabled";
+}
+
+/**
+ * Whether this machine can suspend, and why not (#269). `backend` is the OS
+ * call behind the action; `reason` is the sentence the Power row shows.
+ */
+export interface SleepCapability {
+  available: boolean;
+  backend: string | null;
+  reason: string | null;
+}
+
 async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!isNative()) throw nativeUnavailable();
   const { invoke: call } = await import("@tauri-apps/api/core");
@@ -524,13 +546,9 @@ export const native = {
   },
 
   /**
-   * Quit the whole app from the console shell (#196).
-   *
-   * The desktop command `quit_app` is not implemented yet: this lane is the
-   * web surface and the Tauri registry is owned elsewhere. The bridge is wired
-   * now so the UI can report an honest "not available" instead of pretending
-   * the app closed; when `quit_app` lands (tray already exits with
-   * `app.exit(0)`), no web change is needed.
+   * Quit the whole app from the console shell (#196/#269). Installs are
+   * resumable, so the desktop does not block on them; the exit handler clears
+   * the resume markers and stops the embedded server.
    */
   async quitApp(): Promise<void> {
     if (!isNative()) throw nativeUnavailable();
@@ -538,13 +556,47 @@ export const native = {
   },
 
   /**
-   * Best-effort system sleep (#196). `system_sleep` is a pending desktop
-   * command with an OS capability probe; the console shows the action as
-   * unavailable rather than faking a power state until it exists.
+   * The OS sleep probe (#269). `null` when the desktop does not answer (an
+   * older build without `sleep_capability`): the row stays enabled and a real
+   * failure is reported on press, which is the pre-#269 behaviour.
    */
-  async systemSleep(): Promise<void> {
+  async sleepCapability(): Promise<SleepCapability | null> {
+    if (!isNative()) return null;
+    try {
+      return await invoke<SleepCapability>("sleep_capability");
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * Suspend the PC (#196/#269). Refused with a typed error while a game runs,
+   * and while installs are active unless `confirmActiveInstalls` says the
+   * confirmation modal was accepted (it defaults to Cancel).
+   */
+  async systemSleep(args: { confirmActiveInstalls?: boolean } = {}): Promise<void> {
     if (!isNative()) throw nativeUnavailable();
-    await invoke<null>("system_sleep");
+    await invoke<null>("system_sleep", {
+      confirmActiveInstalls: args.confirmActiveInstalls ?? false,
+    });
+  },
+
+  /**
+   * The window policy resolved by Rust (#269). `null` when the command is
+   * absent (older desktop): callers fall back to the pre-#269 inference.
+   */
+  async windowState(): Promise<WindowPolicy | null> {
+    if (!isNative()) return null;
+    try {
+      return await invoke<WindowPolicy>("window_state");
+    } catch {
+      return null;
+    }
+  },
+
+  /** Follow `window://state`: console promotion and settings changes (#269). */
+  onWindowState(handler: (policy: WindowPolicy) => void): Promise<() => void> {
+    return listen<WindowPolicy>("window://state", handler);
   },
 
   async listInstalled(): Promise<InstalledGame[]> {

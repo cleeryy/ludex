@@ -2801,7 +2801,6 @@
   "Skipped": "Übersprungen",
   "Skips hidden entries, extracted game trees, Redist, Support, Tools and uninstallers.": "Überspringt versteckte Einträge, extrahierte Spielbäume, Redist, Support, Tools und Deinstallationsprogramme.",
   "Skips the current wait and retries immediately": "Überspringt die aktuelle Wartezeit und wiederholt sofort",
-  "Sleep keeps the session running. Press a button on the controller to wake the PC.": "Der Ruhezustand hält die Sitzung am Laufen. Drücke eine Taste am Controller, um den PC zu wecken.",
   "Sleep this PC": "Diesen PC in den Ruhezustand versetzen",
   "Smart": "Schlau",
   "Smart list": "Intelligente Liste",
@@ -3926,5 +3925,9 @@
   "“{query}”": "„{query}“",
   "“{title}” is already {source}. Linking this folder replaces that Ludex entry. Its files are left alone.": "„{title}“ ist bereits {source}. Durch die Verknüpfung dieses Ordners wird dieser Ludex-Eintrag ersetzt. Seine Dateien bleiben in Ruhe.",
   "“{token}” is not a hex colour with three or six digits.": "„{token}“ ist keine Hexadezimalfarbe mit drei oder sechs Ziffern.",
-  "…and {count} more": "…und {count} mehr"
+  "…and {count} more": "…und {count} mehr",
+  "Quit {title} before sleeping this PC.": "{title} beenden, bevor dieser PC in den Ruhezustand geht.",
+  "Sleeps this PC until you wake it.": "Versetzt diesen PC in den Ruhezustand, bis du ihn aufweckst.",
+  "Sleeps this PC. {count} active download(s) pause until you wake it.": "Versetzt diesen PC in den Ruhezustand. {count} aktive Downloads pausieren, bis du ihn aufweckst.",
+  "This machine cannot suspend.": "Dieser Rechner kann nicht in den Ruhezustand wechseln."
 }

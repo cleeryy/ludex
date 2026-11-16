@@ -22,6 +22,12 @@ export interface PowerAction {
   reason?: string;
 }
 
+/** The OS sleep probe (#269); `available: false` carries the row reason. */
+export interface SleepAvailability {
+  available: boolean;
+  reason?: string | null;
+}
+
 export interface PowerContext {
   /** A native console session started by Sunshine. */
   console: boolean;
@@ -29,6 +35,16 @@ export interface PowerContext {
   native: boolean;
   /** Title of the game this Big Picture session launched, if any. */
   gameTitle: string | null;
+  /**
+   * Installs queued or in flight. Sleeping stops them until the machine wakes,
+   * so the row says so and the confirmation is required (#269).
+   */
+  activeInstalls?: number;
+  /**
+   * `null`/absent when the desktop did not answer (older build): the row stays
+   * enabled and a real failure is reported on press, as before #269.
+   */
+  sleep?: SleepAvailability | null;
 }
 
 const DESKTOP_ONLY = () => t("Only available in the desktop app.");
@@ -52,13 +68,29 @@ export function powerActions(context: PowerContext): PowerAction[] {
     });
   }
 
+  const installs = context.activeInstalls ?? 0;
+  // #269: the row is disabled with the real reason: the probe said so, or a
+  // game still runs (sleeping would drop the stream mid-session). The old copy
+  // promised controller wake, which no OS guarantees; it is gone.
+  const sleepReason = !context.native
+    ? DESKTOP_ONLY()
+    : context.gameTitle
+      ? t("Quit {title} before sleeping this PC.", { title: context.gameTitle })
+      : context.sleep && !context.sleep.available
+        ? context.sleep.reason?.trim() || t("This machine cannot suspend.")
+        : undefined;
   actions.push({
     id: "sleep",
     label: t("Sleep this PC"),
-    detail: t("Sleep keeps the session running. Press a button on the controller to wake the PC."),
+    detail:
+      installs > 0
+        ? t("Sleeps this PC. {count} active download(s) pause until you wake it.", {
+            count: installs,
+          })
+        : t("Sleeps this PC until you wake it."),
     tone: "default",
-    enabled: context.native,
-    reason: context.native ? undefined : DESKTOP_ONLY(),
+    enabled: !sleepReason,
+    reason: sleepReason,
   });
 
   actions.push({

@@ -232,27 +232,12 @@ pub fn active(app: &AppHandle) -> bool {
 /// Apply the console window: no decorations on any platform and fullscreen
 /// unless `--windowed` was passed. Best effort: a headless test run has no
 /// window and must not crash the app. Returns true when `main` existed.
+///
+/// #269: the window is configured by `window_policy::apply`, the single place
+/// that touches decorations and fullscreen; this keeps the console call sites
+/// (`promote`, `focus`, startup) unchanged.
 pub fn apply_window(app: &AppHandle) -> bool {
-    let mode = app
-        .try_state::<ConsoleSession>()
-        .map(|session| session.mode())
-        .unwrap_or_default();
-    if !mode.active {
-        return app.get_webview_window("main").is_some();
-    }
-    let Some(window) = app.get_webview_window("main") else {
-        tracing::warn!("console mode has no main window to configure yet");
-        return false;
-    };
-    if let Err(error) = window.set_decorations(false) {
-        tracing::warn!(error = %error, "could not remove the window decorations");
-    }
-    if mode.fullscreen {
-        if let Err(error) = window.set_fullscreen(true) {
-            tracing::warn!(error = %error, "could not enter fullscreen");
-        }
-    }
-    true
+    crate::window_policy::apply(app)
 }
 
 /// Promote the running desktop instance into a console session (#227).

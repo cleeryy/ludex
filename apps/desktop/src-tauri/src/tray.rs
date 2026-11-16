@@ -175,14 +175,6 @@ pub fn toggle_window(app: &AppHandle) {
     }
 }
 
-/// True when the user asked the window to close but Ludex should stay in the
-/// tray. Reads the live settings so a change applies without a restart.
-pub fn close_to_tray(app: &AppHandle) -> bool {
-    app.try_state::<AppState>()
-        .map(|state| state.settings_snapshot().close_to_tray)
-        .unwrap_or(false)
-}
-
 /// Rebuild the tray menu (recent games changed, installs finished, …).
 pub fn refresh_menu(app: &AppHandle) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {

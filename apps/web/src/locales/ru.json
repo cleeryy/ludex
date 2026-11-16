@@ -2801,7 +2801,6 @@
   "Skipped": "Пропущено",
   "Skips hidden entries, extracted game trees, Redist, Support, Tools and uninstallers.": "Пропускает скрытые записи, извлеченные деревья игр, Redist, поддержку, инструменты и программы удаления.",
   "Skips the current wait and retries immediately": "Пропускает текущее ожидание и повторяет сразу",
-  "Sleep keeps the session running. Press a button on the controller to wake the PC.": "Спящий режим сохраняет сеанс. Нажмите кнопку на контроллере, чтобы разбудить ПК.",
   "Sleep this PC": "Перевести этот ПК в спящий режим",
   "Smart": "Умный",
   "Smart list": "Умный список",
@@ -3926,5 +3925,9 @@
   "“{query}”": "«{query}»",
   "“{title}” is already {source}. Linking this folder replaces that Ludex entry. Its files are left alone.": "«{title}» — это уже {source}. Привязка этой папки заменяет запись Ludex. Его файлы остаются в покое.",
   "“{token}” is not a hex colour with three or six digits.": "«{token}» не является шестнадцатеричным цветом с тремя или шестью цифрами.",
-  "…and {count} more": "…и еще {count}"
+  "…and {count} more": "…и еще {count}",
+  "Quit {title} before sleeping this PC.": "Закройте {title} перед переводом этого ПК в спящий режим.",
+  "Sleeps this PC until you wake it.": "Переводит этот ПК в спящий режим, пока вы его не разбудите.",
+  "Sleeps this PC. {count} active download(s) pause until you wake it.": "Переводит этот ПК в спящий режим. {count} активных загрузок приостановятся до пробуждения.",
+  "This machine cannot suspend.": "Этот компьютер не поддерживает спящий режим."
 }

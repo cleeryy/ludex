@@ -2801,7 +2801,6 @@
   "Skipped": "건너뜀",
   "Skips hidden entries, extracted game trees, Redist, Support, Tools and uninstallers.": "숨겨진 항목, 추출된 게임 트리, Redist, 지원, 도구 및 제거 프로그램을 건너뜁니다.",
   "Skips the current wait and retries immediately": "현재 대기를 건너뛰고 즉시 재시도합니다",
-  "Sleep keeps the session running. Press a button on the controller to wake the PC.": "절전 모드에서도 세션이 유지됩니다. 컨트롤러 버튼을 누르면 PC가 깨어납니다.",
   "Sleep this PC": "이 PC 절전 모드로 전환",
   "Smart": "똑똑한",
   "Smart list": "스마트 목록",
@@ -3926,5 +3925,9 @@
   "“{query}”": "\"{query}\"",
   "“{title}” is already {source}. Linking this folder replaces that Ludex entry. Its files are left alone.": "\"{title}\"는 이미 {source}입니다. 이 폴더를 연결하면 해당 Ludex 항목이 대체됩니다. 해당 파일은 그대로 유지됩니다.",
   "“{token}” is not a hex colour with three or six digits.": "“{token}”는 3자리 또는 6자리의 헥스 컬러가 아닙니다.",
-  "…and {count} more": "...그리고 {count} 더보기"
+  "…and {count} more": "...그리고 {count} 더보기",
+  "Quit {title} before sleeping this PC.": "이 PC를 절전 모드로 전환하기 전에 {title}을(를) 종료하세요.",
+  "Sleeps this PC until you wake it.": "이 PC를 절전 모드로 전환하고, 깨울 때까지 유지합니다.",
+  "Sleeps this PC. {count} active download(s) pause until you wake it.": "이 PC를 절전 모드로 전환합니다. {count}개의 진행 중인 다운로드는 깨울 때까지 일시 중지됩니다.",
+  "This machine cannot suspend.": "이 기기는 절전 모드로 전환할 수 없습니다."
 }

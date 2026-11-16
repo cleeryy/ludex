@@ -2801,7 +2801,6 @@
   "Skipped": "Ignorado",
   "Skips hidden entries, extracted game trees, Redist, Support, Tools and uninstallers.": "Ignora entradas ocultas, árvores de jogo extraídas, Redist, Suporte, Ferramentas e desinstaladores.",
   "Skips the current wait and retries immediately": "Pula a espera atual e tenta novamente agora",
-  "Sleep keeps the session running. Press a button on the controller to wake the PC.": "A suspensão mantém a sessão ativa. Pressione um botão do controle para acordar o PC.",
   "Sleep this PC": "Suspender este PC",
   "Smart": "Inteligente",
   "Smart list": "Lista inteligente",
@@ -3926,5 +3925,9 @@
   "“{query}”": "“{query}”",
   "“{title}” is already {source}. Linking this folder replaces that Ludex entry. Its files are left alone.": "“{title}” já é {source}. Vincular esta pasta substitui a entrada Ludex. Seus arquivos são deixados sozinhos.",
   "“{token}” is not a hex colour with three or six digits.": "“{token}” não é uma cor hexadecimal com três ou seis dígitos.",
-  "…and {count} more": "…e {count} mais"
+  "…and {count} more": "…e {count} mais",
+  "Quit {title} before sleeping this PC.": "Feche {title} antes de suspender este PC.",
+  "Sleeps this PC until you wake it.": "Suspende este PC até você ativá-lo.",
+  "Sleeps this PC. {count} active download(s) pause until you wake it.": "Suspende este PC. Os {count} downloads ativos ficam pausados até você ativá-lo.",
+  "This machine cannot suspend.": "Esta máquina não pode ser suspensa."
 }
