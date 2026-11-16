@@ -28,6 +28,7 @@ import { Wordmark } from "@/components/brand";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { Button } from "@/components/ui/controls";
 import { ENTRANCE_MS } from "@/components/big-picture/entrance";
+import { fullscreenRestoreOnExit, shouldEnterFullscreen } from "@/components/big-picture/fullscreen";
 import {
   AUTO_PROFILE_ID,
   cycleHapticsStrength,
@@ -753,13 +754,26 @@ export function BigPictureScreen() {
     if (consoleMode === null) return;
     if (consoleActive && !consoleMode.fullscreen) return;
     let unmounted = false;
+    let wasFullscreen = false;
     let entered = false;
 
     const enter = async () => {
       try {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const win = getCurrentWindow();
-        if ((await win.isFullscreen()) || unmounted) return;
+        wasFullscreen = await win.isFullscreen();
+        if (unmounted) return;
+        if (
+          !shouldEnterFullscreen({
+            isNative: true,
+            consoleReady: true,
+            consoleActive,
+            consoleFullscreen: consoleMode?.fullscreen === true,
+            alreadyFullscreen: wasFullscreen,
+          })
+        ) {
+          return;
+        }
         await win.setFullscreen(true);
         entered = true;
       } catch (cause) {
@@ -778,11 +792,14 @@ export function BigPictureScreen() {
 
     // Every exit (Esc, Backspace, gamepad B, the Exit button, a route change or
     // launching a game) unmounts this screen. Cleanup waits for a still-running
-    // enter so it can restore only what Ludex itself took over.
+    // enter so it knows what the window looked like before Big Picture touched
+    // it, and hands it back in that state (#233). A window that was already
+    // fullscreen is returned windowed: this screen is one the user leaves, and
+    // staying fullscreen is what trapped them with no way out from inside.
     return () => {
       unmounted = true;
       void start.then(async () => {
-        if (!entered) return;
+        if (fullscreenRestoreOnExit({ wasFullscreen, entered }) !== "exit") return;
         try {
           const { getCurrentWindow } = await import("@tauri-apps/api/window");
           await getCurrentWindow().setFullscreen(false);

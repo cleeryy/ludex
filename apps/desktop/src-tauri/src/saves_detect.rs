@@ -48,7 +48,10 @@ const MAX_SAVE_FILES: u64 = 10_000;
 const MAX_SAVE_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const MAX_GLOB_MATCHES: usize = 256;
 const MAX_TEMPLATE_RESULTS: usize = 64;
-const MAX_MANIFEST_GAMES: usize = 50_000;
+/// Games the parser will accept. The published manifest reached 53,549 games on
+/// 2026-11-16, so the limit sits well above the current file while `MAX_MANIFEST_BYTES`
+/// stays the real memory guard.
+const MAX_MANIFEST_GAMES: usize = 200_000;
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_STORE_USER_IDS: usize = 4;
 const MAX_CLI_OUTPUT: u64 = 1024 * 1024;
@@ -1887,8 +1890,17 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
     }
 
     if games.len() > MAX_MANIFEST_GAMES {
-        return Err("The Ludusavi manifest lists too many games.".to_string());
+        return Err(format!(
+            "The Ludusavi manifest lists too many games to read safely ({} entries, limit {}). Update Ludex to a build with a higher limit, or add a save path manually.",
+            games.len(),
+            MAX_MANIFEST_GAMES
+        ));
     }
+    tracing::info!(
+        games = games.len(),
+        limit = MAX_MANIFEST_GAMES,
+        "parsed the Ludusavi manifest"
+    );
     Ok(Manifest { games })
 }
 
@@ -2792,6 +2804,10 @@ mod tests {
   steam:
     id: 1145360
 "#;
+
+    /// Top-level game count of the published manifest on 2026-11-16. The parser
+    /// must always accept at least this many entries.
+    const OFFICIAL_MANIFEST_GAMES: usize = 53_549;
 
     struct Fixture {
         root: PathBuf,
@@ -4085,6 +4101,34 @@ mod tests {
             .unwrap();
         assert_eq!(dismissed_store.auto_status, CANDIDATE_STATUS_SKIPPED);
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn official_manifest_size_parses() {
+        // The published manifest has 53,549 top-level games as of 2026-11-16,
+        // so a cap below that rejects the real file for every user.
+        let count = OFFICIAL_MANIFEST_GAMES;
+        let mut manifest = String::new();
+        for index in 0..count {
+            manifest.push_str(&format!(
+                "\"Game {index}\":\n  files:\n    - <winDocuments>/Game{index}\n"
+            ));
+        }
+        let parsed = parse_manifest(&manifest).expect("the official manifest size must parse");
+        assert_eq!(parsed.games.len(), count);
+    }
+
+    #[test]
+    fn an_oversized_manifest_is_still_rejected() {
+        let count = MAX_MANIFEST_GAMES + 1;
+        let mut manifest = String::new();
+        for index in 0..count {
+            manifest.push_str(&format!(
+                "\"Game {index}\":\n  files:\n    - <winDocuments>/Game{index}\n"
+            ));
+        }
+        let error = parse_manifest(&manifest).expect_err("an oversized manifest must be refused");
+        assert!(error.contains("too many games"), "{error}");
     }
 
     #[test]
