@@ -16,6 +16,7 @@ import { Badge, Button, Checkbox, Field, Input } from "@/components/ui/controls"
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/state/toasts";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 const KINDS: LocationKind[] = ["install", "download", "temp"];
 
@@ -26,7 +27,7 @@ const KINDS: LocationKind[] = ["install", "download", "temp"];
  */
 function SpaceLedgerSummary() {
   const { data } = useQuery({
-    queryKey: ["install-space-ledger"],
+    queryKey: qk.installSpaceLedger,
     queryFn: () => installBridge.spaceLedger(),
     refetchInterval: 10_000,
     staleTime: 5_000,

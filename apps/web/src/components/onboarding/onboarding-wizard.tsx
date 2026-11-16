@@ -29,6 +29,7 @@ import { useSettings } from "@/state/settings";
 import type { ThemeSelection } from "@/theme/types";
 import { Badge, Button, Kbd } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Optional first-run tour (#119). It is mounted by the app shell, opens once
@@ -56,17 +57,17 @@ export function OnboardingWizard() {
   const position = Math.max(0, visible.indexOf(step));
   const last = position >= visible.length - 1;
 
-  const folders = useQuery({ queryKey: ["folders"], queryFn: () => api.folders(), enabled: open, staleTime: 60_000 });
-  const stats = useQuery({ queryKey: ["stats"], queryFn: () => api.stats(), enabled: open, staleTime: 30_000 });
+  const folders = useQuery({ queryKey: qk.folders, queryFn: () => api.folders(), enabled: open, staleTime: 60_000 });
+  const stats = useQuery({ queryKey: qk.stats, queryFn: () => api.stats(), enabled: open, staleTime: 30_000 });
   const scan = useQuery({
-    queryKey: ["scan"],
+    queryKey: qk.scan,
     queryFn: () => api.scanStatus(),
     enabled: open,
     refetchInterval: (query) => (query.state.data?.running ? 4_000 : false),
   });
   const desktopAvailable = installsAvailable();
   const desktop = useQuery({
-    queryKey: ["desktop-settings"],
+    queryKey: qk.desktopSettings,
     queryFn: () => installBridge.settings(),
     enabled: open && desktopAvailable,
   });

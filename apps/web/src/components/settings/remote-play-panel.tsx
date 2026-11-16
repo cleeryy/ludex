@@ -37,6 +37,7 @@ import type {
 import { Badge, Button, Checkbox, Skeleton } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 const LEASE_OPTIONS = [1800, 3600, 7200];
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
@@ -76,7 +77,7 @@ export function RemotePlayPanel() {
   const [probePublic, setProbePublic] = useState(false);
 
   const statusQuery = useQuery({
-    queryKey: ["remote-play-status", probePublic],
+    queryKey: qk.remotePlayStatus(probePublic),
     queryFn: () => native.remotePlayStatus({ probePublic }),
     enabled: isNative(),
     retry: false,

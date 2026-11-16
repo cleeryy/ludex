@@ -10,6 +10,7 @@ import { Badge, Button, Field, Input, Skeleton, Switch } from "@/components/ui/c
 import { Select } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { formatDateValue, t, tn, tr } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 const DOCS_URL = "https://github.com/cleeryy/ludex/blob/main/docs/OIDC.md";
 
@@ -118,7 +119,7 @@ export function AuthenticationScreen() {
   const [resetOpen, setResetOpen] = useState(false);
 
   const { data, isPending, isError, error, refetch } = useQuery({
-    queryKey: ["admin-oidc"],
+    queryKey: qk.admin.oidc,
     queryFn: () => api.adminOidc(),
   });
 
@@ -158,8 +159,8 @@ export function AuthenticationScreen() {
     setClearSecret(false);
     setTestResult(null);
     setTestError(null);
-    queryClient.setQueryData(["admin-oidc"], result);
-    void queryClient.invalidateQueries({ queryKey: ["config"] });
+    queryClient.setQueryData(qk.admin.oidc, result);
+    void queryClient.invalidateQueries({ queryKey: qk.config });
   };
 
   const save = useMutation({
@@ -170,7 +171,7 @@ export function AuthenticationScreen() {
     },
     onError: (cause: Error) => {
       setTestError(null);
-      void queryClient.invalidateQueries({ queryKey: ["admin-oidc"] });
+      void queryClient.invalidateQueries({ queryKey: qk.admin.oidc });
       push({ title: t("Could not apply the OIDC settings"), description: cause.message, tone: "danger" });
     },
   });
@@ -180,13 +181,13 @@ export function AuthenticationScreen() {
     onSuccess: (result) => {
       setTestResult(result);
       setTestError(null);
-      void queryClient.invalidateQueries({ queryKey: ["admin-oidc"] });
+      void queryClient.invalidateQueries({ queryKey: qk.admin.oidc });
       push({ title: t("Discovery succeeded"), description: result.discovery.issuer });
     },
     onError: (cause: Error) => {
       setTestResult(null);
       setTestError(cause.message);
-      void queryClient.invalidateQueries({ queryKey: ["admin-oidc"] });
+      void queryClient.invalidateQueries({ queryKey: qk.admin.oidc });
     },
   });
 

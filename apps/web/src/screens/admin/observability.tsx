@@ -11,8 +11,7 @@ import {
   ShieldCheck,
   Webhook,
 } from "lucide-react";
-import { api, getApiBase } from "@/lib/api";
-import { toSafeUrl } from "@/lib/safe-url";
+import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { formatBytes, formatDate, formatRelative } from "@/lib/format";
 import { t } from "@/lib/i18n";
@@ -28,6 +27,7 @@ import type { ObservabilitySnapshot, ObservabilityWindow } from "@/lib/types";
 import { ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, IconButton, Segmented, Skeleton } from "@/components/ui/controls";
 import { cn } from "@/lib/cn";
+import { qk } from "@/lib/query-keys";
 
 function formatUptime(seconds: number): string {
   const days = Math.floor(seconds / 86_400);
@@ -525,7 +525,7 @@ function IntegrityPanel({ data }: { data: ObservabilitySnapshot }) {
 
 function LinksPanel({ data }: { data: ObservabilitySnapshot }) {
   // A link target is a URL sink: validate it like every other one (#266).
-  const metricsUrl = toSafeUrl(`${getApiBase()}/metrics`);
+  const metricsUrl = api.metricsUrl();
   const linkClass =
     "inline-flex items-center gap-1.5 text-[12.5px] text-ink-2 underline decoration-line-2 underline-offset-4 transition-colors duration-[120ms] hover:text-ink";
   return (
@@ -566,7 +566,7 @@ function LinksPanel({ data }: { data: ObservabilitySnapshot }) {
 export function ObservabilityScreen() {
   const [window, setWindow] = useState<ObservabilityWindow>("1h");
   const { data, isPending, isError, error, refetch, isFetching, dataUpdatedAt } = useQuery({
-    queryKey: ["observability", window],
+    queryKey: qk.observability(window),
     queryFn: () => api.adminObservability(window),
     refetchInterval: 30_000,
     staleTime: 10_000,

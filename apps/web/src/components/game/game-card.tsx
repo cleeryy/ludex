@@ -8,7 +8,7 @@ import { GameCover } from "@/components/art/cover";
 import { STATE_TONE } from "@/components/game/state";
 import { Tooltip } from "@/components/ui/tooltip";
 import { t } from "@/lib/i18n";
-import { useInstallingPercent } from "@/state/downloads";
+import { useInstallAction } from "@/lib/use-install-action";
 
 function GameCardBase({
   game,
@@ -31,9 +31,13 @@ function GameCardBase({
   onPlay?: () => void;
   onUpdate?: () => void;
 }) {
-  // Subscribed per card: a progress tick only repaints the card being
-  // installed, not the whole 200-card grid (#237).
-  const installing = useInstallingPercent(game.id);
+  // Subscribed per card (#237): the shared action matrix decides Play/Update,
+  // and a progress tick only repaints the card being installed.
+  const action = useInstallAction(game.id, {
+    installed: Boolean(installed),
+    update: Boolean(update),
+  });
+  const installing = action.percent;
   const played = formatMinutes(game.minutesPlayed);
 
   return (
@@ -60,7 +64,7 @@ function GameCardBase({
             {t("Missing")}
           </span>
         )}
-        {installing !== null && installing !== undefined ? (
+        {installing !== null ? (
           <span className="absolute left-2 top-2 z-[5] inline-flex h-5 items-center rounded-[2px] bg-signal px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-on-signal">
             {t("Installing {percent}", { percent: installing > 0 ? formatPercent(installing) : "" })}
           </span>
@@ -83,7 +87,7 @@ function GameCardBase({
             )}
           </span>
         ) : null}
-        {installing !== null && installing !== undefined && (
+        {installing !== null && (
           <span className="absolute inset-x-0 bottom-0 z-[5] h-[3px] bg-line/60" aria-hidden="true">
             <span className="block h-full bg-signal transition-[width] duration-500" style={{ width: `${installing}%` }} />
           </span>
@@ -115,7 +119,7 @@ function GameCardBase({
           </div>
         </div>
         <div className="-my-2 -mr-2 flex shrink-0 items-center">
-          {update && onUpdate && !installing && (
+          {update && action.update && onUpdate && !installing && (
             <Tooltip label={update.latestVersionLabel ? t("Update to {version}", { version: update.latestVersionLabel }) : t("Update")}>
               <button
                 type="button"
@@ -127,7 +131,7 @@ function GameCardBase({
               </button>
             </Tooltip>
           )}
-          {installed && !installing && onPlay && (
+          {action.kind === "play" && installing === null && onPlay && (
             <Tooltip label={t("Play")}>
               <button
                 type="button"

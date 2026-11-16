@@ -19,6 +19,7 @@ import {
 } from "@/lib/upload";
 import { useAuth, useIsEditor } from "@/state/auth";
 import { useToast } from "@/state/toasts";
+import { qk } from "@/lib/query-keys";
 
 interface UploadValue extends UploadSnapshot {
   selectFile: (file: File) => SelectResult;
@@ -62,9 +63,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       storage: browserStorage(),
       onComplete: (result) => {
         const { push: notify, queryClient: client } = handlers.current;
-        void client.invalidateQueries({ queryKey: ["games"] });
-        void client.invalidateQueries({ queryKey: ["stats"] });
-        void client.invalidateQueries({ queryKey: ["scan"] });
+        void client.invalidateQueries({ queryKey: qk.games.root });
+        void client.invalidateQueries({ queryKey: qk.stats });
+        void client.invalidateQueries({ queryKey: qk.scan });
         notify({
           title: t("Upload complete"),
           description: t("{file} is now in the library.", { file: result.fileName }),

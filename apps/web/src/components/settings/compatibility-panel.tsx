@@ -6,6 +6,7 @@ import { Button, Input } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { SectionHeader } from "@/components/page";
 import { t , tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Settings → Compatibility (#90).
@@ -22,7 +23,7 @@ export function CompatibilityPanel({
   update: (patch: Partial<LocalSettings>) => void;
 }) {
   const scan = useQuery({
-    queryKey: ["compat-scan"],
+    queryKey: qk.compatScan,
     queryFn: () => native.compatScan(),
     staleTime: 60_000,
     retry: false,

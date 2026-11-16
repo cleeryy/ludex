@@ -16,6 +16,7 @@ import { UserAvatar } from "@/components/community/user-avatar";
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Skeleton } from "@/components/ui/controls";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 export function ProfileScreen() {
   const { id } = useParams();
@@ -29,23 +30,23 @@ export function ProfileScreen() {
   const queryClient = useQueryClient();
 
   const profile = useQuery({
-    queryKey: ["community-user", userId],
+    queryKey: qk.community.user(userId),
     queryFn: () => api.communityUser(userId),
     enabled: Number.isFinite(userId),
   });
   const activity = useInfiniteQuery({
-    queryKey: ["community-user-activity", userId],
+    queryKey: qk.community.userActivity(userId),
     queryFn: ({ pageParam }) => api.communityUserActivity(userId, 20, pageParam),
     initialPageParam: undefined as number | undefined,
     getNextPageParam: (last) => last.nextBefore ?? undefined,
     enabled: Number.isFinite(userId) && !profile.isError,
   });
-  const friends = useQuery({ queryKey: ["friends"], queryFn: () => api.friends(), enabled: !own && Number.isFinite(userId) });
+  const friends = useQuery({ queryKey: qk.friends.root, queryFn: () => api.friends(), enabled: !own && Number.isFinite(userId) });
   const invalidateFriends = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["friends"] }),
-      queryClient.invalidateQueries({ queryKey: ["friends-presence"] }),
-      queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+      queryClient.invalidateQueries({ queryKey: qk.friends.root }),
+      queryClient.invalidateQueries({ queryKey: qk.friends.presence }),
+      queryClient.invalidateQueries({ queryKey: qk.notifications.root }),
     ]);
   };
   const addFriend = useMutation({ mutationFn: () => api.sendFriendRequest({ userId }), onSuccess: invalidateFriends });

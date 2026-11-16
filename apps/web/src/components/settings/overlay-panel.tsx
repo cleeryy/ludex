@@ -25,6 +25,7 @@ import { useToast } from "@/state/toasts";
 import { Badge, Button, Checkbox, Segmented } from "@/components/ui/controls";
 import { SettingsGroup, SettingsSwitchRow } from "@/components/settings/settings-section";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * In-game overlay settings (#144).
@@ -41,14 +42,14 @@ export function OverlayPanel() {
   const [saving, setSaving] = useState(false);
 
   const query = useQuery({
-    queryKey: ["overlay-status"],
+    queryKey: qk.overlay.status,
     queryFn: () => native.overlayStatus(),
     enabled: isNative(),
     refetchInterval: 5_000,
   });
 
   const installed = useQuery({
-    queryKey: ["overlay-installed"],
+    queryKey: qk.overlay.installed,
     queryFn: () => native.listInstalled(),
     enabled: isNative(),
     staleTime: 60_000,
@@ -72,7 +73,7 @@ export function OverlayPanel() {
     setSaving(true);
     try {
       await native.setOverlaySettings(patch);
-      await queryClient.invalidateQueries({ queryKey: ["overlay-status"] });
+      await queryClient.invalidateQueries({ queryKey: qk.overlay.status });
     } catch (cause) {
       push({
         title: t("Could not save the overlay setting"),
@@ -102,7 +103,7 @@ export function OverlayPanel() {
         windowError: opened.windowError ?? null,
         monitor: opened.monitor ?? null,
       });
-      await queryClient.invalidateQueries({ queryKey: ["overlay-status"] });
+      await queryClient.invalidateQueries({ queryKey: qk.overlay.status });
     } catch (cause) {
       setWindowTest({ windowCreated: false, windowVisible: false, windowError: errorMessage(cause) });
       push({
@@ -129,7 +130,7 @@ export function OverlayPanel() {
             : (detail ?? t("Opened inside Ludex.")),
         tone: "success",
       });
-      await queryClient.invalidateQueries({ queryKey: ["overlay-status"] });
+      await queryClient.invalidateQueries({ queryKey: qk.overlay.status });
     } catch (cause) {
       push({
         title: t("Could not open the overlay"),

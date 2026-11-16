@@ -23,6 +23,7 @@ import { useToast } from "@/state/toasts";
 import { Badge, Button, Checkbox, Input } from "@/components/ui/controls";
 import { Popover } from "@/components/ui/popover";
 import { cn } from "@/lib/cn";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Launcher discovery and import (#116) and the Steam library (#13).
@@ -67,7 +68,7 @@ export function LauncherImportPanel({
   const enabled = useMemo(() => new Set<LauncherId>(enabledIds), [enabledIds]);
 
   const titles = useQuery({
-    queryKey: ["library-titles"],
+    queryKey: qk.library.titles,
     queryFn: () => api.listGames({ limit: 400, sort: "title" }),
     enabled: isNative(),
     staleTime: 5 * 60_000,
@@ -184,9 +185,9 @@ export function LauncherImportPanel({
     setError(null);
     try {
       const report = await native.launcherImport(entries, enabledIds);
-      await queryClient.invalidateQueries({ queryKey: ["installed"] });
-      await queryClient.invalidateQueries({ queryKey: ["recent-games"] });
-      await queryClient.invalidateQueries({ queryKey: ["library"] });
+      await queryClient.invalidateQueries({ queryKey: qk.installed });
+      await queryClient.invalidateQueries({ queryKey: qk.recentGames.root });
+      await queryClient.invalidateQueries({ queryKey: qk.library.root });
       push({
         title: tn(
           report.imported.length,

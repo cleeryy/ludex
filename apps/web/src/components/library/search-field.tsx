@@ -9,6 +9,7 @@ import { highlightRange } from "@/lib/search";
 import type { GameSuggestion } from "@/lib/types";
 import { GameCover } from "@/components/art/cover";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 function Highlight({ text, query }: { text: string; query: string }) {
   const range = highlightRange(text, query);
@@ -76,7 +77,7 @@ export function LibrarySearch({
 
   const query = debounced.trim();
   const { data, isFetching } = useQuery({
-    queryKey: ["suggest", query],
+    queryKey: qk.suggest(query),
     queryFn: () => api.suggestGames(query, 8),
     enabled: open && query.length >= 2,
     staleTime: 30_000,

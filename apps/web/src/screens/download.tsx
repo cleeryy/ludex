@@ -21,6 +21,7 @@ import { SectionHeader } from "@/components/page";
 import { PublicPage } from "@/components/public-page";
 import { Badge, Skeleton } from "@/components/ui/controls";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 import {
   assetKindLabel,
   assetsForPlatform,
@@ -78,7 +79,7 @@ export function DownloadScreen() {
   const address = useMemo(serverAddress, []);
 
   const release = useQuery({
-    queryKey: desktopDownloadQueryKey(platform),
+    queryKey: qk.desktopDownload(platform),
     queryFn: () => api.desktopDownload(platform ?? undefined),
     staleTime: 5 * 60_000,
     retry: 1,
@@ -445,9 +446,4 @@ function PlatformCard({
       </ul>
     </article>
   );
-}
-
-/** Query key shared with any other surface that reads the download metadata. */
-export function desktopDownloadQueryKey(platform: DesktopPlatform | null): [string, string] {
-  return ["desktop-download", platform ?? "all"];
 }

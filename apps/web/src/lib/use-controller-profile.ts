@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api, tokenStore } from "@/lib/api";
 import { presetProfile } from "@/lib/controller-profiles";
 import type { ControllerProfile } from "@/lib/types";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Loads the effective controller profile for the current account and, when a
@@ -12,7 +13,7 @@ import type { ControllerProfile } from "@/lib/types";
  */
 export function useControllerProfile(gameId?: number | null): ControllerProfile {
   const profiles = useQuery({
-    queryKey: ["controller-profiles"],
+    queryKey: qk.controllerProfiles,
     queryFn: () => api.controllerProfiles(),
     // #267: the input provider mounts outside the auth gate (the floating
     // overlay tree has no AuthProvider), so gate on the stored token instead of

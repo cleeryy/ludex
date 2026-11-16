@@ -9,6 +9,7 @@ import { useToast } from "@/state/toasts";
 import { Button, Field, Input } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { t, tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /** Last path segment of a folder, for the typed confirmation. */
 export function folderBaseName(folder: string): string {
@@ -83,10 +84,10 @@ export function DeleteAdoptedDialog({
     setError(null);
     try {
       const result = await native.deleteAdoptedInstallation(gameId, preview.folder);
-      await queryClient.invalidateQueries({ queryKey: ["installed"] });
-      await queryClient.invalidateQueries({ queryKey: ["recent-games"] });
-      await queryClient.invalidateQueries({ queryKey: ["game", gameId] });
-      await queryClient.invalidateQueries({ queryKey: ["games"] });
+      await queryClient.invalidateQueries({ queryKey: qk.installed });
+      await queryClient.invalidateQueries({ queryKey: qk.recentGames.root });
+      await queryClient.invalidateQueries({ queryKey: qk.game.detail(gameId) });
+      await queryClient.invalidateQueries({ queryKey: qk.games.root });
       push({
         title: result.deleted ? t("{title} deleted", { title }) : t("{title} removed from Ludex", { title }),
         description: result.deleted

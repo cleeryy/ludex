@@ -1,4 +1,4 @@
-import { setApiBase, tokenStore } from "@/lib/api";
+import { probeHealth, setApiBase, tokenStore } from "@/lib/api";
 import { isNative, native } from "@/lib/native";
 import {
   activeStoredServer,
@@ -120,41 +120,32 @@ export async function testServer(url: string, token?: string | null): Promise<Se
       message: "That server address is not valid.",
     };
   }
-  const started = Date.now();
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8_000);
-    const response = await fetch(`${parsed.value}/api/health`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timeout));
-    const latencyMs = Date.now() - started;
-    const payload = (await response.json().catch(() => null)) as { version?: string } | null;
-    if (!response.ok) {
-      return {
-        ok: false,
-        status: response.status,
-        version: payload?.version ?? null,
-        latencyMs,
-        message: `The server answered with HTTP ${response.status}.`,
-      };
-    }
-    return {
-      ok: true,
-      status: response.status,
-      version: payload?.version ?? null,
-      latencyMs,
-      message: payload?.version
-        ? `Connected. Ludex ${payload.version} answered in ${latencyMs} ms.`
-        : `Connected in ${latencyMs} ms.`,
-    };
-  } catch {
+  const probe = await probeHealth(parsed.value, token ?? null);
+  if (!probe.reachable) {
     return {
       ok: false,
       status: null,
       version: null,
-      latencyMs: Date.now() - started,
+      latencyMs: probe.latencyMs,
       message: `Could not reach ${parsed.value}.`,
     };
   }
+  if (probe.status === null || probe.status < 200 || probe.status >= 300) {
+    return {
+      ok: false,
+      status: probe.status,
+      version: probe.version,
+      latencyMs: probe.latencyMs,
+      message: `The server answered with HTTP ${probe.status}.`,
+    };
+  }
+  return {
+    ok: true,
+    status: probe.status,
+    version: probe.version,
+    latencyMs: probe.latencyMs,
+    message: probe.version
+      ? `Connected. Ludex ${probe.version} answered in ${probe.latencyMs} ms.`
+      : `Connected in ${probe.latencyMs} ms.`,
+  };
 }

@@ -8,6 +8,7 @@ import { useToast } from "@/state/toasts";
 import { Badge, Button, Field, Input } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Desktop emulator registry (#52). Everything here is local to the machine:
@@ -17,7 +18,7 @@ import { t } from "@/lib/i18n";
 export function RomEmulatorsPanel() {
   const queryClient = useQueryClient();
   const { push } = useToast();
-  const settings = useQuery({ queryKey: ["rom-settings"], queryFn: () => native.getRomSettings() });
+  const settings = useQuery({ queryKey: qk.romSettings, queryFn: () => native.getRomSettings() });
   const [draft, setDraft] = useState<RomEmulator>({ id: "", name: "", command: "", platforms: [], enabled: true, builtin: false });
   const [platforms, setPlatforms] = useState("");
   const [validation, setValidation] = useState<{ valid: boolean; error?: string | null } | null>(null);
@@ -28,7 +29,7 @@ export function RomEmulatorsPanel() {
   }, [settings.data]);
 
   const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["rom-settings"] });
+    await queryClient.invalidateQueries({ queryKey: qk.romSettings });
   };
 
   const save = async (emulator: RomEmulator) => {

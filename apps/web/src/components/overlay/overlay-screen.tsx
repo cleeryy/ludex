@@ -22,6 +22,7 @@ import {
 } from "@/lib/overlay";
 import type { InstallJob, InstalledGame, OverlayStatus, OverlayTabId } from "@/lib/types";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * The in-game overlay (#144), rendered in two places from the same component:
@@ -82,7 +83,7 @@ export function OverlayScreen({ mode, onClose }: OverlayScreenProps) {
   const [confirmExit, setConfirmExit] = useState(false);
 
   const statusQuery = useQuery({
-    queryKey: ["overlay-status"],
+    queryKey: qk.overlay.status,
     queryFn: () => native.overlayStatus(),
     enabled: isNative(),
     refetchInterval: 2_000,
@@ -103,7 +104,7 @@ export function OverlayScreen({ mode, onClose }: OverlayScreenProps) {
     let off: (() => void) | undefined;
     void native.onOverlaySettings((status) => {
       // Immediate apply (opacity/scale/tabs); the poll stays as a safety net.
-      queryClient.setQueryData(["overlay-status"], status);
+      queryClient.setQueryData(qk.overlay.status, status);
     }).then((unlisten) => {
       if (disposed) unlisten();
       else off = unlisten;
@@ -477,7 +478,7 @@ function LibraryTab({
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const installed = useQuery({
-    queryKey: ["overlay-installed"],
+    queryKey: qk.overlay.installed,
     queryFn: () => native.listInstalled(),
     enabled: isNative(),
     staleTime: 30_000,
@@ -531,7 +532,7 @@ function LibraryTab({
 
 function DownloadsTab() {
   const jobs = useQuery({
-    queryKey: ["overlay-jobs"],
+    queryKey: qk.overlay.jobs,
     queryFn: () => native.listInstallJobs(),
     enabled: isNative(),
     refetchInterval: 2_500,
@@ -579,7 +580,7 @@ function DownloadsTab() {
 
 function AchievementsTab({ gameId }: { gameId: number | null }) {
   const achievements = useQuery({
-    queryKey: ["overlay-achievements", gameId],
+    queryKey: qk.overlay.achievements(gameId),
     queryFn: () => api.gameAchievements(gameId!),
     enabled: isNative() && Boolean(gameId && gameId > 0) && Boolean(tokenStore.get()),
     staleTime: 60_000,

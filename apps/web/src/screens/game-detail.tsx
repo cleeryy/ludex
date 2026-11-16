@@ -42,9 +42,10 @@ import { formatBytes, formatEta, formatMinutes, formatPercent, formatRating, for
 import { isNative, native } from "@/lib/native";
 import type { GameVersion, ProgressState } from "@/lib/types";
 import { useBookmark, useForceCloseGame, useGamePlaytime, useGameSession, useInstalledGames, useLaunchGame, useResumeGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
-import { heroAction, nextForceClosePhase, sessionForGame, type ForceClosePhase } from "@/lib/game-session";
+import { nextForceClosePhase, sessionForGame, type ForceClosePhase } from "@/lib/game-session";
 import { isRollbackInstall } from "@/lib/game-versions";
-import { useDownloadsActions, useJob, useResumableJob } from "@/state/downloads";
+import { useDownloadsActions, useJob } from "@/state/downloads";
+import { useInstallAction } from "@/lib/use-install-action";
 import { AchievementsPanel } from "@/components/game/achievements";
 import { RomPanel } from "@/components/game/rom-panel";
 import { ControllerPanel } from "@/components/settings/controller-panel";
@@ -85,6 +86,7 @@ import { Badge, Button, IconButton, Progress, Skeleton } from "@/components/ui/c
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { DropdownMenu, Select, useDropdown } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 const STATES: ProgressState[] = ["unplayed", "playing", "completed", "onHold", "abandoned", "planToPlay"];
 
@@ -134,7 +136,6 @@ export function GameDetailScreen() {
   const downloads = useDownloadsActions();
   // Both hooks must stay above the loading/error early returns.
   const activeJob = useJob(gameId);
-  const resumableJob = useResumableJob(gameId);
   const updates = useUpdateMap();
   const updateGame = useUpdateGame();
   const [installOpen, setInstallOpen] = useState(false);
@@ -149,7 +150,7 @@ export function GameDetailScreen() {
   const [streamOpen, setStreamOpen] = useState(false);
 
   const { data: game, isPending, isError, error, refetch } = useQuery({
-    queryKey: ["game", gameId],
+    queryKey: qk.game.detail(gameId),
     queryFn: () => api.getGame(gameId),
     enabled: Number.isFinite(gameId),
   });
@@ -173,7 +174,7 @@ export function GameDetailScreen() {
 
   // #98: the Stream action only appears once Sunshine has the game.
   const streamTarget = useQuery({
-    queryKey: ["stream-target", gameId],
+    queryKey: qk.streamTarget.forGame(gameId),
     queryFn: () => native.streamTarget(gameId),
     enabled: isNative() && Number.isFinite(gameId),
     retry: false,
@@ -200,6 +201,15 @@ export function GameDetailScreen() {
 
   const desktop = isNative();
   const isInstalled = game ? installed.get(game.id) : undefined;
+  // #237: one action matrix for the hero, the library card and the Console.
+  // Called above the early returns; the inputs are the queries already wired.
+  const action = useInstallAction(gameId, {
+    installed: Boolean(isInstalled),
+    update: Boolean(updates.get(gameId)),
+    running: Boolean(running),
+    desktop,
+    archiveAvailable: game ? game.versionCount > 0 : true,
+  });
   const sections = useMemo(
     () =>
       availableGameSections({
@@ -269,9 +279,9 @@ export function GameDetailScreen() {
   const setProgress = async (state: ProgressState) => {
     try {
       await api.setProgress(game.id, state);
-      void queryClient.invalidateQueries({ queryKey: ["game", game.id] });
-      void queryClient.invalidateQueries({ queryKey: ["games"] });
-      void queryClient.invalidateQueries({ queryKey: ["stats"] });
+      void queryClient.invalidateQueries({ queryKey: qk.game.detail(game.id) });
+      void queryClient.invalidateQueries({ queryKey: qk.games.root });
+      void queryClient.invalidateQueries({ queryKey: qk.stats });
     } catch (cause) {
       push({ title: t("Progress not saved"), description: errorMessage(cause), tone: "danger" });
     }
@@ -300,78 +310,57 @@ export function GameDetailScreen() {
     setInstallOpen(true);
   };
 
-  const action = heroAction({
-    running: Boolean(running),
-    desktop,
-    installed: Boolean(isInstalled),
-    activeJobPhase: activeJob?.phase ?? null,
-    hasActiveJob: Boolean(activeJob),
-    hasResumableJob: Boolean(resumableJob),
-  });
-  // Same rule as the pre-#191 hero: a paused active job first, then a
-  // resumable history entry.
-  const resumeJob = activeJob?.phase === "paused" ? activeJob : resumableJob;
-
-  // With no available archive the hero offers no download or install (#210);
-  // Play/Resume stay because they belong to a local installation.
-  const archiveActions = game.versionCount > 0;
-  const primary =
-    !(action === "play" || action === "resume" || archiveActions) ? null :
-    action === "resume" ? (
-      <Button
-        variant="primary"
-        size="lg"
-        icon={<MonitorUp className="size-4" />}
-        loading={resume.isPending}
-        onClick={() => resume.mutate(game.id)}
-      >
-        {t("Resume")}
-      </Button>
-    ) : action === "play" ? (
-      <Button
-        variant="primary"
-        size="lg"
-        icon={<Play className="size-4" />}
-        onClick={() => launch.mutate({ id: game.id, title: game.title, executable: isInstalled?.executable ?? game.launch.executable })}
-      >
-        {t("Play")}
-      </Button>
-    ) : action === "resumeInstall" ? (
-      <Button
-        variant="default"
-        size="lg"
-        icon={<Download className="size-4" />}
-        onClick={() =>
-          void downloads.resume(resumeJob!, {
+  const runPrimary = () => {
+    switch (action.intent) {
+      case "resume-session":
+        resume.mutate(game.id);
+        break;
+      case "play":
+        launch.mutate({ id: game.id, title: game.title, executable: isInstalled?.executable ?? game.launch.executable });
+        break;
+      case "open-downloads":
+        navigate("/downloads");
+        break;
+      case "install":
+        requestInstall();
+        break;
+      case "download":
+        void download();
+        break;
+      case "resume-install":
+        if (action.job) {
+          void downloads.resume(action.job, {
             title: game.title,
             version: version?.version,
             executable: game.launch.executable,
-          })
+          });
         }
-      >
-        {t("Resume install")}
-      </Button>
-    ) : action === "installing" ? (
-      <Button variant="default" size="lg" icon={<Download className="size-4" />} onClick={() => navigate("/downloads")}>
-        {t("Installing {percent}", { percent: installPct !== null ? formatPercent(installPct) : "…" })}
-      </Button>
-    ) : desktop ? (
-      <Button variant="primary" size="lg" icon={<Download className="size-4" />} onClick={requestInstall}>
-        {t("Install")}
-      </Button>
-    ) : (
-      <Button variant="primary" size="lg" icon={<Download className="size-4" />} onClick={() => void download()}>
-        {t("Download")}
-      </Button>
-    );
+        break;
+    }
+  };
+
+  // With no available archive the hero offers no download or install (#210);
+  // Play/Resume stay because they belong to a local installation.
+  const playable = action.kind === "play" || action.kind === "resume";
+  const primary = action.disabled && !playable ? null : (
+    <Button
+      variant={playable || action.kind === "install" || action.kind === "download" ? "primary" : "default"}
+      size="lg"
+      icon={action.kind === "resume" ? <MonitorUp className="size-4" /> : action.kind === "play" ? <Play className="size-4" /> : <Download className="size-4" />}
+      loading={action.intent === "resume-session" && resume.isPending}
+      onClick={runPrimary}
+    >
+      {action.label}
+    </Button>
+  );
 
   const removeFromLudex = () => {
     void native
       .unlinkInstallation(game.id)
       .then(() => {
-        void queryClient.invalidateQueries({ queryKey: ["installed"] });
-        void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
-        void queryClient.invalidateQueries({ queryKey: ["game", game.id] });
+        void queryClient.invalidateQueries({ queryKey: qk.installed });
+        void queryClient.invalidateQueries({ queryKey: qk.recentGames.root });
+        void queryClient.invalidateQueries({ queryKey: qk.game.detail(game.id) });
         push({
           title: t("{title} removed from Ludex", { title: game.title }),
           description: t("The files were left where they are."),
@@ -491,7 +480,7 @@ export function GameDetailScreen() {
                     void native
                       .uninstallGame(game.id)
                       .then(() => {
-                        void queryClient.invalidateQueries({ queryKey: ["installed"] });
+                        void queryClient.invalidateQueries({ queryKey: qk.installed });
                         push({
                           title: t("Game removed"),
                           description: isInstalled.source && isInstalled.source !== "ludex"
@@ -678,7 +667,7 @@ export function GameDetailScreen() {
                   {t("Force close")}
                 </Button>
               )}
-              {update && isInstalled && !activeJob && (
+              {update && action.update && (
                 <Button
                   variant="default"
                   size="lg"
@@ -797,9 +786,9 @@ export function GameDetailScreen() {
           title={game.title}
           installed={isInstalled}
           onMoved={() => {
-            void queryClient.invalidateQueries({ queryKey: ["installed"] });
-            void queryClient.invalidateQueries({ queryKey: ["game", game.id] });
-            void queryClient.invalidateQueries({ queryKey: ["game-executables"] });
+            void queryClient.invalidateQueries({ queryKey: qk.installed });
+            void queryClient.invalidateQueries({ queryKey: qk.game.detail(game.id) });
+            void queryClient.invalidateQueries({ queryKey: qk.gameExecutables.root });
           }}
         />
       )}

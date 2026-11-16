@@ -12,6 +12,7 @@ import { ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, IconButton, Input, Progress, Skeleton } from "@/components/ui/controls";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 function ingestStatusLabel(status: IngestStatus): string {
   switch (status) {
@@ -57,17 +58,17 @@ export function IngestScreen() {
   const [replaceUrl, setReplaceUrl] = useState("");
 
   const jobsQuery = useQuery({
-    queryKey: ["jobs"],
+    queryKey: qk.ingest.jobs,
     queryFn: () => api.listJobs(),
     refetchInterval: 2000,
   });
   const filesQuery = useQuery({
-    queryKey: ["files"],
+    queryKey: qk.ingest.files,
     queryFn: () => api.listFiles(),
     refetchInterval: 10_000,
   });
   const statsQuery = useQuery({
-    queryKey: ["ingest-stats"],
+    queryKey: qk.ingest.stats,
     queryFn: () => api.ingestStats(),
     refetchInterval: 5000,
   });
@@ -84,9 +85,9 @@ export function IngestScreen() {
   }, [filesQuery.data, fileFilter]);
 
   const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ["jobs"] });
-    void queryClient.invalidateQueries({ queryKey: ["files"] });
-    void queryClient.invalidateQueries({ queryKey: ["ingest-stats"] });
+    void queryClient.invalidateQueries({ queryKey: qk.ingest.jobs });
+    void queryClient.invalidateQueries({ queryKey: qk.ingest.files });
+    void queryClient.invalidateQueries({ queryKey: qk.ingest.stats });
   };
 
   const submit = async (event: React.FormEvent) => {

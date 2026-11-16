@@ -6,7 +6,6 @@ import { api, assetUrl } from "@/lib/api";
 import { downloadGame } from "@/lib/download";
 import { useDocumentTitle } from "@/lib/document-title";
 import { errorMessage } from "@/lib/http";
-import { formatPercent } from "@/lib/format";
 import { isNative, native, type SleepCapability } from "@/lib/native";
 import { listServers } from "@/lib/servers";
 import type { GameSummary } from "@/lib/types";
@@ -21,8 +20,9 @@ import { identityLabel, padFingerprint, shortFingerprint } from "@/lib/controlle
 import { uiSound } from "@/lib/ui-sound";
 import type { CueId } from "@/lib/ui-sound-specs";
 import { useAuth } from "@/state/auth";
-import { useActiveCount, useJob, useJobPhases, useTitleFor } from "@/state/downloads";
+import { useActiveCount, useJobPhases, useTitleFor } from "@/state/downloads";
 import { useSettings } from "@/state/settings";
+import { useInstallAction } from "@/lib/use-install-action";
 import { Wordmark } from "@/components/brand";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { Button } from "@/components/ui/controls";
@@ -94,7 +94,7 @@ import {
 import { cssVarsFor } from "@/theme/registry";
 import { extractArtworkAccent } from "@/theme/artwork-accent";
 import { BUILTIN_THEMES } from "@/theme/registry";
-import { jobPercent, type BigPictureLayoutProps } from "@/components/big-picture/model";
+import type { BigPictureLayoutProps } from "@/components/big-picture/model";
 import { useBigPictureNavigation, type BigPictureShelf } from "@/components/big-picture/navigation";
 import { BigPictureFooter } from "@/components/big-picture/parts";
 import { COMMAND_ITEMS } from "@/components/big-picture/overlays";
@@ -141,6 +141,7 @@ import {
 import { useBigPictureLayout, useViewportWidth } from "@/components/big-picture/use-layout";
 import { usePointerIdle } from "@/components/big-picture/pointer-idle";
 import { t, tn, useI18n } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /** Ask the server once per open; a quick round trip through the route is free. */
 const REFRESH_ON_OPEN_MS = 10_000;
@@ -478,7 +479,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
   const selected = nav.selected;
 
   const detail = useQuery({
-    queryKey: ["game", selected?.id],
+    queryKey: qk.game.detail(selected?.id),
     queryFn: () => api.getGame(selected!.id),
     enabled: Boolean(selected),
     staleTime: 60_000,
@@ -487,8 +488,16 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
   const installedGame = selected ? installed.get(selected.id) : undefined;
   // #267: one game's job through a selector; the shell no longer holds the
   // whole active list, so another game's progress never repaints this screen.
-  const job = useJob(selected?.id ?? -1);
-  const percent = jobPercent(job);
+  // #237: the primary button now comes from the shared action matrix; the
+  // Console leaves pause/resume to the Downloads overlay (#196).
+  const installAction = useInstallAction(selected?.id ?? -1, {
+    installed: Boolean(installedGame),
+    archiveAvailable: Boolean(version),
+    offerResume: false,
+    resumeInPlace: false,
+  });
+  const job = installAction.activeJob;
+  const percent = installAction.percent;
 
   // #267: a 600-game library is three server pages. Ask for the next one when
   // the ring is near the end of what is loaded, so stepping right never runs
@@ -567,7 +576,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
   }, [room.accent, selected?.id]);
 
   const serversQuery = useQuery({
-    queryKey: ["servers"],
+    queryKey: qk.servers,
     queryFn: listServers,
     staleTime: 60_000,
     retry: false,
@@ -578,7 +587,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
   // and the list opens in the same non-modal shell as the queue. The query
   // only runs when the row or its overlay can actually use it.
   const collectionsQuery = useQuery({
-    queryKey: ["collections"],
+    queryKey: qk.collections.root,
     queryFn: () => api.listCollections(),
     enabled: level.kind === "library" || overlay === "collections",
     staleTime: 60_000,
@@ -590,7 +599,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
   // is what the library screen resolves (account, then per-game override); an
   // explicit choice is a device preference and applies to the next press.
   const profilesQuery = useQuery({
-    queryKey: ["controller-profiles"],
+    queryKey: qk.controllerProfiles,
     queryFn: () => api.controllerProfiles(),
     staleTime: 5 * 60_000,
   });
@@ -707,7 +716,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     refreshingRef.current = true;
     lastRefreshAt = Date.now();
     const results = await Promise.allSettled(
-      [["games"], ["installed"], ["game-updates"]].map((queryKey) =>
+      [qk.games.root, qk.installed, qk.gameUpdates].map((queryKey) =>
         // cancelRefetch: false joins an in-flight mount fetch instead of
         // starting a second request for the same data.
         queryClient.refetchQueries({ queryKey, type: "active" }, { throwOnError: true, cancelRefetch: false }),
@@ -1089,20 +1098,29 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
       refuse(t("No games"));
       return;
     }
-    if (installedGame) {
-      // #229: `startGame` speaks the launch cue at the press; a confirm here
-      // would say the same press twice.
-      void startGame(selected, installedGame.executable ?? detail.data?.launch.executable);
-    } else if (job) {
-      // The queue stays in the console now (#196): pausing and retrying live
-      // on the full screen, but the progress panel does not leave Big Picture.
-      openOverlay("downloads");
-    } else if (isNative()) {
-      emit("confirm");
-      setInstallOpen(true);
-    } else {
-      emit("confirm");
-      void download();
+    // #237: the shared matrix decides; the Console only maps the intent to its
+    // own surfaces (launch plate, Downloads overlay, install dialog, download).
+    switch (installAction.intent) {
+      case "play":
+      case "resume-session":
+        // #229: `startGame` speaks the launch cue at the press; a confirm here
+        // would say the same press twice.
+        void startGame(selected, installedGame?.executable ?? detail.data?.launch.executable);
+        break;
+      case "open-downloads":
+      case "resume-install":
+        // The queue stays in the console now (#196): pausing and retrying live
+        // on the full screen, but the progress panel does not leave Big Picture.
+        openOverlay("downloads");
+        break;
+      case "install":
+        emit("confirm");
+        setInstallOpen(true);
+        break;
+      case "download":
+        emit("confirm");
+        void download();
+        break;
     }
   };
 
@@ -1883,46 +1901,21 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     options: consoleInputOptions,
   });
 
-  const primary = !selected ? null : installedGame ? (
+  const primary = !selected ? null : (
     <Button
-      variant="primary"
+      variant={installAction.intent === "open-downloads" || installAction.intent === "resume-install" ? "default" : "primary"}
       size="lg"
       className="bp-button"
-      icon={<Glyph name="play" className="size-[calc(var(--bp-u)*22)]" />}
-      onClick={() => void startGame(selected, installedGame?.executable ?? detail.data?.launch.executable)}
+      disabled={installAction.disabled}
+      icon={
+        <Glyph
+          name={installAction.kind === "play" || installAction.kind === "resume" ? "play" : "install"}
+          className="size-[calc(var(--bp-u)*22)]"
+        />
+      }
+      onClick={confirm}
     >
-      {t("Play")}
-    </Button>
-  ) : job ? (
-    <Button
-      variant="default"
-      size="lg"
-      className="bp-button"
-      icon={<Glyph name="install" className="size-[calc(var(--bp-u)*22)]" />}
-      onClick={() => openOverlay("downloads")}
-    >
-      {t("Installing {percent}", { percent: percent !== null ? formatPercent(percent) : "" })}
-    </Button>
-  ) : isNative() ? (
-    <Button
-      variant="primary"
-      size="lg"
-      className="bp-button"
-      icon={<Glyph name="install" className="size-[calc(var(--bp-u)*22)]" />}
-      disabled={!version}
-      onClick={() => setInstallOpen(true)}
-    >
-      {t("Install")}
-    </Button>
-  ) : (
-    <Button
-      variant="primary"
-      size="lg"
-      className="bp-button"
-      icon={<Glyph name="install" className="size-[calc(var(--bp-u)*22)]" />}
-      onClick={() => void download()}
-    >
-      {t("Download")}
+      {installAction.label}
     </Button>
   );
 

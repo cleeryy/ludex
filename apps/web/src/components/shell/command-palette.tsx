@@ -37,6 +37,7 @@ import { navGroupLabel, navLabel } from "@/components/shell/nav-copy";
 import { settingsSectionLabel } from "@/components/settings/settings-copy";
 import { SettingsIcon } from "@/components/settings/settings-icons";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 interface Item {
   id: string;
@@ -72,7 +73,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const desktop = installsAvailable();
 
   const { data } = useQuery({
-    queryKey: ["palette-games"],
+    queryKey: qk.paletteGames,
     queryFn: () => api.listGames({ limit: 200, sort: "title", order: "asc" }),
     enabled: open,
     staleTime: 60_000,

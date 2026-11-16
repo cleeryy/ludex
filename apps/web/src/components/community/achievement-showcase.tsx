@@ -5,6 +5,7 @@ import { formatDate } from "@/lib/format";
 import type { Achievement } from "@/lib/types";
 import { SectionHeader } from "@/components/page";
 import {  t , tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Achievement showcase on the community profile. Visibility follows the
@@ -13,7 +14,7 @@ import {  t , tn } from "@/lib/i18n";
  */
 export function AchievementShowcase({ userId }: { userId: number }) {
   const { data, isError } = useQuery({
-    queryKey: ["user-achievements", userId],
+    queryKey: qk.achievements.forUser(userId),
     queryFn: () => api.userAchievements(userId),
     retry: false,
   });

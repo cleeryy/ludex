@@ -8,11 +8,12 @@ import { CollectionDialog } from "@/components/collections/collection-dialog";
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Button, Skeleton } from "@/components/ui/controls";
 import { t , tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 export function CollectionsScreen() {
   const [createOpen, setCreateOpen] = useState(false);
   const { data, isPending, isError, error, refetch } = useQuery({
-    queryKey: ["collections"],
+    queryKey: qk.collections.root,
     queryFn: () => api.listCollections(),
   });
 

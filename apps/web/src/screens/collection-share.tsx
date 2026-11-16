@@ -17,6 +17,7 @@ import { WindowControls, useWindowChrome } from "@/components/shell/window-contr
 import { Badge, Button, Field, Input, Skeleton } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { t, tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Public collection page (#173): reachable logged out at
@@ -37,7 +38,7 @@ export function CollectionShareScreen() {
   const [copying, setCopying] = useState(false);
 
   const view = useQuery({
-    queryKey: ["public-collection-share", shareToken],
+    queryKey: qk.publicCollectionShare(shareToken),
     queryFn: () => getCollectionShare(shareToken),
     enabled: shareToken.length > 0,
     retry: false,

@@ -12,6 +12,7 @@ import { useToast } from "@/state/toasts";
 import { Badge, Button, Skeleton } from "@/components/ui/controls";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { SettingsSwitchRow } from "@/components/settings/settings-section";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Privacy and diagnostics (#171): the opt-in toggle, what is collected, the
@@ -26,19 +27,19 @@ export function DiagnosticsPrivacyPanel() {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const statusQuery = useQuery({
-    queryKey: ["diagnostics-status"],
+    queryKey: qk.diagnostics.status,
     queryFn: () => native.diagnosticsStatus(),
     enabled: isNative(),
   });
   const status = statusQuery.data;
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["diagnostics-status"] });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: qk.diagnostics.status });
 
   const toggle = async (enabled: boolean) => {
     setBusy(true);
     try {
       const next = await native.setDiagnosticsEnabled(enabled);
-      queryClient.setQueryData(["diagnostics-status"], next);
+      queryClient.setQueryData(qk.diagnostics.status, next);
       push({
         title: enabled ? t("Anonymous diagnostics enabled") : t("Anonymous diagnostics disabled"),
         description: enabled
@@ -245,7 +246,7 @@ export function AdminDiagnosticsPanel() {
   const [deleting, setDeleting] = useState<number | null>(null);
 
   const pageQuery = useQuery({
-    queryKey: ["admin-diagnostics"],
+    queryKey: qk.diagnostics.admin,
     queryFn: () => api.listDiagnostics(),
     enabled: admin,
   });
@@ -254,7 +255,7 @@ export function AdminDiagnosticsPanel() {
     mutationFn: (id: number) => api.deleteDiagnosticsReport(id),
     onSuccess: async () => {
       setDeleting(null);
-      await queryClient.invalidateQueries({ queryKey: ["admin-diagnostics"] });
+      await queryClient.invalidateQueries({ queryKey: qk.diagnostics.admin });
       push({ title: t("Report deleted"), tone: "success" });
     },
     onError: (error) => {

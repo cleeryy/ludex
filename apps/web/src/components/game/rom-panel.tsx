@@ -11,6 +11,7 @@ import { Badge, Button } from "@/components/ui/controls";
 import { SectionHeader } from "@/components/page";
 import { Select } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * ROM and emulator panel (#52). Shows the detected platform, lets an editor
@@ -25,8 +26,8 @@ export function RomPanel({ game }: { game: GameDetail }) {
   const { push } = useToast();
   const queryClient = useQueryClient();
   const [launching, setLaunching] = useState(false);
-  const platforms = useQuery({ queryKey: ["platforms"], queryFn: () => api.listPlatforms() });
-  const emulators = useQuery({ queryKey: ["emulators"], queryFn: () => api.listEmulators() });
+  const platforms = useQuery({ queryKey: qk.platforms, queryFn: () => api.listPlatforms() });
+  const emulators = useQuery({ queryKey: qk.emulators, queryFn: () => api.listEmulators() });
   const platform = useMemo(
     () => platforms.data?.find((entry) => entry.id === game.platform),
     [platforms.data, game.platform],
@@ -50,7 +51,7 @@ export function RomPanel({ game }: { game: GameDetail }) {
         }),
         tone: "success",
       });
-      await queryClient.invalidateQueries({ queryKey: ["game", game.id] });
+      await queryClient.invalidateQueries({ queryKey: qk.game.detail(game.id) });
     } catch (cause) {
       push({ title: t("Could not launch the ROM"), description: errorMessage(cause), tone: "danger" });
     } finally {
@@ -62,7 +63,7 @@ export function RomPanel({ game }: { game: GameDetail }) {
     const emulatorId = value ? Number(value) : null;
     try {
       await api.setGameEmulator(game.id, emulatorId);
-      await queryClient.invalidateQueries({ queryKey: ["game", game.id] });
+      await queryClient.invalidateQueries({ queryKey: qk.game.detail(game.id) });
       push({ title: t("Emulator updated"), tone: "success" });
     } catch (cause) {
       push({ title: t("Could not update the emulator"), description: errorMessage(cause), tone: "danger" });

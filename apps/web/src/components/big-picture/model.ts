@@ -36,8 +36,4 @@ export interface BigPictureLayoutProps {
 }
 
 /** Percent done for a job; `0` while the total size is still unknown. */
-export function jobPercent(job: InstallJob | undefined): number | null {
-  if (!job) return null;
-  if (!job.bytesTotal) return 0;
-  return Math.min(100, (job.bytesDone / job.bytesTotal) * 100);
-}
+export { jobPercent } from "@/lib/install-action";

@@ -17,6 +17,7 @@ import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/
 import { Badge, Button, Checkbox, Input, Skeleton } from "@/components/ui/controls";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { t, tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 export function CollectionScreen() {
   const { id } = useParams();
@@ -35,12 +36,12 @@ export function CollectionScreen() {
   const [copying, setCopying] = useState(false);
 
   const collection = useQuery({
-    queryKey: ["collection", collectionId],
+    queryKey: qk.collections.detail(collectionId),
     queryFn: () => api.getCollection(collectionId),
     enabled: Number.isFinite(collectionId),
   });
   const games = useQuery({
-    queryKey: ["collection-games", collectionId],
+    queryKey: qk.collections.games(collectionId),
     queryFn: () => api.collectionGames(collectionId, 1, 200),
     enabled: Number.isFinite(collectionId),
   });
@@ -48,9 +49,9 @@ export function CollectionScreen() {
   const remove = async (gameId: number, title: string) => {
     try {
       await api.removeCollectionGame(collectionId, gameId);
-      void queryClient.invalidateQueries({ queryKey: ["collection-games", collectionId] });
-      void queryClient.invalidateQueries({ queryKey: ["collection", collectionId] });
-      void queryClient.invalidateQueries({ queryKey: ["collections"] });
+      void queryClient.invalidateQueries({ queryKey: qk.collections.games(collectionId) });
+      void queryClient.invalidateQueries({ queryKey: qk.collections.detail(collectionId) });
+      void queryClient.invalidateQueries({ queryKey: qk.collections.root });
       push({ title: t("Removed from the shelf"), description: title });
     } catch (cause) {
       push({ title: t("Could not remove the game"), description: errorMessage(cause), tone: "danger" });
@@ -61,7 +62,7 @@ export function CollectionScreen() {
     setCopying(true);
     try {
       const result = await api.importCollection({ sourceId: collectionId });
-      void queryClient.invalidateQueries({ queryKey: ["collections"] });
+      void queryClient.invalidateQueries({ queryKey: qk.collections.root });
       push({
         title: result.created ? t("Collection copied") : t("Collection is already in your library"),
         description: t("“{collection}” is now one of your private shelves.", { collection: result.collection.name }),
@@ -79,7 +80,7 @@ export function CollectionScreen() {
     setDeleting(true);
     try {
       await api.deleteCollection(collectionId);
-      void queryClient.invalidateQueries({ queryKey: ["collections"] });
+      void queryClient.invalidateQueries({ queryKey: qk.collections.root });
       push({ title: t("Collection deleted"), tone: "success" });
       navigate("/collections");
     } catch (cause) {
@@ -392,9 +393,9 @@ function AddGamesDialog({
     setSaving(true);
     try {
       const result = await api.addCollectionGames(collection.id, selected);
-      void queryClient.invalidateQueries({ queryKey: ["collection-games", collection.id] });
-      void queryClient.invalidateQueries({ queryKey: ["collection", collection.id] });
-      void queryClient.invalidateQueries({ queryKey: ["collections"] });
+      void queryClient.invalidateQueries({ queryKey: qk.collections.games(collection.id) });
+      void queryClient.invalidateQueries({ queryKey: qk.collections.detail(collection.id) });
+      void queryClient.invalidateQueries({ queryKey: qk.collections.root });
       push({
         title: tn(result.added, "1 game added", "{count} games added"),
         description: t("{collection} now holds {total}.", { collection: collection.name, total: result.total }),

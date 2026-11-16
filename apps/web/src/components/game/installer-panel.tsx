@@ -10,6 +10,7 @@ import { EmptyState, SectionHeader } from "@/components/page";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 function CandidateList({
   candidates,
@@ -98,10 +99,10 @@ export function InstallerPanel({
       });
       setReport(result);
       if (result.recordedExecutable) {
-        void queryClient.invalidateQueries({ queryKey: ["installed"] });
+        void queryClient.invalidateQueries({ queryKey: qk.installed });
       }
       // An installer may have written new programs into the folder (#143).
-      void queryClient.invalidateQueries({ queryKey: ["game-executables"] });
+      void queryClient.invalidateQueries({ queryKey: qk.gameExecutables.root });
       push({
         title: result.success ? `${title} installed` : `${title} installer needs attention`,
         description: result.message,
@@ -132,9 +133,9 @@ export function InstallerPanel({
       const result = await native.runRepackInstaller({ gameId, setup });
       setRepackReport(result);
       if (result.recordedExecutable) {
-        void queryClient.invalidateQueries({ queryKey: ["installed"] });
+        void queryClient.invalidateQueries({ queryKey: qk.installed });
       }
-      void queryClient.invalidateQueries({ queryKey: ["game-executables"] });
+      void queryClient.invalidateQueries({ queryKey: qk.gameExecutables.root });
       push({
         title: result.recordedExecutable
           ? `${title} is ready to launch`
@@ -159,8 +160,8 @@ export function InstallerPanel({
     setError(null);
     try {
       await native.setExecutable(gameId, candidate);
-      void queryClient.invalidateQueries({ queryKey: ["installed"] });
-      void queryClient.invalidateQueries({ queryKey: ["game-executables"] });
+      void queryClient.invalidateQueries({ queryKey: qk.installed });
+      void queryClient.invalidateQueries({ queryKey: qk.gameExecutables.root });
       setRepackReport(null);
       push({ title: t("Executable updated"), description: candidate, tone: "success" });
       await loadPlan();
@@ -183,7 +184,7 @@ export function InstallerPanel({
     try {
       const updated = await native.chooseExecutable(gameId);
       if (!updated) return;
-      void queryClient.invalidateQueries({ queryKey: ["installed"] });
+      void queryClient.invalidateQueries({ queryKey: qk.installed });
       push({ title: t("Executable updated"), description: updated.executable ?? undefined, tone: "success" });
     } catch (cause) {
       push({ title: t("Could not set the executable"), description: errorMessage(cause), tone: "danger" });

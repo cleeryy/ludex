@@ -17,6 +17,7 @@ import { Badge, Button, Checkbox, Input, Segmented } from "@/components/ui/contr
 import { Dialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Filter sheet shared by desktop and mobile. Every control writes straight to
@@ -42,7 +43,7 @@ export function FilterPanel({
   const [yearTo, setYearTo] = useState(filters.yearTo);
   const [playtimeMin, setPlaytimeMin] = useState(filters.playtimeMin);
   const [playtimeMax, setPlaytimeMax] = useState(filters.playtimeMax);
-  const platforms = useQuery({ queryKey: ["platforms"], queryFn: () => api.listPlatforms() });
+  const platforms = useQuery({ queryKey: qk.platforms, queryFn: () => api.listPlatforms() });
 
   useEffect(() => setYearFrom(filters.yearFrom), [filters.yearFrom]);
   useEffect(() => setYearTo(filters.yearTo), [filters.yearTo]);

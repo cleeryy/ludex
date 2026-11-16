@@ -12,10 +12,11 @@ import { Badge, Button, Field, Input } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { DropdownMenu, useDropdown, type MenuEntry } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 export function useServersQuery() {
   return useQuery({
-    queryKey: ["servers"],
+    queryKey: qk.servers,
     queryFn: listServers,
     staleTime: 15_000,
     retry: false,

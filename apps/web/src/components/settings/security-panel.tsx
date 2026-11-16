@@ -10,6 +10,7 @@ import { Badge, Button, Field, Input } from "@/components/ui/controls";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { SettingsGroup } from "@/components/settings/settings-section";
 import { t, tr } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 function CopyButton({ value, label }: { value: string; label: string }) {
   const { push } = useToast();
@@ -62,10 +63,10 @@ export function SecurityBody() {
   const [disableOpen, setDisableOpen] = useState(false);
   const [revokeOpen, setRevokeOpen] = useState(false);
 
-  const mfa = useQuery({ queryKey: ["mfa"], queryFn: () => api.mfaStatus() });
-  const sessions = useQuery({ queryKey: ["sessions"], queryFn: () => api.listSessions() });
+  const mfa = useQuery({ queryKey: qk.mfa, queryFn: () => api.mfaStatus() });
+  const sessions = useQuery({ queryKey: qk.sessions, queryFn: () => api.listSessions() });
 
-  const refreshMfa = () => void queryClient.invalidateQueries({ queryKey: ["mfa"] });
+  const refreshMfa = () => void queryClient.invalidateQueries({ queryKey: qk.mfa });
 
   const enroll = useMutation({
     mutationFn: () => api.startTotpEnrollment(),
@@ -108,7 +109,7 @@ export function SecurityBody() {
       setDisableOpen(false);
       setRecoveryCodes(null);
       refreshMfa();
-      void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      void queryClient.invalidateQueries({ queryKey: qk.sessions });
       push({ title: t("Two-factor authentication disabled"), tone: "success" });
     },
     onError: (cause: Error) => {
@@ -120,7 +121,7 @@ export function SecurityBody() {
   const revokeOne = useMutation({
     mutationFn: (id: number) => api.revokeSession(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      void queryClient.invalidateQueries({ queryKey: qk.sessions });
       push({ title: t("Session signed out"), tone: "success" });
     },
     onError: (cause: Error) => push({ title: t("Could not revoke the session"), description: errorMessage(cause), tone: "danger" }),
@@ -130,7 +131,7 @@ export function SecurityBody() {
     mutationFn: () => api.revokeOtherSessions(),
     onSuccess: (data) => {
       setRevokeOpen(false);
-      void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      void queryClient.invalidateQueries({ queryKey: qk.sessions });
       push({
         title: tnRevoked(data.revoked),
         tone: "success",

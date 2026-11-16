@@ -16,6 +16,7 @@ import { Badge, Button, Field, Input } from "@/components/ui/controls";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { t, tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 type ExpiryChoice = "never" | "1h" | "24h" | "7d" | "30d";
 
@@ -103,7 +104,7 @@ export function ShareDialog({
   }, [open]);
 
   const shares = useQuery({
-    queryKey: ["shares"],
+    queryKey: qk.shares,
     queryFn: listShares,
     enabled: open,
     retry: false,
@@ -173,7 +174,7 @@ export function ShareDialog({
       const result = await createShare(game.id, payload);
       setCreated(result);
       setPassword("");
-      void queryClient.invalidateQueries({ queryKey: ["shares"] });
+      void queryClient.invalidateQueries({ queryKey: qk.shares });
     } catch (cause) {
       setFormError(errorMessage(cause));
     } finally {
@@ -188,7 +189,7 @@ export function ShareDialog({
       await revokeShare(revokeTarget.id);
       push({ title: t("Share link revoked"), description: t("It stops working immediately.") });
       setRevokeTarget(null);
-      void queryClient.invalidateQueries({ queryKey: ["shares"] });
+      void queryClient.invalidateQueries({ queryKey: qk.shares });
     } catch (cause) {
       push({ title: t("Could not revoke the link"), description: errorMessage(cause), tone: "danger" });
     } finally {

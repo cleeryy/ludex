@@ -11,6 +11,7 @@ import { useToast } from "@/state/toasts";
 import { Button } from "@/components/ui/controls";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * "No archive available" state (#210).
@@ -44,10 +45,10 @@ export function MissingArchiveNotice({ game }: { game: GameDetail }) {
   const remove = useMutation({
     mutationFn: () => api.deleteGame(game.id, "library"),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["games"] });
-      void queryClient.invalidateQueries({ queryKey: ["games-missing-count"] });
-      void queryClient.invalidateQueries({ queryKey: ["stats"] });
-      void queryClient.invalidateQueries({ queryKey: ["game", game.id] });
+      void queryClient.invalidateQueries({ queryKey: qk.games.root });
+      void queryClient.invalidateQueries({ queryKey: qk.games.missingCount });
+      void queryClient.invalidateQueries({ queryKey: qk.stats });
+      void queryClient.invalidateQueries({ queryKey: qk.game.detail(game.id) });
       push({
         title: t("{title} removed from the library", { title: game.title }),
         description: t("Only the database row was deleted; no file was touched."),

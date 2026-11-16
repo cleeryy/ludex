@@ -7,7 +7,8 @@
  * Tauri process.
  */
 
-import type { GameSession } from "@/lib/types";
+import { installAction, type InstallActionKind } from "@/lib/install-action";
+import type { GameSession, InstallPhase } from "@/lib/types";
 
 /** What the game hero's primary button does. */
 export type HeroAction =
@@ -25,7 +26,7 @@ export interface HeroActionInput {
   desktop: boolean;
   installed: boolean;
   /** Phase of the active install job, when there is one. */
-  activeJobPhase?: string | null;
+  activeJobPhase?: InstallPhase | null;
   hasActiveJob?: boolean;
   /** A paused/partial download that can be picked up again. */
   hasResumableJob?: boolean;
@@ -36,14 +37,34 @@ export interface HeroActionInput {
  * (that path would refuse with "already running") or Install. The remaining
  * order matches the pre-#191 hero: Play, paused install, running install,
  * resumable install, Install (desktop) or Download (browser).
+ *
+ * Kept as the typed view of `installAction` for the #191 tests: the matrix
+ * itself lives in `lib/install-action.ts` and is shared with the library card,
+ * the Console and the install dialog.
  */
 export function heroAction(input: HeroActionInput): HeroAction {
-  if (input.running && input.desktop) return "resume";
-  if (input.desktop && input.installed) return "play";
-  if (input.activeJobPhase === "paused") return "resumeInstall";
-  if (input.hasActiveJob) return "installing";
-  if (input.hasResumableJob) return "resumeInstall";
-  return input.desktop ? "install" : "download";
+  const action = installAction({
+    desktop: input.desktop,
+    running: input.running,
+    installed: input.installed,
+    jobPhase: input.activeJobPhase ?? null,
+    resumable: input.hasResumableJob,
+  });
+  // The hero has no "queued" or separate "paused" kind: both render the install
+  // job's button, and an unrecognised active phase still counts as installing.
+  if (input.hasActiveJob && (action.kind === "install" || action.kind === "download")) return "installing";
+  return heroKind(action.kind);
+}
+
+function heroKind(kind: InstallActionKind): HeroAction {
+  switch (kind) {
+    case "queued":
+      return "installing";
+    case "paused":
+      return "resumeInstall";
+    default:
+      return kind;
+  }
 }
 
 /** The live session of this game, or null. */

@@ -42,6 +42,7 @@ import { Badge, Button, Checkbox, Progress, Skeleton } from "@/components/ui/con
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { SectionHeader } from "@/components/page";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /**
  * "Make it run" (#178).
@@ -302,7 +303,7 @@ export function MakeItRunPanel({
   const [removeTarget, setRemoveTarget] = useState<ManagedRuntime | null>(null);
 
   const diagnosis = useQuery({
-    queryKey: ["make-it-run", gameId],
+    queryKey: qk.makeItRun(gameId),
     queryFn: () => native.makeItRunDiagnose(gameId),
     enabled: nativeAvailable,
     staleTime: 15_000,
@@ -331,10 +332,10 @@ export function MakeItRunPanel({
   const removeForgets = removeTarget !== null && (removeTarget.imported || removeTarget.path === "");
   const refresh = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["make-it-run", gameId] }),
-      queryClient.invalidateQueries({ queryKey: ["compat-scan"] }),
-      queryClient.invalidateQueries({ queryKey: ["launch-options", gameId] }),
-      queryClient.invalidateQueries({ queryKey: ["prefix-info", gameId] }),
+      queryClient.invalidateQueries({ queryKey: qk.makeItRun(gameId) }),
+      queryClient.invalidateQueries({ queryKey: qk.compatScan }),
+      queryClient.invalidateQueries({ queryKey: qk.launchOptions(gameId) }),
+      queryClient.invalidateQueries({ queryKey: qk.prefixInfo(gameId) }),
     ]);
   };
 

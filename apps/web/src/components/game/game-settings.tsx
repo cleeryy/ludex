@@ -38,6 +38,7 @@ import { useAuth } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { SectionHeader } from "@/components/page";
 import { t, useI18n } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 type Tab = "adapters" | "files" | "backups";
 
@@ -52,23 +53,23 @@ export function GameSettingsPanel({ gameId, title }: { gameId: number; title: st
   const [tab, setTab] = useState<Tab>("adapters");
 
   const listing = useQuery({
-    queryKey: ["game-configs", gameId],
+    queryKey: qk.gameConfigs.forGame(gameId),
     queryFn: () => native.listGameConfigs(gameId),
   });
   const adapters = useQuery({
-    queryKey: ["game-config-adapters", gameId],
+    queryKey: qk.gameConfigAdapters.forGame(gameId),
     queryFn: () => native.configAdapters(gameId),
   });
   const backups = useQuery({
-    queryKey: ["game-config-backups", gameId],
+    queryKey: qk.gameConfigBackups.forGame(gameId),
     queryFn: () => native.listConfigBackups(gameId),
   });
 
   const refresh = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["game-configs", gameId] }),
-      queryClient.invalidateQueries({ queryKey: ["game-config-adapters", gameId] }),
-      queryClient.invalidateQueries({ queryKey: ["game-config-backups", gameId] }),
+      queryClient.invalidateQueries({ queryKey: qk.gameConfigs.forGame(gameId) }),
+      queryClient.invalidateQueries({ queryKey: qk.gameConfigAdapters.forGame(gameId) }),
+      queryClient.invalidateQueries({ queryKey: qk.gameConfigBackups.forGame(gameId) }),
     ]);
   };
 
@@ -369,7 +370,7 @@ function FilesTab({
 
   const selectedFile = files.find((file) => file.path === selected);
   const document = useQuery({
-    queryKey: ["game-config", gameId, selected],
+    queryKey: qk.gameConfig.forGame(gameId, selected),
     queryFn: () => native.readGameConfig(gameId, selected),
     enabled: canLoadConfigFile(selectedFile),
   });
@@ -452,7 +453,7 @@ function FilesTab({
             gameId={gameId}
             document={document.data}
             onSaved={() => {
-              void queryClient.invalidateQueries({ queryKey: ["game-config", gameId, selected] });
+              void queryClient.invalidateQueries({ queryKey: qk.gameConfig.forGame(gameId, selected) });
               onSaved();
             }}
           />
@@ -598,7 +599,7 @@ function CommonFieldsPanel({ gameId, onSaved }: { gameId: number; onSaved: () =>
   const { locale } = useI18n();
   const { user } = useAuth();
   const profile = useQuery({
-    queryKey: ["my-profile"],
+    queryKey: qk.myProfile,
     queryFn: () => api.myProfile(),
     enabled: Boolean(user),
     staleTime: 60_000,
@@ -607,11 +608,11 @@ function CommonFieldsPanel({ gameId, onSaved }: { gameId: number; onSaved: () =>
   const displayName = profile.data?.displayName?.trim() || user?.username || "";
 
   const report = useQuery({
-    queryKey: ["game-config-common-fields", gameId],
+    queryKey: qk.gameConfigCommonFields.forGame(gameId),
     queryFn: () => native.commonConfigFields(gameId),
   });
   const sync = useQuery({
-    queryKey: ["game-config-sync", gameId],
+    queryKey: qk.gameConfigSync.forGame(gameId),
     queryFn: () => native.configSyncPrefs(gameId),
   });
   const [pending, setPending] = useState<PendingField | null>(null);
@@ -620,8 +621,8 @@ function CommonFieldsPanel({ gameId, onSaved }: { gameId: number; onSaved: () =>
   const [template, setTemplate] = useState<string | null>(null);
 
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ["game-config-common-fields", gameId] });
-    void queryClient.invalidateQueries({ queryKey: ["game-config-sync", gameId] });
+    void queryClient.invalidateQueries({ queryKey: qk.gameConfigCommonFields.forGame(gameId) });
+    void queryClient.invalidateQueries({ queryKey: qk.gameConfigSync.forGame(gameId) });
     onSaved();
   };
 

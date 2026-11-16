@@ -9,6 +9,7 @@ import { ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Skeleton } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { selectableLocales, t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 function formatUptime(seconds: number): string {
   const days = Math.floor(seconds / 86400);
@@ -21,10 +22,10 @@ function formatUptime(seconds: number): string {
 
 export function ServerScreen() {
   const { push } = useToast();
-  const config = useQuery({ queryKey: ["config"], queryFn: () => api.config() });
-  const health = useQuery({ queryKey: ["health"], queryFn: () => api.health(), refetchInterval: 30_000 });
-  const folders = useQuery({ queryKey: ["folders"], queryFn: () => api.folders() });
-  const settings = useQuery({ queryKey: ["admin-server"], queryFn: () => api.adminServer() });
+  const config = useQuery({ queryKey: qk.config, queryFn: () => api.config() });
+  const health = useQuery({ queryKey: qk.health, queryFn: () => api.health(), refetchInterval: 30_000 });
+  const folders = useQuery({ queryKey: qk.folders, queryFn: () => api.folders() });
+  const settings = useQuery({ queryKey: qk.admin.server, queryFn: () => api.adminServer() });
   const [defaultLocale, setDefaultLocale] = useState("");
   const [savingLocale, setSavingLocale] = useState(false);
   const [localeError, setLocaleError] = useState<string | null>(null);

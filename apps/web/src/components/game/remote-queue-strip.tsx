@@ -9,6 +9,7 @@ import { isRemoteActive, remotePercent, remoteStatusLabel, remoteStatusTone } fr
 import { useAuth } from "@/state/auth";
 import { Badge, Progress } from "@/components/ui/controls";
 import { SectionHeader } from "@/components/page";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Compact remote queue shown on the browser Downloads page (#167), so an
@@ -18,7 +19,7 @@ import { SectionHeader } from "@/components/page";
 export function RemoteQueueStrip() {
   const { user } = useAuth();
   const { data } = useQuery({
-    queryKey: ["remote-installs"],
+    queryKey: qk.remoteInstalls,
     queryFn: () => api.listRemoteInstalls(),
     enabled: Boolean(user),
     refetchInterval: (query) =>

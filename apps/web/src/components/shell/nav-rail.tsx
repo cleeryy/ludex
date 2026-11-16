@@ -17,6 +17,7 @@ import { useAuth } from "@/state/auth";
 import { Badge } from "@/components/ui/controls";
 import { NavIcon } from "@/components/shell/nav-icons";
 import { navGroupLabel, navLabel } from "@/components/shell/nav-copy";
+import { qk } from "@/lib/query-keys";
 
 /** Which rail groups the user folded away, remembered per device. */
 const COLLAPSE_KEY = "ludex.nav.collapsed";
@@ -121,7 +122,7 @@ export function NavRail({ context, onOpenHelp }: { context: NavContext; onOpenHe
   const pathname = location.pathname;
   const { setup } = useAuth();
   const activeDownloads = useActiveCount();
-  const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: () => api.stats(), staleTime: 30_000 });
+  const { data: stats } = useQuery({ queryKey: qk.stats, queryFn: () => api.stats(), staleTime: 30_000 });
   const [collapsed, setCollapsed] = useState<string[]>(() => readCollapsedGroups());
 
   const toggle = (id: string) => {

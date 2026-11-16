@@ -10,6 +10,7 @@ import { UserAvatar } from "@/components/community/user-avatar";
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Skeleton } from "@/components/ui/controls";
 import { t , tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 function MemberChip({ profile }: { profile: PublicProfile }) {
   return (
@@ -29,10 +30,10 @@ function MemberChip({ profile }: { profile: PublicProfile }) {
 
 export function CommunityScreen() {
   const { user } = useAuth();
-  const profile = useQuery({ queryKey: ["my-profile"], queryFn: () => api.myProfile() });
-  const members = useQuery({ queryKey: ["community-users"], queryFn: () => api.communityUsers() });
+  const profile = useQuery({ queryKey: qk.myProfile, queryFn: () => api.myProfile() });
+  const members = useQuery({ queryKey: qk.community.users, queryFn: () => api.communityUsers() });
   const feed = useInfiniteQuery({
-    queryKey: ["community-feed"],
+    queryKey: qk.community.feed,
     queryFn: ({ pageParam }) => api.communityFeed(20, pageParam),
     initialPageParam: undefined as number | undefined,
     getNextPageParam: (last) => last.nextBefore ?? undefined,

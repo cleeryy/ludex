@@ -16,9 +16,7 @@ import { useToast } from "@/state/toasts";
 import { Badge, Button, Input } from "@/components/ui/controls";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-
-/** Query key prefix; mutations invalidate every listing at once (#143). */
-export const GAME_EXECUTABLES_QUERY = "game-executables";
+import { qk } from "@/lib/query-keys";
 
 /**
  * Programs found in one game's install folder (#143).
@@ -28,7 +26,7 @@ export const GAME_EXECUTABLES_QUERY = "game-executables";
  */
 export function useGameExecutables(gameId: number, enabled = true) {
   return useQuery({
-    queryKey: [GAME_EXECUTABLES_QUERY, gameId],
+    queryKey: qk.gameExecutables.forGame(gameId),
     queryFn: () => native.listGameExecutables(gameId),
     enabled: enabled && isNative() && Number.isFinite(gameId),
     staleTime: 4_000,
@@ -128,7 +126,7 @@ export function ExecutableField({
     setRefreshing(true);
     try {
       const next = await native.listGameExecutables(gameId, true);
-      queryClient.setQueryData([GAME_EXECUTABLES_QUERY, gameId], next);
+      queryClient.setQueryData(qk.gameExecutables.forGame(gameId), next);
     } catch (cause) {
       push({
         title: t("Could not rescan the install folder"),

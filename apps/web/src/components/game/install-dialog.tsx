@@ -7,7 +7,8 @@ import { errorMessage } from "@/lib/http";
 import { formatBytes, formatEta, formatSpeed, installPhaseLabel, formatPercent } from "@/lib/format";
 import { isNative, native } from "@/lib/native";
 import type { GameDetail, GameVersion, LocationStatus } from "@/lib/types";
-import { isStreamFailedJob, useDownloadsActions, useJob, useResumableJob } from "@/state/downloads";
+import { useDownloadsActions, useJob, useResumableJob } from "@/state/downloads";
+import { installJobAction } from "@/lib/install-action";
 import {
   isVerifyingJob,
   isWaitingForSpaceJob,
@@ -21,6 +22,7 @@ import { Select } from "@/components/ui/select";
 import { Dialog } from "@/components/ui/dialog";
 import { VirusTotalArchiveWarning } from "@/components/game/virustotal";
 import { t, tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 /** Keep in sync with `locations::FREE_SPACE_RESERVE_BYTES` (#99). */
 const FREE_SPACE_RESERVE = 256 * 1024 * 1024;
@@ -56,14 +58,14 @@ export function InstallDialog({
   const [downloadLocationId, setDownloadLocationId] = useState<string>("");
 
   const { data: settings } = useQuery({
-    queryKey: ["desktop-settings"],
+    queryKey: qk.desktopSettings,
     queryFn: () => installBridge.settings(),
     enabled: open,
     staleTime: 30_000,
   });
 
   const { data: locations } = useQuery<LocationStatus[]>({
-    queryKey: ["desktop-locations"],
+    queryKey: qk.desktopLocations,
     queryFn: () => native.listLocations(),
     enabled: open && isNative(),
     staleTime: 20_000,
@@ -73,7 +75,7 @@ export function InstallDialog({
   // in the picker. It is only added to settings when they choose it in
   // Settings → Storage; starting an install here just uses the path.
   const { data: detected } = useQuery({
-    queryKey: ["desktop-storage-suggestions"],
+    queryKey: qk.desktopStorageSuggestions,
     queryFn: () => native.suggestStorageLocations(),
     enabled: open && isNative(),
     staleTime: 60_000,
@@ -212,15 +214,14 @@ export function InstallDialog({
   const verifying = job ? isVerifyingJob(job) : false;
   // A verifying job reports an indeterminate bar (the bytes are complete).
   const pct = job ? (verifying ? null : job.bytesTotal ? Math.min(100, (job.bytesDone / job.bytesTotal) * 100) : null) : null;
-  const paused = job?.phase === "paused";
-  const active =
-    job && ["queued", "waitingForSpace", "downloading", "verifying", "extracting", "finalizing"].includes(job.phase);
-  const failed = job && ["error", "cancelled", "interrupted"].includes(job.phase);
+  // #237: one classifier for every job phase the dialog draws.
+  const jobAction = installJobAction(job);
+  const active = jobAction === "queued" || jobAction === "installing";
   // "Resume" only when a checkpoint really continues the job; a legacy stream
   // without one gets an explicit "Restart stream" (#205/#208).
-  const streamFailed = job ? isStreamFailedJob(job) : false;
-  const resumable = paused || (failed && job?.resumable === true);
-  const needsRestart = failed && job?.resumable !== true && !streamFailed;
+  const streamFailed = jobAction === "stream-failed";
+  const resumable = jobAction === "paused" || jobAction === "resumable";
+  const needsRestart = jobAction === "restart";
   const eta =
     job && active && job.bytesTotal && job.phase === "downloading"
       ? formatEta(job.bytesDone, job.bytesTotal, job.speedBps)
@@ -244,11 +245,11 @@ export function InstallDialog({
       description={version.version ? `Version ${version.version} · ${formatBytes(version.size)}` : formatBytes(version.size)}
       size="sm"
       footer={
-        job?.phase === "done" ? (
+        jobAction === "done" ? (
           <Button variant="primary" onClick={() => onOpenChange(false)}>
             {t("Done")}
           </Button>
-        ) : active ? (
+        ) : active && job ? (
           <>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               {t("Continue in background")}

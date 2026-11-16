@@ -24,6 +24,7 @@ import { ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Field, Input, Skeleton, Switch } from "@/components/ui/controls";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 const DOCS_URL = "https://github.com/cleeryy/ludex/blob/main/docs/INTEGRATIONS.md";
 
@@ -121,20 +122,20 @@ export function MetadataProvidersScreen() {
   const [testing, setTesting] = useState<MetadataProvider | null>(null);
 
   const { data, isPending, isError, error, refetch } = useQuery({
-    queryKey: ["admin-metadata-providers"],
+    queryKey: qk.admin.metadataProviders,
     queryFn: () => api.adminMetadataProviders(),
   });
 
   const providers = data ?? [];
 
   const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ["admin-metadata-providers"] });
+    void queryClient.invalidateQueries({ queryKey: qk.admin.metadataProviders });
   };
 
   const reorder = useMutation({
     mutationFn: (ids: number[]) => api.reorderMetadataProviders(ids),
     onSuccess: (updated) => {
-      queryClient.setQueryData(["admin-metadata-providers"], updated);
+      queryClient.setQueryData(qk.admin.metadataProviders, updated);
       push({ title: t("Provider order saved") });
     },
     onError: (cause: Error) =>

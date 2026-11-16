@@ -12,6 +12,7 @@ import { Badge, Button, Field, IconButton, Input, Skeleton, Switch } from "@/com
 import { Select } from "@/components/ui/select";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { tr, tn, t } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 function roleOptions(): { value: Role; label: string }[] {
   return [
@@ -70,11 +71,11 @@ export function UsersScreen() {
   const [resetResult, setResetResult] = useState<ResetPasswordResult | null>(null);
 
   const { data, isPending, isError, error, refetch } = useQuery({
-    queryKey: ["users"],
+    queryKey: qk.users,
     queryFn: () => api.listUsers(),
   });
 
-  const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["users"] });
+  const invalidate = () => void queryClient.invalidateQueries({ queryKey: qk.users });
 
   const resetPassword = useMutation({
     mutationFn: (id: number) => api.resetUserPassword(id),

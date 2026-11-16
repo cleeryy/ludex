@@ -24,6 +24,7 @@ import { Badge, Button } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState, SectionHeader } from "@/components/page";
 import { VirusTotalBadge, useGameVirusTotal } from "@/components/game/virustotal";
+import { qk } from "@/lib/query-keys";
 
 /** A row from the server manager, or the public detail shape for readers. */
 function asInfo(version: GameVersion): GameVersionInfo {
@@ -69,7 +70,7 @@ export function VersionManager({
   // disabled for readers: their copy of `game.versions` is enough and avoids a
   // guaranteed 403.
   const manager = useQuery({
-    queryKey: ["game-versions", game.id],
+    queryKey: qk.game.versions.forGame(game.id),
     queryFn: () => api.gameVersions(game.id),
     enabled: isEditor,
     staleTime: 15_000,
@@ -91,10 +92,10 @@ export function VersionManager({
 
   const refresh = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["game", game.id] }),
-      queryClient.invalidateQueries({ queryKey: ["games"] }),
-      queryClient.invalidateQueries({ queryKey: ["game-updates"] }),
-      queryClient.invalidateQueries({ queryKey: ["game-versions", game.id] }),
+      queryClient.invalidateQueries({ queryKey: qk.game.detail(game.id) }),
+      queryClient.invalidateQueries({ queryKey: qk.games.root }),
+      queryClient.invalidateQueries({ queryKey: qk.gameUpdates }),
+      queryClient.invalidateQueries({ queryKey: qk.game.versions.forGame(game.id) }),
     ]);
   };
 

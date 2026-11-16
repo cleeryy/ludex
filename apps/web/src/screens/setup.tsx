@@ -13,7 +13,7 @@ import {
   RotateCcw,
   Server,
 } from "lucide-react";
-import { api, assetUrl, setApiBase, tokenStore, USING_MOCKS } from "@/lib/api";
+import { api, setApiBase, tokenStore, USING_MOCKS } from "@/lib/api";
 import { readDesktopStateFromSearch, pendingDesktopState, rememberDesktopState } from "@/lib/desktop-handoff";
 import { errorMessage } from "@/lib/http";
 import { DEFAULT_LOCAL_SETTINGS, isNative, native } from "@/lib/native";
@@ -30,6 +30,7 @@ import { AuthLayout } from "@/components/auth-layout";
 import { Button, Field, Input } from "@/components/ui/controls";
 import { cn } from "@/lib/cn";
 import { t, tr } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 type Stage = "choose" | "local" | "remote" | "create" | "browser" | "login";
 
@@ -48,7 +49,7 @@ export function SetupScreen() {
   // sessionStorage copy also covers a reload that drops the query string.
   const [desktopState] = useState(() => readDesktopStateFromSearch(params) ?? pendingDesktopState());
   const config = useQuery({
-    queryKey: ["config"],
+    queryKey: qk.config,
     queryFn: () => api.config(),
     enabled: Boolean(desktopState),
     staleTime: 60_000,
@@ -110,8 +111,8 @@ function CreateAdminForm({
       navigate("/login?oidc_code=demo-sso", { replace: true });
       return;
     }
-    // `assetUrl` validates scheme and containment before the navigation (#266).
-    const url = assetUrl("/api/auth/oidc/start");
+    // The adapter validates scheme and containment before the navigation (#266).
+    const url = api.oidcStartUrl();
     if (url) window.location.assign(url);
   };
 

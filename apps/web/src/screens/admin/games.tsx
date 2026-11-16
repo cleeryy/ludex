@@ -52,6 +52,7 @@ import { Badge, Button, Checkbox, Field, Input, Skeleton } from "@/components/ui
 import { Dialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { t, tn } from "@/lib/i18n";
+import { qk } from "@/lib/query-keys";
 
 const DESTRUCTIVE_ACTIONS: AdminBulkAction[] = [
   "remove_from_library",
@@ -118,7 +119,7 @@ function Drawer({
 }) {
   const navigate = useNavigate();
   const detail = useQuery({
-    queryKey: ["game", row.id],
+    queryKey: qk.game.detail(row.id),
     queryFn: () => api.getGame(row.id),
     enabled: true,
   });
@@ -273,7 +274,7 @@ export function AdminGamesScreen() {
   const [jobId, setJobId] = useState<string | null>(null);
 
   const list = useQuery({
-    queryKey: ["admin-games", query],
+    queryKey: qk.admin.games.list(query),
     queryFn: () => api.adminGames(query),
   });
 
@@ -285,10 +286,10 @@ export function AdminGamesScreen() {
   }, [paramString]);
 
   const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ["admin-games"] });
-    void queryClient.invalidateQueries({ queryKey: ["games"] });
-    void queryClient.invalidateQueries({ queryKey: ["games-missing-count"] });
-    void queryClient.invalidateQueries({ queryKey: ["stats"] });
+    void queryClient.invalidateQueries({ queryKey: qk.admin.games.root });
+    void queryClient.invalidateQueries({ queryKey: qk.games.root });
+    void queryClient.invalidateQueries({ queryKey: qk.games.missingCount });
+    void queryClient.invalidateQueries({ queryKey: qk.stats });
   };
 
   const run = useMutation({
@@ -336,7 +337,7 @@ export function AdminGamesScreen() {
   });
 
   const job = useQuery({
-    queryKey: ["admin-bulk-job", jobId],
+    queryKey: qk.admin.bulkJob(jobId),
     queryFn: () => api.adminGamesJob(jobId!),
     enabled: Boolean(jobId),
     refetchInterval: (queryState) =>
@@ -395,7 +396,7 @@ export function AdminGamesScreen() {
   // queue invalidates these keys as its results land.
   const vtQueries = useQueries({
     queries: rows.map((row) => ({
-      queryKey: ["game-virustotal", row.id],
+      queryKey: qk.virustotal.forGame(row.id),
       queryFn: () => api.gameVirusTotal(row.id),
       staleTime: 60_000,
       enabled: row.kind !== "rom" && row.availableVersionCount > 0,

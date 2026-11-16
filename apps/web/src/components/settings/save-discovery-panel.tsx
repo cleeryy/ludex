@@ -19,6 +19,7 @@ import { t, tr } from "@/lib/i18n";
 import { useToast } from "@/state/toasts";
 import { SectionHeader } from "@/components/page";
 import { Badge, Button, Input } from "@/components/ui/controls";
+import { qk } from "@/lib/query-keys";
 
 const confidenceText = (confidence: SaveCandidateConfidence): string => {
   switch (confidence) {
@@ -65,7 +66,7 @@ export function SaveDiscoveryPanel() {
   const [editing, setEditing] = useState<Record<string, string>>({});
 
   const query = useQuery({
-    queryKey: ["save-candidates"],
+    queryKey: qk.saveCandidates,
     queryFn: () => installBridge.saveCandidates(),
     retry: false,
     staleTime: 30_000,
@@ -78,7 +79,7 @@ export function SaveDiscoveryPanel() {
     setScanning(true);
     try {
       const next = await installBridge.scanSaveCandidates();
-      queryClient.setQueryData(["save-candidates"], next);
+      queryClient.setQueryData(qk.saveCandidates, next);
       push({
         title: t("Scan finished"),
         description:
@@ -119,7 +120,7 @@ export function SaveDiscoveryPanel() {
             )
           : await installBridge.ignoreSaveCandidate(gameId, candidate.path);
       queryClient.setQueryData<SaveCandidateOverview | null>(
-        ["save-candidates"],
+        qk.saveCandidates,
         (previous) => (previous ? mergeGroup(previous, group) : previous),
       );
       setEditing((current) => {

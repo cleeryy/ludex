@@ -22,8 +22,7 @@ import type {
   BackupVerificationState,
 } from "@/lib/types";
 import { t } from "@/lib/i18n";
-
-const QUERY_KEY = ["admin", "backups"] as const;
+import { qk } from "@/lib/query-keys";
 
 const VERIFICATION_TONE: Record<BackupVerificationState, "ok" | "danger" | "outline"> = {
   verified: "ok",
@@ -72,12 +71,12 @@ export function BackupsScreen() {
   const { push } = useToast();
   const queryClient = useQueryClient();
   const backups = useQuery({
-    queryKey: QUERY_KEY,
+    queryKey: qk.admin.backups.root,
     queryFn: () => api.adminBackups(),
     refetchInterval: 30_000,
   });
 
-  const invalidate = () => void queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+  const invalidate = () => void queryClient.invalidateQueries({ queryKey: qk.admin.backups.root });
 
   const [createOpen, setCreateOpen] = useState(false);
   const [includeMedia, setIncludeMedia] = useState(true);
@@ -455,7 +454,7 @@ function RestoreDialog({
   const { push } = useToast();
   const [confirmation, setConfirmation] = useState("");
   const preview = useQuery({
-    queryKey: ["admin", "backups", entry.name, "restore-preview"],
+    queryKey: qk.admin.backups.restorePreview(entry.name),
     queryFn: () => api.restoreAdminBackup(entry.name, { dryRun: true, includeMedia: true }),
   });
   const restore = useMutation({
