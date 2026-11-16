@@ -3,7 +3,7 @@
 //! The registry is a small JSON document in `{appDataDir}/emulators.json`. It
 //! is user-editable, ships only as presets and never contains an emulator
 //! binary. A launch always goes through
-//! [`ludex_core::rom::build_launch_command`] and `std::process::Command`, so a
+//! [`crate::bridge::rom::build_launch_command`] and `std::process::Command`, so a
 //! command template is never handed to a shell.
 //!
 //! Sessions recorded here reuse the desktop `sessions` table, which means ROM
@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
-use ludex_core::rom::{build_launch_command, LaunchCommand, RomError};
+use crate::bridge::rom::{build_launch_command, LaunchCommand, RomError};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
@@ -220,8 +220,8 @@ pub fn normalize(registry: &mut RomRegistry) {
     }
 }
 
-fn platform_by_id(id: &str) -> Option<&'static ludex_core::rom::Platform> {
-    ludex_core::rom::platform(id)
+fn platform_by_id(id: &str) -> Option<&'static crate::bridge::rom::Platform> {
+    crate::bridge::rom::platform(id)
 }
 
 /// Validates a command template against a synthetic ROM path.
@@ -422,7 +422,7 @@ pub struct RomPlatform {
 pub fn get_rom_settings(app: AppHandle) -> Result<RomSettings, String> {
     Ok(RomSettings {
         registry: registry(&app),
-        platforms: ludex_core::rom::PLATFORMS
+        platforms: crate::bridge::rom::PLATFORMS
             .iter()
             .map(|platform| RomPlatform {
                 id: platform.id.to_string(),

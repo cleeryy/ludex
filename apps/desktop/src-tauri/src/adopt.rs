@@ -133,7 +133,7 @@ pub fn match_library_title(
 ) -> (Option<i64>, MatchStatus) {
     let candidates: Vec<String> = names
         .iter()
-        .map(|name| ludex_core::naming::normalize_title(name))
+        .map(|name| crate::bridge::naming::normalize_title(name))
         .filter(|name| !name.is_empty())
         .collect();
     if candidates.is_empty() || server.is_empty() {
@@ -142,7 +142,7 @@ pub fn match_library_title(
 
     let mut exact: Vec<i64> = Vec::new();
     for (game_id, title) in server {
-        let normalized = ludex_core::naming::normalize_title(title);
+        let normalized = crate::bridge::naming::normalize_title(title);
         if !normalized.is_empty() && candidates.contains(&normalized) {
             exact.push(*game_id);
         }
@@ -158,7 +158,7 @@ pub fn match_library_title(
     // Containment: at least four characters so "dlc" or "vr" never match alone.
     let mut contained: Vec<i64> = Vec::new();
     for (game_id, title) in server {
-        let normalized = ludex_core::naming::normalize_title(title);
+        let normalized = crate::bridge::naming::normalize_title(title);
         if normalized.len() < 4 {
             continue;
         }
@@ -965,7 +965,7 @@ fn folder_names(folder: &Path) -> Vec<String> {
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
     {
-        let parsed = ludex_core::naming::parse_filename(&name);
+        let parsed = crate::bridge::naming::parse_filename(&name);
         if !parsed.title.trim().is_empty() {
             names.push(parsed.title);
         }

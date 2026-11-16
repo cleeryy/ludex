@@ -1,39 +1,60 @@
 /**
- * Types mirror docs/CONTRACT.md exactly. Keep this file in sync with the
- * contract; everything else in the app imports from here.
+ * App-facing contract types.
+ *
+ * The generated half lives in `types.gen.ts` (built from the server's OpenAPI
+ * document by `scripts/gen-types.mjs`); the aliases below re-export the safe
+ * ones and the hand-written interfaces cover the rest of docs/CONTRACT.md and
+ * the local Tauri surface. Screens keep importing from this module.
  */
 
-export type Role = "admin" | "editor" | "user";
+import type * as generated from "./types.gen";
 
-export type ProgressState = "unplayed" | "playing" | "completed" | "abandoned" | "onHold" | "planToPlay";
-
-export type UserSource = "local" | "oidc";
-
-export interface User {
-  id: number;
-  username: string;
+/**
+ * Generated contract types (single source: the server OpenAPI document).
+ * Hand-written aliases are kept so screens keep importing from this module;
+ * a few shapes are intersected where serde defaults make fields optional on
+ * the wire but consumers rely on them being present.
+ */
+export type Role = generated.Role;
+export type ProgressState = generated.ProgressState;
+export type UserSource = generated.UserSource;
+export type User = generated.User & {
   email: string | null;
-  role: Role;
-  activated: boolean;
   avatarUrl: string | null;
-  createdAt: string;
-  /** Where the account identity comes from; `oidc` accounts are read-only for identity fields. */
-  source: UserSource;
-  /** Identity provider that owns an `oidc` account, when known. */
   oidcIssuer: string | null;
-  /** Maximum age rating this account may access; `null` = unrestricted (#39). */
   ageLimit: number | null;
-  /** When the account finished or dismissed the first-run wizard (#119). */
   onboardingCompletedAt: string | null;
-  /** Canonical wizard step this account resumes at (#119), 0..=20. */
-  onboardingStep: number;
-  /** Whether a TOTP second factor is active (#166). */
-  mfaEnabled: boolean;
-  /** Set by an administrator password reset; the account should choose a new one (#166). */
-  mustChangePassword: boolean;
-  /** Interface-language preference (#188); `null`/empty inherits the server/browser. */
   locale: string | null;
+  mfaEnabled: boolean;
+  mustChangePassword: boolean;
+};
+export interface GameVersionsResponse {
+  gameId: number;
+  /** Pinned version for downloads/updates; null = newest available. */
+  defaultVersionId: number | null;
+  /** Every row, newest first, including missing archives. */
+  versions: GameVersionInfo[];
 }
+export type DeleteVersionResponse = generated.DeleteVersionResponse;
+export type NewsPost = generated.NewsPost;
+export type ScanStatus = generated.ScanStatus;
+export type SetupStatus = generated.SetupStatus;
+export type MfaStatus = generated.MfaStatus;
+export type TotpEnrollment = generated.TotpEnrollment;
+export type RecoveryCodes = generated.RecoveryCodes;
+export type TotpActivated = generated.TotpActivated;
+export type InvitationStatus = generated.InvitationStatus;
+export type Invitation = generated.Invitation;
+export type CreatedInvitation = generated.CreatedInvitation;
+export type InvitationPreview = generated.InvitationPreview;
+export type ResetPasswordResult = generated.ResetPasswordResult;
+export type CollectionKind = generated.CollectionKind;
+export type CollectionVisibility = generated.CollectionVisibility;
+export type CollectionOwner = generated.CollectionOwner;
+export type CollectionGamesResponse = generated.CollectionGamesResponse;
+export type ActivityUser = generated.ActivityUser;
+export type ActivityGame = generated.ActivityGame;
+export type ActivityCollection = generated.ActivityCollection;
 
 export interface GameSummary {
   id: number;
@@ -112,22 +133,6 @@ export interface GameVersionInfo extends GameVersion {
   missing: boolean;
   /** The library root holding the archive is offline. */
   rootUnavailable: boolean;
-}
-
-export interface GameVersionsResponse {
-  gameId: number;
-  /** Pinned version for downloads/updates; null = newest available. */
-  defaultVersionId: number | null;
-  /** Every row, newest first, including missing archives. */
-  versions: GameVersionInfo[];
-}
-
-export interface DeleteVersionResponse {
-  versionId: number;
-  /** Bytes freed on disk and in object storage. */
-  freedBytes: number;
-  /** Pin after the deletion; null when the game has none. */
-  defaultVersionId: number | null;
 }
 
 export interface GameLaunchOptions {
@@ -271,15 +276,6 @@ export interface CloudSaveRestoreOutcome {
   message: string;
 }
 
-export interface NewsPost {
-  id: number;
-  title: string;
-  body: string;
-  author: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export type IngestStatus = "queued" | "downloading" | "verifying" | "done" | "error" | "cancelled";
 
 export interface IngestJob {
@@ -295,18 +291,6 @@ export interface IngestJob {
   error: string | null;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface ScanStatus {
-  running: boolean;
-  startedAt: string | null;
-  finishedAt: string | null;
-  scanned: number;
-  added: number;
-  updated: number;
-  removed: number;
-  metadataPending: number;
-  errors: string[];
 }
 
 /* --------------------------- Remote installs ----------------------------- */
@@ -516,12 +500,6 @@ export interface ServerAdminSettings {
   serverName: string;
   /** Empty means System/English. */
   defaultLocale: string;
-}
-
-export interface SetupStatus {
-  needsSetup: boolean;
-  serverName: string;
-  version: string;
 }
 
 /* ---------------------------- desktop download --------------------------- */
@@ -769,86 +747,14 @@ export interface AuthResult {
 }
 
 /** `GET /api/auth/mfa` (#166). */
-export interface MfaStatus {
-  enabled: boolean;
-  recoveryCodesRemaining: number;
-  enabledAt: string | null;
-  methods: string[];
-  /** An enrolment was started but not confirmed yet. */
-  pending: boolean;
-}
-
 /** `POST /api/auth/mfa/totp/enroll` response (#166). */
-export interface TotpEnrollment {
-  /** Base32 secret for manual entry; shown once. */
-  secret: string;
-  /** `otpauth://` URI a QR encoder renders. */
-  otpauthUri: string;
-  issuer: string;
-  account: string;
-  digits: number;
-  period: number;
-}
-
 /** `POST /api/auth/mfa/recovery-codes` response (#166). */
-export interface RecoveryCodes {
-  codes: string[];
-}
-
 /** `POST /api/auth/mfa/totp/activate` response (#166). */
-export interface TotpActivated {
-  mfa: MfaStatus;
-  /** Single-use recovery codes; not retrievable later. */
-  recoveryCodes: string[];
-}
-
 /** Invitation lifecycle state (#166). */
-export type InvitationStatus = "pending" | "used" | "expired" | "revoked";
-
 /** `GET /api/invitations` item (#166). Never carries the token. */
-export interface Invitation {
-  id: number;
-  role: Role;
-  email: string | null;
-  note: string | null;
-  createdBy: number | null;
-  createdByUsername: string | null;
-  createdAt: string;
-  expiresAt: string;
-  maxUses: number;
-  uses: number;
-  lastUsedAt: string | null;
-  revokedAt: string | null;
-  status: InvitationStatus;
-  /** Client route to share once the token is known. */
-  path: string;
-}
-
 /** `POST /api/invitations` response: the only time the token is returned. */
-export interface CreatedInvitation {
-  invitation: Invitation;
-  token: string;
-  path: string;
-}
-
 /** `GET /api/invitations/{token}` (#166). */
-export interface InvitationPreview {
-  role: Role;
-  email: string | null;
-  note: string | null;
-  expiresAt: string;
-  requiresPassword: boolean;
-}
-
 /** `POST /api/users/{id}/reset-password` response (#166). */
-export interface ResetPasswordResult {
-  username: string;
-  /** Generated password, returned once. `null` when the admin chose it. */
-  password: string | null;
-  revoked: number;
-  mustChangePassword: boolean;
-}
-
 /** `POST /api/auth/desktop-handoff` (#157). Never contains a code or a token. */
 export interface DesktopHandoff {
   /** When the pending handoff stops being redeemable. */
@@ -950,11 +856,7 @@ export interface GamePatch {
 
 /* ------------------------------- community ------------------------------- */
 
-export type CollectionKind = "manual" | "smart";
-
 /** Who can read a collection (#173). */
-export type CollectionVisibility = "private" | "unlisted" | "public";
-
 export type SmartField =
   | "genre"
   | "year"
@@ -977,12 +879,6 @@ export interface SmartRule {
 export interface SmartRules {
   match: "all" | "any";
   rules: SmartRule[];
-}
-
-export interface CollectionOwner {
-  id: number;
-  username: string;
-  displayName: string | null;
 }
 
 export interface Collection {
@@ -1069,30 +965,6 @@ export interface CollectionShareView {
   games: CollectionShareGame[];
   expiresAt: string | null;
   hasPassword: boolean;
-}
-
-export interface CollectionGamesResponse {
-  added: number;
-  total: number;
-}
-
-export interface ActivityUser {
-  id: number;
-  username: string;
-  displayName: string | null;
-  avatarUrl: string | null;
-}
-
-export interface ActivityGame {
-  id: number;
-  title: string;
-  coverUrl: string | null;
-  releaseYear: number | null;
-}
-
-export interface ActivityCollection {
-  id: number;
-  name: string;
 }
 
 export type ActivityKind =

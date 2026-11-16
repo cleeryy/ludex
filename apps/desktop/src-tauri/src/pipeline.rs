@@ -332,4 +332,53 @@ mod tests {
         ));
         assert_eq!(ledger.job_bytes("job-a"), bytes);
     }
+
+    /// #237: the web mirror (`apps/web/src/lib/install-queue.ts`) sorts the
+    /// same fixture; a change to the queue rule on one side fails both suites.
+    #[test]
+    fn shared_queue_fixture_matches_the_scheduler_order() {
+        #[derive(serde::Deserialize)]
+        struct Fixture {
+            cases: Vec<Case>,
+        }
+
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Case {
+            name: String,
+            jobs: Vec<FixtureJob>,
+            expected_order: Vec<String>,
+        }
+
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct FixtureJob {
+            job_id: String,
+            phase: InstallPhase,
+            queue_position: Option<u32>,
+            created_at: String,
+        }
+
+        let fixture: Fixture = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../crates/ludex-core/tests/fixtures/install-queue.json"
+        )))
+        .expect("queue fixture");
+        for case in fixture.cases {
+            let mut candidates: Vec<Candidate> = case
+                .jobs
+                .into_iter()
+                .map(|job| Candidate {
+                    job_id: job.job_id,
+                    position: job.queue_position,
+                    created_at: job.created_at,
+                    phase: job.phase,
+                    space: None,
+                })
+                .collect();
+            candidates.sort_by(|left, right| left.order_key().cmp(&right.order_key()));
+            let order: Vec<String> = candidates.into_iter().map(|job| job.job_id).collect();
+            assert_eq!(order, case.expected_order, "{}", case.name);
+        }
+    }
 }

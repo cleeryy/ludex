@@ -129,7 +129,7 @@ fn handle_menu(app: &AppHandle, id: &str) {
             show_window(app);
             let handle = app.clone();
             tauri::async_runtime::spawn(async move {
-                let _ = crate::updater::check_now(handle, true).await;
+                let _ = crate::update::app::check_now(handle, true).await;
             });
         }
         other if other.starts_with(MENU_RECENT_PREFIX) => {

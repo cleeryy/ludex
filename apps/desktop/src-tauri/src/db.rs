@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::linux_gaming::{LaunchMode, LaunchOptions};
 use crate::runtime::{RuntimeAuditEvent, RuntimeGamePrefs, RuntimeInstallRow};
-use crate::saves_registry::SaveCandidate;
+use crate::saves::registry::SaveCandidate;
 
 /// Mirrors `InstalledGame` from `docs/CONTRACT.md`.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1286,7 +1286,7 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
             next_attempt_at: None,
             error: None,
         });
-    let snapshot: Option<crate::saves_detect::Detection> = detection
+    let snapshot: Option<crate::saves::detect::Detection> = detection
         .as_ref()
         .and_then(|record| serde_json::from_str(&record.result_json).ok());
     let message = if rows.is_empty() {
@@ -1297,7 +1297,7 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
             .map(|snapshot| snapshot.message.trim())
             .filter(|message| !message.is_empty())
             .map(str::to_string)
-            .or_else(|| Some(crate::saves_detect::NO_SAVE_MESSAGE.to_string()))
+            .or_else(|| Some(crate::saves::detect::NO_SAVE_MESSAGE.to_string()))
     } else if local.files == 0 && !local.truncated {
         Some(
             "No save files exist yet. Launch the game once so it creates its saves, then sync again."
@@ -1312,18 +1312,18 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
         .map(|candidate| {
             let saved = rows.iter().find(|row| row.path == candidate.path);
             let status = if saved.is_some() {
-                crate::saves_detect::CANDIDATE_STATUS_SAVING
-            } else if candidate.auto_status == crate::saves_detect::CANDIDATE_STATUS_SKIPPED {
-                crate::saves_detect::CANDIDATE_STATUS_SKIPPED
+                crate::saves::detect::CANDIDATE_STATUS_SAVING
+            } else if candidate.auto_status == crate::saves::detect::CANDIDATE_STATUS_SKIPPED {
+                crate::saves::detect::CANDIDATE_STATUS_SKIPPED
             } else {
-                crate::saves_detect::CANDIDATE_STATUS_WAITING
+                crate::saves::detect::CANDIDATE_STATUS_WAITING
             };
             CloudSaveCandidate {
                 path: candidate.path.clone(),
                 source: candidate.source.clone(),
                 confidence: candidate.confidence.clone(),
                 status: status.to_string(),
-                reason: if status == crate::saves_detect::CANDIDATE_STATUS_SKIPPED {
+                reason: if status == crate::saves::detect::CANDIDATE_STATUS_SKIPPED {
                     candidate.auto_reason.clone()
                 } else {
                     None
@@ -1451,7 +1451,7 @@ pub async fn restore(
         )
     };
     if rows.is_empty() {
-        return Err(crate::saves_detect::NO_SAVE_MESSAGE.to_string());
+        return Err(crate::saves::detect::NO_SAVE_MESSAGE.to_string());
     }
     let snapshots = fetch_snapshots(app, &settings, game_id).await?;
     let latest = snapshots
@@ -1920,7 +1920,7 @@ fn should_detect_after_exit(app: &AppHandle, game_id: i64) -> bool {
             stamps.push(modified);
         }
     }
-    let managed = crate::saves_manifest::ManifestPaths::for_app_data(&state.app_data).manifest;
+    let managed = crate::saves::manifest::ManifestPaths::for_app_data(&state.app_data).manifest;
     if let Ok(modified) = fs::metadata(managed).and_then(|meta| meta.modified()) {
         stamps.push(modified);
     }
@@ -2584,7 +2584,7 @@ mod tests {
             launch_uri: None,
         };
 
-        let detection = crate::saves_detect::detect_for_game_with_ignored(
+        let detection = crate::saves::detect::detect_for_game_with_ignored(
             &settings,
             &game,
             &fixture.root,
@@ -2596,7 +2596,7 @@ mod tests {
         assert!(detection.detected, "{detection:?}");
         assert!(!detection.saves.is_empty(), "{detection:?}");
 
-        let rows = crate::saves_detect::records_from_detection(
+        let rows = crate::saves::detect::records_from_detection(
             1,
             &detection,
             Some(&detection.saves[0].path),

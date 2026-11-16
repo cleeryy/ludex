@@ -2,7 +2,7 @@
 //!
 //! Everything in this module runs on the device first. A panic, a startup
 //! failure or a failed Tauri command is redacted with
-//! [`ludex_core::redact`] and stored in `{appDataDir}/diagnostics.json`; no
+//! [`crate::bridge::redact`] and stored in `{appDataDir}/diagnostics.json`; no
 //! report leaves the machine until the user explicitly presses "Send" in
 //! Settings → Help and about, and sending is refused while the opt-in toggle
 //! is off.
@@ -168,13 +168,13 @@ pub struct SendOutcome {
 pub struct DiagnosticsStore {
     path: Option<PathBuf>,
     reports: Mutex<Vec<StoredReport>>,
-    redaction: ludex_core::redact::RedactionContext,
+    redaction: crate::bridge::redact::RedactionContext,
 }
 
 impl DiagnosticsStore {
     /// Loads the store from `path` (or starts empty when the file is missing
     /// or unreadable).
-    pub fn new(path: Option<PathBuf>, redaction: ludex_core::redact::RedactionContext) -> Self {
+    pub fn new(path: Option<PathBuf>, redaction: crate::bridge::redact::RedactionContext) -> Self {
         let reports = path
             .as_deref()
             .and_then(|path| fs::read(path).ok())
@@ -210,12 +210,12 @@ impl DiagnosticsStore {
             created_at: crate::util::now_rfc3339(),
             kind: kind.to_string(),
             summary: truncate(
-                &ludex_core::redact::redact(summary, &self.redaction),
+                &crate::bridge::redact::redact(summary, &self.redaction),
                 MAX_SUMMARY_CHARS,
             ),
             stack: stack.map(|value| {
                 truncate(
-                    &ludex_core::redact::redact(value, &self.redaction),
+                    &crate::bridge::redact::redact(value, &self.redaction),
                     MAX_STACK_CHARS,
                 )
             }),
@@ -224,16 +224,16 @@ impl DiagnosticsStore {
                 .take(MAX_LOG_LINES)
                 .map(|line| {
                     truncate(
-                        &ludex_core::redact::redact(line, &self.redaction),
+                        &crate::bridge::redact::redact(line, &self.redaction),
                         MAX_LOG_CHARS,
                     )
                 })
                 .collect(),
             game_id,
             game_title: game_title
-                .map(|value| truncate(&ludex_core::redact::redact(value, &self.redaction), 200)),
+                .map(|value| truncate(&crate::bridge::redact::redact(value, &self.redaction), 200)),
             command: command
-                .map(|value| truncate(&ludex_core::redact::redact(value, &self.redaction), 120)),
+                .map(|value| truncate(&crate::bridge::redact::redact(value, &self.redaction), 120)),
             sent: false,
         };
         let mut reports = self
@@ -284,7 +284,7 @@ impl DiagnosticsStore {
                 http_status: job.http_status,
                 last_error: job.last_error.map(|value| {
                     truncate(
-                        &ludex_core::redact::redact(&value, &self.redaction),
+                        &crate::bridge::redact::redact(&value, &self.redaction),
                         MAX_LOG_CHARS,
                     )
                 }),
@@ -499,7 +499,9 @@ fn truncate(value: &str, max: usize) -> String {
 }
 
 /// Builds the redaction context from the local environment.
-pub fn local_redaction_context(server_urls: Vec<String>) -> ludex_core::redact::RedactionContext {
+pub fn local_redaction_context(
+    server_urls: Vec<String>,
+) -> crate::bridge::redact::RedactionContext {
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(|value| value.to_string_lossy().to_string());
@@ -507,7 +509,7 @@ pub fn local_redaction_context(server_urls: Vec<String>) -> ludex_core::redact::
         .or_else(|_| std::env::var("USERNAME"))
         .ok();
     let hostname = sysinfo::System::host_name().ok();
-    let mut context = ludex_core::redact::RedactionContext::new();
+    let mut context = crate::bridge::redact::RedactionContext::new();
     if let Some(home) = home {
         context = context.with_home(home);
     }
@@ -588,8 +590,8 @@ pub fn record_startup_failure(app: &AppHandle, message: &str) {
 }
 
 #[cfg(test)]
-fn test_context() -> ludex_core::redact::RedactionContext {
-    ludex_core::redact::RedactionContext::new()
+fn test_context() -> crate::bridge::redact::RedactionContext {
+    crate::bridge::redact::RedactionContext::new()
         .with_home("/home/tester")
         .with_username("tester")
         .with_hostname("test-pc")

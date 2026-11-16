@@ -44,10 +44,7 @@ mod resume;
 mod resume_url;
 mod roms;
 mod runtime;
-mod saves_detect;
-mod saves_manifest;
-mod saves_registry;
-mod saves_sync;
+mod saves;
 mod secrets;
 mod server;
 mod settings;
@@ -60,9 +57,7 @@ mod streaming;
 #[cfg(test)]
 mod test_support;
 mod tray;
-mod update_notify;
-mod updater;
-mod updates;
+mod update;
 mod util;
 mod webview_profile;
 mod window_focus;
@@ -137,7 +132,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         // Registered even without a signing key: the plugin refuses to install
-        // and `updater::check_now` reports the missing key explicitly.
+        // and `crate::update::app::check_now` reports the missing key explicitly.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -200,7 +195,8 @@ pub fn run() {
 
             // #213: must be installed before the first notification, otherwise
             // the plugin does not track clicks.
-            update_notify::register_click_handler(app.handle()).map_err(std::io::Error::other)?;
+            crate::update::notify::register_click_handler(app.handle())
+                .map_err(std::io::Error::other)?;
 
             if console_mode.active {
                 let _ = console::apply_window(app.handle());
@@ -252,7 +248,7 @@ pub fn run() {
                 launch::start_retry_worker(handle.clone());
                 // Cloud saves (#108): retry failed automatic uploads with
                 // bounded backoff; pending state is persisted in SQLite.
-                saves_sync::start_retry_worker(handle.clone());
+                crate::saves::sync::start_retry_worker(handle.clone());
                 // Device registry (#184): heartbeat every 25 s so the phone
                 // lists this PC as online even when the window is in the tray.
                 remote_install::start_heartbeat(handle.clone());
@@ -260,13 +256,13 @@ pub fn run() {
 
                 // Save-path manifest (#153): at most one check per 24 h,
                 // skipped when the user turned automatic downloads off.
-                saves_manifest::auto_update(handle.clone()).await;
+                crate::saves::manifest::auto_update(handle.clone()).await;
 
                 // Throttled to once per 24 h; a no-op without release keys.
-                updater::check_on_startup(handle.clone()).await;
+                crate::update::app::check_on_startup(handle.clone()).await;
                 // #213: a window left open for days still learns about a new
                 // build; the same throttle and preference apply.
-                updater::spawn_periodic_check(handle.clone());
+                crate::update::app::spawn_periodic_check(handle.clone());
             });
             Ok(())
         })
@@ -315,11 +311,11 @@ pub fn run() {
             commands::update_game,
             commands::check_for_updates,
             commands::install_update,
-            update_notify::notify_update_available,
+            crate::update::notify::notify_update_available,
             commands::restart_app,
-            updater::update_status,
-            updater::set_update_channel,
-            updater::set_update_skip,
+            crate::update::app::update_status,
+            crate::update::app::set_update_channel,
+            crate::update::app::set_update_skip,
             install_health::update_install_health,
             install_health::dismiss_update_mismatch,
             commands::open_path,

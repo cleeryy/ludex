@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 import {
   canMoveDown,
@@ -158,5 +160,31 @@ describe("install queue order", () => {
       "job-c",
       "paused",
     ]);
+  });
+});
+
+const sharedQueueFixture = JSON.parse(
+  readFileSync(
+    new URL("../../../../crates/ludex-core/tests/fixtures/install-queue.json", import.meta.url),
+    "utf8",
+  ),
+) as {
+  cases: {
+    name: string;
+    jobs: { jobId: string; phase: InstallJob["phase"]; queuePosition: number | null }[];
+    expectedOrder: string[];
+  }[];
+};
+
+describe("shared install-queue fixture (#237)", () => {
+  it("sorts the waiting queue exactly like the desktop scheduler", () => {
+    for (const fixtureCase of sharedQueueFixture.cases) {
+      const jobs = fixtureCase.jobs.map((entry) =>
+        job({ jobId: entry.jobId, phase: entry.phase, queuePosition: entry.queuePosition }),
+      );
+      expect(waitingQueue(jobs).map((entry) => entry.jobId), fixtureCase.name).toEqual(
+        fixtureCase.expectedOrder,
+      );
+    }
   });
 });

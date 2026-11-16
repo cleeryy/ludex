@@ -154,7 +154,7 @@ pub fn notify_update_available(
     if !installed {
         // The web view already gates on `status.notify`, but a stale tab must
         // not resurrect a version the user skipped.
-        if crate::updater::version_is_skipped(
+        if crate::update::app::version_is_skipped(
             Some(&version),
             settings.skipped_update_version.as_deref(),
         ) {

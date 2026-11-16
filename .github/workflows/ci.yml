@@ -139,6 +139,30 @@ jobs:
       - name: Test web helpers
         run: pnpm --filter @ludex/web test
 
+  # Contract gate (#237 wave 1): `apps/web/src/lib/types.gen.ts` is generated
+  # from `ludex-server openapi`. A DTO change that is not reflected in the
+  # committed file fails here, before any client drifts.
+  types:
+    name: Types (generated, up to date)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check generated OpenAPI types
+        run: node scripts/gen-types.mjs
+
   # Coverage (#263). Three jobs because the three test suites live in three
   # different build systems: the root workspace, the desktop crate (its own
   # workspace) and the web app. Each one uploads an lcov file as an artifact

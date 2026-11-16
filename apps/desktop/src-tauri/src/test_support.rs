@@ -150,7 +150,7 @@ impl Drop for ZipServer {
 /// directory entries are ignored. `fail_entry` makes one entry answer 500 so a
 /// test can interrupt a run and resume it.
 pub async fn serve_zip(
-    manifest: ludex_core::archive::StreamManifest,
+    manifest: crate::bridge::archive::StreamManifest,
     entries: Vec<Vec<u8>>,
     fail_entry: Option<usize>,
 ) -> ZipServer {

@@ -27,6 +27,16 @@ async fn async_main() -> anyhow::Result<()> {
                 args.remove(0);
                 return import_gamevault(args).await;
             }
+            // Machine-readable contract used by `scripts/gen-types.mjs` and the
+            // `Types (generated, up to date)` CI job. No trailing newline: the
+            // dump is the exact document, so it can be diffed byte for byte.
+            "openapi" => {
+                use std::io::Write;
+                let document = ludex_server::openapi::document();
+                print!("{}", serde_json::to_string_pretty(&document)?);
+                std::io::stdout().flush()?;
+                return Ok(());
+            }
             "--help" | "-h" | "help" => {
                 print_help();
                 return Ok(());
@@ -49,6 +59,7 @@ fn print_help() {
 
 Usage:
   ludex-server                         start the HTTP server (LUDEX_* environment)
+  ludex-server openapi                 print the OpenAPI document as JSON
   ludex-server import-gamevault --dump <file> [--dry-run] [--json]
                                        import a GameVault JSON export (#6)
 
