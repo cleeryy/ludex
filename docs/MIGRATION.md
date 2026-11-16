@@ -103,7 +103,7 @@ docker run -d --name ludex-migrate \
   -e LUDEX_SERVER_NAME="Ludex (migration)" \
   -e LUDEX_IGDB_CLIENT_ID="" \
   -e LUDEX_IGDB_CLIENT_SECRET="" \
-  ghcr.io/cleeryy/ludex:v0.2.0
+  ghcr.io/cleeryy/ludex:v0.4.15
 ```
 
 Or add a second service to a separate Compose file. Do not publish 8081 on the

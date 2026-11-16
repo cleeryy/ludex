@@ -8,9 +8,11 @@
     "test": "playwright test",
     "test:ui": "playwright test --ui",
     "report": "playwright show-report",
-    "install:browsers": "playwright install chromium"
+    "install:browsers": "playwright install chromium",
+    "screenshots": "node screenshots.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "^1.65.0"
+    "@playwright/test": "^1.65.0",
+    "sharp": "^0.35.5"
   }
 }

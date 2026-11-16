@@ -11,6 +11,8 @@
     "e2e": "pnpm --filter @ludex/e2e test",
     "e2e:install": "pnpm --filter @ludex/e2e exec playwright install chromium",
     "e2e:report": "pnpm --filter @ludex/e2e exec playwright show-report",
+    "screenshots": "pnpm --filter @ludex/e2e screenshots",
+    "check:docs": "node scripts/check-assets.mjs",
     "desktop:dev": "pnpm --filter @ludex/desktop dev",
     "desktop:build": "pnpm --filter @ludex/desktop build",
     "desktop:dist": "pnpm --filter @ludex/desktop dist",

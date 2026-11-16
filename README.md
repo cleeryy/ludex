@@ -1,344 +1,316 @@
 <p align="center">
-  <img src="docs/assets/banner.svg" alt="Ludex — self-hosted DRM-free game library" width="100%">
+  <img src="docs/assets/banner.svg" alt="Ludex — a self-hosted, DRM-free game library" width="100%">
 </p>
 
-<h1 align="center">LUDEX</h1>
+<h1 align="center">Ludex</h1>
 
 <p align="center">
-  <strong>Your DRM-free game library, self-hosted.</strong><br>
-  A single Rust binary that indexes your archives, enriches metadata, and streams
-  installs to a desktop app that unpacks and launches your games.
+  <strong>The game library you host yourself.</strong><br>
+  Index the archives you already own, enrich them with metadata, and stream installs to a
+  desktop app that unpacks, launches and tracks playtime. One Rust binary, SQLite by default,
+  no vendor account.
 </p>
 
 <p align="center">
-  <a href="https://github.com/cleeryy/ludex/actions/workflows/ci.yml"><img src="https://github.com/cleeryy/ludex/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/cleeryy/ludex/releases"><img src="https://img.shields.io/github/v/release/cleeryy/ludex?include_prereleases&amp;sort=semver" alt="Release"></a>
-  <a href="#license"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="AGPL-3.0"></a>
-  <a href="https://github.com/cleeryy/ludex/pkgs/container/ludex"><img src="https://img.shields.io/badge/ghcr.io-cleeryy%2Fludex-informational" alt="GHCR image"></a>
+  <a href="https://github.com/cleeryy/ludex/actions/workflows/ci.yml"><img src="https://github.com/cleeryy/ludex/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
+  <a href="https://github.com/cleeryy/ludex/releases"><img src="https://img.shields.io/github/v/release/cleeryy/ludex?sort=semver" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue" alt="License: AGPL-3.0-or-later"></a>
+  <a href="https://github.com/cleeryy/ludex/pkgs/container/ludex"><img src="https://img.shields.io/badge/ghcr.io-cleeryy%2Fludex-informational" alt="Container image on GHCR"></a>
+  <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-policy-2f6f4f" alt="Security policy"></a>
+  <a href="https://github.com/cleeryy/ludex/stargazers"><img src="https://img.shields.io/github/stars/cleeryy/ludex?style=flat" alt="GitHub stars"></a>
 </p>
-
-> **Status: v0.2.0 — current release line.** The API and database schema may still change.
-> Features are marked with the release that introduced them; anything marked
-> *roadmap* is not in v0.2. Bug reports and migration feedback are welcome.
-
-Ludex is a clean-room, AGPL-3.0 licensed alternative to
-[GameVault](https://gamevault.app). It is not affiliated with or endorsed by
-GameVault, and contains no GameVault code.
 
 <p align="center">
-  <img src="apps/web/screenshots/01-home.png" alt="Ludex Home with demo data" width="72%">
-  <br>
-  <sub>The Ludex library (demo data). The same UI runs in the browser and the desktop app.</sub>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/readme/library-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/screenshots/readme/library-light.png">
+    <img src="docs/assets/screenshots/readme/library-dark.png" alt="The Ludex library grid: covers, install badges, state filters and a 20-game demo catalogue" width="100%">
+  </picture>
 </p>
 
-## Why another game library?
+<p align="center">
+  <sub>The same React UI runs in the browser, in the desktop app and on a TV — here with the built-in demo library.</sub>
+</p>
 
-GameVault is source-available, not open source, and its server is a TypeScript
-application backed by PostgreSQL. Ludex takes a different route:
+> **Status: v0.4.15, pre-1.0.** The release badge above is the source of truth. The API and
+> database schema can still change between minor releases; pin an image tag in production.
+> Every feature below is shipped —
+> the road to the next release lives in [Roadmap](#roadmap), and the honest comparison with
+> GameVault is in [`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md).
 
-- **Open source, for real.** AGPL-3.0, no open-core tier, no paid
-  feature gate.
-- **One binary.** Rust + axum + SQLite. No Node runtime, no PostgreSQL,
-  no Redis. `docker run` with three volumes is the whole deployment.
-- **Fast where it matters.** Scanning is a `stat` + extension walk, metadata is
-  fetched in the background, and downloads use HTTP Range with stall detection,
-  automatic reconnect and a resumable queue. A dropped connection resumes at
-  the last byte instead of restarting, and the queue can be reordered.
-- **The same UI everywhere.** The web app and the Tauri desktop app share one
-  React codebase; native install/launch/playtime are detected at runtime.
-- **Your files stay yours.** The library is a folder of `.zip`, `.rar`, `.7z`
-  and portable `.exe` files. Nothing is sent to a third party. No telemetry.
-- **A migration path.** Point Ludex at an existing GameVault `/games` volume and
-  scan it; metadata and progress import is on the roadmap.
+## What it is, what it is not
 
-## Features
-
-| Feature | Status |
+| | |
 |---|---|
-| Library scan of `.zip`, `.rar`, `.7z`, portable `.exe` | v0.1 |
-| Filename parser: title, year, version, edition tags | v0.1 |
-| Metadata from IGDB, Steam Store fallback, filename last | v0.1 |
-| Manual metadata editing (admin/editor) | v0.1 |
-| Covers, backgrounds, screenshots cached locally | v0.1 |
-| Search, genre/state/bookmark filters, sorting, pagination | v0.1 |
-| Bookmarks, progress states, playtime, last played | v0.1 |
-| Multiple versions per game | v0.1 |
-| Classic download: HTTP Range, `.part` resume, stall detection, bounded reconnect | v0.4 |
-| Ingest queue: URL download only (no web upload in v0.1), resume, magic-byte detection, verify | v0.1 |
-| Downloads manager: persisted queue, reorder/priority, pause/resume/cancel, one active install | v0.4 |
-| Custom install and download folders | v0.2 |
-| Stream install: per-entry ZIP resume, retries, automatic classic fallback | v0.4 |
-| Big Picture mode (keyboard/gamepad) | v0.2 |
-| SSO OIDC (Authentik/Keycloak) | v0.2 |
-| Higher-resolution IGDB covers/backgrounds | v0.2 |
-| Web UI served by the server | v0.1 |
-| Users and roles (`admin`, `editor`, `user`) | v0.1 |
-| News posts | v0.1 |
-| Admin: games manager, library health, observability, backups | v0.4 |
-| Desktop app: Windows and Linux, install/launch/playtime | v0.1 (beta) |
-| Local mode: desktop runs the server in-process | v0.1 |
-| Docker image and Compose example | v0.1 |
-| Scan an existing GameVault archive volume | v0.1 |
-| GameVault metadata/progress import | roadmap |
-| Share links, collections, community view | roadmap |
-| Cloud saves per user (manual `.zip` snapshots) | v0.2 |
-| Ludusavi automatic save discovery | roadmap |
-| Discord Rich Presence, Steam, Playnite integration | roadmap |
-| Gamepad navigation, tray icon, auto-updater | roadmap |
-| Light / dark / system themes, no flash on load | v0.3 |
-| i18n: English + French official, German/Spanish/Arabic community, RTL | v0.3 |
-| Installable PWA: offline shell, install prompt, update prompt | v0.3 |
-| Responsive mobile web with safe-area and PWA polish | v0.3 |
-| Mobile companion: remote install queue, desktop pickup, OpenTunnel guidance | v0.5 (`docs/REMOTE-ACCESS.md`) |
-| Multiple profiles | roadmap |
-| macOS desktop build | v0.2.2+ universal DMG; signed/notarized when the release secrets are configured, unsigned otherwise |
+| **Is** a self-hosted server for DRM-free game archives you already have: it scans `.zip`, `.rar`, `.7z` and portable `.exe` folders, fetches metadata, serves a web UI, and hands installs to a desktop client. | **Is not** a store, a torrent index, or a download source. Ludex never bundles, links or fetches games for you. |
+| **Is** one Rust binary with an embedded web build, a SQLite database by default (PostgreSQL optional), and three volumes in Docker. | **Is not** a Node/Postgres/Redis stack you have to babysit, and it does not need an external account. |
+| **Is** a Tauri 2 desktop app that unpacks archives, detects the main executable, launches the game, and reports playtime back to the server. | **Is not** a streaming service: games run on your machine, not on the server. |
+| **Is** AGPL-3.0, with no open-core tier, no telemetry and no paid feature gate. | **Is not** affiliated with GameVault, Steam, IGDB or any storefront. |
 
-The API is documented in [`docs/CONTRACT.md`](docs/CONTRACT.md), integrations
-(API keys, audit log, webhooks) in
-[`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md), object storage in
-[`docs/STORAGE.md`](docs/STORAGE.md), backup/restore in
-[`docs/BACKUP.md`](docs/BACKUP.md), achievements and local providers in
-[`docs/ACHIEVEMENTS.md`](docs/ACHIEVEMENTS.md), ROM libraries and emulators in
-[`docs/EMULATORS.md`](docs/EMULATORS.md), downloads and resume in
-[`docs/DOWNLOADS.md`](docs/DOWNLOADS.md), the design in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), translations, themes and the
-PWA in [`docs/I18N.md`](docs/I18N.md), the honest GameVault comparison in
-[`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md), and remote access (VPN,
-reverse proxy, tunnel warnings) in
-[`docs/REMOTE-ACCESS.md`](docs/REMOTE-ACCESS.md).
+## Why Ludex
 
-## Quick start (Docker)
+- **Your files stay yours.** The library is a folder of archives. Covers and backgrounds are
+  cached locally, nothing is uploaded, and the only outbound calls are the metadata providers
+  you configure. Diagnostics are opt-in, local and redacted before anything is sent.
+- **One binary, boring deployment.** `docker compose up -d` with three volumes is the whole
+  install. `embed-web` compiles the React UI into the server, so there is no second process
+  and no reverse-proxy rewrite to get right.
+- **Downloads that survive reality.** Classic installs use HTTP Range with `.part` resume,
+  stall detection and bounded reconnect; stream installs extract ZIP/7z while downloading and
+  fall back to classic when a format cannot stream. The queue is persisted, reorderable and
+  keeps going when you close the window.
+- **The same UI everywhere.** Web, desktop and 10-foot console mode share one React codebase;
+  a phone gets a PWA with a remote-install queue, a TV gets a gamepad-first shell.
+- **Built to be inspected.** Argon2id hashes, path-traversal guards on every file operation,
+  full-archive SHA-256 verification before install, an audit log, API keys, signed webhooks,
+  and a documented API contract in [`docs/CONTRACT.md`](docs/CONTRACT.md).
 
-```bash
-git clone https://github.com/cleeryy/ludex.git
-cd ludex
+## Feature tour
 
-mkdir -p games media data
-sudo chown -R 1000:1000 games media data   # the container runs as uid/gid 1000
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/readme/game-page.png" alt="HITMAN 3 game page: cover, rating, size, versions, playtime and a Download button">
+      <p><strong>Game pages that hold the details.</strong> Versions and rollback, install
+      location, saves, achievements, launch options and the archive's real SHA-256 — in one
+      scrolling page.</p>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/readme/downloads.png" alt="Downloads queue with an active install at 73%, speed, ETA and queued jobs">
+      <p><strong>A queue you can reason about.</strong> One active download, the rest queued
+      with positions, per-job speed and ETA, pause/resume/cancel, disk-space reservations and
+      a history row per game.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/readme/console-soft.png" alt="Console mode, Soft appearance: cream rounded tiles over blurred key art">
+      <p><strong>Console mode, Soft.</strong> A Switch-like, ten-foot shell that Sunshine can
+      publish as a single app: tiles, shelf, system bar, controller-first navigation and its
+      own sound language.</p>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/readme/console-studio.png" alt="Console mode, Studio appearance: dark sharp archive surfaces over artwork">
+      <p><strong>Console mode, Studio.</strong> The archive look: sharp corners, dark
+      materials, the same layout and navigation. Both presets are switchable from the
+      console's own settings.</p>
+    </td>
+  </tr>
+</table>
 
-cp .env.example .env
-# optional: set LUDEX_IGDB_CLIENT_ID and LUDEX_IGDB_CLIENT_SECRET in .env
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/docs/home-dark.png" alt="Home screen: continue playing, installs on this device, recently played">
+      <p><strong>Home, not a dashboard.</strong> What you played last, what is installed here,
+      and a shelf of recently played covers. Nothing else competes for attention.</p>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/docs/admin-games.png" alt="Admin games table with availability, versions, size, installs and VirusTotal verdict columns">
+      <p><strong>Admin that answers questions.</strong> Every game with availability,
+      versions, size, installs and VirusTotal verdicts, plus the Library Health Center,
+      backups, observability and an audit log.</p>
+    </td>
+  </tr>
+</table>
 
-docker compose up -d
-```
+<p align="center">
+  <a href="docs/SCREENSHOTS.md">More screenshots: admin, settings, ingest and the mobile PWA →</a>
+</p>
 
-Open <http://localhost:8080>. The first-run screen creates the admin account.
-Drop archives into `./games`, then trigger a scan from the UI or with:
+## Quick start
 
-```bash
-curl -X POST http://localhost:8080/api/library/scan \
-  -H "authorization: Bearer <token>"
-```
-
-Useful commands:
-
-```bash
-docker compose logs -f ludex   # logs
-docker compose pull && docker compose up -d   # upgrade
-docker compose down            # stop (volumes stay on disk)
-```
-
-To build the image locally instead of pulling it:
+### Docker (server, 3 commands)
 
 ```bash
-docker compose up -d --build
+git clone https://github.com/cleeryy/ludex.git && cd ludex
+mkdir -p games media data && sudo chown -R 1000:1000 games media data
+docker compose up -d && open http://localhost:8080
 ```
 
-The image is published as `ghcr.io/cleeryy/ludex`. Pin a version in production
-(`ghcr.io/cleeryy/ludex:v0.2.0`) rather than tracking `latest`.
+The first-run screen creates the admin account. Drop archives into `./games`, then scan from
+the UI (or `POST /api/library/scan`). Set `LUDEX_IGDB_CLIENT_ID` / `LUDEX_IGDB_CLIENT_SECRET`
+in `.env` first if you want IGDB metadata; without them Ludex falls back to the Steam Store
+and then to filenames.
 
-## Desktop app
+The image is published as `ghcr.io/cleeryy/ludex` (pin `:v0.4.15` in production, `latest`
+tracks the newest release). Reverse proxy, permissions, backups, systemd and the bare-binary
+path are covered in [`docs/DEPLOY.md`](docs/DEPLOY.md) — they are not duplicated here.
 
-Every Ludex server serves a public **`#/download`** page (no account needed):
-it detects the visitor's OS, offers the matching installer, lists every
-platform with size and SHA-256 when the release publishes them, and links the
-release page when the release feed is unreachable. The same data is available
-at `GET /api/desktop/download?platform=windows|linux|macos`; it is cached for ten
-minutes and never proxies the binaries. Point it at a mirror with
-`LUDEX_DESKTOP_DOWNLOAD_BASE_URL` if you do not want clients hitting GitHub.
+### Desktop app
 
-You can also download the latest installer from
-[Releases](https://github.com/cleeryy/ludex/releases):
+| Platform | Installer |
+|---|---|
+| Windows x64 | `Ludex_*_x64-setup.exe` from [Releases](https://github.com/cleeryy/ludex/releases). Not code-signed yet: SmartScreen may ask for *More info → Run anyway*. |
+| Linux x64 | AppImage (`chmod +x Ludex_*.AppImage`, needs WebKitGTK 4.1) or `sudo apt install ./ludex_*.deb`. |
+| macOS | Universal DMG, experimental and unsigned for now; building from source is the supported path. |
 
-- **Windows x64** — NSIS installer (`Ludex_*_x64-setup.exe`). The build is not
-  code-signed yet, so SmartScreen may ask for *More info → Run anyway*.
-- **Linux x64** — AppImage (`chmod +x Ludex_*.AppImage`) or Debian package
-  (`sudo apt install ./ludex_*.deb`). The AppImage needs WebKitGTK 4.1 from your
-  distribution.
-- **macOS** — experimental, unsigned; building from source is the supported path
-  for now.
+Every server also exposes a public `#/download` page that detects the visitor's OS, lists
+installers with sizes and SHA-256 when the release publishes them, and never proxies the
+binaries (`GET /api/desktop/download?platform=windows|linux|macos`).
 
 On first launch the wizard offers two modes:
 
-1. **Local library** — pick a games folder. The desktop starts the same server
-   in-process on `127.0.0.1` with a private SQLite database and an
-   auto-provisioned local admin token, so there is no login screen. This is the
-   zero-setup path for a single machine.
-2. **Connect to a server** — enter the URL of a Ludex server (Docker, NAS, VPS)
-   and sign in. Installs download from that server, resume on failure, extract
-   with zip/7z/rar support, detect the main executable, launch the game, and
-   report playtime back to the server.
+1. **Local library** — pick a games folder; the desktop starts the same server in-process on
+   `127.0.0.1` with a private SQLite database and an auto-provisioned admin token. No login,
+   no Docker, one machine.
+2. **Connect to a server** — enter your Ludex URL and sign in (password or SSO). Installs
+   download from that server, resume on failure, extract with zip/7z/rar support, detect the
+   main executable, launch and report playtime.
 
 <p align="center">
-  <img src="docs/assets/desktop-first-run.png" alt="Ludex desktop first-run wizard" width="64%">
-  <br>
-  <sub>The desktop first-run wizard: local library or a remote server.</sub>
+  <img src="docs/assets/desktop-first-run.png" alt="Ludex desktop first-run wizard offering a local library or a remote server" width="62%">
 </p>
 
 ## How it works
 
-```
-┌────────────────────────────┐      ┌──────────────────────────────┐
-│ Browser                    │      │ Ludex Desktop (Tauri 2)      │
-│ React UI served by the API │      │ Windows · Linux · macOS*     │
-└─────────────┬──────────────┘      └──────────────┬───────────────┘
-              │ HTTPS · JSON · Range               │ JSON + native commands
-              └─────────────────┬──────────────────┘
-                                ▼
-                 ┌────────────────────────────────┐
-                 │ ludex-server (Rust + axum)     │
-                 │ auth · library · metadata      │
-                 │ ingest · streaming · news      │
-                 └───────┬──────────┬─────────────┘
-                         │          │
-                 SQLite  │          │ archives (read/write)
-                         ▼          ▼
-                      /data      /games          /media (artwork cache)
+```mermaid
+flowchart TB
+  subgraph clients["Clients"]
+    web["Browser<br/>React UI served by the API"]
+    desktop["Ludex Desktop · Tauri 2<br/>Windows · Linux · macOS"]
+    tv["Console mode<br/>TV + gamepad"]
+  end
+
+  server["ludex-server · Rust + axum<br/>auth · library · metadata<br/>ingest · streaming · admin"]
+
+  db[("SQLite<br/>or PostgreSQL")]
+  files["/games archives<br/>/media artwork cache"]
+
+  web -->|"HTTPS · JSON · Range"| server
+  desktop -->|"JSON + native install / launch"| server
+  tv -->|"same API, fullscreen shell"| server
+  server --> db
+  server --> files
 ```
 
-- `crates/ludex-core` — domain types, filename parser, archive reader/extractor,
-  executable discovery. No network, no database.
-- `crates/ludex-server` — axum + SQLite API, scanner, metadata providers, ingest
-  queue, static web UI, and an embeddable `start()` API for desktop local mode.
-- `apps/web` — React 19 + Vite + Tailwind, shared by browser and Tauri.
-- `apps/desktop` — Tauri 2 shell and native install/launch/playtime commands.
+- `crates/ludex-core` — domain types, filename parser, archive reader/extractor, executable
+  discovery. No network, no database.
+- `crates/ludex-server` — axum API, scanner, metadata providers, ingest queue, static web UI,
+  and an embeddable `start()` used by desktop local mode.
+- `apps/web` — React 19 + Vite + Tailwind, shared by browser, Tauri shell and console mode.
+- `apps/desktop` — Tauri 2 shell and the native install/launch/playtime commands.
+
+### How an install works
+
+- **Classic** — the desktop downloads the archive with HTTP Range into a staging `.part`
+  file, verifies the full SHA-256, then extracts to a temp folder and swaps it in. Resume,
+  stall detection and bounded reconnect are on by default.
+- **Stream** — for ZIP and 7z the desktop extracts entries while the archive is still
+  arriving (per-entry resume), so the install starts in seconds. RAR stays on the classic path.
+- **File transport** — opt-in, server-side: the server extracts once into a
+  content-addressed cache with a per-file SHA-256 manifest, and the desktop pulls files in
+  parallel. Off by default until the 40 GB benchmark clears the gate
+  ([`docs/DOWNLOADS.md`](docs/DOWNLOADS.md)).
 
 ## Configuration
 
-Environment variables are read at startup. Docker defaults are shown; a bare
-binary defaults to the current directory for the three paths.
+Everything is environment variables read at startup; [`docs/DEPLOY.md`](docs/DEPLOY.md) and
+[`.env.example`](.env.example) carry the full set. The ones that change behaviour:
 
-| Variable | Default | Description |
+| Variable | Default | What it does |
 |---|---|---|
 | `LUDEX_BIND` | `0.0.0.0:8080` | Listen address. Use `127.0.0.1:8080` behind a reverse proxy. |
 | `LUDEX_DATA_DIR` | `/data` | SQLite database and generated JWT secret. **Back this up.** |
-| `LUDEX_GAMES_DIR` | `/games` | Archive library. Scanned recursively (depth 3). |
+| `LUDEX_GAMES_DIR` | `/games` | Archive library, scanned recursively (depth 3). |
 | `LUDEX_MEDIA_DIR` | `/media` | Cached covers, backgrounds and screenshots. Rebuildable. |
-| `LUDEX_BACKUP_DIR` | `{DATA}/backups` | Backup archives read and written by the admin UI and `ludex-backup`. |
-| `LUDEX_SERVER_NAME` | `Ludex` | Display name in the UI and API. |
-| `LUDEX_JWT_SECRET` | generated | HS256 signing secret. Set only to survive a wiped data dir. 32+ random bytes. |
-| `LUDEX_IGDB_CLIENT_ID` | unset | Twitch application client ID for IGDB metadata. |
-| `LUDEX_IGDB_CLIENT_SECRET` | unset | Twitch application client secret. Server-side only. |
-| `LUDEX_INGEST_ALLOW_PRIVATE` | `false` | Allow ingest URLs pointing at private/link-local addresses. |
-| `LUDEX_SCAN_INTERVAL_SECONDS` | `300` | Periodic scan interval; `0` disables it. |
-| `LUDEX_DATABASE_URL` | `sqlite://$LUDEX_DATA_DIR/ludex.db?mode=rwc` | Advanced: override the SQLite connection string. |
-| `LUDEX_STORAGE_BACKEND` | `local` | `local` or `s3` for game archive storage. See [`docs/STORAGE.md`](docs/STORAGE.md). |
-| `LUDEX_S3_*` | unset | S3 endpoint, region, bucket, credentials, path style and prefix when the backend is `s3`. |
+| `LUDEX_DATABASE_URL` | `sqlite://$LUDEX_DATA_DIR/ludex.db?mode=rwc` | `postgres://…` switches the backend ([`docs/POSTGRES.md`](docs/POSTGRES.md)). |
+| `LUDEX_STORAGE_BACKEND` | `local` | `local` or `s3` for archive storage ([`docs/STORAGE.md`](docs/STORAGE.md)). |
+| `LUDEX_IGDB_CLIENT_ID` / `_SECRET` | unset | IGDB metadata. Server-side only; Steam is the fallback. |
+| `LUDEX_INGEST_ALLOW_PRIVATE` | `false` | Allow ingest URLs that resolve to private addresses. |
+| `LUDEX_SCAN_INTERVAL_SECONDS` | `300` | Periodic scan; `0` disables it. |
+| `LUDEX_BACKUP_DIR` | `{DATA}/backups` | Where the admin backup job and `ludex-backup` write. |
 | `LUDEX_METRICS_TOKEN` | unset | Bearer token for `/metrics`; unset means public but rate-limited. |
-| `LUDEX_DESKTOP_RELEASES_API` | GitHub `releases/latest` | GitHub-compatible releases endpoint for the public download page. No token is sent. |
-| `LUDEX_DESKTOP_RELEASES_PAGE` | GitHub releases | Releases page shown when the feed is offline or rate-limited. |
-| `LUDEX_DESKTOP_DOWNLOAD_BASE_URL` | unset | Flat asset mirror (`{base}/{fileName}`) instead of GitHub download URLs. |
-| `LUDEX_DESKTOP_DOWNLOAD_TTL_SECONDS` | `600` | Release metadata cache lifetime (10–86400). |
-| `LUDEX_DESKTOP_DOWNLOAD_TIMEOUT_SECONDS` | `5` | Upstream timeout for release metadata and checksums (1–30). |
-| `LUDEX_ADMIN_USERNAME` / `LUDEX_ADMIN_PASSWORD` | unset | Optional first-run admin bootstrap, only while zero users exist. Prefer the UI. |
-| `LUDEX_WEB_DIR` | unset | Serve the web UI from a directory instead of the embedded build. |
-| `LUDEX_LOCAL_MODE` | `false` | Desktop-only embedded mode; do not set on a server. |
-| `RUST_LOG` | `ludex_server=info,tower_http=warn` | Log filter (`tracing` `EnvFilter` syntax). |
-
-See [`.env.example`](.env.example) for a copy-paste template and
-[`docs/DEPLOY.md`](docs/DEPLOY.md) for reverse proxy, permissions, backups and
-binary/systemd deployment.
 
 ## Development
 
-Prerequisites: Rust stable, Node 22, pnpm 9. For the desktop app, the
-[Tauri 2 system dependencies](https://v2.tauri.app/start/prerequisites/) for
-your OS (WebKitGTK 4.1 on Linux, WebView2 on Windows).
+Prerequisites: Rust stable, Node 22, pnpm 9, and the
+[Tauri 2 system dependencies](https://v2.tauri.app/start/prerequisites/) for the desktop app.
 
 ```bash
-pnpm install                 # web + desktop JS dependencies
-pnpm dev                     # Vite dev server (proxies /api)
-cargo run -p ludex-server    # API + scanner on 127.0.0.1:8080
-scripts/dev.sh               # both, with .dev/{data,games,media}
-scripts/smoke.sh             # end-to-end API smoke test
-
-pnpm build                   # build the web UI
-cargo build --release -p ludex-server --features embed-web
-pnpm desktop:dev             # Tauri dev shell
-pnpm desktop:dist            # desktop installers
-```
-
-Run the checks CI runs:
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
+pnpm install                     # web + desktop JS
+scripts/dev.sh                   # API on :8080 + Vite on :5173, with .dev/{data,games,media}
 cargo test --workspace --all-targets
-pnpm --filter @ludex/web build
-pnpm --filter @ludex/web exec tsc --noEmit
+pnpm --filter @ludex/web build && pnpm --filter @ludex/web exec tsc --noEmit
+pnpm e2e                         # Playwright against a running server
+scripts/screenshots.sh           # regenerate the README/docs screenshots (#265)
 ```
 
-The server can serve a development build without embedding by running Vite
-separately. `embed-web` compiles `apps/web/dist` into the binary for a single
-deployable artifact.
+The same commands run in CI (`.github/workflows/ci.yml`): rustfmt, clippy with `-D warnings`,
+the Rust test suites, the PostgreSQL backend job, the web build/typecheck/tests, the Docker
+build, desktop check/test on Linux/Windows/macOS, and the browser E2E suite, which is a
+required check before a release publishes.
 
-### Browser E2E
+## Documentation
 
-```bash
-pnpm e2e:install   # one-time Chromium download
-pnpm e2e           # Playwright against a running server
-scripts/e2e.sh     # full harness: builds web + server, starts isolated servers
-```
+| Topic | Document |
+|---|---|
+| API and Tauri contract (source of truth) | [`docs/CONTRACT.md`](docs/CONTRACT.md) |
+| Deployment: reverse proxy, permissions, systemd, bare binary | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
+| Downloads, transports, resume, queues | [`docs/DOWNLOADS.md`](docs/DOWNLOADS.md) |
+| Architecture and network decisions | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/NETWORK-ARCHITECTURE.md`](docs/NETWORK-ARCHITECTURE.md) |
+| PostgreSQL, S3 storage, backups | [`docs/POSTGRES.md`](docs/POSTGRES.md), [`docs/STORAGE.md`](docs/STORAGE.md), [`docs/BACKUP.md`](docs/BACKUP.md) |
+| SSO, API keys, webhooks, audit log | [`docs/OIDC.md`](docs/OIDC.md), [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) |
+| Saves, achievements, emulators, themes/i18n/PWA | [`docs/SAVES.md`](docs/SAVES.md), [`docs/ACHIEVEMENTS.md`](docs/ACHIEVEMENTS.md), [`docs/EMULATORS.md`](docs/EMULATORS.md), [`docs/I18N.md`](docs/I18N.md) |
+| Remote access (VPN, tunnel warnings) | [`docs/REMOTE-ACCESS.md`](docs/REMOTE-ACCESS.md) |
+| GameVault comparison, migration | [`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md), [`docs/MIGRATION.md`](docs/MIGRATION.md) |
+| Screenshots and assets | [`docs/SCREENSHOTS.md`](docs/SCREENSHOTS.md), [`docs/assets/README.md`](docs/assets/README.md) |
+| Releasing, GitOps, repository settings | [`docs/RELEASING.md`](docs/RELEASING.md), [`docs/GITOPS.md`](docs/GITOPS.md), [`docs/REPO.md`](docs/REPO.md) |
 
-`scripts/e2e.sh` covers the library UI, search/filter, game detail, browser
-download, first-run setup, admin ingest and Big Picture. The `E2E` CI job is a
-required branch-protection check and the release workflow will not publish an
-artifact unless it passes. See [`CONTRIBUTING.md`](CONTRIBUTING.md) and
-[`docs/RELEASING.md`](docs/RELEASING.md).
+## Security and data ownership
 
-## Migrating from GameVault
+- Argon2id password hashes, HS256 JWTs, optional TOTP 2FA with recovery codes, invitation-only
+  registration, per-device session list with revoke, and first-run setup locked once a user exists.
+- Every file operation is path-traversal guarded; ingest filenames are sanitized and the
+  format is read from the file header, not the URL.
+- Media endpoints are public (cached artwork only); everything else requires authentication,
+  with `admin` / `editor` / `user` roles enforced in the API, not just the UI.
+- The container runs as uid/gid 1000 and drops capabilities; `/data`, `/games` and `/media`
+  are the only writable paths.
+- No telemetry, no phone-home, no external account. IGDB, Steam and VirusTotal are only
+  contacted when you configure them, and diagnostics are opt-in, previewed before sending and
+  stored locally.
+- Machine-readable `GET /api/health/details`, Prometheus metrics and an audit log are there
+  for your monitoring, not for us.
 
-Ludex can scan a GameVault `/games` volume as-is. Run it on a second port with
-the volume mounted read-only, verify the archive count, then cut over. Metadata
-and progress import is **not** in v0.1; export the GameVault PostgreSQL database
-now so a future importer can use it. Full procedure, including warnings about
-two writers on one volume: [`docs/MIGRATION.md`](docs/MIGRATION.md).
+Report vulnerabilities privately — see [`SECURITY.md`](SECURITY.md). Do not expose the data
+directory or the SQLite file, and put Ludex behind HTTPS before it leaves your network.
 
-## Security
+## Roadmap
 
-- Argon2id password hashes, HS256 JWTs, first-run setup only while zero users
-  exist.
-- All file operations are path-traversal guarded; ingest filenames are sanitized.
-- Media endpoints are public (non-sensitive cached artwork); everything else
-  requires authentication.
-- The container runs as uid/gid 1000 and drops unnecessary privileges.
-- No telemetry, no phone-home, no external account required. IGDB and Steam are
-  only contacted when you configure/trigger metadata enrichment.
+Shipped work is documented above; this is what is *not* in v0.4:
 
-Put Ludex behind HTTPS (Caddy, nginx, Traefik) before exposing it to the
-internet. Do not expose the data directory or the SQLite file.
+- **GameVault metadata/progress import.** Pointing Ludex at an existing `/games` volume works
+  today ([`docs/MIGRATION.md`](docs/MIGRATION.md)); importing users, metadata overrides and
+  progress from the GameVault PostgreSQL database is still to come.
+- **Passkeys.** TOTP is the second factor today.
+- **Storefront library import.** Discord Rich Presence and Ludusavi save discovery are in the
+  desktop app; importing a Steam or Playnite library is not.
+- **Server-side game streaming** is an explicit non-goal: your machine runs your games.
 
-Security issues should be reported privately, not in a public issue. See
-[`SECURITY.md`](SECURITY.md).
+Release notes for every version are in [`CHANGELOG.md`](CHANGELOG.md).
 
-For the homelab pull-based updater (CT258 `edge` timer, SHA-256 verification,
-automatic rollback), see [`docs/GITOPS.md`](docs/GITOPS.md). It only swaps the
-server binary and restarts `ludex.service`; `/games`, `/data` and `/media` are
-never touched.
+## Contributing
 
-## License and clean-room statement
+Issues and pull requests are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the
+development loop, commit style (`feat(area): summary (#issue)`), the CI checks a PR must pass,
+and the rule that the API contract changes in `docs/CONTRACT.md` first.
 
-Ludex v0.2.0 and later is licensed under the **GNU Affero General Public License
-v3.0 or later** (AGPL-3.0-or-later). See [`LICENSE`](LICENSE). v0.1.0 was
-released under MIT OR Apache-2.0; that historical grant is not revoked.
+- Bug reports: include the server version (`/api/health`), the client (browser, desktop or
+  console) and the steps that reproduce it.
+- Security issues: [`SECURITY.md`](SECURITY.md), never a public issue.
+- Documentation and screenshots: `docs/` and `scripts/screenshots.sh` — the pipeline is
+  described in [`docs/assets/README.md`](docs/assets/README.md).
 
-Ludex is an independent clean-room implementation. No GameVault source code was
-copied, translated or vendored. GameVault is a trademark of its respective
-owners; references to it are descriptive only. Ludex is not affiliated with,
-sponsored by, or endorsed by GameVault or Phalcode.
+## License
 
-Ludex does not circumvent DRM, does not bundle games, and does not provide
-storefront or piracy features. You are responsible for the files you index.
+Ludex is licensed under the **GNU Affero General Public License v3.0 or later**
+(AGPL-3.0-or-later). See [`LICENSE`](LICENSE). v0.1.0 was released under MIT OR Apache-2.0;
+that historical grant is not revoked.
 
-Contributions are accepted under the same license; see
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
+Ludex is an independent clean-room implementation. No GameVault source code was copied,
+translated or vendored, and Ludex is not affiliated with, sponsored by or endorsed by GameVault
+or Phalcode. GameVault is a trademark of its respective owners; references are descriptive only.
+
+Ludex does not circumvent DRM, bundle games or provide storefront or piracy features. You are
+responsible for the files you index. Contributions are accepted under the same license.

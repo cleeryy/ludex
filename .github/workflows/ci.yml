@@ -15,6 +15,25 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  docs:
+    name: Docs (assets, links, screenshots)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No dependencies on purpose: this must also pass on a docs-only clone.
+      # Fails when the README (or any Markdown file) points at an image or a
+      # document that is not in the tree, when a screenshot listed in the
+      # manifest is missing, and when an asset is over its size budget.
+      - name: Check documentation references and asset budgets
+        run: node scripts/check-assets.mjs
+
   rust:
     name: Rust (fmt, clippy, test)
     runs-on: ubuntu-24.04

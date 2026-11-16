@@ -1,0 +1,73 @@
+name: Screenshots
+
+# Screenshots change when the UI changes, not when a PR opens: this workflow is
+# manual only. It rebuilds the web UI with the demo adapter, captures every set,
+# optimizes the files, verifies the budgets and uploads the result as an
+# artifact. Committing the artifact is a maintainer decision — a screenshot PR
+# is one `git add docs/assets` away.
+#
+#   gh workflow run screenshots.yml
+#   gh run download -n screenshots
+
+on:
+  workflow_dispatch:
+    inputs:
+      set:
+        description: "Set to capture (readme, docs, mobile, social) — empty means all"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    name: Capture and optimize
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm --filter @ludex/e2e exec playwright install --with-deps chromium
+
+      - name: Capture screenshots
+        run: |
+          if [ -n "${{ inputs.set }}" ]; then
+            scripts/screenshots.sh --only "${{ inputs.set }}"
+          else
+            scripts/screenshots.sh
+          fi
+
+      - name: Verify references and budgets
+        run: node scripts/check-assets.mjs
+
+      - name: Show what changed
+        run: |
+          git status --short docs/assets
+          git diff --stat docs/assets || true
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: |
+            docs/assets/screenshots
+            docs/assets/social-preview.png
+          retention-days: 30

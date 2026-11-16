@@ -429,8 +429,8 @@ the streak.
 ```bash
 git switch main
 git pull --ff-only
-git tag -a v0.2.0 -m "Ludex v0.2.0"
-git push origin v0.2.0
+git tag -a v0.4.15 -m "Ludex v0.4.15"
+git push origin v0.4.15
 ```
 
 The `Release` workflow then runs:
@@ -487,10 +487,10 @@ it without a token. Stable releases and `/releases/latest` are unaffected.
 ## Post-release verification
 
 ```bash
-gh release view v0.2.0
-gh release download v0.2.0 --pattern '*linux-x86_64*'
-sha256sum -c ludex-server-v0.2.0-x86_64-unknown-linux-gnu.tar.gz.sha256
-docker pull ghcr.io/cleeryy/ludex:v0.2.0
+gh release view v0.4.15
+gh release download v0.4.15 --pattern '*linux-x86_64*'
+sha256sum -c ludex-server-v0.4.15-x86_64-unknown-linux-gnu.tar.gz.sha256
+docker pull ghcr.io/cleeryy/ludex:v0.4.15
 ```
 
 Install the server archive on a scratch host, create the admin, scan a small
