@@ -42,7 +42,7 @@ Pin a version in production instead of tracking `latest`:
 # compose.yaml
 services:
   ludex:
-    image: ghcr.io/cleeryy/ludex:v0.4.14
+    image: ghcr.io/cleeryy/ludex:v0.4.15
 ```
 
 `docker compose up -d` uses the local image if present and pulls it otherwise.
@@ -164,7 +164,7 @@ matter here:
 Download the release archive and checksum, verify, and install:
 
 ```bash
-VERSION=v0.4.14
+VERSION=v0.4.15
 curl -fLO "https://github.com/cleeryy/ludex/releases/download/${VERSION}/ludex-server-${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
 curl -fLO "https://github.com/cleeryy/ludex/releases/download/${VERSION}/ludex-server-${VERSION}-x86_64-unknown-linux-gnu.tar.gz.sha256"
 sha256sum -c "ludex-server-${VERSION}-x86_64-unknown-linux-gnu.tar.gz.sha256"

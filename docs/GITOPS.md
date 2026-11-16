@@ -143,7 +143,7 @@ Edge is the default. To follow a stable release:
 ```bash
 sudo tee /etc/ludex/update.env >/dev/null <<'EOF'
 LUDEX_UPDATE_CHANNEL=stable
-LUDEX_UPDATE_TAG=v0.4.14
+LUDEX_UPDATE_TAG=v0.4.15
 EOF
 sudo chmod 600 /etc/ludex/update.env
 sudo systemctl start ludex-update.service   # apply immediately
@@ -152,7 +152,7 @@ sudo systemctl start ludex-update.service   # apply immediately
 Stable assets use the release tag in the file name, for example:
 
 ```text
-https://github.com/cleeryy/ludex/releases/download/v0.4.14/ludex-server-v0.4.14-x86_64-unknown-linux-gnu.tar.gz
+https://github.com/cleeryy/ludex/releases/download/v0.4.15/ludex-server-v0.4.15-x86_64-unknown-linux-gnu.tar.gz
 ```
 
 Changing `LUDEX_UPDATE_TAG` is the upgrade action. The timer keeps checking that

@@ -32,8 +32,9 @@
   <sub>The same React UI runs in the browser, in the desktop app and on a TV — here with the built-in demo library.</sub>
 </p>
 
-> **Status: v0.4.14** (released 2026-11-15). The API and database schema can still change
-> between minor releases; pin an image tag in production. Every feature below is shipped —
+> **Status: v0.4.15, pre-1.0.** The release badge above is the source of truth. The API and
+> database schema can still change between minor releases; pin an image tag in production.
+> Every feature below is shipped —
 > the road to the next release lives in [Roadmap](#roadmap), and the honest comparison with
 > GameVault is in [`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md).
 
@@ -132,7 +133,7 @@ the UI (or `POST /api/library/scan`). Set `LUDEX_IGDB_CLIENT_ID` / `LUDEX_IGDB_C
 in `.env` first if you want IGDB metadata; without them Ludex falls back to the Steam Store
 and then to filenames.
 
-The image is published as `ghcr.io/cleeryy/ludex` (pin `:v0.4.14` in production, `latest`
+The image is published as `ghcr.io/cleeryy/ludex` (pin `:v0.4.15` in production, `latest`
 tracks the newest release). Reverse proxy, permissions, backups, systemd and the bare-binary
 path are covered in [`docs/DEPLOY.md`](docs/DEPLOY.md) — they are not duplicated here.
 
@@ -163,23 +164,24 @@ On first launch the wizard offers two modes:
 
 ## How it works
 
-```
-┌──────────────────────────┐        ┌───────────────────────────────┐
-│ Browser  (React 19)      │        │ Ludex Desktop (Tauri 2)       │
-│ Web UI served by the API │        │ Windows · Linux · macOS       │
-└────────────┬─────────────┘        └──────────────┬────────────────┘
-             │ HTTPS · JSON · Range                │ JSON + native install/launch/playtime
-             └─────────────────┬───────────────────┘
-                               ▼
-                ┌─────────────────────────────────┐
-                │ ludex-server (Rust + axum)      │
-                │ auth · library · metadata       │
-                │ ingest · streaming · admin      │
-                └───────┬─────────┬───────────────┘
-                        │         │
-            SQLite or   │         │ archive + artwork I/O
-            PostgreSQL  ▼         ▼
-                  /data       /games · /media
+```mermaid
+flowchart TB
+  subgraph clients["Clients"]
+    web["Browser<br/>React UI served by the API"]
+    desktop["Ludex Desktop · Tauri 2<br/>Windows · Linux · macOS"]
+    tv["Console mode<br/>TV + gamepad"]
+  end
+
+  server["ludex-server · Rust + axum<br/>auth · library · metadata<br/>ingest · streaming · admin"]
+
+  db[("SQLite<br/>or PostgreSQL")]
+  files["/games archives<br/>/media artwork cache"]
+
+  web -->|"HTTPS · JSON · Range"| server
+  desktop -->|"JSON + native install / launch"| server
+  tv -->|"same API, fullscreen shell"| server
+  server --> db
+  server --> files
 ```
 
 - `crates/ludex-core` — domain types, filename parser, archive reader/extractor, executable
