@@ -599,7 +599,7 @@ fn plan_zip_entries(path: &Path, dest: &Path) -> Result<Vec<ZipPlanEntry>, Archi
 
     for index in 0..archive.len() {
         let entry = archive.by_index_raw(index).map_err(map_zip_error)?;
-        let name = entry.name().to_string();
+        let name = entry.name().map_err(map_zip_error)?.to_string();
 
         if entry.is_dir() {
             if !name.is_empty() {
@@ -932,7 +932,7 @@ fn extract_zip_entry<S: EntrySink + ?Sized>(
     sink: &mut S,
 ) -> Result<EntryOutcome, ArchiveError> {
     let mut entry = open_zip_entry(archive, index, opts)?;
-    let name = entry.name().to_string();
+    let name = entry.name().map_err(map_zip_error)?.to_string();
     let relative = sanitize_entry_path(&name)?;
 
     if entry.is_dir() {
@@ -2381,12 +2381,12 @@ pub fn zip_stream_manifest(path: &Path) -> Result<StreamManifest, ArchiveError> 
         if entry.is_symlink() {
             return Err(ArchiveError::UnsafeEntry(format!(
                 "link entry: {}",
-                entry.name()
+                entry.name().map_err(map_zip_error)?
             )));
         }
 
         let is_dir = entry.is_dir();
-        let relative = match sanitize_entry_path(entry.name()) {
+        let relative = match sanitize_entry_path(&entry.name().map_err(map_zip_error)?) {
             Ok(relative) => relative,
             // Root directory markers such as "./" carry no path; they are not
             // needed by the client and are skipped rather than rejected.
@@ -2434,11 +2434,11 @@ pub fn zip_entry_info(path: &Path, index: usize) -> Result<StreamEntry, ArchiveE
     if entry.is_symlink() {
         return Err(ArchiveError::UnsafeEntry(format!(
             "link entry: {}",
-            entry.name()
+            entry.name().map_err(map_zip_error)?
         )));
     }
     let is_dir = entry.is_dir();
-    let relative = sanitize_entry_path(entry.name())?;
+    let relative = sanitize_entry_path(&entry.name().map_err(map_zip_error)?)?;
     let name = tar_name(&relative);
     let mode = tar_mode(&name, entry.unix_mode());
     Ok(StreamEntry {
@@ -2478,7 +2478,7 @@ pub fn write_zip_entry_range<W: Write>(
     if entry.is_symlink() {
         return Err(ArchiveError::UnsafeEntry(format!(
             "link entry: {}",
-            entry.name()
+            entry.name().map_err(map_zip_error)?
         )));
     }
     if entry.is_dir() {
@@ -2502,10 +2502,17 @@ pub fn write_zip_entry_range<W: Write>(
 
     if method == zip::CompressionMethod::Stored {
         // A fresh handle avoids disturbing the archive reader's buffered
-        // position; `data_start` is an absolute offset in the archive file.
-        let mut data = File::open(path)?;
-        data.seek(SeekFrom::Start(data_start.saturating_add(offset)))?;
-        copy_exact(&mut data, writer, take)?;
+        // position; `data_start` is an absolute offset in the archive file and
+        // is unknown for entries that use a data descriptor (zip 9).
+        if let Some(data_start) = data_start {
+            let mut data = File::open(path)?;
+            data.seek(SeekFrom::Start(data_start.saturating_add(offset)))?;
+            copy_exact(&mut data, writer, take)?;
+        } else {
+            let mut entry = archive.by_index(index).map_err(map_zip_error)?;
+            skip_exact(&mut entry, offset)?;
+            copy_exact(&mut entry, writer, take)?;
+        }
     } else {
         let mut entry = archive.by_index(index).map_err(map_zip_error)?;
         skip_exact(&mut entry, offset)?;
@@ -2582,7 +2589,7 @@ fn stream_seven_zip_as_tar<W: Write>(
                 return Ok(true);
             }
             let result = (|| -> Result<(), ArchiveError> {
-                let relative = sanitize_entry_path(entry.name())?;
+                let relative = sanitize_entry_path(&entry.name())?;
                 let name = tar_name(&relative);
                 let mode = tar_mode(&name, seven_zip_unix_mode(entry.windows_attributes));
                 let tar_entry = TarEntry {
@@ -2656,13 +2663,13 @@ fn collect_zip_tar_entries(
         if entry.is_symlink() {
             return Err(ArchiveError::UnsafeEntry(format!(
                 "link entry: {}",
-                entry.name()
+                entry.name().map_err(map_zip_error)?
             )));
         }
         if entry.encrypted() {
             return Err(ArchiveError::PasswordRequired);
         }
-        let relative = sanitize_entry_path(entry.name())?;
+        let relative = sanitize_entry_path(&entry.name().map_err(map_zip_error)?)?;
         let name = tar_name(&relative);
         let mode = tar_mode(&name, entry.unix_mode());
         entries.push(ZipTarEntry {
@@ -2693,7 +2700,7 @@ fn collect_seven_zip_tar_entries(archive: &SevenZipArchive) -> Result<Vec<TarEnt
                 entry.name()
             )));
         }
-        let relative = sanitize_entry_path(entry.name())?;
+        let relative = sanitize_entry_path(&entry.name())?;
         let name = tar_name(&relative);
         let mode = tar_mode(&name, seven_zip_unix_mode(entry.windows_attributes));
         entries.push(TarEntry {

@@ -472,7 +472,8 @@ impl GalaxySqliteProvider {
 
         let mut achievements = Vec::new();
         for table in tables {
-            let columns = sqlx::query(&format!("PRAGMA table_info(\"{}\")", quote_ident(&table)))
+            let pragma = format!("PRAGMA table_info(\"{}\")", quote_ident(&table));
+            let columns = sqlx::query(sqlx::AssertSqlSafe(pragma.as_str()))
                 .fetch_all(pool)
                 .await
                 .map_err(|error| ProviderError::new(format!("read {table} columns: {error}")))?;
@@ -534,7 +535,10 @@ impl GalaxySqliteProvider {
                 table = quote_ident(&table),
             );
 
-            let rows = match sqlx::query(&select).fetch_all(pool).await {
+            let rows = match sqlx::query(sqlx::AssertSqlSafe(select.as_str()))
+                .fetch_all(pool)
+                .await
+            {
                 Ok(rows) => rows,
                 Err(error) => {
                     tracing::debug!(%error, table, "achievement table skipped");

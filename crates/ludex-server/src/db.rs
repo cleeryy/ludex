@@ -634,23 +634,23 @@ impl DbQuery {
         match executor.into() {
             DbExec::Pool(database) => match &database.inner {
                 DbInner::Sqlite(pool) => {
-                    let query = bind_all!(sqlx::query_scalar::<Sqlite, i64>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Sqlite, i64>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_optional(pool).await
                 }
                 DbInner::Postgres(pool) => {
                     let sql = pg_placeholders(&sql);
-                    let query = bind_all!(sqlx::query_scalar::<Postgres, i64>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Postgres, i64>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_optional(pool).await
                 }
             },
             DbExec::Transaction(transaction) => match transaction {
                 DbTransaction::Sqlite(inner) => {
-                    let query = bind_all!(sqlx::query_scalar::<Sqlite, i64>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Sqlite, i64>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_optional(&mut **inner).await
                 }
                 DbTransaction::Postgres(inner) => {
                     let sql = pg_placeholders(&sql);
-                    let query = bind_all!(sqlx::query_scalar::<Postgres, i64>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Postgres, i64>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_optional(&mut **inner).await
                 }
             },
@@ -667,14 +667,14 @@ impl DbQuery {
             DbExec::Pool(database) => match &database.inner {
                 DbInner::Sqlite(pool) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query::<Sqlite>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Sqlite>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.execute(pool).await.map(|result| DbQueryResult {
                         rows_affected: result.rows_affected(),
                     })
                 }
                 DbInner::Postgres(pool) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query::<Postgres>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Postgres>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.execute(pool).await.map(|result| DbQueryResult {
                         rows_affected: result.rows_affected(),
                     })
@@ -683,7 +683,7 @@ impl DbQuery {
             DbExec::Transaction(transaction) => match transaction {
                 DbTransaction::Sqlite(inner) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query::<Sqlite>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Sqlite>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query
                         .execute(&mut **inner)
                         .await
@@ -693,7 +693,7 @@ impl DbQuery {
                 }
                 DbTransaction::Postgres(inner) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query::<Postgres>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Postgres>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query
                         .execute(&mut **inner)
                         .await
@@ -715,13 +715,13 @@ impl DbQuery {
             DbExec::Pool(database) => match &database.inner {
                 DbInner::Sqlite(pool) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query::<Sqlite>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Sqlite>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     let rows = query.fetch_all(pool).await?;
                     Ok(rows.into_iter().map(DbRow::Sqlite).collect())
                 }
                 DbInner::Postgres(pool) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query::<Postgres>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Postgres>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     let rows = query.fetch_all(pool).await?;
                     Ok(rows.into_iter().map(DbRow::Postgres).collect())
                 }
@@ -729,13 +729,13 @@ impl DbQuery {
             DbExec::Transaction(transaction) => match transaction {
                 DbTransaction::Sqlite(inner) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query::<Sqlite>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Sqlite>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     let rows = query.fetch_all(&mut **inner).await?;
                     Ok(rows.into_iter().map(DbRow::Sqlite).collect())
                 }
                 DbTransaction::Postgres(inner) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query::<Postgres>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Postgres>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     let rows = query.fetch_all(&mut **inner).await?;
                     Ok(rows.into_iter().map(DbRow::Postgres).collect())
                 }
@@ -764,24 +764,24 @@ impl DbQuery {
             DbExec::Pool(database) => match &database.inner {
                 DbInner::Sqlite(pool) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query::<Sqlite>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Sqlite>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     Ok(query.fetch_optional(pool).await?.map(DbRow::Sqlite))
                 }
                 DbInner::Postgres(pool) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query::<Postgres>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Postgres>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     Ok(query.fetch_optional(pool).await?.map(DbRow::Postgres))
                 }
             },
             DbExec::Transaction(transaction) => match transaction {
                 DbTransaction::Sqlite(inner) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query::<Sqlite>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Sqlite>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     Ok(query.fetch_optional(&mut **inner).await?.map(DbRow::Sqlite))
                 }
                 DbTransaction::Postgres(inner) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query::<Postgres>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Postgres>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     Ok(query
                         .fetch_optional(&mut **inner)
                         .await?
@@ -846,14 +846,14 @@ impl<O: RowType> DbQueryAs<O> {
             DbExec::Pool(database) => match &database.inner {
                 DbInner::Sqlite(pool) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query::<Sqlite>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Sqlite>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.execute(pool).await.map(|result| DbQueryResult {
                         rows_affected: result.rows_affected(),
                     })
                 }
                 DbInner::Postgres(pool) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query::<Postgres>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Postgres>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.execute(pool).await.map(|result| DbQueryResult {
                         rows_affected: result.rows_affected(),
                     })
@@ -862,7 +862,7 @@ impl<O: RowType> DbQueryAs<O> {
             DbExec::Transaction(transaction) => match transaction {
                 DbTransaction::Sqlite(inner) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query::<Sqlite>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Sqlite>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query
                         .execute(&mut **inner)
                         .await
@@ -872,7 +872,7 @@ impl<O: RowType> DbQueryAs<O> {
                 }
                 DbTransaction::Postgres(inner) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query::<Postgres>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Postgres>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query
                         .execute(&mut **inner)
                         .await
@@ -895,24 +895,24 @@ impl<O: RowType> DbQueryAs<O> {
             DbExec::Pool(database) => match &database.inner {
                 DbInner::Sqlite(pool) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query_as::<Sqlite, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_as::<Sqlite, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_all(pool).await
                 }
                 DbInner::Postgres(pool) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query_as::<Postgres, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_as::<Postgres, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_all(pool).await
                 }
             },
             DbExec::Transaction(transaction) => match transaction {
                 DbTransaction::Sqlite(inner) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query_as::<Sqlite, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_as::<Sqlite, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_all(&mut **inner).await
                 }
                 DbTransaction::Postgres(inner) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query_as::<Postgres, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_as::<Postgres, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_all(&mut **inner).await
                 }
             },
@@ -930,24 +930,24 @@ impl<O: RowType> DbQueryAs<O> {
             DbExec::Pool(database) => match &database.inner {
                 DbInner::Sqlite(pool) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query_as::<Sqlite, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_as::<Sqlite, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_one(pool).await
                 }
                 DbInner::Postgres(pool) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query_as::<Postgres, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_as::<Postgres, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_one(pool).await
                 }
             },
             DbExec::Transaction(transaction) => match transaction {
                 DbTransaction::Sqlite(inner) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query_as::<Sqlite, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_as::<Sqlite, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_one(&mut **inner).await
                 }
                 DbTransaction::Postgres(inner) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query_as::<Postgres, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_as::<Postgres, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_one(&mut **inner).await
                 }
             },
@@ -965,24 +965,24 @@ impl<O: RowType> DbQueryAs<O> {
             DbExec::Pool(database) => match &database.inner {
                 DbInner::Sqlite(pool) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query_as::<Sqlite, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_as::<Sqlite, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_optional(pool).await
                 }
                 DbInner::Postgres(pool) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query_as::<Postgres, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_as::<Postgres, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_optional(pool).await
                 }
             },
             DbExec::Transaction(transaction) => match transaction {
                 DbTransaction::Sqlite(inner) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query_as::<Sqlite, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_as::<Sqlite, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_optional(&mut **inner).await
                 }
                 DbTransaction::Postgres(inner) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query_as::<Postgres, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_as::<Postgres, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_optional(&mut **inner).await
                 }
             },
@@ -1001,14 +1001,14 @@ impl<O: ScalarType> DbQueryScalar<O> {
             DbExec::Pool(database) => match &database.inner {
                 DbInner::Sqlite(pool) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query::<Sqlite>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Sqlite>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.execute(pool).await.map(|result| DbQueryResult {
                         rows_affected: result.rows_affected(),
                     })
                 }
                 DbInner::Postgres(pool) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query::<Postgres>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Postgres>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.execute(pool).await.map(|result| DbQueryResult {
                         rows_affected: result.rows_affected(),
                     })
@@ -1017,7 +1017,7 @@ impl<O: ScalarType> DbQueryScalar<O> {
             DbExec::Transaction(transaction) => match transaction {
                 DbTransaction::Sqlite(inner) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query::<Sqlite>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Sqlite>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query
                         .execute(&mut **inner)
                         .await
@@ -1027,7 +1027,7 @@ impl<O: ScalarType> DbQueryScalar<O> {
                 }
                 DbTransaction::Postgres(inner) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query::<Postgres>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query::<Postgres>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query
                         .execute(&mut **inner)
                         .await
@@ -1050,24 +1050,24 @@ impl<O: ScalarType> DbQueryScalar<O> {
             DbExec::Pool(database) => match &database.inner {
                 DbInner::Sqlite(pool) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query_scalar::<Sqlite, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Sqlite, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_all(pool).await
                 }
                 DbInner::Postgres(pool) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query_scalar::<Postgres, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Postgres, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_all(pool).await
                 }
             },
             DbExec::Transaction(transaction) => match transaction {
                 DbTransaction::Sqlite(inner) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query_scalar::<Sqlite, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Sqlite, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_all(&mut **inner).await
                 }
                 DbTransaction::Postgres(inner) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query_scalar::<Postgres, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Postgres, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_all(&mut **inner).await
                 }
             },
@@ -1085,24 +1085,24 @@ impl<O: ScalarType> DbQueryScalar<O> {
             DbExec::Pool(database) => match &database.inner {
                 DbInner::Sqlite(pool) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query_scalar::<Sqlite, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Sqlite, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_one(pool).await
                 }
                 DbInner::Postgres(pool) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query_scalar::<Postgres, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Postgres, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_one(pool).await
                 }
             },
             DbExec::Transaction(transaction) => match transaction {
                 DbTransaction::Sqlite(inner) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query_scalar::<Sqlite, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Sqlite, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_one(&mut **inner).await
                 }
                 DbTransaction::Postgres(inner) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query_scalar::<Postgres, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Postgres, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_one(&mut **inner).await
                 }
             },
@@ -1120,24 +1120,24 @@ impl<O: ScalarType> DbQueryScalar<O> {
             DbExec::Pool(database) => match &database.inner {
                 DbInner::Sqlite(pool) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query_scalar::<Sqlite, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Sqlite, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_optional(pool).await
                 }
                 DbInner::Postgres(pool) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query_scalar::<Postgres, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Postgres, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_optional(pool).await
                 }
             },
             DbExec::Transaction(transaction) => match transaction {
                 DbTransaction::Sqlite(inner) => {
                     let sql = self.sql_for(Backend::Sqlite);
-                    let query = bind_all!(sqlx::query_scalar::<Sqlite, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Sqlite, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_optional(&mut **inner).await
                 }
                 DbTransaction::Postgres(inner) => {
                     let sql = self.sql_for(Backend::Postgres);
-                    let query = bind_all!(sqlx::query_scalar::<Postgres, O>(&sql), self.binds());
+                    let query = bind_all!(sqlx::query_scalar::<Postgres, O>(sqlx::AssertSqlSafe(sql.as_str())), self.binds());
                     query.fetch_optional(&mut **inner).await
                 }
             },

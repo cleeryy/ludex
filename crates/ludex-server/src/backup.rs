@@ -696,7 +696,10 @@ async fn snapshot_database(source: &Path, destination: &Path) -> Result<()> {
         .await
         .context("open database for backup")?;
     let escaped = destination.to_string_lossy().replace('\'', "''");
-    sqlx::query(&format!("VACUUM INTO '{escaped}'"))
+    // The path is a server-controlled backup destination, not user input; the
+    // escaping above is still applied so the statement cannot break out.
+    let statement = format!("VACUUM INTO '{escaped}'");
+    sqlx::query(sqlx::AssertSqlSafe(statement.as_str()))
         .execute(&mut connection)
         .await
         .context("VACUUM INTO backup")?;
