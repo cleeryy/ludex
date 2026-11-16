@@ -128,11 +128,11 @@ export function Dialog({
           >
             <div className="flex items-start justify-between gap-6 border-b border-line px-6 pb-4 pt-5">
               <div className="flex flex-col gap-1">
-                <h2 id={titleId} className="text-[21px] font-semibold leading-tight tracking-[-0.02em]">
+                <h2 id={titleId} className="text-title font-semibold leading-tight tracking-[-0.02em]">
                   {title}
                 </h2>
                 {description && (
-                  <p id={descriptionId} className="text-[13px] text-ink-2">
+                  <p id={descriptionId} className="text-body text-ink-2">
                     {description}
                   </p>
                 )}

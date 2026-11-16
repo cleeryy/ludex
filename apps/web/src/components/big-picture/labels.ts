@@ -55,7 +55,7 @@ export function consolePresetLabel(preset: ConsolePreset): string {
 
 export function consolePresetDescription(preset: ConsolePreset): string {
   return preset === "soft"
-    ? t("Rounded, translucent surfaces over blurred artwork, with a cream palette.")
+    ? t("Soft corners and raised plates over the game's wallpaper. Colours still come from the app theme.")
     : t("The original archive look: crisp hairlines, flat panels and the app theme.");
 }
 

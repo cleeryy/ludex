@@ -22,8 +22,8 @@ export function PageHeader({
         <h1 className="text-[clamp(2rem,3.4vw,3.25rem)] font-semibold leading-[0.98] tracking-[-0.03em]">{title}</h1>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
-      {meta && <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px] text-ink-3">{meta}</div>}
-      {description && <p className="measure text-[14.5px] leading-relaxed text-ink-2">{description}</p>}
+      {meta && <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-label text-ink-3">{meta}</div>}
+      {description && <p className="measure text-lead leading-relaxed text-ink-2">{description}</p>}
     </header>
   );
 }
@@ -51,8 +51,8 @@ export function EmptyState({
         <div className="h-full w-full bg-[linear-gradient(180deg,transparent,var(--surface))]" />
       </div>
       <div className="flex flex-col justify-center gap-3">
-        <Heading className="text-[24px] font-semibold leading-tight tracking-[-0.02em]">{title}</Heading>
-        <p className="measure text-[14px] leading-relaxed text-ink-2">{description}</p>
+        <Heading className="text-display font-semibold leading-tight tracking-[-0.02em]">{title}</Heading>
+        <p className="measure text-body leading-relaxed text-ink-2">{description}</p>
         {children && <div className="mt-2 flex flex-wrap items-center gap-2">{children}</div>}
       </div>
     </div>
@@ -73,8 +73,8 @@ export function ErrorState({
   return (
     <div className="flex flex-col items-start gap-3 border border-line bg-surface/50 p-8" role="alert">
       <span className="h-px w-10 bg-danger" aria-hidden="true" />
-      <h2 className="text-[20px] font-semibold tracking-[-0.02em]">{title}</h2>
-      <p className="measure text-[14px] leading-relaxed text-ink-2">{message}</p>
+      <h2 className="text-title font-semibold tracking-[-0.02em]">{title}</h2>
+      <p className="measure text-body leading-relaxed text-ink-2">{message}</p>
       <div className="mt-1 flex gap-2">
         {onRetry && (
           <Button variant="default" onClick={onRetry}>
@@ -115,15 +115,15 @@ export function SectionHeader({
           id={id}
           className={
             level === 3
-              ? "text-[13px] font-medium tracking-[-0.01em]"
-              : "text-[17px] font-semibold tracking-[-0.015em]"
+              ? "text-body font-medium tracking-[-0.01em]"
+              : "text-title font-semibold tracking-[-0.015em]"
           }
         >
           {title}
         </Heading>
-        {typeof count === "number" && <span className="num text-[12px] text-ink-3">{count}</span>}
+        {typeof count === "number" && <span className="num text-label text-ink-3">{count}</span>}
         {description && (
-          <span className={level === 3 ? "text-[11.5px] text-ink-3" : "text-[13px] text-ink-3"}>{description}</span>
+          <span className={level === 3 ? "text-meta text-ink-3" : "text-body text-ink-3"}>{description}</span>
         )}
       </div>
       {actions}

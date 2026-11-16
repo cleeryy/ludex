@@ -93,9 +93,9 @@ export function ConsoleAppearancePanel() {
   const setAccent = (accent: ConsoleAccentId) => setAppearance({ ...appearance, accent });
   const setBackground = (background: ConsoleBackground) => setAppearance({ ...appearance, background });
   const setRadius = (radius: ConsoleRadius) => setAppearance({ ...appearance, radius });
-  // The Soft palette is light by construction; the swatch must show the tone
-  // the console will actually use, not the desktop's polarity.
-  const swatchMode = appearance.preset === "soft" ? "light" : resolved;
+  // Both presets paint the app theme, so the swatch shows the tone the console
+  // will actually use: the desktop's own polarity (#237).
+  const swatchMode = resolved;
 
   return (
     <section className="border border-line p-4" aria-label={t("Console appearance")}>
@@ -169,7 +169,7 @@ export function ConsoleAppearancePanel() {
 
       <div className="mt-1 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
         <p className="max-w-[64ch] text-[11px] leading-relaxed text-ink-3">
-          {t("Saved on this device. A full theme editor and per-element overrides are not built yet.")}
+          {t("Changes apply immediately.")}
         </p>
         <Button
           size="sm"

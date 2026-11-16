@@ -52,12 +52,12 @@ export function HeroLayout({
           {...reveal(reduceMotion, HERO_CUE)}
         >
           <SelectedEyebrow game={game} />
-          <h1 className="max-w-[24ch] text-balance text-[clamp(1.9rem,4.8vw,6rem)] font-semibold leading-[0.9] tracking-[-0.045em] text-stage-ink">
+          <h1 className="max-w-[24ch] text-balance text-[clamp(1.9rem,4.8vw,calc(var(--bp-u)*96))] font-semibold leading-[0.9] tracking-[-0.045em] text-stage-ink">
             {game.title}
           </h1>
           <MetaLine game={game} installed={installed.has(game.id)} className="justify-center" />
           {detail?.description && (
-            <p className="line-clamp-2 max-w-[62ch] text-[13.5px] leading-relaxed text-stage-ink-2">
+            <p className="line-clamp-2 max-w-[62ch] text-bp-body leading-relaxed text-stage-ink-2 [@media(max-height:820px)]:hidden">
               {detail.description}
             </p>
           )}
@@ -80,7 +80,7 @@ export function HeroLayout({
           {...reveal(reduceMotion, { ...COPY_CUE, delay: 0.02, y: 6 })}
         >
           <ShelfTabs nav={nav} dense className="min-w-0 flex-1" />
-          <span className="num shrink-0 pe-1 text-[10.5px] text-ink-3">
+          <span className="num shrink-0 pe-1 text-bp-meta text-ink-3">
             {nav.index + 1} / {nav.games.length}
           </span>
         </motion.div>

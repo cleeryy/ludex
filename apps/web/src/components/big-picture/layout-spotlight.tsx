@@ -91,7 +91,7 @@ function ActivityLine({ game }: { game: GameSummary }) {
   ].filter((part): part is string => Boolean(part));
   if (parts.length === 0) return null;
   return (
-    <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[10px] uppercase tracking-[0.14em] text-stage-ink-2">
+    <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-bp-micro uppercase tracking-[0.14em] text-stage-ink-2">
       {parts.map((part, index) => (
         <span key={part} className="flex items-center gap-2.5">
           {index > 0 && (
@@ -110,7 +110,7 @@ function ActivityLine({ game }: { game: GameSummary }) {
 function SpotlightMeta({ game, installed }: { game: GameSummary; installed: boolean }) {
   const rating = formatRating(game.rating);
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-stage-ink-2">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-bp-meta text-stage-ink-2">
       <span>{formatYear(game.releaseDate)}</span>
       <span>{stateLabel(game.state)}</span>
       {rating && <span>{rating} / 100</span>}
@@ -151,7 +151,7 @@ export function SpotlightLayout({
       <div className="relative flex min-h-0 flex-1 flex-col justify-end gap-[clamp(0.5rem,1.4vh,1.25rem)] pb-2">
         <motion.div className="flex flex-col gap-2 bp-pad-x" {...reveal(reduceMotion, COPY_CUE)}>
           <ActivityLine game={game} />
-          <h1 className="line-clamp-2 max-w-[26ch] text-[clamp(1.8rem,3.8vw,4.6rem)] font-semibold leading-[0.9] tracking-[-0.045em] text-stage-ink">
+          <h1 className="line-clamp-2 max-w-[26ch] text-[clamp(1.8rem,3.8vw,calc(var(--bp-u)*74))] font-semibold leading-[0.9] tracking-[-0.045em] text-stage-ink">
             {game.title}
           </h1>
           <SpotlightMeta game={game} installed={installed.has(game.id)} />

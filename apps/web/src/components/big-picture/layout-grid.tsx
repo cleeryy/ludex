@@ -68,12 +68,12 @@ export function GridLayout({
 
           <motion.div className="flex min-w-0 flex-1 flex-col gap-2" {...reveal(reduceMotion, COPY_CUE)}>
             <SelectedEyebrow game={game} />
-            <h1 className="line-clamp-2 max-w-[30ch] text-[clamp(1.4rem,2.6vw,2.9rem)] font-semibold leading-[0.95] tracking-[-0.035em] text-stage-ink">
+            <h1 className="line-clamp-2 max-w-[30ch] text-[clamp(1.4rem,2.6vw,calc(var(--bp-u)*46))] font-semibold leading-[0.95] tracking-[-0.035em] text-stage-ink">
               {game.title}
             </h1>
             <MetaLine game={game} installed={installed.has(game.id)} />
             {detail?.description && (
-              <p className="line-clamp-1 max-w-[58ch] text-[12.5px] leading-relaxed text-stage-ink-2">
+              <p className="line-clamp-1 max-w-[58ch] text-bp-meta leading-relaxed text-stage-ink-2 [@media(max-height:820px)]:hidden">
                 {detail.description}
               </p>
             )}

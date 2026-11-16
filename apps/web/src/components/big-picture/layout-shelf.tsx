@@ -72,12 +72,12 @@ export function ShelfLayout({
 
           <motion.div className="flex min-w-0 flex-1 flex-col gap-3" {...reveal(reduceMotion, COPY_CUE)}>
             <SelectedEyebrow game={game} />
-            <h1 className="max-w-[20ch] text-[clamp(1.7rem,4vw,4.35rem)] font-semibold leading-[0.92] tracking-[-0.04em] text-stage-ink">
+            <h1 className="max-w-[20ch] text-[clamp(1.7rem,4vw,calc(var(--bp-u)*70))] font-semibold leading-[0.92] tracking-[-0.04em] text-stage-ink">
               {game.title}
             </h1>
             <MetaLine game={game} installed={installed.has(game.id)} />
             {detail?.description && (
-              <p className="line-clamp-2 max-w-[64ch] text-[14px] leading-relaxed text-stage-ink-2">
+              <p className="line-clamp-2 max-w-[64ch] text-bp-body leading-relaxed text-stage-ink-2 [@media(max-height:820px)]:hidden">
                 {detail.description}
               </p>
             )}
@@ -98,7 +98,7 @@ export function ShelfLayout({
       >
         <div className="flex items-center justify-between gap-4">
           <ShelfTabs nav={nav} dense className="min-w-0 flex-1" />
-          <span className="num shrink-0 pe-1 text-[10.5px] text-ink-3">
+          <span className="num shrink-0 pe-1 text-bp-meta text-ink-3">
             {nav.index + 1} / {nav.games.length}
           </span>
         </div>

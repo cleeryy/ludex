@@ -44,11 +44,11 @@ function SoundToggle({
   return (
     <div className="flex items-start justify-between gap-4 border-b border-line py-3">
       <div className="min-w-0">
-        <p className="flex items-center gap-2 text-[13px] font-medium text-ink">
+        <p className="flex items-center gap-2 text-bp-body font-medium text-ink">
           <Icon className={cn("size-3.5", enabled ? "text-signal-text" : "text-ink-3")} aria-hidden="true" />
           {label}
         </p>
-        <p className="mt-1 max-w-[58ch] text-[11.5px] leading-relaxed text-ink-3">{detail}</p>
+        <p className="mt-1 max-w-[58ch] text-bp-meta leading-relaxed text-ink-3">{detail}</p>
       </div>
       <Switch checked={enabled} onCheckedChange={onChange} label={label} />
     </div>
@@ -74,7 +74,7 @@ function StrengthChoice({
             aria-pressed={active}
             onClick={() => onChange(option)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 border px-2.5 text-[11.5px] transition-colors duration-150",
+              "inline-flex h-8 items-center gap-1.5 border px-2.5 text-bp-meta transition-colors duration-150",
               active
                 ? "border-signal bg-surface-2 text-ink"
                 : "border-line text-ink-3 hover:border-line-2 hover:text-ink-2",
@@ -113,12 +113,12 @@ export function BigPictureSoundPanel() {
     <section className="border border-line p-4" aria-label={t("Console sound")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[13px] font-medium text-ink">{t("Console sound")}</p>
-          <p className="mt-1 max-w-[64ch] text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-bp-body font-medium text-ink">{t("Console sound")}</p>
+          <p className="mt-1 max-w-[64ch] text-bp-meta leading-relaxed text-ink-3">
             {t("Short cues for movement, confirmations and launches. Silent while a game runs.")}
           </p>
         </div>
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+        <span className="font-mono text-bp-micro uppercase tracking-[0.12em] text-ink-3">
           {sound.enabled ? t("Now: {value}", { value: `${percent}%` }) : t("Sound is off")}
         </span>
       </div>
@@ -134,10 +134,10 @@ export function BigPictureSoundPanel() {
 
         <div className={cn("border-b border-line py-3", !sound.enabled && "opacity-55")}>
           <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <label htmlFor="bp-sound-volume" className="text-[13px] font-medium text-ink">
+            <label htmlFor="bp-sound-volume" className="text-bp-body font-medium text-ink">
               {t("Volume")}
             </label>
-            <span className="font-mono text-[12px] tabular-nums text-ink-2">{percent}%</span>
+            <span className="font-mono text-bp-meta tabular-nums text-ink-2">{percent}%</span>
           </div>
           <input
             id="bp-sound-volume"
@@ -151,7 +151,7 @@ export function BigPictureSoundPanel() {
             onChange={(event) => setSound({ volume: clampVolume(Number(event.target.value) / 100) })}
             className="mt-3 w-full max-w-[420px] accent-signal"
           />
-          <p className="mt-2 text-[11px] leading-relaxed text-ink-3">
+          <p className="mt-2 text-bp-meta leading-relaxed text-ink-3">
             {t("Applies to this device. Volume is squared, so 45 % sits near half loudness.")}
           </p>
         </div>
@@ -172,8 +172,8 @@ export function BigPictureSoundPanel() {
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line py-3">
           <div className="min-w-0">
-            <p className="text-[13px] font-medium text-ink">{t("Haptics strength")}</p>
-            <p className="mt-1 max-w-[52ch] text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-bp-body font-medium text-ink">{t("Haptics strength")}</p>
+            <p className="mt-1 max-w-[52ch] text-bp-meta leading-relaxed text-ink-3">
               {t("Standard or strong rumble on this device. Off silences the pad.")}
             </p>
           </div>
@@ -187,7 +187,7 @@ export function BigPictureSoundPanel() {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-ink-3">{t("Test")}</span>
+        <span className="font-mono text-bp-micro uppercase tracking-[0.14em] text-ink-3">{t("Test")}</span>
         {TEST_CUES.map((entry) => (
           <button
             key={entry.cue}
@@ -195,7 +195,7 @@ export function BigPictureSoundPanel() {
             onClick={() => testCue(entry.cue)}
             disabled={!sound.enabled}
             className={cn(
-              "inline-flex h-8 items-center border border-line px-2.5 text-[11.5px] text-ink-2 transition-colors duration-150",
+              "inline-flex h-8 items-center border border-line px-2.5 text-bp-meta text-ink-2 transition-colors duration-150",
               "hover:border-line-2 hover:text-ink disabled:opacity-55",
             )}
           >
@@ -207,7 +207,7 @@ export function BigPictureSoundPanel() {
           onClick={testPulse}
           disabled={!hapticsOn}
           className={cn(
-            "inline-flex h-8 items-center gap-1.5 border border-line px-2.5 text-[11.5px] text-ink-2 transition-colors duration-150",
+            "inline-flex h-8 items-center gap-1.5 border border-line px-2.5 text-bp-meta text-ink-2 transition-colors duration-150",
             "hover:border-line-2 hover:text-ink disabled:opacity-55",
           )}
         >
@@ -216,7 +216,7 @@ export function BigPictureSoundPanel() {
         </button>
       </div>
 
-      <p className="mt-3 text-[11px] leading-relaxed text-ink-3">
+      <p className="mt-3 text-bp-meta leading-relaxed text-ink-3">
         {t("Saved on this device. Also in Console mode → Settings → Controllers.")}
       </p>
     </section>

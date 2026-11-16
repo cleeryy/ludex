@@ -25,6 +25,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { api, assetUrl, USING_MOCKS } from "@/lib/api";
+import { useDocumentTitle } from "@/lib/document-title";
+import { usePadBack } from "@/lib/gamepad";
 import { ApiError, errorMessage } from "@/lib/http";
 import { parseServerGameId } from "@/lib/game-route";
 import {
@@ -174,6 +176,11 @@ export function GameDetailScreen() {
     retry: false,
     staleTime: 30_000,
   });
+
+  // #237: the tab names the game, and B on a pad returns to the console that
+  // sent the player here instead of leaving them with no input.
+  useDocumentTitle(game?.title ?? null);
+  usePadBack(() => navigate(-1));
 
   const [versionId, setVersionId] = useState<number | null>(null);
   const version = useMemo(() => {

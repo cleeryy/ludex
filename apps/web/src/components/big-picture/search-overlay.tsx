@@ -64,9 +64,9 @@ export function SearchOverlay({
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
-          className="min-w-0 flex-1 bg-transparent text-[15px] text-ink outline-none placeholder:text-ink-3"
+          className="min-w-0 flex-1 bg-transparent text-bp-body text-ink outline-none placeholder:text-ink-3"
         />
-        <span className="num shrink-0 font-mono text-[10.5px] text-ink-3">{results.length}</span>
+        <span className="num shrink-0 font-mono text-bp-meta text-ink-3">{results.length}</span>
       </div>
 
       <div role="group" aria-label={t("On-screen keyboard")} className="mt-2 flex flex-col gap-1">
@@ -87,8 +87,8 @@ export function SearchOverlay({
                   whileTap={{ scale: reduce ? 1 : 0.96 }}
                   transition={{ duration: reduce ? 0 : 0.08 }}
                   className={cn(
-                    "h-10 min-w-10 border px-2 font-mono text-[13px] transition-colors duration-100",
-                    special && "flex-1 text-[12px]",
+                    "h-10 min-w-10 border px-2 font-mono text-bp-body transition-colors duration-100",
+                    special && "flex-1 text-bp-meta",
                     index === active
                       ? "border-signal bg-signal/20 text-ink"
                       : "border-line bg-bg/40 text-ink-2 hover:border-line-2 hover:text-ink",
@@ -105,7 +105,7 @@ export function SearchOverlay({
 
       <div className="mt-3 border-t border-line pt-2" role="group" aria-label={t("Results")}>
         {results.length === 0 ? (
-          <p className="px-3 py-4 text-center text-[13px] text-ink-3">{t("No matches")}</p>
+          <p className="px-3 py-4 text-center text-bp-body text-ink-3">{t("No matches")}</p>
         ) : (
           <ul className="flex flex-col gap-0.5">
             {results.map((cell, position) => {
@@ -126,12 +126,12 @@ export function SearchOverlay({
                         : "border-transparent hover:border-line hover:bg-surface/60",
                     )}
                   >
-                    <span className="num w-6 shrink-0 font-mono text-[10.5px] text-ink-3">
+                    <span className="num w-6 shrink-0 font-mono text-bp-meta text-ink-3">
                       {String(position + 1).padStart(2, "0")}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13.5px] text-ink">{cell.game.title}</span>
-                      <span className="num block truncate text-[10.5px] text-ink-3">
+                      <span className="block truncate text-bp-body text-ink">{cell.game.title}</span>
+                      <span className="num block truncate text-bp-meta text-ink-3">
                         {formatYear(cell.game.releaseDate)}
                         {cell.game.genres[0] ? ` · ${cell.game.genres[0]}` : ""}
                       </span>

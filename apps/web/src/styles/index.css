@@ -40,6 +40,37 @@
   --font-display: var(--font-display);
   --font-sans: var(--font-ui);
   --font-mono: var(--font-code);
+
+  /*
+   * Type scale (#237). The desktop app had 27 arbitrary sizes and eight half
+   * pixel values; this is the replacement, one step per semantic role. Files
+   * migrate to `text-micro|meta|label|body|lead|title|display` as they are
+   * touched, so both vocabularies coexist for now.
+   *
+   * Migration state: 1931 arbitrary `text-[Npx]` at the audit, 1768 after the
+   * console pass (all 110 console occurrences replaced) and the first desktop
+   * screens (shell, game nav, onboarding, dialog, page furniture). The
+   * remainder is 122 files of admin panels and game sub-panels; `styles/
+   * type-scale.test.ts` fails if a console surface reintroduces one.
+   */
+  --text-micro: 10px;
+  --text-meta: 11.5px;
+  --text-label: 12.5px;
+  --text-body: 13px;
+  --text-lead: 15px;
+  --text-title: 22px;
+  --text-display: 34px;
+  --text-hero: 40px;
+
+  /*
+   * Console scale, in the console unit: these grow with `--bp-u`, so the same
+   * class is 28 px at 1080p and 56 px at 4K (#237).
+   */
+  --text-bp-hero: var(--bp-text-hero);
+  --text-bp-title: var(--bp-text-title);
+  --text-bp-body: var(--bp-text-body);
+  --text-bp-meta: var(--bp-text-meta);
+  --text-bp-micro: var(--bp-text-micro);
 }
 
 :root {
@@ -73,7 +104,29 @@
   --bp-u: clamp(0.72px, 0.0521vw, 2.2px);
   --bp-bar-h: max(44px, calc(var(--bp-u) * 56));
   --bp-home-h: max(84px, calc(var(--bp-u) * 104));
-  --bp-rail-card: 132px;
+  --bp-rail-card: calc(var(--bp-u) * 148);
+
+  /*
+   * Console type scale (#237). The 10-foot rule: 28 px for the text a player
+   * must read to act at 1080p, 48 px for a hero title, and every size in
+   * between expressed in the console unit so a 4K panel gets 2x the type, not
+   * the same 9.5 px label inside a tile twice as tall. At 1920 one unit is
+   * 1.0003 px, so the numbers below read as their 1080p pixels.
+   *
+   *   hero  48u  hero and plate titles
+   *   title 34u  section and sheet titles
+   *   body  28u  primary metadata: tile labels, rows, hints, status bar
+   *   meta  24u  secondary metadata: captions under covers, eyebrows
+   *   micro 20u  tertiary: index numbers, counts, tab glyph counts
+   *
+   * `components/big-picture/*` uses these through `text-bp-*`; the desktop
+   * scale lives above as `--text-*` and is migrated screen by screen.
+   */
+  --bp-text-hero: calc(var(--bp-u) * 48);
+  --bp-text-title: calc(var(--bp-u) * 34);
+  --bp-text-body: calc(var(--bp-u) * 28);
+  --bp-text-meta: calc(var(--bp-u) * 24);
+  --bp-text-micro: calc(var(--bp-u) * 20);
 
   /*
    * Console appearance (#229). The defaults are the Studio/archive material:
@@ -111,23 +164,12 @@
   --bp-art-scale: 1;
 }
 
-@media (min-width: 1024px) {
-  :root {
-    --bp-rail-card: 148px;
-  }
-}
-
 /*
- * A 720p television is the tight case: the bar and the home row eat 145 px of
- * a 720 px screen. The rail gives back the difference so the hero copy and the
- * selected cover keep their edges instead of being clipped by the stage.
+ * The rail card and the home tile are both expressed in `--bp-u` now, so a
+ * short screen already gets the smaller geometry (0.72u at 1280x720). The old
+ * fixed 148/112 px overrides are gone: they pinned the cover to a desktop
+ * window width and left a 1080p tile next to 4K type.
  */
-@media (max-height: 820px) {
-  :root {
-    --bp-home-h: 78px;
-    --bp-rail-card: 112px;
-  }
-}
 
 @media (max-width: 1023px) {
   :root {
@@ -843,6 +885,16 @@
     text-transform: none;
   }
 
+  /* In Console the glyph is part of the 10-foot hint, so it follows the
+     console unit like the label beside it (#237). */
+  .bp-root .kbd {
+    min-width: calc(var(--bp-u) * 26);
+    height: calc(var(--bp-u) * 26);
+    padding: 0 calc(var(--bp-u) * 6);
+    border-radius: var(--bp-radius-xs);
+    font-size: var(--bp-text-micro);
+  }
+
   .row-hover {
     transition: background-color var(--dur-1) var(--ease);
   }
@@ -983,33 +1035,44 @@
   --bp-radius-lg: 2px;
 }
 
-/* Soft: milky chrome over a blurred, dimmed wallpaper. */
+/* Soft: rounded plates over the game's wallpaper.
+   The material is opaque on purpose (#237). Translucent light over dark art
+   was what turned the console into a grey-taupe fog and dropped tile captions
+   to 4.6:1; an opaque step keeps every pair at the token contract (7:1 with
+   the TV-safe map) and costs nothing on a 4K panel. What stays soft is the
+   corner scale, the elevation and the blurred wallpaper. */
 .bp-root[data-console-appearance="soft"] {
-  --bp-material-filter: blur(22px) saturate(1.32);
-  --bp-material-chrome: color-mix(in oklab, var(--surface) 76%, transparent);
-  --bp-material-card: color-mix(in oklab, var(--elevated) 72%, transparent);
-  --bp-material-sheet: color-mix(in oklab, var(--surface-2) 92%, transparent);
-  --bp-material-panel: color-mix(in oklab, var(--surface) 94%, transparent);
-  --bp-material-hover: color-mix(in oklab, var(--elevated) 72%, transparent);
-  --bp-material-border: color-mix(in oklab, var(--line-2) 48%, transparent);
-  --bp-material-border-strong: color-mix(in oklab, var(--line-2) 66%, transparent);
+  --bp-material-filter: none;
+  --bp-material-chrome: var(--bg-deep);
+  --bp-material-card: var(--elevated);
+  --bp-material-sheet: var(--surface-2);
+  --bp-material-panel: var(--surface);
+  --bp-material-hover: var(--elevated);
+  --bp-material-border: var(--line-2);
+  --bp-material-border-strong: var(--line-2);
   --bp-material-shadow: 0 calc(var(--bp-u) * 8) calc(var(--bp-u) * 22) calc(var(--bp-u) * -12)
     color-mix(in oklab, var(--shadow) 30%, transparent);
   --bp-chrome-shadow: 0 0 calc(var(--bp-u) * 16) calc(var(--bp-u) * -12)
     color-mix(in oklab, var(--shadow) 30%, transparent);
-  --bp-wall-blur: 26px;
   --bp-wall: var(--stage);
 }
 
-.bp-root[data-console-appearance="soft"][data-console-background="artwork"] {
-  --bp-wall-opacity: 0.8;
-  --bp-wall-wash: color-mix(in oklab, var(--stage) 44%, transparent);
+/* The wallpaper is one still, veiled plate for both presets. The veil is what
+   keeps stage text readable over bright box art: art at 0.45 under an 80 %
+   stage wash keeps the primary stage text above 10:1 and its secondary tone
+   above 6.2:1 in the worst case (pure white art, midnight/light stages). The
+   numbers are mirrored in `theme/console-contrast.test.ts`. */
+.bp-root[data-console-background="artwork"] {
+  --bp-wall-opacity: 0.45;
+  --bp-wall-wash: color-mix(in oklab, var(--stage) 80%, transparent);
+  --bp-wall-blur: calc(var(--bp-u) * 26);
   --bp-art-filter: blur(calc(var(--bp-u) * 18)) saturate(1.12);
   --bp-art-scale: 1.05;
 }
 
 /* The stage plate is a still image: its blur is painted once and never ticks
-   with focus, scroll or a layout switch. */
+   with focus, scroll or a layout switch. Only Soft blurs it; Studio keeps the
+   sharp plate and relies on the wash alone. */
 .bp-root[data-console-appearance="soft"][data-console-background="artwork"] [data-bp-art="true"] {
   filter: var(--bp-art-filter);
   transform: scale(var(--bp-art-scale));
@@ -1021,14 +1084,8 @@
   --bp-wall-wash: transparent;
 }
 
-.bp-root[data-console-appearance="soft"][data-console-background="solid"] {
-  /* No artwork behind the chrome: the tiles can be nearly opaque and still
-     keep the soft edge. */
-  --bp-material-card: color-mix(in oklab, var(--elevated) 92%, transparent);
-}
-
 .bp-root[data-console-appearance="soft"][data-console-background="gradient"] {
-  --bp-material-card: color-mix(in oklab, var(--elevated) 86%, transparent);
+  --bp-wall-opacity: 1;
   --bp-wall: linear-gradient(
     155deg,
     color-mix(in oklab, var(--stage) 84%, var(--signal)) 0%,
@@ -1037,6 +1094,7 @@
 }
 
 .bp-root[data-console-appearance="studio"][data-console-background="gradient"] {
+  --bp-wall-opacity: 1;
   --bp-wall: linear-gradient(155deg, var(--bg-deep) 0%, var(--surface) 100%);
 }
 
@@ -1212,17 +1270,15 @@
 }
 
 .bp-root[data-console-appearance="soft"] .bp-glass-tile {
-  border-color: color-mix(in oklab, var(--sheen) 12%, transparent);
-  background: color-mix(in oklab, var(--stage) 38%, transparent);
-  -webkit-backdrop-filter: blur(14px) saturate(1.2);
-  backdrop-filter: blur(14px) saturate(1.2);
+  border-color: color-mix(in oklab, var(--sheen) 14%, transparent);
+  /* A plate, not a pane: the row sits over box art, so it takes the stage
+     token instead of a translucent veil (#237). */
+  background: var(--stage);
 }
 
 .bp-root[data-console-appearance="soft"] .bp-glass-tile[data-bp-zone-active="true"] {
   border-color: var(--signal);
-  background: color-mix(in oklab, var(--stage) 58%, transparent);
-  /* The glass does not travel: a moving backdrop-filter re-filters on every
-     frame, which is the one blur cost this screen refuses. */
+  background: var(--stage);
   transform: none;
 }
 

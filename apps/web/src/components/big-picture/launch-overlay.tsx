@@ -120,8 +120,8 @@ export function LaunchPlate({
       </motion.div>
 
       <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col gap-3 p-6 sm:p-10">
-        <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-signal">{copy.eyebrow}</p>
-        <h2 className="max-w-[24ch] truncate text-[28px] font-semibold leading-[1.05] tracking-[-0.02em] text-ink sm:text-[40px]">
+        <p className="font-mono text-bp-meta uppercase tracking-[0.16em] text-signal">{copy.eyebrow}</p>
+        <h2 className="max-w-[24ch] truncate text-bp-title font-semibold leading-[1.05] tracking-[-0.02em] text-ink sm:text-bp-hero">
           {title}
         </h2>
 
@@ -144,10 +144,10 @@ export function LaunchPlate({
           )}
         </div>
 
-        <p className="max-w-[52ch] text-[13px] leading-relaxed text-ink-2" role="status" aria-live="polite">
+        <p className="max-w-[52ch] text-bp-body leading-relaxed text-ink-2" role="status" aria-live="polite">
           {copy.line}
         </p>
-        {failed && detail && <p className="max-w-[52ch] text-[12px] leading-relaxed text-ink-3">{detail}</p>}
+        {failed && detail && <p className="max-w-[52ch] text-bp-meta leading-relaxed text-ink-3">{detail}</p>}
 
         {dismissable && (
           <div>

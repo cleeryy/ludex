@@ -54,7 +54,7 @@ export function ProfileOverlay({
       family={family}
       {...shell}
     >
-      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-2 font-mono text-[10.5px] text-ink-3">
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-2 font-mono text-bp-meta text-ink-3">
         <Gamepad2 className="size-3.5 text-signal-text" aria-hidden="true" />
         <span className="text-ink-2">{padFamilyLabel(family)}</span>
         <span aria-hidden="true">·</span>
@@ -129,7 +129,7 @@ export function ProfileOverlay({
           label={t("Haptics strength")}
           detail={t("Standard or strong rumble on this device.")}
           trailing={
-            <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-2">
+            <span className="font-mono text-bp-micro uppercase tracking-[0.1em] text-ink-2">
               {hapticsStrengthLabel(strength)}
             </span>
           }
