@@ -39,12 +39,12 @@ import type {
 } from "@/lib/types";
 import { isUnscanned } from "@/lib/virustotal";
 import { useToast } from "@/state/toasts";
+import { useVirusTotalQueue } from "@/state/virustotal-queue";
 import {
   VirusTotalCell,
   VirusTotalLegend,
   VirusTotalQueueStrip,
   VirusTotalScanButton,
-  useVirusTotalQueue,
   worstReport,
 } from "@/components/admin/virustotal-scan";
 import { EmptyState, ErrorState, PageHeader } from "@/components/page";
@@ -404,29 +404,12 @@ export function AdminGamesScreen() {
   const vtByGame = new Map<number, ScanReport[] | undefined>(
     rows.map((row, index) => [row.id, vtQueries[index]?.data?.versions]),
   );
+  // #238: the queue lives in the app-level provider, above the router, so this
+  // screen only starts it and renders its snapshot. Leaving the route keeps
+  // the run going; a second start appends to it and repeats no id.
   const queue = useVirusTotalQueue();
   const queueRunning = Boolean(queue.queue && queue.remaining > 0);
 
-  // The strip disappears with the last scan; the result of the run is the
-  // table itself, so the toast only says the queue drained.
-  const finishedQueue = !queueRunning ? queue.queue : null;
-  useEffect(() => {
-    if (!finishedQueue) return;
-    push({
-      title: t("VirusTotal scan queue finished"),
-      description:
-        finishedQueue.failed > 0
-          ? t("{done} scanned, {failed} failed. Rescan the failed ones when you want.", {
-              done: finishedQueue.done,
-              failed: finishedQueue.failed,
-            })
-          : t("{count} archives scanned. Verdicts come from the report cache.", { count: finishedQueue.done }),
-      tone: finishedQueue.failed > 0 ? "danger" : "success",
-    });
-    queue.cancel();
-    // `queue.cancel` is stable and `push` comes from a context with no deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finishedQueue?.startedAt]);
   const unscannedIds = rows
     .filter(
       (row) =>
@@ -486,7 +469,7 @@ export function AdminGamesScreen() {
             variant="default"
             size="sm"
             icon={<RefreshCw className="size-3.5" />}
-            disabled={unscannedIds.length === 0 || queueRunning}
+            disabled={unscannedIds.length === 0}
             title={t("Look up the archive hash of every game on this page that has no verdict yet")}
             onClick={() => queue.start(unscannedIds)}
           >
@@ -606,7 +589,6 @@ export function AdminGamesScreen() {
               variant="default"
               size="sm"
               icon={<RefreshCw className="size-3.5" />}
-              disabled={queueRunning}
               onClick={() => queue.start([...selected])}
             >
               {t("Scan with VirusTotal")}
@@ -758,7 +740,6 @@ export function AdminGamesScreen() {
                       {row.kind !== "rom" && row.availableVersionCount > 0 && (
                         <VirusTotalScanButton
                           scanning={Boolean(queue.queue?.ids.includes(row.id) && queueRunning)}
-                          disabled={queueRunning}
                           onClick={() => queue.start([row.id])}
                         />
                       )}

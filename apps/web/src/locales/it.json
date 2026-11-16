@@ -3862,5 +3862,6 @@
   "Where the archive is written while it downloads. The install dialog and the disk-space check use the same choice.": "Dove viene scritto l'archivio durante il download. La finestra di dialogo di installazione e il controllo dello spazio su disco utilizzano la stessa scelta.",
   "You are on {current}": "Sei su {current}",
   "You are on {current} · {size}": "Sei su {current} · {size}",
-  "Z–A": "Z-A"
+  "Z–A": "Z-A",
+  "VirusTotal: {count} scans queued": "VirusTotal: {count} analisi in coda"
 }

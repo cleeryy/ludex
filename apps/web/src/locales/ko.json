@@ -3862,5 +3862,6 @@
   "The original archive look: crisp hairlines, flat panels and the app theme.": "원본 아카이브 모양: 선명한 헤어라인, 평면 패널 및 앱 테마.",
   "The Soft console style uses its own cream palette. Switch Console style to Studio to follow the app theme.": "소프트 콘솔 스타일은 자체 크림 팔레트를 사용합니다. 앱 테마를 따르려면 콘솔 스타일을 Studio로 전환하세요.",
   "Theme accent": "테마 악센트",
-  "What the console floats over. Artwork keeps the selected game behind the chrome.": "콘솔이 떠다니는 것. 아트웍은 선택한 게임을 크롬 뒤에 유지합니다."
+  "What the console floats over. Artwork keeps the selected game behind the chrome.": "콘솔이 떠다니는 것. 아트웍은 선택한 게임을 크롬 뒤에 유지합니다.",
+  "VirusTotal: {count} scans queued": "VirusTotal: {count}개 검사가 대기 중"
 }

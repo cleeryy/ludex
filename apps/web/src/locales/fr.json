@@ -3864,5 +3864,6 @@
   "Reset to automatic": "Rétablir l'automatique",
   "Swap A and B": "Inverser A et B",
   "{count} pads|one": "{count} manette",
-  "{count} pads|other": "{count} manettes"
+  "{count} pads|other": "{count} manettes",
+  "VirusTotal: {count} scans queued": "VirusTotal : {count} analyses en file"
 }

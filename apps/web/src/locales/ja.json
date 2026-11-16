@@ -3862,5 +3862,6 @@
   "The original archive look: crisp hairlines, flat panels and the app theme.": "オリジナルのアーカイブの外観: 鮮明なヘアライン、フラット パネル、アプリのテーマ。",
   "The Soft console style uses its own cream palette. Switch Console style to Studio to follow the app theme.": "ソフト コンソール スタイルでは、独自のクリーム パレットが使用されます。アプリのテーマに従い、コンソール スタイルを Studio に切り替えます。",
   "Theme accent": "テーマのアクセント",
-  "What the console floats over. Artwork keeps the selected game behind the chrome.": "コンソールが浮いているもの。アートワークは、選択したゲームをクロムの背後に保持します。"
+  "What the console floats over. Artwork keeps the selected game behind the chrome.": "コンソールが浮いているもの。アートワークは、選択したゲームをクロムの背後に保持します。",
+  "VirusTotal: {count} scans queued": "VirusTotal: {count} 件のスキャンが待機中"
 }

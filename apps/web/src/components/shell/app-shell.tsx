@@ -29,6 +29,7 @@ import { CommandPalette } from "@/components/shell/command-palette";
 import { MobileBar, MoreSheet } from "@/components/shell/nav-mobile";
 import { NavRail } from "@/components/shell/nav-rail";
 import { UploadIndicator } from "@/components/shell/upload-indicator";
+import { VirusTotalQueueIndicator } from "@/components/shell/virustotal-queue-indicator";
 import { NotificationBell } from "@/components/community/notification-bell";
 import { UserAvatar } from "@/components/community/user-avatar";
 import { ServerSwitcher } from "@/components/shell/server-switcher";
@@ -207,6 +208,7 @@ function Topbar({ onOpenPalette, chrome }: { onOpenPalette: () => void; chrome: 
           </span>
           {showSort && <SortMenu />}
           <UploadIndicator />
+          <VirusTotalQueueIndicator />
           <NotificationBell />
           <div className="mx-1.5 hidden h-5 w-px bg-line sm:block" aria-hidden="true" />
           <span className="hidden sm:block">

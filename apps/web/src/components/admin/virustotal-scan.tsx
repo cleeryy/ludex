@@ -2,100 +2,20 @@
  * Admin → Games: the VirusTotal column and the throttled scan queue (#209/#224).
  *
  * The public API allows 4 requests per minute, so a bulk action must not fire
- * one request per row in a burst. The queue schedules each scan with
- * `scanQueueSchedule`, waits for its slot, then polls the report cache by
- * invalidating the game's query — never a tight loop.
+ * one request per row in a burst. #238 moved the scheduler to
+ * `state/virustotal-queue.tsx`, mounted above the router: this module only
+ * renders the queue strip, the badge cell and the per-row action, and the
+ * Games screen reads the live queue from the provider.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { RefreshCw } from "lucide-react";
-import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import type { ScanReport } from "@/lib/types";
-import { scanQueueEtaLabel, scanQueueSchedule, summaryFor, verdictLabel, worstVerdict } from "@/lib/virustotal";
+import { scanQueueEtaLabel, summaryFor, verdictLabel, worstVerdict } from "@/lib/virustotal";
+import type { VirusTotalQueueRun } from "@/lib/virustotal-queue";
 import { Badge, Button, Progress } from "@/components/ui/controls";
 import { t } from "@/lib/i18n";
-
-export interface ScanQueueState {
-  ids: number[];
-  /** Scans that came back with a report. */
-  done: number;
-  /** Scans that failed; the strip reports the first message. */
-  failed: number;
-  startedAt: number;
-}
-
-export interface VirusTotalQueueController {
-  queue: ScanQueueState | null;
-  start: (ids: number[]) => void;
-  cancel: () => void;
-  error: string | null;
-  /** Queue length left to fire. */
-  remaining: number;
-}
-
-/**
- * Runs one scan per slot of the 4/minute budget. Each step invalidates that
- * game's cached report (and the table when the queue drains), so the UI reads
- * verdicts from the cache instead of re-scanning.
- */
-export function useVirusTotalQueue(): VirusTotalQueueController {
-  const queryClient = useQueryClient();
-  const [queue, setQueue] = useState<ScanQueueState | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const running = useRef(false);
-
-  const start = useCallback((ids: number[]) => {
-    if (ids.length === 0) return;
-    setError(null);
-    setQueue({ ids, done: 0, failed: 0, startedAt: Date.now() });
-  }, []);
-
-  const cancel = useCallback(() => setQueue(null), []);
-
-  const index = queue ? queue.done + queue.failed : 0;
-  const finished = queue ? index >= queue.ids.length : true;
-
-  useEffect(() => {
-    if (!queue || finished || running.current) return;
-    const schedule = scanQueueSchedule(queue.ids.length);
-    const slot = schedule.slots[index];
-    if (!slot) return;
-    const delay = Math.max(0, queue.startedAt + slot.startsAtMs - Date.now());
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      if (cancelled) return;
-      running.current = true;
-      const gameId = queue.ids[index];
-      try {
-        await api.scanVirusTotal({ gameId });
-        await queryClient.invalidateQueries({ queryKey: ["game-virustotal", gameId] });
-        setQueue((current) => (current ? { ...current, done: current.done + 1 } : current));
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
-        setQueue((current) => (current ? { ...current, failed: current.failed + 1 } : current));
-      } finally {
-        running.current = false;
-      }
-    }, delay);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [queryClient, finished, index, queue]);
-
-  // The table and every cell read from the cache; refresh them once the queue
-  // has fired its last request.
-  useEffect(() => {
-    if (!queue || !finished) return;
-    void queryClient.invalidateQueries({ queryKey: ["admin-games"] });
-    void queryClient.invalidateQueries({ queryKey: ["admin-virustotal"] });
-  }, [finished, queryClient, queue]);
-
-  const remaining = queue ? Math.max(0, queue.ids.length - index) : 0;
-  return { queue, start, cancel, error, remaining };
-}
 
 /** Header strip: queue position, ETA at 4 requests/minute and a stop button. */
 export function VirusTotalQueueStrip({
@@ -103,7 +23,7 @@ export function VirusTotalQueueStrip({
   onCancel,
   error,
 }: {
-  queue: ScanQueueState;
+  queue: VirusTotalQueueRun;
   onCancel: () => void;
   error: string | null;
 }) {
