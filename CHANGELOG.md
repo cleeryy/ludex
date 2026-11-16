@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.20] - 2026-11-16
+
 ### Changed
 
 - Console wallpaper cost (#270): the full-screen `filter: blur()` layer is baked
