@@ -418,6 +418,8 @@ const DEFAULT_SETTINGS: LocalSettings = {
   serverPort: 0,
   streamInstall: true,
   downloadPolicy: "automatic",
+  serverFileCache: true,
+  serverFileCacheBudgetGb: 50,
   downloadStaging: "installVolume",
   downloadStagingConfirmed: true,
   keepArchives: false,

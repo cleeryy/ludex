@@ -1,12 +1,12 @@
 //! Server-side extracted cache and file manifest (#231).
 //!
-//! The prototype is gated: off by default, the classic download stays the
-//! fallback, and the public routes answer `409 extracted_cache_unavailable`
-//! while the cache is disabled or before an archive was extracted. These tests
-//! cover the contract the desktop lane codes against: extraction dedupe,
-//! manifest content, per-file SHA-256, Range/If-Range, path traversal and
-//! symlink refusal, admin auth, restart recovery and eviction on version
-//! delete.
+//! The prototype is gated: off in server mode, on for the desktop's embedded
+//! local server (#241). The classic download stays the fallback, and the public
+//! routes answer `409 extracted_cache_unavailable` while the cache is disabled
+//! or before an archive was extracted. These tests cover the contract the
+//! desktop lane codes against: extraction dedupe, manifest content, per-file
+//! SHA-256, Range/If-Range, path traversal and symlink refusal, admin auth,
+//! restart recovery and eviction on version delete.
 
 mod common;
 
@@ -409,7 +409,9 @@ async fn concurrent_extract_requests_share_one_job() {
 
 #[tokio::test]
 async fn a_disabled_cache_writes_nothing_and_answers_409() {
-    let server = TestServer::start().await;
+    // The embedded local server enables the cache by default (#241); a server
+    // deployment keeps it off, which is the configuration under test here.
+    let server = TestServer::start_with(|config| config.extracted_cache_enabled = false).await;
     let (admin, _) = server.setup().await;
     write_game_zip(&server.games_dir.join("Hollow (2024) v1.0.zip"));
     run_scan(&server, &admin).await;
@@ -443,6 +445,43 @@ async fn a_disabled_cache_writes_nothing_and_answers_409() {
         !server.data_dir.join("extracted").exists(),
         "a disabled cache must not create its root"
     );
+}
+
+#[tokio::test]
+async fn a_local_default_config_serves_the_manifest_without_an_env_opt_in() {
+    // #241: `Config::for_local` (what the desktop's embedded server uses)
+    // enables the cache by default, so the automatic install probe finds a
+    // manifest instead of `409 extracted_cache_unavailable` — no
+    // `LUDEX_EXTRACTED_CACHE` involved.
+    let server = TestServer::start().await;
+    let (admin, _) = server.setup().await;
+    write_game_zip(&server.games_dir.join("Hollow (2024) v1.0.zip"));
+    run_scan(&server, &admin).await;
+    let game_id = only_game(&server, &admin).await;
+    let version = version_id(&server, &admin, game_id).await;
+    let digest = content_sha256(&server, &admin, game_id).await;
+
+    let started = extract_once(&server, &admin, version).await;
+    assert!(
+        matches!(
+            started["status"].as_str(),
+            Some("queued" | "extracting" | "ready")
+        ),
+        "{started}"
+    );
+    let ready = wait_ready(&server, &admin, version).await;
+    assert_eq!(ready["status"], "ready", "{ready}");
+
+    let ticket = ticket(&server, &admin, game_id, version).await;
+    let (status, manifest) = server
+        .get(
+            &format!("/api/versions/{version}/manifest?token={ticket}"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{manifest}");
+    assert_eq!(manifest["archiveSha256"], json!(digest));
+    assert_eq!(manifest["fileCount"], json!(3));
 }
 
 #[tokio::test]

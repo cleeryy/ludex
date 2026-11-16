@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::settings::Mode;
+use crate::settings::{LocalSettings, Mode};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize)]
@@ -24,6 +24,34 @@ pub struct ServerInfo {
 
 pub fn emit_status(app: &AppHandle, status: &ServerStatus) {
     let _ = app.emit("local-server://status", status);
+}
+
+/// Builds the embedded server configuration from the desktop settings (#241).
+///
+/// The extracted cache follows the "Server file cache" setting, which is on by
+/// default in local mode: the server runs on the same machine, the budget
+/// bounds the disk cost, and the file transport is reachable from the install
+/// pipeline. Turning it off makes the manifest route answer `409
+/// extracted_cache_unavailable`, and the `automatic` policy falls back to the
+/// archive without a prompt. A remote server never uses this path; it keeps
+/// `LUDEX_EXTRACTED_CACHE` as its own opt-in.
+fn embedded_config(
+    settings: &LocalSettings,
+    games_dir: PathBuf,
+    data_dir: PathBuf,
+    media_dir: PathBuf,
+) -> ludex_server::Config {
+    let mut config = ludex_server::Config::for_local(games_dir, data_dir, media_dir)
+        .with_extracted_cache(
+            settings.server_file_cache,
+            settings.server_file_cache_budget_bytes(),
+        );
+    // `serverPort` 0 asks the OS for a free port; a non-zero value is the
+    // preferred port for the embedded server.
+    if settings.server_port != 0 {
+        config.bind = std::net::SocketAddr::from(([127, 0, 0, 1], settings.server_port));
+    }
+    config
 }
 
 /// Start the embedded server, or return the running instance's URL and token.
@@ -88,10 +116,7 @@ pub async fn start_embedded(app: &AppHandle) -> Result<ServerInfo, String> {
 
     // `serverPort` 0 asks the OS for a free port; a non-zero value is the
     // preferred port for the embedded server.
-    let mut config = ludex_server::Config::for_local(games_path, data_dir, media_dir);
-    if settings.server_port != 0 {
-        config.bind = std::net::SocketAddr::from(([127, 0, 0, 1], settings.server_port));
-    }
+    let config = embedded_config(&settings, games_path, data_dir, media_dir);
     let handle = ludex_server::start(config)
         .await
         .map_err(|e| format!("Could not start the local server: {e}"))?;
@@ -211,4 +236,80 @@ pub fn stop_on_exit(app: &AppHandle) {
             let _ = handle.shutdown.send(());
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::{default_server_file_cache_budget_gb, LocalSettings};
+
+    fn paths() -> (PathBuf, PathBuf, PathBuf) {
+        (
+            PathBuf::from("/tmp/ludex/games"),
+            PathBuf::from("/tmp/ludex/data"),
+            PathBuf::from("/tmp/ludex/media"),
+        )
+    }
+
+    #[test]
+    fn embedded_launch_enables_the_file_cache_by_default() {
+        let settings = LocalSettings::for_app_data(std::path::Path::new("/tmp/ludex"));
+        let (games, data, media) = paths();
+        let config = embedded_config(&settings, games, data, media);
+        assert!(config.local_mode);
+        assert!(config.extracted_cache_enabled);
+        assert_eq!(
+            config.extracted_cache_budget_bytes,
+            default_server_file_cache_budget_gb() * 1024 * 1024 * 1024
+        );
+        assert!(config.extracted_cache_ttl > std::time::Duration::ZERO);
+    }
+
+    #[test]
+    fn embedded_launch_passes_the_cache_setting_and_budget() {
+        let settings = LocalSettings {
+            server_file_cache: false,
+            server_file_cache_budget_gb: 12,
+            ..LocalSettings::default()
+        };
+        let (games, data, media) = paths();
+        let config = embedded_config(&settings, games, data.clone(), media);
+        assert!(!config.extracted_cache_enabled);
+        assert_eq!(
+            config.extracted_cache_budget_bytes,
+            12 * 1024 * 1024 * 1024,
+            "the desktop budget reaches the embedded server"
+        );
+        assert_eq!(config.extracted_cache_dir, data.join("extracted"));
+    }
+
+    #[test]
+    fn embedded_launch_falls_back_to_a_bounded_budget() {
+        // A hand-edited 0 must not mean "unbounded"; the server-side floor
+        // applies.
+        let settings = LocalSettings {
+            server_file_cache: true,
+            server_file_cache_budget_gb: 0,
+            ..LocalSettings::default()
+        };
+        let (games, data, media) = paths();
+        let config = embedded_config(&settings, games, data, media);
+        assert!(config.extracted_cache_enabled);
+        assert_eq!(
+            config.extracted_cache_budget_bytes,
+            default_server_file_cache_budget_gb() * 1024 * 1024 * 1024
+        );
+    }
+
+    #[test]
+    fn embedded_launch_keeps_the_preferred_port() {
+        let settings = LocalSettings {
+            server_port: 45_678,
+            ..LocalSettings::default()
+        };
+        let (games, data, media) = paths();
+        let config = embedded_config(&settings, games, data, media);
+        assert_eq!(config.bind.port(), 45_678);
+        assert!(config.bind.ip().is_loopback());
+    }
 }

@@ -264,6 +264,17 @@ pub struct LocalSettings {
     /// otherwise. `stream` and `classic` pin one path for troubleshooting.
     #[serde(default)]
     pub download_policy: DownloadPolicy,
+    /// Serve the embedded server's extracted files to installs from this device
+    /// (#241). On by default in local mode: the server runs on the same machine
+    /// and the cache is bounded by `serverFileCacheBudgetGb`. Off makes the
+    /// embedded server answer `409 extracted_cache_unavailable`, and the
+    /// automatic policy falls back to the archive silently.
+    #[serde(default = "default_server_file_cache")]
+    pub server_file_cache: bool,
+    /// Byte budget of the embedded server's extracted cache, in GiB (#241).
+    /// Clamped to 1..=1000 by `normalize`; never unbounded.
+    #[serde(default = "default_server_file_cache_budget_gb")]
+    pub server_file_cache_budget_gb: u64,
     /// Legacy `installTransport` (#231). Only read to migrate an older settings
     /// file; never written. `auto` and `files` both become `automatic`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -683,6 +694,25 @@ pub const fn default_download_concurrency() -> u64 {
     1
 }
 
+/// The embedded server's file cache is on by default (#241): it runs on the
+/// same machine, so the file transport costs no extra network, and its budget
+/// keeps it bounded.
+pub const fn default_server_file_cache() -> bool {
+    true
+}
+
+/// Default budget of the embedded server's extracted cache, in GiB (#241).
+/// The server side matches it with
+/// `ludex_server::config::DEFAULT_LOCAL_EXTRACTED_CACHE_BUDGET_BYTES`.
+pub const fn default_server_file_cache_budget_gb() -> u64 {
+    50
+}
+
+/// Bounds accepted for [`LocalSettings::server_file_cache_budget_gb`] (#241).
+pub const MIN_SERVER_FILE_CACHE_BUDGET_GB: u64 = 1;
+/// Upper bound: a desktop cache larger than this is a typo, not a choice.
+pub const MAX_SERVER_FILE_CACHE_BUDGET_GB: u64 = 1_000;
+
 /// Resume incomplete downloads after an app restart (#212). On by default:
 /// the job was already user-intended, and pausing exists for the opt-out.
 pub const fn default_auto_resume_downloads() -> bool {
@@ -722,6 +752,8 @@ impl Default for LocalSettings {
             auto_resume_downloads: default_auto_resume_downloads(),
             download_concurrency: default_download_concurrency(),
             download_policy: DownloadPolicy::Automatic,
+            server_file_cache: default_server_file_cache(),
+            server_file_cache_budget_gb: default_server_file_cache_budget_gb(),
             install_transport: None,
             close_to_tray: true,
             native_title_bar: false,
@@ -798,6 +830,25 @@ impl LocalSettings {
         }
     }
 
+    /// Budget of the embedded server's extracted cache, in bytes (#241).
+    ///
+    /// Clamped here as well as in `normalize` so a settings document from an
+    /// older build or a hand edit can never ask for an unbounded cache. Zero
+    /// falls back to the default budget.
+    pub fn server_file_cache_budget_bytes(&self) -> u64 {
+        let gib = if self.server_file_cache_budget_gb == 0 {
+            default_server_file_cache_budget_gb()
+        } else {
+            self.server_file_cache_budget_gb
+        };
+        gib.clamp(
+            MIN_SERVER_FILE_CACHE_BUDGET_GB,
+            MAX_SERVER_FILE_CACHE_BUDGET_GB,
+        ) * 1024
+            * 1024
+            * 1024
+    }
+
     /// Fill empty paths with defaults and normalise the server URL.
     pub fn normalize(&mut self, app_data: &Path) {
         let defaults = Self::for_app_data(app_data);
@@ -826,6 +877,15 @@ impl LocalSettings {
             self.download_stall_timeout_secs = default_download_stall_timeout_secs();
         }
         self.download_stall_timeout_secs = self.download_stall_timeout_secs.clamp(5, 600);
+        // #241: the embedded cache budget is always bounded; a zero or absurd
+        // value from an older/hand-edited file is repaired silently.
+        if self.server_file_cache_budget_gb == 0 {
+            self.server_file_cache_budget_gb = default_server_file_cache_budget_gb();
+        }
+        self.server_file_cache_budget_gb = self.server_file_cache_budget_gb.clamp(
+            MIN_SERVER_FILE_CACHE_BUDGET_GB,
+            MAX_SERVER_FILE_CACHE_BUDGET_GB,
+        );
         // #212: 0 is meaningful ("retry while the app is open"), anything else
         // is bounded to a sane range so a typo cannot mean ten years.
         if self.download_concurrency == 0 {
@@ -1697,6 +1757,8 @@ mod tests {
         assert_eq!(json["downloadStaging"], "installVolume");
         assert_eq!(json["downloadStagingConfirmed"], false);
         assert_eq!(json["downloadPolicy"], "automatic");
+        assert_eq!(json["serverFileCache"], true);
+        assert_eq!(json["serverFileCacheBudgetGb"], 50);
         assert!(json.get("installTransport").is_none());
         assert_eq!(json["keepArchives"], false);
         assert_eq!(json["bandwidthLimitKib"], 0);
@@ -2589,6 +2651,55 @@ mod tests {
         settings.normalize(Path::new("/data"));
         assert_eq!(settings.download_concurrency, 1);
         assert_eq!(legacy.download_concurrency, 1);
+    }
+
+    #[test]
+    fn server_file_cache_defaults_on_and_stays_bounded() {
+        // #241: the embedded server serves the file manifest by default, with
+        // a finite budget. A settings file from before the key exists gets the
+        // same defaults.
+        let mut settings = LocalSettings::default();
+        assert!(settings.server_file_cache);
+        assert_eq!(settings.server_file_cache_budget_gb, 50);
+        assert_eq!(
+            settings.server_file_cache_budget_bytes(),
+            50 * 1024 * 1024 * 1024
+        );
+        let legacy: LocalSettings =
+            serde_json::from_value(serde_json::json!({ "installDir": "/games" })).unwrap();
+        assert!(legacy.server_file_cache);
+        assert_eq!(
+            legacy.server_file_cache_budget_gb,
+            default_server_file_cache_budget_gb()
+        );
+
+        // The opt-out and the custom budget survive a round-trip.
+        settings.server_file_cache = false;
+        settings.server_file_cache_budget_gb = 12;
+        let encoded = serde_json::to_value(&settings).unwrap();
+        assert_eq!(encoded["serverFileCache"], false);
+        assert_eq!(encoded["serverFileCacheBudgetGb"], 12);
+        let restored: LocalSettings = serde_json::from_value(encoded).unwrap();
+        assert!(!restored.server_file_cache);
+        assert_eq!(
+            restored.server_file_cache_budget_bytes(),
+            12 * 1024 * 1024 * 1024
+        );
+
+        // 0 and an absurd value are repaired by `normalize`, never unbounded.
+        settings.server_file_cache_budget_gb = 0;
+        settings.normalize(Path::new("/data"));
+        assert_eq!(settings.server_file_cache_budget_gb, 50);
+        settings.server_file_cache_budget_gb = 9_999;
+        settings.normalize(Path::new("/data"));
+        assert_eq!(
+            settings.server_file_cache_budget_gb,
+            MAX_SERVER_FILE_CACHE_BUDGET_GB
+        );
+        // An explicit opt-out is not revived by normalization.
+        settings.server_file_cache = false;
+        settings.normalize(Path::new("/data"));
+        assert!(!settings.server_file_cache);
     }
 
     #[test]

@@ -24,6 +24,12 @@ pub const DEFAULT_LIBRARY_HEALTH_INTERVAL_HOURS: u64 = 24;
 pub const DEFAULT_MEDIA_GC_GRACE_HOURS: u64 = 24;
 /// Default budget of the server-side extracted cache (#231): 200 GiB.
 pub const DEFAULT_EXTRACTED_CACHE_BUDGET_BYTES: u64 = 200 * 1024 * 1024 * 1024;
+/// Default budget of the embedded local cache (#241): 50 GiB.
+///
+/// The desktop app's in-process server is on the same machine as the client,
+/// so the file transport is worth serving by default — but never unbounded.
+/// The desktop setting `serverFileCacheBudgetGb` overrides it.
+pub const DEFAULT_LOCAL_EXTRACTED_CACHE_BUDGET_BYTES: u64 = 50 * 1024 * 1024 * 1024;
 /// Default TTL of an extracted-cache entry unused for that long (#231): 14 days.
 pub const DEFAULT_EXTRACTED_CACHE_TTL_HOURS: u64 = 24 * 14;
 /// Maximum JSON request body accepted by the API (10 MiB).
@@ -835,6 +841,12 @@ impl Config {
     /// Binds an ephemeral loopback port, enables local mode (which
     /// auto-provisions an administrator and returns its token from
     /// [`crate::start`]) and does not read any bootstrap credentials.
+    ///
+    /// The extracted cache is **on** here (#241): the server runs on the same
+    /// machine as the client, so the file transport is free of network cost,
+    /// and the budget below bounds it. [`Config::with_extracted_cache`] applies
+    /// the desktop setting; a self-hosted server still opts in through
+    /// `LUDEX_EXTRACTED_CACHE` in [`Config::from_env`].
     pub fn for_local(games_dir: PathBuf, data_dir: PathBuf, media_dir: PathBuf) -> Self {
         let database_url = default_database_url(&data_dir);
         let library_roots = vec![games_dir.clone()];
@@ -846,9 +858,9 @@ impl Config {
             games_dir: games_dir.clone(),
             media_dir,
             backup_dir,
-            extracted_cache_enabled: false,
+            extracted_cache_enabled: true,
             extracted_cache_dir,
-            extracted_cache_budget_bytes: DEFAULT_EXTRACTED_CACHE_BUDGET_BYTES,
+            extracted_cache_budget_bytes: DEFAULT_LOCAL_EXTRACTED_CACHE_BUDGET_BYTES,
             extracted_cache_ttl: Duration::from_secs(DEFAULT_EXTRACTED_CACHE_TTL_HOURS * 3_600),
             database_url,
             database_max_connections: crate::db::DEFAULT_MAX_CONNECTIONS,
@@ -948,6 +960,24 @@ impl Config {
     #[must_use]
     pub fn with_scan_interval(mut self, interval: Duration) -> Self {
         self.scan_interval = interval;
+        self
+    }
+
+    /// Applies the desktop's "Server file cache" setting (#241).
+    ///
+    /// `budget_bytes` bounds the extracted cache (`0` falls back to
+    /// [`DEFAULT_LOCAL_EXTRACTED_CACHE_BUDGET_BYTES]`), so a stale or hand-edited
+    /// setting can never turn the cache unbounded. The embedded server passes
+    /// this; [`Config::from_env`] keeps `LUDEX_EXTRACTED_CACHE` as the opt-in
+    /// for self-hosted deployments.
+    #[must_use]
+    pub fn with_extracted_cache(mut self, enabled: bool, budget_bytes: u64) -> Self {
+        self.extracted_cache_enabled = enabled;
+        self.extracted_cache_budget_bytes = if budget_bytes == 0 {
+            DEFAULT_LOCAL_EXTRACTED_CACHE_BUDGET_BYTES
+        } else {
+            budget_bytes
+        };
         self
     }
 
@@ -1097,6 +1127,73 @@ mod tests {
         assert_eq!(
             config.database_max_connections,
             crate::db::DEFAULT_MAX_CONNECTIONS
+        );
+    }
+
+    #[test]
+    fn local_config_serves_the_extracted_cache_by_default() {
+        // #241: the embedded server runs on the client's machine, so the file
+        // transport is usable without an environment opt-in — and bounded.
+        let config = Config::for_local(
+            PathBuf::from("/tmp/games"),
+            PathBuf::from("/tmp/data"),
+            PathBuf::from("/tmp/media"),
+        );
+        assert!(config.extracted_cache_enabled);
+        assert_eq!(
+            config.extracted_cache_budget_bytes,
+            DEFAULT_LOCAL_EXTRACTED_CACHE_BUDGET_BYTES
+        );
+        assert_eq!(
+            config.extracted_cache_dir,
+            PathBuf::from("/tmp/data/extracted")
+        );
+        assert_eq!(
+            config.extracted_cache_ttl,
+            Duration::from_secs(DEFAULT_EXTRACTED_CACHE_TTL_HOURS * 3_600)
+        );
+    }
+
+    #[test]
+    fn the_desktop_cache_setting_overrides_the_local_default() {
+        let local = || {
+            Config::for_local(
+                PathBuf::from("/tmp/games"),
+                PathBuf::from("/tmp/data"),
+                PathBuf::from("/tmp/media"),
+            )
+        };
+        let disabled = local().with_extracted_cache(false, 8 * 1024 * 1024 * 1024);
+        assert!(!disabled.extracted_cache_enabled);
+        assert_eq!(
+            disabled.extracted_cache_budget_bytes,
+            8 * 1024 * 1024 * 1024
+        );
+
+        let enabled = local().with_extracted_cache(true, 8 * 1024 * 1024 * 1024);
+        assert!(enabled.extracted_cache_enabled);
+
+        // A zero budget is never "unlimited": it falls back to the bounded
+        // local default.
+        let zero = local().with_extracted_cache(true, 0);
+        assert_eq!(
+            zero.extracted_cache_budget_bytes,
+            DEFAULT_LOCAL_EXTRACTED_CACHE_BUDGET_BYTES
+        );
+    }
+
+    #[test]
+    fn the_server_environment_keeps_the_cache_opt_in() {
+        // A self-hosted deployment stays off until `LUDEX_EXTRACTED_CACHE=1`
+        // (#231/#241); only the embedded local server defaults to on.
+        if env_opt("LUDEX_EXTRACTED_CACHE").is_some() {
+            return;
+        }
+        let config = Config::from_env().expect("configuration from the environment");
+        assert!(!config.extracted_cache_enabled);
+        assert_eq!(
+            config.extracted_cache_budget_bytes,
+            DEFAULT_EXTRACTED_CACHE_BUDGET_BYTES
         );
     }
 

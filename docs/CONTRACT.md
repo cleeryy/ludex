@@ -2022,6 +2022,8 @@ interface LocalSettings {
   serverPort: number;           // preferred embedded port, 0 = random
   streamInstall: boolean;       // remote ZIP installs stream per-entry instead of storing the archive
   downloadPolicy: "automatic" | "stream" | "classic"; // #235: how a version is transported. `automatic` (default) resolves per version: server file manifest when available (#231), else a per-entry ZIP stream, else the classic archive. `stream` and `classic` pin one path for troubleshooting. A probe that finds no ready cache falls back silently; only a started transfer that fails states its reason on the job. The removed `installTransport` (`classic | auto | files`) is migrated (`classic` → `classic`, `auto`/`files` → `automatic`) and never written back
+  serverFileCache: boolean;          // #241: serve the embedded server's extracted files in local mode (default true); a remote server keeps its own LUDEX_EXTRACTED_CACHE opt-in. Applies at the next local server start
+  serverFileCacheBudgetGb: number;   // #241: budget of the embedded extracted cache in GiB, default 50, clamped 1..1000; the server also has a bounded default, never unbounded
   downloadStaging: "configured" | "installVolume"; // #226/#235: where the archive is staged. Default "installVolume": next to the install, so a NAS download folder is not read back over SMB. "configured" keeps the download folder and survives migration only when the user picked it explicitly
   downloadStagingConfirmed?: boolean; // #235: true once the user picked a staging policy explicitly; a settings file without it had the historical "configured" default and migrates to "installVolume"
   keepArchives: boolean;        // keep the downloaded archive after install
@@ -4136,13 +4138,22 @@ immediately; the scratch directory never outlives the request.
 Per-entry entries follow the same rules: sanitised relative paths, no links or
 special files, file modes preserved and chunked copies.
 
-## Server-side extracted cache + file manifest (#231, prototype, off by default)
+## Server-side extracted cache + file manifest (#231/#241)
 
 The prototype answers one question with a measurement: is it faster to extract
 a large archive **once on the server** and fetch the files in parallel than to
-download the archive and extract it on the client? It is gated:
-`LUDEX_EXTRACTED_CACHE` defaults to `0`, the classic download stays the
-fallback, and nothing is written while the feature is off.
+download the archive and extract it on the client? Two deployments differ:
+
+- **Self-hosted server**: opt-in. `LUDEX_EXTRACTED_CACHE` defaults to `0`, the
+  classic download stays the fallback, and nothing is written while the feature
+  is off.
+- **Desktop local mode**: on by default (#241). The embedded server runs on the
+  client's machine, so the file transport costs no extra network; the desktop
+  setting `serverFileCache` (Settings → Downloads → Server file cache) turns it
+  off, and `serverFileCacheBudgetGb` (default 50 GiB, clamped 1..=1000) bounds
+  it. The value is passed to the embedded server's `Config` on start, so a
+  change applies at the next local server start (restart Ludex or stop/start the
+  local server). A remote server is never affected and keeps its own env opt-in.
 
 The cache is keyed by the archive's full content SHA-256
 (`game_versions.contentSha256`, #216) plus the extraction options key:
@@ -4203,10 +4214,18 @@ Rules the server enforces:
 - **Audit.** A successful extraction appends `version.extracted` with the
   version id, archive digest, file count, bytes and duration.
 
-Configuration (see the configuration table below): `LUDEX_EXTRACTED_CACHE=1`,
-`LUDEX_EXTRACTED_CACHE_DIR` (default `{data_dir}/extracted`),
-`LUDEX_EXTRACTED_CACHE_BUDGET_BYTES` (default 200 GiB) and
-`LUDEX_EXTRACTED_CACHE_TTL_HOURS` (default 336, `0` disables the TTL).
+Configuration for a self-hosted server (see the configuration table below):
+`LUDEX_EXTRACTED_CACHE=1`, `LUDEX_EXTRACTED_CACHE_DIR` (default
+`{data_dir}/extracted`), `LUDEX_EXTRACTED_CACHE_BUDGET_BYTES` (default 200 GiB)
+and `LUDEX_EXTRACTED_CACHE_TTL_HOURS` (default 336, `0` disables the TTL). The
+embedded server ignores the environment and uses `Config::for_local` (cache on)
+plus `Config::with_extracted_cache(enabled, budget)` from the desktop settings;
+its directory is `{appData}/server/extracted` and its budget defaults to 50 GiB.
+
+A disabled cache is a silent probe miss, never an install failure: the manifest
+and file routes answer `409 extracted_cache_unavailable`, `file_manifest::prepare`
+reports `NotReady` without polling, and the install continues on the stream or
+classic archive with no prompt (#235).
 
 The measurement procedure and the 1.5-2x gate live in
 [PERFORMANCE.md](PERFORMANCE.md); the transport from the client's point of view
@@ -4542,7 +4561,7 @@ request untouched for two minutes is labelled "PC offline".
 | `LUDEX_DESKTOP_DOWNLOAD_TIMEOUT_SECONDS` | `5` (1–30) | Upstream timeout for release metadata and checksums (#164) |
 | `LUDEX_HEALTH_INTERVAL_HOURS` | `24` (`0` disables) | Scheduled Library Health Center reports (#165) |
 | `LUDEX_OPENAPI_DOCS` | `false` | Serve `/api/docs` |
-| `LUDEX_EXTRACTED_CACHE` | `0` | Server-side extracted cache + file manifest (#231, prototype) |
+| `LUDEX_EXTRACTED_CACHE` | `0` | Server-side extracted cache + file manifest (#231). The desktop's embedded local server enables it through `serverFileCache` instead (#241) |
 | `LUDEX_EXTRACTED_CACHE_DIR` | `{data_dir}/extracted` | Cache root; one directory per archive SHA-256 |
 | `LUDEX_EXTRACTED_CACHE_BUDGET_BYTES` | `214748364800` (200 GiB) | Byte budget of the extracted cache |
 | `LUDEX_EXTRACTED_CACHE_TTL_HOURS` | `336` (14 days) | Evict an entry unused for that long; `0` disables the TTL |
