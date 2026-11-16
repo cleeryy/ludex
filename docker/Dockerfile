@@ -29,7 +29,7 @@ COPY apps/web ./apps/web
 RUN pnpm --filter @ludex/web build
 
 # ---- Rust server ----------------------------------------------------------
-FROM rust:1.99-bookworm AS rust-builder
+FROM rust:1.100-bookworm AS rust-builder
 
 WORKDIR /build
 
