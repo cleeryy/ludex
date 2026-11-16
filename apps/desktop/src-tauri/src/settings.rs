@@ -1390,8 +1390,19 @@ pub fn ensure_dirs(settings: &LocalSettings) -> Result<(), String> {
     Ok(())
 }
 
-/// Load settings, falling back to defaults when the file is missing or corrupt.
-/// A corrupt file is preserved next to the original for inspection.
+/// Backup copy kept beside `settings.json` before every successful save.
+///
+/// It survives a truncated or corrupted main file, which is the failure mode a
+/// crash during a non-atomic write used to produce. `load` falls back to it.
+pub fn backup_path(path: &Path) -> PathBuf {
+    path.with_extension("json.bak")
+}
+
+/// Load settings, falling back to the backup, then to defaults.
+///
+/// A corrupt main file is preserved as `settings.json.invalid` for inspection;
+/// a valid backup is restored as the new main file, so the next save does not
+/// have to fall back again.
 pub fn load(path: &Path, app_data: &Path) -> LocalSettings {
     match fs::read_to_string(path) {
         Ok(raw) => match serde_json::from_str::<LocalSettings>(&raw) {
@@ -1400,9 +1411,12 @@ pub fn load(path: &Path, app_data: &Path) -> LocalSettings {
                 settings
             }
             Err(error) => {
-                tracing::warn!(error = %error, path = %path.display(), "settings file is invalid, using defaults");
+                tracing::warn!(error = %error, path = %path.display(), "settings file is invalid, trying the backup");
                 let _ = fs::rename(path, path.with_extension("json.invalid"));
-                LocalSettings::for_app_data(app_data)
+                load_backup(path, app_data).unwrap_or_else(|| {
+                    tracing::warn!("no readable settings backup, using defaults");
+                    LocalSettings::for_app_data(app_data)
+                })
             }
         },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -1415,7 +1429,41 @@ pub fn load(path: &Path, app_data: &Path) -> LocalSettings {
     }
 }
 
+/// Reads and normalizes the backup copy; returns `None` when it is missing or
+/// unreadable. On success the recovered value is written back through [`save`]
+/// so the unreadable main file is replaced immediately (best effort: a failure
+/// here is logged and the recovered settings are still used).
+fn load_backup(path: &Path, app_data: &Path) -> Option<LocalSettings> {
+    let backup = backup_path(path);
+    let raw = match fs::read_to_string(&backup) {
+        Ok(raw) => raw,
+        Err(error) => {
+            tracing::warn!(error = %error, path = %backup.display(), "settings backup is unreadable");
+            return None;
+        }
+    };
+    let mut settings = match serde_json::from_str::<LocalSettings>(&raw) {
+        Ok(settings) => settings,
+        Err(error) => {
+            tracing::warn!(error = %error, path = %backup.display(), "settings backup is invalid");
+            return None;
+        }
+    };
+    settings.normalize(app_data);
+    tracing::warn!(path = %backup.display(), "recovered settings from the backup");
+    if let Err(error) = save(path, &settings) {
+        tracing::warn!(error = %error, "could not rewrite the recovered settings");
+    }
+    Some(settings)
+}
+
 /// Write settings atomically: temp file in the same directory, fsync, rename.
+///
+/// The previous file is copied to `settings.json.bak` first, so a failed or
+/// interrupted replace never loses the last good settings. The destination is
+/// never deleted before the replacement exists: on Windows, where `rename`
+/// refuses to overwrite, the temp file is copied over the destination instead
+/// of removing it first.
 pub fn save(path: &Path, settings: &LocalSettings) -> Result<(), String> {
     let parent = path
         .parent()
@@ -1447,32 +1495,159 @@ pub fn save(path: &Path, settings: &LocalSettings) -> Result<(), String> {
         let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
     }
 
-    // `rename` replaces the destination atomically on Unix. On Windows it fails
-    // when the destination exists, so retry after removing it.
-    if let Err(first_error) = fs::rename(&tmp, path) {
-        if path.exists() {
-            fs::remove_file(path).map_err(|e| {
-                format!(
-                    "Could not replace {} (rename failed: {first_error}; remove failed: {e})",
-                    path.display()
-                )
-            })?;
-            fs::rename(&tmp, path)
-                .map_err(|e| format!("Could not save settings to {}: {e}", path.display()))?;
-        } else {
-            return Err(format!(
-                "Could not save settings to {}: {first_error}",
-                path.display()
-            ));
+    // Keep the last known-good file. Best effort: a missing backup must never
+    // block a settings save (the first run has no previous file).
+    if path.is_file() {
+        let backup = backup_path(path);
+        if let Err(error) = fs::copy(path, &backup) {
+            tracing::warn!(error = %error, path = %backup.display(), "could not refresh the settings backup");
         }
     }
 
-    Ok(())
+    // `rename` replaces the destination atomically on Unix. On Windows it fails
+    // when the destination exists (or is briefly locked by an indexer or the
+    // antivirus), so retry and then fall back to overwriting in place.
+    let mut last_error = None;
+    for attempt in 0..3 {
+        match fs::rename(&tmp, path) {
+            Ok(()) => {
+                sync_parent_dir(parent);
+                return Ok(());
+            }
+            Err(error) => {
+                last_error = Some(error);
+                if attempt < 2 {
+                    std::thread::sleep(std::time::Duration::from_millis(15));
+                }
+            }
+        }
+    }
+    if path.is_file() {
+        // Copy over the destination: it must never be removed first, or a crash
+        // between the two steps would leave no settings file at all.
+        fs::copy(&tmp, path)
+            .map_err(|e| format!("Could not save settings to {}: {e}", path.display()))?;
+        let _ = fs::remove_file(&tmp);
+        sync_parent_dir(parent);
+        return Ok(());
+    }
+    let last_error = last_error
+        .map(|error| error.to_string())
+        .unwrap_or_else(|| "unknown error".to_string());
+    Err(format!(
+        "Could not save settings to {}: {last_error}",
+        path.display()
+    ))
 }
+
+/// Flushes the directory entry so the rename itself survives a power loss.
+/// Best effort: unsupported filesystems simply ignore it.
+#[cfg(unix)]
+fn sync_parent_dir(dir: &Path) {
+    if let Ok(handle) = fs::File::open(dir) {
+        let _ = handle.sync_all();
+    }
+}
+
+#[cfg(not(unix))]
+fn sync_parent_dir(_dir: &Path) {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_dir(label: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("ludex-settings-{label}-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    #[test]
+    fn save_then_load_round_trips_and_leaves_no_temp_file() {
+        let dir = temp_dir("roundtrip");
+        let path = dir.join("settings.json");
+        let mut settings = LocalSettings::for_app_data(&dir);
+        settings.install_dir = dir.join("Games").display().to_string();
+        settings.server_url = "http://127.0.0.1:4321".into();
+
+        save(&path, &settings).expect("save");
+        assert!(path.is_file());
+        assert!(!path.with_extension("json.tmp").exists());
+
+        let loaded = load(&path, &dir);
+        assert_eq!(loaded.install_dir, settings.install_dir);
+        assert_eq!(loaded.server_url, settings.server_url);
+    }
+
+    #[test]
+    fn save_keeps_the_previous_file_as_a_backup() {
+        let dir = temp_dir("backup");
+        let path = dir.join("settings.json");
+        let mut first = LocalSettings::for_app_data(&dir);
+        first.discord_client_id = "first".into();
+        save(&path, &first).expect("first save");
+
+        let mut second = LocalSettings::for_app_data(&dir);
+        second.discord_client_id = "second".into();
+        save(&path, &second).expect("second save");
+
+        let backup = fs::read_to_string(backup_path(&path)).expect("backup exists");
+        let backup: LocalSettings = serde_json::from_str(&backup).expect("backup parses");
+        assert_eq!(backup.discord_client_id, "first");
+        let current = fs::read_to_string(&path).expect("main exists");
+        let current: LocalSettings = serde_json::from_str(&current).expect("main parses");
+        assert_eq!(current.discord_client_id, "second");
+    }
+
+    #[test]
+    fn corrupt_main_file_recovers_from_the_backup() {
+        let dir = temp_dir("recover");
+        let path = dir.join("settings.json");
+        let mut settings = LocalSettings::for_app_data(&dir);
+        settings.discord_client_id = "kept".into();
+        save(&path, &settings).expect("save");
+        // A second save creates the backup of the first version.
+        settings.discord_client_id = "newer".into();
+        save(&path, &settings).expect("save again");
+
+        // Simulate a truncated write.
+        fs::write(&path, "{\"discordClientId\": \"trunca").expect("corrupt");
+
+        let loaded = load(&path, &dir);
+        assert_eq!(loaded.discord_client_id, "kept");
+        assert!(dir.join("settings.json.invalid").is_file());
+        // The recovered value is written back, so the next load is clean too.
+        assert!(serde_json::from_str::<LocalSettings>(
+            &fs::read_to_string(&path).expect("restored main file")
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn corrupt_main_and_backup_fall_back_to_defaults() {
+        let dir = temp_dir("no-backup");
+        let path = dir.join("settings.json");
+        fs::write(&path, "not json").expect("corrupt");
+        fs::write(backup_path(&path), "also not json").expect("corrupt backup");
+
+        let loaded = load(&path, &dir);
+        let defaults = LocalSettings::for_app_data(&dir);
+        assert_eq!(loaded.install_dir, defaults.install_dir);
+        assert!(dir.join("settings.json.invalid").is_file());
+    }
+
+    #[test]
+    fn missing_settings_file_uses_defaults_without_creating_a_backup() {
+        let dir = temp_dir("missing");
+        let path = dir.join("settings.json");
+        let loaded = load(&path, &dir);
+        assert_eq!(
+            loaded.install_dir,
+            LocalSettings::for_app_data(&dir).install_dir
+        );
+        assert!(!backup_path(&path).exists());
+    }
 
     #[test]
     fn defaults_follow_app_data() {
@@ -2346,7 +2521,7 @@ mod tests {
 
         // A settings file written before #221 has no key: the default applies.
         let raw = serde_json::json!({ "installDir": "/games" });
-        let mut legacy: LocalSettings = serde_json::from_value(raw).unwrap();
+        let legacy: LocalSettings = serde_json::from_value(raw).unwrap();
         assert_eq!(legacy.download_concurrency, 1);
 
         // Two is the documented maximum: extraction is always serialised.
@@ -2396,8 +2571,10 @@ mod tests {
         assert!(InstallTransportMode::Files.warms_cache());
 
         // The JSON round-trip the web UI relies on.
-        let mut settings = LocalSettings::default();
-        settings.install_transport = InstallTransportMode::Files;
+        let settings = LocalSettings {
+            install_transport: InstallTransportMode::Files,
+            ..LocalSettings::default()
+        };
         let encoded = serde_json::to_value(&settings).unwrap();
         assert_eq!(encoded["installTransport"], "files");
     }

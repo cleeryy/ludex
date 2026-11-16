@@ -2124,7 +2124,7 @@ mod tests {
             )
         );
         // The ranked list is exposed so the UI can offer another file.
-        assert!(candidates[0].executable_candidates.len() >= 1);
+        assert!(!candidates[0].executable_candidates.is_empty());
 
         let _ = fs::remove_dir_all(&root);
     }

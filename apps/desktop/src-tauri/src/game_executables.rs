@@ -316,7 +316,7 @@ fn scan_folder(root: &Path, title: &str, max_depth: usize) -> Result<Listing, St
         .chosen
         .as_deref()
         .and_then(|chosen| chosen.strip_prefix(root).ok())
-        .map(|relative| relative_slash(relative));
+        .map(relative_slash);
     let mut launch = buckets.launch;
     launch.sort_by(|left, right| {
         let left_rank = rank.get(left.path.as_path()).copied().unwrap_or(usize::MAX);
