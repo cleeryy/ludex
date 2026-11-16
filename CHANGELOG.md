@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.18] - 2026-11-16
+
 ### Added
 
 - Console power and window policy (#269): the Power surface runs the real
