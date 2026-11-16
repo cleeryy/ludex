@@ -40,6 +40,8 @@ import type {
   BackupRestoreInput,
   BackupRestoreResult,
   BackupVerification,
+  CacheEntryView,
+  CacheOverview,
   Collection,
   CollectionGamesResponse,
   CollectionImportInput,
@@ -53,6 +55,7 @@ import type {
   DesktopDownload,
   DesktopHandoff,
   DesktopPlatform,
+  ExtractStatus,
   Friend,
   FriendPresence,
   FriendRequest,
@@ -1370,6 +1373,16 @@ function requireDemoAdmin(token: string | null): User {
   const user = currentUser(token);
   if (user.role !== "admin") fail(403, "forbidden", "Administrator role required");
   return user;
+}
+
+/** Extracted-cache entries published during the demo session (#231). */
+let demoCacheEntries: CacheEntryView[] = [];
+/** Poll count per version, so the demo extraction walks queued → extracting → ready. */
+const demoExtractPolls = new Map<number, number>();
+
+/** Stable 64-character digest for a demo version, shaped like a real SHA-256. */
+function demoCacheKey(versionId: number): string {
+  return String(versionId).padStart(4, "0").repeat(16).slice(0, 64);
 }
 
 /** Demo backup archives (#169); verification state survives a session. */
@@ -3795,6 +3808,83 @@ export const mockApi = {
     if (!demoBackups.some((backup) => backup.name === name)) {
       fail(404, "backup_not_found", "Backup archive not found");
     }
+  },
+
+  /* extracted cache (#231) */
+  async extractedCache(token: string | null): Promise<CacheOverview> {
+    await latency();
+    requireDemoAdmin(token);
+    return {
+      enabled: true,
+      root: "/srv/ludex/data/extracted-cache",
+      budgetBytes: 50 * 1024 ** 3,
+      usedBytes: demoCacheEntries.reduce((sum, entry) => sum + entry.bytes, 0),
+      entries: clone(demoCacheEntries),
+    };
+  },
+
+  async extractVersion(token: string | null, versionId: number): Promise<ExtractStatus> {
+    await sleep(250);
+    requireDemoAdmin(token);
+    const archiveSha256 = demoCacheKey(versionId);
+    const ready = demoCacheEntries.find((entry) => entry.sha256 === archiveSha256);
+    if (ready) {
+      return {
+        versionId,
+        archiveSha256,
+        status: "ready",
+        files: ready.files,
+        bytes: ready.bytes,
+        error: null,
+      };
+    }
+    // A few polls of visible progress, then the entry is published. The demo
+    // has no archive to unpack, so the numbers are the honest shape of a job
+    // rather than a measurement.
+    const poll = (demoExtractPolls.get(versionId) ?? 0) + 1;
+    demoExtractPolls.set(versionId, poll);
+    const totalFiles = 1_240;
+    const totalBytes = 4_509_715_660;
+    if (poll >= 4) {
+      demoCacheEntries = [
+        ...demoCacheEntries,
+        {
+          sha256: archiveSha256,
+          versionId,
+          bytes: totalBytes,
+          files: totalFiles,
+          createdAt: nowIso(),
+          lastUsedAt: nowIso(),
+        },
+      ];
+      demoExtractPolls.delete(versionId);
+      return {
+        versionId,
+        archiveSha256,
+        status: "ready",
+        files: totalFiles,
+        bytes: totalBytes,
+        error: null,
+      };
+    }
+    const done = poll / 4;
+    return {
+      versionId,
+      archiveSha256,
+      status: poll === 1 ? "queued" : "extracting",
+      files: Math.round(totalFiles * done),
+      bytes: Math.round(totalBytes * done),
+      error: null,
+    };
+  },
+
+  async evictExtractedCache(token: string | null, sha256: string): Promise<void> {
+    await latency();
+    requireDemoAdmin(token);
+    if (!demoCacheEntries.some((entry) => entry.sha256 === sha256)) {
+      fail(404, "cache_entry_not_found", "No extracted cache entry has this digest");
+    }
+    demoCacheEntries = demoCacheEntries.filter((entry) => entry.sha256 !== sha256);
   },
 
   async health() {

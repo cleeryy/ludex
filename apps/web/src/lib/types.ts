@@ -3578,6 +3578,18 @@ export interface RomCommandValidation {
   args: string[];
 }
 
+/* ------------------------------ Extracted cache (#231) ----------------------------- */
+
+/*
+ * The server's extracted-cache admin surface and its per-version extraction
+ * status are already in the generated contract, so these are aliases rather
+ * than a second hand-written shape that could drift.
+ */
+export type CacheOverview = generated.CacheOverview;
+export type CacheEntryView = generated.CacheEntryView;
+export type ExtractStatus = generated.ExtractStatus;
+export type ExtractState = generated.ExtractState;
+
 /* ---------------------------------- Backups (#169) ---------------------------------- */
 
 export type BackupKind = "manual" | "pre_restore" | "other";

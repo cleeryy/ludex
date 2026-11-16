@@ -425,6 +425,7 @@ function buildVersions(seed: Seed, id: number): GameVersion[] {
     version: seed.version,
     releaseDate: `${seed.year}-03-14T00:00:00Z`,
     earlyAccess: Boolean(seed.earlyAccess),
+    archiveFormat: "zip",
     downloadUrl: `/api/games/${id}/download?versionId=${id * 10 + 1}`,
   };
   if (!seed.versionCount || seed.versionCount < 2) return [base];
@@ -439,6 +440,7 @@ function buildVersions(seed: Seed, id: number): GameVersion[] {
       version: older.join("."),
       size: Math.round(seed.sizeGb * GB * 0.94),
       releaseDate: `${Number(seed.year)}-01-20T00:00:00Z`,
+      archiveFormat: "rar",
       downloadUrl: `/api/games/${id}/download?versionId=${id * 10 + 2}`,
     },
   ];

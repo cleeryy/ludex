@@ -210,6 +210,10 @@ export const qk = {
     metadataProviders: ["admin-metadata-providers"] as const,
     virusTotal: ["admin-virustotal"] as const,
     virusTotalRescan: ["admin-virustotal-rescan"] as const,
+    /** Extracted cache budget and entries (#231). */
+    extractedCache: ["admin", "extracted-cache"] as const,
+    /** Per-version extraction status; the same POST route reports progress. */
+    extract: (versionId: number) => key("admin", "extract", versionId),
     bulkJob: (jobId: string | null) => key("admin-bulk-job", jobId),
     games: {
       root: ["admin-games"] as const,
