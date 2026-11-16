@@ -7,13 +7,15 @@ import { BACKDROP_CUE, CARD_CUE, COPY_CUE, HERO_CUE, cardDelay, reveal } from ".
 import type { BigPictureLayoutProps } from "./model";
 import { transitionOf } from "./motion";
 import { useChangeWitness } from "./use-change-witness";
-import { ActionRow, GridCard, MetaLine, ProgressLine, SelectedEyebrow, ShelfTabs } from "./parts";
+import { ActionRow, GridCard, MetaLine, ProgressLine, SelectedEyebrow, ShelfChips } from "./parts";
 
 /**
- * Grid (#141) — a library wall. A focused header keeps the selected game's
- * actions in reach while the grid below shows many more covers than a rail
- * can. Columns come from `gridColumns(width)`, the same number the keyboard
- * uses for its up/down step.
+ * Wall (#268) — the library as plates.
+ *
+ * A shorter stage keeps the selected game's title and its one primary action in
+ * reach while the grid below shows many more covers than a rail can. Chips sit
+ * between the two, because they filter the wall. Columns come from
+ * `gridColumns(width)`, the same number the keyboard uses for its row step.
  */
 export function GridLayout({
   nav,
@@ -27,6 +29,7 @@ export function GridLayout({
   percent,
   primary,
   onOpenGame,
+  onOpenCollections,
 }: BigPictureLayoutProps) {
   const shelfChanged = useChangeWitness(nav.shelf?.id);
   const game = nav.selected;
@@ -40,7 +43,7 @@ export function GridLayout({
 
   return (
     <>
-      <section className="relative shrink-0 overflow-hidden border-b border-line">
+      <section className="bp-stage relative shrink-0 overflow-hidden border-b border-line">
         <motion.div className="absolute inset-0" {...reveal(reduceMotion, BACKDROP_CUE)}>
           <ArtPlate
             title={game.title}
@@ -48,52 +51,52 @@ export function GridLayout({
             className="h-full w-full"
           />
         </motion.div>
-        <div className="absolute inset-0 backdrop-shade" aria-hidden="true" />
+        <div className="absolute inset-0 bp-stage-wash" aria-hidden="true" />
 
-        <div className="relative flex min-h-[clamp(148px,19vh,320px)] items-center gap-5 py-5 lg:gap-7 bp-pad-x">
+        <div className="relative flex items-end gap-6 py-5 bp-pad-x">
           <motion.div
-            className="w-[clamp(78px,7vw,200px)] shrink-0"
+            className="w-[calc(var(--bp-u)*92)] shrink-0"
             {...reveal(reduceMotion, HERO_CUE)}
           >
-            <div className="shadow-hero">
-              <GameCover
-                title={game.title}
-                coverUrl={game.coverUrl}
-                index={game.id}
-                year={formatYear(game.releaseDate)}
-                genre={game.genres[0]}
-              />
-            </div>
+            <GameCover
+              title={game.title}
+              coverUrl={game.coverUrl}
+              index={game.id}
+              year={formatYear(game.releaseDate)}
+              genre={game.genres[0]}
+            />
           </motion.div>
 
           <motion.div className="flex min-w-0 flex-1 flex-col gap-2" {...reveal(reduceMotion, COPY_CUE)}>
             <SelectedEyebrow game={game} />
-            <h1 className="line-clamp-2 max-w-[30ch] text-[clamp(1.4rem,2.6vw,calc(var(--bp-u)*46))] font-semibold leading-[0.95] tracking-[-0.035em] text-stage-ink">
+            <h1 className="line-clamp-1 max-w-[30ch] text-bp-title font-semibold leading-[1.05] tracking-[-0.02em] text-stage-ink">
               {game.title}
             </h1>
             <MetaLine game={game} installed={installed.has(game.id)} />
-            {detail?.description && (
-              <p className="line-clamp-1 max-w-[58ch] text-bp-meta leading-relaxed text-stage-ink-2 [@media(max-height:820px)]:hidden">
-                {detail.description}
-              </p>
-            )}
             {job && <ProgressLine job={job} percent={percent} />}
-            <ActionRow className="mt-0.5">
-              {primary}
-              <Button variant="default" onClick={() => onOpenGame(game.id)}>
-                {t("Game page")}
-              </Button>
+            <ActionRow className="mt-1">
+              <span data-bp-action="true">{primary}</span>
+              <span data-bp-action="true">
+                <Button variant="default" className="bp-button" onClick={() => onOpenGame(game.id)}>
+                  {t("Manage")}
+                </Button>
+              </span>
             </ActionRow>
           </motion.div>
         </div>
       </section>
 
-      <ShelfTabs nav={nav} />
+      <div className="shrink-0 px-0 pb-2 pt-3 bp-pad-x">
+        <ShelfChips nav={nav} onOpenCollections={onOpenCollections} />
+      </div>
 
-      <section className="bp-content bp-grid min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6 pt-4 scroll-pb-8 bp-pad-x" aria-label={t("Games")}>
+      <section
+        className="bp-content bp-grid min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6 pt-1 bp-pad-x"
+        aria-label={t("Games")}
+      >
         <motion.div
           key={nav.shelf?.id ?? "shelf"}
-          className="grid gap-3 xl:gap-4"
+          className="grid gap-4"
           style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
           {...shelfFrame}
           initial={shelfChanged ? shelfFrame.initial : false}
@@ -113,7 +116,6 @@ export function GridLayout({
                 position={position}
                 selected={position === nav.index}
                 nav={nav}
-                installed={installed.has(entry.id)}
               />
             </motion.div>
           ))}

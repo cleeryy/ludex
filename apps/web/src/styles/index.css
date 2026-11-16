@@ -64,13 +64,12 @@
 
   /*
    * Console scale, in the console unit: these grow with `--bp-u`, so the same
-   * class is 28 px at 1080p and 56 px at 4K (#237).
+   * class is 28 px at 1080p and 56 px at 4K (#237, #268). The floor is 24u.
    */
   --text-bp-hero: var(--bp-text-hero);
   --text-bp-title: var(--bp-text-title);
   --text-bp-body: var(--bp-text-body);
   --text-bp-meta: var(--bp-text-meta);
-  --text-bp-micro: var(--bp-text-micro);
 }
 
 :root {
@@ -98,70 +97,124 @@
   --bar-h: 60px;
   --page-x: 40px;
 
-  /* Console scale (#196). One unit is 1 px at 1920, 0.72 at 1280 and 2 at 4K:
-     the system bar, the home row and their gutters grow with the display
-     instead of staying tuned to a 1080p desktop window. */
+  /*
+   * Console scale (#196) and safe area (#268). One unit is 1 px at 1920, 0.72
+   * at 1280 and 2 at 4K: the bar, the band, the rail and their gutters grow
+   * with the display instead of staying tuned to a 1080p desktop window.
+   */
   --bp-u: clamp(0.72px, 0.0521vw, 2.2px);
   --bp-bar-h: max(44px, calc(var(--bp-u) * 56));
-  --bp-home-h: max(84px, calc(var(--bp-u) * 104));
-  --bp-rail-card: calc(var(--bp-u) * 148);
+  --bp-band-h: max(64px, calc(var(--bp-u) * 96));
+  /* Overscan: the shipped default is the 5 % band a TV may crop. Viewport
+     units, not percentages: a percentage gutter would resolve against each
+     parent and make the rail geometry disagree with the page edge. */
+  --bp-overscan: 5vw;
+  --bp-overscan-y: 5vh;
+  --bp-safe-x: max(calc(var(--bp-u) * 44), var(--bp-overscan));
+  --bp-safe-y: max(calc(var(--bp-u) * 24), var(--bp-overscan-y));
 
   /*
-   * Console type scale (#237). The 10-foot rule: 28 px for the text a player
-   * must read to act at 1080p, 48 px for a hero title, and every size in
-   * between expressed in the console unit so a 4K panel gets 2x the type, not
-   * the same 9.5 px label inside a tile twice as tall. At 1920 one unit is
-   * 1.0003 px, so the numbers below read as their 1080p pixels.
+   * Console type scale (#237, #268). The 10-foot floor is 24u: nothing smaller
+   * carries words, a size or a count. 28u for anything a player must read to
+   * act, 34u for a surface title, 56u for the stage hero. Expressed in the
+   * console unit so a 4K panel gets 2× the type, not the same 9.5px label
+   * inside a tile twice as tall.
    *
-   *   hero  48u  hero and plate titles
-   *   title 34u  section and sheet titles
-   *   body  28u  primary metadata: tile labels, rows, hints, status bar
-   *   meta  24u  secondary metadata: captions under covers, eyebrows
-   *   micro 20u  tertiary: index numbers, counts, tab glyph counts
+   *   hero  56u  the selected game on the stage
+   *   title 34u  surface titles (Library, Settings, Power, sheets)
+   *   body  28u  actions, rows, band labels, status bar
+   *   meta  24u  secondary metadata: captions, eyebrows, counts, units
    *
    * `components/big-picture/*` uses these through `text-bp-*`; the desktop
    * scale lives above as `--text-*` and is migrated screen by screen.
    */
-  --bp-text-hero: calc(var(--bp-u) * 48);
+  --bp-text-hero: calc(var(--bp-u) * 56);
   --bp-text-title: calc(var(--bp-u) * 34);
   --bp-text-body: calc(var(--bp-u) * 28);
   --bp-text-meta: calc(var(--bp-u) * 24);
-  --bp-text-micro: calc(var(--bp-u) * 20);
 
   /*
-   * Console appearance (#229). The defaults are the Studio/archive material:
-   * flat panels, 2 px corners, no blur, no wallpaper. `console-appearance.ts`
-   * puts `data-console-appearance`, `data-console-background` and
-   * `data-console-radius` on the console root; the overrides below only
-   * relocate these tokens, never a component colour.
+   * Cabinet materials (#268). Warm charcoal, matte anodised panels, depth by
+   * luminance: a sheet is a lighter step with a 1px warm rim, never a drop
+   * shadow. `console-room.ts` puts `data-console-*` on the console root; the
+   * rules below only relocate these tokens, so every colour still comes from
+   * the active theme (a room casts it warm, never replaces it).
    *
-   * Budget: every surface here is statically blurred and painted once. No
-   * `backdrop-filter` or wallpaper filter is ever animated — motion stays on
-   * transform/opacity, and `prefers-reduced-transparency` swaps the whole
-   * material back to an opaque token. A 4K blur pass is the expensive part, so
-   * keep it to three chrome surfaces (bar, dock, sheet) and one wallpaper.
+   * Blur budget: one layer, the wallpaper. `.bp-chrome`, `.bp-tile`,
+   * `.bp-sheet` and `.bp-panel` never carry `backdrop-filter`, because a
+   * material that blurs its own backdrop cannot be moved or scrolled cheaply.
    */
-  --bp-radius-xs: 2px;
-  --bp-radius-sm: 2px;
-  --bp-radius-md: 2px;
-  --bp-radius-lg: 2px;
+  --bp-radius-cover: calc(var(--bp-u) * 6);
+  --bp-radius-object: calc(var(--bp-u) * 14);
+  --bp-radius-surface: calc(var(--bp-u) * 20);
+  --bp-radius-sheet: calc(var(--bp-u) * 24);
   --bp-radius-pill: 999px;
   --bp-material-filter: none;
-  --bp-material-chrome: var(--bg-deep);
-  --bp-material-card: var(--bg-deep);
-  --bp-material-sheet: var(--bg-deep);
-  --bp-material-panel: var(--bg-deep);
-  --bp-material-hover: var(--surface);
-  --bp-material-border: var(--line);
-  --bp-material-border-strong: var(--line-2);
   --bp-material-shadow: none;
-  --bp-chrome-shadow: none;
-  --bp-wall: var(--bg-deep);
-  --bp-wall-wash: transparent;
   --bp-wall-opacity: 0;
   --bp-wall-blur: 0px;
   --bp-art-filter: none;
   --bp-art-scale: 1;
+
+  /* The rail: 5.5 covers at comfortable density, 24u of air between them. */
+  --bp-rail-gap: calc(var(--bp-u) * 24);
+  --bp-rail-card: min(
+    calc((100vw - 2 * var(--bp-safe-x) - 5 * var(--bp-rail-gap)) / 5.5),
+    calc(44dvh * 2 / 3)
+  );
+}
+
+/* Density changes how many covers the rail shows; it never changes type. */
+.bp-root[data-console-density="compact"] {
+  --bp-rail-gap: calc(var(--bp-u) * 18);
+  --bp-rail-card: min(
+    calc((100vw - 2 * var(--bp-safe-x) - 6 * var(--bp-rail-gap)) / 7),
+    calc(40dvh * 2 / 3)
+  );
+}
+
+.bp-root[data-console-density="dense"] {
+  --bp-rail-gap: calc(var(--bp-u) * 12);
+  --bp-rail-card: min(
+    calc((100vw - 2 * var(--bp-safe-x) - 8 * var(--bp-rail-gap)) / 9),
+    calc(34dvh * 2 / 3)
+  );
+}
+
+/* Cabinet corners: 6/14/20/24u by default, never above 24u. */
+.bp-root[data-console-corners="sharp"] {
+  --bp-radius-cover: calc(var(--bp-u) * 2);
+  --bp-radius-object: calc(var(--bp-u) * 6);
+  --bp-radius-surface: calc(var(--bp-u) * 10);
+  --bp-radius-sheet: calc(var(--bp-u) * 14);
+}
+
+.bp-root[data-console-corners="round"] {
+  --bp-radius-cover: calc(var(--bp-u) * 10);
+  --bp-radius-object: calc(var(--bp-u) * 18);
+  --bp-radius-surface: calc(var(--bp-u) * 22);
+  --bp-radius-sheet: calc(var(--bp-u) * 24);
+}
+
+/*
+ * One blurred layer (#268): the wallpaper behind the shell. Artwork is veiled
+ * so stage text clears 7:1 over any cover (theme/console-contrast.test.ts holds
+ * the numbers). Projector and Arcade spend no blur; Daylight paints paper.
+ */
+.bp-root[data-console-wall="artwork"] {
+  --bp-wall-opacity: 0.4;
+  --bp-wall-wash: color-mix(in oklab, var(--stage) 80%, transparent);
+}
+
+/* Night is the only room that spends blur on the wall; Projector, Daylight and
+   Arcade keep the art but paint it sharp (and a 4K panel keeps its frame). */
+.bp-root[data-console-room="night"][data-console-wall="artwork"] {
+  --bp-wall-blur: calc(var(--bp-u) * 26);
+}
+
+.bp-root[data-console-wall="gradient"] {
+  --bp-wall-opacity: 1;
+  --bp-wall: linear-gradient(160deg, var(--bg-deep) 0%, var(--surface) 68%, var(--bg-deep) 100%);
 }
 
 /*
@@ -175,6 +228,22 @@
   :root {
     --page-x: 24px;
     --bar-h: 56px;
+  }
+}
+
+/* A short panel (720p) spends its height on the stage, not on the covers. */
+@media (max-height: 820px) {
+  .bp-root {
+    --bp-text-hero: calc(var(--bp-u) * 48);
+    --bp-rail-card: min(
+      calc((100vw - 2 * var(--bp-safe-x) - 5 * var(--bp-rail-gap)) / 5.5),
+      calc(34dvh * 2 / 3)
+    );
+  }
+
+  /* A 720p panel needs its rows more than a 180px preview of itself. */
+  .bp-root [data-bp-preview="true"] {
+    display: none;
   }
 }
 
@@ -513,14 +582,13 @@
   }
 
   /*
-   * Console gutters (#196): the system bar, the home row, every Big Picture
-   * layout and the hint strip share one edge, and the edge respects the TV's
-   * safe area on both sides. `max()` keeps the inset when the display reports
-   * a notch and the scale when it does not.
+   * Console gutters (#196, #268): the bar, the stage, the rail, the band and
+   * the hint strip share one edge. It is the overscan-safe gutter, so a 5 %
+   * crop on a TV never eats a word, plus the display's own notch inset.
    */
   .bp-pad-x {
-    padding-inline: max(calc(var(--bp-u) * 44), env(safe-area-inset-left))
-      max(calc(var(--bp-u) * 44), env(safe-area-inset-right));
+    padding-inline: max(var(--bp-safe-x), env(safe-area-inset-left))
+      max(var(--bp-safe-x), env(safe-area-inset-right));
   }
 
   /*
@@ -539,24 +607,6 @@
     padding-inline: var(--bp-rail-gutter);
     padding-block: var(--bp-rail-top) var(--bp-rail-bottom);
     scroll-padding-inline: var(--bp-rail-gutter);
-  }
-
-  /* The Dock lifts the selected cover 12 %: the top gutter is the room that
-     lift plus its ring need above the row. */
-  .bp-rail-dock {
-    --bp-rail-top: calc(var(--bp-u) * 76);
-  }
-
-  /* Spotlight scales 8 % without lifting. */
-  .bp-rail-spotlight {
-    --bp-rail-top: calc(var(--bp-u) * 56);
-  }
-
-  /* Shelf and Hero only scale 3 %: the ring and its offset are the whole
-     overhang. */
-  .bp-rail-shelf {
-    --bp-rail-top: calc(var(--bp-u) * 28);
-    --bp-rail-bottom: calc(var(--bp-u) * 16);
   }
 
   /*
@@ -670,7 +720,7 @@
     position: relative;
     aspect-ratio: 3 / 4;
     overflow: hidden;
-    border-radius: var(--bp-radius-sm);
+    border-radius: var(--bp-radius-cover);
     container-type: inline-size;
     background: var(--c-base, var(--surface-2));
     isolation: isolate;
@@ -681,7 +731,7 @@
     position: absolute;
     inset: 0;
     border: 1px solid color-mix(in oklab, var(--ink) 12%, transparent);
-    border-radius: var(--bp-radius-sm);
+    border-radius: var(--bp-radius-cover);
     pointer-events: none;
     z-index: 3;
   }
@@ -891,8 +941,8 @@
     min-width: calc(var(--bp-u) * 26);
     height: calc(var(--bp-u) * 26);
     padding: 0 calc(var(--bp-u) * 6);
-    border-radius: var(--bp-radius-xs);
-    font-size: var(--bp-text-micro);
+    border-radius: var(--bp-radius-cover);
+    font-size: var(--bp-text-meta);
   }
 
   .row-hover {
@@ -995,223 +1045,109 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Console materials (#229).
+   Cabinet materials (#268).
 
    Unlayered on purpose: a material owns its background, border colour and
    radius, so a layout utility cannot half-apply it. Components ask for a
-   material (`bp-chrome`, `bp-tile`, `bp-sheet`, `bp-panel`) and the preset
-   answers with the tokens defined above. The rules only ever read custom
-   properties, so every colour still comes from the active theme.
+   material (`bp-chrome`, `bp-tile`, `bp-sheet`, `bp-panel`, `bp-band`) and the
+   room answers with the tokens defined above. The rules only ever read custom
+   properties, so every colour still comes from the active theme: a room casts
+   it warm, it never ships a second palette.
 
-   Stacking rule: translucent surfaces are top-level chrome only. A tile, row or
-   pill that sits on chrome uses an opaque token, so two light veils never
-   multiply into an unreadable wash.
+   Rules the whole block encodes:
+   - depth is a luminance step plus a 1px rim, never a drop shadow;
+   - exactly one blurred layer, the wallpaper, painted once and never moved;
+   - one focus treatment, the bracket: a signal block on the leading edge and
+     a 1px rim. No second outline, no glow, no scale on rows;
+   - signal yellow is the only chromatic event; the dot is the only ornament.
    --------------------------------------------------------------------------- */
 
 .bp-root {
-  /* Radius tokens default to the sharp scale; the choices below widen them. */
   background: var(--bg-deep);
   color: var(--ink);
-}
 
-.bp-root[data-console-radius="soft"] {
-  --bp-radius-xs: 6px;
-  --bp-radius-sm: 12px;
-  --bp-radius-md: 18px;
-  --bp-radius-lg: 24px;
-}
-
-.bp-root[data-console-radius="round"] {
-  --bp-radius-xs: 10px;
-  --bp-radius-sm: 18px;
-  --bp-radius-md: 26px;
-  --bp-radius-lg: 34px;
-}
-
-.bp-root[data-console-radius="sharp"] {
-  --bp-radius-xs: 2px;
-  --bp-radius-sm: 2px;
-  --bp-radius-md: 2px;
-  --bp-radius-lg: 2px;
-}
-
-/* Soft: rounded plates over the game's wallpaper.
-   The material is opaque on purpose (#237). Translucent light over dark art
-   was what turned the console into a grey-taupe fog and dropped tile captions
-   to 4.6:1; an opaque step keeps every pair at the token contract (7:1 with
-   the TV-safe map) and costs nothing on a 4K panel. What stays soft is the
-   corner scale, the elevation and the blurred wallpaper. */
-.bp-root[data-console-appearance="soft"] {
-  --bp-material-filter: none;
+  /*
+   * Every material that derives from a colour is declared here, on the console
+   * root, and not on `:root`. A custom property resolves its `var()` on the
+   * element that declares it; declared on `:root`, `--bp-material-chrome`
+   * would freeze the desktop theme's `--bg-deep` before the console's own
+   * inline token map inherits, and the room would never reach the chrome.
+   */
   --bp-material-chrome: var(--bg-deep);
-  --bp-material-card: var(--elevated);
+  --bp-material-card: var(--surface);
   --bp-material-sheet: var(--surface-2);
   --bp-material-panel: var(--surface);
   --bp-material-hover: var(--elevated);
-  --bp-material-border: var(--line-2);
+  --bp-material-border: var(--line);
   --bp-material-border-strong: var(--line-2);
-  --bp-material-shadow: 0 calc(var(--bp-u) * 8) calc(var(--bp-u) * 22) calc(var(--bp-u) * -12)
-    color-mix(in oklab, var(--shadow) 30%, transparent);
-  --bp-chrome-shadow: 0 0 calc(var(--bp-u) * 16) calc(var(--bp-u) * -12)
-    color-mix(in oklab, var(--shadow) 30%, transparent);
-  --bp-wall: var(--stage);
-}
-
-/* The wallpaper is one still, veiled plate for both presets. The veil is what
-   keeps stage text readable over bright box art: art at 0.45 under an 80 %
-   stage wash keeps the primary stage text above 10:1 and its secondary tone
-   above 6.2:1 in the worst case (pure white art, midnight/light stages). The
-   numbers are mirrored in `theme/console-contrast.test.ts`. */
-.bp-root[data-console-background="artwork"] {
-  --bp-wall-opacity: 0.45;
-  --bp-wall-wash: color-mix(in oklab, var(--stage) 80%, transparent);
-  --bp-wall-blur: calc(var(--bp-u) * 26);
-  --bp-art-filter: blur(calc(var(--bp-u) * 18)) saturate(1.12);
-  --bp-art-scale: 1.05;
-}
-
-/* The stage plate is a still image: its blur is painted once and never ticks
-   with focus, scroll or a layout switch. Only Soft blurs it; Studio keeps the
-   sharp plate and relies on the wash alone. */
-.bp-root[data-console-appearance="soft"][data-console-background="artwork"] [data-bp-art="true"] {
-  filter: var(--bp-art-filter);
-  transform: scale(var(--bp-art-scale));
-  transform-origin: center;
-}
-
-.bp-root[data-console-background="solid"] {
-  --bp-wall-opacity: 0;
+  --bp-rim: color-mix(in oklab, var(--signal) 55%, transparent);
+  --bp-wall: var(--bg-deep);
   --bp-wall-wash: transparent;
 }
 
-.bp-root[data-console-appearance="soft"][data-console-background="gradient"] {
-  --bp-wall-opacity: 1;
-  --bp-wall: linear-gradient(
-    155deg,
-    color-mix(in oklab, var(--stage) 84%, var(--signal)) 0%,
-    var(--stage) 68%
-  );
-}
-
-.bp-root[data-console-appearance="studio"][data-console-background="gradient"] {
-  --bp-wall-opacity: 1;
-  --bp-wall: linear-gradient(155deg, var(--bg-deep) 0%, var(--surface) 100%);
-}
-
-/* The two canvases that replace the wallpaper: the art plate steps aside. */
-.bp-root[data-console-background="solid"] [data-bp-art="true"],
-.bp-root[data-console-background="gradient"] [data-bp-art="true"] {
-  display: none;
-}
-
-.bp-root[data-console-background="solid"] .bp-shade,
-.bp-root[data-console-background="solid"] .hero-shade,
-.bp-root[data-console-background="solid"] .backdrop-shade,
-.bp-root[data-console-background="solid"] .bp-top-shade,
-.bp-root[data-console-background="gradient"] .bp-shade,
-.bp-root[data-console-background="gradient"] .hero-shade,
-.bp-root[data-console-background="gradient"] .backdrop-shade,
-.bp-root[data-console-background="gradient"] .bp-top-shade {
-  display: none;
-}
-
 /*
- * The static wallpaper: one fixed layer behind every chrome surface. The blur
- * is applied to a still bitmap and never ticks with focus or scroll; the wash
- * keeps 10-foot text readable over bright box art.
+ * The outer 5 % is decorative: a TV may crop it, so no word or control lives
+ * there. The chrome still bleeds its own background to the panel edge — the bar
+ * keeps a dark top band, the footer a dark bottom band — so the safe area reads
+ * as a frame, never as a gap.
  */
-.bp-backdrop {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  pointer-events: none;
-  background: var(--bp-wall);
+.bp-root [data-bp-bleed-top="true"] {
+  height: calc(var(--bp-bar-h) + var(--bp-safe-y));
+  padding-block-start: var(--bp-safe-y);
 }
 
-.bp-backdrop-art {
-  position: absolute;
-  inset: -6%;
-  filter: blur(var(--bp-wall-blur)) saturate(1.18);
-  opacity: var(--bp-wall-opacity);
-  transform: translate3d(0, 0, 0);
+.bp-root [data-bp-bleed-bottom="true"] {
+  padding-block-end: var(--bp-safe-y);
 }
 
-/* The plate inside the wallpaper is already blurred by its wrapper; the stage
-   blur rule must not run twice. */
-.bp-root[data-console-background="artwork"] .bp-backdrop [data-bp-art="true"] {
-  filter: none;
-  transform: none;
-}
-
-.bp-backdrop-wash {
-  position: absolute;
-  inset: 0;
-  background: var(--bp-wall-wash);
-}
-
-/*
- * Structural chrome: bar, rails, dock and footer. One static blur over the
- * still wallpaper; the material itself never animates its filter.
- */
+/* Structural chrome: the bar and the band. Opaque, one hairline, no blur. */
 .bp-chrome {
   background: var(--bp-material-chrome);
   border-color: var(--bp-material-border);
-  box-shadow: var(--bp-chrome-shadow);
-  -webkit-backdrop-filter: var(--bp-material-filter);
-  backdrop-filter: var(--bp-material-filter);
+  box-shadow: none;
 }
 
 .bp-tile {
   background: var(--bp-material-card);
   border: 1px solid var(--bp-material-border);
-  border-radius: var(--bp-radius-md);
-  box-shadow: var(--bp-material-shadow);
+  border-radius: var(--bp-radius-object);
+  box-shadow: none;
   transition:
-    transform var(--dur-1) var(--ease-out),
     background-color var(--dur-1) var(--ease),
-    border-color var(--dur-1) var(--ease),
-    box-shadow var(--dur-1) var(--ease);
+    border-color var(--dur-1) var(--ease);
 }
-
-/* Tiles are translucent but never blurred on their own: a tile lifts on focus,
-   and a moving backdrop-filter re-filters its backdrop every frame. The tile
-   material reads the already-blurred wallpaper instead. */
 
 .bp-tile:hover {
   background: var(--bp-material-hover);
   border-color: var(--bp-material-border-strong);
 }
 
+/* The selected object is the lit one: an opaque step up plus the warm rim. */
 .bp-tile[data-bp-zone-active="true"],
 .bp-tile[data-home-active="true"],
 .bp-tile[data-system-active="true"] {
-  /* Selected tiles are the one opaque step: a second veil would double-light
-     the material and drop the label below 4.5:1 over bright art. */
   background: var(--surface-2);
-  border-color: color-mix(in oklab, var(--signal) 74%, var(--line-2));
-  box-shadow: var(--bp-material-shadow);
+  border-color: var(--bp-rim);
+  box-shadow: none;
 }
 
 .bp-sheet {
   background: var(--bp-material-sheet);
   border: 1px solid var(--bp-material-border-strong);
-  border-radius: var(--bp-radius-lg);
-  box-shadow: var(--bp-material-shadow);
-  -webkit-backdrop-filter: var(--bp-material-filter);
-  backdrop-filter: var(--bp-material-filter);
+  border-radius: var(--bp-radius-sheet);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--bg-deep) 70%, transparent);
 }
 
 .bp-panel {
   background: var(--bp-material-panel);
   border: 1px solid var(--bp-material-border);
-  border-radius: var(--bp-radius-md);
+  border-radius: var(--bp-radius-object);
 }
 
-/* Rows inside a sheet or a full-screen app are flat until they are active. */
+/* Rows are flat until they are active; the bracket is the only outline. */
 .bp-row {
   border: 1px solid transparent;
-  border-radius: var(--bp-radius-sm);
+  border-radius: var(--bp-radius-cover);
   transition:
     background-color var(--dur-1) var(--ease),
     border-color var(--dur-1) var(--ease);
@@ -1224,18 +1160,34 @@
 .bp-row[data-overlay-active="true"],
 .bp-row[data-system-active="true"] {
   background: var(--surface-2);
-  border-color: var(--signal);
+  border-color: transparent;
 }
 
-.bp-root[data-console-appearance="soft"] .bp-row[data-overlay-active="true"],
-.bp-root[data-console-appearance="soft"] .bp-row[data-system-active="true"] {
-  border-color: color-mix(in oklab, var(--signal) 58%, var(--line-2));
+/* Chips are the one pill in the product: a filter, a room, a knob value. */
+.bp-chip {
+  min-height: calc(var(--bp-u) * 40);
+  padding-inline: calc(var(--bp-u) * 16);
+  border: 1px solid transparent;
+  border-radius: var(--bp-radius-pill);
+  color: var(--ink-2);
+  font-size: var(--bp-text-body);
+  line-height: 1;
+  transition:
+    background-color var(--dur-1) var(--ease),
+    border-color var(--dur-1) var(--ease),
+    color var(--dur-1) var(--ease);
 }
 
-/*
- * Tabs are an underline in Studio and a soft pill in Soft. Both are the same
- * data attribute, so the input model does not change with the look.
- */
+.bp-chip:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.bp-chip[data-bp-tab-active="true"] {
+  color: var(--ink);
+}
+
+/* Tabs are an underline: one signal rule, no pill, no capital letters. */
 .bp-tab {
   border-bottom: 2px solid transparent;
   border-radius: 0;
@@ -1250,196 +1202,262 @@
   color: var(--ink);
 }
 
-.bp-root[data-console-appearance="soft"] .bp-tab {
-  border-bottom: 0;
-  border-radius: var(--bp-radius-pill);
-}
-
-.bp-root[data-console-appearance="soft"] .bp-tab[data-bp-tab-active="true"] {
-  background: var(--surface-2);
-  box-shadow: 0 1px 0 color-mix(in oklab, var(--line-2) 40%, transparent);
-}
-
-/* The system row that floats over artwork. */
-.bp-glass-tile {
-  border-radius: var(--bp-radius-md);
-  border: 1px solid transparent;
-  transition:
-    background-color var(--dur-1) var(--ease),
-    border-color var(--dur-1) var(--ease);
-}
-
-.bp-root[data-console-appearance="soft"] .bp-glass-tile {
-  border-color: color-mix(in oklab, var(--sheen) 14%, transparent);
-  /* A plate, not a pane: the row sits over box art, so it takes the stage
-     token instead of a translucent veil (#237). */
-  background: var(--stage);
-}
-
-.bp-root[data-console-appearance="soft"] .bp-glass-tile[data-bp-zone-active="true"] {
-  border-color: var(--signal);
-  background: var(--stage);
-  transform: none;
-}
-
-/* A full-screen app is opaque: it is a room, not a pane. */
-.bp-app-screen {
-  background: var(--bg-deep);
-}
-
-/* Large scroll containers stay opaque on purpose: a blurred backdrop behind a
-   scrolling list repaints on every frame. Artwork above them can still bleed
-   into the small chrome strips, which are static. */
-.bp-content {
-  background: var(--bg-deep);
-}
-
+/* A full-screen surface is a room, not a pane: opaque, no art behind it. */
+.bp-app-screen,
+.bp-content,
 .bp-tabs-strip {
   background: var(--bg-deep);
 }
 
-.bp-root[data-console-appearance="soft"] .bp-tabs-strip {
-  border-bottom-color: transparent;
+/* --------------------------------- the wall -------------------------------- */
+
+.bp-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--bp-wall);
 }
 
-/* The home row is the chrome itself in Studio and a transparent shelf in Soft,
-   where each tile carries its own material. */
-.bp-home {
+.bp-backdrop-art {
+  position: absolute;
+  inset: -6%;
+  filter: blur(var(--bp-wall-blur)) saturate(1.12);
+  opacity: var(--bp-wall-opacity);
+  transform: translate3d(0, 0, 0);
+}
+
+.bp-backdrop-wash {
+  position: absolute;
+  inset: 0;
+  background: var(--bp-wall-wash);
+}
+
+/* --------------------------------- the dot --------------------------------- */
+
+/*
+ * The dot is the only ornament: unread badge, progress head, the wordmark's
+ * full stop. Signal, 8u, never a second shape.
+ */
+.bp-dot {
+  display: inline-block;
+  width: calc(var(--bp-u) * 8);
+  height: calc(var(--bp-u) * 8);
+  border-radius: 999px;
+  background: var(--signal);
+  flex: none;
+}
+
+.bp-dot[data-tone="muted"] {
+  background: var(--ink-3);
+}
+
+/* ------------------------------- the bracket ------------------------------- */
+
+/*
+ * One focus treatment for every focusable in Console. The bracket cannot
+ * double up: it is drawn by the focused element only, and the global gamepad
+ * outline is suppressed on cards (see the base rule) and on rows.
+ */
+[data-bp-settings-row][data-system-active="true"]:focus-visible,
+[data-bp-row][data-overlay-active="true"]:focus-visible {
+  outline: none;
+}
+
+[data-bp-card] {
+  border-radius: var(--bp-radius-cover);
+}
+
+[data-bp-bracket="true"] {
+  position: absolute;
+  top: 30%;
+  bottom: 30%;
+  inset-inline-start: calc(var(--bp-u) * -12);
+  width: calc(var(--bp-u) * 6);
+  border-radius: 999px;
+  background: var(--signal);
+}
+
+[data-bp-rim="true"] {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--bp-rim);
+  pointer-events: none;
+}
+
+/* -------------------------------- the rail --------------------------------- */
+
+/*
+ * The rail scrolls under the page gutter, so a lifted cover never clips. The
+ * card is sized by the room (5.5 visible at comfortable density) and the
+ * caption sits under the selected cover only.
+ */
+.bp-rail {
+  --bp-rail-gutter: calc(var(--bp-u) * 40);
+  display: flex;
+  gap: var(--bp-rail-gap);
+  margin-inline: calc(-1 * var(--bp-rail-gutter));
+  padding-inline: var(--bp-rail-gutter);
+  padding-block: calc(var(--bp-u) * 16) calc(var(--bp-u) * 12);
+  scroll-padding-inline: var(--bp-rail-gutter);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.bp-rail-card {
+  width: var(--bp-rail-card);
+  flex: none;
+}
+
+.bp-grid {
+  --bp-rail-gutter: calc(var(--bp-u) * 40);
+  scroll-padding-inline: var(--bp-rail-gutter);
+  scroll-padding-block: calc(var(--bp-u) * 16);
+}
+
+/* -------------------------------- the band --------------------------------- */
+
+/*
+ * The band is text and glyphs, not six cards: Search · Library · Downloads ·
+ * Settings · Power. State lives in the bar, destinations live here, and no
+ * item appears twice. The focused item gets the bracket and one bright label.
+ */
+.bp-band {
   background: var(--bg-deep);
   border-color: var(--line);
 }
 
-.bp-root[data-console-appearance="soft"] .bp-home {
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
+.bp-band-item {
+  position: relative;
+  display: inline-flex;
+  min-height: calc(var(--bp-u) * 56);
+  align-items: center;
+  gap: calc(var(--bp-u) * 12);
+  padding-inline: calc(var(--bp-u) * 14);
+  border-radius: var(--bp-radius-object);
+  color: var(--ink-2);
+  transition:
+    color var(--dur-1) var(--ease),
+    background-color var(--dur-1) var(--ease);
 }
 
-.bp-root[data-console-appearance="soft"] .bp-tab {
-  height: calc(var(--bp-u) * 34);
-  align-self: center;
+.bp-band-item:hover {
+  color: var(--ink);
+  background: var(--surface);
 }
 
-.bp-root[data-console-appearance="soft"] .bp-tab:hover {
-  background: var(--bp-material-hover);
+.bp-band-item[data-bp-zone-active="true"] {
+  color: var(--ink);
+  background: var(--surface-2);
 }
 
-/* The archive's selection rule belongs to the flat look; the soft tile uses
-   its border and shadow instead. */
-.bp-root[data-console-appearance="soft"] [data-bp-zone-underline],
-.bp-root[data-console-appearance="soft"] [data-bp-selected-rule] {
-  display: none;
+.bp-band-item[data-bp-zone-active="true"]::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block: 25%;
+  width: calc(var(--bp-u) * 6);
+  border-radius: 999px;
+  background: var(--signal);
 }
 
-.bp-tile[data-tone="danger"][data-bp-zone-active="true"] {
-  border-color: var(--danger);
+/* ------------------------------- the stage --------------------------------- */
+
+/* One lit object: the selected game's art, washed so the title reads at 7:1. */
+.bp-stage {
+  position: relative;
+  overflow: hidden;
 }
 
-/* Compact list rows read as separate soft rows; Studio keeps its hairlines. */
-[data-bp-row="true"] {
-  border-bottom: 1px solid var(--line);
-}
-
-.bp-root[data-console-appearance="soft"] [data-bp-row="true"] {
-  border-bottom-color: transparent;
-  border-radius: var(--bp-radius-sm);
-  margin-block: 2px;
-}
-
-.bp-root[data-console-appearance="soft"] .bp-app-screen {
+.bp-stage-wash {
+  position: absolute;
+  inset: 0;
   background:
-    radial-gradient(
-      120% 90% at 15% 0%,
-      color-mix(in oklab, var(--surface) 92%, transparent) 0%,
-      transparent 62%
+    linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--stage) 94%, transparent) 0%,
+      color-mix(in oklab, var(--stage) 76%, transparent) 52%,
+      color-mix(in oklab, var(--stage) 48%, transparent) 100%
     ),
-    var(--bg-deep);
+    linear-gradient(0deg, var(--stage) 0%, transparent 52%),
+    color-mix(in oklab, var(--stage) 45%, transparent);
 }
 
-/* Soft shadows replace the archive's hard offset shadows inside the console. */
-.bp-root[data-console-appearance="soft"] .shadow-palette,
-.bp-root[data-console-appearance="soft"] .shadow-panel,
-.bp-root[data-console-appearance="soft"] .shadow-dialog {
-  box-shadow: 0 calc(var(--bp-u) * 28) calc(var(--bp-u) * 64) calc(var(--bp-u) * -24)
-    color-mix(in oklab, var(--shadow) 34%, transparent);
-}
-
-.bp-root[data-console-appearance="soft"] .shadow-hero {
-  box-shadow: 0 calc(var(--bp-u) * 30) calc(var(--bp-u) * 60) calc(var(--bp-u) * -26)
-    color-mix(in oklab, var(--shadow) 40%, transparent);
-}
-
-.bp-root[data-console-appearance="soft"] .shadow-cover {
-  box-shadow: 0 calc(var(--bp-u) * 14) calc(var(--bp-u) * 30) calc(var(--bp-u) * -18)
-    color-mix(in oklab, var(--shadow) 34%, transparent);
-}
+/* ------------------------------- controls ---------------------------------- */
 
 /*
- * Reduced transparency: keep the layout, drop the glass. Opaque surfaces with
+ * A console control is sized in `--bp-u`, never in desktop pixels: the same
+ * primary button is 64u at 720p, 1080p and 4K. The desktop Button keeps its own
+ * sizes for the desktop shell; inside Console it opts into `.bp-button`.
+ */
+.bp-root .bp-button {
+  height: calc(var(--bp-u) * 64);
+  padding-inline: calc(var(--bp-u) * 24);
+  gap: calc(var(--bp-u) * 10);
+  border-radius: var(--bp-radius-object);
+  font-size: var(--bp-text-body);
+  font-weight: 500;
+  line-height: 1;
+}
+
+.bp-root .bp-button svg {
+  width: calc(var(--bp-u) * 22);
+  height: calc(var(--bp-u) * 22);
+}
+
+.bp-root .kbd {
+  min-width: calc(var(--bp-u) * 34);
+  height: calc(var(--bp-u) * 34);
+  padding-inline: calc(var(--bp-u) * 8);
+  border-radius: var(--bp-radius-cover);
+  font-size: var(--bp-text-meta);
+}
+
+/* ------------------------------- the notice -------------------------------- */
+
+/* One notice surface, bottom-leading, above the band. Never a toast. */
+.bp-notice {
+  position: absolute;
+  inset-inline-start: var(--bp-safe-x);
+  bottom: calc(var(--bp-band-h) + var(--bp-safe-y));
+  z-index: 30;
+  max-width: min(52ch, 46vw);
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-inline-start: calc(var(--bp-u) * 4) solid var(--signal);
+  border-radius: var(--bp-radius-object);
+}
+
+.bp-notice[data-tone="danger"] {
+  border-inline-start-color: var(--danger);
+}
+
+/* ------------------------------ accessibility ------------------------------ */
+
+/*
+ * Reduced transparency: keep the layout, drop the wall. Opaque surfaces with
  * the same borders and radii read identically at ten feet and cost nothing.
  */
 @media (prefers-reduced-transparency: reduce) {
-  .bp-root[data-console-appearance="soft"] {
-    --bp-material-chrome: var(--surface);
-    --bp-material-card: var(--elevated);
-    --bp-material-sheet: var(--surface-2);
-    --bp-material-panel: var(--surface);
-    --bp-material-hover: var(--elevated);
-    --bp-material-border: var(--line);
-    --bp-material-border-strong: var(--line-2);
-  }
-
-  /* Direct declarations: a token override on `.bp-root` would lose to the
-     preset's more specific block. */
-  .bp-root .bp-chrome,
-  .bp-root .bp-sheet,
-  .bp-root .bp-tile,
-  .bp-root .bp-glass-tile {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-
-  .bp-root[data-console-appearance="soft"][data-console-background="artwork"] [data-bp-art="true"] {
-    filter: none;
-    transform: none;
-  }
-
   .bp-root .bp-backdrop-art {
     filter: none;
     opacity: 0;
   }
-
-  .bp-root .bp-glass-tile {
-    background: var(--stage);
-  }
 }
 
 /*
- * High contrast: opaque chrome, ink borders, no veil. The theme's TV-safe
- * tokens already lift the text to 7:1; this only removes the material.
+ * High contrast: ink borders, no wash, no wall. The theme's TV-safe tokens
+ * already lift the text to 7:1; this only removes the material.
  */
 @media (prefers-contrast: more) {
-  .bp-root[data-console-appearance="soft"] {
-    --bp-material-chrome: var(--surface);
-    --bp-material-card: var(--surface-2);
-    --bp-material-sheet: var(--surface-2);
-    --bp-material-panel: var(--surface);
-    --bp-material-hover: var(--elevated);
+  .bp-root {
     --bp-material-border: var(--line-2);
     --bp-material-border-strong: var(--ink-3);
-  }
-
-  .bp-root .bp-chrome,
-  .bp-root .bp-sheet,
-  .bp-root .bp-tile,
-  .bp-root .bp-glass-tile {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-
-  .bp-root[data-console-appearance="soft"][data-console-background="artwork"] [data-bp-art="true"] {
-    filter: none;
-    transform: none;
+    --bp-wall-opacity: 0;
+    --bp-wall-wash: transparent;
+    --bp-rim: var(--ink);
   }
 
   .bp-root .bp-backdrop-art {

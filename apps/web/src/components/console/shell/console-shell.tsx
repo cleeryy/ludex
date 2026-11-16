@@ -2,8 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Download, Play } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, assetUrl } from "@/lib/api";
 import { downloadGame } from "@/lib/download";
 import { useDocumentTitle } from "@/lib/document-title";
 import { errorMessage } from "@/lib/http";
@@ -27,6 +26,7 @@ import { useSettings } from "@/state/settings";
 import { Wordmark } from "@/components/brand";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { Button } from "@/components/ui/controls";
+import { Glyph } from "@/components/big-picture/glyphs";
 import { useConsoleNotice } from "@/components/console/surfaces/console-notice";
 import { useInput, useInputScope, type InputScopeOptions } from "@/components/console/input/input-provider";
 import { ConsoleOverlayInputScope } from "@/components/console/input/overlay-scope";
@@ -37,7 +37,6 @@ import { ENTRANCE_MS } from "@/components/big-picture/entrance";
 import {
   AUTO_PROFILE_ID,
   cycleHapticsStrength,
-  hapticsActive,
   padFamily,
   padFamilyLabel,
   profileOptions,
@@ -72,30 +71,36 @@ import {
   type SearchStep,
 } from "@/components/big-picture/input";
 import { CompactLayout } from "@/components/big-picture/layout-compact";
-import { DockLayout } from "@/components/big-picture/layout-dock";
 import { GridLayout } from "@/components/big-picture/layout-grid";
-import { HeroLayout } from "@/components/big-picture/layout-hero";
 import { ShelfLayout } from "@/components/big-picture/layout-shelf";
-import { SpotlightLayout } from "@/components/big-picture/layout-spotlight";
 import { LayoutSkeleton } from "@/components/big-picture/layout-skeleton";
 import {
-  BIG_PICTURE_LAYOUTS,
   clampIndex,
   gridColumns,
   type BigPictureLayout,
   type MoveDirection,
 } from "@/components/big-picture/layout";
-import { layoutLabel } from "@/components/big-picture/labels";
+import { consoleRoomLabel, layoutLabel } from "@/components/big-picture/labels";
 import { ConsoleBackdrop } from "@/components/big-picture/console-backdrop";
-import { useConsoleAppearance } from "@/components/big-picture/use-console-appearance";
-import { consoleAttributes, consoleTokens, consoleVars } from "@/theme/console-appearance";
+import { RoomPreview } from "@/components/big-picture/room-preview";
+import { useConsoleRoom } from "@/components/big-picture/use-console-room";
+import {
+  cabinetTokens,
+  consoleRoomAttributes,
+  motionProfile,
+  soundEnabled,
+  soundReduced,
+} from "@/theme/console-room";
+import { cssVarsFor } from "@/theme/registry";
+import { extractArtworkAccent } from "@/theme/artwork-accent";
+import { BUILTIN_THEMES } from "@/theme/registry";
 import { jobPercent, type BigPictureLayoutProps } from "@/components/big-picture/model";
 import { useBigPictureNavigation, type BigPictureShelf } from "@/components/big-picture/navigation";
 import { BigPictureFooter } from "@/components/big-picture/parts";
 import { COMMAND_ITEMS } from "@/components/big-picture/overlays";
 import { ConsoleDialogs } from "@/components/console/surfaces/console-dialogs";
 import { ConsoleOverlays } from "@/components/console/surfaces/console-overlays";
-import { HomeRow } from "@/components/big-picture/home-row";
+import { HomeBand, type BandItemDetail } from "@/components/big-picture/home-row";
 import { PowerApp } from "@/components/big-picture/power-app";
 import { SettingsApp } from "@/components/big-picture/settings-app";
 import { SystemBar } from "@/components/big-picture/system-bar";
@@ -103,7 +108,6 @@ import {
   HOME_ITEM_IDS,
   SETTINGS_SECTIONS,
   closeSystemApp,
-  homeRowPlacement,
   isSettingsSection,
   openSystemApp,
   restoreZone,
@@ -150,9 +154,6 @@ let lastRefreshAt = 0;
  */
 const LAYOUT_VIEWS: Record<BigPictureLayout, ComponentType<BigPictureLayoutProps>> = {
   shelf: ShelfLayout,
-  dock: DockLayout,
-  spotlight: SpotlightLayout,
-  hero: HeroLayout,
   grid: GridLayout,
   compact: CompactLayout,
 };
@@ -220,31 +221,23 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
   const { notify: push } = useConsoleNotice();
   const { user } = useAuth();
   const { deviceOverride } = useI18n();
-  const {
-    theme,
-    resolved,
-    setTheme,
-    tokens: themeTokens,
-    accent: themeAccent,
-    tint: themeTint,
-    tv,
-  } = useSettings();
+  const { theme, resolved, setTheme, tokens: themeTokens } = useSettings();
   const queryClient = useQueryClient();
   const library = useLibraryGames();
   const games = library.items;
-  const { isPending, isError, error, isFetching, refetch } = library;
+  const { isPending, isError, isFetching, refetch } = library;
   const installed = useInstalledMap();
   const jobPhases = useJobPhases();
   const activeCount = useActiveCount();
   const titleFor = useTitleFor();
-  const launch = useLaunchGame();
+  // The plate is the only messaging channel in Console (#268).
+  const launch = useLaunchGame({ silent: true });
   const [layout, setLayout] = useBigPictureLayout();
-  const [consoleAppearance, setConsoleAppearance] = useConsoleAppearance();
+  const [room, setRoom] = useConsoleRoom();
   const [installOpen, setInstallOpen] = useState(false);
   const [entranceDone, setEntranceDone] = useState(false);
   const [layoutTouched, setLayoutTouched] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerIndex, setPickerIndex] = useState(0);
+  const [artworkAccent, setArtworkAccent] = useState<string | null>(null);
   // #196/#267: the shell level follows the route. Local state keeps the push
   // and pop animations honest while the URL stays the source of truth.
   const [level, setLevelState] = useState<ShellLevel>(() => levelForSurface(surface));
@@ -277,10 +270,11 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     setRunningGame,
     exit,
   } = useConsoleSession();
-  // Mirror of the highlight that is always in step with the last key press:
-  // a fast A after two d-pad clicks must apply the card that is on screen.
-  const pickerIndexRef = useRef(0);
-  const reduceMotion = useReducedMotion();
+  // The motion knob folds into the platform preference: Calm is the reduced
+  // path (short fade, no spring), Off lands on the final frame.
+  const prefersReducedMotion = useReducedMotion();
+  const roomMotion = motionProfile(room, prefersReducedMotion);
+  const reduceMotion = roomMotion.reduced;
   const columns = gridColumns(useViewportWidth());
 
   // #220: one motion hub for the whole screen. Every transition announces
@@ -350,7 +344,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
   // cleared once that commit is on screen. `data-bp-instant` lives until the
   // fallback timer removes it: it must outlive the commit's style resolution,
   // so a held direction lands at its final scale instead of starting a tween.
-  const instantMotion = heldInput.current;
+  const instantMotion = heldInput.current || roomMotion.instant;
   useEffect(() => {
     heldInput.current = false;
   });
@@ -385,15 +379,12 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     };
   }, []);
 
+  // The sound knob owns enable/reduce; the volume row keeps the device volume
+  // it always had. One effect, because the two settings answer one question.
   useEffect(() => {
-    uiSound.setPrefs(prefs.sound);
-  }, [prefs.sound]);
-
-  // Reduced motion keeps the functional cues and drops the five decorative
-  // ones (`openGroup`, `closeGroup`, `overlayOpen`, `overlayClose`, `tabChange`).
-  useEffect(() => {
-    uiSound.setReducedMotion(Boolean(reduceMotion));
-  }, [reduceMotion]);
+    uiSound.setPrefs({ ...prefs.sound, enabled: soundEnabled(room) });
+    uiSound.setReducedMotion(Boolean(reduceMotion) || soundReduced(room));
+  }, [prefs.sound, room.sound, reduceMotion]);
 
   // No cue may play while a game is running, even if this window is visible.
   useEffect(() => {
@@ -511,21 +502,49 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     if (target) nav.selectGame(target.shelf, target.index);
   }, [surface, gameId, games.length, shelves, nav]);
 
-  // #229/#237: the console material. Both presets keep the app's rendered
-  // (TV-safe) token map; only a curated accent refines it, through derive.ts,
-  // so a combination that cannot hold 4.5:1 falls back instead of shipping.
-  const consoleTheme = useMemo(
+  // #268: Cabinet resolves the app's rendered tokens through the room, then
+  // through the TV-safe pass, so every pair the console paints clears 7:1.
+  // Daylight renders the app's own light map; no second palette is shipped.
+  const lightTokens = useMemo(
+    () => BUILTIN_THEMES.find((candidate) => candidate.id === "light")?.tokens ?? themeTokens,
+    [themeTokens],
+  );
+  const darkTokens = useMemo(
+    () => BUILTIN_THEMES.find((candidate) => candidate.id === "midnight")?.tokens ?? themeTokens,
+    [themeTokens],
+  );
+  const cabinet = useMemo(
     () =>
-      consoleTokens(consoleAppearance, {
+      cabinetTokens({
+        settings: room,
         tokens: themeTokens,
-        accent: themeAccent,
-        tint: themeTint,
+        lightTokens,
+        darkTokens,
+        artworkAccent,
         mode: resolved,
-        tv,
       }),
-    [consoleAppearance, themeTokens, themeAccent, themeTint, resolved, tv],
+    [room, themeTokens, lightTokens, darkTokens, artworkAccent, resolved],
   );
   const backdropArt = detail.data?.backgroundUrl ?? selected?.backgroundUrl ?? null;
+
+  // "From artwork" reads the selected cover once, off the focus path, and
+  // caches by game id. A cover with no usable colour leaves the theme signal.
+  useEffect(() => {
+    if (room.accent !== "artwork" || !selected) {
+      setArtworkAccent(null);
+      return;
+    }
+    let cancelled = false;
+    void extractArtworkAccent({
+      url: assetUrl(selected.coverUrl) ?? assetUrl(selected.backgroundUrl),
+      gameId: selected.id,
+    }).then((color) => {
+      if (!cancelled) setArtworkAccent(color);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [room.accent, selected?.id]);
 
   const serversQuery = useQuery({
     queryKey: ["servers"],
@@ -610,7 +629,9 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     padResolution.source.kind === "auto"
       ? prefs.profileId ?? AUTO_PROFILE_ID
       : sourceId(padResolution.source);
-  const haptics = hapticsActive(prefs, activeProfile);
+  // The haptics knob is the console's own answer (#268): Off silences the pad,
+  // Standard and Strong reuse the engine's existing scales.
+  const haptics = room.haptics !== "off" && activeProfile.vibration !== false;
 
   // Couch search (#138): the query is debounced so a fast typist does not
   // rebuild the result grid on every letter, and the focus grid includes the
@@ -1056,39 +1077,6 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     }
   };
 
-  /* ------------------------------ the layout ------------------------------ */
-
-  const highlightPicker = useCallback((index: number) => {
-    pickerIndexRef.current = index;
-    setPickerIndex(index);
-  }, []);
-  const openPicker = () => {
-    beginMotion("overlayOpen");
-    highlightPicker(Math.max(0, BIG_PICTURE_LAYOUTS.indexOf(layout)));
-    setPickerOpen(true);
-  };
-  const closePicker = () => {
-    if (pickerOpen) beginMotion("overlayClose");
-    setPickerOpen(false);
-  };
-
-  const applyLayout = (next: BigPictureLayout) => {
-    setPickerOpen(false);
-    if (next === layout) {
-      emit("click");
-      return;
-    }
-    beginMotion("layout");
-    setLayout(next);
-    // A manual switch must not replay the #142 cascade: the new view mounts
-    // settled, keeping the entrance to one per open.
-    setLayoutTouched(true);
-  };
-  const movePicker = (delta: number) => {
-    const count = BIG_PICTURE_LAYOUTS.length;
-    highlightPicker((((pickerIndexRef.current + delta) % count) + count) % count);
-  };
-
   /* ------------------------------- overlays ------------------------------- */
 
   const openOverlay = (next: BigPictureOverlay) => {
@@ -1196,9 +1184,6 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
             return openOverlay("downloads");
           case "profiles":
             return openOverlay("profiles");
-          case "layout":
-            closeOverlay(false);
-            return openPicker();
           case "settings":
             closeOverlay(false);
             return openApp("settings");
@@ -1349,9 +1334,6 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
       case "search":
         applySearchStep(command.step);
         return;
-      case "layout":
-        openPicker();
-        return;
       case "game":
         if (selected) navigate(consolePathFor("game", { gameId: selected.id }));
         return;
@@ -1385,14 +1367,6 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     searchInputRef.current?.focus({ preventScroll: true });
   }, [overlay]);
 
-  // Picker (the quick layout switcher) keeps its own arrows: the overlays below
-  // never see input while it is open.
-  const movePickerRef = useRef(movePicker);
-  movePickerRef.current = movePicker;
-  const applyPickerRef = useRef<() => void>(() => {});
-  applyPickerRef.current = () =>
-    applyLayout(BIG_PICTURE_LAYOUTS[pickerIndexRef.current] ?? layout);
-
   // Gamepad: the same commands as the keyboard, resolved from the active pad
   // action and the physical input that produced it (#138).
   const handleGamepad = (action: GamepadAction, source: ActionSource | null) => {
@@ -1406,14 +1380,6 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
           dismissLaunchPlate();
         }
       }
-      return;
-    }
-
-    if (pickerOpen) {
-      if (action === "back" || action === "menu") return closePicker();
-      if (action === "confirm") return applyLayout(BIG_PICTURE_LAYOUTS[pickerIndexRef.current] ?? layout);
-      if (action === "left") return movePicker(-1);
-      if (action === "right") return movePicker(1);
       return;
     }
 
@@ -1571,15 +1537,15 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     else nav.focusSelected();
   }, [layout, level, nav, focusSurface, focusActions]);
 
-  const recentGame = shelves.find((shelf) => shelf.id === "recent")?.games[0] ?? null;
   // #267: the settings app's model is a module now (shell/use-console-settings).
   const settings = useConsoleSettings({
     section: settingsSection,
     layout,
     setLayout,
     markLayoutTouched: () => setLayoutTouched(true),
-    appearance: consoleAppearance,
-    setAppearance: setConsoleAppearance,
+    room,
+    setRoom,
+    artworkAccent,
     theme,
     resolved,
     setTheme,
@@ -1600,32 +1566,20 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
   const activateSetting = settings.activate;
   const adjustSetting = settings.adjust;
 
-  /* -------------------------------- home row ------------------------------- */
+  /* --------------------------------- the band ------------------------------ */
 
-  const totalCollectionGames = collections.reduce((sum, collection) => sum + collection.gameCount, 0);
-  const homeDetails: Record<HomeItemId, { detail: string; disabled?: boolean }> = {
-    continue: recentGame
-      ? {
-          detail: installed.has(recentGame.id)
-            ? recentGame.title
-            : `${recentGame.title} · ${t("Install")}`,
-        }
-      : { detail: t("Nothing played yet"), disabled: true },
-    library: { detail: t("All games") },
+  const bandDetails: Record<HomeItemId, BandItemDetail> = {
+    search: { detail: t("Your whole library, one query away.") },
+    library: { detail: layoutLabel(layout) },
     downloads:
       activeCount > 0
         ? {
             detail: tn(activeCount, "1 downloading", "{count} downloading"),
+            count: activeCount,
+            dot: true,
           }
         : { detail: t("No downloads running.") },
-    collections: collectionsQuery.isPending
-      ? { detail: t("Loading…") }
-      : collectionsQuery.isError
-        ? { detail: t("Unavailable") }
-        : collections.length === 0
-          ? { detail: t("No collections yet.") }
-          : { detail: t("{count} games", { count: totalCollectionGames }) },
-    settings: { detail: layoutLabel(layout) },
+    settings: { detail: consoleRoomLabel(room.room) },
     power: { detail: consoleActive ? t("End session") : t("Quit") },
   };
 
@@ -1633,31 +1587,14 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     const id = HOME_ITEM_IDS[index];
     if (!id) return;
     switch (id) {
-      case "continue": {
-        if (!recentGame) {
-          returnToLibrary();
-          return;
-        }
-        const target = findGameShelf(shelves, recentGame.id);
-        if (target) nav.selectGame(target.shelf, target.index);
-        setZone("library");
-        if (installed.has(recentGame.id)) {
-          // #229: the launch plate and its cue start here, at the press.
-          void startGame(recentGame);
-        } else {
-          emit("confirm");
-          window.setTimeout(() => nav.focusSelected(), 0);
-        }
+      case "search":
+        openOverlay("search");
         return;
-      }
       case "library":
         returnToLibrary();
         return;
       case "downloads":
         openOverlay("downloads");
-        return;
-      case "collections":
-        openOverlay("collections");
         return;
       case "settings":
         openApp("settings");
@@ -1774,25 +1711,6 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
             emit("click");
             dismissLaunchPlate();
           }
-        }
-        return;
-      }
-
-      // The quick switcher owns the arrows while it is open, so a stray Enter
-      // never launches a game behind it.
-      if (pickerOpen) {
-        if (key === "ArrowLeft") {
-          event.preventDefault();
-          movePickerRef.current(-1);
-        } else if (key === "ArrowRight") {
-          event.preventDefault();
-          movePickerRef.current(1);
-        } else if (key === "Enter") {
-          event.preventDefault();
-          applyPickerRef.current();
-        } else if (key === "Escape" || key.toLowerCase() === "l") {
-          event.preventDefault();
-          closePicker();
         }
         return;
       }
@@ -1923,11 +1841,11 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
           }).profile,
         ),
       haptics,
-      hapticsStrength: prefs.hapticsStrength,
+      hapticsStrength: room.haptics,
       // The cue decides the pattern; the screen calls `pulse` from `emit`.
       cueHaptics: true,
     }),
-    [activeProfile, accountProfile, devices, padSources, haptics, prefs.hapticsStrength],
+    [activeProfile, accountProfile, devices, padSources, haptics, room.haptics],
   );
   useInputScope({
     id: "console",
@@ -1940,21 +1858,41 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     <Button
       variant="primary"
       size="lg"
-      icon={<Play className="size-4" />}
+      className="bp-button"
+      icon={<Glyph name="play" className="size-[calc(var(--bp-u)*22)]" />}
       onClick={() => void startGame(selected, installedGame?.executable ?? detail.data?.launch.executable)}
     >
       {t("Play")}
     </Button>
   ) : job ? (
-    <Button variant="default" size="lg" icon={<Download className="size-4" />} onClick={() => openOverlay("downloads")}>
+    <Button
+      variant="default"
+      size="lg"
+      className="bp-button"
+      icon={<Glyph name="install" className="size-[calc(var(--bp-u)*22)]" />}
+      onClick={() => openOverlay("downloads")}
+    >
       {t("Installing {percent}", { percent: percent !== null ? formatPercent(percent) : "" })}
     </Button>
   ) : isNative() ? (
-    <Button variant="primary" size="lg" icon={<Download className="size-4" />} disabled={!version} onClick={() => setInstallOpen(true)}>
+    <Button
+      variant="primary"
+      size="lg"
+      className="bp-button"
+      icon={<Glyph name="install" className="size-[calc(var(--bp-u)*22)]" />}
+      disabled={!version}
+      onClick={() => setInstallOpen(true)}
+    >
       {t("Install")}
     </Button>
   ) : (
-    <Button variant="primary" size="lg" icon={<Download className="size-4" />} onClick={() => void download()}>
+    <Button
+      variant="primary"
+      size="lg"
+      className="bp-button"
+      icon={<Glyph name="install" className="size-[calc(var(--bp-u)*22)]" />}
+      onClick={() => void download()}
+    >
       {t("Download")}
     </Button>
   );
@@ -1973,29 +1911,33 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     primary,
     onOpenGame: (gameId) => navigate(consolePathFor("game", { gameId })),
     onOpenMenu: () => openOverlay("menu"),
+    onOpenCollections: () => openOverlay("collections"),
   };
 
   const body = isPending ? (
     <LayoutSkeleton layout={layout} columns={columns} />
   ) : isError && games.length === 0 ? (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
-      <Wordmark height={22} />
-      <p className="text-bp-body text-ink-2">{t("The library could not be loaded.")}</p>
-      <p className="max-w-[56ch] font-mono text-bp-meta leading-relaxed text-ink-3">{errorMessage(error)}</p>
-      <div className="flex flex-wrap items-center justify-center gap-2">
-        <Button variant="primary" onClick={() => void refetch()}>
+    <div className="flex min-h-0 flex-1 flex-col items-start justify-center gap-4 bp-pad-x">
+      <Wordmark height={48} cut="console" className="text-ink" />
+      <p className="max-w-[56ch] text-bp-body leading-relaxed text-ink-2">
+        {t("The library could not be loaded.")}
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="primary" className="bp-button" onClick={() => void refetch()}>
           {t("Try again")}
         </Button>
-        <Button variant="default" onClick={exit}>
+        <Button variant="default" className="bp-button" onClick={exit}>
           {t("Exit Console mode")}
         </Button>
       </div>
     </div>
   ) : !selected ? (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 px-6 text-center">
-      <Wordmark height={22} />
-      <p className="text-bp-body text-ink-2">{t("The library is empty. Add a game first.")}</p>
-      <Button variant="primary" onClick={exit}>
+    <div className="flex min-h-0 flex-1 flex-col items-start justify-center gap-4 bp-pad-x">
+      <Wordmark height={48} cut="console" className="text-ink" />
+      <p className="max-w-[56ch] text-bp-body leading-relaxed text-ink-2">
+        {t("The library is empty. Add a game first.")}
+      </p>
+      <Button variant="primary" className="bp-button" onClick={exit}>
         {t("Exit Console mode")}
       </Button>
     </div>
@@ -2018,30 +1960,32 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
             ? "actions"
             : "library";
 
-  // #197: the layout owns where the system row sits. Above the games it is the
-  // console header; the Dock puts it under the row; the Spotlight floats it
-  // over the artwork. One component, three placements.
-  const homePlacement = homeRowPlacement(layout);
-  const homeRow = (
-    <HomeRow
+  // #268: the band is always the bottom zone of the home axis — Search ·
+  // Library · Downloads · Settings · Power. State lives in the bar, the band
+  // carries destinations, and the layout no longer moves the chrome around.
+  const band = (
+    <HomeBand
       active={homeIndex}
       focused={zone === "home"}
-      details={homeDetails}
+      details={bandDetails}
       onHighlight={setHomeIndex}
       onChoose={activateHome}
-      placement={homePlacement}
       settled={entranceDone || layoutTouched}
     />
   );
+  const bandVisible = level.kind === "library";
+  // One hint strip at a time: a sheet owns the strip while it is open, and the
+  // launch plate owns the screen.
+  const footerVisible = !overlay && !pendingPower && !launchPlate;
 
   return (
     <div
       ref={rootRef}
       className="bp-root relative flex h-dvh flex-col overflow-hidden text-ink"
-      style={consoleVars(consoleTheme)}
-      {...consoleAttributes(consoleAppearance)}
+      style={cssVarsFor(cabinet)}
+      {...consoleRoomAttributes(room)}
     >
-      {(overlay || pickerOpen || pendingPower || launchPlate) && (
+      {(overlay || pendingPower || launchPlate) && (
         <ConsoleOverlayInputScope
           onAction={onGamepad}
           onKey={onConsoleKey}
@@ -2050,7 +1994,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
       )}
       <div className="grain" aria-hidden="true" />
       <ConsoleBackdrop
-        background={consoleAppearance.background}
+        wall={room.wall}
         title={selected?.title ?? ""}
         artUrl={backdropArt}
       />
@@ -2067,14 +2011,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
         consoleActive={consoleActive}
       />
 
-      {level.kind === "library" && homePlacement === "row" && homeRow}
-
       <main className="relative z-10 flex min-h-0 flex-1 flex-col">
-        {level.kind === "library" && homePlacement === "overlay" && (
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-end pt-2 bp-pad-x">
-            <div className="pointer-events-auto">{homeRow}</div>
-          </div>
-        )}
         {/*
           #220: two stacking layers, not a remount. The library stays mounted
           under a system app, so a push slides the opaque app screen over it and
@@ -2118,13 +2055,17 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
                     rows={settingsRows}
                     active={appIndex}
                     accountName={user?.username ?? null}
-                    accountAvatar={user?.avatarUrl ?? null}
                     serverLabel={serverLabel}
                     version={__APP_VERSION__}
                     padLabel={
                       gamepad.connected
                         ? `${padFamilyLabel(padFamilyName)} · ${activeProfile.name}`
                         : t("No controller detected.")
+                    }
+                    preview={
+                      settingsSection === "appearance" ? (
+                        <RoomPreview settings={room} layout={layout} artUrl={backdropArt} />
+                      ) : undefined
                     }
                     reduceMotion={reduceMotion}
                     instant={instantMotion}
@@ -2146,17 +2087,19 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
         </div>
       </main>
 
-      {level.kind === "library" && homePlacement === "dock" && homeRow}
+      {bandVisible && band}
 
-      <BigPictureFooter
-        layout={layout}
-        connected={gamepad.connected}
-        family={padFamilyName}
-        swapAB={swapAB}
-        profileName={padResolutionNow.profile.name}
-        context={footerContext}
-        haptics={haptics}
-      />
+      {footerVisible && (
+        <BigPictureFooter
+          layout={layout}
+          connected={gamepad.connected}
+          family={padFamilyName}
+          swapAB={swapAB}
+          profileName={padResolutionNow.profile.name}
+          context={footerContext}
+          haptics={haptics}
+        />
+      )}
 
       <ConsoleOverlays
         overlay={overlay}
@@ -2176,8 +2119,8 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
         selectedProfileId={selectedProfileId}
         profile={padResolutionNow.profile}
         pad={padSummary}
-        haptics={prefs.haptics}
-        strength={prefs.hapticsStrength}
+        haptics={haptics}
+        strength={room.haptics}
         searchInputRef={searchInputRef}
         query={query}
         onQuery={setQuery}
@@ -2203,11 +2146,6 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
         onHighlightPower={(index) => setPendingPower((current) => (current ? { ...current, index } : current))}
         onClosePower={() => setPendingPower(null)}
         emit={emit}
-        pickerOpen={pickerOpen}
-        pickerIndex={pickerIndex}
-        onHighlightPicker={highlightPicker}
-        onSelectPicker={applyLayout}
-        onClosePicker={closePicker}
       />
 
       {version && detail.data && (

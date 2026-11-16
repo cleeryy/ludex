@@ -1,6 +1,10 @@
 # Legacy Big Picture specs (v0.4)
 
-These documents describe the v0.4 Big Picture shell (system bar, six layouts, sound, motion). They are kept for history and are **superseded** by the Console 2.0 blueprint:
+These documents describe the v0.4 Big Picture shell (system bar, sound, motion, and the six layouts that shipped before #268). They are kept for history and are **superseded** by the Console 2.0 blueprint:
+
+The six-layout registry no longer exists: the Console ships three compositions —
+**Stage**, **Wall** and **List** — under rooms instead of presets. `29-bp-layouts.md`
+is history, not a target.
 
 - [Console 2.0 + rebrand](../console/README.md)
 - Console 2.0 skill contract: `.opencode/skills/console-mode-ui/SKILL.md` (outside this repository)

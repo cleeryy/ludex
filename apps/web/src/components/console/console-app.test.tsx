@@ -2,6 +2,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SettingsProvider } from "@/state/settings";
 import { ToastProvider } from "@/state/toasts";
 
 /**
@@ -30,7 +31,13 @@ vi.mock("@/components/console/routes", () => ({
 import { ConsoleApp } from "@/components/console/console-app";
 
 function renderConsole(ui: React.ReactNode = <ConsoleApp />) {
-  return render(<MemoryRouter initialEntries={["/console"]}>{ui}</MemoryRouter>);
+  // `app.tsx` mounts the console inside AppProviders; the gates read the theme
+  // so the Cabinet material is available before the shell exists.
+  return render(
+    <MemoryRouter initialEntries={["/console"]}>
+      <SettingsProvider>{ui}</SettingsProvider>
+    </MemoryRouter>,
+  );
 }
 
 function signedOut() {
@@ -38,6 +45,22 @@ function signedOut() {
 }
 
 beforeEach(() => {
+  // `motion` and the SettingsProvider read media queries; jsdom has none.
+  if (!window.matchMedia) {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: (query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    });
+  }
   window.localStorage.clear();
   auth.value = {
     ready: false,

@@ -1,24 +1,24 @@
 import { motion } from "motion/react";
-import { ArtPlate, GameCover } from "@/components/art/cover";
+import { ArtPlate } from "@/components/art/cover";
 import { Button } from "@/components/ui/controls";
-import { formatYear } from "@/lib/format";
 import { t } from "@/lib/i18n";
-import { BACKDROP_CUE, CARD_CUE, COPY_CUE, HERO_CUE, cardDelay, reveal } from "./entrance";
+import { BACKDROP_CUE, CARD_CUE, COPY_CUE, cardDelay, reveal } from "./entrance";
 import type { BigPictureLayoutProps } from "./model";
 import { transitionOf } from "./motion";
 import { useChangeWitness } from "./use-change-witness";
-import {
-  ActionRow,
-  MetaLine,
-  ProgressLine,
-  RailCard,
-  SelectedEyebrow,
-  ShelfTabs,
-} from "./parts";
+import { ActionRow, MetaLine, ProgressLine, RailCard, SelectedEyebrow } from "./parts";
 
 /**
- * Shelf (#141) — the layout Big Picture shipped with, kept as the default.
- * A large plate and its copy on the stage, one captioned shelf underneath.
+ * Stage (#268) — the Cabinet home.
+ *
+ * One lit object: the selected game fills the stage, its title is the largest
+ * thing on screen, and the primary action sits directly under it. The rail
+ * below shows 5.5 covers at comfortable density and captions the selected one
+ * only. There is no KPI grid, no index, no second composition competing for the
+ * eye: the stage is the first read, the rail is the second.
+ *
+ * The stage art is the one plate in the composition; the wallpaper behind the
+ * shell is the only blurred layer and it never moves with the selection.
  */
 export function ShelfLayout({
   nav,
@@ -44,7 +44,10 @@ export function ShelfLayout({
 
   return (
     <>
-      <section className="relative flex min-h-0 flex-1 items-center overflow-hidden">
+      <section
+        className="bp-stage flex min-h-0 flex-1 items-end"
+        aria-label={t("Selected game")}
+      >
         <motion.div className="absolute inset-0" {...reveal(reduceMotion, BACKDROP_CUE)}>
           <ArtPlate
             title={game.title}
@@ -52,59 +55,33 @@ export function ShelfLayout({
             className="h-full w-full"
           />
         </motion.div>
-        <div className="absolute inset-0 bp-shade" aria-hidden="true" />
+        <div className="absolute inset-0 bp-stage-wash" aria-hidden="true" />
 
-        <div className="relative flex w-full items-center gap-[clamp(1rem,2.5vw,2.5rem)] py-5 bp-pad-x">
-          <motion.div
-            className="w-[clamp(132px,12vw,420px)] shrink-0"
-            {...reveal(reduceMotion, HERO_CUE)}
-          >
-            <div className="shadow-hero">
-              <GameCover
-                title={game.title}
-                coverUrl={game.coverUrl}
-                index={game.id}
-                year={formatYear(game.releaseDate)}
-                genre={game.genres[0]}
-              />
-            </div>
-          </motion.div>
-
-          <motion.div className="flex min-w-0 flex-1 flex-col gap-3" {...reveal(reduceMotion, COPY_CUE)}>
-            <SelectedEyebrow game={game} />
-            <h1 className="max-w-[20ch] text-[clamp(1.7rem,4vw,calc(var(--bp-u)*70))] font-semibold leading-[0.92] tracking-[-0.04em] text-stage-ink">
-              {game.title}
-            </h1>
-            <MetaLine game={game} installed={installed.has(game.id)} />
-            {detail?.description && (
-              <p className="line-clamp-2 max-w-[64ch] text-bp-body leading-relaxed text-stage-ink-2 [@media(max-height:820px)]:hidden">
-                {detail.description}
-              </p>
-            )}
-            {job && <ProgressLine job={job} percent={percent} />}
-            <ActionRow className="mt-1">
-              {primary}
-              <Button variant="default" onClick={() => onOpenGame(game.id)}>
-                {t("Game page")}
+        <motion.div
+          className="relative flex w-full flex-col gap-3 pb-6 pt-8 bp-pad-x"
+          {...reveal(reduceMotion, COPY_CUE)}
+        >
+          <SelectedEyebrow game={game} />
+          <h1 className="line-clamp-2 max-w-[20ch] text-bp-hero font-semibold leading-[1.02] tracking-[-0.02em] text-stage-ink">
+            {game.title}
+          </h1>
+          <MetaLine game={game} installed={installed.has(game.id)} />
+          {job && <ProgressLine job={job} percent={percent} />}
+          <ActionRow className="mt-2">
+            <span data-bp-action="true">{primary}</span>
+            <span data-bp-action="true">
+              <Button variant="default" className="bp-button" onClick={() => onOpenGame(game.id)}>
+                {t("Manage")}
               </Button>
-            </ActionRow>
-          </motion.div>
-        </div>
+            </span>
+          </ActionRow>
+        </motion.div>
       </section>
 
-      <section
-        className="relative shrink-0 border-t bp-chrome pb-3 pt-1.5 bp-pad-x"
-        aria-label={t("Games")}
-      >
-        <div className="flex items-center justify-between gap-4">
-          <ShelfTabs nav={nav} dense className="min-w-0 flex-1" />
-          <span className="num shrink-0 pe-1 text-bp-meta text-ink-3">
-            {nav.index + 1} / {nav.games.length}
-          </span>
-        </div>
+      <section className="relative shrink-0 bp-pad-x" aria-label={t("Games")}>
         <motion.div
           key={nav.shelf?.id ?? "shelf"}
-          className="bp-rail bp-rail-shelf nav-scroll flex gap-3 overflow-x-auto"
+          className="bp-rail nav-scroll"
           {...shelfFrame}
           initial={shelfChanged ? shelfFrame.initial : false}
         >
@@ -123,8 +100,6 @@ export function ShelfLayout({
                 position={position}
                 selected={position === nav.index}
                 nav={nav}
-                installed={installed.has(entry.id)}
-                className="w-[var(--bp-rail-card)]"
               />
             </motion.div>
           ))}

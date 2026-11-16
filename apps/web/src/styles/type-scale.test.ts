@@ -3,13 +3,12 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 /* --------------------------------------------------------------------------
-   Console type scale (#237).
+   Console type scale (#237, #268).
 
-   The console grew its geometry with `--bp-u` but kept 9.5–13 px type, so a
-   4K panel showed the same label inside a tile twice as tall. These assertions
-   pin the scale to the 10-foot rule (28 px for primary metadata at 1080p),
-   keep every console surface on it, and stop a new arbitrary `text-[11px]`
-   from creeping back in.
+   The 10-foot floor is 24u: nothing smaller carries words, a size or a count.
+   28u for anything a player must read to act, 34u for a surface title, 56u for
+   the stage hero. These assertions pin the scale, keep every console surface on
+   it, and stop a new arbitrary `text-[11px]` from creeping back in.
    -------------------------------------------------------------------------- */
 
 const srcRoot = new URL("..", import.meta.url).pathname;
@@ -39,32 +38,32 @@ function step(name: string): number {
 }
 
 describe("console type scale", () => {
-  it("sets 28 px for primary metadata and 48 px for a hero at 1080p", () => {
+  it("keeps the 24u floor, 28u body, 34u title and a 48u+ hero at 1080p", () => {
     // --bp-u is 1.0003 px at 1920, so the multiplier is the 1080p pixel size.
-    expect(step("body")).toBe(28);
-    expect(step("hero")).toBe(48);
-    expect(step("title")).toBe(34);
     expect(step("meta")).toBe(24);
-    expect(step("micro")).toBe(20);
+    expect(step("body")).toBe(28);
+    expect(step("title")).toBe(34);
+    expect(step("hero")).toBeGreaterThanOrEqual(48);
   });
 
-  it("keeps the scale ordered and above the 20 px floor", () => {
-    const micro = step("micro");
+  it("keeps the scale ordered and above the 24u floor", () => {
     const meta = step("meta");
     const body = step("body");
     const title = step("title");
     const hero = step("hero");
-    expect(micro).toBeLessThan(meta);
     expect(meta).toBeLessThan(body);
     expect(body).toBeLessThan(title);
     expect(title).toBeLessThan(hero);
-    expect(micro).toBeGreaterThanOrEqual(20);
+    expect(meta).toBeGreaterThanOrEqual(24);
+    // No retired 20u step: a numeral is not an excuse to go below the floor.
+    expect(css).not.toContain("--bp-text-micro");
   });
 
   it("exposes one utility per step, bound to the console unit", () => {
-    for (const name of ["hero", "title", "body", "meta", "micro"]) {
+    for (const name of ["hero", "title", "body", "meta"]) {
       expect(css).toContain(`--text-bp-${name}: var(--bp-text-${name});`);
     }
+    expect(css).not.toContain("--text-bp-micro");
   });
 
   it("scales with the display instead of staying at 1080p", () => {
@@ -79,9 +78,10 @@ describe("console type scale", () => {
     const offenders: string[] = [];
     for (const file of CONSOLE_FILES) {
       const source = fs.readFileSync(file, "utf8");
-      if (/text-\[\d+(?:\.\d+)?px\]/.test(source)) {
-        offenders.push(path.relative(srcRoot, file));
-      }
+      // No arbitrary pixel type, no ad-hoc clamp, no retired micro step.
+      if (/text-\[\d+(?:\.\d+)?px\]/.test(source)) offenders.push(path.relative(srcRoot, file));
+      if (/text-\[clamp\(/.test(source)) offenders.push(path.relative(srcRoot, file));
+      if (/text-bp-micro/.test(source)) offenders.push(path.relative(srcRoot, file));
     }
     expect(offenders).toEqual([]);
   });
@@ -90,7 +90,7 @@ describe("console type scale", () => {
     for (const token of ["micro", "meta", "label", "body", "lead", "title", "display", "hero"]) {
       expect(css).toContain(`--text-${token}:`);
     }
-    // 11.5 px is the dominant metadata size in the audit; the token keeps it.
+    // 11.5 px is the dominant metadata size in the desktop audit; the token keeps it.
     expect(css).toMatch(/--text-meta:\s*11\.5px;/);
   });
 });

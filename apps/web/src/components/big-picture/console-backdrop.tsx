@@ -1,32 +1,29 @@
 import { ArtPlate } from "@/components/art/cover";
-import type { ConsoleBackground } from "@/theme/console-appearance";
+import type { ConsoleWall } from "@/theme/console-room";
 
 /* --------------------------------------------------------------------------
-   The console wallpaper (#229).
+   The console wallpaper (#268).
 
-   One fixed layer behind every chrome surface. `artwork` paints the selected
-   game's backdrop as a still, blurred plate; `solid` and `gradient` paint a
-   token-only canvas and never decode an image. The layer is decorative, never
-   focusable, and never animates: switching games swaps the plate, which the
-   browser paints once.
-
-   Budget: this is the only full-screen blur in the console. It is static, it is
-   disabled by `prefers-reduced-transparency` and `prefers-contrast`, and the
-   chrome above it uses `backdrop-filter` on the same still frame.
+   One fixed layer behind every chrome surface — and the only blurred layer in
+   the product. `artwork` paints the selected game's backdrop as a still,
+   blurred plate under an 80 % wash; `solid` and `gradient` paint a token-only
+   canvas and never decode an image. The layer is decorative, never focusable,
+   and never animates: switching games swaps the plate, which the browser paints
+   once. Projector and Arcade rooms set the opacity and blur to zero.
    -------------------------------------------------------------------------- */
 
 export function ConsoleBackdrop({
-  background,
+  wall,
   title,
   artUrl,
 }: {
-  background: ConsoleBackground;
+  wall: ConsoleWall;
   title: string;
   artUrl: string | null;
 }) {
   return (
-    <div className="bp-backdrop" data-console-backdrop={background} aria-hidden="true">
-      {background === "artwork" && (
+    <div className="bp-backdrop" data-console-backdrop={wall} aria-hidden="true">
+      {wall === "artwork" && (
         <div className="bp-backdrop-art">
           <ArtPlate title={title} artUrl={artUrl} className="h-full w-full" />
         </div>

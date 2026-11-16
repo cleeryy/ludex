@@ -1,50 +1,53 @@
 import { Check, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { useSettings } from "@/state/settings";
 import { Button } from "@/components/ui/controls";
 import {
-  CONSOLE_ACCENT_IDS,
-  CONSOLE_BACKGROUNDS,
-  CONSOLE_PRESETS,
-  CONSOLE_RADII,
-  DEFAULT_CONSOLE_APPEARANCE,
-  consoleAccentColor,
-  withConsolePreset,
-  type ConsoleAccentId,
-  type ConsoleBackground,
-  type ConsolePreset,
-  type ConsoleRadius,
-} from "@/theme/console-appearance";
+  useConsoleRoom,
+  setConsoleRoom,
+} from "@/components/big-picture/use-console-room";
+import {
+  CONSOLE_ACCENT_SOURCES,
+  CONSOLE_CORNERS,
+  CONSOLE_DENSITIES,
+  CONSOLE_HAPTICS,
+  CONSOLE_MOTIONS,
+  CONSOLE_ROOMS,
+  CONSOLE_SOUNDS,
+  CONSOLE_WALLS,
+  resetConsoleRoom,
+  withConsoleRoom,
+  type ConsoleRoomSettings,
+} from "@/theme/console-room";
 import {
   consoleAccentLabel,
-  consoleBackgroundLabel,
-  consolePresetDescription,
-  consolePresetLabel,
-  consoleRadiusLabel,
+  consoleCornersLabel,
+  consoleDensityLabel,
+  consoleHapticsLabel,
+  consoleMotionLabel,
+  consoleRoomDescription,
+  consoleRoomLabel,
+  consoleSoundLabel,
+  consoleWallLabel,
 } from "@/components/big-picture/labels";
-import { useConsoleAppearance } from "@/components/big-picture/use-console-appearance";
 
 /* --------------------------------------------------------------------------
-   Settings → Appearance → Console appearance (#229).
+   Settings → Appearance → Console room (#268).
 
-   The desktop counterpart of Console mode's own Appearance section. The same
-   device-local store drives both, so a choice made here previews in a running
-   console window immediately and survives the next launch. Colours still come
-   from the theme pipeline: the swatches read `consoleAccentColor`, never a
-   literal.
+   The desktop counterpart of the Console's own Appearance section. Both read
+   the same device-local record, so a choice here previews in a running console
+   window immediately and survives the next launch. Rooms are chips; the eight
+   knobs are chips too. There is no Apply button: the value is the preview.
    -------------------------------------------------------------------------- */
 
 function Chip({
   active,
   onClick,
   children,
-  swatch,
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
-  swatch?: string | null;
 }) {
   return (
     <button
@@ -52,132 +55,154 @@ function Chip({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "inline-flex h-8 items-center gap-2 rounded-[2px] border px-2.5 text-[12px] transition-colors duration-150",
+        "inline-flex h-8 items-center gap-2 rounded-[6px] border px-2.5 text-[12px] transition-colors duration-150",
         active
           ? "border-signal bg-surface-2 text-ink"
           : "border-line text-ink-2 hover:border-line-2 hover:bg-surface",
       )}
     >
-      {swatch !== undefined && (
-        <span
-          aria-hidden="true"
-          className={cn(
-            "size-3.5 shrink-0 rounded-full border",
-            swatch === null ? "border-line-2 bg-signal" : "border-line-2",
-          )}
-          style={swatch === null ? undefined : { backgroundColor: swatch }}
-        />
-      )}
       {children}
       {active && <Check className="size-3 shrink-0 text-signal-text" strokeWidth={3} aria-hidden="true" />}
     </button>
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-wrap items-start gap-x-4 gap-y-2 border-t border-line py-3 first:border-t-0 first:pt-0">
-      <span className="w-[120px] shrink-0 pt-1.5 font-mono text-[9.5px] uppercase tracking-[0.14em] text-ink-3">
-        {label}
-      </span>
-      <div className="flex min-w-0 flex-1 flex-wrap gap-2">{children}</div>
+      <span className="w-[120px] shrink-0 pt-1.5 text-[11.5px] text-ink-3">{label}</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap gap-2">{children}</div>
+        {hint && <p className="mt-1.5 max-w-[64ch] text-[11.5px] leading-relaxed text-ink-3">{hint}</p>}
+      </div>
     </div>
   );
 }
 
-export function ConsoleAppearancePanel() {
-  const [appearance, setAppearance] = useConsoleAppearance();
-  const { resolved } = useSettings();
+const KNOBS: ReadonlyArray<{
+  knob: Exclude<keyof ConsoleRoomSettings, "room" | "accent"> | "accent";
+  label: () => string;
+  values: readonly string[];
+  value: (settings: ConsoleRoomSettings) => string;
+  format: (value: string) => string;
+}> = [
+  {
+    knob: "accent",
+    label: () => t("Accent"),
+    values: CONSOLE_ACCENT_SOURCES,
+    value: (settings) => settings.accent,
+    format: (value) => consoleAccentLabel(value as ConsoleRoomSettings["accent"]),
+  },
+  {
+    knob: "wall",
+    label: () => t("Wall"),
+    values: CONSOLE_WALLS,
+    value: (settings) => settings.wall,
+    format: (value) => consoleWallLabel(value as ConsoleRoomSettings["wall"]),
+  },
+  {
+    knob: "corners",
+    label: () => t("Corners"),
+    values: CONSOLE_CORNERS,
+    value: (settings) => settings.corners,
+    format: (value) => consoleCornersLabel(value as ConsoleRoomSettings["corners"]),
+  },
+  {
+    knob: "density",
+    label: () => t("Density"),
+    values: CONSOLE_DENSITIES,
+    value: (settings) => settings.density,
+    format: (value) => consoleDensityLabel(value as ConsoleRoomSettings["density"]),
+  },
+  {
+    knob: "motion",
+    label: () => t("Motion"),
+    values: CONSOLE_MOTIONS,
+    value: (settings) => settings.motion,
+    format: (value) => consoleMotionLabel(value as ConsoleRoomSettings["motion"]),
+  },
+  {
+    knob: "sound",
+    label: () => t("Sound"),
+    values: CONSOLE_SOUNDS,
+    value: (settings) => settings.sound,
+    format: (value) => consoleSoundLabel(value as ConsoleRoomSettings["sound"]),
+  },
+  {
+    knob: "haptics",
+    label: () => t("Haptics"),
+    values: CONSOLE_HAPTICS,
+    value: (settings) => settings.haptics,
+    format: (value) => consoleHapticsLabel(value as ConsoleRoomSettings["haptics"]),
+  },
+];
 
-  const setPreset = (preset: ConsolePreset) => setAppearance(withConsolePreset(appearance, preset));
-  const setAccent = (accent: ConsoleAccentId) => setAppearance({ ...appearance, accent });
-  const setBackground = (background: ConsoleBackground) => setAppearance({ ...appearance, background });
-  const setRadius = (radius: ConsoleRadius) => setAppearance({ ...appearance, radius });
-  // Both presets paint the app theme, so the swatch shows the tone the console
-  // will actually use: the desktop's own polarity (#237).
-  const swatchMode = resolved;
+export function ConsoleAppearancePanel() {
+  const [room] = useConsoleRoom();
+
+  const chooseRoom = (next: ConsoleRoomSettings["room"]) => {
+    setConsoleRoom(withConsoleRoom(room, next));
+  };
+  const chooseKnob = (knob: (typeof KNOBS)[number]["knob"], value: string) => {
+    setConsoleRoom({ ...room, [knob]: value } as ConsoleRoomSettings);
+  };
 
   return (
-    <section className="border border-line p-4" aria-label={t("Console appearance")}>
+    <section className="border border-line p-4" aria-label={t("Console room")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[13px] font-medium text-ink">{t("Console appearance")}</p>
+          <p className="text-[13px] font-medium text-ink">{t("Console room")}</p>
           <p className="mt-1 max-w-[64ch] text-[11.5px] leading-relaxed text-ink-3">
-            {t("How Console mode looks on this device. Changes preview immediately, here and in a running console window. The desktop keeps the app theme.")}
+            {t("How Console mode looks on this device. A room sets eight knobs at once; each one can then be changed on its own. The desktop keeps the app theme.")}
           </p>
         </div>
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+        <span className="text-[11.5px] text-ink-3">
           {t("Now: {values}", {
             values: [
-              consolePresetLabel(appearance.preset),
-              consoleBackgroundLabel(appearance.background),
-              consoleRadiusLabel(appearance.radius),
+              consoleRoomLabel(room.room),
+              consoleWallLabel(room.wall),
+              consoleCornersLabel(room.corners),
+              consoleDensityLabel(room.density),
             ].join(" · "),
           })}
         </span>
       </div>
 
       <div className="mt-3">
-        <Row label={t("Console style")}>
-          {CONSOLE_PRESETS.map((preset) => (
-            <Chip key={preset} active={appearance.preset === preset} onClick={() => setPreset(preset)}>
-              {consolePresetLabel(preset)}
-            </Chip>
-          ))}
-          <span className="w-full pt-1 text-[11px] leading-relaxed text-ink-3">
-            {consolePresetDescription(appearance.preset)}
-          </span>
-        </Row>
-
-        <Row label={t("Accent")}>
-          {CONSOLE_ACCENT_IDS.map((accent) => (
-            <Chip
-              key={accent}
-              active={appearance.accent === accent}
-              onClick={() => setAccent(accent)}
-              swatch={consoleAccentColor(accent, swatchMode)}
-            >
-              {consoleAccentLabel(accent)}
+        <Row label={t("Room")} hint={consoleRoomDescription(room.room)}>
+          {CONSOLE_ROOMS.map((entry) => (
+            <Chip key={entry} active={room.room === entry} onClick={() => chooseRoom(entry)}>
+              {consoleRoomLabel(entry)}
             </Chip>
           ))}
         </Row>
 
-        <Row label={t("Background")}>
-          {CONSOLE_BACKGROUNDS.map((background) => (
-            <Chip
-              key={background}
-              active={appearance.background === background}
-              onClick={() => setBackground(background)}
-            >
-              {consoleBackgroundLabel(background)}
-            </Chip>
-          ))}
-        </Row>
-
-        <Row label={t("Corners")}>
-          {CONSOLE_RADII.map((radius) => (
-            <Chip
-              key={radius}
-              active={appearance.radius === radius}
-              onClick={() => setRadius(radius)}
-            >
-              {consoleRadiusLabel(radius)}
-            </Chip>
-          ))}
-        </Row>
+        {KNOBS.map((knob) => (
+          <Row key={knob.knob} label={knob.label()}>
+            {knob.values.map((value) => (
+              <Chip
+                key={value}
+                active={knob.value(room) === value}
+                onClick={() => chooseKnob(knob.knob, value)}
+              >
+                {knob.format(value)}
+              </Chip>
+            ))}
+          </Row>
+        ))}
       </div>
 
       <div className="mt-1 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
-        <p className="max-w-[64ch] text-[11px] leading-relaxed text-ink-3">
-          {t("Changes apply immediately.")}
+        <p className="max-w-[64ch] text-[11.5px] leading-relaxed text-ink-3">
+          {t("Changes apply immediately. Reset restores the room's own answers.")}
         </p>
         <Button
           size="sm"
           variant="ghost"
           icon={<RotateCcw className="size-3.5" />}
-          onClick={() => setAppearance(DEFAULT_CONSOLE_APPEARANCE)}
+          onClick={() => setConsoleRoom(resetConsoleRoom(room))}
         >
-          {t("Reset console appearance")}
+          {t("Reset room")}
         </Button>
       </div>
     </section>

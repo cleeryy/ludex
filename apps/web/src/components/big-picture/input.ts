@@ -27,7 +27,6 @@ export type BigPictureCommand =
   | { type: "highlight"; direction: MoveDirection }
   | { type: "select" }
   | { type: "search"; step: SearchStep }
-  | { type: "layout" }
   | { type: "game" }
   | { type: "power" }
   | { type: "exit" }
@@ -197,9 +196,6 @@ export function routeKey(overlay: BigPictureOverlay | null, key: string): BigPic
     case "d":
     case "D":
       return { type: "open", overlay: "downloads" };
-    case "l":
-    case "L":
-      return { type: "layout" };
     case "g":
     case "G":
       return { type: "game" };

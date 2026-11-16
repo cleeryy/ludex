@@ -84,16 +84,16 @@
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/assets/screenshots/readme/console-soft.png" alt="Console mode, Soft appearance: cream rounded tiles over blurred key art">
-      <p><strong>Console mode, Soft.</strong> A Switch-like, ten-foot shell that Sunshine can
-      publish as a single app: tiles, shelf, system bar, controller-first navigation and its
-      own sound language.</p>
+      <img src="docs/assets/screenshots/readme/console-stage.png" alt="Console Stage: a warm charcoal stage with the selected game, one rail of covers and the system band">
+      <p><strong>Console, Stage.</strong> The Cabinet room: one lit game on the stage, a rail
+      of five and a half covers, and a band of five destinations. Controller-first, with its
+      own sound language; Sunshine can publish it as a single app.</p>
     </td>
     <td width="50%">
-      <img src="docs/assets/screenshots/readme/console-studio.png" alt="Console mode, Studio appearance: dark sharp archive surfaces over artwork">
-      <p><strong>Console mode, Studio.</strong> The archive look: sharp corners, dark
-      materials, the same layout and navigation. Both presets are switchable from the
-      console's own settings.</p>
+      <img src="docs/assets/screenshots/readme/console-wall.png" alt="Console Wall: the library as a grid of covers under shelf chips">
+      <p><strong>Console, Wall.</strong> The same library as a wall of covers under shelf
+      chips, with the stage header keeping the primary action in reach. Rooms and eight knobs
+      change the material; nothing asks you to confirm.</p>
     </td>
   </tr>
 </table>

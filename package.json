@@ -16,7 +16,9 @@
     "desktop:dev": "pnpm --filter @ludex/desktop dev",
     "desktop:build": "pnpm --filter @ludex/desktop build",
     "desktop:dist": "pnpm --filter @ludex/desktop dist",
-    "i18n": "pnpm --filter @ludex/web i18n:check"
+    "i18n": "pnpm --filter @ludex/web i18n:check",
+    "screenshots:console": "pnpm --filter @ludex/e2e console:screenshots",
+    "brand:assets": "pnpm --filter @ludex/e2e brand:assets"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

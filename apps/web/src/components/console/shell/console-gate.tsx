@@ -1,57 +1,90 @@
 import { useState, type FormEvent } from "react";
-import { AlertTriangle, WifiOff } from "lucide-react";
 import { errorMessage } from "@/lib/http";
 import { t } from "@/lib/i18n";
 import { useAuth } from "@/state/auth";
+import { useSettings } from "@/state/settings";
 import { Wordmark } from "@/components/brand";
 import { Button, Field, Input } from "@/components/ui/controls";
+import { BUILTIN_THEMES, cssVarsFor } from "@/theme/registry";
+import {
+  DEFAULT_CONSOLE_ROOM,
+  cabinetTokens,
+  consoleRoomAttributes,
+  type ConsoleRoomSettings,
+} from "@/theme/console-room";
 
 /**
- * Honest Console gates (#267).
+ * Honest Console gates (#267, #268).
  *
- * The desktop `Gate` redirects a signed-out player to `/login`, which is a
- * desktop screen with a desktop density and a browser sign-in form. A console
- * that is switched on in a living room never shows that: booting is a skeleton
- * the shape of the stage and rail, signed out is a 10-foot sign-in panel on the
- * same material, no server says so, and offline says so. No spinner, no
- * shimmer, no desktop flash.
+ * Booting is a skeleton the shape of the stage and rail; signed out is a
+ * 10-foot sign-in panel on the Cabinet material; no server and offline say so.
+ * No spinner, no shimmer, no desktop flash — and the gates wear the Cabinet's
+ * default room, because they render before the shell and before the player's
+ * own room is known.
  */
+
+/** The Cabinet tokens a gate can render without the shell (#268). */
+function useGateMaterial(settings: ConsoleRoomSettings = DEFAULT_CONSOLE_ROOM) {
+  const { tokens, resolved } = useSettings();
+  const lightTokens = BUILTIN_THEMES.find((theme) => theme.id === "light")?.tokens ?? tokens;
+  const darkTokens = BUILTIN_THEMES.find((theme) => theme.id === "midnight")?.tokens ?? tokens;
+  return {
+    style: cssVarsFor(
+      cabinetTokens({ settings, tokens, lightTokens, darkTokens, mode: resolved }),
+    ),
+    attributes: consoleRoomAttributes(settings),
+  };
+}
 
 /** The console's own boot frame: stage + rail silhouette, never a spinner. */
 export function ConsoleBoot() {
+  const material = useGateMaterial();
   return (
-    <div className="bp-root relative flex h-dvh flex-col overflow-hidden bg-bg text-ink" aria-busy="true">
-      <div className="relative z-10 flex h-[var(--bp-bar-h)] shrink-0 items-center justify-between border-b bp-chrome bp-pad-x">
-        <Wordmark height={17} />
-        <span className="h-2 w-24 rounded-full bg-line" />
+    <div
+      className="bp-root relative flex h-dvh flex-col overflow-hidden bg-bg text-ink"
+      style={material.style}
+      {...material.attributes}
+      aria-busy="true"
+    >
+      <div
+        data-bp-bleed-top="true"
+        className="relative z-10 flex shrink-0 items-center justify-between border-b bp-chrome bp-pad-x"
+      >
+        <Wordmark height={28} cut="console" />
+        <span className="bp-dot" aria-hidden="true" />
       </div>
       <div className="relative z-10 flex min-h-0 flex-1 flex-col gap-4 p-6 sm:flex-row sm:p-10">
         <div className="flex min-w-0 flex-1 flex-col gap-4">
-          <div className="h-3 w-32 rounded-full bg-line" />
-          <div className="h-[clamp(120px,18vh,220px)] w-full max-w-[640px] rounded-[var(--bp-radius-md)] bg-surface-2/60" />
+          <span className="h-[calc(var(--bp-u)*8)] w-32 rounded-full bg-line" />
+          <span className="h-[calc(var(--bp-u)*96)] w-full max-w-[640px] rounded-[var(--bp-radius-object)] bg-surface-2/60" />
           <div className="mt-auto flex gap-3">
-            <div className="h-10 w-28 rounded-[var(--bp-radius-sm)] bg-surface-2/70" />
-            <div className="h-10 w-28 rounded-[var(--bp-radius-sm)] bg-line/70" />
+            <span className="h-[calc(var(--bp-u)*64)] w-28 rounded-[var(--bp-radius-cover)] bg-surface-2/70" />
+            <span className="h-[calc(var(--bp-u)*64)] w-28 rounded-[var(--bp-radius-cover)] bg-line/70" />
           </div>
         </div>
-        <div className="flex gap-3 sm:w-[42%] sm:max-w-[520px]">
+        <div className="flex gap-[var(--bp-rail-gap)] sm:w-[42%] sm:max-w-[520px]">
           {[0, 1, 2].map((index) => (
-            <div
+            <span
               key={index}
-              className="aspect-[3/4] flex-1 rounded-[var(--bp-radius-sm)] bg-surface-2/50"
+              className="aspect-[3/4] flex-1 rounded-[var(--bp-radius-cover)] bg-surface-2/50"
             />
           ))}
         </div>
       </div>
-      <div className="relative z-10 h-10 border-t bp-chrome" />
+      <div className="relative z-10 h-[calc(var(--bp-u)*40)] border-t bp-chrome" />
       <span className="sr-only">{t("Opening the library")}</span>
     </div>
   );
 }
 
 function ConsoleGateFrame({ children }: { children: React.ReactNode }) {
+  const material = useGateMaterial();
   return (
-    <div className="bp-root relative grid min-h-dvh place-items-center overflow-hidden bg-bg px-6 text-ink">
+    <div
+      className="bp-root relative grid min-h-dvh place-items-center overflow-hidden bg-bg px-6 text-ink"
+      style={material.style}
+      {...material.attributes}
+    >
       <div className="grain" aria-hidden="true" />
       <div className="relative z-10 w-full max-w-[520px]">{children}</div>
     </div>
@@ -63,8 +96,8 @@ export function ConsoleNoServer({ message }: { message: string }) {
   const { retryBoot } = useAuth();
   return (
     <ConsoleGateFrame>
-      <Wordmark height={20} />
-      <h1 className="mt-6 text-bp-hero font-semibold leading-tight tracking-[-0.03em]">
+      <Wordmark height={48} cut="console" className="text-ink" />
+      <h1 className="mt-6 text-bp-hero font-semibold leading-[1.02] tracking-[-0.02em]">
         {t("The server did not answer")}
       </h1>
       <p className="mt-3 text-bp-body leading-relaxed text-ink-2">{message}</p>
@@ -72,7 +105,7 @@ export function ConsoleNoServer({ message }: { message: string }) {
         {t("Check that the Ludex server is running, then try again.")}
       </p>
       <div className="mt-6">
-        <Button variant="primary" size="lg" onClick={retryBoot}>
+        <Button variant="primary" size="lg" className="bp-button" onClick={retryBoot}>
           {t("Try again")}
         </Button>
       </div>
@@ -84,14 +117,18 @@ export function ConsoleNoServer({ message }: { message: string }) {
 export function ConsoleOffline({ onRetry }: { onRetry: () => void }) {
   return (
     <ConsoleGateFrame>
-      <Wordmark height={20} />
+      <Wordmark height={48} cut="console" className="text-ink" />
       <div className="mt-6 flex items-center gap-3">
-        <WifiOff className="size-6 text-ink-3" aria-hidden="true" />
-        <h1 className="text-bp-hero font-semibold leading-tight tracking-[-0.03em]">{t("This device is offline.")}</h1>
+        <span className="bp-dot" data-tone="muted" aria-hidden="true" />
+        <h1 className="text-bp-hero font-semibold leading-[1.02] tracking-[-0.02em]">
+          {t("This device is offline.")}
+        </h1>
       </div>
-      <p className="mt-3 text-bp-body leading-relaxed text-ink-2">{t("Check the network, then try again.")}</p>
+      <p className="mt-3 text-bp-body leading-relaxed text-ink-2">
+        {t("Check the network, then try again.")}
+      </p>
       <div className="mt-6">
-        <Button variant="primary" size="lg" onClick={onRetry}>
+        <Button variant="primary" size="lg" className="bp-button" onClick={onRetry}>
           {t("Try again")}
         </Button>
       </div>
@@ -103,8 +140,8 @@ export function ConsoleOffline({ onRetry }: { onRetry: () => void }) {
 export function ConsoleNeedsSetup() {
   return (
     <ConsoleGateFrame>
-      <Wordmark height={20} />
-      <h1 className="mt-6 text-bp-hero font-semibold leading-tight tracking-[-0.03em]">
+      <Wordmark height={48} cut="console" className="text-ink" />
+      <h1 className="mt-6 text-bp-hero font-semibold leading-[1.02] tracking-[-0.02em]">
         {t("Set up Ludex on the server before using the console.")}
       </h1>
       <p className="mt-3 text-bp-body leading-relaxed text-ink-2">
@@ -145,8 +182,10 @@ export function ConsoleSignedOut() {
 
   return (
     <ConsoleGateFrame>
-      <Wordmark height={20} />
-      <h1 className="mt-6 text-bp-hero font-semibold leading-tight tracking-[-0.03em]">{t("You are signed out.")}</h1>
+      <Wordmark height={48} cut="console" className="text-ink" />
+      <h1 className="mt-6 text-bp-hero font-semibold leading-[1.02] tracking-[-0.02em]">
+        {t("You are signed out.")}
+      </h1>
       <p className="mt-2 text-bp-body leading-relaxed text-ink-2">
         {t("Sign in on this device to use the console.")}
       </p>
@@ -183,15 +222,15 @@ export function ConsoleSignedOut() {
         )}
         {error && (
           <p role="alert" className="flex items-start gap-2 text-bp-meta leading-relaxed text-danger">
-            <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <span className="bp-dot mt-2 shrink-0" aria-hidden="true" />
             {error}
           </p>
         )}
         <div className="flex items-center gap-3">
-          <Button type="submit" variant="primary" size="lg" disabled={busy}>
+          <Button type="submit" variant="primary" size="lg" className="bp-button" disabled={busy}>
             {busy ? t("Signing in…") : t("Sign in")}
           </Button>
-          <span className="font-mono text-bp-micro text-ink-3">{setup?.serverName ?? "Ludex"}</span>
+          <span className="text-bp-meta text-ink-3">{setup?.serverName ?? "Ludex"}</span>
         </div>
       </form>
     </ConsoleGateFrame>

@@ -59,7 +59,7 @@ AppProviders (QueryClient, Settings, Toast, Auth, Preferences, I18n, Update)
 ## IA
 
 - **Home:** stage (selected game + primary/secondary action) + rail (5.5 covers) + band (Search · Library · Downloads · Settings · Power).
-- **Library:** shelf/grid + shelf chips; Collections is a shelf.
+- **Library:** shelf/grid + shelf chips; Collections is a chip inside Library.
 - **Game:** one primary action + tabs (Overview · Saves · Artwork · Controller).
 - **Settings:** 4 rooms × 8 knobs, live preview, no Apply.
 - **Power:** Sleep · Restart · Quit · Sign out; confirm defaults to Cancel.
@@ -73,6 +73,62 @@ AppProviders (QueryClient, Settings, Toast, Auth, Preferences, I18n, Update)
 - Type: 24u floor, 28u body/actions, 48u+ hero; mono only for numerals/units/shortcuts. 7:1 contrast.
 - No six-tile grids, `01–06`, uppercase mono words, layout picker, Soft/pastels, toasts in Console, desktop dialogs.
 - Customization: 4 rooms × 8 knobs, live preview, “from artwork” accent validated at 7:1, device-local; no CSS injection.
+
+## Shipped in #268
+
+The design/token lane landed the Cabinet system on top of the #267 shell without
+moving the input owner or the route table.
+
+- **Tokens** — `theme/console-room.ts`: four rooms (Night, Projector, Daylight,
+  Arcade) × eight knobs (room, accent, wall, corners, density, motion, sound,
+  haptics), a v3 record (`ludex.console.room`), the v1/v2 migration (Soft and the
+  five pastels become Night + Theme), `cabinetTokens` (app theme → warm cast →
+  room polarity → accent → 7:1 pass) and the CSS attributes the stylesheet reads.
+- **Accent** — `theme/artwork-accent.ts`: dominant chromatic cluster from the
+  selected cover, OKLCH chroma clamped to 0.16, lifted to 7:1, cached per game,
+  and a visible line when a cover has no colour to give.
+- **Compositions** — Stage (`shelf`), Wall (`grid`) and List (`compact`). The
+  six-layout registry, the picker and its four views are deleted; the toggle is
+  a Settings row, and a stored retired layout migrates to Stage.
+- **Shell** — `components/console/shell/console-shell.tsx` renders the band
+  (Search · Library · Downloads · Settings · Power), the monogram bar, one hint
+  strip and the Cabinet materials. `use-console-settings.ts` owns the eight
+  knobs; `console-dialogs.tsx` keeps exactly two modals (launch, power confirm).
+- **Gates and notice** — `components/console/shell/console-gate.tsx` and
+  `surfaces/console-notice.tsx` wear the Cabinet room and the 24u floor: boot is
+  a stage/rail silhouette, and a notice is one card above the band, never a
+  desktop toast.
+- **Type** — 24/28/34/56u; the 20u step is gone, every console heading comes
+  from `text-bp-*`, and a test fails on an ad-hoc `clamp()` or pixel size.
+- **Materials** — one blurred wallpaper layer, no `backdrop-filter` on panels,
+  depth by luminance, one bracket, radii ≤ 24u.
+- **Brand** — the wordmark keeps its drawing and gains a Console cut (heavier
+  stroke, larger dot); the bar carries the monogram; web/Tauri icons and the
+  Sunshine poster are regenerated in the Cabinet palette
+  (`e2e/cabinet-assets.mjs`).
+- **Tests** — `theme/console-room.test.ts`, `theme/artwork-accent.test.ts`,
+  `styles/console-cabinet.test.ts` (the kill list over `components/console/**`
+  and `components/big-picture/**`), plus the rewritten `styles/type-scale.test.ts`,
+  `styles/console-material.test.ts` and `theme/console-contrast.test.ts` (7:1 for
+  every room × theme).
+- **Screenshots** — `e2e/console-screenshots.mjs` captures Stage, Wall, List,
+  Settings and Power at 720p, 1080p and 4K on `/console*`, plus a 5 % overscan
+  crop of each, and measures every control against the safe band. Output and
+  measurements live in `docs/assets/screenshots/console/`.
+
+## Screenshots
+
+| View | 720p | 1080p | 4K |
+|---|---|---|---|
+| Stage | [720](../assets/screenshots/console/stage-720.png) | [1080](../assets/screenshots/console/stage-1080.png) | [4K](../assets/screenshots/console/stage-2160.png) |
+| Wall | [720](../assets/screenshots/console/wall-720.png) | [1080](../assets/screenshots/console/wall-1080.png) | [4K](../assets/screenshots/console/wall-2160.png) |
+| List | [720](../assets/screenshots/console/list-720.png) | [1080](../assets/screenshots/console/list-1080.png) | [4K](../assets/screenshots/console/list-2160.png) |
+| Settings | [720](../assets/screenshots/console/settings-720.png) | [1080](../assets/screenshots/console/settings-1080.png) | [4K](../assets/screenshots/console/settings-2160.png) |
+| Power | [720](../assets/screenshots/console/power-720.png) | [1080](../assets/screenshots/console/power-1080.png) | [4K](../assets/screenshots/console/power-2160.png) |
+
+The `-overscan` variants are a 5 % crop of each side: what a TV with overscan
+shows. `docs/assets/screenshots/console/manifest.json` records the measured
+boxes and proves the safe area is empty.
 
 ## Issues
 
@@ -94,6 +150,6 @@ AppProviders (QueryClient, Settings, Toast, Auth, Preferences, I18n, Update)
 
 ## Notes for agents
 
-- #237 already landed Studio default, 24/28/48u scale, downloads selector, memoised cards and lazy routes. Verify/finish; do not reimplement.
+- #237 already landed Studio default, 24/28/48u scale, downloads selector, memoised cards and lazy routes; #268 replaced the Studio/Soft presets with rooms and cut the registry to three compositions. Do not reintroduce a preset picker.
 - The skill `console-mode-ui` is the short contract; update it and this directory together when a rule changes.
 - Old `docs/big-picture/` specs are legacy; this directory supersedes them.

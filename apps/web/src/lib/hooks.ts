@@ -204,7 +204,13 @@ export function useBookmark() {
   });
 }
 
-export function useLaunchGame() {
+/**
+ * Launches a game and refreshes the library around it.
+ *
+ * `silent` is for Console: the launch plate is the only messaging channel there,
+ * and a desktop toast would paint over a TV interface (#268).
+ */
+export function useLaunchGame({ silent = false }: { silent?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { push } = useToast();
 
@@ -212,13 +218,16 @@ export function useLaunchGame() {
     mutationFn: (game: { id: number; title: string; executable?: string | null }) =>
       native.launchGame({ gameId: game.id, executable: game.executable ?? null }),
     onSuccess: (_result, game) => {
-      push({ title: t("{title} is starting", { title: game.title }), description: t("Playtime is recorded when the game exits.") });
+      if (!silent) {
+        push({ title: t("{title} is starting", { title: game.title }), description: t("Playtime is recorded when the game exits.") });
+      }
       void queryClient.invalidateQueries({ queryKey: ["games"] });
       void queryClient.invalidateQueries({ queryKey: ["recent-games"] });
       // #191: the game page flips to Resume without waiting for the next poll.
       void queryClient.invalidateQueries({ queryKey: ["game-session", game.id] });
     },
     onError: (error: Error) => {
+      if (silent) return;
       push({ title: t("Could not launch the game"), description: error.message, tone: "danger" });
     },
   });

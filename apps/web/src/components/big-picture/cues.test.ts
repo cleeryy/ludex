@@ -37,7 +37,6 @@ describe("cueForCommand", () => {
       expect(cue({ type: "open", overlay })).toBeNull();
     }
     expect(cue({ type: "close" })).toBeNull();
-    expect(cue({ type: "layout" })).toBeNull();
     expect(cue({ type: "power" })).toBeNull();
   });
 

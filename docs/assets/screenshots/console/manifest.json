@@ -1,0 +1,241 @@
+{
+  "generator": "e2e/console-screenshots.mjs",
+  "commit": "f4da701",
+  "generatedAt": "2026-11-16T16:50:47.260Z",
+  "overscan": 0.05,
+  "notes": [
+    "Captured from the web build compiled with VITE_USE_MOCKS=true (demo adapter, no server).",
+    "Locale en-US, reduced motion, fixed clock at 2026-11-16T10:24:00Z, Night room.",
+    "`-overscan` images are a 5 % crop of each side: what a TV with overscan shows.",
+    "4K captures are measured at 3840x2160 and stored at 1920 px wide.",
+    "Every listed control must sit inside the action-safe area; `violations` must stay empty."
+  ],
+  "captures": [
+    {
+      "view": "stage",
+      "label": "Stage",
+      "resolution": "1280x720",
+      "file": "docs/assets/screenshots/console/stage-720.png",
+      "overscanFile": "docs/assets/screenshots/console/stage-720-overscan.png",
+      "safeArea": "64x36",
+      "measured": 18,
+      "violations": [],
+      "overscan": {
+        "width": 1152,
+        "height": 648
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "wall",
+      "label": "Wall",
+      "resolution": "1280x720",
+      "file": "docs/assets/screenshots/console/wall-720.png",
+      "overscanFile": "docs/assets/screenshots/console/wall-720-overscan.png",
+      "safeArea": "64x36",
+      "measured": 12,
+      "violations": [],
+      "overscan": {
+        "width": 1152,
+        "height": 648
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "list",
+      "label": "List",
+      "resolution": "1280x720",
+      "file": "docs/assets/screenshots/console/list-720.png",
+      "overscanFile": "docs/assets/screenshots/console/list-720-overscan.png",
+      "safeArea": "64x36",
+      "measured": 17,
+      "violations": [],
+      "overscan": {
+        "width": 1152,
+        "height": 648
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "settings",
+      "label": "Settings · Appearance",
+      "resolution": "1280x720",
+      "file": "docs/assets/screenshots/console/settings-720.png",
+      "overscanFile": "docs/assets/screenshots/console/settings-720-overscan.png",
+      "safeArea": "64x36",
+      "measured": 19,
+      "violations": [],
+      "overscan": {
+        "width": 1152,
+        "height": 648
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "power",
+      "label": "Power",
+      "resolution": "1280x720",
+      "file": "docs/assets/screenshots/console/power-720.png",
+      "overscanFile": "docs/assets/screenshots/console/power-720-overscan.png",
+      "safeArea": "64x36",
+      "measured": 17,
+      "violations": [],
+      "overscan": {
+        "width": 1152,
+        "height": 648
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "stage",
+      "label": "Stage",
+      "resolution": "1920x1080",
+      "file": "docs/assets/screenshots/console/stage-1080.png",
+      "overscanFile": "docs/assets/screenshots/console/stage-1080-overscan.png",
+      "safeArea": "96x54",
+      "measured": 17,
+      "violations": [],
+      "overscan": {
+        "width": 1728,
+        "height": 972
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "wall",
+      "label": "Wall",
+      "resolution": "1920x1080",
+      "file": "docs/assets/screenshots/console/wall-1080.png",
+      "overscanFile": "docs/assets/screenshots/console/wall-1080-overscan.png",
+      "safeArea": "96x54",
+      "measured": 18,
+      "violations": [],
+      "overscan": {
+        "width": 1728,
+        "height": 972
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "list",
+      "label": "List",
+      "resolution": "1920x1080",
+      "file": "docs/assets/screenshots/console/list-1080.png",
+      "overscanFile": "docs/assets/screenshots/console/list-1080-overscan.png",
+      "safeArea": "96x54",
+      "measured": 19,
+      "violations": [],
+      "overscan": {
+        "width": 1728,
+        "height": 972
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "settings",
+      "label": "Settings · Appearance",
+      "resolution": "1920x1080",
+      "file": "docs/assets/screenshots/console/settings-1080.png",
+      "overscanFile": "docs/assets/screenshots/console/settings-1080-overscan.png",
+      "safeArea": "96x54",
+      "measured": 17,
+      "violations": [],
+      "overscan": {
+        "width": 1728,
+        "height": 972
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "power",
+      "label": "Power",
+      "resolution": "1920x1080",
+      "file": "docs/assets/screenshots/console/power-1080.png",
+      "overscanFile": "docs/assets/screenshots/console/power-1080-overscan.png",
+      "safeArea": "96x54",
+      "measured": 16,
+      "violations": [],
+      "overscan": {
+        "width": 1728,
+        "height": 972
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "stage",
+      "label": "Stage",
+      "resolution": "3840x2160",
+      "file": "docs/assets/screenshots/console/stage-2160.png",
+      "overscanFile": "docs/assets/screenshots/console/stage-2160-overscan.png",
+      "safeArea": "192x108",
+      "measured": 17,
+      "violations": [],
+      "overscan": {
+        "width": 3456,
+        "height": 1944
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "wall",
+      "label": "Wall",
+      "resolution": "3840x2160",
+      "file": "docs/assets/screenshots/console/wall-2160.png",
+      "overscanFile": "docs/assets/screenshots/console/wall-2160-overscan.png",
+      "safeArea": "192x108",
+      "measured": 20,
+      "violations": [],
+      "overscan": {
+        "width": 3456,
+        "height": 1944
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "list",
+      "label": "List",
+      "resolution": "3840x2160",
+      "file": "docs/assets/screenshots/console/list-2160.png",
+      "overscanFile": "docs/assets/screenshots/console/list-2160-overscan.png",
+      "safeArea": "192x108",
+      "measured": 20,
+      "violations": [],
+      "overscan": {
+        "width": 3456,
+        "height": 1944
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "settings",
+      "label": "Settings · Appearance",
+      "resolution": "3840x2160",
+      "file": "docs/assets/screenshots/console/settings-2160.png",
+      "overscanFile": "docs/assets/screenshots/console/settings-2160-overscan.png",
+      "safeArea": "192x108",
+      "measured": 18,
+      "violations": [],
+      "overscan": {
+        "width": 3456,
+        "height": 1944
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "power",
+      "label": "Power",
+      "resolution": "3840x2160",
+      "file": "docs/assets/screenshots/console/power-2160.png",
+      "overscanFile": "docs/assets/screenshots/console/power-2160-overscan.png",
+      "safeArea": "192x108",
+      "measured": 16,
+      "violations": [],
+      "overscan": {
+        "width": 3456,
+        "height": 1944
+      },
+      "pageErrors": []
+    }
+  ],
+  "violations": []
+}

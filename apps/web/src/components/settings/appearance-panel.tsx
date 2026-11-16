@@ -5,7 +5,6 @@ import { t } from "@/lib/i18n";
 import { useSettings } from "@/state/settings";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Textarea } from "@/components/ui/controls";
-import { BigPictureLayoutPanel } from "@/components/big-picture/layout-panel";
 import { BigPictureSoundPanel } from "@/components/big-picture/sound-panel";
 import { ConsoleAppearancePanel } from "@/components/settings/console-appearance-panel";
 import { AA_FOCUS, AA_TEXT, ensureContrast, normalizeHex } from "@/theme/contrast";
@@ -601,8 +600,6 @@ export function AppearancePanel() {
           </div>
         )}
       </section>
-
-      <BigPictureLayoutPanel />
 
       <ConsoleAppearancePanel />
 

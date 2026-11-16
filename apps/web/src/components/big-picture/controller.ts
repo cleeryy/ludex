@@ -103,7 +103,6 @@ export type HintContext =
   | "actions"
   | "settings"
   | "power"
-  | "picker"
   | "menu"
   | "exit"
   | "profiles"
@@ -227,12 +226,10 @@ const KEYBOARD_LABELS: Record<HintInput, string[]> = {
   nextTab: ["]"],
 };
 
-/* The rails only walk sideways, so their keyboard hint stays honest. The
-   Spotlight adds vertical zones, but they are the shell's, not the row's. */
+/* The Stage rail only walks sideways; the Wall and the List add vertical
+   travel, so their keyboard hint says so. */
 function keyboardNavigate(layout: BigPictureLayout): string[] {
-  return layout === "shelf" || layout === "hero" || layout === "dock" || layout === "spotlight"
-    ? ["←", "→"]
-    : ["←", "→", "↑", "↓"];
+  return layout === "shelf" ? ["←", "→"] : ["←", "→", "↑", "↓"];
 }
 
 /**
@@ -255,20 +252,16 @@ export function hintsFor(context: HintContext, { layout, family, connected, swap
 
   switch (context) {
     case "library":
+      // The strip shows the first three; A is the primary action when there is
+      // one, never a second "move" hint competing with the d-pad.
       return [
-        { id: "select", keys: keys("navigate") },
-        { id: "shelf", keys: keys("shelf") },
         { id: "play", keys: keys("confirm") },
+        { id: "shelf", keys: keys("shelf") },
+        { id: "menu", keys: keys("menu") },
+        { id: "select", keys: keys("navigate") },
         { id: "search", keys: keys("search") },
         { id: "downloads", keys: keys("downloads") },
-        { id: "menu", keys: keys("menu") },
         { id: "exit", keys: keys("back") },
-      ];
-    case "picker":
-      return [
-        { id: "choose", keys: keys("navigate") },
-        { id: "apply", keys: keys("confirm") },
-        { id: "close", keys: keys("back") },
       ];
     case "home":
       return [

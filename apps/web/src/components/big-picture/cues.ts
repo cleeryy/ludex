@@ -15,7 +15,7 @@ import type { BigPictureCommand } from "./input";
      cue happened: `open` played an overlay cue in the router and again in
      `openOverlay`.
 
-   #229: the chrome answers with one dry `click` (tab, shelf, page, layout,
+   #229: the chrome answers with one dry `click` (tab, shelf, page,
    settings section, overlay open/close, back, a disabled press). Only movement
    keeps its own voice.
 
@@ -43,13 +43,12 @@ export function cueForCommand(command: BigPictureCommand, view: CommandView): Cu
     case "select":
     case "open":
     case "close":
-    case "layout":
     case "power":
     case "exit":
     case "game":
     case "search":
     case "none":
-      // The surface (overlay, app, layout picker, power panel) or the action it
+      // The surface (overlay, app, power panel) or the action it
       // runs owns the cue; firing here too would say it twice.
       return null;
   }

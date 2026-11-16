@@ -1,9 +1,9 @@
-import { Search as SearchIcon } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import type { RefObject } from "react";
 import { cn } from "@/lib/cn";
 import { formatYear } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { Glyph } from "./glyphs";
 import { OverlayShell } from "./overlays";
 import {
   SEARCH_KEY_ROWS,
@@ -54,7 +54,7 @@ export function SearchOverlay({
       {...shell}
     >
       <div className="flex items-center gap-2 border border-line bg-bg/60 px-3 py-2">
-        <SearchIcon className="size-4 shrink-0 text-ink-3" aria-hidden="true" />
+        <Glyph name="search" className="size-[calc(var(--bp-u)*24)] shrink-0 text-ink-3" />
         <input
           ref={inputRef}
           value={query}
@@ -126,9 +126,6 @@ export function SearchOverlay({
                         : "border-transparent hover:border-line hover:bg-surface/60",
                     )}
                   >
-                    <span className="num w-6 shrink-0 font-mono text-bp-meta text-ink-3">
-                      {String(position + 1).padStart(2, "0")}
-                    </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-bp-body text-ink">{cell.game.title}</span>
                       <span className="num block truncate text-bp-meta text-ink-3">

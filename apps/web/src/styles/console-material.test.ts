@@ -3,13 +3,13 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 /* --------------------------------------------------------------------------
-   Console material budget (#229).
+   Cabinet material budget (#229, #268).
 
-   Static blur is the whole point of the Soft preset, and the way it stops
-   being affordable is an animated `backdrop-filter` or a blur behind a
-   scrolling list. These assertions keep the stylesheet honest: the fallbacks
-   exist, the radius scale stays in the 16–24 px band, and no transition or
-   animation ever targets a blur.
+   The blur budget is one layer — the wallpaper — painted once. The way it stops
+   being affordable is an animated `backdrop-filter` or a blur behind a scrolling
+   list, so these assertions keep the stylesheet honest: no panel blurs, the
+   radius family never exceeds 24u, the four Cabinet steps exist, and the
+   accessibility fallbacks ship.
    -------------------------------------------------------------------------- */
 
 const css = fs.readFileSync(
@@ -36,25 +36,40 @@ describe("console materials", () => {
       const transitions = [...block.matchAll(/transition(?:-property)?\s*:\s*([^;]+);/g)].map(
         (match) => match[1],
       );
-      // `all` would pick the blur up too; only listed properties are safe.
       return transitions.some((value) => /backdrop-filter|\ball\b/.test(value));
     });
     expect(offenders).toEqual([]);
   });
 
-  it("keeps the Soft card and panel radii in the 16–24 px band", () => {
-    const soft = /\[data-console-radius="soft"\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
-    const read = (name: string) => Number(new RegExp(`--bp-radius-${name}:\\s*(\\d+(?:\\.\\d+)?)px`).exec(soft)?.[1]);
-    // Covers are a step smaller than cards; panels and sheets own the band.
-    expect(read("sm")).toBeGreaterThanOrEqual(10);
-    expect(read("md")).toBeGreaterThanOrEqual(16);
-    expect(read("md")).toBeLessThanOrEqual(24);
-    expect(read("lg")).toBeGreaterThanOrEqual(16);
-    expect(read("lg")).toBeLessThanOrEqual(24);
+  it("never blurs a panel: the wallpaper is the only blurred layer", () => {
+    for (const selector of [".bp-chrome", ".bp-tile", ".bp-sheet", ".bp-panel", ".bp-band"]) {
+      const block = new RegExp(`\\${selector}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+      expect(block, `${selector} must not blur its own backdrop`).not.toContain("backdrop-filter");
+    }
+    const declarationsOnly = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const blurred = [...declarationsOnly.matchAll(/(?:^|\s)(?:-webkit-)?backdrop-filter\s*:/gm)];
+    expect(blurred.length).toBeLessThanOrEqual(1);
+    expect(css).toContain(".bp-backdrop-art");
+    expect(css).toMatch(/filter:\s*blur\(var\(--bp-wall-blur\)\)/);
   });
 
-  it("defines the material tokens for Studio before any console mounts", () => {
-    // Root defaults are the studio material; a console that never sets an
+  it("keeps the Cabinet radius family at or below 24u", () => {
+    for (const name of ["cover", "object", "surface", "sheet"]) {
+      const match = new RegExp(`--bp-radius-${name}:\\s*calc\\(var\\(--bp-u\\) \\* (\\d+(?:\\.\\d+)?)\\)`).exec(css);
+      expect(match, `--bp-radius-${name} must be expressed in --bp-u`).not.toBeNull();
+      expect(Number(match?.[1])).toBeLessThanOrEqual(24);
+    }
+    // The default is the Cabinet family: 6 / 14 / 20 / 24.
+    expect(css).toContain("--bp-radius-cover: calc(var(--bp-u) * 6)");
+    expect(css).toContain("--bp-radius-object: calc(var(--bp-u) * 14)");
+    expect(css).toContain("--bp-radius-surface: calc(var(--bp-u) * 20)");
+    expect(css).toContain("--bp-radius-sheet: calc(var(--bp-u) * 24)");
+    // The retiring scale is gone: no token can reintroduce a 34 px card.
+    expect(css).not.toMatch(/--bp-radius-(?:sm|md|lg):/);
+  });
+
+  it("defines the material tokens before any console mounts", () => {
+    // Root defaults are the Night material; a console that never sets an
     // attribute must still resolve every token it reads.
     for (const token of [
       "--bp-material-filter",
@@ -62,10 +77,20 @@ describe("console materials", () => {
       "--bp-material-card",
       "--bp-material-sheet",
       "--bp-material-border",
-      "--bp-radius-sm",
+      "--bp-radius-cover",
       "--bp-wall",
+      "--bp-rim",
+      "--bp-safe-x",
     ]) {
       expect(css).toMatch(new RegExp(`${token}:`));
     }
+  });
+
+  it("ships depth by luminance, not by drop shadow", () => {
+    const tile = /\.bp-tile\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(tile).toContain("box-shadow: none");
+    const sheet = /\.bp-sheet\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    // A sheet separates with a 1px ring (zero blur), never a 40u blur.
+    expect(sheet).toMatch(/box-shadow:\s*0 0 0 1px/);
   });
 });
