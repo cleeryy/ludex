@@ -3862,5 +3862,6 @@
   "The original archive look: crisp hairlines, flat panels and the app theme.": "Der ursprüngliche Archiv-Look: klare Haarlinien, flache Bildschirme und das App-Thema.",
   "The Soft console style uses its own cream palette. Switch Console style to Studio to follow the app theme.": "Der Soft-Konsolenstil verwendet eine eigene Cremepalette. Wechseln Sie im Konsolenstil zu Studio, um dem App-Thema zu folgen.",
   "Theme accent": "Themenakzent",
-  "What the console floats over. Artwork keeps the selected game behind the chrome.": "Worüber die Konsole schwebt. Artwork hält das ausgewählte Spiel hinter dem Chrom."
+  "What the console floats over. Artwork keeps the selected game behind the chrome.": "Worüber die Konsole schwebt. Artwork hält das ausgewählte Spiel hinter dem Chrom.",
+  "VirusTotal: {count} scans queued": "VirusTotal: {count} Scans in der Warteschlange"
 }

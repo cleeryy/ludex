@@ -3737,6 +3737,7 @@
   "VirusTotal report": "VirusTotal report",
   "VirusTotal scan queue finished": "VirusTotal scan queue finished",
   "VirusTotal was unreachable. The verdict is unknown, not clean; retry later.": "VirusTotal was unreachable. The verdict is unknown, not clean; retry later.",
+  "VirusTotal: {count} scans queued": "VirusTotal: {count} scans queued",
   "VirusTotal: {label} ({badge})": "VirusTotal: {label} ({badge})",
   "Visibility": "Visibility",
   "Visual C++": "Visual C++",

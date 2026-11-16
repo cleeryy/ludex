@@ -3866,5 +3866,6 @@
   "The original archive look: crisp hairlines, flat panels and the app theme.": "Оригинальный архивный вид: четкие линии, плоские панели и тема приложения.",
   "The Soft console style uses its own cream palette. Switch Console style to Studio to follow the app theme.": "В стиле Soft console используется собственная кремовая палитра. Переключите стиль консоли на Studio, чтобы соответствовать теме приложения.",
   "Theme accent": "Тематический акцент",
-  "What the console floats over. Artwork keeps the selected game behind the chrome.": "Над чем плывет консоль. Обложка сохраняет выбранную игру за хромом."
+  "What the console floats over. Artwork keeps the selected game behind the chrome.": "Над чем плывет консоль. Обложка сохраняет выбранную игру за хромом.",
+  "VirusTotal: {count} scans queued": "VirusTotal: {count} проверок в очереди"
 }

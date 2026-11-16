@@ -15,6 +15,7 @@ import { AuthProvider } from "@/state/auth";
 import { PreferencesProvider } from "@/state/preferences";
 import { DownloadsProvider } from "@/state/downloads";
 import { UploadProvider } from "@/state/upload";
+import { VirusTotalQueueProvider } from "@/state/virustotal-queue";
 import { Wordmark } from "@/components/brand";
 import { Button } from "@/components/ui/controls";
 import { ToastViewport } from "@/components/ui/toast";
@@ -260,6 +261,7 @@ export function App() {
             <PreferencesProvider>
             <DownloadsProvider>
             <UploadProvider>
+            <VirusTotalQueueProvider>
             <I18nProvider>
             <UpdateProvider>
             <ConfigSyncDefaults />
@@ -443,6 +445,7 @@ export function App() {
             <PwaPrompts />
             </UpdateProvider>
             </I18nProvider>
+            </VirusTotalQueueProvider>
             </UploadProvider>
             </DownloadsProvider>
             </PreferencesProvider>
