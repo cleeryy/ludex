@@ -2,8 +2,9 @@
 
 Releases are tag-driven, E2E-gated and built entirely on GitHub-hosted runners.
 The only mandatory secret is the automatic `GITHUB_TOKEN`; the desktop updater
-optionally uses a minisign signing key (see *Updater keys and channels*) and
-there is no deploy key or self-hosted runner in the release path.
+bundles and the release `SHA256SUMS` are signed with a minisign key (see
+*Updater keys and channels*). There is no deploy key or self-hosted runner in
+the release path.
 
 ## Updater keys and channels
 
@@ -39,12 +40,30 @@ key); unsigned dev builds report updates as *not configured*.
 
 ### Channels
 
-| Channel | Endpoint | Published from |
-|---|---|---|
-| `stable` | `/releases/latest/download/latest.json` | the newest non-prerelease tag (`vX.Y.Z`) |
-| `early` | `/releases/download/edge/latest.json` | the moving `edge` prerelease — **not published yet**: the edge workflow builds the server only, so the app reports the channel as unavailable instead of offering a broken update |
+| Channel | Endpoint | Published from | GitHub release |
+|---|---|---|---|
+| `stable` | `/releases/latest/download/latest.json` | annotated tag `vX.Y.Z` | normal release |
+| `early` (`edge`) | `/releases/download/edge/latest.json` | green `main` push | `edge`, always a **prerelease** |
 
-GitHub's `/releases/latest` skips prereleases, so stable never picks up `edge`.
+Two invariants keep stable clients safe, and CI enforces both:
+
+1. **The `edge` release is always a prerelease.** GitHub resolves
+   `/releases/latest` to the newest non-prerelease release, so an edge build is
+   never served by the stable endpoint. `edge-desktop` passes
+   `prerelease: true`, `edge-release` passes `--prerelease`, and
+   `Guard the edge updater manifest (#264)` fails the build when
+   `gh release view edge --json isPrerelease` returns `false`.
+2. **The stable release publishes its own `latest.json`.** The `publish` job
+   reads the draft back and fails when `latest.json.version` is not the tag
+   version, when a stable release carries a `-edge.` version, when
+   `windows-x86_64`/`linux-x86_64` is missing, or when a platform URL does not
+   point at `/releases/download/<tag>/` with an updater signature. The
+   `edge-latest` job re-checks the merged edge manifest after both matrix legs
+   (`-edge.` version, both platforms, edge URLs) and that `/releases/latest`
+   does not resolve to `edge`.
+
+A tag that carries a prerelease suffix (`v0.5.0-rc.1`) is published with
+`--prerelease` and is invisible to `/releases/latest`; the same rule applies.
 The `edge-desktop` CI job publishes the early channel on every `main` push that
 passes `rust`, `web` and `E2E`: it builds Linux (AppImage/deb) and Windows
 (NSIS) bundles with a monotonic version (`<next patch>-edge.<run_number>`, for
@@ -65,13 +84,13 @@ directly: version, date, release notes and the release page. It also prints the
 endpoint that was queried, so a wrong channel or a private mirror is visible
 without reading logs.
 
-- `stable` publishes the release body as `notes`; write release notes in the
-  GitHub release, not only in the tag.
-- `edge` currently publishes `"notes": ""` and a generic `Ludex edge` title.
-  The update center then falls back to the stamped build number
-  (`<next patch>-edge.<run_number>`) and links to the rolling `edge` release, so
-  testers can still identify the build. Filling `notes` (commit subject list) in
-  the edge workflow would make the center show the full story.
+- `stable` publishes the generated release body as `notes` (see *Release
+  notes*), so the in-app update center shows the same highlights, changes and
+  contributor credits as the release page.
+- `edge` publishes the `## [Unreleased]` changelog section with the stamped
+  `<next patch>-edge.<run_number>` version in `notes`; the center shows the real
+  changes instead of falling back to the build number. The build number is still
+  in the version, so a specific edge build remains identifiable.
 - Skipping a version is a local preference (`skippedUpdateVersion` in desktop
   settings). It never hides the update from the center and never blocks an
   install; only the launch prompt, the badge and the toast are silenced until a
@@ -209,14 +228,99 @@ Apple Silicon notes:
 
 ## Channels
 
-| Channel | Trigger | Artifact | Use |
-|---|---|---|---|
-| `edge` | push to `main` after `rust`, `web` and `E2E` pass | prerelease tag `edge`, rolling assets | CT258 homelab, testers |
-| stable | annotated tag `vX.Y.Z` | GitHub release `vX.Y.Z` | production |
+| Channel | Trigger | Version | Updater endpoint | GitHub release |
+|---|---|---|---|---|
+| `stable` | annotated tag `vX.Y.Z` | `X.Y.Z` | `/releases/latest/download/latest.json` | normal release, published by `publish` |
+| `edge` | green `main` push (`rust`, `web`, `E2E`) | `<next patch>-edge.<run_number>` | `/releases/download/edge/latest.json` | rolling `edge` prerelease |
 
-`edge` is force-moved to the latest `main` commit. It is a prerelease and may
-contain unreleased or breaking code. The CT258 updater follows it by default; pin
-a stable tag to stop following edge (see [`GITOPS.md`](GITOPS.md)).
+Rules:
+
+- A tag with a prerelease suffix (`v0.5.0-rc.1`) is published with
+  `--prerelease`; `/releases/latest` skips it, exactly like `edge`.
+- `edge` is force-moved to the latest `main` commit. It may contain unreleased
+  or breaking code. The CT258 updater follows it by default; pin a stable tag to
+  stop following edge (see [`GITOPS.md`](GITOPS.md)).
+- One run owns a tag at a time: `concurrency` groups `release-<tag>` (stable),
+  `edge-desktop-<platform>` (per-platform uploads) and `edge-release` (tag
+  force-push) never interleave.
+- `edge` never becomes the updater's latest: the release is always a
+  prerelease, the `edge-latest` job rejects a manifest that lost a platform or
+  points outside `/releases/download/edge/`, and the stable `publish` job
+  rejects a `-edge.` version in a stable `latest.json`.
+
+## Release notes
+
+`CHANGELOG.md` stays the source of truth; the release body is generated from it
+by `scripts/release-notes.sh` after every artifact is attached. Do not hand-edit
+a release body: the next release overwrites it.
+
+The generated body contains:
+
+- **Highlights** — the lead entry of up to four sections (`Added`, `Changed`,
+  `Fixed`, `Performance`, `Security`), cut at the first clause. A
+  `### Highlights` section in the changelog overrides the derivation.
+- **Upgrade notes** — promoted out of a `### Upgrade`, `### Migration` or
+  `### Breaking changes` section when the changelog has one.
+- **What's changed** — the exact `## [X.Y.Z]` section for a stable release, or
+  `## [Unreleased]` for edge, with repeated `### Added`/`### Changed` headings
+  merged in first-seen order.
+- **Contributors** — authors and `Co-authored-by:` trailers from the GitHub
+  compare API between the previous tag and this one, deduplicated, bots excluded
+  (`*[bot]`, dependabot, renovate, github-actions, …). Without an authenticated
+  `gh`, the script falls back to `git log` authors and only turns an email into
+  an `@handle` when it is a `users.noreply.github.com` address.
+- **Assets and checksums** — one SHA-256 line per uploaded artifact, identical to
+  the attached `SHA256SUMS`.
+- **How to verify** — version, tag, commit link, signature expectations and the
+  `gh release download` / `sha256sum -c` recipe.
+
+Run it locally before tagging (it needs no network when `gh` is unavailable):
+
+```bash
+scripts/release-notes.sh --tag v0.4.14 --previous v0.4.13 --repo cleeryy/ludex
+scripts/release-notes.sh --tag v0.4.14 --assets dist --sums-out dist/SHA256SUMS \
+  --sums-signature SHA256SUMS.sig --out release-body.md
+scripts/release-notes.sh --tag edge --channel edge --version 0.4.15-edge.247
+```
+
+`--assets DIR` checksums every file in the directory (recursive, `*.sig`,
+`*.sha256` and `SHA256SUMS*` excluded); `--checksums FILE` reuses an existing
+`sha256sum` output. The script exits non-zero when the changelog section is
+missing, so a tag without notes fails the draft instead of publishing an empty
+page.
+
+## Checksums and signatures
+
+Every stable release carries:
+
+| Asset | Content |
+|---|---|
+| `SHA256SUMS` | `sha256sum` output for every other artifact, `latest.json` included |
+| `SHA256SUMS.sig` | minisign signature of `SHA256SUMS`, made with the updater key |
+| `*.sig` (next to each installer) | updater signature consumed through `latest.json` |
+| `*.sha256` (edge, server archive) | per-file digest used by the GitOps updater and scripts |
+
+Verify a download:
+
+```bash
+TAG=v0.4.14
+gh release download "$TAG" --dir "ludex-$TAG"
+cd "ludex-$TAG"
+sha256sum -c SHA256SUMS
+
+# SHA256SUMS.sig is signed with the same key as the bundles: the public key is
+# the base64 `plugins.updater.pubkey` in apps/desktop/src-tauri/tauri.conf.json.
+# Both the key and the .sig are base64-wrapped minisign documents.
+python3 -c 'import base64,json;print(base64.b64decode(json.load(open("apps/desktop/src-tauri/tauri.conf.json"))["plugins"]["updater"]["pubkey"]).decode(),end="")' > ludex.pub
+base64 -d SHA256SUMS.sig > SHA256SUMS.minisig
+minisign -Vm SHA256SUMS -p ludex.pub -x SHA256SUMS.minisig
+```
+
+`minisign` is packaged (`apt install minisign`, `brew install minisign`). The
+`publish` job fails instead of publishing when the signing secrets are missing,
+so a release never ships an unsigned `SHA256SUMS`. Signing keys rotate as
+described in *Updater keys and channels*: the checksum signature follows the
+update key automatically.
 
 ## Version bump (stable)
 
@@ -263,22 +367,29 @@ AGPL-3.0-or-later. Do not tag until the `LICENSE` file, README badge, Cargo
 ## Post-release verification (updater)
 
 ```bash
-TAG=v0.2.4
-gh release view "$TAG" --json assets --jq '.assets[].name' \
-  | grep -E 'latest.json|setup.exe.sig|AppImage.sig'
+TAG=v0.4.14
+gh release view "$TAG" --json isDraft,isPrerelease,assets \
+  --jq '{draft:.isDraft, prerelease:.isPrerelease, assets:[.assets[].name]}'
+gh release download "$TAG" --pattern SHA256SUMS --pattern SHA256SUMS.sig
 curl -fsSL "https://github.com/cleeryy/ludex/releases/latest/download/latest.json" | python3 -m json.tool
 ```
 
+- The release is published (`draft: false`), carries `SHA256SUMS` and
+  `SHA256SUMS.sig`, and its body contains `## Highlights` and the changelog
+  sections instead of GitHub's generated commit list.
 - `latest.json` has `version`, `notes`, `pub_date`, and
   `platforms.windows-x86_64` / `platforms.linux-x86_64`, each with a `signature`
-  and a release-download `url`.
+  and a release-download `url` that points at `vX.Y.Z`.
+- `sha256sum -c SHA256SUMS` passes and `SHA256SUMS.sig` verifies with the
+  updater public key (see *Checksums and signatures*).
 - Install the previous stable build, check for updates, download and install.
 - On Windows, confirm `%APPDATA%\cloud.cleeryy.ludex\logs\ludex.log` names the
   new version and the release commit (see *Windows install layout*) and that
   `Get-Process ludex | Select-Object Path` points at
   `%LOCALAPPDATA%\Ludex\Ludex.exe`.
 - Truncate a copy of an artifact and confirm the updater rejects it.
-- Confirm `latest` resolves to the stable release (prereleases are skipped).
+- Confirm `latest` resolves to the stable release (prereleases are skipped) and
+  that `/releases/download/edge/latest.json` still reports an `-edge.` version.
 
 ## Desktop crash containment (#234)
 
@@ -302,6 +413,8 @@ the streak.
 - [ ] `main` is green, including the required `E2E` check.
 - [ ] `CHANGELOG.md` is complete and does not claim roadmap items (OIDC, cloud
       saves, share links) as shipped.
+- [ ] `scripts/release-notes.sh --tag vX.Y.Z --previous vX.Y.Z-1` renders the
+      expected body locally (highlights, contributors, no empty section).
 - [ ] Versions are bumped consistently and lockfiles are committed.
 - [ ] License files/metadata are consistent (AGPL-3.0-or-later from v0.2.0).
 - [ ] `docs/CONTRACT.md` matches the API if routes or payloads changed.
@@ -324,31 +437,48 @@ The `Release` workflow then runs:
 
 1. **`verify`** — installs Rust, pnpm and Playwright Chromium, runs
    `scripts/e2e.sh`. Nothing else starts if this fails.
-2. **`create-release`** — `needs: verify`; creates the GitHub release with
-   generated notes if it does not exist.
+2. **`create-release`** — `needs: verify`; creates a **draft** release
+   (`gh release create --draft --verify-tag`). Nothing is public yet, and a
+   prerelease tag (`vX.Y.Z-rc.N`) is recorded as `prerelease: true`.
 3. **`server`**, **`desktop`**, **`docker`** — all `needs: create-release`:
    - Linux x86_64 server archive:
      `ludex-server-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz` + `.sha256`
-   - Windows x64 NSIS installer and Linux AppImage/deb
+   - Windows x64 NSIS installer and Linux AppImage/deb (universal macOS DMG
+     when the matrix includes it), each with `.sig` and a merged `latest.json`
    - `ghcr.io/cleeryy/ludex` with tags `latest`, `vX.Y.Z` and `X.Y`
-4. Assets are uploaded to the release. The Docker image is pushed to GHCR.
+   `desktop` uploads to the draft (`releaseDraft: true`) instead of publishing.
+4. **`publish`** — `needs: [create-release, server, desktop, docker]`:
+   downloads every draft asset, writes `SHA256SUMS`, signs it with the updater
+   minisign key into `SHA256SUMS.sig`, runs the `latest.json` guard, generates
+   the release body with `scripts/release-notes.sh`, uploads the sums and the
+   signature, and only then runs `gh release edit --draft=false`.
 
-No release asset is published if the E2E gate fails. The desktop job remains
-unsigned; Windows SmartScreen and macOS Gatekeeper warnings are expected.
+No release asset is published if the E2E gate or any platform build fails: the
+draft stays invisible. Delete it before re-tagging
+(`gh release delete <tag> --yes`). The desktop job remains unsigned; Windows
+SmartScreen and macOS Gatekeeper warnings are expected.
 
 ## Edge process
 
 Every push to `main` that passes `rust`, `web` and `E2E` updates two jobs:
 
 - `edge-release` builds `ludex-server --features embed-web`, packages
-  `ludex-server-edge-x86_64-unknown-linux-gnu.tar.gz` + `.sha256`, force-moves
-  the `edge` tag and creates/updates the **Ludex edge** release.
+  `ludex-server-edge-x86_64-unknown-linux-gnu.tar.gz` + `.sha256`, generates the
+  edge notes from the `[Unreleased]` changelog section with
+  `scripts/release-notes.sh --channel edge` (stamped
+  `<next>-edge.<run_number>` version), force-moves the `edge` tag and
+  creates/updates the **Ludex edge** prerelease.
 - `edge-desktop` (Linux + Windows matrix) stamps a monotonic
   `<next>-edge.<run_number>` version (the committed files are untouched), builds
   the bundles, signs them, uploads `Ludex_<version>_amd64.AppImage`,
   `_amd64.deb`, `_x64-setup.exe`, their `.sha256`, `.sig` and a merged
   `latest.json` with `--clobber`, and posts the same files as a 14-day
-  workflow artifact.
+  workflow artifact. Each leg then re-reads the manifest and fails if it is not
+  an `-edge.` version pointing at the `edge` tag.
+
+`edge-latest` runs after the matrix and guards the rolling release: the manifest
+must still carry an `-edge.` version, both `windows-x86_64` and `linux-x86_64`,
+edge URLs, and `/releases/latest` must not resolve to `edge`.
 
 E2E is the gate for both; the desktop matrix does not run on pull requests. The
 edge release is public so the CT258 timer and early-channel clients can consume
