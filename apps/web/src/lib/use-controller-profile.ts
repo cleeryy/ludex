@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, tokenStore } from "@/lib/api";
 import { presetProfile } from "@/lib/controller-profiles";
 import type { ControllerProfile } from "@/lib/types";
 
@@ -14,6 +14,10 @@ export function useControllerProfile(gameId?: number | null): ControllerProfile 
   const profiles = useQuery({
     queryKey: ["controller-profiles"],
     queryFn: () => api.controllerProfiles(),
+    // #267: the input provider mounts outside the auth gate (the floating
+    // overlay tree has no AuthProvider), so gate on the stored token instead of
+    // fetching while signed out — a 401 on /setup logged a browser error.
+    enabled: Boolean(tokenStore.get()),
     staleTime: 5 * 60_000,
   });
   const global = profiles.data?.global?.profile;
