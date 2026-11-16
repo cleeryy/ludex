@@ -6,6 +6,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+/**
+ * Replaces `target` in one step: a crash or a second build never observes a
+ * half-written file, and there is no check-then-write window (#266).
+ */
+function writeFileAtomic(target: string, contents: string): void {
+  const temporary = `${target}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, contents);
+  fs.renameSync(temporary, target);
+}
+
 function walkFiles(dir: string, root = dir): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
@@ -26,7 +36,14 @@ function serviceWorkerPlugin(): Plugin {
     closeBundle() {
       const dist = path.resolve(import.meta.dirname, "dist");
       const worker = path.join(dist, "sw.js");
-      if (!fs.existsSync(worker)) return;
+      let source: string;
+      try {
+        // No `existsSync` probe: the read itself reports a missing bundle,
+        // which removes the check-then-write race (#266).
+        source = fs.readFileSync(worker, "utf8");
+      } catch {
+        return;
+      }
 
       // Locale catalogs are runtime-cached, never precached (#237): shipping
       // all 13 on first install downloaded ~4.5 MB of translations the user
@@ -50,10 +67,9 @@ function serviceWorkerPlugin(): Plugin {
       }
       const version = hash.digest("hex").slice(0, 12);
 
-      let source = fs.readFileSync(worker, "utf8");
       source = source.replace('const VERSION = "__CACHE_VERSION__";', `const VERSION = "${version}";`);
       source = source.replace("const PRECACHE = __PRECACHE__;", `const PRECACHE = ${JSON.stringify(precache, null, 2)};`);
-      fs.writeFileSync(worker, source);
+      writeFileAtomic(worker, source);
       this.info?.(`service worker: ${precache.length} precache entries, version ${version}`);
     },
   };

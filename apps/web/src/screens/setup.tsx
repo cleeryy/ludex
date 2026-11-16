@@ -110,6 +110,7 @@ function CreateAdminForm({
       navigate("/login?oidc_code=demo-sso", { replace: true });
       return;
     }
+    // `assetUrl` validates scheme and containment before the navigation (#266).
     const url = assetUrl("/api/auth/oidc/start");
     if (url) window.location.assign(url);
   };

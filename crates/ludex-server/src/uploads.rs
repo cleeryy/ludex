@@ -15,6 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::db;
 use crate::models::{part_len, total_parts};
+use crate::paths::{self, PathError};
 use crate::state::AppState;
 
 /// Directory holding all in-flight uploads.
@@ -24,15 +25,19 @@ pub fn root(data_dir: &Path) -> PathBuf {
 }
 
 /// Directory holding one upload's chunks.
-#[must_use]
-pub fn upload_dir(data_dir: &Path, id: &str) -> PathBuf {
-    root(data_dir).join(id)
+///
+/// The id comes from the request path, so it is confined to one directory
+/// entry by [`paths::child`]: `..`, separators and control characters are
+/// rejected instead of joined. See `paths::tests` for the traversal evidence.
+pub fn upload_dir(data_dir: &Path, id: &str) -> Result<PathBuf, PathError> {
+    paths::child(&root(data_dir), id)
 }
 
-/// Path of one chunk.
-#[must_use]
-pub fn part_path(data_dir: &Path, id: &str, part: i64) -> PathBuf {
-    upload_dir(data_dir, id).join(format!("{part}.part"))
+/// Path of one chunk. `part` is an integer rendered here, never a string from
+/// the request.
+pub fn part_path(data_dir: &Path, id: &str, part: i64) -> Result<PathBuf, PathError> {
+    let dir = upload_dir(data_dir, id)?;
+    Ok(dir.join(format!("{part}.part")))
 }
 
 /// Chunk indices currently stored, ascending.
@@ -110,11 +115,14 @@ pub fn sanitize_file_name(raw: &str) -> String {
 }
 
 /// Picks a non-colliding destination inside the library root.
-#[must_use]
-pub fn unique_destination(games_dir: &Path, file_name: &str) -> PathBuf {
-    let candidate = games_dir.join(file_name);
+///
+/// `file_name` is expected to come from [`sanitize_file_name`]; it is confined
+/// to one entry anyway, so a banner name that somehow bypassed the sanitiser
+/// cannot escape `games_dir`.
+pub fn unique_destination(games_dir: &Path, file_name: &str) -> Result<PathBuf, PathError> {
+    let candidate = paths::child(games_dir, file_name)?;
     if !candidate.exists() {
-        return candidate;
+        return Ok(candidate);
     }
     let path = Path::new(file_name);
     let stem = path
@@ -128,12 +136,22 @@ pub fn unique_destination(games_dir: &Path, file_name: &str) -> PathBuf {
         .unwrap_or_default();
     for suffix in 2..1000 {
         let name = format!("{stem} ({suffix}){extension}");
-        let candidate = games_dir.join(&name);
+        let candidate = paths::child(games_dir, &name)?;
         if !candidate.exists() {
-            return candidate;
+            return Ok(candidate);
         }
     }
-    games_dir.join(format!("{stem}-{}{extension}", uuid::Uuid::new_v4()))
+    paths::child(
+        games_dir,
+        &format!("{stem}-{}{extension}", uuid::Uuid::new_v4()),
+    )
+}
+
+/// Temporary file the chunks of `id` are assembled into, inside the library
+/// root so the final rename stays on one filesystem.
+pub fn temporary_destination(games_dir: &Path, id: &str) -> Result<PathBuf, PathError> {
+    let id = paths::component(id)?;
+    paths::child(games_dir, &format!(".upload-{id}.tmp"))
 }
 
 /// Assembles `parts` into `destination`, returning `(size, sha256)`.
@@ -148,10 +166,18 @@ pub async fn assemble(
     if let Some(parent) = destination.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
+    // `destination` comes from `unique_destination`/`temporary_destination`
+    // (single component under `games_dir`) and the route re-checks it with
+    // `paths::canonical_within` before this call; covered by
+    // `paths::tests::child_stays_under_the_root` and
+    // `uploads::tests::destinations_stay_inside_the_library`.
+    // codeql[rust/path-injection]
     let mut output = tokio::fs::File::create(destination).await?;
     let mut hasher = Sha256::new();
     let mut written: i64 = 0;
     for index in 0..total_parts(total, chunk) {
+        // `index` is a loop counter, never a string from the request.
+        // codeql[rust/path-injection]
         let path = upload_dir.join(format!("{index}.part"));
         let mut input = tokio::fs::File::open(&path)
             .await
@@ -174,7 +200,7 @@ pub async fn assemble(
 
 /// Deletes an upload's chunks and its row.
 pub async fn remove(state: &AppState, id: &str) -> Result<()> {
-    let dir = upload_dir(&state.config.data_dir, id);
+    let dir = upload_dir(&state.config.data_dir, id)?;
     if let Err(error) = tokio::fs::remove_dir_all(&dir).await {
         if error.kind() != std::io::ErrorKind::NotFound {
             return Err(error.into());
@@ -274,6 +300,35 @@ mod tests {
         assert_eq!(sanitize_file_name("C:\\Games\\Foo.zip"), "Foo.zip");
         assert_eq!(sanitize_file_name("  "), "upload");
         assert_eq!(sanitize_file_name("bad:name?.zip"), "bad_name_.zip");
+    }
+
+    /// Evidence for the `// codeql[rust/path-injection]` markers on the
+    /// assembly/lookup sinks: neither the upload id nor the archive name can
+    /// leave `data_dir/uploads` and `games_dir`.
+    #[test]
+    fn destinations_stay_inside_the_library() {
+        let data = Path::new("/srv/ludex/data");
+        let games = Path::new("/srv/ludex/data/games");
+
+        assert!(upload_dir(data, "2f8d7e5a-6a0e-4c0f-9d1f-3c6e4b0a1f22").is_ok());
+        assert!(upload_dir(data, "..").is_err());
+        assert!(upload_dir(data, "../../etc").is_err());
+        assert!(part_path(data, "../../../etc", 0).is_err());
+        assert!(part_path(data, "ok", 0)
+            .expect("path")
+            .ends_with("ok/0.part"));
+
+        // A sanitised name is accepted, a raw traversal attempt is not.
+        let safe = sanitize_file_name("../../etc/passwd.zip");
+        let destination = unique_destination(games, &safe).expect("destination");
+        assert_eq!(destination, games.join("passwd.zip"));
+        assert!(paths::ensure_within(games, &destination).is_ok());
+        assert!(unique_destination(games, "../../etc/passwd.zip").is_err());
+
+        let temporary = temporary_destination(games, "abc").expect("temporary");
+        assert_eq!(temporary, games.join(".upload-abc.tmp"));
+        assert!(paths::ensure_within(games, &temporary).is_ok());
+        assert!(temporary_destination(games, "../../etc").is_err());
     }
 
     #[tokio::test]

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Link2, Lock } from "lucide-react";
-import { assetUrl, getApiBase } from "@/lib/api";
+import { assetUrl } from "@/lib/api";
 import { ApiError, errorMessage } from "@/lib/http";
 import { accessShare, getPublicShare, type ShareView } from "@/lib/shares";
 import { formatBytes, formatDate, formatRating, formatYear } from "@/lib/format";
@@ -200,7 +200,11 @@ function ShareAccessPanel({ token, view }: { token: string; view: ShareView }) {
     try {
       const result = await accessShare(token, hasPassword ? password : undefined);
       setStarted(true);
-      window.location.assign(`${getApiBase()}${result.url}`);
+      // `result.url` is server-relative; `assetUrl` validates it against the
+      // URL boundary before it becomes a navigation target (#266).
+      const target = assetUrl(result.url);
+      if (!target) throw new ApiError(0, "invalid_url", t("Something went wrong"));
+      window.location.assign(target);
     } catch (cause) {
       setError(cause instanceof ApiError ? cause : new ApiError(0, "request_failed", errorMessage(cause)));
     } finally {

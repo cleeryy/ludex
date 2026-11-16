@@ -8,6 +8,7 @@ import {
   type PreferencesResponse,
 } from "@/lib/preferences";
 import { t } from "@/lib/i18n";
+import { toSafeUrl, type SafeUrl } from "@/lib/safe-url";
 import { CONTROLLER_PRESETS, presetProfile } from "@/lib/controller-profiles";
 import type {
   AchievementScanReport,
@@ -142,11 +143,16 @@ export function getApiBase(): string {
  * (`/api/media/...`). In Tauri the page origin is `tauri://localhost`, so a
  * bare relative URL would resolve against the webview, not the server. Every
  * image, background, video and download link must pass through this helper.
+ *
+ * The result is a `SafeUrl`: it went through the scheme/relative-path boundary
+ * in `lib/safe-url.ts` (#266), so a hostile value (`javascript:`, `//host`) is
+ * `null` instead of something a browser would navigate to.
  */
-export function assetUrl(path: string | null | undefined): string | null {
+export function assetUrl(path: string | null | undefined): SafeUrl | null {
   if (!path) return null;
-  if (/^(https?:|data:|blob:|demo:)/i.test(path)) return path;
-  return `${baseUrl}${path.startsWith("/") ? "" : "/"}${path}`;
+  if (/^(?:https?:|data:|blob:|demo:)/i.test(path)) return toSafeUrl(path);
+  const relative = `${baseUrl}${path.startsWith("/") ? "" : "/"}${path}`;
+  return toSafeUrl(relative);
 }
 
 /**

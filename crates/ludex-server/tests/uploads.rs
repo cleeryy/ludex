@@ -265,6 +265,48 @@ async fn incomplete_and_invalid_uploads_are_rejected() {
     server.stop().await;
 }
 
+/// End-to-end evidence for the `rust/path-injection` triage (#266): an upload id
+/// that is not a single path component is refused before any path is built.
+#[tokio::test]
+async fn traversal_upload_ids_are_rejected_before_touching_disk() {
+    let server = TestServer::start_with(|config| config.upload_chunk_bytes = CHUNK).await;
+    let (token, _) = server.setup().await;
+
+    // The separator is percent-encoded so the client's dot-segment
+    // normalisation keeps the segment intact; axum decodes it back into
+    // `../../etc` before the handler sees it.
+    for id in [
+        "%2e%2e%2f%2e%2e%2fetc",
+        "..%2F..%2Fetc",
+        "%2e%2e%5c%2e%2e%5cwindows",
+        "..%5C..%5Cwindows",
+    ] {
+        let (status, body) = server
+            .get(&format!("/api/uploads/{id}"), Some(&token))
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{id}: {body}");
+        assert_eq!(body["error"]["code"], "upload_not_found", "{id}: {body}");
+
+        let (status, body) = put_part(&server, &token, id, 0, vec![1, 2, 3]).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{id}: {body}");
+    }
+
+    // Nothing escaped `{data}/uploads`: the parent of the data directory holds
+    // no `etc`, `windows` or stray directory created by the attempts.
+    let uploads = server.data_dir.join("uploads");
+    if uploads.is_dir() {
+        let mut entries = tokio::fs::read_dir(&uploads).await.expect("uploads");
+        while let Some(entry) = entries.next_entry().await.expect("entry") {
+            let name = entry.file_name().to_string_lossy().to_string();
+            assert!(
+                !name.contains(".."),
+                "traversal directory {name} was created under uploads"
+            );
+        }
+    }
+    server.stop().await;
+}
+
 #[tokio::test]
 async fn stale_uploads_are_cleaned_up() {
     let server = TestServer::start_with(|config| {

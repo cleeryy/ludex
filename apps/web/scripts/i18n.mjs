@@ -181,7 +181,6 @@ for (const code of REQUIRED_TOP10) {
 /** Every message id must appear literally inside t(), tn() or tr(). */
 function collectCatalog() {
   const keys = new Set();
-  const pluralIds = new Set();
   for (const file of walk(srcRoot)) {
     if (file.includes(`${path.sep}locales${path.sep}`)) continue;
     const sourceText = fs
@@ -197,18 +196,14 @@ function collectCatalog() {
     for (const match of sourceText.matchAll(
       /\btn\(\s*[^,]+,\s*"((?:\\.|[^"\\])*)"\s*,\s*"((?:\\.|[^"\\])*)"/g,
     )) {
-      const one = unescape(match[1]);
-      const other = unescape(match[2]);
-      keys.add(one);
-      keys.add(other);
-      pluralIds.add(one);
-      pluralIds.add(other);
+      keys.add(unescape(match[1]));
+      keys.add(unescape(match[2]));
     }
   }
-  return { keys: [...keys].sort((a, b) => a.localeCompare(b)), pluralIds };
+  return [...keys].sort((a, b) => a.localeCompare(b));
 }
 
-const { keys } = collectCatalog();
+const keys = collectCatalog();
 const keySet = new Set(keys);
 
 if (keys.length === 0) {
@@ -435,7 +430,11 @@ function report() {
 }
 
 if (pseudoOnly) {
-  const target = path.join(os.tmpdir(), "ludex-en-XA.json");
+  // A unique directory instead of a fixed name in the shared temp dir: the
+  // artifact is meant to be inspected, so it is kept, but nobody else can
+  // pre-create or clobber the path (#266).
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "ludex-en-XA-"));
+  const target = path.join(directory, "en-XA.json");
   fs.writeFileSync(target, `${JSON.stringify(pseudo, null, 2)}\n`);
   console.log(`i18n: wrote ${target}`);
   report();

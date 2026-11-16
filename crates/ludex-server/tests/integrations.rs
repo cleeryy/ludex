@@ -327,7 +327,9 @@ async fn api_key_lifecycle_scope_enforcement_and_revocation() {
         .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
     let secret = created["secret"].as_str().expect("secret").to_string();
-    assert!(secret.starts_with("ldx_"), "{secret}");
+    // Assert the prefix without echoing the token into a failure message: a
+    // leaked CI log would hand out a working credential (#266).
+    assert!(secret.starts_with("ldx_"));
     assert!(created["prefix"]
         .as_str()
         .expect("prefix")

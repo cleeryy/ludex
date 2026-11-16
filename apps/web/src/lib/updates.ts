@@ -258,27 +258,49 @@ export interface NoteBlock {
   text: string;
 }
 
+/** HTML tags, including attributes (`<img src=x onerror=…>`). */
+const INLINE_TAG = /<[^>]*>/g;
+
+/**
+ * Entities the GitHub API emits, decoded in this order.
+ *
+ * None of them can produce `<` or `>`, so decoding can never rebuild a tag.
+ */
+const INLINE_ENTITIES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/&amp;/g, "&"],
+  [/&quot;/g, '"'],
+  [/&#39;|&apos;/g, "'"],
+  [/&nbsp;/g, " "],
+];
+
 /**
  * Reduce inline Markdown to plain text. Links keep their label (the release
  * page is the canonical, clickable copy), emphasis markers and code fences are
  * dropped, and tag-like sequences are removed so no markup survives.
+ *
+ * The text is rendered as a React text node, never as HTML, so this is display
+ * cleanup rather than a sanitizer. It is still written as a fixpoint loop —
+ * decode, strip, repeat until nothing changes — because a single pass is easy
+ * to defeat with nesting (`<<b>b>`, `&amp;lt;script&amp;gt;`) and the output is
+ * user-visible (#266).
  */
 export function stripInlineMarkdown(line: string): string {
-  return line
+  let text = line
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/__([^_]+)__/g, "$1")
-    .replace(/(^|[\s(])[*_]([^*_\n]+)[*_](?=[\s.,;:!?)]|$)/g, "$1$2")
-    .replace(/<[^>]*>/g, "")
-    // GitHub release bodies are HTML-escaped in places ("Tom &amp; Jerry").
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/(^|[\s(])[*_]([^*_\n]+)[*_](?=[\s.,;:!?)]|$)/g, "$1$2");
+  for (let pass = 0; pass < 4; pass += 1) {
+    const before = text;
+    for (const [pattern, replacement] of INLINE_ENTITIES) {
+      text = text.replace(pattern, replacement);
+    }
+    text = text.replace(INLINE_TAG, "");
+    if (text === before) break;
+  }
+  return text.replace(/\s+/g, " ").trim();
 }
 
 /**

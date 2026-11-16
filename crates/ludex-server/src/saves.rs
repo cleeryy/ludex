@@ -12,6 +12,8 @@ use futures_util::{Stream, StreamExt};
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 
+use crate::paths::{self, PathError};
+
 /// Extra body allowance above the configured file limit, covering multipart
 /// framing (boundaries, part headers and the optional label field).
 pub const MULTIPART_OVERHEAD_BYTES: u64 = 1024 * 1024;
@@ -35,23 +37,38 @@ pub fn root(data_dir: &Path) -> PathBuf {
 }
 
 /// Directory holding one user's saves for one game.
+///
+/// Both ids are integers, so their decimal rendering is digits (and possibly a
+/// leading `-`) and cannot contain a separator: the join cannot traverse.
 #[must_use]
 pub fn game_dir(data_dir: &Path, user_id: i64, game_id: i64) -> PathBuf {
-    root(data_dir)
-        .join(user_id.to_string())
-        .join(game_id.to_string())
+    let base = root(data_dir);
+    // Numeric ids, no separator possible; see
+    // `paths_stay_under_the_user_game_directory`.
+    // codeql[rust/path-injection]
+    let user = base.join(user_id.to_string());
+    // codeql[rust/path-injection]
+    user.join(game_id.to_string())
 }
 
 /// Final on-disk path of a stored snapshot.
-#[must_use]
+///
+/// `file_name` is re-sanitised here even though it was sanitised on upload: the
+/// row is the only source at download/delete time, and a tampered row must not
+/// become a traversal. The result is confined to `{data_dir}/saves/{user}/{game}`
+/// by [`paths::child`]; see `paths_stay_under_the_user_game_directory`.
 pub fn snapshot_path(
     data_dir: &Path,
     user_id: i64,
     game_id: i64,
     snapshot_id: i64,
     file_name: &str,
-) -> PathBuf {
-    game_dir(data_dir, user_id, game_id).join(format!("{snapshot_id}-{file_name}"))
+) -> Result<PathBuf, PathError> {
+    let name = sanitize_file_name(file_name);
+    paths::child(
+        &game_dir(data_dir, user_id, game_id),
+        &format!("{snapshot_id}-{name}"),
+    )
 }
 
 /// Reduces a client-supplied file name to a single safe path component.
@@ -152,7 +169,14 @@ impl PendingSave {
     ///
     /// The temporary file is removed if the rename fails.
     pub async fn commit(self, dir: &Path, snapshot_id: i64) -> std::io::Result<PathBuf> {
-        let path = dir.join(format!("{snapshot_id}-{}", self.file_name));
+        let name = sanitize_file_name(&self.file_name);
+        let path = paths::child(dir, &format!("{snapshot_id}-{name}"))
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        // `path` is one sanitised component under the user/game directory
+        // (`paths::child`), and `temp_path` is a `.upload-{uuid}.part` file
+        // created by `receive` in that same directory; see
+        // `paths_stay_under_the_user_game_directory`.
+        // codeql[rust/path-injection]
         if let Err(error) = tokio::fs::rename(&self.temp_path, &path).await {
             let _ = tokio::fs::remove_file(&self.temp_path).await;
             return Err(error);
@@ -183,7 +207,12 @@ where
     tokio::fs::create_dir_all(dir)
         .await
         .map_err(SaveError::Io)?;
+    // The temporary name is a v4 UUID rendered here, so it is a single entry by
+    // construction; `dir` is built from numeric ids in `game_dir`.
     let temp_path = dir.join(format!(".upload-{}.part", uuid::Uuid::new_v4()));
+    // UUID file name joined onto a numeric-id directory; see
+    // `paths_stay_under_the_user_game_directory`.
+    // codeql[rust/path-injection]
     let mut file = tokio::fs::File::create(&temp_path)
         .await
         .map_err(SaveError::Io)?;
@@ -211,6 +240,8 @@ where
 
     if let Err(error) = received {
         drop(file);
+        // Same UUID temporary path.
+        // codeql[rust/path-injection]
         let _ = tokio::fs::remove_file(&temp_path).await;
         return Err(error);
     }
@@ -232,7 +263,16 @@ pub async fn delete_file(
     snapshot_id: i64,
     file_name: &str,
 ) {
-    let path = snapshot_path(data_dir, user_id, game_id, snapshot_id, file_name);
+    let path = match snapshot_path(data_dir, user_id, game_id, snapshot_id, file_name) {
+        Ok(path) => path,
+        Err(error) => {
+            tracing::warn!(error = %error, "refused to delete an out-of-root save path");
+            return;
+        }
+    };
+    // `snapshot_path` confines the name to one sanitised component; see
+    // `paths_stay_under_the_user_game_directory`.
+    // codeql[rust/path-injection]
     match tokio::fs::remove_file(&path).await {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -241,8 +281,11 @@ pub async fn delete_file(
             return;
         }
     }
-    // Best effort: `remove_dir` only succeeds on empty directories.
+    // Best effort: `remove_dir` only succeeds on empty directories. Both paths
+    // are built from numeric ids.
+    // codeql[rust/path-injection]
     let _ = tokio::fs::remove_dir(game_dir(data_dir, user_id, game_id)).await;
+    // codeql[rust/path-injection]
     let _ = tokio::fs::remove_dir(root(data_dir).join(user_id.to_string())).await;
 }
 
@@ -285,8 +328,27 @@ mod tests {
         let root = Path::new("/srv/ludex/data");
         let dir = game_dir(root, 7, 42);
         assert_eq!(dir, Path::new("/srv/ludex/data/saves/7/42"));
-        let path = snapshot_path(root, 7, 42, 3, "save.zip");
+        let path = snapshot_path(root, 7, 42, 3, "save.zip").expect("path");
         assert_eq!(path, Path::new("/srv/ludex/data/saves/7/42/3-save.zip"));
+    }
+
+    /// Evidence for the `// codeql[rust/path-injection]` markers in this
+    /// module: a tampered file name is re-sanitised, and the result can never
+    /// leave the user/game directory.
+    #[test]
+    fn snapshot_names_cannot_escape_the_game_directory() {
+        let root = Path::new("/srv/ludex/data");
+        let path = snapshot_path(root, 7, 42, 3, "../../etc/passwd").expect("path");
+        assert_eq!(path, Path::new("/srv/ludex/data/saves/7/42/3-passwd"));
+        assert!(path.starts_with(game_dir(root, 7, 42)));
+
+        for hostile in ["..", "../..", "/etc/passwd", "a/b", "a\\b"] {
+            let path = snapshot_path(root, 7, 42, 3, hostile).expect("sanitised");
+            assert!(
+                path.starts_with(game_dir(root, 7, 42)),
+                "{hostile:?} escaped to {path:?}"
+            );
+        }
     }
 
     #[test]

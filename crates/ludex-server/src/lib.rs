@@ -62,6 +62,7 @@ pub mod models;
 pub mod observability;
 pub mod oidc;
 pub mod openapi;
+pub mod paths;
 pub mod providers;
 pub mod remote_installs;
 pub mod roots;

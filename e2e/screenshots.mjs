@@ -22,7 +22,7 @@
  */
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,8 +32,25 @@ import sharp from "sharp";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..");
 const OUT_ROOT = join(ROOT, "docs", "assets", "screenshots");
-/** Full-fidelity captures, kept out of git for re-encoding experiments. */
-const RAW_DIR = join(tmpdir(), "ludex-screenshots");
+/**
+ * Full-fidelity captures, kept out of git for re-encoding experiments.
+ *
+ * Created with `mkdtempSync` on first use and removed in the `finally` block:
+ * a predictable directory name in the shared temp dir is the
+ * `js/insecure-temporary-file` shape (#266).
+ */
+let rawDir = null;
+function rawDirPath() {
+  if (!rawDir) rawDir = mkdtempSync(join(tmpdir(), "ludex-screenshots-"));
+  return rawDir;
+}
+
+/** Replaces `target` in one step so a reader never sees a half-written file. */
+function writeFileAtomic(target, contents) {
+  const temporary = `${target}.${process.pid}.tmp`;
+  writeFileSync(temporary, contents);
+  renameSync(temporary, target);
+}
 const SOCIAL_SVG = join(ROOT, "docs", "assets", "social-preview.svg");
 const SOCIAL_PNG = join(ROOT, "docs", "assets", "social-preview.png");
 
@@ -371,7 +388,10 @@ try {
     page.on("pageerror", (error) => pageErrors.push(error.message));
     // Any YouTube request is a third-party call; the iframe never loads unless
     // the visitor clicks, and the thumbnail is replaced by the neutral poster.
-    await page.route(/^https?:\/\/[^/]*(?:youtube\.com|youtu\.be|ytimg\.com|googlevideo\.com)\//, (route) => {
+    // Host-anchored: `[^/]*` used to let `evilyoutube.com` through. Every
+    // label before the known domain must end with a dot, so only a real
+    // YouTube host matches (#266).
+    await page.route(/^https?:\/\/(?:[a-z0-9-]+\.)*(?:youtube\.com|youtu\.be|ytimg\.com|googlevideo\.com)(?::\d+)?\//i, (route) => {
       // YouTube thumbnails (img.youtube.com, i.ytimg.com) are the poster of
       // the trailer facade; everything else (the embed, the player) is dropped.
       if (/youtube\.com\/vi\/|ytimg\.com/.test(route.request().url())) {
@@ -410,8 +430,7 @@ try {
     const file = join(OUT_ROOT, shot.set, `${shot.name}.${mobile ? "jpg" : "png"}`);
     mkdirSync(dirname(file), { recursive: true });
     const raw = await stableScreenshot(page);
-    mkdirSync(RAW_DIR, { recursive: true });
-    writeFileSync(join(RAW_DIR, `${shot.set}-${shot.name}.png`), raw);
+    writeFileSync(join(rawDirPath(), `${shot.set}-${shot.name}.png`), raw);
 
     if (mobile) {
       await sharp(raw).jpeg({ quality: 82, mozjpeg: true, chromaSubsampling: "4:4:4" }).toFile(file);
@@ -453,7 +472,14 @@ try {
 
   for (const shot of captured) delete shot.file;
   const manifestPath = join(OUT_ROOT, "manifest.json");
-  const previous = statSync(manifestPath, { throwIfNoEntry: false }) ? readJson(manifestPath) : null;
+  // Read once and let a missing file be a miss, instead of probing and then
+  // re-reading (a check-then-use race, #266).
+  let previous = null;
+  try {
+    previous = readJson(manifestPath);
+  } catch {
+    previous = null;
+  }
   const fresh = captured.map((shot) => ({
     set: shot.set,
     name: shot.name,
@@ -491,7 +517,7 @@ try {
     totalBytes: manifestShotsTotal,
     previous: previous ? { commit: previous.commit, generatedAt: previous.generatedAt } : null,
   };
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  writeFileAtomic(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
   log(
     `\n${captured.length} captured this run, ${(manifestShotsTotal / 1024 / 1024).toFixed(2)} MB in the set, ` +
@@ -502,4 +528,5 @@ try {
 } finally {
   await browser?.close().catch(() => {});
   if (server) server.kill("SIGTERM");
+  if (rawDir) rmSync(rawDir, { recursive: true, force: true });
 }

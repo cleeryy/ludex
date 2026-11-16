@@ -6,6 +6,17 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Security
+
+- CodeQL triage (#266): 51 of the 53 open alerts are fixed — server path
+  injection now goes through a `paths` confinement module (single components,
+  lexical and canonical containment), archive password errors and tokens no
+  longer appear in logs, VirusTotal enforces HTTPS, temp files/races/regex/
+  origin checks are fixed in the scripts, and the web has a single `SafeUrl`
+  boundary for `src`/`href`/redirects; the two remaining request-forgery alerts
+  are covered by the SSRF guard above. Dispositions and dismissal commands are
+  in `docs/SECURITY.md`.
+
 ### Changed
 
 - Data safety (#237): desktop migrations run in a single transaction with a

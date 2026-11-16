@@ -4,6 +4,7 @@ import { ImagePlus, RotateCcw, Upload } from "lucide-react";
 
 import { ARTWORK_ACCEPT, ARTWORK_MAX_BYTES, resetArtwork, uploadArtwork, type ArtworkKind } from "@/lib/artwork";
 import { assetUrl } from "@/lib/api";
+import { toSafeUrl, type SafeUrl } from "@/lib/safe-url";
 import { errorMessage } from "@/lib/http";
 import type { GameDetail } from "@/lib/types";
 import { Button } from "@/components/ui/controls";
@@ -29,7 +30,7 @@ export function ArtworkDialog({
   const queryClient = useQueryClient();
   const { push } = useToast();
   const [files, setFiles] = useState<Partial<Record<ArtworkKind, File>>>({});
-  const [previews, setPreviews] = useState<Partial<Record<ArtworkKind, string>>>({});
+  const [previews, setPreviews] = useState<Partial<Record<ArtworkKind, SafeUrl>>>({});
   const [busy, setBusy] = useState<ArtworkKind | null>(null);
   const [resetTarget, setResetTarget] = useState<ArtworkKind | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +58,9 @@ export function ArtworkDialog({
     const url = URL.createObjectURL(file);
     urls.current.push(url);
     setFiles((current) => ({ ...current, [kind]: file }));
-    setPreviews((current) => ({ ...current, [kind]: url }));
+    // Object URLs are `blob:` and pass the same boundary as server artwork, so
+    // the preview sink never receives a raw string (#266).
+    setPreviews((current) => ({ ...current, [kind]: toSafeUrl(url) ?? undefined }));
   };
 
   const upload = async (kind: ArtworkKind) => {

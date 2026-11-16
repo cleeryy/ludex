@@ -57,6 +57,10 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("message", (event) => {
+  // Only a window on this origin may drive the worker: a cross-origin frame
+  // can postMessage into an embedded app, and skipWaiting() would swap the
+  // shell under every open tab (#266).
+  if (event.origin !== self.location.origin) return;
   if (event.data && event.data.type === "SKIP_WAITING") void self.skipWaiting();
 });
 

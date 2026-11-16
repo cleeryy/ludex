@@ -267,7 +267,7 @@ async fn download(
         row.game_id,
         row.id,
         &row.file_name,
-    );
+    )?;
     let file = tokio::fs::File::open(&path).await.map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             ApiError::not_found("file_not_found", "The save archive is missing from disk")

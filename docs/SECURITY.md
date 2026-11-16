@@ -190,6 +190,12 @@ display name when that profile is public.
 - Completion re-reads every chunk's length, assembles into a `.tmp` file in the
   library root, verifies total size and (when provided) SHA-256 before renaming
   and indexing. A mismatch returns 422 and leaves the upload open for retry.
+- Every storage path built from a request goes through `paths::component` /
+  `paths::child`: the upload id, the archive name and the save file name must
+  be a single directory entry (no separator, no `.`/`..`, no control character,
+  at most 255 characters). `paths::canonical_within` repeats the check after
+  resolving symlinks before the assembly write, so a link planted inside the
+  library root cannot redirect it.
 - Chunks live under `{data}/uploads/{id}` and are removed on complete/cancel;
   stale uploads are removed after `LUDEX_UPLOAD_TTL_HOURS` by an hourly worker
   and lazily when a new upload starts. Orphan directories without a row are
@@ -212,6 +218,15 @@ display name when that profile is public.
   server-side with `tracing::error!`.
 - `jwt.secret` is written with mode 0600; the JWT/API-key material is never
   returned by management endpoints (share tokens excepted, once, at creation).
+- Archive passwords are never part of an error or a log line:
+  `ArchiveError::{PasswordRequired, WrongPassword}` carry no data, and
+  `ExtractOptions`' `Debug` impl prints `"N redacted"` instead of the password
+  list (see `archive::tests::password_errors_and_options_never_echo_the_password`).
+- The one deliberate exception is `ludex-server import` (GameVault): it prints
+  the generated temporary passwords to the terminal exactly once, because the
+  command has no other channel to reach the importing administrator. Nothing is
+  logged, stored or audited; the print carries a `codeql[rust/cleartext-logging]`
+  marker and is covered by `gamevault::tests::credentials_never_debug_their_password`.
 
 ## What did not change
 
@@ -222,3 +237,66 @@ display name when that profile is public.
   says otherwise.
 - CORS origins and body limits are unchanged. The upload chunk route adds a
   per-route limit of 65 MiB on top of the global JSON limit.
+
+## Code scanning (#263, #266)
+
+CodeQL runs on push, pull request and weekly (`security-and-quality`, Rust and
+JavaScript/TypeScript, `build-mode: none`; `.github/workflows/codeql.yml`).
+`.github/codeql/codeql-config.yml` only excludes generated output — test files
+are scanned like production code, because a naive regexp in a test is a real
+regression there too.
+
+### Alert triage at v0.4.17
+
+The 82 `rust/hard-coded-cryptographic-value` alerts were dismissed during the
+initial triage (test fixtures, HKDF salts, AAD and dummy timing values). Of the
+53 remaining alerts:
+
+| Rule | Alerts | Disposition |
+| --- | --- | --- |
+| `rust/path-injection` | 35–50 (16) | **Fixed.** Upload ids, archive names and save file names are confined to one component by `paths::{component,child}`, and the assembly/publish paths are re-checked with `paths::canonical_within`. The remaining sinks carry a narrow `// codeql[rust/path-injection]` marker naming the test that proves the confinement (`paths::tests::*`, `uploads::tests::destinations_stay_inside_the_library`, `saves::tests::snapshot_names_cannot_escape_the_game_directory`). |
+| `rust/request-forgery` | 51, 52 | Fixed in the parallel `media.rs`/`metadata.rs` lane (provider URL allowlist + private-address guard), not in this change. |
+| `rust/cleartext-logging` | 29, 33, 34 | **Fixed.** 29: the debug print of a password error was removed and `ExtractOptions`' `Debug` redacts the password list. 33: the integration test no longer echoes the minted API key into an assertion message. 34: the CLI one-time password print is intentional and annotated. |
+| `rust/cleartext-transmission` | 135 | **Fixed.** `HttpTransport::new` refuses a non-HTTPS base and falls back to the public endpoint; `validate_key` re-checks the scheme before sending the key in `/users/{key}` (`virustotal::tests::plaintext_api_base_is_refused`). |
+| `js/xss-through-dom` | 1–16 | **Fixed at the boundary.** `lib/safe-url.ts` accepts only `https:`, `http:`, `data:`, `blob:` and `demo:` schemes plus single-slash relative paths, and `assetUrl` now returns a branded `SafeUrl`. Every `src`/`href`/`assign` in the reports goes through it; the SSO `desktopAddress` redirect additionally requires the configured server origin (`safeRedirectUrl`). False positives are dismissed with `safe-url.test.ts` as evidence. |
+| `js/insecure-temporary-file` | 23, 138 | **Fixed.** `fs.mkdtemp` in `e2e/screenshots.mjs` (cleaned up in `finally`) and in `apps/web/scripts/i18n.mjs --pseudo`. |
+| `js/file-system-race` | 21, 136 | **Fixed.** `vite.config.ts` writes `dist/sw.js` through a temp file + rename and no longer probes with `existsSync`; the screenshot manifest is written the same way. |
+| `js/regex/missing-regexp-anchor` | 137 | **Fixed.** The YouTube route filter is host-anchored (`evilyoutube.com` no longer matches). |
+| `js/missing-origin-check` | 22 | **Fixed.** `public/sw.js` ignores `postMessage` from a foreign origin. |
+| `js/comparison-between-incompatible-types` | 26 | **Fixed.** The delete dialog is mounted only when a backup is selected, so it is unconditionally open. |
+| `js/unused-local-variable` | 24, 25 | **Fixed.** Unused `pseudoText` import and `pluralIds` binding removed. |
+| `rust/unused-variable` | 27, 28 | **Fixed.** Non-Windows `platform` parameter and the implicit `format!` capture replaced by explicit code. |
+| `js/incomplete-multi-character-sanitization` | 20 | **Fixed.** `stripInlineMarkdown` decodes entities and strips tags in a fixpoint loop; the output is a React text node, never HTML. |
+| `js/double-escaping` | 17 | **Fixed.** Entities are decoded before tag stripping, and no allowed entity can produce `<` or `>`. |
+| `js/bad-tag-filter` | 19 | **Fixed.** The boot-script extractor is attribute-aware and case-insensitive. |
+| `js/incomplete-sanitization` | 18 | **Fixed.** The navigation test escapes every regexp metacharacter. |
+
+### Dismissing an alert
+
+Dismiss only after the fixing commit is on `main`, with the reason and the test
+named in the comment:
+
+```bash
+gh api -X PATCH /repos/cleeryy/ludex/code-scanning/alerts/<number> \
+  -f state=dismissed \
+  -f dismissed_reason=false_positive \
+  -f dismissed_comment="Out of scope at this sink: lib/safe-url.ts validates every \
+  src/href/assign target (scheme allowlist + relative paths); evidence: \
+  apps/web/src/lib/safe-url.test.ts. Fixed in #266."
+```
+
+Use `dismissed_reason=used_in_tests` for test-only fixtures and
+`won't_fix` only with a written justification. There is no blanket dismissal:
+every alert gets a per-alert reason naming a test, an annotation or a design
+decision.
+
+### Required checks
+
+Once the open `error` count is zero (after this change and the request-forgery
+lane both land), make CodeQL a required status check on `main`:
+
+1. Settings → Branches → `main` → Require status checks to pass.
+2. Add `CodeQL (rust)` and `CodeQL (javascript-typescript)` (the matrix job
+   names) alongside the existing CI jobs.
+3. Keep the weekly schedule (`41 5 * * 1`) so a new query release cannot
+   introduce an alert silently between pulls.

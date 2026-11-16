@@ -11,9 +11,14 @@ import { builtinTheme } from "@/theme/registry";
  */
 
 const html = fs.readFileSync(new URL("../../index.html", import.meta.url), "utf8");
-const match = /<script>([\s\S]*?)<\/script>/.exec(html);
-if (!match) throw new Error("index.html is missing the inline boot script");
-const script = match[1];
+// Attribute-aware and case-insensitive: a bare `/<script>/` misses `<script
+// type="module">` and `<SCRIPT>`, which is what `js/bad-tag-filter` flags. The
+// boot guard is the script without attributes that carries the appearance
+// replay (`ludex-appearance`).
+const inlineScripts = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script\s*>/gi)];
+const boot = inlineScripts.find(([, attributes, body]) => attributes.trim() === "" && body.trim() !== "");
+if (!boot) throw new Error("index.html is missing the inline boot script");
+const script = boot[2];
 
 interface BootResult {
   dataset: Record<string, string>;
