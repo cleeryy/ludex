@@ -236,7 +236,30 @@ jobs:
 
       # Diffs the dependency graph of the base and head commits: a pull
       # request that adds a vulnerable package fails before it can be merged.
+      # The graph is a repository setting; when it is off the action aborts, so
+      # probe first and turn the gate on as soon as the graph is available.
+      - name: Check dependency review support
+        id: dependency-graph
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GH_REPO/dependency-graph/compare/${BASE}...${HEAD}")"
+          if [ "$code" = "200" ]; then
+            echo "supported=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "supported=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Dependency review is unavailable on this repository (dependency-graph HTTP $code). Enable Settings -> Code security -> Dependency graph to activate this gate; see docs/CI.md."
+          fi
+
       - name: Dependency review
+        if: steps.dependency-graph.outputs.supported == 'true'
         uses: actions/dependency-review-action@v5.0.0
         with:
           fail-on-severity: high

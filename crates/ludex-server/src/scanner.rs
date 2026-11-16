@@ -206,6 +206,9 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
     let mut candidates: Vec<Candidate> = Vec::new();
     let mut scanned_roots: Vec<i64> = Vec::new();
     let mut unavailable_roots: Vec<i64> = Vec::new();
+    // Versions indexed after this instant appeared while the scan was walking
+    // the disk; they cannot be "missing" (#CI flake in parental/age tests).
+    let started_at = db::now();
 
     for root in &roots {
         let path = PathBuf::from(&root.path);
@@ -315,7 +318,7 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
         }
     }
 
-    let removed = match mark_missing(state, &seen, &scanned_roots).await {
+    let removed = match mark_missing(state, &seen, &scanned_roots, started_at).await {
         Ok(removed) => removed,
         Err(error) => {
             if errors.len() < 20 {
@@ -925,6 +928,7 @@ async fn mark_missing(
     state: &AppState,
     seen: &HashSet<(i64, String)>,
     scanned_roots: &[i64],
+    started_at: chrono::DateTime<chrono::Utc>,
 ) -> Result<i64> {
     if scanned_roots.is_empty() {
         return Ok(0);
@@ -933,13 +937,13 @@ async fn mark_missing(
         .collect::<Vec<_>>()
         .join(",");
     let query = format!(
-        "SELECT v.id, v.game_id, v.file_path, v.root_id
+        "SELECT v.id, v.game_id, v.file_path, v.root_id, v.indexed_at
          FROM game_versions v
          JOIN library_roots r ON r.id = v.root_id
          WHERE v.missing = 0 AND v.root_unavailable = 0 AND r.available = 1
            AND v.root_id IN ({placeholders})"
     );
-    let mut request = db::query_as::<(i64, i64, String, Option<i64>)>(&query);
+    let mut request = db::query_as::<(i64, i64, String, Option<i64>, String)>(&query);
     for id in scanned_roots {
         request = request.bind(id);
     }
@@ -949,11 +953,17 @@ async fn mark_missing(
         .context("list indexed versions")?;
 
     let mut removed = 0;
-    for (id, game_id, file_path, root_id) in rows {
+    for (id, game_id, file_path, root_id, indexed_at) in rows {
         let Some(root_id) = root_id else {
             continue;
         };
         if seen.contains(&(root_id, file_path.clone())) {
+            continue;
+        }
+        // A row indexed while we were walking the disk (an ingest, a manual
+        // insert) was never part of the snapshot this scan compares against.
+        // The old code marked it missing, hiding a freshly added game.
+        if db::parse_time(&indexed_at).is_none_or(|at| at >= started_at) {
             continue;
         }
         db::query("UPDATE game_versions SET missing = 1 WHERE id = ?")

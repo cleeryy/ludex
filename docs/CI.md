@@ -233,6 +233,14 @@ and the head of a pull request and fails when a newly added package has a
 high/critical advisory. It only runs on pull requests; there is nothing to
 review on a push.
 
+The dependency graph is a repository setting, and the action aborts when it is
+unavailable. The job therefore probes
+`GET /repos/{repo}/dependency-graph/compare/{base}...{head}` first and skips the
+action with a `::notice::` when the API is not available on the repository, so a
+missing setting never turns every pull request red. Enable
+**Settings → Code security → Dependency graph** (and Dependency review) to turn
+the gate back on; the job starts scanning as soon as the probe returns `200`.
+
 ### CodeQL
 
 Both languages run over the source tree; results land in the Security tab with
@@ -401,9 +409,10 @@ actionlint   # after installing it, see https://github.com/rhysd/actionlint
 - **No secret scanning in CI beyond Trivy's scanner.** GitHub's native secret
   scanning and push protection are enabled at the repository level; a Trivy
   secret finding is a second net, not a replacement.
-- **`dependency-review-action` needs the dependency graph.** Public repository:
-  enabled by default. If it ever reports "dependency graph not found", check
-  Settings → Code security.
+- **`dependency-review-action` needs the dependency graph.** On this repository
+  the API currently answers `403` (graph not enabled), so the job logs a notice
+  and skips instead of failing every pull request. Enable Settings → Code
+  security → Dependency graph to activate it; no workflow change is needed.
 - **No Windows/macOS security scan.** Trivy and `cargo deny` run on Linux. The
   desktop crate is still gated on Windows by the cargo check job, but a
   Windows-only dependency is only audited through the shared lockfile.
