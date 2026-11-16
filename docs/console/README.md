@@ -11,6 +11,8 @@ This is the source of truth for the Console 2.0 / rebrand work. The short contra
 | [design.md](research/design.md) | Cabinet brand/UX direction, tokens, IA, screen-by-screen blueprint, customization, motion/sound, anti-slop |
 | [architecture.md](research/architecture.md) | Shell/provider/input architecture, native power/window, data boundaries, migration phases, gates |
 
+Evidence for the Phase 0.6 gates: [evidence.md](evidence.md) — fake-pad suite, 720p/1080p/4K + overscan matrix, WebKitGTK and Windows/Sunshine/Moonlight checklists (#270).
+
 ## Verdict
 
 The Console's **interaction kit is an asset**: motion vocabulary, sound/haptics, controller fingerprint/profile resolver, pure input/layout/zone models, 191 colocated tests, static-blur budget, and the `--console` Sunshine promotion. The user likes these; do not rewrite them.
