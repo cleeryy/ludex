@@ -6,6 +6,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- The file transport works in local mode (#241): the embedded server enables
+  the extracted cache by default with a bounded budget (Settings → Downloads,
+  default 50 GiB), so the automatic download policy can pick the manifest path;
+  remote/server deployments keep the env opt-in and a disabled cache still falls
+  back silently to stream/classic.
+
 ## [0.4.15] - 2026-11-16
 
 ### Changed
