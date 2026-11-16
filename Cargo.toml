@@ -39,7 +39,7 @@ hmac = "0.13"
 hex = "0.4"
 subtle = "2"
 rand = "0.8"
-notify = "7"
+notify = "8"
 fs2 = "0.4"
 object_store = { version = "0.14", default-features = false, features = ["aws"] }
 flate2 = "1"
