@@ -594,7 +594,7 @@ pub fn ticket_url(
     version_id: i64,
 ) -> Result<(String, DateTime<Utc>), ApiError> {
     let (ticket, expires_at) = auth::issue_download_ticket(
-        &state.jwt_secret,
+        &state.auth.jwt_secret,
         share.created_by,
         share.game_id,
         version_id,

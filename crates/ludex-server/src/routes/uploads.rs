@@ -14,6 +14,7 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use ludex_core::archive::is_archive_path;
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::Scope;
 use crate::audit::actions;
@@ -26,6 +27,7 @@ use crate::models::{
     part_len, total_parts, CompleteUploadResponse, CreateUploadRequest, UploadPartResponse,
     UploadRow, UploadSession,
 };
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::paths;
 use crate::state::AppState;
 use crate::uploads;
@@ -54,7 +56,7 @@ async fn create(
 ) -> Result<(StatusCode, Json<UploadSession>), ApiError> {
     user.require_editor()?;
     // Best-effort housekeeping; never let a cleanup hiccup block a new upload.
-    let _ = uploads::cleanup_stale(&state, state.config.upload_ttl).await;
+    let _ = uploads::cleanup_stale(&state, state.core.config.upload_ttl).await;
 
     let file_name = uploads::sanitize_file_name(&request.file_name);
     if !is_archive_path(Path::new(&file_name)) {
@@ -69,7 +71,7 @@ async fn create(
             "size must be greater than zero",
         ));
     }
-    let max = i64::try_from(state.config.upload_max_bytes).unwrap_or(i64::MAX);
+    let max = i64::try_from(state.core.config.upload_max_bytes).unwrap_or(i64::MAX);
     if request.size > max {
         return Err(ApiError::bad_request(
             "upload_too_large",
@@ -90,9 +92,10 @@ async fn create(
         }
     };
 
-    let chunk_size = i64::try_from(state.config.upload_chunk_bytes).unwrap_or(16 * 1024 * 1024);
+    let chunk_size =
+        i64::try_from(state.core.config.upload_chunk_bytes).unwrap_or(16 * 1024 * 1024);
     let id = uuid::Uuid::new_v4().to_string();
-    let dir = uploads::upload_dir(&state.config.data_dir, &id)?;
+    let dir = uploads::upload_dir(&state.core.config.data_dir, &id)?;
     tokio::fs::create_dir_all(&dir)
         .await
         .map_err(ApiError::from)?;
@@ -110,7 +113,7 @@ async fn create(
     .bind(chunk_size)
     .bind(&now)
     .bind(&now)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -124,7 +127,7 @@ async fn progress(
     ApiPath(id): ApiPath<String>,
 ) -> Result<Json<UploadSession>, ApiError> {
     let row = fetch_owned(&state, &user, &id).await?;
-    let dir = uploads::upload_dir(&state.config.data_dir, &id)?;
+    let dir = uploads::upload_dir(&state.core.config.data_dir, &id)?;
     let parts = uploads::received_parts(&dir, total_parts(row.size, row.chunk_size));
     Ok(Json(row.to_public(parts)))
 }
@@ -158,7 +161,7 @@ async fn receive_part(
         ));
     }
 
-    let path = uploads::part_path(&state.config.data_dir, &id, part)?;
+    let path = uploads::part_path(&state.core.config.data_dir, &id, part)?;
     let temporary = path.with_extension("part.tmp");
     // `path` is `{data_dir}/uploads/{id}/{part}.part` where `id` passed
     // `paths::component` in `fetch_row` and `part` is an i64; see
@@ -175,11 +178,11 @@ async fn receive_part(
     db::query("UPDATE uploads SET updated_at = ? WHERE id = ?")
         .bind(db::db_time(db::now()))
         .bind(&id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
-    let dir = uploads::upload_dir(&state.config.data_dir, &id)?;
+    let dir = uploads::upload_dir(&state.core.config.data_dir, &id)?;
     let parts = uploads::received_parts(&dir, expected_parts);
     Ok(Json(UploadPartResponse {
         id,
@@ -206,7 +209,7 @@ async fn complete(
         ));
     }
 
-    let dir = uploads::upload_dir(&state.config.data_dir, &id)?;
+    let dir = uploads::upload_dir(&state.core.config.data_dir, &id)?;
     let expected_parts = total_parts(row.size, row.chunk_size);
     let parts = uploads::received_parts(&dir, expected_parts);
     if i64::try_from(parts.len()).unwrap_or(0) != expected_parts {
@@ -216,7 +219,7 @@ async fn complete(
         ));
     }
     for part in 0..expected_parts {
-        let path = uploads::part_path(&state.config.data_dir, &id, part)?;
+        let path = uploads::part_path(&state.core.config.data_dir, &id, part)?;
         // Confined by `part_path`; see
         // `uploads::tests::destinations_stay_inside_the_library`.
         // codeql[rust/path-injection]
@@ -232,12 +235,12 @@ async fn complete(
         }
     }
 
-    let destination = uploads::unique_destination(&state.config.games_dir, &row.file_name)?;
-    let temporary = uploads::temporary_destination(&state.config.games_dir, &id)?;
+    let destination = uploads::unique_destination(&state.core.config.games_dir, &row.file_name)?;
+    let temporary = uploads::temporary_destination(&state.core.config.games_dir, &id)?;
     // Resolve symlinks before writing: the lexical join above already confines
     // both paths, and this catches a link planted inside the library root.
-    paths::canonical_within(&state.config.games_dir, &destination).await?;
-    paths::canonical_within(&state.config.games_dir, &temporary).await?;
+    paths::canonical_within(&state.core.config.games_dir, &destination).await?;
+    paths::canonical_within(&state.core.config.games_dir, &temporary).await?;
     let assembled = uploads::assemble(&dir, row.size, row.chunk_size, &temporary).await;
     let (size, hash) = match assembled {
         Ok(value) => value,
@@ -302,12 +305,12 @@ async fn complete(
     .bind(version_id)
     .bind(&now)
     .bind(&id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     // The chunks are no longer needed; the row stays for progress queries.
     let _ = tokio::fs::remove_dir_all(&dir).await;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::UPLOAD_COMPLETED, user.actor())
             .target("game", game_id.to_string())
             .metadata(json!({
@@ -339,7 +342,7 @@ async fn cancel(
         // Keep the indexed game; only drop the progress row.
         db::query("DELETE FROM uploads WHERE id = ?")
             .bind(&id)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
         return Ok(StatusCode::NO_CONTENT);
@@ -378,7 +381,7 @@ async fn fetch_row(state: &AppState, id: &str) -> Result<UploadRow, ApiError> {
          FROM uploads WHERE id = ?",
     )
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("upload_not_found", "Upload not found"))
@@ -399,6 +402,57 @@ async fn mark_error(state: &AppState, id: &str, message: &str) {
         .bind(message)
         .bind(db::db_time(db::now()))
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await;
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Resumable uploads
+    body(
+        route(
+            HttpMethod::Post,
+            "/uploads",
+            "Uploads",
+            "Start a resumable archive upload",
+            Auth::Editor,
+            Payload::Schema("UploadSession"),
+        ),
+        "CreateUploadRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/uploads/{id}",
+        "Uploads",
+        "Upload progress for resume",
+        Auth::Editor,
+        Payload::Schema("UploadSession"),
+    ),
+    route(
+        HttpMethod::Put,
+        "/uploads/{id}/parts/{part}",
+        "Uploads",
+        "Upload one chunk (idempotent, binary body)",
+        Auth::Editor,
+        Payload::Schema("UploadPartResponse"),
+    ),
+    route(
+        HttpMethod::Post,
+        "/uploads/{id}/complete",
+        "Uploads",
+        "Verify, assemble and index the archive",
+        Auth::Editor,
+        Payload::Schema("CompleteUploadResponse"),
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/uploads/{id}",
+            "Uploads",
+            "Abandon an upload",
+            Auth::Editor,
+            Payload::None,
+        ),
+        204,
+    ),
+];

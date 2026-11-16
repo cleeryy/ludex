@@ -49,7 +49,7 @@ pub async fn record(
     .bind(collection_id)
     .bind(serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".to_string()))
     .bind(crate::db::db_time(crate::db::now()))
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await;
     if let Err(error) = result {
         tracing::warn!(error = %error, kind, user_id, "could not record activity");
@@ -76,7 +76,7 @@ pub async fn record_deduped(
     .bind(kind)
     .bind(game_id)
     .bind(&since)
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await;
     match recent {
         Ok(count) if count > 0 => return false,
@@ -133,7 +133,7 @@ pub async fn feed(
         clauses.join(" AND ")
     );
     let mut rows = bind_query_as(db::query_as::<ActivityRow>(&sql), &binds)
-        .fetch_all(&state.pool)
+        .fetch_all(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
@@ -185,7 +185,7 @@ pub async fn friends_feed(
         clauses.join(" AND ")
     );
     let mut rows = bind_query_as(db::query_as::<ActivityRow>(&sql), &binds)
-        .fetch_all(&state.pool)
+        .fetch_all(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 

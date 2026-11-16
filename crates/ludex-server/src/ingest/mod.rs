@@ -9,6 +9,104 @@
 mod manager;
 pub mod types;
 
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Ingest (documented paths are relative to /api even though the router
+    // mounts them with an absolute prefix).
+    route(
+        HttpMethod::Get,
+        "/ingest/downloads",
+        "Ingest",
+        "List ingest downloads",
+        Auth::Editor,
+        Payload::Array("IngestJob"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/ingest/downloads",
+            "Ingest",
+            "Download an archive from a URL",
+            Auth::Editor,
+            Payload::Schema("IngestJob"),
+        ),
+        "CreateDownloadRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/ingest/downloads/{id}",
+        "Ingest",
+        "Read one ingest job",
+        Auth::Editor,
+        Payload::Schema("IngestJob"),
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/ingest/downloads/{id}",
+            "Ingest",
+            "Replace a job URL or title",
+            Auth::Editor,
+            Payload::Schema("IngestJob"),
+        ),
+        "UpdateDownloadRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/ingest/downloads/{id}",
+            "Ingest",
+            "Cancel and delete a job",
+            Auth::Editor,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Post,
+        "/ingest/downloads/{id}/retry",
+        "Ingest",
+        "Retry a failed job",
+        Auth::Editor,
+        Payload::Schema("IngestJob"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/ingest/files",
+        "Ingest",
+        "List library archive files",
+        Auth::Editor,
+        Payload::Array("IngestFile"),
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/ingest/files/{name}",
+            "Ingest",
+            "Delete a library archive",
+            Auth::Editor,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Post,
+        "/ingest/files/{name}/verify",
+        "Ingest",
+        "Verify an archive",
+        Auth::Editor,
+        Payload::Schema("VerifyResponse"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/ingest/stats",
+        "Ingest",
+        "Ingest statistics",
+        Auth::Editor,
+        Payload::Schema("IngestStats"),
+    ),
+];
+
 #[cfg(test)]
 mod tests;
 
@@ -30,6 +128,8 @@ use self::types::{
     infer_title, is_archive_name, parse_http_url, sanitize_title, CreateDownloadRequest,
     UpdateDownloadRequest, PART_SUFFIX,
 };
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
+use utoipa::openapi::HttpMethod;
 
 pub use self::types::{IngestFile, IngestJob, IngestStats, IngestStatus, VerifyResponse};
 

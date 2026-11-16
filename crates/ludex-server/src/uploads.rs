@@ -200,7 +200,7 @@ pub async fn assemble(
 
 /// Deletes an upload's chunks and its row.
 pub async fn remove(state: &AppState, id: &str) -> Result<()> {
-    let dir = upload_dir(&state.config.data_dir, id)?;
+    let dir = upload_dir(&state.core.config.data_dir, id)?;
     if let Err(error) = tokio::fs::remove_dir_all(&dir).await {
         if error.kind() != std::io::ErrorKind::NotFound {
             return Err(error.into());
@@ -208,7 +208,7 @@ pub async fn remove(state: &AppState, id: &str) -> Result<()> {
     }
     db::query("DELETE FROM uploads WHERE id = ?")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await?;
     Ok(())
 }
@@ -225,7 +225,7 @@ pub async fn cleanup_stale(state: &AppState, max_age: Duration) -> Result<usize>
          WHERE status != 'complete' AND updated_at < ?",
     )
     .bind(&cutoff_text)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await?;
 
     let mut removed = 0usize;
@@ -236,7 +236,7 @@ pub async fn cleanup_stale(state: &AppState, max_age: Duration) -> Result<usize>
 
     // Directories without a row (crash between mkdir and insert) are removed
     // once their mtime is old enough.
-    let root = root(&state.config.data_dir);
+    let root = root(&state.core.config.data_dir);
     let Ok(mut entries) = tokio::fs::read_dir(&root).await else {
         return Ok(removed);
     };
@@ -252,7 +252,7 @@ pub async fn cleanup_stale(state: &AppState, max_age: Duration) -> Result<usize>
         };
         let tracked = db::query_scalar::<i64>("SELECT COUNT(*) FROM uploads WHERE id = ?")
             .bind(&name)
-            .fetch_one(&state.pool)
+            .fetch_one(&state.core.pool)
             .await
             .unwrap_or(0);
         if tracked > 0 {
@@ -272,10 +272,10 @@ pub async fn cleanup_stale(state: &AppState, max_age: Duration) -> Result<usize>
 
 /// Hourly cleanup loop. Runs until the process exits.
 pub async fn cleanup_worker(state: AppState) {
-    let interval = state.config.upload_ttl.max(Duration::from_secs(60));
+    let interval = state.core.config.upload_ttl.max(Duration::from_secs(60));
     loop {
         tokio::time::sleep(interval).await;
-        if let Err(error) = cleanup_stale(&state, state.config.upload_ttl).await {
+        if let Err(error) = cleanup_stale(&state, state.core.config.upload_ttl).await {
             tracing::warn!(error = %error, "upload cleanup failed");
         }
     }

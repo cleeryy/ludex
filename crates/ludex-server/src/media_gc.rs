@@ -67,6 +67,7 @@ pub fn interval(config: &crate::config::Config) -> Option<Duration> {
 /// row, even when it is old.
 pub async fn run(state: &AppState, dry_run: bool) -> Result<MediaGcResult, ApiError> {
     if state
+        .ops
         .media_gc_busy
         .compare_exchange(
             false,
@@ -83,6 +84,7 @@ pub async fn run(state: &AppState, dry_run: bool) -> Result<MediaGcResult, ApiEr
     }
     let result = collect(state, dry_run).await;
     state
+        .ops
         .media_gc_busy
         .store(false, std::sync::atomic::Ordering::SeqCst);
     result
@@ -94,15 +96,15 @@ async fn collect(state: &AppState, dry_run: bool) -> Result<MediaGcResult, ApiEr
     let run_id = db::query("INSERT INTO media_gc_runs (dry_run, started_at) VALUES (?, ?)")
         .bind(i64::from(dry_run))
         .bind(&started)
-        .returning_id(&state.pool)
+        .returning_id(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
-    let referenced = referenced_media(&state.pool)
+    let referenced = referenced_media(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
-    let grace = state.config.media_gc_grace;
-    let files = tokio::fs::read_dir(&state.config.media_dir).await;
+    let grace = state.core.config.media_gc_grace;
+    let files = tokio::fs::read_dir(&state.core.config.media_dir).await;
     let mut scanned = 0_usize;
     let mut orphan_files = 0_usize;
     let mut orphan_bytes = 0_u64;
@@ -149,7 +151,7 @@ async fn collect(state: &AppState, dry_run: bool) -> Result<MediaGcResult, ApiEr
                     deleted_bytes += metadata.len();
                     let _ = db::query("DELETE FROM media_manifest WHERE name = ?")
                         .bind(&name)
-                        .execute(&state.pool)
+                        .execute(&state.core.pool)
                         .await;
                 }
                 Err(error) => {
@@ -173,7 +175,7 @@ async fn collect(state: &AppState, dry_run: bool) -> Result<MediaGcResult, ApiEr
     .bind(i64::try_from(deleted_bytes).unwrap_or(i64::MAX))
     .bind(db::db_time(finished_at))
     .bind(run_id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await;
 
     tracing::info!(
@@ -204,7 +206,7 @@ async fn collect(state: &AppState, dry_run: bool) -> Result<MediaGcResult, ApiEr
 
 /// Runs a real collection on the configured interval. Disabled when zero.
 pub async fn scheduled_worker(state: AppState, mut cancel: watch::Receiver<bool>) {
-    let Some(interval) = interval(&state.config) else {
+    let Some(interval) = interval(&state.core.config) else {
         return;
     };
     let mut ticker = tokio::time::interval(interval);
@@ -215,7 +217,7 @@ pub async fn scheduled_worker(state: AppState, mut cancel: watch::Receiver<bool>
             _ = ticker.tick() => {
                 // Never collect while a scan is running: the scan may be
                 // enriching new games whose artwork is not referenced yet.
-                if state.scan.read().await.running {
+                if state.catalog.scan.read().await.running {
                     tracing::debug!("skipping scheduled media GC: a scan is running");
                     continue;
                 }
@@ -271,7 +273,7 @@ mod tests {
         .bind(name)
         .bind(&now)
         .bind(&now)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .expect("game");
     }
@@ -280,7 +282,7 @@ mod tests {
     async fn orphan_is_removed() {
         let temp = tempfile::tempdir().expect("tempdir");
         let state = test_state(temp.path(), Duration::ZERO).await;
-        let orphan = state.config.media_dir.join("orphan.jpg");
+        let orphan = state.core.config.media_dir.join("orphan.jpg");
         fs::write(&orphan, vec![0_u8; 512]).expect("write");
         let result = run(&state, false).await.expect("gc");
         assert_eq!(result.orphan_files, 1);
@@ -293,7 +295,7 @@ mod tests {
     async fn referenced_media_is_kept() {
         let temp = tempfile::tempdir().expect("tempdir");
         let state = test_state(temp.path(), Duration::ZERO).await;
-        let cover = state.config.media_dir.join("cover.jpg");
+        let cover = state.core.config.media_dir.join("cover.jpg");
         fs::write(&cover, vec![0_u8; 512]).expect("write");
         reference_cover(&state, "cover.jpg").await;
         let result = run(&state, false).await.expect("gc");
@@ -306,7 +308,7 @@ mod tests {
     async fn screenshots_are_referenced() {
         let temp = tempfile::tempdir().expect("tempdir");
         let state = test_state(temp.path(), Duration::ZERO).await;
-        let shot = state.config.media_dir.join("shot.jpg");
+        let shot = state.core.config.media_dir.join("shot.jpg");
         fs::write(&shot, vec![0_u8; 64]).expect("write");
         let now = db::db_time(db::now());
         db::query(
@@ -315,7 +317,7 @@ mod tests {
         )
         .bind(&now)
         .bind(&now)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .expect("game");
         let result = run(&state, false).await.expect("gc");
@@ -327,7 +329,7 @@ mod tests {
     async fn grace_period_protects_fresh_files() {
         let temp = tempfile::tempdir().expect("tempdir");
         let state = test_state(temp.path(), Duration::from_secs(24 * 3_600)).await;
-        let fresh = state.config.media_dir.join("fresh.jpg");
+        let fresh = state.core.config.media_dir.join("fresh.jpg");
         fs::write(&fresh, vec![0_u8; 32]).expect("write");
 
         let result = run(&state, false).await.expect("gc");
@@ -340,7 +342,7 @@ mod tests {
     async fn dry_run_reports_without_deleting() {
         let temp = tempfile::tempdir().expect("tempdir");
         let state = test_state(temp.path(), Duration::ZERO).await;
-        let orphan = state.config.media_dir.join("orphan.jpg");
+        let orphan = state.core.config.media_dir.join("orphan.jpg");
         fs::write(&orphan, vec![0_u8; 128]).expect("write");
         let result = run(&state, true).await.expect("gc");
         assert!(result.dry_run);

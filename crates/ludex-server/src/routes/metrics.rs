@@ -27,7 +27,7 @@ pub async fn metrics(
 ) -> Result<Response, ApiError> {
     authorize(&state, &headers, peer)?;
     let snapshot = metrics::snapshot(&state).await;
-    let mut body = state.metrics.render();
+    let mut body = state.ops.metrics.render();
     body.push_str(&metrics::render_snapshot(&state, &snapshot));
     Ok((StatusCode::OK, [(header::CONTENT_TYPE, CONTENT_TYPE)], body).into_response())
 }
@@ -35,8 +35,8 @@ pub async fn metrics(
 /// Enforces the bearer token, or the public rate limit.
 pub fn authorize(state: &AppState, headers: &HeaderMap, peer: SocketAddr) -> Result<(), ApiError> {
     authorize_with(
-        state.config.metrics_token.as_deref(),
-        &state.metrics,
+        state.core.config.metrics_token.as_deref(),
+        &state.ops.metrics,
         headers,
         peer,
     )

@@ -4,6 +4,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::Scope;
 use crate::auth::AuthUser;
@@ -15,6 +16,7 @@ use crate::emulators::{
 };
 use crate::error::ApiError;
 use crate::extract::{ApiPath, JsonBody};
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Emulator routes.
@@ -37,7 +39,7 @@ async fn list(
     user: AuthUser,
 ) -> Result<Json<Vec<Emulator>>, ApiError> {
     user.require_scope(Scope::Read)?;
-    Ok(Json(emulators::list(&state.pool).await?))
+    Ok(Json(emulators::list(&state.core.pool).await?))
 }
 
 async fn create(
@@ -48,7 +50,7 @@ async fn create(
     user.require_admin_access()?;
     Ok((
         StatusCode::CREATED,
-        Json(emulators::create(&state.pool, &request).await?),
+        Json(emulators::create(&state.core.pool, &request).await?),
     ))
 }
 
@@ -59,7 +61,9 @@ async fn update(
     JsonBody(request): JsonBody<UpdateEmulatorRequest>,
 ) -> Result<Json<Emulator>, ApiError> {
     user.require_admin_access()?;
-    Ok(Json(emulators::update(&state.pool, id, &request).await?))
+    Ok(Json(
+        emulators::update(&state.core.pool, id, &request).await?,
+    ))
 }
 
 async fn remove(
@@ -68,7 +72,7 @@ async fn remove(
     ApiPath(id): ApiPath<i64>,
 ) -> Result<StatusCode, ApiError> {
     user.require_admin_access()?;
-    if !emulators::delete(&state.pool, id).await? {
+    if !emulators::delete(&state.core.pool, id).await? {
         return Err(ApiError::not_found(
             "emulator_not_found",
             "Emulator not found",
@@ -104,7 +108,7 @@ async fn platforms(
     user: AuthUser,
 ) -> Result<Json<Vec<PlatformView>>, ApiError> {
     user.require_scope(Scope::Read)?;
-    Ok(Json(emulators::platforms(&state.pool).await?))
+    Ok(Json(emulators::platforms(&state.core.pool).await?))
 }
 
 async fn defaults(
@@ -112,7 +116,7 @@ async fn defaults(
     user: AuthUser,
 ) -> Result<Json<Vec<PlatformDefault>>, ApiError> {
     user.require_scope(Scope::Read)?;
-    Ok(Json(emulators::defaults(&state.pool).await?))
+    Ok(Json(emulators::defaults(&state.core.pool).await?))
 }
 
 async fn set_defaults(
@@ -121,7 +125,9 @@ async fn set_defaults(
     JsonBody(request): JsonBody<UpdateDefaultsRequest>,
 ) -> Result<Json<Vec<PlatformDefault>>, ApiError> {
     user.require_admin_access()?;
-    Ok(Json(emulators::set_defaults(&state.pool, &request).await?))
+    Ok(Json(
+        emulators::set_defaults(&state.core.pool, &request).await?,
+    ))
 }
 
 async fn launch_command(
@@ -131,7 +137,7 @@ async fn launch_command(
 ) -> Result<Json<EmulatorLaunch>, ApiError> {
     user.require_scope(Scope::Read)?;
     Ok(Json(
-        emulators::launch_for_game(&state.pool, game_id).await?,
+        emulators::launch_for_game(&state.core.pool, game_id).await?,
     ))
 }
 
@@ -144,7 +150,7 @@ async fn set_game_emulator(
     user.require_editor()?;
     let kind = db::query_scalar::<String>("SELECT kind FROM games WHERE id = ?")
         .bind(game_id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::not_found("game_not_found", "Game not found"))?;
@@ -158,7 +164,7 @@ async fn set_game_emulator(
         let exists =
             db::query_scalar::<i64>("SELECT COUNT(*) FROM emulators WHERE id = ? AND enabled = 1")
                 .bind(id)
-                .fetch_one(&state.pool)
+                .fetch_one(&state.core.pool)
                 .await
                 .map_err(ApiError::from)?;
         if exists == 0 {
@@ -172,8 +178,120 @@ async fn set_game_emulator(
         .bind(request.emulator_id)
         .bind(crate::db::db_time(crate::db::now()))
         .bind(game_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Emulators and ROMs (#52)
+    route(
+        HttpMethod::Get,
+        "/emulators",
+        "Emulators",
+        "List configured emulators",
+        Auth::Session,
+        Payload::Array("Emulator"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/emulators",
+            "Emulators",
+            "Register an emulator command",
+            Auth::Admin,
+            Payload::Schema("Emulator"),
+        ),
+        "CreateEmulatorRequest",
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/emulators/validate",
+                "Emulators",
+                "Validate an emulator command template without running it",
+                Auth::Admin,
+                Payload::Schema("ValidateCommandResponse"),
+            ),
+            "ValidateCommandRequest",
+        ),
+        200,
+    ),
+    route(
+        HttpMethod::Get,
+        "/emulators/defaults",
+        "Emulators",
+        "Default emulator per platform",
+        Auth::Session,
+        Payload::Array("PlatformDefault"),
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/emulators/defaults",
+            "Emulators",
+            "Set or clear platform default emulators",
+            Auth::Admin,
+            Payload::Array("PlatformDefault"),
+        ),
+        "UpdateDefaultsRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/emulators/{id}",
+            "Emulators",
+            "Update an emulator",
+            Auth::Admin,
+            Payload::Schema("Emulator"),
+        ),
+        "UpdateEmulatorRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/emulators/{id}",
+            "Emulators",
+            "Delete an emulator",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Get,
+        "/platforms",
+        "Emulators",
+        "Platform catalog with ROM counts",
+        Auth::Session,
+        Payload::Array("PlatformView"),
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/games/{id}/launch-command",
+            "Emulators",
+            "Resolve the emulator launch command for a ROM game",
+            Auth::Session,
+            Payload::Schema("EmulatorLaunch"),
+        ),
+        200,
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Put,
+                "/games/{id}/emulator",
+                "Emulators",
+                "Set or clear the per-game emulator override",
+                Auth::Editor,
+                Payload::None,
+            ),
+            "SetGameEmulatorRequest",
+        ),
+        204,
+    ),
+];

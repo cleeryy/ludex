@@ -42,7 +42,7 @@ async fn download(
         })?),
     };
 
-    let download = desktop_download::download(&state.http, &state.config, platform).await;
+    let download = desktop_download::download(&state.core.http, &state.core.config, platform).await;
 
     let mut headers = HeaderMap::new();
     // The server cache is authoritative (10 min by default); let browsers keep

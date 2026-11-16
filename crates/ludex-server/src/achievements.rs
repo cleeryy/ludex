@@ -744,7 +744,7 @@ pub async fn scan(
 ) -> Result<ScanReport, ApiError> {
     let game = db::query_scalar::<i64>("SELECT id FROM games WHERE id = ?")
         .bind(game_id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     if game.is_none() {
@@ -757,7 +757,7 @@ pub async fn scan(
     )
     .bind(game_id)
     .bind(user_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -773,7 +773,7 @@ pub async fn scan(
     let validated = match install_path.as_deref() {
         Some(path) => Some(validate_scan_path(
             path,
-            &state.config.achievement_scan_roots,
+            &state.core.config.achievement_scan_roots,
         )?),
         None => None,
     };
@@ -781,7 +781,7 @@ pub async fn scan(
     let mut selected = request
         .providers
         .clone()
-        .unwrap_or_else(|| enabled_providers(&state.config));
+        .unwrap_or_else(|| enabled_providers(&state.core.config));
     selected.retain(|id| !id.trim().is_empty());
     for id in &selected {
         if !providers().iter().any(|provider| provider.id() == id) {
@@ -795,10 +795,10 @@ pub async fn scan(
     let context = ScanContext {
         install_path: validated.as_ref().map(|(canonical, _)| canonical.as_path()),
         app_id: app_id.as_deref(),
-        http: &state.http,
-        local_api_urls: &state.config.achievement_local_api_urls,
-        galaxy_db: state.config.achievement_galaxy_db.as_deref(),
-        allow_remote_apis: state.config.achievement_allow_remote_apis,
+        http: &state.core.http,
+        local_api_urls: &state.core.config.achievement_local_api_urls,
+        galaxy_db: state.core.config.achievement_galaxy_db.as_deref(),
+        allow_remote_apis: state.core.config.achievement_allow_remote_apis,
     };
 
     let scanned_at = db::now();
@@ -833,7 +833,7 @@ pub async fn scan(
                         upsert(state, user_id, game_id, provider.id(), achievement).await?;
                     if new_unlock {
                         unlocked += 1;
-                        state.events.emit(
+                        state.core.events.emit(
                             Event::new(crate::audit::actions::ACHIEVEMENT_UNLOCKED, Actor::System)
                                 .target("achievement", format!("{game_id}:{}", achievement.key))
                                 .metadata(json!({
@@ -892,7 +892,7 @@ pub async fn scan(
     .bind(&app_id)
     .bind(serde_json::to_string(&selected).unwrap_or_else(|_| "[]".to_string()))
     .bind(&now)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -910,12 +910,12 @@ pub async fn scan(
         .bind(provider.unlocked)
         .bind(&provider.message)
         .bind(&now)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     }
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(crate::audit::actions::ACHIEVEMENT_SCANNED, Actor::System)
             .target("game", game_id.to_string())
             .metadata(json!({
@@ -965,7 +965,7 @@ async fn upsert(
         db::query_scalar::<i64>("SELECT id FROM achievements WHERE game_id = ? AND key = ?")
             .bind(game_id)
             .bind(&key)
-            .fetch_optional(&state.pool)
+            .fetch_optional(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
 
@@ -986,7 +986,7 @@ async fn upsert(
             .bind(achievement.raw.to_string())
             .bind(&now)
             .bind(id)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
             id
@@ -1009,7 +1009,7 @@ async fn upsert(
             .bind(achievement.raw.to_string())
             .bind(&now)
             .bind(&now)
-            .returning_id(&state.pool)
+            .returning_id(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
             id
@@ -1034,7 +1034,7 @@ async fn upsert(
         .bind(provider)
         .bind(achievement.raw.to_string())
         .bind(&now)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
         new_unlock = result.rows_affected() > 0;
@@ -1541,7 +1541,7 @@ pub async fn unlock(
         db::query_scalar::<i64>("SELECT id FROM achievements WHERE game_id = ? AND key = ?")
             .bind(game_id)
             .bind(&key)
-            .fetch_optional(&state.pool)
+            .fetch_optional(&state.core.pool)
             .await
             .map_err(ApiError::from)?
             .ok_or_else(|| ApiError::not_found("achievement_not_found", "Achievement not found"))?;
@@ -1558,7 +1558,7 @@ pub async fn unlock(
     .bind(db::db_time(now))
     .bind(source)
     .bind(db::db_time(now))
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     let created = result.rows_affected() > 0;
@@ -1568,7 +1568,7 @@ pub async fn unlock(
             "SELECT name, hidden, points FROM achievements WHERE id = ?",
         )
         .bind(achievement_id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
         if hidden == 0 {
@@ -1596,7 +1596,7 @@ pub async fn unlock(
             )
             .await;
         }
-        state.events.emit(
+        state.core.events.emit(
             Event::new(crate::audit::actions::ACHIEVEMENT_UNLOCKED, actor)
                 .target("achievement", format!("{game_id}:{key}"))
                 .metadata(json!({
@@ -1619,7 +1619,7 @@ pub async fn unlock(
     let row = db::query_as::<AchievementRow>(&sql)
         .bind(user_id)
         .bind(achievement_id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?
         .ok_or_else(ApiError::internal)?;
@@ -1970,7 +1970,7 @@ fn scan_interval(config: &crate::config::Config) -> Option<Duration> {
 
 /// Rescans every recorded source on a schedule.
 pub async fn scheduled_worker(state: AppState, mut cancel: tokio::sync::watch::Receiver<bool>) {
-    let Some(interval) = scan_interval(&state.config) else {
+    let Some(interval) = scan_interval(&state.core.config) else {
         return;
     };
     let mut ticker = tokio::time::interval(interval);
@@ -1979,8 +1979,7 @@ pub async fn scheduled_worker(state: AppState, mut cancel: tokio::sync::watch::R
     loop {
         tokio::select! {
             _ = ticker.tick() => {
-                if state
-                    .achievement_busy
+                if state.ops.achievement_busy
                     .compare_exchange(
                         false,
                         true,
@@ -1992,8 +1991,7 @@ pub async fn scheduled_worker(state: AppState, mut cancel: tokio::sync::watch::R
                     continue;
                 }
                 let result = rescan_sources(&state).await;
-                state
-                    .achievement_busy
+                state.ops.achievement_busy
                     .store(false, std::sync::atomic::Ordering::SeqCst);
                 match result {
                     Ok(scanned) => tracing::debug!(scanned, "scheduled achievement scan finished"),
@@ -2013,7 +2011,7 @@ async fn rescan_sources(state: &AppState) -> Result<usize> {
     let sources = db::query_as::<(i64, i64, Option<String>, Option<String>, Option<String>)>(
         "SELECT game_id, user_id, install_path, app_id, providers FROM achievement_sources",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .context("list achievement sources")?;
 

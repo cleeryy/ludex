@@ -5,6 +5,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use serde::Deserialize;
+use utoipa::openapi::HttpMethod;
 
 use crate::audit::actions;
 use crate::auth::AuthUser;
@@ -16,6 +17,7 @@ use crate::models::{
     CreateLibraryRootRequest, LibraryFolders, RootScanResponse, ScanResponse, ScanStatus,
     UpdateLibraryRootRequest,
 };
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::roots::{self, LibraryRootView};
 use crate::state::AppState;
 use crate::watcher::WatcherStatus;
@@ -35,7 +37,7 @@ pub fn router() -> Router<AppState> {
 }
 
 async fn scan_status(State(state): State<AppState>, _user: AuthUser) -> Json<ScanStatus> {
-    Json(state.scan.read().await.clone())
+    Json(state.catalog.scan.read().await.clone())
 }
 
 async fn scan(
@@ -53,9 +55,9 @@ async fn folders(
 ) -> Result<Json<LibraryFolders>, ApiError> {
     user.require_admin()?;
     Ok(Json(LibraryFolders {
-        games_dir: state.config.games_dir.display().to_string(),
-        media_dir: state.config.media_dir.display().to_string(),
-        data_dir: state.config.data_dir.display().to_string(),
+        games_dir: state.core.config.games_dir.display().to_string(),
+        media_dir: state.core.config.media_dir.display().to_string(),
+        data_dir: state.core.config.data_dir.display().to_string(),
     }))
 }
 
@@ -64,7 +66,7 @@ async fn list_roots(
     user: AuthUser,
 ) -> Result<Json<Vec<LibraryRootView>>, ApiError> {
     user.require_admin_access()?;
-    Ok(Json(roots::list(&state.pool).await?))
+    Ok(Json(roots::list(&state.core.pool).await?))
 }
 
 async fn create_root(
@@ -76,7 +78,7 @@ async fn create_root(
     let path = roots::validate_path(&request.path)?;
     let exists = db::query_scalar::<i64>("SELECT COUNT(*) FROM library_roots WHERE path = ?")
         .bind(&path)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     if exists > 0 {
@@ -91,8 +93,8 @@ async fn create_root(
     };
     let enabled = request.enabled.unwrap_or(true);
     let kind = validate_root_kind(request.kind.as_deref())?;
-    let id = roots::create(&state.pool, &label, &path, enabled, &kind).await?;
-    state.events.emit(
+    let id = roots::create(&state.core.pool, &label, &path, enabled, &kind).await?;
+    state.core.events.emit(
         Event::new(actions::LIBRARY_ROOT_CREATED, user.actor())
             .target("library_root", id.to_string())
             .metadata(serde_json::json!({ "label": label, "path": path, "enabled": enabled })),
@@ -108,7 +110,7 @@ async fn update_root(
     JsonBody(request): JsonBody<UpdateLibraryRootRequest>,
 ) -> Result<Json<LibraryRootView>, ApiError> {
     user.require_admin_access()?;
-    let current = roots::get(&state.pool, id)
+    let current = roots::get(&state.core.pool, id)
         .await?
         .ok_or_else(|| ApiError::not_found("root_not_found", "Library root not found"))?;
 
@@ -126,7 +128,7 @@ async fn update_root(
         )
         .bind(&path)
         .bind(id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
         if duplicate > 0 {
@@ -143,7 +145,7 @@ async fn update_root(
         None => current.kind.clone(),
     };
     if kind != current.kind {
-        let versions = roots::version_count(&state.pool, id).await?;
+        let versions = roots::version_count(&state.core.pool, id).await?;
         if versions > 0 {
             return Err(ApiError::conflict(
                 "root_kind_locked",
@@ -163,11 +165,11 @@ async fn update_root(
     .bind(&kind)
     .bind(db::db_time(db::now()))
     .bind(id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::LIBRARY_ROOT_UPDATED, user.actor())
             .target("library_root", id.to_string())
             .metadata(serde_json::json!({
@@ -195,10 +197,10 @@ async fn delete_root(
     ApiQuery(query): ApiQuery<DeleteRootQuery>,
 ) -> Result<StatusCode, ApiError> {
     user.require_admin_access()?;
-    let root = roots::get(&state.pool, id)
+    let root = roots::get(&state.core.pool, id)
         .await?
         .ok_or_else(|| ApiError::not_found("root_not_found", "Library root not found"))?;
-    let versions = roots::version_count(&state.pool, id).await?;
+    let versions = roots::version_count(&state.core.pool, id).await?;
     if versions > 0 && !query.force.unwrap_or(false) {
         return Err(ApiError::conflict(
             "root_not_empty",
@@ -213,16 +215,16 @@ async fn delete_root(
     // foreign key, so a later scan never reattributes them to another root.
     db::query("UPDATE game_versions SET missing = 1, root_unavailable = 0 WHERE root_id = ?")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     db::query("DELETE FROM library_roots WHERE id = ?")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::LIBRARY_ROOT_DELETED, user.actor())
             .target("library_root", id.to_string())
             .metadata(serde_json::json!({
@@ -241,7 +243,7 @@ async fn scan_root(
     ApiPath(id): ApiPath<i64>,
 ) -> Result<(StatusCode, Json<RootScanResponse>), ApiError> {
     user.require_editor()?;
-    roots::get(&state.pool, id)
+    roots::get(&state.core.pool, id)
         .await?
         .ok_or_else(|| ApiError::not_found("root_not_found", "Library root not found"))?;
     let started = crate::scanner::trigger_root(&state, id).await;
@@ -259,7 +261,7 @@ async fn watcher_status(
     user: AuthUser,
 ) -> Result<Json<WatcherStatus>, ApiError> {
     user.require_admin_access()?;
-    Ok(Json(state.watcher.read().await.clone()))
+    Ok(Json(state.ops.watcher.read().await.clone()))
 }
 
 fn validate_root_kind(kind: Option<&str>) -> Result<String, ApiError> {
@@ -274,7 +276,7 @@ fn validate_root_kind(kind: Option<&str>) -> Result<String, ApiError> {
 }
 
 async fn reload_watcher(state: &AppState) {
-    if let Some(handle) = state.watcher_handle.read().await.as_ref() {
+    if let Some(handle) = state.ops.watcher_handle.read().await.as_ref() {
         if !handle.reload() {
             tracing::warn!("library watcher is not accepting reloads");
         }
@@ -282,10 +284,10 @@ async fn reload_watcher(state: &AppState) {
 }
 
 async fn root_view(state: &AppState, id: i64) -> Result<LibraryRootView, ApiError> {
-    let root = roots::get(&state.pool, id)
+    let root = roots::get(&state.core.pool, id)
         .await?
         .ok_or_else(|| ApiError::not_found("root_not_found", "Library root not found"))?;
-    let versions = roots::version_count(&state.pool, id).await?;
+    let versions = roots::version_count(&state.core.pool, id).await?;
     Ok(root.to_view(versions))
 }
 
@@ -312,3 +314,89 @@ fn default_label(path: &str) -> String {
         .filter(|name| !name.is_empty())
         .map_or_else(|| "Library".to_string(), str::to_string)
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Library
+    route(
+        HttpMethod::Get,
+        "/library/scan",
+        "Library",
+        "Scan status",
+        Auth::Session,
+        Payload::Schema("ScanStatus"),
+    ),
+    route(
+        HttpMethod::Post,
+        "/library/scan",
+        "Library",
+        "Start a library scan",
+        Auth::Editor,
+        Payload::Schema("ScanResponse"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/library/folders",
+        "Library",
+        "Configured directories",
+        Auth::Session,
+        Payload::Schema("LibraryFolders"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/library/roots",
+        "Library",
+        "List library roots",
+        Auth::Session,
+        Payload::Array("LibraryRootView"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/library/roots",
+            "Library",
+            "Add a library root",
+            Auth::Admin,
+            Payload::Schema("LibraryRootView"),
+        ),
+        "CreateLibraryRootRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/library/roots/{id}",
+            "Library",
+            "Update a library root",
+            Auth::Admin,
+            Payload::Schema("LibraryRootView"),
+        ),
+        "UpdateLibraryRootRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/library/roots/{id}",
+            "Library",
+            "Remove a library root",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Post,
+        "/library/roots/{id}/scan",
+        "Library",
+        "Scan one library root",
+        Auth::Editor,
+        Payload::Schema("RootScanResponse"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/library/watcher",
+        "Library",
+        "Folder watcher status",
+        Auth::Session,
+        Payload::Object,
+    ),
+];

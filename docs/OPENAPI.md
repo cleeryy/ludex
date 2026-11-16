@@ -14,11 +14,14 @@ that route returns 404 `docs_disabled`.
 
 ## Generated, not written
 
-The document is built at request time by `crates/ludex-server/src/openapi.rs`:
+The document is built at request time from the route modules:
 
-- `openapi::ROUTES` is the single source of truth for documented operations
-  (method, path, tag, summary, auth level, request/response schema names, status
-  and query parameters).
+- Each route module (`src/routes/<area>.rs`, or `src/routes/<area>/mod.rs`)
+  declares the operations it serves in its own `DOCS` table, next to its
+  `router()`: method, path, tag, summary, auth level, request/response schema
+  names, status and query parameters. `openapi::ROUTES` concatenates those
+  tables in documentation order and is the single source of truth the contract
+  test compares with the router.
 - Response and request schemas come from `#[derive(utoipa::ToSchema)]` on the
   DTOs (`ludex-core::models`, `ludex-server::models` and the feature modules
   such as `share` and `achievements`), so field names and types follow the Rust
@@ -35,9 +38,10 @@ The document is built at request time by `crates/ludex-server/src/openapi.rs`:
 `crates/ludex-server/tests/openapi.rs` runs in CI with the rest of the tests:
 
 1. **Router ↔ document equality.** It parses every `.route(...)` registration in
-   `src/routes/*.rs` and `src/ingest/mod.rs`, extracts the HTTP methods from the
-   handler expression, normalises absolute ingest paths and compares the set
-   with `openapi::documented_operations()`. Adding a route without documenting
+   every `.rs` file under `src/routes/` (recursively, so a route module that
+   became a directory still counts) and in `src/ingest/mod.rs`, extracts the
+   HTTP methods from the handler expression, normalises absolute ingest paths
+   and compares the set with `openapi::documented_operations()`. Adding a route without documenting
    it (or documenting a route that no longer exists) fails the test with the
    exact `(method, path)` diff.
 2. **Schema integrity.** Every `$ref` in the document must resolve to a
@@ -54,8 +58,8 @@ with the DTOs.
 
 - Add or change a DTO: derive/keep `utoipa::ToSchema` and (if referenced by a
   route) add it to the `ComponentsBuilder` list in `openapi.rs`.
-- Add a route: add a `RouteDoc` entry to `openapi::ROUTES`. The contract test
-  fails until you do.
+- Add a route: add a `RouteDoc` entry to that module's `DOCS` table. The
+  contract test fails until you do.
 - Body types too large or deeply nested for a precise schema can use
   `Payload::Object`; prefer a real schema whenever the type is public.
 - Bump the API version via the crate version (`env!("CARGO_PKG_VERSION")` is

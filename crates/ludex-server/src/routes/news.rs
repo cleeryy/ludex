@@ -6,12 +6,14 @@ use axum::routing::get;
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use ludex_core::models::NewsPost;
+use utoipa::openapi::HttpMethod;
 
 use crate::auth::AuthUser;
 use crate::db;
 use crate::error::ApiError;
 use crate::extract::{ApiPath, JsonBody};
 use crate::models::{CreateNewsRequest, NewsRow, UpdateNewsRequest};
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::sql::{bind_query, Bind};
 use crate::state::AppState;
 
@@ -32,7 +34,7 @@ async fn list(
          FROM news n LEFT JOIN users u ON u.id = n.author_id
          ORDER BY n.created_at DESC, n.id DESC",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok(Json(rows.iter().map(to_post).collect()))
@@ -56,7 +58,7 @@ async fn create(
     .bind(user.id)
     .bind(&now)
     .bind(&now)
-    .returning_id(&state.pool)
+    .returning_id(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -89,7 +91,7 @@ async fn update(
         binds.push(Bind::Int(id));
         let sql = format!("UPDATE news SET {} WHERE id = ?", sets.join(", "));
         bind_query(db::query(&sql), &binds)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
     }
@@ -106,7 +108,7 @@ async fn delete_post(
     user.require_admin_access()?;
     let result = db::query("DELETE FROM news WHERE id = ?")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     if result.rows_affected() == 0 {
@@ -121,7 +123,7 @@ async fn fetch(state: &AppState, id: i64) -> Result<NewsRow, ApiError> {
          FROM news n LEFT JOIN users u ON u.id = n.author_id WHERE n.id = ?",
     )
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("news_not_found", "News post not found"))
@@ -152,3 +154,49 @@ fn validate_text(value: &str, field: &str) -> Result<String, ApiError> {
     }
     Ok(value.to_string())
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // News
+    route(
+        HttpMethod::Get,
+        "/news",
+        "News",
+        "List news posts",
+        Auth::Public,
+        Payload::Array("NewsPost"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/news",
+            "News",
+            "Publish a news post",
+            Auth::Admin,
+            Payload::Schema("NewsPost"),
+        ),
+        "CreateNewsRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/news/{id}",
+            "News",
+            "Edit a news post",
+            Auth::Admin,
+            Payload::Schema("NewsPost"),
+        ),
+        "UpdateNewsRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/news/{id}",
+            "News",
+            "Delete a news post",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+];

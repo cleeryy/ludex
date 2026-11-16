@@ -8,6 +8,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
+use utoipa::openapi::HttpMethod;
 
 use crate::audit::actions;
 use crate::auth::AuthUser;
@@ -18,6 +19,7 @@ use crate::library_health::{
     self, LibraryHealthActionRequest, LibraryHealthActionResult, LibraryHealthResponse,
     LibraryHealthStartResponse,
 };
+use crate::openapi::{body, ok, query, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Library health routes.
@@ -59,7 +61,7 @@ async fn report(
         .filter(|value| !value.is_empty());
     Ok(Json(
         library_health::read_latest(
-            &state.pool,
+            &state.core.pool,
             severity,
             category,
             query.limit.unwrap_or(200),
@@ -75,7 +77,7 @@ async fn scan(
 ) -> Result<(StatusCode, Json<LibraryHealthStartResponse>), ApiError> {
     user.require_editor()?;
     let report_id = library_health::start(&state, library_health::HealthTrigger::Manual).await?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::HEALTH_SCAN_STARTED, user.actor())
             .target("library_health_report", report_id.to_string())
             .metadata(serde_json::json!({ "trigger": "manual" })),
@@ -106,7 +108,7 @@ async fn apply(
         }
     }
     let result = library_health::apply_action(&state, &request).await?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::HEALTH_ACTION_APPLIED, user.actor())
             .target("library_health_report", "latest")
             .metadata(serde_json::json!({
@@ -120,3 +122,49 @@ async fn apply(
     );
     Ok(Json(result))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Library health (#165)
+    query(
+        route(
+            HttpMethod::Get,
+            "/admin/health/library",
+            "Library health",
+            "Read the cached library health report",
+            Auth::Editor,
+            Payload::Schema("LibraryHealthResponse"),
+        ),
+        &[
+            ("severity", "Filter by error, warning or info"),
+            ("category", "Filter by finding category"),
+            ("limit", "Maximum findings (1-500, default 200)"),
+            ("offset", "Pagination offset"),
+        ],
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/admin/health/library/scan",
+            "Library health",
+            "Generate a library health report",
+            Auth::Editor,
+            Payload::Schema("LibraryHealthStartResponse"),
+        ),
+        202,
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/admin/health/library/actions",
+                "Library health",
+                "Apply a safe repair action",
+                Auth::Editor,
+                Payload::Schema("LibraryHealthActionResult"),
+            ),
+            "LibraryHealthActionRequest",
+        ),
+        200,
+    ),
+];

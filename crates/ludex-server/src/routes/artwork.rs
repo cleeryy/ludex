@@ -10,6 +10,7 @@ use axum::http::StatusCode;
 use axum::routing::{delete, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use utoipa::openapi::HttpMethod;
 
 use crate::artwork::{self, ArtworkKind, MAX_ARTWORK_BYTES};
 use crate::audit::actions;
@@ -17,6 +18,7 @@ use crate::auth::AuthUser;
 use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, ApiQuery, MultipartBody};
+use crate::openapi::{ok, query, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Largest multipart body accepted by the artwork route (file + framing).
@@ -129,7 +131,7 @@ async fn upload(
         ));
     }
 
-    let stored = artwork::store(&state.config.media_dir, game_id, kind, &bytes)
+    let stored = artwork::store(&state.core.config.media_dir, game_id, kind, &bytes)
         .await
         .map_err(|error| {
             if error.kind() == std::io::ErrorKind::InvalidInput {
@@ -143,7 +145,7 @@ async fn upload(
     let previous: Option<String> =
         db::query_scalar(format!("SELECT {} FROM games WHERE id = ?", kind.column()))
             .bind(game_id)
-            .fetch_one(&state.pool)
+            .fetch_one(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
 
@@ -154,7 +156,7 @@ async fn upload(
     .bind(&stored.name)
     .bind(crate::db::db_time(crate::db::now()))
     .bind(game_id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -164,7 +166,7 @@ async fn upload(
         tracing::debug!(previous, game = game_id, "custom artwork replaced");
     }
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::GAME_ARTWORK_UPDATED, user.actor())
             .target("game", game_id.to_string())
             .metadata(serde_json::json!({
@@ -203,7 +205,7 @@ async fn reset(
     let previous: Option<String> =
         db::query_scalar(format!("SELECT {} FROM games WHERE id = ?", kind.column()))
             .bind(game_id)
-            .fetch_one(&state.pool)
+            .fetch_one(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
 
@@ -213,17 +215,17 @@ async fn reset(
     ))
     .bind(crate::db::db_time(crate::db::now()))
     .bind(game_id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
     if let Some(name) = previous.as_deref() {
         if !name.is_empty() {
-            artwork::remove(&state.config.media_dir, name).await;
+            artwork::remove(&state.core.config.media_dir, name).await;
         }
     }
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::GAME_ARTWORK_UPDATED, user.actor())
             .target("game", game_id.to_string())
             .metadata(serde_json::json!({
@@ -237,7 +239,7 @@ async fn reset(
 async fn ensure_game(state: &AppState, game_id: i64) -> Result<(), ApiError> {
     let exists = db::query_scalar::<i64>("SELECT id FROM games WHERE id = ?")
         .bind(game_id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     exists
@@ -256,3 +258,33 @@ fn map_multipart_error(rejection: axum::extract::multipart::MultipartError) -> A
         ApiError::bad_request("invalid_multipart", rejection.body_text())
     }
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Custom artwork (#38)
+    ok(
+        route(
+            HttpMethod::Post,
+            "/games/{id}/artwork",
+            "Games",
+            "Upload custom cover or background art",
+            Auth::Editor,
+            Payload::Schema("ArtworkResponse"),
+        ),
+        201,
+    ),
+    ok(
+        query(
+            route(
+                HttpMethod::Delete,
+                "/games/{id}/artwork",
+                "Games",
+                "Reset a custom cover or background",
+                Auth::Editor,
+                Payload::None,
+            ),
+            &[("kind", "cover or background")],
+        ),
+        204,
+    ),
+];

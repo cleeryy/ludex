@@ -15,15 +15,26 @@ use serde_json::Value;
 
 fn source_files() -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut files: Vec<PathBuf> = std::fs::read_dir(root.join("routes"))
-        .expect("read routes dir")
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "rs"))
-        .collect();
+    let mut files = Vec::new();
+    collect_rust_files(&root.join("routes"), &mut files);
     files.push(root.join("ingest").join("mod.rs"));
     files.sort();
     files
+}
+
+/// Every `.rs` file under `directory`, recursively: a route module may live in
+/// `routes/<area>.rs` or in `routes/<area>/` (#237).
+fn collect_rust_files(directory: &Path, files: &mut Vec<PathBuf>) {
+    let entries = std::fs::read_dir(directory)
+        .unwrap_or_else(|error| panic!("read {}: {error}", directory.display()));
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rust_files(&path, files);
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            files.push(path);
+        }
+    }
 }
 
 /// Parses `.route("...", get(a).post(b))` registrations from Rust source.

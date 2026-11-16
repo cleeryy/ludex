@@ -127,7 +127,7 @@ pub async fn pending_count(state: &AppState) -> i64 {
         "SELECT COUNT(*) FROM game_versions
          WHERE content_sha256 IS NULL AND missing = 0 AND root_unavailable = 0",
     )
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .unwrap_or(0)
 }
@@ -153,7 +153,7 @@ pub async fn version_sha256(state: &AppState, version_id: i64) -> anyhow::Result
          FROM game_versions WHERE id = ?",
     )
     .bind(version_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await?;
     let Some((id, root_id, file_path, size, storage_backend, object_key, stored)) = row else {
         return Ok(None);
@@ -175,7 +175,7 @@ pub async fn version_sha256(state: &AppState, version_id: i64) -> anyhow::Result
     db::query("UPDATE game_versions SET content_sha256 = ? WHERE id = ?")
         .bind(&digest)
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await?;
     Ok(Some(digest))
 }
@@ -187,6 +187,7 @@ pub async fn version_sha256(state: &AppState, version_id: i64) -> anyhow::Result
 #[must_use]
 pub fn schedule(state: &AppState, limit: i64) -> bool {
     if state
+        .catalog
         .content_hashes
         .busy
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -197,7 +198,11 @@ pub fn schedule(state: &AppState, limit: i64) -> bool {
     let state = state.clone();
     tokio::spawn(async move {
         run(&state, limit).await;
-        state.content_hashes.busy.store(false, Ordering::SeqCst);
+        state
+            .catalog
+            .content_hashes
+            .busy
+            .store(false, Ordering::SeqCst);
     });
     true
 }
@@ -210,13 +215,13 @@ pub async fn run(state: &AppState, limit: i64) {
     } else {
         pending
     };
-    state.content_hashes.mark_started(total, pending);
+    state.catalog.content_hashes.mark_started(total, pending);
     let started = Instant::now();
     let mut hashed: i64 = 0;
     let mut processed: i64 = 0;
 
     if total == 0 {
-        state.content_hashes.finish(started.elapsed(), 0);
+        state.catalog.content_hashes.finish(started.elapsed(), 0);
         return;
     }
 
@@ -229,6 +234,7 @@ pub async fn run(state: &AppState, limit: i64) {
             Err(error) => {
                 tracing::warn!(error = %error, "could not list versions to hash");
                 state
+                    .catalog
                     .content_hashes
                     .record(false, Some(&error.to_string()), pending);
                 break;
@@ -251,20 +257,24 @@ pub async fn run(state: &AppState, limit: i64) {
                     )
                     .bind(&digest)
                     .bind(row.id)
-                    .execute(&state.pool)
+                    .execute(&state.core.pool)
                     .await
                     {
                         Ok(_) => {
                             hashed += 1;
-                            state
-                                .content_hashes
-                                .record(true, None, (pending - processed).max(0));
+                            state.catalog.content_hashes.record(
+                                true,
+                                None,
+                                (pending - processed).max(0),
+                            );
                         }
                         Err(error) => {
                             tracing::warn!(version = row.id, %error, "could not store the archive hash");
-                            state
-                                .content_hashes
-                                .record(false, Some(&error.to_string()), pending);
+                            state.catalog.content_hashes.record(
+                                false,
+                                Some(&error.to_string()),
+                                pending,
+                            );
                         }
                     }
                 }
@@ -272,11 +282,12 @@ pub async fn run(state: &AppState, limit: i64) {
                     // The file is gone or unreadable: leave the row for the
                     // next run instead of cleaning content_sha256 (a scan will
                     // mark it missing).
-                    state.content_hashes.record(false, None, pending);
+                    state.catalog.content_hashes.record(false, None, pending);
                 }
                 Err(error) => {
                     tracing::warn!(version = row.id, %error, "could not hash archive");
                     state
+                        .catalog
                         .content_hashes
                         .record(false, Some(&error.to_string()), pending);
                 }
@@ -288,10 +299,13 @@ pub async fn run(state: &AppState, limit: i64) {
     }
 
     let remaining = pending_count(state).await;
-    state.content_hashes.finish(started.elapsed(), remaining);
+    state
+        .catalog
+        .content_hashes
+        .finish(started.elapsed(), remaining);
     tracing::info!(
         hashed,
-        failed = state.content_hashes.status().failed,
+        failed = state.catalog.content_hashes.status().failed,
         remaining,
         elapsed_ms = started.elapsed().as_millis(),
         "archive content hash backfill finished"
@@ -330,7 +344,7 @@ async fn pending_rows(state: &AppState, limit: i64) -> anyhow::Result<Vec<Pendin
          ORDER BY id LIMIT ?",
     )
     .bind(limit)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await?;
     Ok(rows
         .into_iter()
@@ -353,7 +367,7 @@ async fn pending_rows(state: &AppState, limit: i64) -> anyhow::Result<Vec<Pendin
 async fn hash_version(state: &AppState, row: &PendingRow) -> anyhow::Result<Option<String>> {
     if row.storage_backend.as_deref() == Some("s3") {
         if let Some(key) = row.object_key.as_deref() {
-            match state.storage.hash_object(key).await {
+            match state.transfer.storage.hash_object(key).await {
                 Ok((size, digest)) => {
                     if row.size > 0 && size != u64::try_from(row.size).unwrap_or(0) {
                         tracing::warn!(
@@ -396,8 +410,8 @@ async fn hash_version(state: &AppState, row: &PendingRow) -> anyhow::Result<Opti
 async fn local_path(state: &AppState, row: &PendingRow) -> Option<PathBuf> {
     if let Some(root_id) = row.root_id {
         if let Some(path) = crate::roots::resolve_version_path(
-            &state.pool,
-            &state.config,
+            &state.core.pool,
+            &state.core.config,
             Some(root_id),
             &row.file_path,
         )
@@ -407,7 +421,7 @@ async fn local_path(state: &AppState, row: &PendingRow) -> Option<PathBuf> {
         }
     }
     // Root-less rows (older uploads) still live under the games directory.
-    let candidate = state.config.games_dir.join(&row.file_path);
+    let candidate = state.core.config.games_dir.join(&row.file_path);
     tokio::fs::try_exists(&candidate)
         .await
         .ok()

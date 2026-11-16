@@ -182,7 +182,7 @@ async fn candidates(
          FROM games WHERE id = ?",
     )
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("game_not_found", "Game not found"))?;
@@ -207,7 +207,7 @@ async fn candidates(
         _ => None,
     };
 
-    let community: Vec<MetadataProviderConfig> = state.providers.read().await.clone();
+    let community: Vec<MetadataProviderConfig> = state.catalog.providers.read().await.clone();
     if let Some(wanted) = wanted.as_deref() {
         let known = wanted == "igdb"
             || wanted == "steam"
@@ -218,7 +218,7 @@ async fn candidates(
                 format!("Unknown metadata provider: {wanted}"),
             ));
         }
-        if wanted == "igdb" && state.igdb.is_none() {
+        if wanted == "igdb" && state.catalog.igdb.is_none() {
             return Err(ApiError::bad_request(
                 "invalid_provider",
                 "IGDB is not configured on this server",
@@ -227,14 +227,14 @@ async fn candidates(
     }
 
     let mut jobs: Vec<Source> = Vec::new();
-    if state.igdb.is_some() && wanted.as_deref().is_none_or(|slug| slug == "igdb") {
+    if state.catalog.igdb.is_some() && wanted.as_deref().is_none_or(|slug| slug == "igdb") {
         jobs.push(Source::Igdb);
     }
     // Steam is the unconfigured fallback: querying it on every dialog open
     // would add a store round-trip even when IGDB or a community provider
     // already answers. An explicit `provider=steam` still forces it.
-    let steam_available =
-        wanted.as_deref() == Some("steam") || (state.igdb.is_none() && community.is_empty());
+    let steam_available = wanted.as_deref() == Some("steam")
+        || (state.catalog.igdb.is_none() && community.is_empty());
     if steam_available && wanted.as_deref().is_none_or(|slug| slug == "steam") {
         jobs.push(Source::Steam);
     }
@@ -367,7 +367,7 @@ async fn run_source(
     let started = Instant::now();
     match source {
         Source::Igdb => {
-            let Some(igdb) = state.igdb.as_ref() else {
+            let Some(igdb) = state.catalog.igdb.as_ref() else {
                 return (
                     failed_status("igdb", "IGDB", started, "IGDB is not configured"),
                     Vec::new(),
@@ -414,7 +414,7 @@ async fn run_source(
             match result {
                 Ok(Ok(items)) => {
                     crate::providers::record_fetch(
-                        &state.pool,
+                        &state.core.pool,
                         config.id,
                         Some(game_id),
                         Ok(items.len()),
@@ -433,7 +433,7 @@ async fn run_source(
                 }
                 Ok(Err(error)) => {
                     crate::providers::record_fetch(
-                        &state.pool,
+                        &state.core.pool,
                         config.id,
                         Some(game_id),
                         Err(&error),
@@ -447,7 +447,7 @@ async fn run_source(
                 Err(_) => {
                     let timeout = crate::providers::ProviderError::Timeout;
                     crate::providers::record_fetch(
-                        &state.pool,
+                        &state.core.pool,
                         config.id,
                         Some(game_id),
                         Err(&timeout),
@@ -488,18 +488,21 @@ fn failed_status(slug: &str, name: &str, started: Instant, error: &str) -> Metad
 /// Steam Store search, with the top hits expanded through `appdetails` so the
 /// list shows a release year and developer.
 async fn steam_candidates(state: &AppState, q: &str) -> anyhow::Result<Vec<RawCandidate>> {
-    let hits = metadata::steam_candidates(&state.http, q).await?;
+    let hits = metadata::steam_candidates(&state.core.http, q).await?;
     let hits: Vec<_> = hits
         .into_iter()
         .filter(|hit| hit.kind.as_deref() != Some("bundle"))
         .take(MAX_STEAM_DETAILS)
         .collect();
     let details = join_all(hits.iter().map(|hit| async {
-        tokio::time::timeout(QUERY_TIMEOUT, metadata::steam_details(&state.http, hit.id))
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .flatten()
+        tokio::time::timeout(
+            QUERY_TIMEOUT,
+            metadata::steam_details(&state.core.http, hit.id),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .flatten()
     }))
     .await;
 
@@ -544,7 +547,7 @@ async fn apply(
         "SELECT title, provider_slug, provider_id, manual_fields_json FROM games WHERE id = ?",
     )
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("game_not_found", "Game not found"))?;
@@ -669,7 +672,7 @@ async fn apply(
     binds.push(Bind::Int(id));
     let sql = format!("UPDATE games SET {} WHERE id = ?", sets.join(", "));
     crate::sql::bind_query(db::query(&sql), &binds)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
@@ -681,7 +684,7 @@ async fn apply(
         db::query("UPDATE games SET manual_fields_json = ? WHERE id = ?")
             .bind(db::dump_json_list(&remaining))
             .bind(id)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
     }
@@ -692,7 +695,7 @@ async fn apply(
         }
         _ => serde_json::Value::Null,
     };
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::GAME_METADATA_MATCHED, user.actor())
             .target("game", id.to_string())
             .metadata(serde_json::json!({
@@ -714,9 +717,10 @@ async fn apply(
 /// Whether `slug` names a provider this server can query right now.
 async fn provider_configured(state: &AppState, slug: &str) -> bool {
     match slug {
-        "igdb" => state.igdb.is_some(),
+        "igdb" => state.catalog.igdb.is_some(),
         "steam" => true,
         other => state
+            .catalog
             .providers
             .read()
             .await

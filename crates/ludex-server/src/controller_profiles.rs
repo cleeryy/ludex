@@ -227,7 +227,7 @@ mod tests {
              VALUES (?, 'x', 'admin', 1, '2026-01-01', '2026-01-01')",
         )
         .bind(username)
-        .returning_id(&state.pool)
+        .returning_id(&state.core.pool)
         .await
         .expect("insert user")
     }
@@ -251,7 +251,7 @@ mod tests {
             "INSERT INTO games (title, sort_title, group_key, created_at, updated_at)
              VALUES ('Chrono Trigger', 'Chrono Trigger', 'rom::snes::chrono trigger', '2026-01-01', '2026-01-01')",
         )
-        .returning_id(&state.pool)
+        .returning_id(&state.core.pool)
         .await
         .expect("insert game");
 
@@ -259,18 +259,18 @@ mod tests {
             game_id: None,
             profile: preset("dualsense"),
         };
-        save(&state.pool, user_id, &global)
+        save(&state.core.pool, user_id, &global)
             .await
             .expect("save global");
         let per_game = SaveControllerProfileRequest {
             game_id: Some(game_id),
             profile: preset("steamdeck"),
         };
-        save(&state.pool, user_id, &per_game)
+        save(&state.core.pool, user_id, &per_game)
             .await
             .expect("save game");
 
-        let listed = list(&state.pool, user_id).await.expect("list");
+        let listed = list(&state.core.pool, user_id).await.expect("list");
         assert_eq!(listed.global.as_ref().unwrap().profile.name, "DualSense");
         assert_eq!(listed.games.len(), 1);
         assert_eq!(
@@ -280,14 +280,18 @@ mod tests {
         assert_eq!(listed.presets.len(), 4);
 
         // Saving again replaces instead of duplicating.
-        save(&state.pool, user_id, &per_game)
+        save(&state.core.pool, user_id, &per_game)
             .await
             .expect("replace game");
-        let listed = list(&state.pool, user_id).await.expect("list");
+        let listed = list(&state.core.pool, user_id).await.expect("list");
         assert_eq!(listed.games.len(), 1);
 
-        assert!(delete(&state.pool, user_id, game_id).await.expect("delete"));
-        assert!(!delete(&state.pool, user_id, game_id).await.expect("delete"));
+        assert!(delete(&state.core.pool, user_id, game_id)
+            .await
+            .expect("delete"));
+        assert!(!delete(&state.core.pool, user_id, game_id)
+            .await
+            .expect("delete"));
     }
 
     #[tokio::test]
@@ -300,11 +304,11 @@ mod tests {
             game_id: None,
             profile,
         };
-        assert!(save(&state.pool, user_id, &request).await.is_err());
+        assert!(save(&state.core.pool, user_id, &request).await.is_err());
         let request = SaveControllerProfileRequest {
             game_id: Some(9999),
             profile: preset("xbox"),
         };
-        assert!(save(&state.pool, user_id, &request).await.is_err());
+        assert!(save(&state.core.pool, user_id, &request).await.is_err());
     }
 }

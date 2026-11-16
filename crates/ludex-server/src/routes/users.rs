@@ -6,6 +6,7 @@ use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use ludex_core::models::Role;
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::audit::actions;
 use crate::auth::{generate_password, hash_password, AuthUser};
@@ -16,6 +17,7 @@ use crate::extract::{ApiPath, JsonBody};
 use crate::models::{
     CreateUserRequest, ResetPasswordRequest, ResetPasswordResult, UpdateUserRequest, User, UserRow,
 };
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::sql::{bind_query, Bind};
 use crate::state::AppState;
 
@@ -37,14 +39,14 @@ async fn revoke_sessions(
     user.require_admin_access()?;
     let exists = db::query_scalar::<i64>("SELECT COUNT(*) FROM users WHERE id = ?")
         .bind(id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     if exists == 0 {
         return Err(ApiError::not_found("user_not_found", "Account not found"));
     }
     let revoked = crate::auth::revoke_all_sessions(&state, id, "admin_revoked").await?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(crate::audit::actions::SESSION_REVOKED, user.actor())
             .target("user", id.to_string())
             .metadata(json!({ "sessions": revoked, "reason": "admin_revoked" })),
@@ -62,7 +64,7 @@ async fn list(State(state): State<AppState>, user: AuthUser) -> Result<Json<Vec<
          must_change_password, locale
          FROM users ORDER BY id",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok(Json(rows.iter().map(UserRow::to_public).collect()))
@@ -92,7 +94,7 @@ async fn create(
     .bind(role.as_str())
     .bind(&now)
     .bind(&now)
-    .returning_id(&state.pool)
+    .returning_id(&state.core.pool)
     .await
     .map_err(|error| {
         if crate::db::is_unique_violation(&error) {
@@ -111,11 +113,11 @@ async fn create(
          FROM users WHERE id = ?",
     )
     .bind(user_id)
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::USER_CREATED, user.actor())
             .target("user", created.id.to_string())
             .metadata(json!({
@@ -242,7 +244,7 @@ async fn update(
 
     let sql = format!("UPDATE users SET {} WHERE id = ?", sets.join(", "));
     bind_query(db::query(&sql), &binds)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(|error| {
             if crate::db::is_unique_violation(&error) {
@@ -259,14 +261,14 @@ async fn update(
     }
     let updated = fetch_user(&state, id).await?;
     if password_changed {
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::USER_PASSWORD_RESET, caller.actor())
                 .target("user", id.to_string())
                 .metadata(json!({ "username": updated.username })),
         );
     }
     if !changed.is_empty() {
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::USER_UPDATED, caller.actor())
                 .target("user", id.to_string())
                 .metadata(json!({
@@ -298,10 +300,10 @@ async fn delete_user(
     }
     db::query("DELETE FROM users WHERE id = ?")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::USER_DELETED, caller.actor())
             .target("user", id.to_string())
             .metadata(json!({
@@ -322,7 +324,7 @@ pub(crate) async fn fetch_user(state: &AppState, id: i64) -> Result<UserRow, Api
          FROM users WHERE id = ?",
     )
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("user_not_found", "User not found"))
@@ -333,7 +335,7 @@ async fn ensure_other_active_admin(state: &AppState, excluded_id: i64) -> Result
         "SELECT COUNT(*) FROM users WHERE role = 'admin' AND activated = 1 AND id != ?",
     )
     .bind(excluded_id)
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     if others == 0 {
@@ -383,12 +385,12 @@ async fn reset_password(
     .bind(i64::from(u8::from(require_change)))
     .bind(db::db_time(db::now()))
     .bind(id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
     let revoked = crate::auth::revoke_all_sessions(&state, id, "admin_password_reset").await?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::USER_PASSWORD_RESET, caller.actor())
             .target("user", id.to_string())
             .metadata(json!({
@@ -404,3 +406,71 @@ async fn reset_password(
         must_change_password: require_change,
     }))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Users
+    route(
+        HttpMethod::Get,
+        "/users",
+        "Users",
+        "List accounts",
+        Auth::Admin,
+        Payload::Array("User"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/users",
+            "Users",
+            "Create an account",
+            Auth::Admin,
+            Payload::Schema("User"),
+        ),
+        "CreateUserRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/users/{id}",
+            "Users",
+            "Update an account",
+            Auth::Admin,
+            Payload::Schema("User"),
+        ),
+        "UpdateUserRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/users/{id}",
+            "Users",
+            "Delete an account",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Delete,
+        "/users/{id}/sessions",
+        "Users",
+        "Revoke every session of an account",
+        Auth::Admin,
+        Payload::Schema("SessionRevocation"),
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/users/{id}/reset-password",
+                "Users",
+                "Reset an account password and sign every device out (#166)",
+                Auth::Admin,
+                Payload::Schema("ResetPasswordResult"),
+            ),
+            200,
+        ),
+        "ResetPasswordRequest",
+    ),
+];

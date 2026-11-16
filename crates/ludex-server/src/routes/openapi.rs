@@ -31,7 +31,7 @@ async fn document() -> Response {
 }
 
 async fn docs(State(state): State<AppState>) -> Result<Html<String>, ApiError> {
-    if !state.config.openapi_docs {
+    if !state.core.config.openapi_docs {
         return Err(ApiError::not_found(
             "docs_disabled",
             "The API explorer is disabled; set LUDEX_OPENAPI_DOCS=true to enable it",

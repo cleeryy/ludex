@@ -11,6 +11,7 @@ use axum::response::Response;
 use axum::routing::{delete, get};
 use axum::{Json, Router};
 use tokio_util::io::ReaderStream;
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::Scope;
 use crate::audit::actions;
@@ -21,6 +22,7 @@ use crate::events::Event;
 use crate::extract::{ApiPath, MultipartBody};
 use crate::media::content_disposition;
 use crate::models::{SaveSnapshot, SaveSnapshotRow};
+use crate::openapi::{ok, route, Auth, Payload, RouteDoc};
 use crate::saves::{self, PendingSave, SaveError};
 use crate::state::AppState;
 
@@ -61,7 +63,7 @@ async fn list(
     )
     .bind(user.id)
     .bind(game_id)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok(Json(
@@ -100,11 +102,13 @@ async fn upload(
                     ));
                 }
                 let file_name = saves::sanitize_file_name(&raw_name);
-                let dir = saves::game_dir(&state.config.data_dir, user.id, game_id);
+                let dir = saves::game_dir(&state.core.config.data_dir, user.id, game_id);
                 pending = Some(
-                    saves::receive(&dir, file_name, field, state.config.saves_max_bytes)
+                    saves::receive(&dir, file_name, field, state.core.config.saves_max_bytes)
                         .await
-                        .map_err(|error| map_save_error(error, state.config.saves_max_bytes))?,
+                        .map_err(|error| {
+                            map_save_error(error, state.core.config.saves_max_bytes)
+                        })?,
                 );
             }
             "label" => {
@@ -172,7 +176,7 @@ async fn upload(
         .bind(user.id)
         .bind(game_id)
         .bind(&sha256)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
         if let Some(existing) = existing {
@@ -196,7 +200,7 @@ async fn upload(
     .bind(&now)
     .bind(&source)
     .bind(device_id.as_deref())
-    .returning_id(&state.pool)
+    .returning_id(&state.core.pool)
     .await;
 
     let snapshot_id = match inserted {
@@ -207,17 +211,17 @@ async fn upload(
         }
     };
 
-    let dir = saves::game_dir(&state.config.data_dir, user.id, game_id);
+    let dir = saves::game_dir(&state.core.config.data_dir, user.id, game_id);
     if let Err(error) = pending.commit(&dir, snapshot_id).await {
         tracing::error!(error = %error, "could not publish save archive");
         let _ = db::query("DELETE FROM save_snapshots WHERE id = ?")
             .bind(snapshot_id)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await;
         return Err(ApiError::internal());
     }
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::SAVE_UPLOADED, user.actor())
             .target("save", snapshot_id.to_string())
             .metadata(serde_json::json!({
@@ -262,7 +266,7 @@ async fn download(
     ensure_access(&user, &row)?;
 
     let path = saves::snapshot_path(
-        &state.config.data_dir,
+        &state.core.config.data_dir,
         row.user_id,
         row.game_id,
         row.id,
@@ -303,7 +307,7 @@ async fn delete_snapshot(
 
     let deleted = db::query("DELETE FROM save_snapshots WHERE id = ?")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     if deleted.rows_affected() == 0 {
@@ -314,14 +318,14 @@ async fn delete_snapshot(
     }
 
     saves::delete_file(
-        &state.config.data_dir,
+        &state.core.config.data_dir,
         row.user_id,
         row.game_id,
         row.id,
         &row.file_name,
     )
     .await;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::SAVE_DELETED, user.actor())
             .target("save", row.id.to_string())
             .metadata(serde_json::json!({
@@ -354,7 +358,7 @@ async fn prune_auto_snapshots(state: &AppState, user_id: i64, game_id: i64, keep
     .bind(user_id)
     .bind(game_id)
     .bind(keep)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await;
 
     let stale = match stale {
@@ -367,20 +371,27 @@ async fn prune_auto_snapshots(state: &AppState, user_id: i64, game_id: i64, keep
     for (id, file_name) in stale {
         if let Err(error) = db::query("DELETE FROM save_snapshots WHERE id = ?")
             .bind(id)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
         {
             tracing::warn!(error = %error, snapshot = id, "could not prune a save snapshot row");
             continue;
         }
-        saves::delete_file(&state.config.data_dir, user_id, game_id, id, &file_name).await;
+        saves::delete_file(
+            &state.core.config.data_dir,
+            user_id,
+            game_id,
+            id,
+            &file_name,
+        )
+        .await;
     }
 }
 
 async fn ensure_game(state: &AppState, game_id: i64) -> Result<(), ApiError> {
     let exists = db::query_scalar::<i64>("SELECT id FROM games WHERE id = ?")
         .bind(game_id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     exists
@@ -395,7 +406,7 @@ async fn fetch_snapshot(state: &AppState, id: i64) -> Result<SaveSnapshotRow, Ap
          FROM save_snapshots WHERE id = ?",
     )
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("save_not_found", "Save snapshot not found"))
@@ -442,3 +453,43 @@ fn map_save_error(error: SaveError, max_bytes: u64) -> ApiError {
         }
     }
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Cloud saves
+    route(
+        HttpMethod::Get,
+        "/games/{id}/saves",
+        "Cloud saves",
+        "List your save snapshots",
+        Auth::Session,
+        Payload::Array("SaveSnapshot"),
+    ),
+    route(
+        HttpMethod::Post,
+        "/games/{id}/saves",
+        "Cloud saves",
+        "Upload a save archive (multipart)",
+        Auth::Session,
+        Payload::Schema("SaveSnapshot"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/saves/{id}/download",
+        "Cloud saves",
+        "Download a save archive",
+        Auth::Session,
+        Payload::Binary,
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/saves/{id}",
+            "Cloud saves",
+            "Delete a save snapshot",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+];

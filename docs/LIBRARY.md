@@ -73,7 +73,7 @@ A scan walks every enabled root in `position` order. For each root:
   multi-terabyte library. The skipped mirror is still considered "present" so
   an existing row is not marked missing.
 
-Only one scan runs at a time (`AppState::scan` lock). Targeted scans merge into
+Only one scan runs at a time (`AppState::catalog.scan` lock). Targeted scans merge into
 a full scan when two different roots are queued, so no root is skipped.
 
 ### Endpoints

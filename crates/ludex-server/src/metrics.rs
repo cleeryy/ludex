@@ -413,7 +413,7 @@ pub async fn track(
         .map_or_else(|| "unmatched".to_string(), |path| path.as_str().to_string());
     let started = Instant::now();
     let response = next.run(request).await;
-    state.metrics.record(
+    state.ops.metrics.record(
         &method,
         &route,
         response.status().as_u16(),
@@ -592,22 +592,22 @@ pub struct Snapshot {
 /// Collects the snapshot. Database failures degrade the snapshot instead of
 /// failing the endpoint.
 pub async fn snapshot(state: &AppState) -> Snapshot {
-    let db_ok = state.pool.ping().await;
+    let db_ok = state.core.pool.ping().await;
 
-    let games = scalar(&state.pool, "SELECT COUNT(*) FROM games").await;
+    let games = scalar(&state.core.pool, "SELECT COUNT(*) FROM games").await;
     let versions_available = scalar(
-        &state.pool,
+        &state.core.pool,
         "SELECT COUNT(*) FROM game_versions WHERE missing = 0",
     )
     .await;
     let versions_missing = scalar(
-        &state.pool,
+        &state.core.pool,
         "SELECT COUNT(*) FROM game_versions WHERE missing != 0",
     )
     .await;
-    let roots_total = scalar(&state.pool, "SELECT COUNT(*) FROM library_roots").await;
+    let roots_total = scalar(&state.core.pool, "SELECT COUNT(*) FROM library_roots").await;
     let roots_available = scalar(
-        &state.pool,
+        &state.core.pool,
         "SELECT COUNT(*) FROM library_roots WHERE available = 1",
     )
     .await;
@@ -615,13 +615,13 @@ pub async fn snapshot(state: &AppState) -> Snapshot {
     let (webhook_delivered, webhook_pending, webhook_failed, webhook_retries) =
         webhook_counts(state).await;
 
-    let (media_files, media_bytes) = media_usage(&state.config.media_dir).await;
-    let db_bytes = match state.pool.backend() {
-        crate::db::Backend::Sqlite => database_size(&state.config.database_url).await,
-        crate::db::Backend::Postgres => state.pool.size_bytes().await,
+    let (media_files, media_bytes) = media_usage(&state.core.config.media_dir).await;
+    let db_bytes = match state.core.pool.backend() {
+        crate::db::Backend::Sqlite => database_size(&state.core.config.database_url).await,
+        crate::db::Backend::Postgres => state.core.pool.size_bytes().await,
     };
 
-    let scan = state.scan.read().await.clone();
+    let scan = state.catalog.scan.read().await.clone();
     let scan_duration_seconds = match (scan.started_at, scan.finished_at) {
         (Some(started), Some(finished)) => {
             let seconds = (finished - started).num_milliseconds() as f64 / 1000.0;
@@ -632,7 +632,7 @@ pub async fn snapshot(state: &AppState) -> Snapshot {
     let scan_last_success = scan.finished_at.is_some() && scan.errors.is_empty();
 
     let (ingest_queued, ingest_running, ingest_failed, ingest_done, ingest_cancelled) =
-        match state.ingest.as_ref() {
+        match state.ops.ingest.as_ref() {
             Some(handle) => {
                 let counts = handle.counts();
                 (
@@ -675,9 +675,9 @@ pub async fn snapshot(state: &AppState) -> Snapshot {
         media_bytes,
         db_bytes,
         disk: DiskUsage {
-            data_free: free_space(&state.config.data_dir),
-            games_free: free_space(&state.config.games_dir),
-            media_free: free_space(&state.config.media_dir),
+            data_free: free_space(&state.core.config.data_dir),
+            games_free: free_space(&state.core.config.games_dir),
+            media_free: free_space(&state.core.config.media_dir),
         },
         integrity: last_integrity(state).await,
     }
@@ -843,7 +843,7 @@ pub fn render_snapshot(state: &AppState, snapshot: &Snapshot) -> String {
     output.push_str("# TYPE ludex_storage_backend_info gauge\n");
     output.push_str(&format!(
         "ludex_storage_backend_info{{backend=\"{}\"}} 1\n",
-        state.storage.backend().as_str()
+        state.transfer.storage.backend().as_str()
     ));
     output
 }
@@ -874,7 +874,7 @@ async fn webhook_counts(state: &AppState) -> (i64, i64, i64, i64) {
             CAST(COALESCE(SUM(CASE WHEN attempts > 1 THEN attempts - 1 ELSE 0 END), 0) AS BIGINT)
          FROM webhook_deliveries",
     )
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await;
     match row {
         Ok(values) => values,
@@ -937,7 +937,7 @@ pub(crate) async fn last_integrity(state: &AppState) -> Option<IntegritySummary>
          FROM integrity_reports r
          ORDER BY r.started_at DESC, r.id DESC LIMIT 1",
     )
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .ok()??;
     let (id, status, started_at, finished_at, findings) = row;

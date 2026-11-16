@@ -1257,12 +1257,12 @@ pub async fn provision_user(
                     .bind(email)
                     .bind(db::db_time(db::now()))
                     .bind(user.id)
-                    .execute(&state.pool)
+                    .execute(&state.core.pool)
                     .await
                     .map_err(ApiError::from)?;
             }
         }
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::OIDC_LOGIN, Actor::System)
                 .target("user", user.id.to_string())
                 .metadata(serde_json::json!({
@@ -1300,10 +1300,10 @@ pub async fn provision_user(
                 .bind(&identity.subject)
                 .bind(db::db_time(db::now()))
                 .bind(user.id)
-                .execute(&state.pool)
+                .execute(&state.core.pool)
                 .await
                 .map_err(ApiError::from)?;
-                state.events.emit(
+                state.core.events.emit(
                     Event::new(actions::OIDC_LINKED, Actor::System)
                         .target("user", user.id.to_string())
                         .metadata(serde_json::json!({
@@ -1348,7 +1348,7 @@ pub async fn provision_user(
     .bind(&identity.subject)
     .bind(&now)
     .bind(&now)
-    .returning_id(&state.pool)
+    .returning_id(&state.core.pool)
     .await
     .map_err(|error| {
         if crate::db::is_unique_violation(&error) {
@@ -1360,7 +1360,7 @@ pub async fn provision_user(
             ApiError::from(error)
         }
     })?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::USER_CREATED, Actor::System)
             .target("user", id.to_string())
             .metadata(serde_json::json!({
@@ -1393,7 +1393,7 @@ async fn user_by_subject(
     )
     .bind(issuer)
     .bind(subject)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)
 }
@@ -1404,7 +1404,7 @@ async fn users_by_email(state: &AppState, email: &str) -> Result<Vec<OidcUserRow
          FROM users WHERE email IS NOT NULL AND lower(email) = lower(?)",
     )
     .bind(email)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)
 }

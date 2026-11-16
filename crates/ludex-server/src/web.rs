@@ -20,7 +20,7 @@ use crate::state::AppState;
 pub fn attach(app: Router<AppState>, state: &AppState) -> Router<AppState> {
     let app = app.route("/download", get(download_redirect));
 
-    if let Some(directory) = state.config.web_dir.as_deref() {
+    if let Some(directory) = state.core.config.web_dir.as_deref() {
         let index = directory.join("index.html");
         if directory.is_dir() && index.is_file() {
             let service = ServeDir::new(directory).fallback(ServeFile::new(index));
@@ -47,7 +47,7 @@ async fn download_redirect() -> Redirect {
 
 #[cfg(not(feature = "embed-web"))]
 async fn root_info(State(state): State<AppState>) -> axum::Json<serde_json::Value> {
-    let name = crate::db::server_name(&state.pool, &state.config.server_name).await;
+    let name = crate::db::server_name(&state.core.pool, &state.core.config.server_name).await;
     axum::Json(json!({
         "name": name,
         "version": env!("CARGO_PKG_VERSION"),

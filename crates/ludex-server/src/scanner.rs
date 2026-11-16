@@ -123,10 +123,10 @@ pub async fn trigger_root(state: &AppState, root_id: i64) -> bool {
 }
 
 async fn trigger_request(state: &AppState, request: ScanRequest) -> bool {
-    if state.scan.read().await.running {
+    if state.catalog.scan.read().await.running {
         return false;
     }
-    state.scan_tx.try_send(request).is_ok()
+    state.catalog.scan_tx.try_send(request).is_ok()
 }
 
 /// Background worker: consumes scan requests and the periodic timer.
@@ -135,7 +135,7 @@ pub async fn worker(
     mut rx: mpsc::Receiver<ScanRequest>,
     mut cancel: watch::Receiver<bool>,
 ) {
-    let seconds = state.config.scan_interval.as_secs();
+    let seconds = state.core.config.scan_interval.as_secs();
     let mut ticker = if seconds == 0 {
         None
     } else {
@@ -182,7 +182,7 @@ pub async fn worker(
 /// Runs one complete scan. Errors are recorded in the status, never returned.
 pub async fn run_scan(state: &AppState, request: ScanRequest) {
     {
-        let mut status = state.scan.write().await;
+        let mut status = state.catalog.scan.write().await;
         status.running = true;
         status.started_at = Some(db::now());
         status.finished_at = None;
@@ -258,14 +258,14 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
         } else {
             Some("root is missing or not a directory")
         };
-        if let Err(error) = roots::record_scan(&state.pool, root.id, available, error).await {
+        if let Err(error) = roots::record_scan(&state.core.pool, root.id, available, error).await {
             tracing::warn!(root_id = root.id, %error, "could not record root scan state");
         }
     }
     mark_root_availability(state, &scanned_roots, &unavailable_roots).await;
 
     let scanned = i64::try_from(candidates.len()).unwrap_or(i64::MAX);
-    state.scan.write().await.scanned = scanned;
+    state.catalog.scan.write().await.scanned = scanned;
 
     let (candidates, skipped) =
         tokio::task::spawn_blocking(move || dedupe_across_roots(candidates))
@@ -335,7 +335,7 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
     let _ = crate::content_hash::schedule(state, crate::content_hash::SCAN_LIMIT);
 
     {
-        let mut status = state.scan.write().await;
+        let mut status = state.catalog.scan.write().await;
         status.running = false;
         status.finished_at = Some(db::now());
         status.added = added;
@@ -361,12 +361,12 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
         for game_id in &new_games {
             let title = db::query_scalar::<String>("SELECT title FROM games WHERE id = ?")
                 .bind(game_id)
-                .fetch_optional(&state.pool)
+                .fetch_optional(&state.core.pool)
                 .await
                 .ok()
                 .flatten()
                 .unwrap_or_default();
-            state.events.emit(
+            state.core.events.emit(
                 Event::new(actions::GAME_INGESTED, Actor::System)
                     .target("game", game_id.to_string())
                     .metadata(serde_json::json!({ "title": title, "source": "scan" })),
@@ -378,8 +378,11 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
 
 async fn selected_roots(state: &AppState, root_id: Option<i64>) -> Result<Vec<LibraryRoot>> {
     match root_id {
-        Some(id) => Ok(roots::get(&state.pool, id).await?.into_iter().collect()),
-        None => roots::enabled(&state.pool).await,
+        Some(id) => Ok(roots::get(&state.core.pool, id)
+            .await?
+            .into_iter()
+            .collect()),
+        None => roots::enabled(&state.core.pool).await,
     }
 }
 
@@ -390,7 +393,7 @@ async fn mark_root_availability(state: &AppState, available: &[i64], unavailable
              WHERE root_id = ? AND root_unavailable = 1",
         )
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await;
     }
     for id in unavailable {
@@ -398,14 +401,14 @@ async fn mark_root_availability(state: &AppState, available: &[i64], unavailable
             "UPDATE game_versions SET root_unavailable = 1, missing = 0 WHERE root_id = ?",
         )
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await;
     }
 }
 
 async fn finish_with_error(state: &AppState, message: String) {
     tracing::error!(error = %message, "library scan failed");
-    let mut status = state.scan.write().await;
+    let mut status = state.catalog.scan.write().await;
     status.running = false;
     status.finished_at = Some(db::now());
     status.errors = vec![message];
@@ -424,12 +427,13 @@ async fn process_candidate(state: &AppState, candidate: &Candidate) -> Result<Pr
     } else {
         grouping_key(&candidate.parsed)
     };
-    let remote_storage = candidate.kind != "rom" && state.storage.is_remote();
+    let remote_storage = candidate.kind != "rom" && state.transfer.storage.is_remote();
     // The game row and its version row are one unit: a crash between the two
     // inserts used to leave a game with no versions (which every listing hides)
     // and a re-scan could not match it. Object-storage publishing runs after
     // the commit so a slow upload never holds the SQLite write lock.
     let (game_id, version_id, version_created, game_created, publish) = state
+        .core
         .pool
         .with_tx(async |tx| {
             let (game_id, game_created) = ensure_game(tx, candidate, &key).await?;
@@ -602,7 +606,7 @@ async fn apply_gamelist_metadata(state: &AppState, game_id: i64, candidate: &Can
         .bind(genres)
         .bind(db::db_time(db::now()))
         .bind(game_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await;
     }
 
@@ -616,9 +620,9 @@ async fn apply_gamelist_metadata(state: &AppState, game_id: i64, candidate: &Can
     };
     let cover = if image.starts_with("http://") || image.starts_with("https://") {
         crate::media::download_media(
-            &state.config.media_dir,
+            &state.core.config.media_dir,
             image,
-            state.config.providers_allow_private,
+            state.core.config.providers_allow_private,
         )
         .await
         .ok()
@@ -632,7 +636,7 @@ async fn apply_gamelist_metadata(state: &AppState, game_id: i64, candidate: &Can
         .bind(cover)
         .bind(db::db_time(db::now()))
         .bind(game_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await;
     }
 }
@@ -667,11 +671,11 @@ async fn copy_gamelist_image(
         .unwrap_or_else(|| "png".to_string());
     let digest = Sha256::digest(canonical.to_string_lossy().as_bytes());
     let name = format!("rom-{}.{}", hex::encode(digest), extension);
-    let destination = state.config.media_dir.join(&name);
+    let destination = state.core.config.media_dir.join(&name);
     if tokio::fs::try_exists(&destination).await.unwrap_or(false) {
         return Some(name);
     }
-    tokio::fs::create_dir_all(&state.config.media_dir)
+    tokio::fs::create_dir_all(&state.core.config.media_dir)
         .await
         .ok()?;
     tokio::fs::copy(&canonical, &destination).await.ok()?;
@@ -816,6 +820,7 @@ async fn publish_archive(state: &AppState, candidate: &Candidate, version_id: i6
         candidate.root_id, candidate.relative, candidate.size, candidate.modified
     );
     match state
+        .transfer
         .storage
         .publish_archive(&identity, &candidate.file_name, &path)
         .await
@@ -830,7 +835,7 @@ async fn publish_archive(state: &AppState, candidate: &Candidate, version_id: i6
             .bind(stored.etag.as_deref())
             .bind(db::db_time(db::now()))
             .bind(version_id)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             {
                 tracing::warn!(
@@ -882,7 +887,7 @@ async fn backfill_fingerprints(state: &AppState) -> i64 {
            AND r.available = 1
          LIMIT 200",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .unwrap_or_default();
 
@@ -910,7 +915,7 @@ async fn backfill_fingerprints(state: &AppState) -> i64 {
         )
         .bind(fingerprint)
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await;
         match result {
             Ok(_) => updated += 1,
@@ -948,7 +953,7 @@ async fn mark_missing(
         request = request.bind(id);
     }
     let rows = request
-        .fetch_all(&state.pool)
+        .fetch_all(&state.core.pool)
         .await
         .context("list indexed versions")?;
 
@@ -968,10 +973,10 @@ async fn mark_missing(
         }
         db::query("UPDATE game_versions SET missing = 1 WHERE id = ?")
             .bind(id)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .context("mark version missing")?;
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::GAME_DELETED, Actor::System)
                 .target("game", game_id.to_string())
                 .metadata(serde_json::json!({
@@ -994,7 +999,7 @@ async fn enrich_batch(state: AppState, game_ids: Vec<i64>) {
             let state = state.clone();
             async move {
                 crate::metadata::enrich_game(&state, game_id).await;
-                let mut status = state.scan.write().await;
+                let mut status = state.catalog.scan.write().await;
                 status.metadata_pending = (status.metadata_pending - 1).max(0);
             }
         })
@@ -1352,10 +1357,10 @@ fn candidate_from_path(root: &Path, path: &Path, kind: &str) -> Option<Candidate
 /// instead of waiting for the next scheduled scan. Enrichment still happens in
 /// the background, like a normal scan.
 pub async fn index_uploaded_archive(state: &AppState, path: &Path) -> Result<(i64, i64)> {
-    let roots = roots::enabled(&state.pool).await?;
+    let roots = roots::enabled(&state.core.pool).await?;
     let root = roots
         .iter()
-        .find(|root| Path::new(&root.path) == state.config.games_dir)
+        .find(|root| Path::new(&root.path) == state.core.config.games_dir)
         .or_else(|| roots.first())
         .context("no enabled library root for uploads")?;
     let root_path = PathBuf::from(&root.path);
@@ -1367,12 +1372,12 @@ pub async fn index_uploaded_archive(state: &AppState, path: &Path) -> Result<(i6
     if outcome.game_created {
         let title = db::query_scalar::<String>("SELECT title FROM games WHERE id = ?")
             .bind(outcome.game_id)
-            .fetch_optional(&state.pool)
+            .fetch_optional(&state.core.pool)
             .await
             .ok()
             .flatten()
             .unwrap_or_default();
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::GAME_INGESTED, Actor::System)
                 .target("game", outcome.game_id.to_string())
                 .metadata(serde_json::json!({ "title": title, "source": "upload" })),
@@ -1617,8 +1622,8 @@ mod tests {
         let config = crate::config::Config::for_local(games, data, media);
         let (scan_tx, _scan_rx) = mpsc::channel(1);
         let mut state = crate::state::AppState::for_tests(config, scan_tx).await;
-        state.storage = crate::storage::ArchiveStorage::from_store(std::sync::Arc::new(
-            object_store::memory::InMemory::new(),
+        state.set_storage(crate::storage::ArchiveStorage::from_store(
+            std::sync::Arc::new(object_store::memory::InMemory::new()),
         ));
 
         run_scan(&state, ScanRequest::all()).await;
@@ -1626,7 +1631,7 @@ mod tests {
             db::query_as(
                 "SELECT game_id, storage_backend, object_key, etag FROM game_versions LIMIT 1",
             )
-            .fetch_one(&state.pool)
+            .fetch_one(&state.core.pool)
             .await
             .expect("indexed version");
         assert_eq!(backend, "s3");
@@ -1639,12 +1644,13 @@ mod tests {
         let after: Option<String> =
             db::query_scalar("SELECT object_key FROM game_versions WHERE game_id = ? LIMIT 1")
                 .bind(game_id)
-                .fetch_one(&state.pool)
+                .fetch_one(&state.core.pool)
                 .await
                 .expect("row");
         assert_eq!(after.as_deref(), Some(key.as_str()));
 
         let object = state
+            .transfer
             .storage
             .open(&key, None)
             .await
@@ -1709,7 +1715,7 @@ mod tests {
         let (scan_tx, _scan_rx) = mpsc::channel(1);
         let state = crate::state::AppState::for_tests(config, scan_tx).await;
         db::query("UPDATE library_roots SET kind = 'rom'")
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .expect("mark rom root");
 
@@ -1723,7 +1729,7 @@ mod tests {
         ) = db::query_as(
             "SELECT title, kind, platform, description, genres_json FROM games LIMIT 1",
         )
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .expect("indexed rom");
         assert_eq!(title, "Chrono Trigger");
@@ -1735,7 +1741,7 @@ mod tests {
         // A second scan does not duplicate the game.
         run_scan(&state, ScanRequest::all()).await;
         let count: i64 = db::query_scalar("SELECT COUNT(*) FROM games")
-            .fetch_one(&state.pool)
+            .fetch_one(&state.core.pool)
             .await
             .expect("count");
         assert_eq!(count, 1);

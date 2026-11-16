@@ -10,6 +10,7 @@ use axum::routing::{delete, get};
 use axum::{Json, Router};
 use ludex_core::models::Role;
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::{self, Scope};
 use crate::audit::actions;
@@ -21,6 +22,7 @@ use crate::extract::{ApiPath, ApiQuery, JsonBody};
 use crate::models::{
     ApiKey, ApiKeyQuery, ApiKeyRow, CreateApiKeyRequest, CreateApiKeyResponse, UserRow,
 };
+use crate::openapi::{body, ok, query, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Longest accepted key label.
@@ -49,7 +51,7 @@ async fn list(
         db::query_as::<ApiKeyRow>(&format!(
             "SELECT {KEY_COLUMNS} FROM api_keys ORDER BY id DESC"
         ))
-        .fetch_all(&state.pool)
+        .fetch_all(&state.core.pool)
         .await
         .map_err(ApiError::from)?
     } else {
@@ -57,7 +59,7 @@ async fn list(
             "SELECT {KEY_COLUMNS} FROM api_keys WHERE user_id = ? ORDER BY id DESC"
         ))
         .bind(user.id)
-        .fetch_all(&state.pool)
+        .fetch_all(&state.core.pool)
         .await
         .map_err(ApiError::from)?
     };
@@ -87,7 +89,7 @@ async fn create(
          FROM users WHERE id = ?",
     )
     .bind(target_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("user_not_found", "User not found"))?;
@@ -114,7 +116,7 @@ async fn create(
         "SELECT COUNT(*) FROM api_keys WHERE user_id = ? AND revoked_at IS NULL",
     )
     .bind(target_id)
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     if active >= MAX_ACTIVE_KEYS {
@@ -137,11 +139,11 @@ async fn create(
     .bind(&generated.secret_hash)
     .bind(api_keys::scopes_json(&scopes))
     .bind(&now)
-    .returning_id(&state.pool)
+    .returning_id(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::API_KEY_CREATED, user.actor())
             .target("api_key", key_id.to_string())
             .metadata(json!({
@@ -155,7 +157,7 @@ async fn create(
     let row =
         db::query_as::<ApiKeyRow>(&format!("SELECT {KEY_COLUMNS} FROM api_keys WHERE id = ?"))
             .bind(key_id)
-            .fetch_one(&state.pool)
+            .fetch_one(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
 
@@ -177,7 +179,7 @@ async fn revoke(
     let row =
         db::query_as::<ApiKeyRow>(&format!("SELECT {KEY_COLUMNS} FROM api_keys WHERE id = ?"))
             .bind(id)
-            .fetch_optional(&state.pool)
+            .fetch_optional(&state.core.pool)
             .await
             .map_err(ApiError::from)?
             .ok_or_else(|| ApiError::not_found("api_key_not_found", "API key not found"))?;
@@ -193,11 +195,11 @@ async fn revoke(
     db::query("UPDATE api_keys SET revoked_at = ? WHERE id = ?")
         .bind(&now)
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::API_KEY_REVOKED, user.actor())
             .target("api_key", id.to_string())
             .metadata(json!({
@@ -257,3 +259,41 @@ fn parse_requested_scopes(raw: Option<&[String]>) -> Result<Vec<Scope>, ApiError
     scopes.sort();
     Ok(scopes)
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // API keys
+    query(
+        route(
+            HttpMethod::Get,
+            "/keys",
+            "API keys",
+            "List API keys",
+            Auth::Session,
+            Payload::Array("ApiKey"),
+        ),
+        &[("all", "Admin: list every account's keys")],
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/keys",
+            "API keys",
+            "Create an API key",
+            Auth::Session,
+            Payload::Schema("CreateApiKeyResponse"),
+        ),
+        "CreateApiKeyRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/keys/{id}",
+            "API keys",
+            "Revoke an API key",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+];

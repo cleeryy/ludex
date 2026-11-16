@@ -4,6 +4,7 @@ use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
 use ludex_core::models::GameSummary;
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::Scope;
 use crate::auth::AuthUser;
@@ -15,6 +16,7 @@ use crate::models::{
     ActivityPage, ActivityQuery, PublicProfile, PublicProfileResponse, PublicStats,
     UpdateProfileRequest,
 };
+use crate::openapi::{body, query, route, Auth, Payload, RouteDoc};
 use crate::routes::games::{summary_from_list, FROM_JOINS, LIST_COLUMNS};
 use crate::sql::{bind_query, bind_query_as, Bind};
 use crate::state::AppState;
@@ -121,7 +123,7 @@ async fn update_profile(
         binds.push(Bind::Int(user.id));
         let sql = format!("UPDATE users SET {} WHERE id = ?", sets.join(", "));
         bind_query(db::query(&sql), &binds)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
     }
@@ -138,7 +140,7 @@ async fn directory(
     let rows = db::query_as::<ProfileRow>(&format!(
         "SELECT {PROFILE_COLUMNS} FROM users WHERE public_profile = 1 ORDER BY lower(username) ASC"
     ))
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok(Json(rows.iter().map(ProfileRow::to_public).collect()))
@@ -174,13 +176,13 @@ async fn profile(
          FROM progress WHERE user_id = ?",
     )
     .bind(id)
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
     let bookmarked = db::query_scalar::<i64>("SELECT COUNT(*) FROM bookmarks WHERE user_id = ?")
         .bind(id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
@@ -198,7 +200,7 @@ async fn profile(
         db::query_as::<crate::models::GameListRow>(&sql),
         &[Bind::Int(id), Bind::Int(id)],
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .into_iter()
@@ -239,7 +241,7 @@ async fn profile_activity(
 async fn load_profile(state: &AppState, id: i64) -> Result<ProfileRow, ApiError> {
     db::query_as::<ProfileRow>(&format!("SELECT {PROFILE_COLUMNS} FROM users WHERE id = ?"))
         .bind(id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::not_found("profile_not_found", "Profile not found"))
@@ -263,3 +265,65 @@ fn clean_text(
     }
     Ok(Some(value.to_string()))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Community
+    route(
+        HttpMethod::Get,
+        "/me/profile",
+        "Community",
+        "Your public profile",
+        Auth::Session,
+        Payload::Schema("PublicProfile"),
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/me/profile",
+            "Community",
+            "Update your public profile",
+            Auth::Session,
+            Payload::Schema("PublicProfile"),
+        ),
+        "UpdateProfileRequest",
+    ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/community/feed",
+            "Community",
+            "Public activity feed",
+            Auth::Session,
+            Payload::Schema("ActivityPage"),
+        ),
+        &[("limit", "Page size"), ("before", "Cursor")],
+    ),
+    route(
+        HttpMethod::Get,
+        "/community/users",
+        "Community",
+        "Public member directory",
+        Auth::Session,
+        Payload::Array("PublicProfile"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/community/users/{id}",
+        "Community",
+        "Public profile of one member",
+        Auth::Session,
+        Payload::Schema("PublicProfileResponse"),
+    ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/community/users/{id}/activity",
+            "Community",
+            "Activity of one member",
+            Auth::Session,
+            Payload::Schema("ActivityPage"),
+        ),
+        &[("limit", "Page size"), ("before", "Cursor")],
+    ),
+];

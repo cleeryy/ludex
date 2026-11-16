@@ -18,6 +18,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use utoipa::openapi::HttpMethod;
 use utoipa::ToSchema;
 
 use crate::audit::actions;
@@ -26,6 +27,7 @@ use crate::db;
 use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, ApiQuery, JsonBody};
+use crate::openapi::{body, query, route, Auth, Payload, RouteDoc};
 use crate::routes::games::{remove_game, DeleteMode};
 use crate::sql::{bind_query_as, bind_query_scalar, Bind};
 use crate::state::AppState;
@@ -298,7 +300,7 @@ async fn list(
         direction
     );
     let rows = bind_query_as::<AdminGameRowDb>(db::query_as(&sql), &page_binds)
-        .fetch_all(&state.pool)
+        .fetch_all(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
@@ -309,7 +311,7 @@ async fn list(
         )),
         &binds,
     )
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -365,7 +367,7 @@ fn separator(clauses: &[String]) -> &'static str {
 async fn facet_count(state: &AppState, clause: &str, binds: &[Bind]) -> Result<i64, ApiError> {
     let sql = format!("SELECT COUNT(*) FROM games g{clause}");
     bind_query_scalar::<i64>(db::query_scalar(sql), binds)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)
 }
@@ -635,7 +637,7 @@ async fn bulk(
         results.push(run_bulk_item(&state, &user, action, *id).await);
     }
     let totals = totals_of(&results);
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::GAME_BULK_ACTION, user.actor())
             .target("games", "bulk")
             .metadata(serde_json::json!({
@@ -696,7 +698,7 @@ async fn preview_bulk(
         Option<i64>,
         Option<i64>,
     )>(db::query_as(&sql), &binds)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -807,7 +809,7 @@ async fn run_bulk_item(
         "refresh_metadata" => {
             let exists = db::query_scalar::<i64>("SELECT COUNT(*) FROM games WHERE id = ?")
                 .bind(game_id)
-                .fetch_one(&state.pool)
+                .fetch_one(&state.core.pool)
                 .await
                 .unwrap_or(0);
             if exists == 0 {
@@ -844,7 +846,7 @@ async fn run_bulk_item(
 async fn delete_missing_versions(state: &AppState, game_id: i64) -> Result<i64, ApiError> {
     let exists = db::query_scalar::<i64>("SELECT COUNT(*) FROM games WHERE id = ?")
         .bind(game_id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     if exists == 0 {
@@ -852,8 +854,7 @@ async fn delete_missing_versions(state: &AppState, game_id: i64) -> Result<i64, 
     }
     // The delete and the default-version repair must land together: a crash
     // between them leaves `default_version_id` pointing at a removed row.
-    state
-        .pool
+    state.core.pool
         .with_tx(async |tx| {
             let deleted = db::query(
                 "DELETE FROM game_versions WHERE game_id = ? AND (missing = 1 OR root_unavailable = 1)",
@@ -937,7 +938,7 @@ fn start_bulk_job(state: &AppState, user: &AuthUser, action: &str, ids: Vec<i64>
                 entry.finished_at = Some(db::db_time(db::now()));
             }
         }
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::GAME_BULK_ACTION, user.actor())
                 .target("games", "bulk")
                 .metadata(serde_json::json!({
@@ -967,6 +968,53 @@ async fn job(
         .map(Json)
         .ok_or_else(|| ApiError::not_found("job_not_found", "Unknown bulk job"))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Admin Games manager (#209)
+    query(
+        route(
+            HttpMethod::Get,
+            "/admin/games",
+            "Admin",
+            "Search, filter and page the admin game table",
+            Auth::Admin,
+            Payload::Schema("AdminGamesResponse"),
+        ),
+        &[
+            ("q", "Title substring"),
+            ("status", "available (default), missing, partial or all"),
+            ("provider", "Metadata provider slug"),
+            ("kind", "game or rom"),
+            (
+                "sort",
+                "title, releaseDate, addedAt, updatedAt, size, versions, missing, installed",
+            ),
+            ("order", "asc or desc"),
+            ("page", "1-based page"),
+            ("limit", "Page size (1-200, default 50)"),
+        ],
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/admin/games/bulk",
+            "Admin",
+            "Preview or run a bulk game action",
+            Auth::Admin,
+            Payload::Schema("BulkResponse"),
+        ),
+        "BulkRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/admin/games/jobs/{id}",
+        "Admin",
+        "Progress and report of a bulk archive deletion",
+        Auth::Admin,
+        Payload::Schema("BulkJobView"),
+    ),
+];
 
 #[cfg(test)]
 mod tests {

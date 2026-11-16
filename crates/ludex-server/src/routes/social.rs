@@ -4,6 +4,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::Scope;
 use crate::auth::AuthUser;
@@ -11,6 +12,7 @@ use crate::community;
 use crate::error::ApiError;
 use crate::extract::{ApiPath, ApiQuery, JsonBody};
 use crate::models::{ActivityPage, ActivityQuery};
+use crate::openapi::{body, ok, query, route, Auth, Payload, RouteDoc};
 use crate::social::{
     self, Friend, FriendRequest, FriendRequestInput, FriendsPresenceResponse, FriendsResponse,
     NotificationPage, NotificationPrefs, NotificationPrefsPatch, NotificationQuery,
@@ -53,6 +55,7 @@ async fn send_request(
 ) -> Result<(StatusCode, Json<FriendRequest>), ApiError> {
     user.require_scope(Scope::Write)?;
     if let Err(seconds) = state
+        .auth
         .friend_request_limits
         .check(&format!("user:{}", user.id))
     {
@@ -200,7 +203,7 @@ async fn read_prefs(
     user: AuthUser,
 ) -> Result<Json<NotificationPrefs>, ApiError> {
     user.require_scope(Scope::Read)?;
-    Ok(Json(social::prefs(&state.pool, user.id).await?))
+    Ok(Json(social::prefs(&state.core.pool, user.id).await?))
 }
 
 async fn write_prefs(
@@ -210,6 +213,188 @@ async fn write_prefs(
 ) -> Result<Json<NotificationPrefs>, ApiError> {
     user.require_scope(Scope::Write)?;
     Ok(Json(
-        social::save_prefs(&state.pool, user.id, &patch).await?,
+        social::save_prefs(&state.core.pool, user.id, &patch).await?,
     ))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Friends, presence and notifications (#161)
+    route(
+        HttpMethod::Get,
+        "/friends",
+        "Friends",
+        "Friends, pending requests and blocks",
+        Auth::Session,
+        Payload::Schema("FriendsResponse"),
+    ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/friends/activity",
+            "Friends",
+            "Activity of friends that opted in",
+            Auth::Session,
+            Payload::Schema("ActivityPage"),
+        ),
+        &[("limit", "Page size"), ("before", "Cursor")],
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/friends/requests",
+                "Friends",
+                "Send a friend request by exact username or id",
+                Auth::Session,
+                Payload::Schema("FriendRequest"),
+            ),
+            201,
+        ),
+        "FriendRequestInput",
+    ),
+    route(
+        HttpMethod::Post,
+        "/friends/requests/{id}/accept",
+        "Friends",
+        "Accept an incoming friend request",
+        Auth::Session,
+        Payload::Schema("Friend"),
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/friends/requests/{id}/decline",
+            "Friends",
+            "Decline an incoming friend request",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/friends/requests/{id}",
+            "Friends",
+            "Cancel an outgoing friend request",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/friends/{id}",
+            "Friends",
+            "Remove a friend",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Get,
+        "/blocks",
+        "Friends",
+        "Accounts you blocked",
+        Auth::Session,
+        Payload::Array("SocialUser"),
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/blocks/{id}",
+            "Friends",
+            "Block an account",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/blocks/{id}",
+            "Friends",
+            "Lift a block",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Get,
+        "/presence",
+        "Friends",
+        "Your presence and opt-in state",
+        Auth::Session,
+        Payload::Schema("PresenceStateResponse"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/presence",
+            "Friends",
+            "Presence heartbeat",
+            Auth::Session,
+            Payload::Schema("PresenceStateResponse"),
+        ),
+        "PresenceHeartbeat",
+    ),
+    route(
+        HttpMethod::Get,
+        "/presence/friends",
+        "Friends",
+        "Online friends, for bounded polling",
+        Auth::Session,
+        Payload::Schema("FriendsPresenceResponse"),
+    ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/notifications",
+            "Notifications",
+            "In-app notifications, newest first",
+            Auth::Session,
+            Payload::Schema("NotificationPage"),
+        ),
+        &[("limit", "Page size"), ("before", "Cursor")],
+    ),
+    route(
+        HttpMethod::Post,
+        "/notifications/read-all",
+        "Notifications",
+        "Mark every notification read",
+        Auth::Session,
+        Payload::Schema("NotificationReadResponse"),
+    ),
+    route(
+        HttpMethod::Post,
+        "/notifications/{id}/read",
+        "Notifications",
+        "Mark one notification read",
+        Auth::Session,
+        Payload::Schema("NotificationReadResponse"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/me/notification-prefs",
+        "Notifications",
+        "Notification preferences",
+        Auth::Session,
+        Payload::Schema("NotificationPrefs"),
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/me/notification-prefs",
+            "Notifications",
+            "Update notification preferences",
+            Auth::Session,
+            Payload::Schema("NotificationPrefs"),
+        ),
+        "NotificationPrefsPatch",
+    ),
+];

@@ -9,12 +9,14 @@
 
 use axum::routing::get;
 use axum::{extract::State, Json, Router};
+use utoipa::openapi::HttpMethod;
 
 use crate::auth::AuthUser;
 use crate::db;
 use crate::error::ApiError;
 use crate::extract::ApiQuery;
 use crate::models::{GameSuggestion, SuggestQuery, SuggestResponse};
+use crate::openapi::{query, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Minimum score a candidate needs to be considered a match.
@@ -70,7 +72,7 @@ async fn suggest(
                  ORDER BY sort_title ASC LIMIT 5000",
             )
             .bind(i64::from(limit))
-            .fetch_all(&state.pool)
+            .fetch_all(&state.core.pool)
             .await
         }
         None => {
@@ -78,7 +80,7 @@ async fn suggest(
                 "SELECT id, title, sort_title, release_date, cover_path, alt_titles_json
                  FROM games ORDER BY sort_title ASC LIMIT 5000",
             )
-            .fetch_all(&state.pool)
+            .fetch_all(&state.core.pool)
             .await
         }
     }
@@ -362,6 +364,22 @@ where
     });
     scored
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Search
+    query(
+        route(
+            HttpMethod::Get,
+            "/games/suggest",
+            "Search",
+            "Fuzzy title suggestions",
+            Auth::Session,
+            Payload::Schema("SuggestResponse"),
+        ),
+        &[("q", "Partial title"), ("limit", "Maximum suggestions")],
+    ),
+];
 
 #[cfg(test)]
 mod tests {

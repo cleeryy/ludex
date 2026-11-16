@@ -11,6 +11,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::Scope;
 use crate::audit::actions;
@@ -18,6 +19,7 @@ use crate::auth::AuthUser;
 use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, ApiQuery, JsonBody};
+use crate::openapi::{body, ok, query, route, Auth, Payload, RouteDoc};
 use crate::remote_installs::{
     self, CreateRemoteInstallRequest, RemoteInstall, RemoteInstallStatus,
     RemoteInstallStatusRequest,
@@ -73,7 +75,7 @@ async fn list(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     let installs = remote_installs::list(
-        &state.pool,
+        &state.core.pool,
         user.id,
         &statuses,
         device_id,
@@ -89,7 +91,9 @@ async fn show(
     ApiPath(id): ApiPath<String>,
 ) -> Result<Json<RemoteInstall>, ApiError> {
     user.require_scope(Scope::Read)?;
-    Ok(Json(remote_installs::get(&state.pool, user.id, &id).await?))
+    Ok(Json(
+        remote_installs::get(&state.core.pool, user.id, &id).await?,
+    ))
 }
 
 async fn create(
@@ -102,9 +106,10 @@ async fn create(
     // able to start downloads on the desktop.
     user.require_scope(Scope::Write)?;
     remote_installs::check_rate_limit(user.id)?;
-    let queued = remote_installs::queue(&state.pool, user.id, user.age_limit, &request).await?;
+    let queued =
+        remote_installs::queue(&state.core.pool, user.id, user.age_limit, &request).await?;
     if queued.created {
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::REMOTE_INSTALL_REQUESTED, user.actor())
                 .target("remote_install", queued.install.id.clone())
                 .metadata(json!({
@@ -132,7 +137,7 @@ async fn update_status(
     JsonBody(request): JsonBody<RemoteInstallStatusRequest>,
 ) -> Result<Json<RemoteInstall>, ApiError> {
     user.require_scope(Scope::Write)?;
-    let install = remote_installs::update_status(&state.pool, user.id, &id, &request).await?;
+    let install = remote_installs::update_status(&state.core.pool, user.id, &id, &request).await?;
     // Progress patches can be frequent; only claim and terminal transitions
     // are worth an audit row.
     if matches!(
@@ -142,7 +147,7 @@ async fn update_status(
             | RemoteInstallStatus::Failed
             | RemoteInstallStatus::Cancelled
     ) {
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::REMOTE_INSTALL_UPDATED, user.actor())
                 .target("remote_install", install.id.clone())
                 .metadata(json!({
@@ -165,8 +170,8 @@ async fn cancel(
     ApiPath(id): ApiPath<String>,
 ) -> Result<StatusCode, ApiError> {
     user.require_scope(Scope::Write)?;
-    let cancelled = remote_installs::cancel(&state.pool, user.id, &id).await?;
-    state.events.emit(
+    let cancelled = remote_installs::cancel(&state.core.pool, user.id, &id).await?;
+    state.core.events.emit(
         Event::new(actions::REMOTE_INSTALL_CANCELLED, user.actor())
             .target("remote_install", id)
             .metadata(json!({ "cancelled": cancelled }))
@@ -174,3 +179,72 @@ async fn cancel(
     );
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Mobile companion (#167)
+    query(
+        route(
+            HttpMethod::Get,
+            "/remote-installs",
+            "Remote installs",
+            "List the caller's remote install requests",
+            Auth::Session,
+            Payload::Array("RemoteInstall"),
+        ),
+        &[
+            (
+                "status",
+                "queued, claimed, downloading, ready, failed or cancelled; comma-separate several",
+            ),
+            ("limit", "1-200, default 100"),
+        ],
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/remote-installs",
+                "Remote installs",
+                "Queue an install for a signed-in desktop (idempotent per game)",
+                Auth::Session,
+                Payload::Schema("RemoteInstall"),
+            ),
+            "CreateRemoteInstallRequest",
+        ),
+        201,
+    ),
+    route(
+        HttpMethod::Get,
+        "/remote-installs/{id}",
+        "Remote installs",
+        "Read one remote install request",
+        Auth::Session,
+        Payload::Schema("RemoteInstall"),
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/remote-installs/{id}",
+            "Remote installs",
+            "Cancel an active request or clear a finished one",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/remote-installs/{id}/status",
+                "Remote installs",
+                "Report desktop progress for a remote install",
+                Auth::Session,
+                Payload::Schema("RemoteInstall"),
+            ),
+            "RemoteInstallStatusRequest",
+        ),
+        200,
+    ),
+];

@@ -126,7 +126,7 @@ pub fn payload_for(event: &Event) -> String {
 pub async fn dispatch(state: &AppState, event: &Event) {
     let hooks =
         match db::query_as::<(i64, String)>("SELECT id, events FROM webhooks WHERE enabled = 1")
-            .fetch_all(&state.pool)
+            .fetch_all(&state.core.pool)
             .await
         {
             Ok(hooks) => hooks,
@@ -156,7 +156,7 @@ pub async fn dispatch(state: &AppState, event: &Event) {
         .bind(&event.action)
         .bind(&payload)
         .bind(&now)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await;
         match result {
             Ok(_) => queued = true,
@@ -171,7 +171,7 @@ pub async fn dispatch(state: &AppState, event: &Event) {
         }
     }
     if queued {
-        state.webhooks_notify.notify_one();
+        state.integrations.webhooks_notify.notify_one();
     }
 }
 
@@ -180,7 +180,7 @@ pub async fn queue_test(state: &AppState, webhook_id: i64) -> Result<i64, ApiErr
     let exists =
         db::query_scalar::<i64>("SELECT COUNT(*) FROM webhooks WHERE id = ? AND enabled = 1")
             .bind(webhook_id)
-            .fetch_one(&state.pool)
+            .fetch_one(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
     if exists == 0 {
@@ -204,10 +204,10 @@ pub async fn queue_test(state: &AppState, webhook_id: i64) -> Result<i64, ApiErr
     .bind(TEST_EVENT)
     .bind(&payload)
     .bind(db::db_time(db::now()))
-    .returning_id(&state.pool)
+    .returning_id(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
-    state.webhooks_notify.notify_one();
+    state.integrations.webhooks_notify.notify_one();
     Ok(delivery_id)
 }
 
@@ -215,7 +215,7 @@ pub async fn queue_test(state: &AppState, webhook_id: i64) -> Result<i64, ApiErr
 pub async fn worker(state: AppState) {
     loop {
         tokio::select! {
-            () = state.webhooks_notify.notified() => {}
+            () = state.integrations.webhooks_notify.notified() => {}
             () = tokio::time::sleep(IDLE_POLL) => {}
         }
         process_due(&state).await;
@@ -248,7 +248,7 @@ async fn process_due(state: &AppState) {
         )
         .bind(db::db_time(db::now()))
         .bind(DELIVERY_BATCH)
-        .fetch_all(&state.pool)
+        .fetch_all(&state.core.pool)
         .await
         {
             Ok(rows) => rows,
@@ -280,7 +280,7 @@ async fn deliver_one(state: &AppState, delivery: DueDelivery) {
             } else {
                 Some(db::db_time(
                     now + chrono::Duration::milliseconds(backoff_ms(
-                        state.config.webhooks_backoff_ms,
+                        state.core.config.webhooks_backoff_ms,
                         attempts,
                     )),
                 ))
@@ -305,7 +305,7 @@ async fn deliver_one(state: &AppState, delivery: DueDelivery) {
     .bind(delivered)
     .bind(&error)
     .bind(delivery.id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await;
     if let Err(error) = result {
         tracing::error!(error = %error, delivery = delivery.id, "could not update webhook delivery");
@@ -336,7 +336,7 @@ async fn deliver_one(state: &AppState, delivery: DueDelivery) {
 /// HTTP status when a response was received.
 async fn send(state: &AppState, delivery: &DueDelivery) -> (Result<(), String>, Option<i64>) {
     let (url, addrs) =
-        match resolve_target(&delivery.url, state.config.webhooks_allow_private).await {
+        match resolve_target(&delivery.url, state.core.config.webhooks_allow_private).await {
             Ok(target) => target,
             Err(error) => return (Err(error), None),
         };

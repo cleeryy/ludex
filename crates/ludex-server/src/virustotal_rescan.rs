@@ -233,7 +233,7 @@ async fn load_row(state: &AppState) -> Result<Option<RescanRow>, ApiError> {
                 cursor, last_error, scanned_last_run
          FROM virustotal_rescan WHERE id = 1",
     )
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)
 }
@@ -256,7 +256,7 @@ async fn candidate_rows(state: &AppState) -> Result<Vec<CandidateRow>, ApiError>
            AND v.content_sha256 IS NOT NULL AND v.content_sha256 <> ''
          ORDER BY (c.checked_at IS NOT NULL) ASC, c.checked_at ASC, v.id ASC",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)
 }
@@ -347,7 +347,7 @@ pub async fn save_policy(
     .bind(row.last_error.as_deref())
     .bind(row.scanned_last_run)
     .bind(db::db_time(now))
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     let saved = load_row(state).await?.unwrap_or(row);
@@ -380,7 +380,7 @@ async fn persist_outcome(
     .bind(error)
     .bind(scanned)
     .bind(db::db_time(now))
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await;
     if let Err(error) = write {
         tracing::warn!(%error, "could not persist the VirusTotal re-check outcome");
@@ -430,13 +430,13 @@ async fn execute(state: &AppState, row: &RescanRow, actor: Actor) -> Result<Resc
         selected.clear();
     }
 
-    let per_minute = state.config.virustotal_per_minute;
+    let per_minute = state.core.config.virustotal_per_minute;
     let pace_ms = if per_minute == 0 {
         0
     } else {
         60_000 / u64::from(per_minute)
     };
-    let daily_limit = state.config.virustotal_daily_limit;
+    let daily_limit = state.core.config.virustotal_daily_limit;
     let mut consecutive_failures: u32 = 0;
 
     for (index, candidate) in selected.iter().enumerate() {
@@ -538,7 +538,7 @@ async fn execute(state: &AppState, row: &RescanRow, actor: Actor) -> Result<Resc
     let remaining =
         i64::try_from(selection(state, &updated, finalized).await?.len()).unwrap_or(i64::MAX);
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::VIRUSTOTAL_RESCAN_RUN, actor)
             .target("virustotal", "rescan")
             .metadata(json!({
@@ -566,14 +566,14 @@ pub async fn run_now(state: &AppState, actor: Actor) -> Result<RescanStatus, Api
             "Enable periodic re-checks before running a pass",
         ));
     }
-    if !state.virustotal.claim_rescan() {
+    if !state.integrations.virustotal.claim_rescan() {
         return Err(ApiError::conflict(
             "rescan_running",
             "A VirusTotal re-check is already running",
         ));
     }
     let outcome = execute(state, &row, actor).await;
-    state.virustotal.release_rescan();
+    state.integrations.virustotal.release_rescan();
     outcome?;
     status(state).await
 }
@@ -591,11 +591,11 @@ pub async fn run_if_due(state: &AppState) -> Option<RescanRun> {
     if !is_due(&row, db::now()) {
         return None;
     }
-    if !state.virustotal.claim_rescan() {
+    if !state.integrations.virustotal.claim_rescan() {
         return None;
     }
     let outcome = execute(state, &row, Actor::System).await;
-    state.virustotal.release_rescan();
+    state.integrations.virustotal.release_rescan();
     match outcome {
         Ok(run) => {
             if let Some(error) = run.error.as_deref() {
@@ -626,7 +626,7 @@ pub async fn run_if_due(state: &AppState) -> Option<RescanRun> {
 /// The tick is short enough to honour `next_run_at` closely and cheap (one
 /// policy row). A pass never blocks startup or the HTTP server.
 pub async fn scheduled_worker(state: AppState, mut cancel: watch::Receiver<bool>) {
-    let mut ticker = tokio::time::interval(state.config.virustotal_rescan_tick);
+    let mut ticker = tokio::time::interval(state.core.config.virustotal_rescan_tick);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     ticker.tick().await;
     loop {

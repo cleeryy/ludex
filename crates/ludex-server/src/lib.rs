@@ -78,6 +78,7 @@ pub mod state;
 pub mod storage;
 pub mod stream;
 pub mod totp;
+pub mod transfer;
 pub mod uploads;
 pub mod url_guard;
 pub mod virustotal;
@@ -111,7 +112,7 @@ pub async fn run(config: Config) -> Result<()> {
     let prepared = prepare(config).await?;
     tracing::info!(
         url = %prepared.url,
-        local_mode = prepared.state.config.local_mode,
+        local_mode = prepared.state.core.config.local_mode,
         "Ludex server listening"
     );
 
@@ -292,82 +293,94 @@ async fn prepare(config: Config) -> Result<Prepared> {
     // (#231). A no-op directory-wise while the feature is disabled.
     let extracted_cache = std::sync::Arc::new(extracted_cache::ExtractedCache::open(&config).await);
     let state = AppState {
-        config: Arc::new(config.clone()),
-        pool,
-        jwt_secret: Arc::new(secret),
-        started_at: Instant::now(),
-        scan: Arc::new(RwLock::new(ScanStatus::default())),
-        scan_tx: scan_tx.clone(),
-        http,
-        igdb,
-        providers: Arc::new(RwLock::new(providers)),
-        oidc: Arc::new(RwLock::new(oidc)),
-        oidc_status: Arc::new(RwLock::new(oidc_status)),
-        events,
-        webhooks_notify: Arc::new(tokio::sync::Notify::new()),
-        watcher: Arc::new(RwLock::new(watcher::WatcherStatus::default())),
-        watcher_handle: Arc::new(RwLock::new(None)),
-        virustotal: virustotal_scanner,
-        integrity_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        media_gc_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        library_health_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        achievement_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        backup_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        content_hashes: Arc::new(content_hash::ContentHasher::default()),
-        storage: ArchiveStorage::from_config(&config),
-        metrics: Arc::new(metrics::Metrics::default()),
-        ingest: Some(ingest_handle),
-        rate_limiter: Arc::new(security::RateLimiter::new(
-            config.rate_limit_rps,
-            config.rate_limit_burst,
-        )),
-        login_guard: Arc::new(security::LoginGuard::new(
-            config.login_max_attempts,
-            config.login_lockout,
-            config.login_backoff,
-        )),
-        diagnostics_limits: Arc::new(security::AttemptCounter::new(
-            config.diagnostics_rate_limit,
-            Duration::from_secs(3_600),
-        )),
-        session_touch: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-        desktop_handoffs: Arc::new(desktop_handoff::DesktopHandoffs::new(
-            config.desktop_handoff_ttl,
-        )),
-        exchange_codes: Arc::new(desktop_handoff::ExchangeCodes::new()),
-        handoff_create_limits: Arc::new(security::AttemptCounter::new(
-            config.handoff_create_limit,
-            Duration::from_secs(60),
-        )),
-        handoff_claim_limits: Arc::new(security::AttemptCounter::new(
-            config.handoff_claim_limit,
-            Duration::from_secs(60),
-        )),
-        transfers: Arc::new(state::ActiveTransfers::default()),
-        invitation_limits: Arc::new(security::AttemptCounter::new(
-            config.invitation_attempt_limit,
-            Duration::from_secs(600),
-        )),
-        mfa_attempt_limits: Arc::new(security::AttemptCounter::new(
-            config.mfa_attempt_limit,
-            Duration::from_secs(300),
-        )),
-        friend_request_limits: Arc::new(security::AttemptCounter::new(
-            social::FRIEND_REQUEST_LIMIT_PER_HOUR,
-            Duration::from_secs(3600),
-        )),
-        device_heartbeat_limits: Arc::new(security::AttemptCounter::new(
-            devices::HEARTBEAT_LIMIT_PER_MINUTE,
-            Duration::from_secs(60),
-        )),
-        // Single-stream clients keep the #195 reconnect budget; parallel
-        // jobs get their own N-aware budget and part cap (#217).
-        download_limits: Arc::new(download_limits::DownloadLimiter::new()),
-        extracted: extracted_cache,
+        core: Arc::new(state::Core {
+            config: Arc::new(config.clone()),
+            pool,
+            started_at: Instant::now(),
+            http: http.clone(),
+            events,
+        }),
+        auth: Arc::new(state::Auth {
+            jwt_secret: Arc::new(secret),
+            rate_limiter: Arc::new(security::RateLimiter::new(
+                config.rate_limit_rps,
+                config.rate_limit_burst,
+            )),
+            login_guard: Arc::new(security::LoginGuard::new(
+                config.login_max_attempts,
+                config.login_lockout,
+                config.login_backoff,
+            )),
+            session_touch: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            desktop_handoffs: Arc::new(desktop_handoff::DesktopHandoffs::new(
+                config.desktop_handoff_ttl,
+            )),
+            exchange_codes: Arc::new(desktop_handoff::ExchangeCodes::new()),
+            diagnostics_limits: Arc::new(security::AttemptCounter::new(
+                config.diagnostics_rate_limit,
+                Duration::from_secs(3_600),
+            )),
+            invitation_limits: Arc::new(security::AttemptCounter::new(
+                config.invitation_attempt_limit,
+                Duration::from_secs(600),
+            )),
+            mfa_attempt_limits: Arc::new(security::AttemptCounter::new(
+                config.mfa_attempt_limit,
+                Duration::from_secs(300),
+            )),
+            handoff_create_limits: Arc::new(security::AttemptCounter::new(
+                config.handoff_create_limit,
+                Duration::from_secs(60),
+            )),
+            handoff_claim_limits: Arc::new(security::AttemptCounter::new(
+                config.handoff_claim_limit,
+                Duration::from_secs(60),
+            )),
+            friend_request_limits: Arc::new(security::AttemptCounter::new(
+                social::FRIEND_REQUEST_LIMIT_PER_HOUR,
+                Duration::from_secs(3600),
+            )),
+            device_heartbeat_limits: Arc::new(security::AttemptCounter::new(
+                devices::HEARTBEAT_LIMIT_PER_MINUTE,
+                Duration::from_secs(60),
+            )),
+        }),
+        catalog: Arc::new(state::Catalog {
+            scan: Arc::new(RwLock::new(ScanStatus::default())),
+            scan_tx: scan_tx.clone(),
+            igdb,
+            providers: Arc::new(RwLock::new(providers)),
+            content_hashes: Arc::new(content_hash::ContentHasher::default()),
+        }),
+        transfer: Arc::new(state::Transfer {
+            storage: ArchiveStorage::from_config(&config),
+            transfers: Arc::new(state::ActiveTransfers::default()),
+            // Single-stream clients keep the #195 reconnect budget; parallel
+            // jobs get their own N-aware budget and part cap (#217).
+            download_limits: Arc::new(download_limits::DownloadLimiter::new()),
+            extracted: extracted_cache,
+        }),
+        integrations: Arc::new(state::Integrations {
+            oidc: Arc::new(RwLock::new(oidc)),
+            oidc_status: Arc::new(RwLock::new(oidc_status)),
+            virustotal: virustotal_scanner,
+            webhooks_notify: Arc::new(tokio::sync::Notify::new()),
+        }),
+        ops: Arc::new(state::Ops {
+            metrics: Arc::new(metrics::Metrics::default()),
+            ingest: Some(ingest_handle),
+            watcher: Arc::new(RwLock::new(watcher::WatcherStatus::default())),
+            watcher_handle: Arc::new(RwLock::new(None)),
+            integrity_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            media_gc_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            library_health_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            achievement_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            backup_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }),
     };
 
     let watcher_handle = watcher::start(&state).await;
-    *state.watcher_handle.write().await = watcher_handle;
+    *state.ops.watcher_handle.write().await = watcher_handle;
 
     let token = bootstrap_admin(&state).await?;
     let router = build_router(&state, &ingest_ctx);
@@ -400,7 +413,7 @@ async fn prepare(config: Config) -> Result<Prepared> {
         cancel_rx.clone(),
     ));
     // Initial scan in the background; never blocks startup.
-    let _ = state.scan_tx.try_send(ScanRequest::all());
+    let _ = state.catalog.scan_tx.try_send(ScanRequest::all());
 
     Ok(Prepared {
         state,
@@ -436,7 +449,7 @@ fn spawn_server(
 }
 
 fn build_router(state: &AppState, ingest_ctx: &ingest::IngestContext) -> Router {
-    let api = routes::api_router(state.config.saves_max_bytes).layer(
+    let api = routes::api_router(state.core.config.saves_max_bytes).layer(
         axum::middleware::from_fn_with_state(state.clone(), security::rate_limit),
     );
     let app = Router::new()
@@ -556,22 +569,22 @@ async fn set_private_permissions(path: &std::path::Path) -> Result<()> {
 }
 
 async fn bootstrap_admin(state: &AppState) -> Result<String> {
-    if state.config.local_mode {
+    if state.core.config.local_mode {
         if let Some((id, role)) = db::query_as::<(i64, String)>(
             "SELECT id, role FROM users WHERE role = 'admin' AND activated = 1
              ORDER BY id LIMIT 1",
         )
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .context("find local administrator")?
         {
             let role = role.parse::<Role>().unwrap_or(Role::Admin);
-            return auth::issue_access_token(&state.jwt_secret, id, role);
+            return auth::issue_access_token(&state.auth.jwt_secret, id, role);
         }
         let username = unique_username(state, "ludex").await?;
         let password = auth::generate_password();
         let id = create_user(state, &username, &password, Role::Admin).await?;
-        state.events.emit(
+        state.core.events.emit(
             events::Event::new(audit::actions::USER_CREATED, events::Actor::System)
                 .target("user", id.to_string())
                 .metadata(serde_json::json!({
@@ -581,16 +594,16 @@ async fn bootstrap_admin(state: &AppState) -> Result<String> {
                 })),
         );
         tracing::info!(username = %username, "provisioned local administrator");
-        return auth::issue_access_token(&state.jwt_secret, id, Role::Admin);
+        return auth::issue_access_token(&state.auth.jwt_secret, id, Role::Admin);
     }
 
-    let users = db::count_users(&state.pool).await?;
+    let users = db::count_users(&state.core.pool).await?;
     if users > 0 {
         return Ok(String::new());
     }
     let (Some(username), Some(password)) = (
-        state.config.admin_username.as_deref(),
-        state.config.admin_password.as_deref(),
+        state.core.config.admin_username.as_deref(),
+        state.core.config.admin_password.as_deref(),
     ) else {
         return Ok(String::new());
     };
@@ -603,7 +616,7 @@ async fn bootstrap_admin(state: &AppState) -> Result<String> {
         return Ok(String::new());
     }
     let id = create_user(state, username, password, Role::Admin).await?;
-    state.events.emit(
+    state.core.events.emit(
         events::Event::new(audit::actions::USER_CREATED, events::Actor::System)
             .target("user", id.to_string())
             .metadata(serde_json::json!({
@@ -613,7 +626,7 @@ async fn bootstrap_admin(state: &AppState) -> Result<String> {
             })),
     );
     tracing::info!(username = %username, "provisioned bootstrap administrator");
-    auth::issue_access_token(&state.jwt_secret, id, Role::Admin)
+    auth::issue_access_token(&state.auth.jwt_secret, id, Role::Admin)
 }
 
 pub(crate) async fn unique_username(state: &AppState, base: &str) -> Result<String> {
@@ -625,7 +638,7 @@ pub(crate) async fn unique_username(state: &AppState, base: &str) -> Result<Stri
         };
         let exists = db::query_scalar::<i64>("SELECT COUNT(*) FROM users WHERE username = ?")
             .bind(&candidate)
-            .fetch_one(&state.pool)
+            .fetch_one(&state.core.pool)
             .await
             .context("check username availability")?;
         if exists == 0 {
@@ -648,7 +661,7 @@ async fn create_user(state: &AppState, username: &str, password: &str, role: Rol
     .bind(role.as_str())
     .bind(&now)
     .bind(&now)
-    .returning_id(&state.pool)
+    .returning_id(&state.core.pool)
     .await
     .context("create administrator")
 }

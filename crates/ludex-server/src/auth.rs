@@ -238,9 +238,9 @@ pub async fn start_session(
     info: &SessionInfo,
 ) -> Result<(IssuedToken, i64), ApiError> {
     let ttl = Duration::minutes(
-        i64::try_from(state.config.jwt_ttl_minutes).unwrap_or(ACCESS_TOKEN_SECONDS / 60),
+        i64::try_from(state.core.config.jwt_ttl_minutes).unwrap_or(ACCESS_TOKEN_SECONDS / 60),
     );
-    let issued = issue_access_token_with_ttl(&state.jwt_secret, user_id, role, ttl)?;
+    let issued = issue_access_token_with_ttl(&state.auth.jwt_secret, user_id, role, ttl)?;
     let now = db::db_time(db::now());
     let expires_at = db::db_time(issued.expires_at);
     let user_agent = info
@@ -259,7 +259,7 @@ pub async fn start_session(
     .bind(&now)
     .bind(&now)
     .bind(&expires_at)
-    .returning_id(&state.pool)
+    .returning_id(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok((issued, session_id))
@@ -281,13 +281,13 @@ pub async fn revoke_token(
     .bind(user_id)
     .bind(reason)
     .bind(db::db_time(db::now()))
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     db::query("UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, ?) WHERE jti = ?")
         .bind(db::db_time(db::now()))
         .bind(jti)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     Ok(())
@@ -311,7 +311,7 @@ pub async fn revoke_other_sessions(
     .bind(user_id)
     .bind(keep_jti)
     .bind(&now_text)
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     db::query(
@@ -324,7 +324,7 @@ pub async fn revoke_other_sessions(
     .bind(&now_text)
     .bind(user_id)
     .bind(keep_jti)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     db::query(
@@ -334,7 +334,7 @@ pub async fn revoke_other_sessions(
     .bind(&now_text)
     .bind(user_id)
     .bind(keep_jti)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok(u64::try_from(active).unwrap_or(0))
@@ -356,7 +356,7 @@ pub async fn revoke_all_sessions(
     )
     .bind(user_id)
     .bind(&now_text)
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     db::query(
@@ -368,13 +368,13 @@ pub async fn revoke_all_sessions(
     .bind(reason)
     .bind(&now_text)
     .bind(user_id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     db::query("UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL")
         .bind(&now_text)
         .bind(user_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     // Invalidates every JWT issued before this instant, including tokens
@@ -383,7 +383,7 @@ pub async fn revoke_all_sessions(
         .bind(&now_text)
         .bind(&now_text)
         .bind(user_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     Ok(u64::try_from(active).unwrap_or(0))
@@ -470,7 +470,7 @@ pub async fn authenticate_token(state: &AppState, token: &str) -> Result<AuthUse
         return load_auth_user(state, key.user_id, Some(key.key_id), Some(key.scopes)).await;
     }
 
-    let claims = decode_access(&state.jwt_secret, token).ok_or_else(ApiError::unauthorized)?;
+    let claims = decode_access(&state.auth.jwt_secret, token).ok_or_else(ApiError::unauthorized)?;
     let user_id = claims
         .sub
         .parse::<i64>()
@@ -490,7 +490,7 @@ pub async fn authenticate_token(state: &AppState, token: &str) -> Result<AuthUse
     .bind(jti.as_deref())
     .bind(jti.as_deref())
     .bind(user_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(ApiError::unauthorized)?;
@@ -551,6 +551,7 @@ async fn touch_session(state: &AppState, jti: &str) {
     let now = Utc::now().timestamp();
     {
         let mut seen = state
+            .auth
             .session_touch
             .lock()
             .unwrap_or_else(|error| error.into_inner());
@@ -567,7 +568,7 @@ async fn touch_session(state: &AppState, jti: &str) {
     let _ = db::query("UPDATE auth_sessions SET last_seen_at = ? WHERE jti = ?")
         .bind(db::db_time(db::now()))
         .bind(jti)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await;
 }
 
@@ -586,7 +587,7 @@ async fn load_auth_user(
          FROM users WHERE id = ?",
     )
     .bind(user_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(ApiError::unauthorized)?;

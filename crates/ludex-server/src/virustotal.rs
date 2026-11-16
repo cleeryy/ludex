@@ -1138,7 +1138,7 @@ async fn load_integration_row(state: &AppState) -> anyhow::Result<Option<Integra
     db::query_as::<IntegrationRow>(&format!(
         "SELECT {INTEGRATION_COLUMNS} FROM virustotal_integration WHERE id = 1"
     ))
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(Into::into)
 }
@@ -1146,13 +1146,14 @@ async fn load_integration_row(state: &AppState) -> anyhow::Result<Option<Integra
 /// Resolves the active key: environment first, then the encrypted row.
 pub async fn key_state(state: &AppState) -> KeyState {
     if let Some(key) = state
+        .core
         .config
         .virustotal_api_key
         .as_deref()
         .map(str::trim)
         .filter(|key| !key.is_empty())
     {
-        let runtime = state.virustotal.snapshot_runtime();
+        let runtime = state.integrations.virustotal.snapshot_runtime();
         return KeyState::Key(ResolvedKey {
             key: key.to_string(),
             source: KeySource::Env,
@@ -1173,7 +1174,7 @@ pub async fn key_state(state: &AppState) -> KeyState {
         return KeyState::Missing;
     };
     match crate::secrets::decrypt(
-        &state.jwt_secret,
+        &state.auth.jwt_secret,
         KEY_HKDF_SALT,
         KEY_HKDF_INFO,
         KEY_AAD,
@@ -1205,7 +1206,7 @@ pub async fn used_today(state: &AppState) -> i64 {
     let day = today();
     db::query_as::<BudgetRow>("SELECT used FROM virustotal_budget WHERE day = ?")
         .bind(&day)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .ok()
         .flatten()
@@ -1214,7 +1215,7 @@ pub async fn used_today(state: &AppState) -> i64 {
 
 /// Today's quota, for the integrations screen.
 pub async fn quota_status(state: &AppState) -> QuotaStatus {
-    let limit = state.config.virustotal_daily_limit;
+    let limit = state.core.config.virustotal_daily_limit;
     let used = used_today(state).await;
     QuotaStatus {
         daily_limit: limit,
@@ -1279,6 +1280,7 @@ fn validate_key_material(api_key: &str) -> Result<(), ApiError> {
 /// pins one.
 pub async fn save_key(state: &AppState, api_key: &str) -> Result<IntegrationStatus, ApiError> {
     if state
+        .core
         .config
         .virustotal_api_key
         .as_deref()
@@ -1292,7 +1294,7 @@ pub async fn save_key(state: &AppState, api_key: &str) -> Result<IntegrationStat
     let key = api_key.trim();
     validate_key_material(key)?;
     let encrypted = crate::secrets::encrypt(
-        &state.jwt_secret,
+        &state.auth.jwt_secret,
         KEY_HKDF_SALT,
         KEY_HKDF_INFO,
         KEY_AAD,
@@ -1312,16 +1314,20 @@ pub async fn save_key(state: &AppState, api_key: &str) -> Result<IntegrationStat
     .bind(&encrypted)
     .bind(fingerprint(key))
     .bind(&now)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
-    state.virustotal.update_runtime(None, None, true);
+    state
+        .integrations
+        .virustotal
+        .update_runtime(None, None, true);
     Ok(integration_status(state).await)
 }
 
 /// Deletes the stored key. Refuses when the environment pins one.
 pub async fn delete_key(state: &AppState) -> Result<IntegrationStatus, ApiError> {
     if state
+        .core
         .config
         .virustotal_api_key
         .as_deref()
@@ -1333,10 +1339,13 @@ pub async fn delete_key(state: &AppState) -> Result<IntegrationStatus, ApiError>
         ));
     }
     db::query("DELETE FROM virustotal_integration WHERE id = 1")
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
-    state.virustotal.update_runtime(None, None, true);
+    state
+        .integrations
+        .virustotal
+        .update_runtime(None, None, true);
     Ok(integration_status(state).await)
 }
 
@@ -1345,9 +1354,11 @@ pub async fn delete_key(state: &AppState) -> Result<IntegrationStatus, ApiError>
 async fn record_use(state: &AppState, error: Option<&str>) {
     let now = db::db_time(db::now());
     state
+        .integrations
         .virustotal
         .update_runtime(Some(&now), error, error.is_none());
     if state
+        .core
         .config
         .virustotal_api_key
         .as_deref()
@@ -1365,7 +1376,7 @@ async fn record_use(state: &AppState, error: Option<&str>) {
         )
         .bind(&now)
     };
-    if let Err(failure) = update.execute(&state.pool).await {
+    if let Err(failure) = update.execute(&state.core.pool).await {
         tracing::warn!(%failure, "could not record the VirusTotal request outcome");
     }
 }
@@ -1406,7 +1417,13 @@ pub async fn test_key(state: &AppState, provided: Option<&str>) -> Result<TestRe
         }
         return Ok(TestResponse { ok: false, message });
     }
-    match state.virustotal.transport().validate_key(&api_key).await {
+    match state
+        .integrations
+        .virustotal
+        .transport()
+        .validate_key(&api_key)
+        .await
+    {
         Ok(()) => {
             if stored {
                 record_use(state, None).await;
@@ -1447,7 +1464,7 @@ impl SlotRejection {
 
 /// Consumes one request slot (per-minute window + persisted daily budget).
 async fn acquire_slot(state: &AppState) -> Result<(), SlotRejection> {
-    let limit = state.config.virustotal_daily_limit;
+    let limit = state.core.config.virustotal_daily_limit;
     if limit <= 0 {
         return Err(SlotRejection {
             retry_after: seconds_until_reset(),
@@ -1461,8 +1478,9 @@ async fn acquire_slot(state: &AppState) -> Result<(), SlotRejection> {
         });
     }
     if let Some(retry_after) = state
+        .integrations
         .virustotal
-        .take_minute_slot(state.config.virustotal_per_minute)
+        .take_minute_slot(state.core.config.virustotal_per_minute)
     {
         return Err(SlotRejection {
             retry_after,
@@ -1474,7 +1492,7 @@ async fn acquire_slot(state: &AppState) -> Result<(), SlotRejection> {
         "INSERT INTO virustotal_budget (day, used) VALUES (?, 0) ON CONFLICT (day) DO NOTHING",
     )
     .bind(&day)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await;
     if let Err(error) = insert {
         tracing::warn!(%error, "could not create the VirusTotal daily budget row");
@@ -1487,7 +1505,7 @@ async fn acquire_slot(state: &AppState) -> Result<(), SlotRejection> {
         db::query("UPDATE virustotal_budget SET used = used + 1 WHERE day = ? AND used < ?")
             .bind(&day)
             .bind(limit)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await;
     match update {
         Ok(result) if result.rows_affected() == 1 => Ok(()),
@@ -1510,7 +1528,7 @@ async fn load_cache(state: &AppState, sha256: &str) -> Option<CacheRow> {
         "SELECT {CACHE_COLUMNS} FROM virustotal_cache WHERE sha256 = ?"
     ))
     .bind(sha256)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     {
         Ok(row) => row,
@@ -1575,7 +1593,7 @@ async fn store_cache(state: &AppState, sha256: &str, report: &FileReport, verdic
     .bind(&now)
     .bind(ttl)
     .bind(report.permalink.as_deref())
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await;
     if let Err(error) = write {
         tracing::warn!(%error, "could not cache the VirusTotal report");
@@ -1633,7 +1651,7 @@ pub(crate) async fn store_link(
     .bind(mode.as_str())
     .bind(source.as_str())
     .bind(db::db_time(db::now()))
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await;
     if let Err(error) = write {
         tracing::warn!(%error, "could not record the VirusTotal association");
@@ -1811,7 +1829,7 @@ pub(crate) async fn lookup_hash(
         return plain_report(version_id, &sha256, Verdict::Disabled, &checked_at);
     };
 
-    let flight = state.virustotal.shared_flight(&sha256);
+    let flight = state.integrations.virustotal.shared_flight(&sha256);
     let report = {
         let _guard = flight.lock().await;
         // A concurrent scan of the same hash may have filled the cache while
@@ -1833,6 +1851,7 @@ pub(crate) async fn lookup_hash(
             plain_report(version_id, &sha256, Verdict::QuotaExceeded, &checked_at)
         } else {
             match state
+                .integrations
                 .virustotal
                 .transport()
                 .lookup_file(&key.key, &sha256)
@@ -1868,7 +1887,7 @@ pub(crate) async fn lookup_hash(
         }
     };
     drop(flight);
-    state.virustotal.release_flight(&sha256);
+    state.integrations.virustotal.release_flight(&sha256);
     report
 }
 
@@ -1919,6 +1938,7 @@ async fn upload_version(
             .with_retry_after(rejection.retry_after));
     }
     let outcome = state
+        .integrations
         .virustotal
         .transport()
         .upload_file(&key.key, &path)
@@ -1997,7 +2017,10 @@ async fn load_versions(
     if let Some(version_id) = version_id {
         query = query.bind(version_id);
     }
-    query.fetch_all(&state.pool).await.map_err(ApiError::from)
+    query
+        .fetch_all(&state.core.pool)
+        .await
+        .map_err(ApiError::from)
 }
 
 /// Resolves the archive path under its library root. Never accepts a
@@ -2007,8 +2030,8 @@ async fn local_path(state: &AppState, version: &VersionRow) -> Option<PathBuf> {
         return None;
     }
     crate::roots::resolve_version_path(
-        &state.pool,
-        &state.config,
+        &state.core.pool,
+        &state.core.config,
         version.root_id,
         &version.file_path,
     )
@@ -2089,7 +2112,7 @@ async fn hash_binary(path: &Path) -> Option<String> {
 pub async fn game_reports(state: &AppState, game_id: i64) -> Result<GameScanReport, ApiError> {
     let exists = db::query_scalar::<i64>("SELECT COUNT(*) FROM games WHERE id = ?")
         .bind(game_id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     if exists == 0 {
@@ -2103,7 +2126,7 @@ pub async fn game_reports(state: &AppState, game_id: i64) -> Result<GameScanRepo
          ORDER BY v.id",
     )
     .bind(game_id)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -2117,7 +2140,7 @@ pub async fn game_reports(state: &AppState, game_id: i64) -> Result<GameScanRepo
                  ORDER BY id DESC LIMIT 1",
             )
             .bind(version.id)
-            .fetch_optional(&state.pool)
+            .fetch_optional(&state.core.pool)
             .await
             .ok()
             .flatten(),
@@ -2309,7 +2332,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel(8);
         let mut state = AppState::for_tests(config, tx).await;
         let transport = Arc::new(MockTransport::new(answer));
-        state.virustotal = Arc::new(Scanner::with_transport(transport.clone()));
+        state.set_virustotal(Arc::new(Scanner::with_transport(transport.clone())));
         // Keep the temp directory alive for the test's lifetime.
         std::mem::forget(temp);
         (state, transport)
@@ -2324,7 +2347,7 @@ mod tests {
         .bind("celeste")
         .bind(&now)
         .bind(&now)
-        .returning_id(&state.pool)
+        .returning_id(&state.core.pool)
         .await
         .expect("game");
         let version_id = db::query(
@@ -2336,7 +2359,7 @@ mod tests {
         .bind("Celeste.zip")
         .bind(&now)
         .bind(sha256)
-        .returning_id(&state.pool)
+        .returning_id(&state.core.pool)
         .await
         .expect("version");
         (game_id, version_id)
@@ -2418,7 +2441,7 @@ mod tests {
         db::query("UPDATE virustotal_cache SET checked_at = ?, ttl_seconds = 0 WHERE sha256 = ?")
             .bind(db::db_time(db::now() - ChronoDuration::days(8)))
             .bind(SHA_A)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .expect("expire cache");
         scan(&state, scan_request(version))
@@ -2464,23 +2487,19 @@ mod tests {
     async fn daily_budget_persists_across_a_restart() {
         let (state, _) = fixture(|sha| Ok(report(sha, 0, 0))).await;
         // The config is shared behind an Arc; rebuild one with a tiny budget.
-        let mut config = (*state.config).clone();
+        let mut config = (*state.core.config).clone();
         config.virustotal_daily_limit = 1;
-        let state = AppState {
-            config: Arc::new(config),
-            ..state
-        };
+        let mut state = state;
+        state.set_config(config);
         let (_, version) = add_game(&state, Some(SHA_A)).await;
         scan(&state, scan_request(version)).await.expect("scan");
         assert_eq!(used_today(&state).await, 1);
 
         // A second server process (fresh scanner) reads the same database.
-        let restarted = AppState {
-            virustotal: Arc::new(Scanner::with_transport(Arc::new(MockTransport::new(
-                |sha| Ok(report(sha, 0, 0)),
-            )))),
-            ..state
-        };
+        let mut restarted = state;
+        restarted.set_virustotal(Arc::new(Scanner::with_transport(Arc::new(
+            MockTransport::new(|sha| Ok(report(sha, 0, 0))),
+        ))));
         let (_, other) = add_game(&restarted, Some(SHA_B)).await;
         let entries = scan(&restarted, scan_request(other))
             .await
@@ -2520,7 +2539,7 @@ mod tests {
         assert_eq!(transport.uploads.load(Ordering::SeqCst), 0);
 
         // The archive must exist on disk for an upload.
-        let archive = state.config.games_dir.join("Celeste.zip");
+        let archive = state.core.config.games_dir.join("Celeste.zip");
         std::fs::write(&archive, b"ludex").expect("write archive");
         let entries = scan(
             &state,
@@ -2619,9 +2638,9 @@ mod tests {
     #[tokio::test]
     async fn database_key_round_trips_encrypted() {
         let (mut state, _) = fixture(|sha| Ok(report(sha, 0, 0))).await;
-        let mut config = (*state.config).clone();
+        let mut config = (*state.core.config).clone();
         config.virustotal_api_key = None;
-        state.config = Arc::new(config);
+        state.set_config(config);
         let status = save_key(&state, "vt-secret-1234").await.expect("save");
         assert!(status.configured);
         assert_eq!(status.source, KeySource::Database);
@@ -2630,7 +2649,7 @@ mod tests {
         let row: (String,) = db::query_as::<(String,)>(
             "SELECT api_key_enc FROM virustotal_integration WHERE id = 1",
         )
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .expect("row");
         assert!(!row.0.contains("vt-secret-1234"), "key must be encrypted");

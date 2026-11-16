@@ -385,7 +385,7 @@ pub async fn rate_limit(
     request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    if !state.rate_limiter.enabled()
+    if !state.auth.rate_limiter.enabled()
         || request.method() == Method::OPTIONS
         || matches!(
             request.uri().path(),
@@ -404,7 +404,7 @@ pub async fn rate_limit(
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ConnectInfo(peer)| peer.ip())
         .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
-    match state.rate_limiter.check(peer) {
+    match state.auth.rate_limiter.check(peer) {
         Ok(()) => Ok(next.run(request).await),
         Err(wait) => Err(ApiError::too_many_requests(
             "rate_limited",
