@@ -1465,18 +1465,14 @@ fn is_link_like(path: &Path) -> bool {
         // A path that cannot be inspected is never safe to scan.
         return true;
     };
-    if metadata.file_type().is_symlink() {
-        return true;
-    }
+    let symlink = metadata.file_type().is_symlink();
     #[cfg(windows)]
-    {
+    let symlink = symlink || {
         use std::os::windows::fs::MetadataExt;
         const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            return true;
-        }
-    }
-    false
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    };
+    symlink
 }
 
 fn resolve_runtime_root(root: &str, inputs: &DiscoveryInputs<'_>) -> Option<PathBuf> {
