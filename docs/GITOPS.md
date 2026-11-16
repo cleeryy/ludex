@@ -48,7 +48,7 @@ The units live in [`deploy/gitops/`](../deploy/gitops/):
 - `ludex-update.timer` — every 2 minutes after boot, with up to 45 s of
   randomized delay.
 
-### Install (on CT258, after the v0.2.0 deployment)
+### Install (on CT258, after the first tagged deployment)
 
 ```bash
 # From a checkout of the repository, on the host:
@@ -143,7 +143,7 @@ Edge is the default. To follow a stable release:
 ```bash
 sudo tee /etc/ludex/update.env >/dev/null <<'EOF'
 LUDEX_UPDATE_CHANNEL=stable
-LUDEX_UPDATE_TAG=v0.2.0
+LUDEX_UPDATE_TAG=v0.4.14
 EOF
 sudo chmod 600 /etc/ludex/update.env
 sudo systemctl start ludex-update.service   # apply immediately
@@ -152,7 +152,7 @@ sudo systemctl start ludex-update.service   # apply immediately
 Stable assets use the release tag in the file name, for example:
 
 ```text
-https://github.com/cleeryy/ludex/releases/download/v0.2.0/ludex-server-v0.2.0-x86_64-unknown-linux-gnu.tar.gz
+https://github.com/cleeryy/ludex/releases/download/v0.4.14/ludex-server-v0.4.14-x86_64-unknown-linux-gnu.tar.gz
 ```
 
 Changing `LUDEX_UPDATE_TAG` is the upgrade action. The timer keeps checking that

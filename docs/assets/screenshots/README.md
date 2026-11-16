@@ -1,0 +1,79 @@
+# Screenshots
+
+Every image the repository shows — README hero, feature tour, docs gallery, social preview —
+is captured from the **built web UI running the demo adapter** (`VITE_USE_MOCKS=true`). No
+server, no archive, no account, no network: the demo library in
+[`apps/web/src/data/demo.ts`](../../../apps/web/src/data/demo.ts) provides the catalogue and the
+generated artwork.
+
+The last run is recorded in [`manifest.json`](manifest.json): app version, commit, date,
+viewport, theme, locale and a size for every file. This page documents the contract, not a
+particular run.
+
+## Regenerate
+
+```bash
+pnpm install          # once
+pnpm e2e:install      # once: Playwright Chromium
+pnpm screenshots      # build + capture + optimize + manifest
+```
+
+`scripts/screenshots.sh` is the same thing with the dependency checks, and accepts:
+
+```bash
+scripts/screenshots.sh --skip-build    # reuse apps/web/dist
+scripts/screenshots.sh --only mobile   # one set
+```
+
+A full run takes about two minutes on a laptop. The script fails when an image exceeds its
+budget, so a heavier capture cannot land silently.
+
+## Sets
+
+| Set | Files | Size | Used by |
+|---|---|---|---|
+| `readme/` | 6 × 1600×900 PNG | ~190–230 KB each | `README.md` hero and feature tour, `docs/SCREENSHOTS.md` |
+| `docs/` | 5 × 1600×900 PNG | ~50–190 KB each | `docs/SCREENSHOTS.md`, feature docs |
+| `mobile/` | 4 × 780×1688 JPEG (q82) | ~65–110 KB each | `docs/SCREENSHOTS.md` |
+
+Total budget: **5 MB** for the whole set (currently ~1.7 MB). GitHub renders README images at
+about 880 px, so 1600 px is roughly 2× without paying for a full retina PNG.
+
+## Capture contract
+
+| Property | Value |
+|---|---|
+| Locale | `en-US` (the UI language is untouched; `?lang=` is not used so the shipped English catalog is what ships) |
+| Desktop viewport | 1920×1080 at DPR 1, resized to 1600 px wide |
+| Mobile viewport | 390×844 at DPR 2, kept at 780 px wide |
+| Theme | `prefers-color-scheme` drives the built-in Midnight (dark) and Light themes; the console appearance is seeded per server in `localStorage` |
+| Motion | `prefers-reduced-motion: reduce`, so no capture lands mid-transition |
+| Transparency / contrast | explicitly left at default, so the console keeps its designed materials |
+| Clock | `page.clock.setFixedTime("2026-11-16T10:24:00Z")`; relative dates and ETAs stay stable between runs |
+| Stability | a capture is taken only once two consecutive frames differ by less than 0.2 % of pixels |
+| Network | only the local preview server is reachable |
+
+## Deliberate substitutions
+
+- **YouTube is blocked.** The demo data points every trailer at YouTube; loading it would put
+  a third-party page in a product screenshot and fail offline. The poster is replaced by a
+  neutral Ludex plate (dark grid, signal-yellow play glyph) and the embed itself is aborted —
+  the facade, the play affordance and the "Open on YouTube" fallback are the real UI.
+- **The demo badge stays visible.** The mock adapter renders a `Demo` chip next to the server
+  name; the capture keeps it. These are demo screenshots and they say so.
+- **Trailer facades are cropped by the viewport.** A 1080-pixel-tall window shows the top of
+  the 16:9 player; the poster is designed so that band still reads as a player.
+
+## Reviewing a change
+
+Before committing regenerated images, check:
+
+1. `node scripts/check-assets.mjs` — every referenced asset exists and is inside budget.
+2. The manifest diff: version, commit and date should match your build, not a previous one.
+3. One dark and one light image side by side: contrast should survive the palette
+   quantization (`.png({ palette: true, quality: 82 })`).
+4. No personal data, no real server URL, no token. The captures use `mock.1.0` and
+   `127.0.0.1`.
+
+The pipeline lives in [`e2e/screenshots.mjs`](../../../e2e/screenshots.mjs). It is deliberately
+plain: Playwright, `sharp`, and the app's own demo adapter.

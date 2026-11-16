@@ -1,4 +1,4 @@
-# Ludex API + desktop contract (v0.1)
+# Ludex API + desktop contract (v0.4)
 
 Single source of truth for the server, web UI and Tauri shell. All JSON is
 `camelCase`. All routes are under `/api` unless stated. Auth is

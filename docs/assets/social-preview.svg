@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-labelledby="socialTitle socialDesc">
+  <title id="socialTitle">Ludex — self-hosted DRM-free game library</title>
+  <desc id="socialDesc">Dark archive-style card with the Ludex wordmark, the tagline "Your games. Your files. Your server." and three abstract game covers.</desc>
+  <defs>
+    <pattern id="socialGrid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#1c1c16" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="socialCoverA" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1d3b2e"/>
+      <stop offset="1" stop-color="#0c1511"/>
+    </linearGradient>
+    <linearGradient id="socialCoverB" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#3b2a19"/>
+      <stop offset="1" stop-color="#141009"/>
+    </linearGradient>
+    <linearGradient id="socialCoverC" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#222f38"/>
+      <stop offset="1" stop-color="#0b1013"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="#0a0a09"/>
+  <rect width="1280" height="640" fill="url(#socialGrid)" opacity="0.55"/>
+  <path d="M640 0V640" stroke="#191914" stroke-width="1"/>
+
+  <g font-family="ui-monospace, 'DejaVu Sans Mono', SFMono-Regular, Menlo, Consolas, monospace" fill="#8a8375">
+    <text x="80" y="112" font-size="14" letter-spacing="3.4">SELF-HOSTED · DRM-FREE · RUST + TAURI</text>
+  </g>
+
+  <g transform="translate(76 156) scale(1.16)" fill="#ece8de">
+    <path d="M0 0H22V78H66V100H0Z"/>
+    <path d="M80 0H102V78H136V0H158V100H80Z"/>
+    <path d="M172 0H218L246 26V74L218 100H172ZM194 22V78H212L224 66V34L212 22Z" fill-rule="evenodd"/>
+    <path d="M260 0H326V22H282V39H310V61H282V78H326V100H260Z"/>
+    <path d="M340 0H362L418 100H396Z"/>
+    <path d="M396 0H418L362 100H340Z"/>
+    <rect x="434" y="78" width="18" height="18" fill="#ffc61a"/>
+  </g>
+
+  <g font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif">
+    <text x="80" y="360" font-size="33" font-weight="600" letter-spacing="-0.6" fill="#ece8de">Your games. Your files. Your server.</text>
+  </g>
+
+  <path d="M80 406H592" stroke="#272620" stroke-width="1"/>
+
+  <g font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" fill="#a8a396" font-size="19">
+    <text x="80" y="443">Index the archives you own, stream installs</text>
+    <text x="80" y="470">to a desktop app, launch, and keep the playtime.</text>
+  </g>
+
+  <g font-family="ui-monospace, 'DejaVu Sans Mono', SFMono-Regular, Menlo, Consolas, monospace" fill="#6f6a5e" font-size="12.5" letter-spacing="1.5">
+    <text x="80" y="536">AGPL-3.0</text>
+    <text x="176" y="536">SQLITE · POSTGRESQL</text>
+    <text x="370" y="536">WIN · LINUX · MACOS</text>
+  </g>
+  <g font-family="ui-monospace, 'DejaVu Sans Mono', SFMono-Regular, Menlo, Consolas, monospace" fill="#ffc61a" font-size="12.5" letter-spacing="1.5">
+    <text x="80" y="566">GITHUB.COM/CLEERYY/LUDEX</text>
+  </g>
+
+  <g transform="translate(720 132)">
+    <g transform="rotate(-7 0 0)">
+      <rect x="0" y="20" width="196" height="262" rx="6" fill="url(#socialCoverA)" stroke="#2c4437"/>
+      <circle cx="98" cy="122" r="50" fill="none" stroke="#ffc61a" stroke-width="1.6" opacity="0.85"/>
+      <path d="M68 122H128M98 92V152" stroke="#ffc61a" stroke-width="1.6" opacity="0.5"/>
+      <rect x="24" y="228" width="96" height="7" rx="3" fill="#3a5144"/>
+      <rect x="24" y="245" width="58" height="5" rx="2" fill="#2a3d33"/>
+    </g>
+    <g transform="translate(178 4) rotate(3 0 0)">
+      <rect x="0" y="0" width="196" height="262" rx="6" fill="url(#socialCoverB)" stroke="#4a3a28"/>
+      <path d="M24 178L76 100L128 178Z" fill="none" stroke="#ffb066" stroke-width="1.6" opacity="0.85"/>
+      <path d="M98 82V150" stroke="#ffb066" stroke-width="1.6" opacity="0.5"/>
+      <rect x="24" y="208" width="112" height="7" rx="3" fill="#5a4630"/>
+      <rect x="24" y="225" width="66" height="5" rx="2" fill="#3d3022"/>
+    </g>
+    <g transform="translate(354 28) rotate(8 0 0)">
+      <rect x="0" y="0" width="196" height="262" rx="6" fill="url(#socialCoverC)" stroke="#2c3c46"/>
+      <rect x="38" y="60" width="118" height="118" rx="4" fill="none" stroke="#8fc6e0" stroke-width="1.6" opacity="0.75"/>
+      <path d="M38 99H156M38 139H156M78 60V178M118 60V178" stroke="#8fc6e0" stroke-width="1" opacity="0.28"/>
+      <rect x="24" y="208" width="88" height="7" rx="3" fill="#3a4c57"/>
+      <rect x="24" y="225" width="120" height="5" rx="2" fill="#2b3942"/>
+    </g>
+  </g>
+</svg>
