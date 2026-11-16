@@ -6,7 +6,7 @@
 //! backoff, and guarded against SSRF: loopback/private/link-local destinations
 //! are rejected unless `LUDEX_WEBHOOKS_ALLOW_PRIVATE=true` (tests).
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use chrono::Utc;
@@ -106,32 +106,10 @@ pub async fn resolve_target(
 }
 
 /// Whether an address is loopback, private, link-local or otherwise local.
-#[must_use]
-pub fn is_private_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => is_private_ipv4(ip),
-        IpAddr::V6(ip) => is_private_ipv6(ip),
-    }
-}
-
-fn is_private_ipv4(ip: Ipv4Addr) -> bool {
-    ip.is_private()
-        || ip.is_loopback()
-        || ip.is_link_local()
-        || ip.is_broadcast()
-        || ip.is_documentation()
-        || ip.is_unspecified()
-        || ip.is_multicast()
-}
-
-fn is_private_ipv6(ip: Ipv6Addr) -> bool {
-    ip.is_loopback()
-        || ip.is_unspecified()
-        || ip.is_multicast()
-        || ip.is_unique_local()
-        || ip.is_unicast_link_local()
-        || ip.to_ipv4_mapped().is_some_and(is_private_ipv4)
-}
+///
+/// Shared with the rest of the server through [`crate::url_guard`]: artwork
+/// downloads, provider base URLs and webhook targets apply one policy.
+pub use crate::url_guard::is_private_ip;
 
 /// Builds the signed payload body for one event.
 #[must_use]
@@ -487,6 +465,8 @@ pub fn payload_value(payload: &str) -> Value {
 
 #[cfg(test)]
 mod tests {
+    use std::net::IpAddr;
+
     use super::*;
 
     #[test]
