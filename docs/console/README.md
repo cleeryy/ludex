@@ -25,11 +25,13 @@ The problems are structural:
 
 **Target:** a real `/console/*` shell in the same SPA, lazy, with console-scoped providers/globals, one input owner, and the **Cabinet** visual system. One identity, two densities — not a second brand, not a return to cream/coral Soft.
 
-## Decisions (recommended; confirm before shipping)
+## Decisions (confirmed 2026-11-16)
 
-| # | Decision | Recommendation |
+The user confirmed: keep **Ludex** + one shared identity, desktop density unchanged; Console dark-first; delete Soft + pastels; two layouts (+ List); sign-in v1 password / v1.1 device code; offline-first promise; Daylight in v1.1.
+
+| # | Decision | Confirmed |
 |---|---|---|
-| 1 | Keep the name “Ludex”? | **Yes.** Keep the wordmark/dot; Console is the device room, not a sub-brand. |
+| 1 | Keep the name “Ludex”? | **Yes.** Wordmark/dot kept; Console is the device room, not a sub-brand. |
 | 2 | Console dark-first even when the desktop is light? | **Yes.** Device-owned room; Daylight later. |
 | 3 | Delete Soft + five pastel accents? | **Yes.** They are the strongest slop signal left. |
 | 4 | Six layouts? | **Two (+ List):** Stage and Wall; delete the layout picker. |

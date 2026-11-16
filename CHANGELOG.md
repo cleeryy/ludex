@@ -6,6 +6,16 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Console 2.0 shell (#267): a lazy `/console/*` shell (home, library, game,
+  settings, downloads, search, power) with its own gates and notice surface,
+  desktop globals kept in the desktop shell, a single input owner (one polling
+  loop, a focus/scope stack, one press = one action with the overlay open), a
+  `console_v2` device flag, per-job progress folding instead of full refreshes,
+  library pagination past 200 items, and the 2,748-line screen split into
+  shell/routes/input/surfaces. `/bigpicture` redirects; boot to home ~0.5 s.
+
 ### Security
 
 - CodeQL triage (#266): 51 of the 53 open alerts are fixed — server path
