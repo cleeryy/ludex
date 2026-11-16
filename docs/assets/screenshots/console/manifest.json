@@ -1,6 +1,6 @@
 {
   "generator": "e2e/console-screenshots.mjs",
-  "commit": "f4da701",
+  "commit": "f7fb1a3",
   "generatedAt": "2026-11-16T16:50:47.260Z",
   "overscan": 0.05,
   "notes": [
@@ -58,7 +58,7 @@
     },
     {
       "view": "settings",
-      "label": "Settings · Appearance",
+      "label": "Settings \u00b7 Appearance",
       "resolution": "1280x720",
       "file": "docs/assets/screenshots/console/settings-720.png",
       "overscanFile": "docs/assets/screenshots/console/settings-720-overscan.png",
@@ -133,7 +133,7 @@
     },
     {
       "view": "settings",
-      "label": "Settings · Appearance",
+      "label": "Settings \u00b7 Appearance",
       "resolution": "1920x1080",
       "file": "docs/assets/screenshots/console/settings-1080.png",
       "overscanFile": "docs/assets/screenshots/console/settings-1080-overscan.png",
@@ -208,7 +208,7 @@
     },
     {
       "view": "settings",
-      "label": "Settings · Appearance",
+      "label": "Settings \u00b7 Appearance",
       "resolution": "3840x2160",
       "file": "docs/assets/screenshots/console/settings-2160.png",
       "overscanFile": "docs/assets/screenshots/console/settings-2160-overscan.png",
