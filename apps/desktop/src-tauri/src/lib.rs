@@ -26,6 +26,7 @@ mod locations;
 mod logging;
 mod maintenance;
 mod manifest;
+mod net;
 mod oidc_login;
 mod overlay;
 mod paths;
