@@ -24,7 +24,10 @@ test.describe("navigation and Console mode", () => {
 
     await page.goto("/");
     await page.getByRole("button", { name: "Console mode" }).click();
-    await expect(page.getByText("Console", { exact: true })).toBeVisible();
+    // #268 replaced the bar wordmark with the monogram, so the shell is
+    // identified by its root rather than a text label.
+    await expect(page.locator(".bp-root")).toBeVisible();
+    await expect(page.locator('[data-console-route]')).toHaveAttribute("data-console-route", /.+/);
     await page.keyboard.press("Escape");
     await expect(page).not.toHaveURL(/bigpicture/);
 

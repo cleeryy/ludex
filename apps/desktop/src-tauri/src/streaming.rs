@@ -3702,10 +3702,12 @@ customname=Deck
         assert_eq!(&CONSOLE_ART[20..24], &900u32.to_be_bytes()[..]);
         // The materialized file name carries this hash; bump both together
         // only when the artwork itself changes.
-        assert_eq!(console_art_hash(), "c2643add4d63001b");
+        // Cabinet gave the artwork its new palette (#268); this digest is the
+        // materialized file name, so it must move with the image.
+        assert_eq!(console_art_hash(), "9a9d1320a7dca2fe");
         assert_eq!(
             console_art_path(Path::new("/data/sunshine")),
-            PathBuf::from("/data/sunshine/ludex-console-c2643add4d63001b.png")
+            PathBuf::from("/data/sunshine/ludex-console-9a9d1320a7dca2fe.png")
         );
     }
 

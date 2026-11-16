@@ -6,6 +6,16 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- Console 2.0 Cabinet design system (#268): Studio/Soft/pastels and the
+  six-layout picker are gone, replaced by four rooms (Night, Projector,
+  Daylight, Arcade) driven by eight device-local knobs with a live preview;
+  depth comes from luminance on one static wallpaper, the signal yellow is the
+  only chromatic event, all console text follows the 24/28/34/56u scale
+  (>=7:1 contrast measured across rooms), and the wordmark ships a Console cut
+  plus a monogram for the bar.
+
 ### Added
 
 - Console 2.0 shell (#267): a lazy `/console/*` shell (home, library, game,
