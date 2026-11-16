@@ -517,7 +517,15 @@ mod tests {
             location("nas", "NAS", "/mnt/nas", LocationKind::Download, true),
         ];
         settings.normalize(Path::new("/data"));
-        // Default: the configured download location is used as today.
+        // #235: the default stages on the install volume, so a NAS download
+        // location is not written, hashed and extracted over SMB.
+        let default = plan_install(&settings, None, None, None, None, false).unwrap();
+        assert_eq!(default.install_root, PathBuf::from("/games"));
+        assert_eq!(default.download_dir, PathBuf::from("/games/.ludex-tmp"));
+        assert!(default.peak_note.contains("install volume"));
+
+        // An explicit `configured` choice uses the download location again.
+        settings.download_staging = DownloadStaging::Configured;
         let configured = plan_install(&settings, None, None, None, None, false).unwrap();
         assert_eq!(configured.download_dir, PathBuf::from("/mnt/nas"));
 

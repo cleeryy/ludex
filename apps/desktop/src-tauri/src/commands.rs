@@ -81,6 +81,19 @@ pub fn save_settings(
     if let Some(object) = patch.as_object_mut() {
         object.remove("servers");
         object.remove("activeServerId");
+        // #235: the download policy replaces `installTransport`. Translate an
+        // older payload once and drop the key so a stale draft cannot override
+        // the stored choice on every save.
+        if let Some(legacy) = object.remove("installTransport") {
+            if !object.contains_key("downloadPolicy") {
+                let policy =
+                    settings::DownloadPolicy::from_legacy(legacy.as_str().unwrap_or_default());
+                object.insert(
+                    "downloadPolicy".to_string(),
+                    Value::String(policy.as_str().to_string()),
+                );
+            }
+        }
     }
     let has_locations = patch.get("locations").is_some();
     let install_legacy = patch

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, FolderOpen } from "lucide-react";
 import { installBridge } from "@/lib/install";
-import { installTransport } from "@/lib/install-transport";
+import { preflightCopy, resolveDownloadTransport } from "@/lib/install-transport";
 import { errorMessage } from "@/lib/http";
 import { formatBytes, formatEta, formatSpeed, installPhaseLabel, formatPercent } from "@/lib/format";
 import { isNative, native } from "@/lib/native";
@@ -225,16 +225,14 @@ export function InstallDialog({
       : null;
   const verifyingLine = job ? verifyingLabel(job) : null;
   const waitingLine = job && isWaitingForSpaceJob(job) ? spaceWaitLabel(job) : null;
-  // #226: state the transport the server will actually use, never the
-  // stream-install switch alone. A 7z/RAR repack always downloads the archive.
-  const transport = installTransport(
+  // #235: the download policy decides the transport, never the stream switch
+  // alone. A 7z/RAR repack always downloads the archive, and `automatic` may
+  // serve files or a stream without ever writing one.
+  const transport = resolveDownloadTransport(
     { archiveFormat: version.archiveFormat, streamSupported: version.streamSupported },
+    settings?.downloadPolicy ?? "automatic",
     settings?.streamInstall ?? true,
   );
-  // #231: an opt-in file transport is neither a stream nor an archive, so the
-  // dialog never promises an archive it may not download.
-  const fileTransport =
-    settings?.installTransport === "files" || settings?.installTransport === "auto";
 
   return (
     <Dialog
@@ -350,19 +348,7 @@ export function InstallDialog({
               className="h-10 text-[12px]"
             />
             <p className="text-[10.5px] leading-relaxed text-ink-3">
-              {fileTransport
-                ? t("Files from the server when its extracted cache is ready; otherwise the classic archive.")
-                : transport === "stream"
-                ? t("Streaming entries, no archive kept")
-                : transport === "archive"
-                  ? stagingOnInstall
-                    ? t("Download the archive, then extract. It is staged on the install drive and deleted afterwards unless you keep archives.")
-                    : sameVolume
-                      ? t("Download the archive, then extract. Peak usage is roughly twice the archive size.")
-                      : t("Download the archive, then extract. The archive is stored on another volume, then unpacked into the install location.")
-                  : stagingOnInstall
-                    ? t("Checked when the download starts. If it downloads an archive, it is staged on the install drive.")
-                    : t("Checked when the download starts")}
+              {preflightCopy(transport, { stagingOnInstall, sameVolume })}
             </p>
           </div>
         </div>

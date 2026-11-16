@@ -65,7 +65,10 @@ export interface StartInstallInput {
   downloadLocationId?: string | null;
   /** Archive/extracted size estimate for the free-space guard (#99). */
   expectedBytes?: number | null;
-  /** Overrides the stream-install setting for this job (e.g. retry as a normal download). */
+  /**
+   * Overrides the download policy for this job (e.g. "Retry as download").
+   * Omitted lets the desktop resolve `downloadPolicy` itself (#235).
+   */
   stream?: boolean;
 }
 
@@ -436,7 +439,9 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
         locationId: input.locationId ?? undefined,
         downloadLocationId: input.downloadLocationId ?? undefined,
         expectedBytes: input.expectedBytes ?? undefined,
-        stream: input.stream ?? settings?.streamInstall ?? false,
+        // #235: leave the transport to `downloadPolicy` unless the caller
+        // pinned it (retry as download / restart stream).
+        stream: input.stream,
       });
       setTitles((current) => ({ ...current, [job.jobId]: input.title }));
       setJobs((current) => [job, ...current.filter((entry) => entry.jobId !== job.jobId)]);

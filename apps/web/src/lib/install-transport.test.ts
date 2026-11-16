@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { installTransport, normalizeArchiveFormat } from "./install-transport";
+import {
+  canStream,
+  normalizeArchiveFormat,
+  preflightCopy,
+  resolveDownloadTransport,
+} from "./install-transport";
 
 describe("normalizeArchiveFormat", () => {
   it("lower-cases and strips the leading dot", () => {
@@ -14,33 +19,102 @@ describe("normalizeArchiveFormat", () => {
   });
 });
 
-describe("installTransport", () => {
-  it("streams when the server says the per-entry path is usable", () => {
-    expect(installTransport({ streamSupported: true, archiveFormat: "zip" })).toBe("stream");
+const zip = { archiveFormat: "zip" };
+const sevenZip = { archiveFormat: "7z" };
+const rar = { archiveFormat: "rar" };
+const noMetadata = { archiveFormat: null, streamSupported: undefined };
+
+describe("resolveDownloadTransport", () => {
+  it("is automatic by default and unresolved until the server answers", () => {
+    expect(resolveDownloadTransport(zip)).toBe("automatic");
+    expect(resolveDownloadTransport(sevenZip, "automatic", true)).toBe("automatic");
   });
 
-  it("streams a ZIP when the payload predates streamSupported", () => {
-    expect(installTransport({ archiveFormat: "zip" })).toBe("stream");
-    expect(installTransport({ archiveFormat: ".ZIP" })).toBe("stream");
+  it("uses the files when the extracted cache is ready, for every container", () => {
+    expect(resolveDownloadTransport(zip, "automatic", true, true)).toBe("files");
+    expect(resolveDownloadTransport(sevenZip, "automatic", true, true)).toBe("files");
+    expect(resolveDownloadTransport(rar, "automatic", false, true)).toBe("files");
   });
 
-  it("downloads 7z, RAR and portable installers", () => {
-    expect(installTransport({ archiveFormat: "7z" })).toBe("archive");
-    expect(installTransport({ archiveFormat: "rar" })).toBe("archive");
-    expect(installTransport({ archiveFormat: "exe" })).toBe("archive");
+  it("falls back to the stream for a ZIP when the manifest is unavailable", () => {
+    expect(resolveDownloadTransport(zip, "automatic", true, false)).toBe("stream");
+    expect(resolveDownloadTransport({ archiveFormat: ".ZIP" }, "automatic", true, false)).toBe(
+      "stream",
+    );
+    expect(
+      resolveDownloadTransport({ streamSupported: true, archiveFormat: "zip" }, "automatic", true, false),
+    ).toBe("stream");
   });
 
-  it("trusts an explicit false even for a ZIP", () => {
-    expect(installTransport({ streamSupported: false, archiveFormat: "zip" })).toBe("archive");
+  it("falls back to the archive for 7z, RAR and portable installers", () => {
+    expect(resolveDownloadTransport(sevenZip, "automatic", true, false)).toBe("archive");
+    expect(resolveDownloadTransport(rar, "automatic", true, false)).toBe("archive");
+    expect(
+      resolveDownloadTransport({ archiveFormat: "exe" }, "automatic", true, false),
+    ).toBe("archive");
+  });
+
+  it("trusts an explicit streamSupported false even for a ZIP", () => {
+    expect(
+      resolveDownloadTransport({ streamSupported: false, archiveFormat: "zip" }, "automatic", true, false),
+    ).toBe("archive");
+    expect(canStream({ streamSupported: false, archiveFormat: "zip" })).toBe(false);
+  });
+
+  it("never streams when the stream installs switch is off", () => {
+    expect(resolveDownloadTransport(zip, "automatic", false, false)).toBe("archive");
+    expect(resolveDownloadTransport(zip, "stream", false, false)).toBe("archive");
+    expect(resolveDownloadTransport(zip, "automatic", false, true)).toBe("files");
+    expect(resolveDownloadTransport(noMetadata, "automatic", false, false)).toBe("unknown");
+  });
+
+  it("always archives under the classic policy", () => {
+    expect(resolveDownloadTransport(zip, "classic", true, true)).toBe("archive");
+    expect(resolveDownloadTransport(sevenZip, "classic", true, false)).toBe("archive");
+  });
+
+  it("streams under the stream policy only when the server can", () => {
+    expect(resolveDownloadTransport(zip, "stream", true, true)).toBe("stream");
+    expect(resolveDownloadTransport(sevenZip, "stream", true, true)).toBe("archive");
+    expect(resolveDownloadTransport(rar, "stream", true, false)).toBe("archive");
   });
 
   it("is unknown without any format metadata", () => {
-    expect(installTransport({})).toBe("unknown");
-    expect(installTransport({ archiveFormat: null, streamSupported: undefined })).toBe("unknown");
+    expect(resolveDownloadTransport(noMetadata, "automatic", true, false)).toBe("unknown");
+    expect(resolveDownloadTransport(noMetadata, "stream", true, false)).toBe("unknown");
+  });
+});
+
+const sameVolume = { stagingOnInstall: false, sameVolume: true };
+const staged = { stagingOnInstall: true, sameVolume: false };
+const crossVolume = { stagingOnInstall: false, sameVolume: false };
+
+describe("preflightCopy", () => {
+  it("never promises an archive when files will be used", () => {
+    const copy = preflightCopy("files", crossVolume);
+    expect(copy).toContain("files from the server");
+    expect(copy).toContain("No archive lands on this device");
   });
 
-  it("never promises a stream when stream installs are off", () => {
-    expect(installTransport({ streamSupported: true, archiveFormat: "zip" }, false)).toBe("archive");
-    expect(installTransport({}, false)).toBe("archive");
+  it("names the resolution order for an unresolved automatic install", () => {
+    const copy = preflightCopy("automatic", sameVolume);
+    expect(copy).toContain("extracted cache");
+    expect(copy).toContain("streamed ZIP");
+    expect(copy).toContain("otherwise the archive");
+  });
+
+  it("matches a streamed install", () => {
+    expect(preflightCopy("stream", sameVolume)).toBe("Streaming entries, no archive kept");
+  });
+
+  it("matches the classic archive on the install drive, one volume or two", () => {
+    expect(preflightCopy("archive", staged)).toContain("staged on the install drive");
+    expect(preflightCopy("archive", sameVolume)).toContain("twice the archive size");
+    expect(preflightCopy("archive", crossVolume)).toContain("stored on another volume");
+  });
+
+  it("stays honest when the payload has no format metadata", () => {
+    expect(preflightCopy("unknown", staged)).toContain("staged on the install drive");
+    expect(preflightCopy("unknown", sameVolume)).toBe("Checked when the download starts");
   });
 });

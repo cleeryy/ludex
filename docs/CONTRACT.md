@@ -1968,8 +1968,9 @@ interface LocalSettings {
   locations: InstallLocation[]; // named install/download/temp folders (#99)
   serverPort: number;           // preferred embedded port, 0 = random
   streamInstall: boolean;       // remote ZIP installs stream per-entry instead of storing the archive
-  installTransport?: "auto" | "classic" | "files"; // #231: how a version is transported; `classic` (default, missing = classic) downloads + verifies + extracts the archive, `auto` uses the server's extracted files when the manifest is already ready, `files` also asks the local server to extract first. Any manifest failure falls back to the classic archive once
-  downloadStaging: "configured" | "installVolume"; // #226: where the archive is staged; default "configured" (download folder), installVolume stages it next to the install so a NAS download folder is not read back over SMB
+  downloadPolicy: "automatic" | "stream" | "classic"; // #235: how a version is transported. `automatic` (default) resolves per version: server file manifest when available (#231), else a per-entry ZIP stream, else the classic archive. `stream` and `classic` pin one path for troubleshooting. A probe that finds no ready cache falls back silently; only a started transfer that fails states its reason on the job. The removed `installTransport` (`classic | auto | files`) is migrated (`classic` → `classic`, `auto`/`files` → `automatic`) and never written back
+  downloadStaging: "configured" | "installVolume"; // #226/#235: where the archive is staged. Default "installVolume": next to the install, so a NAS download folder is not read back over SMB. "configured" keeps the download folder and survives migration only when the user picked it explicitly
+  downloadStagingConfirmed?: boolean; // #235: true once the user picked a staging policy explicitly; a settings file without it had the historical "configured" default and migrates to "installVolume"
   keepArchives: boolean;        // keep the downloaded archive after install
   archivePasswords: string[];   // tried in order
   bandwidthLimitKib: number;    // global cap stored in KiB/s; the UI presents Mb/s (#199), 0 = unlimited
@@ -3130,18 +3131,33 @@ uses `GET /api/games/{id}/versions/{vid}/local-path` when the embedded server is
 in local mode; remote installs download with Range resume and delete the temp
 archive by default (`keepArchives` setting false).
 
-### File-manifest transport (#231)
+### File-manifest transport (#231) and the download policy (#235)
 
-Opt-in, measurement-gated prototype. `installTransport` selects it; the default
-`classic` path is unchanged and is the only fallback.
+The launcher-style path is the default. `downloadPolicy` selects the transport;
+`automatic` resolves it per version, in this order:
 
-- `auto` probes `GET /api/versions/{vid}/manifest?token=` once. A ready manifest
-  is used; anything else continues with the normal stream/archive transport and
-  never asks the server to extract anything.
-- `files` additionally sends `POST /api/admin/versions/{vid}/extract` **when the
-  server is the embedded local server** (the only place the desktop is known to
-  hold the admin role), then polls the manifest for up to 120 s (2 s interval).
-  A remote install probes only.
+1. **Files** — `GET /api/versions/{vid}/manifest?token=` returns a ready
+   extracted cache. No archive is downloaded and nothing is extracted on this
+   device.
+2. **Stream** — a ZIP the server can serve per entry (`streamSupported`) while
+   `streamInstall` is on.
+3. **Classic** — the archive is downloaded, verified, extracted. This is the
+   honest preflight copy the install dialog shows for 7z/RAR and for an older
+   server.
+
+`stream` and `classic` pin one path for troubleshooting. `classic` never probes
+the manifest and never streams.
+
+- `automatic` probes the manifest once per attempt. When the server is the
+  embedded local server (the only place the desktop is known to hold the admin
+  role), a cache miss also sends `POST /api/admin/versions/{vid}/extract` and
+  polls for up to 120 s (2 s interval). A remote server is probed only.
+- A `409 extracted_cache_unavailable` (or a disabled cache, which the extract
+  route acknowledges as `status: "unavailable"`) is a **silent** fallback: the
+  job continues with the stream/archive path and `tracing` records the reason.
+  The user sees a message only when a transfer that already started fails
+  (`manifestFallback: true`, "installing from the classic archive instead"),
+  and that attempt finishes on the classic archive, once.
 - Before the first byte the job re-charges the #222 ledger with the manifest's
   `totalBytes` on the install volume (no archive bytes: nothing is written
   here) and runs a free-space preflight with the same 5 % + 2 GiB margin.
@@ -3447,13 +3463,16 @@ working. Extraction always stages inside the install root, so a cross-volume
 download is read from the download folder and unpacked directly into the
 install volume; the archive is deleted afterwards unless `keepArchives`.
 
-`downloadStaging` (#226) chooses where the archive is written: `configured`
-(default) uses the download folder; `installVolume` stages the `.part` next to
-the install and deletes it after extraction unless `keepArchives`. With a NAS
-or SMB download folder, `configured` writes the archive over the network and
-then reads it back twice (full SHA-256, then extraction); `installVolume` keeps
-both local. Changing the setting never moves an existing resumable `.part`; it
-only applies to a new job.
+`downloadStaging` (#226/#235) chooses where the archive is written:
+`installVolume` (the default) stages the `.part` next to the install and
+deletes it after extraction unless `keepArchives`; `configured` uses the
+download folder. With a NAS or SMB download folder, `configured` writes the
+archive over the network and then reads it back twice (full SHA-256, then
+extraction); `installVolume` keeps both local. A settings file written before
+`downloadStagingConfirmed` existed had the historical `configured` default and
+migrates to `installVolume`; picking either radio in Settings sets the flag, so
+an explicit `configured` survives. Changing the setting never moves an existing
+resumable `.part`; it only applies to a new job.
 
 ### Suggested install roots (#145)
 

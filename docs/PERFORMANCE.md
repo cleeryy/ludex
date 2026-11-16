@@ -437,8 +437,8 @@ feature to `crates/ludex-core/Cargo.toml` and re-run the table above.
 - **Local SSD, not SMB/NAS.** Extraction reads the whole archive once. When
   `downloadDir` is a network share and the install is local, the archive is
   read over SMB for the digest *and* again for extraction; `downloadStaging =
-  installVolume` (#226) writes the `.part` next to the install and deletes it
-  after extraction, so both passes are local. This is a setting, not new code.
+  installVolume` (#226, the default since #235) writes the `.part` next to the
+  install and deletes it after extraction, so both passes are local.
 - **Windows Defender.** Real-time scanning runs on every extracted file; on a
   100k-file tree that can dominate the wall time. Excluding the install and
   download folders removes it. Trade-off: files written there are not scanned,
