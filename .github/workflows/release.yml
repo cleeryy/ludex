@@ -529,8 +529,12 @@ jobs:
           key_file="$RUNNER_TEMP/ludex-updater.key"
           if [ -f "$key" ]; then key_file="$key"; else printf '%s' "$key" > "$key_file"; fi
           chmod 600 "$key_file"
-          pnpm dlx "@tauri-apps/cli@^2" signer sign \
-            --private-key-path "$key_file" --password "$password" SHA256SUMS
+          # The Tauri CLI maps TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) to
+          # --private-key/--password automatically, which conflicts with the
+          # explicit flags; clear them for this one command.
+          env -u TAURI_SIGNING_PRIVATE_KEY -u TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
+            pnpm dlx "@tauri-apps/cli@^2" signer sign \
+              --private-key-path "$key_file" --password "$password" SHA256SUMS
           test -s SHA256SUMS.sig || { echo "::error::SHA256SUMS.sig was not produced"; exit 1; }
           ls -l SHA256SUMS SHA256SUMS.sig
 
