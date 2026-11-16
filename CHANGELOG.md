@@ -6,6 +6,28 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Flagship repository presentation (#262): the README is rewritten with badges,
+  a feature tour, Docker/desktop quick start, a Mermaid architecture diagram,
+  the install-flow explanation, a docs index and an honest roadmap, plus
+  `docs/REPO.md`, `docs/SCREENSHOTS.md` and asset rules.
+- Screenshots and assets are automated (#265): 16 fresh captures and a social
+  preview under `docs/assets/`, a manual screenshots workflow, and a docs asset
+  checker wired into CI.
+
+### Changed
+
+- CI and repository hardening (#263): coverage jobs (Rust workspace, desktop
+  crate, web) with Codecov flags, Trivy filesystem/image scans with a reviewed
+  allowlist, CodeQL for Rust and TypeScript, cargo-deny + pnpm audit +
+  dependency review, CycloneDX SBOMs on release, and an idempotent
+  branch-protection script documented in `docs/CI.md`.
+- Release automation (#264): curated notes generated from the changelog with
+  contributor credits, `SHA256SUMS` + minisign signature, a draft-then-publish
+  flow, and stable/edge channel guards (edge always a prerelease, `latest.json`
+  can never point at edge).
+
 ### Fixed
 
 - The file transport works in local mode (#241): the embedded server enables
