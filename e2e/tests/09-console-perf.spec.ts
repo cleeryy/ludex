@@ -58,6 +58,12 @@ const VIEWPORT = {
 };
 const IDLE_MS = 30_000;
 const SCROLL_MS = 3_000;
+/**
+ * The A/B the performance page quotes: the same run with the wallpaper layer
+ * hidden by a style override, so "the wall costs this much" is a measurement
+ * rather than an inference. It is a diagnostic, not a budget check.
+ */
+const HIDE_WALL = process.env.LUDEX_E2E_PERF_HIDE_WALL === "1";
 
 const gamesDir = process.env.LUDEX_E2E_GAMES_DIR;
 const enabled = process.env.LUDEX_E2E_PERF === "1";
@@ -399,6 +405,9 @@ test.describe("console performance", () => {
     // Let the entrance settle first: artwork decode, fonts and the service
     // worker are boot work, not frame budget.
     await page.waitForTimeout(1_500);
+    if (HIDE_WALL) {
+      await page.addStyleTag({ content: ".bp-backdrop-art { display: none !important; }" });
+    }
     await expect(page.locator("[data-bp-card='true']").nth(5)).toBeAttached();
     const before = await page.locator("[data-bp-card='true'][aria-current='true']").getAttribute("aria-label");
     await page.evaluate(() => (window as unknown as PerfWindow).__ludexPerf.start());
@@ -440,6 +449,7 @@ test.describe("console performance", () => {
       browser: await page.evaluate(() => navigator.userAgent),
       renderer,
       seededGames: SEED_COUNT,
+      wallpaper: HIDE_WALL ? "hidden" : "visible",
       boot: { coldMs: cold, warmMs: warm, coldTiming, warmTiming },
       scroll: { ...summary(deltas), durationMs: scrollMs, from: before, to: after },
       longTasks: {

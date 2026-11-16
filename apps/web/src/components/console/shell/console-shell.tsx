@@ -2017,6 +2017,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
       <div className="grain" aria-hidden="true" />
       <ConsoleBackdrop
         wall={room.wall}
+        room={room.room}
         title={selected?.title ?? ""}
         artUrl={backdropArt}
       />
