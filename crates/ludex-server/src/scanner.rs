@@ -591,9 +591,13 @@ async fn apply_gamelist_metadata(state: &AppState, game_id: i64, candidate: &Can
         return;
     };
     let cover = if image.starts_with("http://") || image.starts_with("https://") {
-        crate::media::download_media(&state.http, &state.config.media_dir, image)
-            .await
-            .ok()
+        crate::media::download_media(
+            &state.config.media_dir,
+            image,
+            state.config.providers_allow_private,
+        )
+        .await
+        .ok()
     } else {
         copy_gamelist_image(state, candidate, image).await
     };

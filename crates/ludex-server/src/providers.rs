@@ -509,31 +509,11 @@ pub async fn resolve_target(
 /// Resolves the host of an already-built request URL and applies the SSRF
 /// policy. Query strings are allowed here; only the base URL rejects them.
 async fn resolve_request_target(url: &Url, allow_private: bool) -> Result<Vec<SocketAddr>, String> {
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err("provider URLs must use http or https".to_string());
-    }
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err("provider URLs must not contain credentials".to_string());
-    }
-    let host = url
-        .host_str()
-        .ok_or_else(|| "provider URL must include a host".to_string())?;
-    let port = url.port_or_known_default().unwrap_or(80);
-    let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, port))
+    crate::url_guard::validate_url(url.as_str()).map_err(|error| error.to_string())?;
+    crate::url_guard::UrlGuard::new(allow_private)
+        .resolve(url)
         .await
-        .map_err(|error| format!("could not resolve {host}: {error}"))?
-        .collect();
-    if addrs.is_empty() {
-        return Err(format!("could not resolve {host}"));
-    }
-    if !allow_private
-        && addrs
-            .iter()
-            .any(|addr| crate::webhooks::is_private_ip(addr.ip()))
-    {
-        return Err("provider targets must be public addresses".to_string());
-    }
-    Ok(addrs)
+        .map_err(|error| error.to_string())
 }
 
 /// Synchronous validation used at save time (no network).

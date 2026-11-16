@@ -293,29 +293,12 @@ pub fn parse_http_url(raw: &str) -> Result<Url, String> {
 
 /// Loopback, private, link-local, unspecified and multicast addresses are
 /// refused unless `LUDEX_INGEST_ALLOW_PRIVATE` opted in.
+///
+/// Delegates to the shared [`crate::url_guard`] policy so ingest, artwork,
+/// providers and webhooks cannot drift apart.
+#[must_use]
 pub fn is_private_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(address) => {
-            address.is_loopback()
-                || address.is_private()
-                || address.is_link_local()
-                || address.is_unspecified()
-                || address.is_multicast()
-                || address.is_broadcast()
-                // 100.64.0.0/10 carrier-grade NAT.
-                || (address.octets()[0] == 100 && (64..=127).contains(&address.octets()[1]))
-        }
-        IpAddr::V6(address) => {
-            if let Some(mapped) = address.to_ipv4_mapped() {
-                return is_private_ip(IpAddr::V4(mapped));
-            }
-            address.is_loopback()
-                || address.is_unspecified()
-                || address.is_unique_local()
-                || address.is_unicast_link_local()
-                || address.is_multicast()
-        }
-    }
+    crate::url_guard::is_private_ip(ip)
 }
 
 /// Archive extensions counted by the library stats and listed by the scanner.

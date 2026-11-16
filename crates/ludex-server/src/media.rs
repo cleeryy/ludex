@@ -1,6 +1,7 @@
 //! Media cache: artwork downloads, URL helpers and safe file names.
 
 use std::path::{Component, Path};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::body::Body;
@@ -9,8 +10,14 @@ use axum::response::{IntoResponse, Response};
 use sha2::{Digest, Sha256};
 use tokio_util::io::ReaderStream;
 
+use crate::url_guard::UrlGuard;
+
 /// Maximum size of a cached artwork file (25 MiB).
 const MAX_IMAGE_BYTES: usize = 25 * 1024 * 1024;
+/// Redirects followed when downloading artwork.
+const MAX_REDIRECTS: usize = 3;
+/// Timeout for one artwork download.
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30);
 /// Extensions considered valid artwork files.
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "avif"];
 
@@ -34,11 +41,13 @@ pub fn safe_media_name(name: &str) -> bool {
 ///
 /// Files are content-addressed by the source URL, so repeated enrichment passes
 /// never download the same artwork twice.
-pub async fn download_media(http: &reqwest::Client, media_dir: &Path, url: &str) -> Result<String> {
-    let parsed = url::Url::parse(url).with_context(|| format!("invalid image URL: {url}"))?;
-    if !matches!(parsed.scheme(), "http" | "https") {
-        anyhow::bail!("unsupported image scheme: {}", parsed.scheme());
-    }
+///
+/// The URL is provider- or library-supplied, so the fetch goes through
+/// [`UrlGuard`]: http(s) only, public addresses only, redirects followed
+/// manually with a policy check on every hop, DNS pinned to the validated
+/// address, and a body cap. A rejected URL is an error; callers skip the image.
+pub async fn download_media(media_dir: &Path, url: &str, allow_private: bool) -> Result<String> {
+    let parsed = crate::url_guard::validate_url(url).context("invalid artwork URL")?;
 
     let extension = parsed
         .path()
@@ -53,21 +62,14 @@ pub async fn download_media(http: &reqwest::Client, media_dir: &Path, url: &str)
         return Ok(name);
     }
 
-    let response = http.get(parsed).send().await.context("download artwork")?;
-    if !response.status().is_success() {
-        anyhow::bail!("artwork endpoint returned {}", response.status());
+    let guard =
+        UrlGuard::new(allow_private).with_limits(MAX_REDIRECTS, MAX_IMAGE_BYTES, DOWNLOAD_TIMEOUT);
+    let fetched = guard.get(url).await.context("download artwork")?;
+    if !(200..300).contains(&fetched.status) {
+        anyhow::bail!("artwork endpoint returned {}", fetched.status);
     }
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_IMAGE_BYTES as u64)
-    {
-        anyhow::bail!("artwork exceeds {MAX_IMAGE_BYTES} bytes");
-    }
-    let bytes = response.bytes().await.context("read artwork body")?;
-    if bytes.len() > MAX_IMAGE_BYTES {
-        anyhow::bail!("artwork exceeds {MAX_IMAGE_BYTES} bytes");
-    }
-    if bytes.is_empty() {
+    reject_non_image(fetched.content_type.as_deref())?;
+    if fetched.body.is_empty() {
         anyhow::bail!("empty artwork response");
     }
 
@@ -75,7 +77,7 @@ pub async fn download_media(http: &reqwest::Client, media_dir: &Path, url: &str)
         .await
         .context("create media directory")?;
     let temporary = media_dir.join(format!(".tmp-{}", uuid::Uuid::new_v4()));
-    tokio::fs::write(&temporary, &bytes)
+    tokio::fs::write(&temporary, &fetched.body)
         .await
         .context("write artwork")?;
     match tokio::fs::rename(&temporary, &destination).await {
@@ -88,6 +90,27 @@ pub async fn download_media(http: &reqwest::Client, media_dir: &Path, url: &str)
         }
     }
     Ok(name)
+}
+
+/// Rejects responses that are clearly not images. A missing header or a
+/// generic binary type is accepted because several artwork CDNs omit it.
+fn reject_non_image(content_type: Option<&str>) -> Result<()> {
+    let Some(content_type) = content_type else {
+        return Ok(());
+    };
+    let mime = content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let image = mime.starts_with("image/")
+        || mime == "application/octet-stream"
+        || mime == "binary/octet-stream";
+    if mime.is_empty() || image {
+        return Ok(());
+    }
+    anyhow::bail!("artwork response is not an image: {mime}")
 }
 
 /// Builds a `Content-Disposition` attachment header with an ASCII fallback and
@@ -194,5 +217,85 @@ mod tests {
         assert!(header.contains("filename*=UTF-8''Jeu%20%282020%29.zip"));
         let header = content_disposition("\"evil\"\n.zip");
         assert!(header.contains("filename=\"_evil__.zip\""));
+    }
+
+    #[tokio::test]
+    async fn private_artwork_urls_are_refused_without_network() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        for url in [
+            "http://169.254.169.254/latest/meta-data/",
+            "http://127.0.0.1:8006/cover.jpg",
+            "http://[::1]/cover.jpg",
+            "file:///etc/passwd",
+        ] {
+            let error = download_media(temp.path(), url, false)
+                .await
+                .expect_err("artwork must be refused");
+            let message = format!("{error:#}");
+            assert!(
+                message.contains("invalid artwork URL") || message.contains("private address"),
+                "{url}: {message}"
+            );
+        }
+        let stored = std::fs::read_dir(temp.path()).expect("read media dir");
+        assert_eq!(stored.count(), 0, "nothing may be cached");
+    }
+
+    #[tokio::test]
+    async fn loopback_artwork_is_cached_when_private_is_allowed() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let address = listener.local_addr().expect("address");
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut buffer = [0_u8; 1024];
+            let _ = socket.read(&mut buffer).await;
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\ncontent-type: image/png\r\ncontent-length: 4\r\nconnection: close\r\n\r\nPNG!",
+                )
+                .await
+                .expect("write");
+            let _ = socket.shutdown().await;
+        });
+        let temp = tempfile::tempdir().expect("tempdir");
+        let url = format!("http://{address}/cover.png");
+        let name = download_media(temp.path(), &url, true)
+            .await
+            .expect("download from loopback");
+        assert!(name.ends_with(".png"), "{name}");
+        let bytes = std::fs::read(temp.path().join(&name)).expect("read cached artwork");
+        assert_eq!(bytes, b"PNG!");
+        server.await.expect("server task");
+    }
+
+    #[tokio::test]
+    async fn non_image_responses_are_refused() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let address = listener.local_addr().expect("address");
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut buffer = [0_u8; 1024];
+            let _ = socket.read(&mut buffer).await;
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: 13\r\nconnection: close\r\n\r\n<html></html>",
+                )
+                .await
+                .expect("write");
+            let _ = socket.shutdown().await;
+        });
+        let temp = tempfile::tempdir().expect("tempdir");
+        let url = format!("http://{address}/cover.jpg");
+        let error = download_media(temp.path(), &url, true)
+            .await
+            .expect_err("html is not artwork");
+        assert!(format!("{error:#}").contains("not an image"), "{error:#}");
+        server.await.expect("server task");
     }
 }

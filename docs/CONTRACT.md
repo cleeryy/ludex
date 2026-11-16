@@ -646,6 +646,18 @@ request sets `replaceManual: true`; the candidates response lists them as
 provider failure `502 provider_request_failed`. Replaced artwork files become
 unreferenced and are collected by the media GC after its grace period.
 
+Artwork URLs (`coverUrl`, `backgroundUrl`, `screenshots`, and `gamelist.xml`
+images) are fetched through the shared outbound URL policy (#237): `http` or
+`https` only, no embedded credentials, public addresses only (private,
+loopback, link-local, CGNAT, multicast, unspecified and the
+`169.254.169.254` metadata address are refused, IPv4-mapped IPv6 included).
+Redirects are followed manually with a policy check on every hop (at most 3),
+the connection is pinned to the validated address, and the download is capped
+at 25 MiB / 30 s with non-image responses rejected. A refused or failed URL is
+logged and skipped: the artwork field stays empty and `metadata/apply` and
+`refresh-metadata` still succeed. `LUDEX_PROVIDER_ALLOW_PRIVATE=true` opts
+private targets back in (tests and LAN artwork servers).
+
 ### Version fingerprints
 
 `archiveHash` is a **sampled** fingerprint, not a full content hash: SHA-256 over
