@@ -625,6 +625,7 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
         note = %plan.peak_note,
         download_dir = %plan.download_dir.display(),
         download_staging = settings.download_staging.as_str(),
+        download_policy = settings.download_policy.as_str(),
         archive_bytes = ?space_plan.archive_bytes,
         extracted_bytes = ?space_plan.extracted_bytes,
         estimated_extraction = space_plan.extraction_estimated,
@@ -962,9 +963,11 @@ fn plan_for_job(state: &AppState, entry: &JobEntry) -> SpacePlan {
         .unwrap_or_else(|| settings.effective_download_dir(&install_root));
     // A file-manifest attempt writes the extracted tree only: no archive lands
     // on this volume, so charging one would park a job that would have fit
-    // (#231). The manifest replaces this estimate with its exact size before
-    // the first byte, and a fallback re-charges the classic peak.
-    let wants_files = job.file_manifest || settings.install_transport.wants_files();
+    // (#231). Only a job that already proved a manifest is planned that way;
+    // an `automatic` job (#235) is planned from the transport it will fall back
+    // to, and `manifest_install` replaces the estimate with the exact extracted
+    // peak before the first byte.
+    let wants_files = job.file_manifest;
     SpacePlan::build(
         job.bytes_total.or(entry.params.expected_bytes),
         None,
@@ -2895,15 +2898,17 @@ async fn execute(
     let mut archive: Option<PathBuf> = None;
     let mut downloaded: Option<PathBuf> = None;
 
-    // #231: the file-manifest transport comes first, before the local archive
-    // shortcut, because its whole point is to never read or write an archive.
-    // It is opt-in (`installTransport`), never the default, and every failure
-    // falls back to the classic path below with a visible message.
+    // #231/#235: the file-manifest transport comes first, before the local
+    // archive shortcut, because its whole point is to never read or write an
+    // archive. `automatic` is the default; a probe that finds no ready cache
+    // falls through to the stream/classic pipeline without a message, while a
+    // manifest that dies mid-install states why and finishes on the classic
+    // archive.
     let mut files_installed = false;
     // A manifest fallback is documented as "classic archive, once": the stream
     // branch is skipped for this attempt even when `streamInstall` is on.
     let mut manifest_fallback = false;
-    if settings.install_transport.wants_files() {
+    if settings.download_policy.wants_files() {
         let download_root = params
             .download_dir
             .as_deref()
@@ -4010,14 +4015,16 @@ struct ManifestInstallReport {
     archive_sha256: String,
 }
 
-/// Outcome of one file-manifest attempt (#231).
+/// Outcome of one file-manifest attempt (#231/#235).
 enum ManifestAttempt {
     Installed(ManifestInstallReport),
-    /// No usable cache and nothing was written: the job continues on its
-    /// normal pipeline (stream or archive), and the row already explains it.
+    /// The probe found no ready cache (409 `extracted_cache_unavailable`, a
+    /// disabled cache, or an older server): nothing was written, the job
+    /// continues on its normal pipeline silently, and the reason is logged.
     NotAvailable,
-    /// A `files` attempt is unusable and nothing was written: this attempt must
-    /// finish on the classic archive.
+    /// A manifest that was already downloading cannot continue and nothing
+    /// useful was written: this attempt must finish on the classic archive,
+    /// with a visible reason on the job.
     Classic,
 }
 
@@ -4025,8 +4032,8 @@ enum ManifestAttempt {
 ///
 /// [`ManifestAttempt::Installed`] means the files are staged and verified;
 /// `NotAvailable`/`Classic` mean the caller continues with another transport
-/// (the job already explains why); `Err` is a real failure (cancel, pause,
-/// checksum).
+/// (`NotAvailable` silently, `Classic` with the reason on the job); `Err` is a
+/// real failure (cancel, pause, checksum).
 async fn manifest_install(
     app: &AppHandle,
     entry: &Arc<JobEntry>,
@@ -4040,7 +4047,6 @@ async fn manifest_install(
     if base.is_empty() {
         return Ok(ManifestAttempt::NotAvailable);
     }
-    let explicit = settings.install_transport.warms_cache();
     let job_id = entry.snapshot().job_id;
     let token = non_empty(params.token.as_deref());
     let install_root = params
@@ -4051,6 +4057,11 @@ async fn manifest_install(
         .map(PathBuf::from)
         .unwrap_or_else(|| settings.install_path());
 
+    // Only the embedded server guarantees the admin role the extraction
+    // endpoint needs. A remote server is still probed; when its cache is not
+    // already ready the job simply continues on the next transport.
+    let admin = settings.download_policy.warms_cache() && is_local_server(&state, base);
+
     set_progress(
         app,
         entry,
@@ -4058,7 +4069,7 @@ async fn manifest_install(
         0,
         None,
         0,
-        Some(if settings.install_transport.warms_cache() {
+        Some(if admin {
             "Preparing the server's extracted files".to_string()
         } else {
             "Looking for the server's file manifest".to_string()
@@ -4070,10 +4081,7 @@ async fn manifest_install(
         base,
         version_id: params.version_id,
         token,
-        // Only the embedded server guarantees the admin role the extraction
-        // endpoint needs; a remote `files` choice still probes the manifest and
-        // falls back when it is not ready.
-        admin: settings.install_transport.warms_cache() && is_local_server(&state, base),
+        admin,
     };
     let tuning = file_manifest::Tuning {
         parallel: parallel_budget(&state, base, token).await,
@@ -4085,18 +4093,16 @@ async fn manifest_install(
     let manifest = match file_manifest::prepare(&transport, &tuning).await {
         Ok(manifest) => manifest,
         Err(error) => {
+            // #235: automatic falls back silently here. It is a probe, not a
+            // transfer: the stream/archive path continues without telling the
+            // user about a cache they never asked for.
             tracing::info!(
                 game_id = params.game_id,
                 version_id = params.version_id,
                 reason = %error.message(),
-                "file manifest unavailable; falling back to the classic archive"
+                "download policy automatic: no file manifest; using the next transport"
             );
-            note_manifest_unavailable(app, entry, &error.message(), explicit);
-            return Ok(if explicit {
-                ManifestAttempt::Classic
-            } else {
-                ManifestAttempt::NotAvailable
-            });
+            return Ok(ManifestAttempt::NotAvailable);
         }
     };
     let plan = match file_manifest::plan(&manifest) {
@@ -4106,14 +4112,9 @@ async fn manifest_install(
                 game_id = params.game_id,
                 version_id = params.version_id,
                 reason = %error.message(),
-                "file manifest rejected; falling back to the classic archive"
+                "download policy automatic: the file manifest was rejected; using the next transport"
             );
-            note_manifest_unavailable(app, entry, &error.message(), explicit);
-            return Ok(if explicit {
-                ManifestAttempt::Classic
-            } else {
-                ManifestAttempt::NotAvailable
-            });
+            return Ok(ManifestAttempt::NotAvailable);
         }
     };
 
@@ -4151,7 +4152,10 @@ async fn manifest_install(
         job.current_entry = None;
         job.resumed_entries = None;
         job.phase = InstallPhase::Downloading;
-        job.message = Some(format!("Downloading files 0/{}", plan.files.len()));
+        job.message = Some(format!(
+            "Downloading files 0/{} (no archive)",
+            plan.files.len()
+        ));
     });
     persist(app, entry);
 
@@ -4254,7 +4258,7 @@ async fn manifest_install(
                 job.resumed_entries = None;
                 job.resumable = false;
             });
-            note_manifest_unavailable(app, entry, &reason, true);
+            note_manifest_fallback(app, entry, &reason);
             Ok(ManifestAttempt::Classic)
         }
         Err(file_manifest::ManifestFailure::Failed(message)) => {
@@ -4274,22 +4278,18 @@ async fn manifest_install(
     }
 }
 
-/// Rewrite the job so the row says a file-manifest attempt fell back.
+/// Rewrite the job so the row says a started file-manifest install fell back.
 ///
-/// `explicit` is true for the `files` transport, which is documented as a
-/// one-shot fallback to the classic archive; an `auto` probe that finds no
-/// ready cache only gets a message, because the normal pipeline still runs.
-fn note_manifest_unavailable(app: &AppHandle, entry: &Arc<JobEntry>, reason: &str, explicit: bool) {
-    let message = if explicit {
-        format!("The server could not serve the file manifest ({reason}); installing from the classic archive instead.")
-    } else {
-        format!(
-            "The server has no ready file manifest ({reason}); using the normal download instead."
-        )
-    };
+/// #235: only a failure **after** the download started is visible; a probe
+/// that finds no ready cache falls through silently (`tracing` keeps the
+/// reason). The job then finishes on the classic archive, once.
+fn note_manifest_fallback(app: &AppHandle, entry: &Arc<JobEntry>, reason: &str) {
+    let message = format!(
+        "The server could not serve the file manifest ({reason}); installing from the classic archive instead."
+    );
     entry.update(|job| {
         job.file_manifest = false;
-        job.manifest_fallback = explicit;
+        job.manifest_fallback = true;
         job.current_entry = None;
         job.speed_bps = 0;
         job.message = Some(message);
@@ -4439,6 +4439,26 @@ impl file_manifest::ManifestTransport for HttpManifestTransport<'_> {
                 Some(status.as_u16()),
                 server_error_message(status.as_u16(), &body),
             ));
+        }
+        // #235: a disabled cache answers 200 with `status: "unavailable"`.
+        // Waiting for a manifest that can never appear would stall the default
+        // automatic install for the whole cache timeout, so this is a failure
+        // the caller falls back on immediately.
+        #[derive(Deserialize)]
+        struct Ack {
+            #[serde(default)]
+            status: String,
+            #[serde(default)]
+            error: Option<String>,
+        }
+        if let Ok(ack) = serde_json::from_str::<Ack>(&body) {
+            if ack.status.eq_ignore_ascii_case("unavailable") {
+                return Err(file_manifest::TransportError::new(
+                    Some(409),
+                    ack.error
+                        .unwrap_or_else(|| "the extracted cache is disabled".to_string()),
+                ));
+            }
         }
         Ok(body)
     }
@@ -6164,7 +6184,13 @@ fn stream_fallback_message(format: Option<&str>) -> String {
 /// The per-call `stream` flag wins over `settings.streamInstall`. Loopback
 /// servers never stream: the local-path shortcut is cheaper and lossless.
 fn stream_requested(requested: Option<bool>, settings: &LocalSettings, server_url: &str) -> bool {
-    let enabled = requested.unwrap_or(settings.stream_install);
+    // #235: the policy decides whether the stream is eligible at all; an
+    // explicit per-job override ("Restart stream" / "Retry as download") still
+    // wins for troubleshooting.
+    let enabled = match requested {
+        Some(value) => value,
+        None => settings.stream_install && settings.download_policy.wants_stream(),
+    };
     enabled && !server_url.trim().is_empty() && !is_loopback_url(server_url)
 }
 
@@ -6596,6 +6622,35 @@ mod tests {
             "http://[::1]:8080"
         ));
         assert!(!stream_requested(Some(true), &settings, ""));
+
+        // #235: the download policy gates the stream when the job has no
+        // override. `classic` never streams, `automatic` and `stream` do while
+        // the stream-install switch is on.
+        settings.download_policy = crate::settings::DownloadPolicy::Classic;
+        assert!(!stream_requested(
+            None,
+            &settings,
+            "https://ludex.example.com"
+        ));
+        // An explicit "Restart stream" still works for troubleshooting.
+        assert!(stream_requested(
+            Some(true),
+            &settings,
+            "https://ludex.example.com"
+        ));
+        settings.download_policy = crate::settings::DownloadPolicy::Stream;
+        assert!(stream_requested(
+            None,
+            &settings,
+            "https://ludex.example.com"
+        ));
+        settings.download_policy = crate::settings::DownloadPolicy::Automatic;
+        settings.stream_install = false;
+        assert!(!stream_requested(
+            None,
+            &settings,
+            "https://ludex.example.com"
+        ));
     }
 
     #[test]
@@ -8201,7 +8256,16 @@ mod tests {
         settings.download_dir = "/mnt/nas/Downloads".into();
         settings.normalize(Path::new("/data"));
 
-        // `configured` keeps today's folder.
+        // #235: the default stages under the install root so a NAS download
+        // folder is never written, hashed and extracted over SMB.
+        let default = planned_paths_for(&settings, &install_params(None), None, None, "job-1");
+        assert_eq!(
+            default.part,
+            Some(PathBuf::from("/games/.ludex-tmp/.3-4.part"))
+        );
+
+        // `configured` uses the download folder when the user asked for it.
+        settings.download_staging = settings::DownloadStaging::Configured;
         let configured = planned_paths_for(&settings, &install_params(None), None, None, "job-1");
         assert_eq!(
             configured.part,

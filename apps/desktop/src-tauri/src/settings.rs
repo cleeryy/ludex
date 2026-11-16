@@ -60,10 +60,10 @@ impl UpdateChannel {
 
 /// Where a new install stages its temporary archive (#226).
 ///
-/// `configured` keeps the historical behaviour: the default download location,
-/// then `downloadDir`, then `{installDir}/.ludex-tmp`. `installVolume` always
-/// writes next to the install root, so a NAS `downloadDir` no longer forces the
-/// extraction to read the archive back over SMB.
+/// `installVolume` (the default since #235) always writes next to the install
+/// root, so a NAS `downloadDir` no longer forces the extraction to read the
+/// archive back over SMB. `configured` keeps the historical behaviour: the
+/// default download location, then `downloadDir`, then `{installDir}/.ludex-tmp`.
 ///
 /// The policy only decides where a **new** job writes. A job that already has a
 /// stored `.part` keeps it exactly (`install::planned_paths`), so flipping this
@@ -71,8 +71,8 @@ impl UpdateChannel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum DownloadStaging {
-    #[default]
     Configured,
+    #[default]
     InstallVolume,
 }
 
@@ -84,7 +84,7 @@ impl DownloadStaging {
         }
     }
 
-    /// Parse the setting, falling back to `configured` for anything unknown.
+    /// Parse the setting, falling back to `installVolume` for anything unknown.
     ///
     /// A newer web bundle or a hand-edited file must not fail the whole
     /// settings document: `load` would otherwise replace every setting with
@@ -92,11 +92,11 @@ impl DownloadStaging {
     pub fn parse(raw: &str) -> Self {
         if raw
             .trim()
-            .eq_ignore_ascii_case(DownloadStaging::InstallVolume.as_str())
+            .eq_ignore_ascii_case(DownloadStaging::Configured.as_str())
         {
-            DownloadStaging::InstallVolume
-        } else {
             DownloadStaging::Configured
+        } else {
+            DownloadStaging::InstallVolume
         }
     }
 }
@@ -203,11 +203,18 @@ pub struct LocalSettings {
     /// Where temporary archives are downloaded. Kept in sync with the default
     /// download location; empty means `{installDir}/.ludex-tmp`.
     pub download_dir: String,
-    /// Where a new install stages its archive (#226). `configured` uses the
-    /// download folder above; `installVolume` writes under
-    /// `{installRoot}/.ludex-tmp` so extraction reads it locally.
+    /// Where a new install stages its archive (#226). `installVolume` (the
+    /// default since #235) writes under `{installRoot}/.ludex-tmp` so a NAS
+    /// download folder is never read back over SMB; `configured` keeps the
+    /// download folder above.
     #[serde(default)]
     pub download_staging: DownloadStaging,
+    /// True once the user picked a staging policy explicitly (#235). A
+    /// settings file written before this flag has the historical `configured`
+    /// default, which `normalize` migrates to the install volume; an explicit
+    /// `configured` choice survives.
+    #[serde(default)]
+    pub download_staging_confirmed: bool,
     /// Named install/download/temp folders (#99). Empty in old settings files;
     /// `normalize` migrates the two single folders above into entries.
     pub locations: Vec<Location>,
@@ -251,11 +258,16 @@ pub struct LocalSettings {
     pub update_channel: UpdateChannel,
     /// Check for app updates shortly after startup (at most once per 24 h).
     pub check_updates_on_startup: bool,
-    /// How a version is transported to this device (#231). `classic` stays the
-    /// default and the fallback; `auto` and `files` opt into the server's
-    /// extracted cache and its file manifest.
+    /// How a version is transported to this device (#235). `automatic` (the
+    /// default) resolves the fastest path per version — the server's extracted
+    /// files when available, a per-entry stream for a ZIP, the classic archive
+    /// otherwise. `stream` and `classic` pin one path for troubleshooting.
     #[serde(default)]
-    pub install_transport: InstallTransportMode,
+    pub download_policy: DownloadPolicy,
+    /// Legacy `installTransport` (#231). Only read to migrate an older settings
+    /// file; never written. `auto` and `files` both become `automatic`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_transport: Option<String>,
     /// Last successful or attempted update check, RFC 3339. Used for the
     /// once-per-24 h throttle; cleared by a manual check.
     pub last_update_check_at: Option<String>,
@@ -583,78 +595,83 @@ pub const fn default_download_retry_window_secs() -> u64 {
     6 * 60 * 60
 }
 
-/// How a version is transported to this device (#231).
+/// How a version is transported to this device (#235).
 ///
-/// `classic` is the historical path — download the whole archive, verify it,
-/// extract it — and stays the default and the fallback. `auto` uses the
-/// server's extracted cache when the manifest is already ready and falls back
-/// silently when it is not. `files` asks the server to extract first, downloads
-/// the files in parallel and falls back to the classic archive once, with a
-/// visible message, if the cache cannot serve this version.
-///
-/// The path is a prototype gated on measurement (#231): the classic archive
-/// remains the reference for reliability and for every container without a
-/// server-side manifest.
+/// `automatic` is the default and the only mode the normal flow offers: the
+/// desktop resolves the fastest transport per version, in order — the server's
+/// extracted file manifest when it is available (#231), a per-entry stream for
+/// a ZIP that supports it, the classic archive otherwise. A probe that finds
+/// nothing falls back on its own and only logs why; a file manifest that dies
+/// mid-install states the reason on the job and finishes on the classic
+/// archive. `stream` and `classic` pin one path for troubleshooting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub enum InstallTransportMode {
-    Auto,
+pub enum DownloadPolicy {
     #[default]
+    Automatic,
+    Stream,
     Classic,
-    Files,
 }
 
-impl InstallTransportMode {
+impl DownloadPolicy {
     pub fn as_str(self) -> &'static str {
         match self {
-            InstallTransportMode::Auto => "auto",
-            InstallTransportMode::Classic => "classic",
-            InstallTransportMode::Files => "files",
+            DownloadPolicy::Automatic => "automatic",
+            DownloadPolicy::Stream => "stream",
+            DownloadPolicy::Classic => "classic",
         }
     }
 
-    /// Parse the setting, falling back to `classic` for anything unknown so a
-    /// newer web bundle cannot break an older desktop.
+    /// Parse the setting, falling back to `automatic` for anything unknown so
+    /// a newer web bundle cannot break an older desktop.
     pub fn parse(raw: &str) -> Self {
-        if raw
-            .trim()
-            .eq_ignore_ascii_case(InstallTransportMode::Files.as_str())
-        {
-            InstallTransportMode::Files
-        } else if raw
-            .trim()
-            .eq_ignore_ascii_case(InstallTransportMode::Auto.as_str())
-        {
-            InstallTransportMode::Auto
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case(DownloadPolicy::Stream.as_str()) {
+            DownloadPolicy::Stream
+        } else if raw.eq_ignore_ascii_case(DownloadPolicy::Classic.as_str()) {
+            DownloadPolicy::Classic
         } else {
-            InstallTransportMode::Classic
+            DownloadPolicy::Automatic
+        }
+    }
+
+    /// Migrate the removed `installTransport` setting (#231): `classic` stays
+    /// classic, `auto`/`files` (and any unknown value) become `automatic`.
+    pub fn from_legacy(raw: &str) -> Self {
+        if raw.trim().eq_ignore_ascii_case("classic") {
+            DownloadPolicy::Classic
+        } else {
+            DownloadPolicy::Automatic
         }
     }
 
     /// True when the job should try the file manifest before the archive.
     pub fn wants_files(self) -> bool {
-        matches!(
-            self,
-            InstallTransportMode::Auto | InstallTransportMode::Files
-        )
+        matches!(self, DownloadPolicy::Automatic)
     }
 
-    /// True when the job may ask the server to build the cache (explicit only:
-    /// an `auto` install never triggers a server-side extraction).
+    /// True when the policy may use the per-entry stream. The `streamInstall`
+    /// switch still gates it; `classic` never streams.
+    pub fn wants_stream(self) -> bool {
+        !matches!(self, DownloadPolicy::Classic)
+    }
+
+    /// True when `automatic` may ask the server to build its extracted cache.
     pub fn warms_cache(self) -> bool {
-        matches!(self, InstallTransportMode::Files)
+        matches!(self, DownloadPolicy::Automatic)
     }
 }
 
-impl<'de> Deserialize<'de> for InstallTransportMode {
+impl<'de> Deserialize<'de> for DownloadPolicy {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
+        // `null` and an unknown string both mean "not chosen": automatic.
         let raw = Option::<String>::deserialize(deserializer)?;
         Ok(raw
             .as_deref()
-            .map(InstallTransportMode::parse)
+            .map(DownloadPolicy::parse)
             .unwrap_or_default())
     }
 }
@@ -692,7 +709,8 @@ impl Default for LocalSettings {
             install_dir: String::new(),
             install_root_confirmed: false,
             download_dir: String::new(),
-            download_staging: DownloadStaging::Configured,
+            download_staging: DownloadStaging::InstallVolume,
+            download_staging_confirmed: false,
             locations: Vec::new(),
             server_port: 0,
             stream_install: true,
@@ -703,7 +721,8 @@ impl Default for LocalSettings {
             download_retry_window_secs: default_download_retry_window_secs(),
             auto_resume_downloads: default_auto_resume_downloads(),
             download_concurrency: default_download_concurrency(),
-            install_transport: InstallTransportMode::Classic,
+            download_policy: DownloadPolicy::Automatic,
+            install_transport: None,
             close_to_tray: true,
             native_title_bar: false,
             update_channel: UpdateChannel::Stable,
@@ -788,6 +807,19 @@ impl LocalSettings {
         // `downloadDir` empty is meaningful: use `{installDir}/.ludex-tmp`.
         self.install_dir = self.install_dir.trim().to_string();
         self.download_dir = self.download_dir.trim().to_string();
+        // #235: `configured` was the #226 default, and every settings file
+        // written since then carries it. Until the user picks a staging policy
+        // explicitly, a new job stages next to the install so a NAS download
+        // folder is never written, hashed and extracted over SMB.
+        if !self.download_staging_confirmed {
+            self.download_staging = DownloadStaging::InstallVolume;
+        }
+        // #235: `installTransport` is gone; migrate an older settings file into
+        // the download policy and drop the legacy key so it is never written
+        // back. `auto` and `files` both mean "let Ludex decide".
+        if let Some(legacy) = self.install_transport.take() {
+            self.download_policy = DownloadPolicy::from_legacy(&legacy);
+        }
         self.normalize_locations(app_data);
         self.server_url = self.server_url.trim().trim_end_matches('/').to_string();
         if self.download_stall_timeout_secs == 0 {
@@ -1662,7 +1694,10 @@ mod tests {
         let json = serde_json::to_value(&settings).unwrap();
         assert_eq!(json["streamInstall"], true);
         assert_eq!(json["downloadDir"], "");
-        assert_eq!(json["downloadStaging"], "configured");
+        assert_eq!(json["downloadStaging"], "installVolume");
+        assert_eq!(json["downloadStagingConfirmed"], false);
+        assert_eq!(json["downloadPolicy"], "automatic");
+        assert!(json.get("installTransport").is_none());
         assert_eq!(json["keepArchives"], false);
         assert_eq!(json["bandwidthLimitKib"], 0);
         assert_eq!(json["closeToTray"], true);
@@ -2000,18 +2035,32 @@ mod tests {
     }
 
     #[test]
-    fn download_staging_defaults_to_configured() {
+    fn download_staging_defaults_to_the_install_volume_and_migrates() {
         let settings = LocalSettings::for_app_data(Path::new("/data"));
-        assert_eq!(settings.download_staging, DownloadStaging::Configured);
+        assert_eq!(settings.download_staging, DownloadStaging::InstallVolume);
         let json = serde_json::to_value(&settings).expect("serialize");
-        assert_eq!(json["downloadStaging"], "configured");
+        assert_eq!(json["downloadStaging"], "installVolume");
 
-        // A settings file written before #226 has no key at all.
-        let legacy: LocalSettings =
-            serde_json::from_value(serde_json::json!({ "installDir": "D:\\Games" }))
-                .expect("legacy settings");
+        // #235: a settings file written before the confirmation flag has the
+        // historical `configured` default and migrates to the install volume.
+        let mut legacy: LocalSettings = serde_json::from_value(serde_json::json!({
+            "installDir": "D:\\Games",
+            "downloadStaging": "configured",
+        }))
+        .expect("legacy settings");
         assert_eq!(legacy.download_staging, DownloadStaging::Configured);
         assert_eq!(legacy.install_dir, "D:\\Games");
+        legacy.normalize(Path::new("/data"));
+        assert_eq!(legacy.download_staging, DownloadStaging::InstallVolume);
+
+        // An explicit `configured` choice wins, even across a normalize.
+        let mut explicit: LocalSettings = serde_json::from_value(serde_json::json!({
+            "downloadStaging": "configured",
+            "downloadStagingConfirmed": true,
+        }))
+        .expect("explicit staging");
+        explicit.normalize(Path::new("/data"));
+        assert_eq!(explicit.download_staging, DownloadStaging::Configured);
     }
 
     #[test]
@@ -2035,7 +2084,7 @@ mod tests {
             let parsed: LocalSettings =
                 serde_json::from_value(serde_json::json!({ "downloadStaging": raw }))
                     .expect("unknown staging falls back");
-            assert_eq!(parsed.download_staging, DownloadStaging::Configured);
+            assert_eq!(parsed.download_staging, DownloadStaging::InstallVolume);
         }
         assert_eq!(
             DownloadStaging::parse("  INSTALLVOLUME "),
@@ -2051,7 +2100,8 @@ mod tests {
     fn effective_download_dir_follows_the_staging_policy() {
         let install_root = Path::new("/games");
         let mut settings = LocalSettings::for_app_data(Path::new("/data"));
-        // The default: whatever the configured download folder resolves to.
+        // #235: the default stages next to the install, even when a NAS
+        // download folder is configured, so nothing is read back over SMB.
         assert_eq!(
             settings.effective_download_dir(install_root),
             PathBuf::from("/games/.ludex-tmp")
@@ -2059,14 +2109,14 @@ mod tests {
         settings.download_dir = "/mnt/nas/Downloads".into();
         assert_eq!(
             settings.effective_download_dir(install_root),
-            PathBuf::from("/mnt/nas/Downloads")
+            PathBuf::from("/games/.ludex-tmp")
         );
 
-        // `installVolume` stages next to the install, whatever is configured.
-        settings.download_staging = DownloadStaging::InstallVolume;
+        // An explicit `configured` choice uses the download folder again.
+        settings.download_staging = DownloadStaging::Configured;
         assert_eq!(
             settings.effective_download_dir(install_root),
-            PathBuf::from("/games/.ludex-tmp")
+            PathBuf::from("/mnt/nas/Downloads")
         );
 
         // #226: the free function stays the historical, policy-free resolution.
@@ -2542,41 +2592,63 @@ mod tests {
     }
 
     #[test]
-    fn install_transport_defaults_to_classic_and_parses_every_mode() {
+    fn download_policy_defaults_to_automatic_and_parses_every_mode() {
         let settings = LocalSettings::default();
-        assert_eq!(settings.install_transport, InstallTransportMode::Classic);
-        assert!(!settings.install_transport.wants_files());
+        assert_eq!(settings.download_policy, DownloadPolicy::Automatic);
+        assert!(settings.download_policy.wants_files());
+        assert!(settings.download_policy.warms_cache());
+        assert!(settings.download_policy.wants_stream());
+        assert!(settings.install_transport.is_none());
 
-        // A settings file from before #231 has no key: the classic archive wins
-        // and the prototype stays off until the user asks for it.
+        // A settings file from before #235 has no key: automatic.
         let raw = serde_json::json!({ "installDir": "/games" });
         let legacy: LocalSettings = serde_json::from_value(raw).unwrap();
-        assert_eq!(legacy.install_transport, InstallTransportMode::Classic);
+        assert_eq!(legacy.download_policy, DownloadPolicy::Automatic);
 
-        assert_eq!(
-            InstallTransportMode::parse("auto"),
-            InstallTransportMode::Auto
-        );
-        assert_eq!(
-            InstallTransportMode::parse(" FILES "),
-            InstallTransportMode::Files
-        );
-        assert_eq!(
-            InstallTransportMode::parse("nonsense"),
-            InstallTransportMode::Classic
-        );
-        assert!(InstallTransportMode::Auto.wants_files());
-        assert!(!InstallTransportMode::Auto.warms_cache());
-        assert!(InstallTransportMode::Files.wants_files());
-        assert!(InstallTransportMode::Files.warms_cache());
+        assert_eq!(DownloadPolicy::parse(" STREAM "), DownloadPolicy::Stream);
+        assert_eq!(DownloadPolicy::parse("classic"), DownloadPolicy::Classic);
+        // Unknown values never break an install: they mean "let Ludex decide".
+        assert_eq!(DownloadPolicy::parse("files"), DownloadPolicy::Automatic);
+        assert!(!DownloadPolicy::Classic.wants_files());
+        assert!(!DownloadPolicy::Classic.wants_stream());
+        assert!(!DownloadPolicy::Classic.warms_cache());
+        assert!(!DownloadPolicy::Stream.wants_files());
+        assert!(DownloadPolicy::Stream.wants_stream());
+        assert!(!DownloadPolicy::Stream.warms_cache());
 
         // The JSON round-trip the web UI relies on.
         let settings = LocalSettings {
-            install_transport: InstallTransportMode::Files,
+            download_policy: DownloadPolicy::Classic,
             ..LocalSettings::default()
         };
         let encoded = serde_json::to_value(&settings).unwrap();
-        assert_eq!(encoded["installTransport"], "files");
+        assert_eq!(encoded["downloadPolicy"], "classic");
+        assert!(encoded.get("installTransport").is_none());
+    }
+
+    #[test]
+    fn legacy_install_transport_migrates_into_the_download_policy() {
+        // #231 shipped `classic | auto | files`; #235 replaced it.
+        let cases = [
+            ("classic", DownloadPolicy::Classic),
+            ("auto", DownloadPolicy::Automatic),
+            ("files", DownloadPolicy::Automatic),
+            (" FILES ", DownloadPolicy::Automatic),
+            ("nonsense", DownloadPolicy::Automatic),
+        ];
+        for (raw, expected) in cases {
+            let mut settings: LocalSettings = serde_json::from_value(serde_json::json!({
+                "installDir": "/games",
+                "installTransport": raw,
+            }))
+            .expect("legacy transport");
+            settings.normalize(Path::new("/data"));
+            assert_eq!(settings.download_policy, expected, "{raw}");
+            // The legacy key is dropped, never written back.
+            assert!(settings.install_transport.is_none());
+            let encoded = serde_json::to_value(&settings).unwrap();
+            assert!(encoded.get("installTransport").is_none(), "{raw}");
+        }
     }
 
     #[test]

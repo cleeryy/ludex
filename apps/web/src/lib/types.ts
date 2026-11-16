@@ -1329,6 +1329,13 @@ export interface StorageSuggestions {
   platform: "windows" | "macos" | "linux";
 }
 
+/**
+ * How a version is transported to this device (#235). `automatic` resolves the
+ * fastest available path per version; `stream` and `classic` pin one path for
+ * troubleshooting.
+ */
+export type DownloadPolicy = "automatic" | "stream" | "classic";
+
 export interface LocalSettings {
   mode: "local" | "remote";
   /** Opt-in anonymous diagnostics (#171). */
@@ -1357,19 +1364,26 @@ export interface LocalSettings {
   /** Remote ZIP installs stream a tar of the archive entries instead of storing it. */
   streamInstall: boolean;
   /**
-   * How a version is transported (#231). `classic` downloads and extracts the
-   * whole archive (the default and the fallback); `auto` uses the server's
-   * extracted files when they are already ready; `files` asks the server to
-   * extract first and falls back to the classic archive once. Absent means
-   * `classic`.
+   * How a version is transported (#235). `automatic` (the default) resolves
+   * the fastest path per version: the server's extracted files when available,
+   * a per-entry stream for a ZIP, the classic archive otherwise. `stream` and
+   * `classic` pin one path for troubleshooting. Absent means `automatic`.
    */
-  installTransport?: "auto" | "classic" | "files";
+  downloadPolicy: DownloadPolicy;
   /**
    * Where the archive is staged while it downloads (#226): the configured
-   * download folder, or the install drive so a network download folder is not
-   * read back over SMB. Absent means `configured`.
+   * download folder, or the install drive (the default since #235) so a
+   * network download folder is not read back over SMB. Absent means
+   * `installVolume`.
    */
   downloadStaging?: "configured" | "installVolume";
+  /**
+   * True once the user picked a download policy explicitly (#235). A settings
+   * file written before this flag migrated from the historical `configured`
+   * default to `installVolume`; an explicit `configured` survives because it
+   * sets this flag.
+   */
+  downloadStagingConfirmed?: boolean;
   /** Keep the downloaded archive after a successful install. */
   keepArchives: boolean;
   /** Archive passwords, tried in order. */

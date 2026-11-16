@@ -107,11 +107,11 @@ export function StorageBody({ desktop }: { desktop: DesktopSettingsController })
   );
 }
 
-/** The three transports of `installTransport` (#231), labelled once. */
-const INSTALL_TRANSPORT_OPTIONS = [
+/** The `downloadPolicy` options (#235): automatic first, overrides last. */
+const DOWNLOAD_POLICY_OPTIONS = [
+  { value: "automatic", label: t("Automatic (recommended)") },
+  { value: "stream", label: t("Stream") },
   { value: "classic", label: t("Classic archive") },
-  { value: "auto", label: t("Automatic") },
-  { value: "files", label: t("Files from the server") },
 ] as const;
 
 /** Downloads: how archives arrive, how they are kept and how quiet installers run. */
@@ -128,30 +128,24 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
               onCheckedChange={(streamInstall) => desktop.update({ streamInstall })}
             />
             <SettingsGroup
-              title={t("File transport")}
-              description={t("How a version reaches this device. The classic archive downloads and extracts the whole file and stays the default and the fallback. The file transport downloads the files the server already extracted, one by one, and never writes an archive here.")}
+              title={t("Download policy")}
+              description={t("How a version reaches this device. Automatic picks the fastest path the server supports; Stream and Classic pin one path for troubleshooting.")}
             >
-              <div role="radiogroup" aria-label={t("File transport")} className="flex flex-col gap-3">
-                {INSTALL_TRANSPORT_OPTIONS.map((option) => (
-                  <label key={option.value} className="flex cursor-pointer items-center gap-3">
-                    <input
-                      type="radio"
-                      name="install-transport"
-                      value={option.value}
-                      checked={(draft.installTransport ?? "classic") === option.value}
-                      onChange={() => desktop.update({ installTransport: option.value })}
-                      className="size-4 shrink-0 accent-signal"
-                    />
-                    <span className="text-[13px] font-medium text-ink">{option.label}</span>
-                  </label>
-                ))}
+              <div className="max-w-[280px]">
+                <Select
+                  label={t("Download policy")}
+                  value={draft.downloadPolicy}
+                  onChange={(value) => desktop.update({ downloadPolicy: value })}
+                  options={[...DOWNLOAD_POLICY_OPTIONS]}
+                  className="h-10 text-[12px]"
+                />
               </div>
               <p className="mt-3 max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">
-                {draft.installTransport === "files"
-                  ? t("Asks the local server to extract the archive first, then downloads the files in parallel with per-file resume and SHA-256 checks. If the server cannot serve them, the install falls back to the archive once and says so on the job.")
-                  : draft.installTransport === "auto"
-                    ? t("Uses the server's extracted files when they are already ready, otherwise downloads the archive. It never asks the server to extract anything.")
-                    : t("Downloads the archive, verifies its SHA-256, then extracts it. Works with every format, every server build and both a local and a remote install.")}
+                {draft.downloadPolicy === "automatic"
+                  ? t("Resolved per version: the server's extracted files when they are ready, then a streamed ZIP, then the archive. A probe that finds nothing falls back on its own; only a transfer that fails mid-install says why on the job.")
+                  : draft.downloadPolicy === "stream"
+                    ? t("Streams ZIP entries as they arrive and never stores the archive. 7z and RAR archives still download and extract the archive.")
+                    : t("Always downloads the archive, verifies its SHA-256, then extracts it. Works with every format and every server build.")}
               </p>
             </SettingsGroup>
             <SettingsSwitchRow
@@ -172,8 +166,8 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
                   type="radio"
                   name="download-staging"
                   value="configured"
-                  checked={(draft.downloadStaging ?? "configured") === "configured"}
-                  onChange={() => desktop.update({ downloadStaging: "configured" })}
+                  checked={draft.downloadStaging === "configured"}
+                  onChange={() => desktop.update({ downloadStaging: "configured", downloadStagingConfirmed: true })}
                   className="mt-0.5 size-4 shrink-0 accent-signal"
                 />
                 <span className="min-w-0">
@@ -189,13 +183,11 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
                   name="download-staging"
                   value="installVolume"
                   checked={draft.downloadStaging === "installVolume"}
-                  onChange={() => desktop.update({ downloadStaging: "installVolume" })}
+                  onChange={() => desktop.update({ downloadStaging: "installVolume", downloadStagingConfirmed: true })}
                   className="mt-0.5 size-4 shrink-0 accent-signal"
                 />
                 <span className="min-w-0">
-                  <span className="block text-[13px] font-medium text-ink">
-                    {t("Install drive (recommended when the download folder is a network share)")}
-                  </span>
+                  <span className="block text-[13px] font-medium text-ink">{t("Install drive (default)")}</span>
                   <span className="mt-1 block max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">
                     {t("The archive is staged next to the game, so hashing and extraction never read it back over the network. It needs temporary free space on the install drive, and the archive is deleted after extraction unless Keep downloaded archives is on.")}
                   </span>

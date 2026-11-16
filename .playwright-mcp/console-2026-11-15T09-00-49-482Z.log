@@ -200,3 +200,88 @@
     at renderRootSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13445:13) The above error occurred in the <PreferencesProvider> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7275
 [60466675ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:22164
 [60474236ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5180/#/bigpicture?lang=fr:0
+[60993986ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60994041ms] [ERROR] [vite] Failed to reload /src/components/game/install-dialog.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60994905ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60994906ms] [ERROR] [vite] Failed to reload /src/components/settings/sections-device.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60994978ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60994978ms] [ERROR] [vite] Failed to reload /src/components/game/install-dialog.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995882ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60995883ms] [ERROR] [vite] Failed to reload /src/components/settings/save-discovery-panel.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995883ms] [ERROR] [vite] Failed to reload /src/components/settings/installed-games.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995883ms] [ERROR] [vite] Failed to reload /src/components/game/install-dialog.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995883ms] [ERROR] [vite] Failed to reload /src/screens/collection.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995883ms] [ERROR] [vite] Failed to reload /src/screens/home.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995883ms] [ERROR] [vite] Failed to reload /src/screens/library.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995883ms] [ERROR] [vite] Failed to reload /src/components/shell/command-palette.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995883ms] [ERROR] [vite] Failed to reload /src/screens/downloads.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995884ms] [ERROR] [vite] Failed to reload /src/components/shell/app-shell.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995884ms] [ERROR] [vite] Failed to reload /src/screens/profile.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995884ms] [ERROR] [vite] Failed to reload /src/components/game/install-files.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995884ms] [ERROR] [vite] Failed to reload /src/state/downloads.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995884ms] [ERROR] [vite] Failed to reload /src/components/onboarding/getting-started.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995884ms] [ERROR] [vite] Failed to reload /src/components/settings/save-manifest-panel.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995888ms] [ERROR] [vite] Failed to reload /src/screens/settings.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995892ms] [ERROR] [vite] Failed to reload /src/components/collections/collection-dialog.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995892ms] [ERROR] [vite] Failed to reload /src/components/library/filter-panel.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995892ms] [ERROR] [vite] Failed to reload /src/components/settings/locations-panel.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995893ms] [ERROR] [vite] Failed to reload /src/components/game/cloud-saves.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995893ms] [ERROR] [vite] Failed to reload /src/screens/game-detail.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995893ms] [ERROR] [vite] Failed to reload /src/components/onboarding/onboarding-wizard.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60995893ms] [ERROR] [vite] Failed to reload /src/components/game/move-install.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996032ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996046ms] [ERROR] [vite] Failed to reload /src/components/shell/nav-mobile.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996126ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996126ms] [ERROR] [vite] Failed to reload /src/screens/big-picture.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996371ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996372ms] [ERROR] [vite] Failed to reload /src/components/game/virustotal.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996372ms] [ERROR] [vite] Failed to reload /src/screens/admin/integrations.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996372ms] [ERROR] [vite] Failed to reload /src/screens/admin/games.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996373ms] [ERROR] [vite] Failed to reload /src/components/admin/virustotal-scan.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996373ms] [ERROR] [vite] Failed to reload /src/state/virustotal-queue.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996403ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996403ms] [ERROR] [vite] Failed to reload /src/lib/i18n.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996489ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996489ms] [ERROR] [vite] Failed to reload /src/lib/i18n.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996515ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996515ms] [ERROR] [vite] Failed to reload /src/lib/i18n.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996549ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996550ms] [ERROR] [vite] Failed to reload /src/lib/i18n.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996564ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996565ms] [ERROR] [vite] Failed to reload /src/lib/i18n.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996576ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996576ms] [ERROR] [vite] Failed to reload /src/lib/i18n.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996587ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996587ms] [ERROR] [vite] Failed to reload /src/lib/i18n.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996599ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996599ms] [ERROR] [vite] Failed to reload /src/lib/i18n.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996614ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996614ms] [ERROR] [vite] Failed to reload /src/lib/i18n.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996625ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996625ms] [ERROR] [vite] Failed to reload /src/lib/i18n.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996642ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996642ms] [ERROR] [vite] Failed to reload /src/lib/i18n.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996657ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996657ms] [ERROR] [vite] Failed to reload /src/lib/i18n.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996664ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996665ms] [ERROR] [vite] Failed to reload /src/lib/i18n.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[60996671ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5180/src/locales/coverage.json?import&t=1794794235631:0
+[60996671ms] [ERROR] [vite] Failed to reload /src/state/downloads.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[61010275ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:22164
+[61010826ms] [ERROR] %o
+
+%s
+
+%s
+ Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5180/src/state/auth.tsx?t=1794794253160:233:21)
+    at PreferencesProvider (http://localhost:5180/src/state/preferences.tsx?t=1794794251504:64:20)
+    at Object.react_stack_bottom_frame (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:20259:20)
+    at renderWithHooks (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:5918:24)
+    at updateFunctionComponent (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7763:21)
+    at beginWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:8843:20)
+    at runWithFiberInDEV (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:1133:72)
+    at performUnitOfWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13598:98)
+    at workLoopSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13461:43)
+    at renderRootSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13445:13) The above error occurred in the <PreferencesProvider> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7275
+[61011049ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5180/#/bigpicture?lang=fr:0

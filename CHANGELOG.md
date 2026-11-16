@@ -6,6 +6,17 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- The launcher-style download is the automatic default (#235): `downloadPolicy`
+  (`automatic | stream | classic`, default automatic) resolves per version —
+  server file manifest when available, else ZIP stream, else classic archive
+  with the honest preflight copy; probe misses fall back silently and only
+  mid-install failures are shown; `downloadStaging` now defaults to the install
+  volume (no SMB re-read) with migration of the old default, and the legacy
+  `installTransport` setting migrates automatically. The actual file transport
+  stays gated on the #231 server flag until its benchmark.
+
 ### Added
 
 - Optional periodic VirusTotal re-check (#239): an admin policy

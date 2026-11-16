@@ -329,8 +329,8 @@ the network idle. The scheduler now has two resources:
 
 | Value | Behaviour |
 |---|---|
-| `configured` (default) | The `.part` file goes to the configured download folder (`downloadDir` or the default download location). |
-| `installVolume` | The `.part` file is staged next to the install, on the install drive, and deleted after a successful extraction unless `keepArchives` is on. |
+| `installVolume` (default since #235) | The `.part` file is staged next to the install, on the install drive, and deleted after a successful extraction unless `keepArchives` is on. |
+| `configured` | The `.part` file goes to the configured download folder (`downloadDir` or the default download location). |
 
 The distinction matters when `downloadDir` is a **network share**
 (`Z:\Temp\Games` on a NAS, an SMB mount). A classic install then makes three

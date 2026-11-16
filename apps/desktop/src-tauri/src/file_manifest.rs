@@ -2,9 +2,9 @@
 //! cache, publishes a per-file manifest, and the client downloads the files in
 //! parallel, verifies each SHA-256, and never stores or extracts an archive.
 //!
-//! This is a **prototype gated on measurement**: the classic archive+extract
-//! path stays the default ([`crate::settings::InstallTransportMode::Classic`])
-//! and every failure here falls back to it once with a visible message.
+//! The classic archive+extract path is always available as the fallback
+//! ([`crate::settings::DownloadPolicy::Classic`]) and every failure here falls
+//! back to it once with a visible message.
 //!
 //! The module owns the transport-independent engine so it can be exercised with
 //! injected manifest and file transports:
@@ -411,7 +411,12 @@ pub(crate) async fn prepare<T: ManifestTransport>(
         .as_deref()
         .and_then(|body| manifest_from_json(body).ok());
     if tuning.warm_cache && ready.is_none() {
-        let _ = transport.request_extract().await;
+        if let Err(error) = transport.request_extract().await {
+            // The cache cannot be warmed (disabled, forbidden, offline), so
+            // polling for a manifest that will never appear would only stall
+            // the install for the whole cache timeout (#235).
+            return Err(PlanError::NotReady(error.message));
+        }
         let deadline = Instant::now() + tuning.cache_wait;
         loop {
             match transport.fetch().await {
@@ -1973,7 +1978,8 @@ mod tests {
             "extracted_cache_unavailable",
         ));
 
-        // `auto`: a 409 is a fallback reason and never asks for an extraction.
+        // A probe without `warm_cache`: a 409 is a fallback reason and never
+        // asks for an extraction.
         let transport = FakeManifest {
             bodies: Mutex::new(vec![cache_miss.clone()]),
             extract_calls: AtomicU32::new(0),
@@ -1984,7 +1990,8 @@ mod tests {
         assert!(matches!(error, PlanError::NotReady(_)));
         assert_eq!(transport.extract_calls.load(Ordering::SeqCst), 0);
 
-        // `files`: ask for the extraction once, then poll until ready.
+        // `warm_cache` (automatic on the local server): ask for the extraction
+        // once, then poll until ready.
         let transport = FakeManifest {
             bodies: Mutex::new(vec![cache_miss, Ok(ready.clone())]),
             extract_calls: AtomicU32::new(0),
@@ -1998,6 +2005,51 @@ mod tests {
         let manifest = prepare(&transport, &tuning).await.expect("warmed");
         assert_eq!(manifest.version_id, 7);
         assert_eq!(transport.extract_calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// A server whose extracted cache is disabled: the manifest is a 409 and
+    /// asking for an extraction is refused (the real transport maps the
+    /// `unavailable` acknowledgement to an error, #235).
+    struct DisabledManifest {
+        fetch_calls: AtomicU32,
+    }
+
+    impl ManifestTransport for DisabledManifest {
+        async fn fetch(&self) -> Result<String, TransportError> {
+            self.fetch_calls.fetch_add(1, Ordering::SeqCst);
+            Err(TransportError::new(
+                Some(409),
+                "extracted_cache_unavailable",
+            ))
+        }
+        async fn request_extract(&self) -> Result<String, TransportError> {
+            Err(TransportError::new(
+                Some(409),
+                "extracted cache is disabled (LUDEX_EXTRACTED_CACHE=0)",
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_disabled_cache_falls_back_without_polling() {
+        let transport = DisabledManifest {
+            fetch_calls: AtomicU32::new(0),
+        };
+        let tuning = Tuning {
+            warm_cache: true,
+            cache_poll: Duration::from_millis(1),
+            cache_wait: Duration::from_secs(30),
+            ..Tuning::default()
+        };
+        let started = Instant::now();
+        let error = prepare(&transport, &tuning)
+            .await
+            .expect_err("disabled cache");
+        assert!(matches!(error, PlanError::NotReady(_)), "{error:?}");
+        // One probe, one refused warm request, no polling loop: the automatic
+        // install must not stall for the whole cache timeout (#235).
+        assert_eq!(transport.fetch_calls.load(Ordering::SeqCst), 1);
+        assert!(started.elapsed() < Duration::from_secs(5));
     }
 
     #[tokio::test]
