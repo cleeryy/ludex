@@ -6,6 +6,17 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Console power and window policy (#269): the Power surface runs the real
+  commands (sleep, restart, quit) with an installs-in-flight guard, and one
+  shared window policy drives fullscreen, tray and close behaviour on desktop
+  and Console.
+- Console end-to-end evidence (#270): a fake-pad harness drives the real
+  `/console/*` shell in Playwright (pad traversal, activation, back/escape),
+  with visual and anti-slop specs covering 720p/1080p/4K and a checksummed
+  evidence manifest.
+
 ### Changed
 
 - Console 2.0 Cabinet design system (#268): Studio/Soft/pastels and the
