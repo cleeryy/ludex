@@ -32,14 +32,25 @@ streaming and falling back:
 - 7z/RAR/unknown archive → "Download the archive, then extract".
 - Missing metadata (an older server) → "Checked when the download starts".
 
-## File-manifest transport (prototype, #231)
+## File-manifest transport (#231/#241)
 
-The third transport is being measured, not shipped as a default: the server
-extracts an archive once into a cache keyed by the archive SHA-256, publishes a
-manifest, and serves the individual files. The client downloads files in
-parallel, verifies each one, and never stores an archive or extracts anything
-locally. It is **off unless `LUDEX_EXTRACTED_CACHE=1`** on the server, and the
-classic download stays the fallback.
+The server extracts an archive once into a cache keyed by the archive SHA-256,
+publishes a manifest, and serves the individual files. The client downloads
+files in parallel, verifies each one, and never stores an archive or extracts
+anything locally. Whether it is available depends on where the server runs:
+
+- **Desktop local mode**: on by default (#241). The embedded server is on this
+  machine, so the file transport is free of network cost. Settings → Downloads →
+  Server file cache turns it off and sets its budget (default 50 GiB, clamped
+  1..=1000). The setting is passed to the embedded server when it starts, so a
+  change applies at the next local server start.
+- **Self-hosted server**: opt-in with `LUDEX_EXTRACTED_CACHE=1`; the classic
+  download stays the fallback. Nothing is written while it is off.
+
+The cache is always bounded: the byte budget is enforced by LRU eviction after
+every insertion, and an entry unused for 14 days is removed
+(`LUDEX_EXTRACTED_CACHE_TTL_HOURS`, default 336). A full cache evicts rather
+than growing, so the disk cost never exceeds the configured budget.
 
 | | Classic | Stream install | File manifest (#231) |
 |---|---|---|---|
@@ -48,14 +59,16 @@ classic download stays the fallback.
 | Resume unit | Archive byte offset | Entry | File |
 | Client CPU | Full extraction | Decompression per entry | **Checksums only** |
 | Server cost | Streaming read | Streaming read | One extraction + one hashing pass per archive digest |
-| Default | Yes | Yes | No (prototype) |
+| Default | Yes | Yes | Local mode: yes (bounded); server: opt-in |
 
 Client behaviour:
 
 1. `GET /api/versions/{versionId}/manifest?token=` with the ticket from
    `POST /api/games/{id}/download-ticket`.
 2. `409 extracted_cache_unavailable` (feature off, or the archive was not
-   extracted yet) → use the classic download. Never retry in a loop.
+   extracted yet) → use the next transport. The probe is silent: a disabled or
+   full cache never blocks or fails an install, and the job simply downloads the
+   archive. Never retry in a loop.
 3. `200` → for each file in `files`, download
    `/api/versions/{versionId}/files/{path}?token=`, 4–8 at a time with one
    `jobId`, resuming with `Range` from the last byte if a file was interrupted.

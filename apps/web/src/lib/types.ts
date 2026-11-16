@@ -1371,6 +1371,19 @@ export interface LocalSettings {
    */
   downloadPolicy: DownloadPolicy;
   /**
+   * Serve the embedded server's extracted files to installs from this device
+   * (#241). On by default in local mode: the server runs on the same machine
+   * and the cache is bounded by `serverFileCacheBudgetGb`. Off makes the
+   * embedded server answer 409 and the automatic policy silently falls back to
+   * the archive. Applies the next time the local server starts.
+   */
+  serverFileCache: boolean;
+  /**
+   * Byte budget of the embedded server's extracted cache, in GiB (#241).
+   * Clamped to 1..=1000 by the desktop; never unbounded.
+   */
+  serverFileCacheBudgetGb: number;
+  /**
    * Where the archive is staged while it downloads (#226): the configured
    * download folder, or the install drive (the default since #235) so a
    * network download folder is not read back over SMB. Absent means

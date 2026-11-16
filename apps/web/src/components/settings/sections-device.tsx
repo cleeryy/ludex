@@ -157,6 +157,47 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
           </SettingsGroup>
 
           <SettingsGroup
+            title={t("Server file cache")}
+            description={t("In local mode the embedded server can extract an archive once and serve the files to this device, so an install downloads files instead of an archive. It runs on this machine and is bounded by the budget below. The change applies the next time the local server starts.")}
+          >
+            <SettingsSwitchRow
+              title={t("Serve extracted files to installs")}
+              description={t("On by default in local mode. Off (or full) keeps the archive download and never writes the cache; a remote server keeps its own LUDEX_EXTRACTED_CACHE opt-in.")}
+              checked={draft.serverFileCache}
+              onCheckedChange={(serverFileCache) => desktop.update({ serverFileCache })}
+            />
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <div className="w-[150px]">
+                <Input
+                  id="server-file-cache-budget"
+                  aria-label={t("Server file cache budget in GB")}
+                  type="number"
+                  min={1}
+                  max={1000}
+                  step={1}
+                  inputMode="numeric"
+                  disabled={!draft.serverFileCache}
+                  value={draft.serverFileCacheBudgetGb}
+                  onChange={(event) =>
+                    desktop.update({
+                      serverFileCacheBudgetGb: Math.min(1000, Math.max(1, Math.round(Number(event.target.value) || 50))),
+                    })
+                  }
+                  className="font-mono text-[12px]"
+                />
+              </div>
+              <span className="text-[11.5px] text-ink-3" aria-hidden="true">
+                {t("GB")}
+              </span>
+            </div>
+            <p className="mt-2 max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">
+              {draft.serverFileCache
+                ? t("Entries unused for 14 days are evicted, and the least recently used ones go first when the budget is reached. The cache lives next to the local server's data and is never unbounded.")
+                : t("The cache stays off; installs download the archive and extract it locally.")}
+            </p>
+          </SettingsGroup>
+
+          <SettingsGroup
             title={t("Download staging")}
             description={t("Where the archive is written while it downloads. The install dialog and the disk-space check use the same choice.")}
           >

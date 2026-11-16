@@ -24,10 +24,12 @@
 //!
 //! ## Policy
 //!
-//! - **Disabled by default** (`LUDEX_EXTRACTED_CACHE=0`). Nothing is read or
-//!   written while disabled; the extract route answers `unavailable` and the
-//!   manifest route answers `409 extracted_cache_unavailable`, which is the
-//!   client's signal to fall back to the classic download.
+//! - **Off in server mode** (`LUDEX_EXTRACTED_CACHE` defaults to `0`, #231),
+//!   **on in the desktop's embedded local server** with a bounded budget
+//!   (#241; the desktop setting `serverFileCache` can turn it off). Nothing is
+//!   read or written while disabled; the extract route answers `unavailable`
+//!   and the manifest route answers `409 extracted_cache_unavailable`, which is
+//!   the client's signal to fall back to the classic download.
 //! - **Caps**: at most [`MAX_FILES`] files, [`MAX_FILE_BYTES`] per file and
 //!   [`MAX_EXTRACTED_BYTES`] in total. `verify_archive` rejects an archive whose
 //!   declared totals exceed the caps before a single byte is extracted; the
