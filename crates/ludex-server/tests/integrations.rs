@@ -282,6 +282,28 @@ async fn spawn_receiver(statuses: &[u16]) -> (String, ReceiverState) {
     (format!("http://{address}/hook"), state)
 }
 
+/// Waits for the `user.created` delivery that carries `username`.
+///
+/// Startup emits the bootstrap admin's `user.created` before this test creates
+/// its hook, and the event bus dispatches asynchronously (audit row first,
+/// webhook delivery second): on a loaded machine that event can be delivered
+/// after the hook exists. Waiting for the payload this test triggered keeps the
+/// assertion deterministic instead of racing the first delivery.
+async fn wait_for_webhook_user(receiver: &ReceiverState, username: &str) -> Hit {
+    for _ in 0..400 {
+        let hits = receiver.hits();
+        if let Some(hit) = hits.into_iter().find(|hit| {
+            serde_json::from_slice::<Value>(&hit.body)
+                .ok()
+                .is_some_and(|payload| payload["data"]["username"] == username)
+        }) {
+            return hit;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("no webhook delivery for user {username}");
+}
+
 async fn wait_for_hits(state: &ReceiverState, count: usize) {
     for _ in 0..400 {
         if state.hits().len() >= count {
@@ -566,9 +588,7 @@ async fn webhook_signs_delivers_and_skips_disabled_hooks() {
         )
         .await;
     assert_eq!(status, StatusCode::CREATED);
-    wait_for_hits(&receiver, 1).await;
-
-    let hit = &receiver.hits()[0];
+    let hit = wait_for_webhook_user(&receiver, "carol").await;
     let signature = hit
         .headers
         .get("x-ludex-signature")
