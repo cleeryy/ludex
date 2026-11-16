@@ -4761,28 +4761,37 @@ Gamepad API is only available on secure origins (`tauri://localhost` and
 localhost included). Use the debug overlay there to confirm the axes/buttons
 before changing a profile.
 
-### Big Picture layouts (#141)
+### Console layouts (#141, #267, #268)
 
-`/bigpicture` renders one of four layouts — `shelf` (default), `hero`, `grid`,
-`compact` — from a single navigation model. Directions are resolved per layout
-by a pure table: the rails (`shelf`, `hero`) walk left/right and change shelf
-with up/down; `grid` walks left/right and steps a row with up/down, using the
-same column count as its CSS grid; `compact` walks the list with up/down and
-changes shelf with left/right. A/Enter, B/Escape, Y/downloads, X/layout and
-LB/RB mean the same thing in all four.
+`/console/*` renders one of three compositions — `shelf` (Stage, default),
+`grid` (Wall) and `compact` (List) — from a single navigation model.
+`/bigpicture` is a one-release redirect to `/console`, kept for old links, the
+Sunshine shortcut and `overlay_show_big_picture`. The retired six-layout
+registry (Dock, Spotlight, Hero, ...) is gone; a stored retired value migrates
+to Stage instead of resetting the choice.
 
-The layout is a **device** preference, not an account setting: it is stored in
-`localStorage` under `ludex.bigPicture.layout` (scoped per server through
-`scopedStorageKey`, like `ludex.libraryView`) and shared by a module store, so
-the header control, the quick switcher (`L` on a keyboard, the Layout entry in
-the Start/Guide menu on a controller) and Settings → Appearance all apply it to
-a running screen without a reload.
-Unknown or missing values fall back to `shelf`. Switching layouts preserves the
-selected game and shelf; the ring is restored to that game.
+Directions are resolved per composition by a pure table: the rail (`shelf`)
+walks left/right and changes shelf with up/down; `grid` walks left/right and
+steps a row with up/down, using the same column count as its CSS grid;
+`compact` walks the list with up/down and changes shelf with left/right.
+A/Enter, B/Escape, Y/downloads, X/search and LB/RB mean the same thing in all
+three.
 
-### Big Picture controller-first operation (#138)
+The composition is a **device** preference, not an account setting: it is
+stored in `localStorage` under `ludex.bigPicture.layout` (scoped per server
+through `scopedStorageKey`, like `ludex.libraryView`) and shared by a module
+store. There is no layout picker: the toggle is a Settings row in the Console
+appearance panel, and it applies to a running screen without a reload.
+Unknown or missing values fall back to `shelf`. Switching compositions
+preserves the selected game and shelf; the ring is restored to that game.
 
-`/bigpicture` is operable with a controller alone. Input is routed by
+The `console_v2` device flag (`ludex.console.shell`, default off) decides
+whether `/` opens the Console or the desktop home. A `/console` deep link and
+native Console mode (`ludex --console`) always enter the Console.
+
+### Console controller-first operation (#138)
+
+`/console` is operable with a controller alone. Input is routed by
 `components/big-picture/input.ts` as a pure action → command table shared by the
 keyboard and the pad, so the two can never drift:
 
@@ -4900,8 +4909,8 @@ install; the badge and `/updates` stay the source of truth.
   it read, which never skips the version. Skipping stays the backend
   `skippedUpdateVersion`, so `notify: false` silences the notice, badge and
   launch prompt until a newer version. On `/updates`, `/setup`, `/login` and
-  Big Picture no card is drawn — Big Picture gets the existing in-shell toast
-  instead, once per version.
+  Console no card is drawn — the Console keeps the per-version notice on its
+  own notice surface (never a desktop toast), once per version.
 - **While the app stays open.** A six-hour loop re-runs the throttled startup
   check (still at most one network check per 24 h and never when "check at
   startup" is off), so a window left open for days raises the same

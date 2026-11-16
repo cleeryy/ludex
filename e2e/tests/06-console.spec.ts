@@ -16,10 +16,9 @@ import { signInAsAdmin, watchConsole } from "./helpers";
  * probe uses the same Gamepad API as hardware, not a React hook mock.
  *
  * `console-helpers.ts` documents the `LUDEX_E2E_CONSOLE_PATH` override for the
- * `/console` shell; nothing here asserts a flow that only the 2.0 shell can
- * pass. The overlay single-dispatch gate is a `fixme` until #267 gives input a
- * single owner (#270 acceptance: "catches a double-dispatch or a dead
- * controller path").
+ * `/console` shell. The overlay gate is the #270 acceptance check: with a
+ * surface open, one physical press must move exactly one step, because the
+ * shell, the library and the sheet used to run separate polling loops.
  */
 
 /** The title is the one console marker that survives the 2.0 shell rewrite. */
@@ -135,23 +134,57 @@ test.describe("console shell", () => {
   });
 
   // #270 acceptance: "catches a double-dispatch or a dead controller path".
-  // Today the shell, the overlay and the input row each own a polling loop, so
-  // one press with a surface open reaches two handlers. Enable this test when
-  // #267 lands the single InputProvider + scope stack; do not delete it.
-  test.fixme("overlay single-dispatch: one press moves one step (#270)", async ({ page }) => {
+  // The Console mounts one `InputProvider` scope and pushes an overlay scope
+  // above it, so the library underneath must not see the same press. Start
+  // opens the quick-actions sheet (7 rows); one Down must advance the ring by
+  // exactly one row — two rows means two handlers ran, zero means the sheet
+  // swallowed input.
+  test("overlay single-dispatch: one press moves one step (#270)", async ({ page }) => {
+    const errors = watchConsole(page);
     const pad = await installFakePad(page);
+
     await page.goto(consoleUrl());
     await waitForConsoleShell(page);
+    // The scope only owns the pad once the shell has a cover to focus.
+    await expect(page.locator("[data-bp-card='true']").first()).toBeVisible();
 
-    // X opens the command overlay on the v0.4 shell.
-    await pad.tap("x");
-    const overlay = page.getByRole("dialog").first();
-    await expect(overlay).toBeVisible();
+    await pad.tap("start");
+    const sheet = page.locator("[data-big-picture-overlay='menu']");
+    await expect(sheet).toBeVisible();
 
-    // TODO(#267): read the overlay's highlighted row, tap Down once, assert it
-    // advanced exactly one row and that the library focus index below did not
-    // change. The assertion below is a placeholder for that check.
+    // The sheet is non-modal on purpose: no dialog and no pad layer, or the
+    // polling loop would stop reading the pad it is meant to drive.
+    await expect(page.locator("[role='dialog'][aria-modal='true']")).toHaveCount(0);
+    await expect(page.locator("[data-pad-layer='true']")).toHaveCount(0);
+
+    const ringIndex = () =>
+      sheet.evaluate((root) =>
+        Array.from(root.querySelectorAll("button")).findIndex(
+          (row) => row.getAttribute("data-overlay-active") === "true",
+        ),
+      );
+
+    expect(await ringIndex()).toBe(0);
     await pad.tap("down");
-    await expect(overlay).toBeVisible();
+    await expect.poll(ringIndex, { timeout: 5_000 }).toBe(1);
+
+    // A dead path would ignore the sheet; a double dispatch would land on 2.
+    expect(await ringIndex()).toBe(1);
+
+    // B pops the sheet scope and the selection stays on the same cover; the
+    // next press drives the library again (the sheet swallowed nothing).
+    const selected = await page
+      .locator("[data-bp-card='true'][aria-current='true']")
+      .getAttribute("aria-label");
+    await pad.tap("b");
+    await expect(sheet).toHaveCount(0);
+    await expect(page.locator("[data-bp-card='true'][aria-current='true']")).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.locator("[data-bp-card='true'][aria-current='true']")).not.toHaveAttribute(
+      "aria-label",
+      selected ?? "",
+    );
+
+    errors.assertClean();
   });
 });
