@@ -20,13 +20,15 @@ use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use ludex_core::archive::{StreamEntry, StreamManifest};
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
 use crate::db;
 use crate::install::{
-    persist, safe_tar_path, Failure, InstallParams, JobPaths, StreamOutcome, Throttle,
+    persist, safe_tar_path, Failure, InstallParams, JobPaths, StreamFileHash, StreamOutcome,
+    Throttle,
 };
 use crate::state::{AppState, JobEntry};
 use crate::util::now_rfc3339;
@@ -623,6 +625,15 @@ pub(crate) async fn install(
         })
     };
 
+    // Entries that were already complete when this attempt started (#240).
+    // Their digests live in the files on disk, not in this run, so they are
+    // hashed once below: only the resumed part of an install is read, never
+    // the whole tree.
+    let adopted: Vec<StreamEntry> = files
+        .iter()
+        .filter(|item| completed.contains(item.index))
+        .cloned()
+        .collect();
     let pending: Vec<StreamEntry> = files
         .into_iter()
         .filter(|item| !completed.contains(item.index))
@@ -669,7 +680,41 @@ pub(crate) async fn install(
     )
     .await;
     progress_task.abort();
-    downloaded?;
+    let mut streamed = downloaded?;
+
+    // #240: an adopted entry was downloaded by an earlier attempt, so its
+    // digest is produced here, from the file that is already on disk. Fresh
+    // entries were hashed while they were written.
+    if !adopted.is_empty() {
+        let root = staging.to_path_buf();
+        let resumed_files = adopted.len();
+        let hashed = tokio::task::spawn_blocking(move || {
+            let mut files = Vec::with_capacity(adopted.len());
+            for item in &adopted {
+                let Some(relative) = crate::install::safe_tar_path(Path::new(&item.path)) else {
+                    return Err(format!("unsafe adopted entry path: {}", item.path));
+                };
+                let path = root.join(relative);
+                let (_, sha256) = crate::manifest::hash_file(&path)
+                    .map_err(|error| format!("could not hash the adopted file: {error}"))?;
+                files.push(crate::install::StreamFileHash {
+                    path: item.path.clone(),
+                    size: item.size,
+                    sha256,
+                });
+            }
+            Ok::<_, String>(files)
+        })
+        .await
+        .map_err(|error| Failure::Failed(format!("The hash task failed: {error}")))?
+        .map_err(Failure::Failed)?;
+        streamed.extend(hashed);
+        tracing::info!(
+            resumed = resumed_files,
+            "hashed the entries adopted from a previous attempt"
+        );
+    }
+    streamed.sort_by(|left, right| left.path.cmp(&right.path));
 
     let _ = tokio::fs::remove_dir_all(&partial_root).await;
     let files_done = progress.entries_done.load(Ordering::Relaxed);
@@ -686,13 +731,14 @@ pub(crate) async fn install(
     persist(app, entry);
     let _ = app.emit("install://progress", entry.snapshot());
 
-    Ok(StreamOutcome::Done)
+    Ok(StreamOutcome::Done { files: streamed })
 }
 
 /// Downloads the pending entries two at a time and records each completion.
 ///
 /// The callback runs after a file is on disk and its checkpoint bit is set, so
-/// the caller can persist the job row before the next entry finishes.
+/// the caller can persist the job row before the next entry finishes. Returns
+/// the digest of every entry this call wrote (#240).
 #[allow(clippy::too_many_arguments)]
 async fn download_entries<F>(
     transport: &dyn EntryTransport,
@@ -710,7 +756,7 @@ async fn download_entries<F>(
     progress: &Arc<ProgressState>,
     tuning: StreamTuning<'_>,
     mut on_complete: F,
-) -> Result<(), Failure>
+) -> Result<Vec<StreamFileHash>, Failure>
 where
     F: FnMut(&StreamEntry, &str),
 {
@@ -741,22 +787,28 @@ where
                     tuning,
                 )
                 .await
-                .map(|()| item)
+                .map(|digest| (item, digest))
             }
         })
         .buffer_unordered(ENTRY_CONCURRENCY);
     tokio::pin!(downloads);
 
     let mut first_error: Option<Failure> = None;
+    let mut files = Vec::new();
     while let Some(result) = downloads.next().await {
         match result {
-            Ok(item) => {
+            Ok((item, sha256)) => {
                 // Record every completion, even when a sibling already failed:
                 // the checkpoint must describe the files really on disk before
                 // the job retry adopts it (#212).
                 completed.insert(item.index);
                 progress.entries_done.fetch_add(1, Ordering::Relaxed);
                 on_complete(&item, &completed.to_hex());
+                files.push(StreamFileHash {
+                    path: item.path.clone(),
+                    size: item.size,
+                    sha256,
+                });
             }
             Err(Failure::Cancelled) => return Err(Failure::Cancelled),
             Err(Failure::Paused) => return Err(Failure::Paused),
@@ -772,7 +824,7 @@ where
     }
     match first_error {
         Some(error) => Err(error),
-        None => Ok(()),
+        None => Ok(files),
     }
 }
 
@@ -799,7 +851,7 @@ async fn download_entry(
     pause: &CancellationToken,
     progress: &ProgressState,
     tuning: StreamTuning<'_>,
-) -> Result<(), Failure> {
+) -> Result<String, Failure> {
     let relative = safe_tar_path(Path::new(&item.path)).ok_or_else(|| {
         Failure::Failed(format!(
             "The server sent an unsafe entry path: {}",
@@ -816,11 +868,22 @@ async fn download_entry(
         })?;
     }
 
-    // Already on disk from an earlier attempt whose checkpoint was lost.
+    // Already on disk from an earlier attempt whose checkpoint was lost. The
+    // bytes are not written again, so this is the one case where the digest
+    // comes from reading the file (#240).
     if let Ok(metadata) = tokio::fs::metadata(&target).await {
         if metadata.is_file() && metadata.len() == item.size {
             progress.bytes.fetch_add(item.size, Ordering::Relaxed);
-            return Ok(());
+            let path = target.clone();
+            let label = item.path.clone();
+            return tokio::task::spawn_blocking(move || {
+                crate::manifest::hash_file(&path)
+                    .map(|(_, sha256)| sha256)
+                    .map_err(|error| format!("could not hash {label}: {error}"))
+            })
+            .await
+            .map_err(|error| Failure::Failed(format!("The hash task failed: {error}")))?
+            .map_err(Failure::Failed);
         }
     }
 
@@ -874,8 +937,10 @@ async fn download_entry(
         .await;
         info.elapsed_ms = attempt_started.elapsed().as_millis() as u64;
         match outcome {
-            Ok(()) => {
-                finalize_entry(&partial, &target, item).await?;
+            Ok(inline_digest) => {
+                // #240: a digest produced while writing needs no read; a
+                // resumed attempt hands `None` and the CRC pass hashes too.
+                let sha256 = finalize_entry(&partial, &target, item, inline_digest).await?;
                 tracing::info!(
                     index = item.index,
                     path = %item.path,
@@ -884,7 +949,7 @@ async fn download_entry(
                     elapsed_ms = started.elapsed().as_millis() as u64,
                     "stream entry installed"
                 );
-                return Ok(());
+                return Ok(sha256);
             }
             Err(Failure::Cancelled) => return Err(Failure::Cancelled),
             Err(Failure::Paused) => return Err(Failure::Paused),
@@ -1029,10 +1094,12 @@ async fn download_entry_once(
     progress: &ProgressState,
     tuning: StreamTuning<'_>,
     info: &mut EntryAttemptInfo,
-) -> Result<(), Failure> {
+) -> Result<Option<String>, Failure> {
     if item.size == 0 {
         let _ = tokio::fs::write(partial, []).await;
-        return Ok(());
+        // An empty file still has a digest; no byte was written, so there is
+        // nothing to tee and the caller's hash pass handles it.
+        return Ok(None);
     }
 
     let mut offset = partial_size(partial).await;
@@ -1077,7 +1144,7 @@ async fn download_entry_once(
             // The `.part` may already hold the whole entry (completed just
             // before the app stopped) or be bogus.
             if offset == item.size {
-                return Ok(());
+                return Ok(None);
             }
             if !restarted {
                 restarted = true;
@@ -1141,6 +1208,11 @@ async fn download_entry_once(
             })?;
 
         let mut writer = tokio::io::BufWriter::with_capacity(1024 * 1024, file);
+        // #240: the digest is computed while the bytes pass through, but only
+        // when this pass starts at zero. A resumed pass appends to bytes whose
+        // digest this attempt does not know, so `finalize_entry` hashes the
+        // complete file in the CRC pass instead.
+        let mut hasher = (offset == 0).then(Sha256::new);
         let mut written = offset;
         let mut stream = response.body;
         loop {
@@ -1168,6 +1240,9 @@ async fn download_entry_once(
                     writer.write_all(&bytes).await.map_err(|e| {
                         Failure::Failed(format!("Could not write {}: {e}", partial.display()))
                     })?;
+                    if let Some(hasher) = hasher.as_mut() {
+                        hasher.update(&bytes);
+                    }
                     written = written.saturating_add(bytes.len() as u64);
                     progress
                         .bytes
@@ -1228,27 +1303,45 @@ async fn download_entry_once(
                 item.path, item.size
             )));
         }
-        return Ok(());
+        return Ok(hasher.map(|hasher| hex::encode(hasher.finalize())));
     }
 }
 
 /// Verifies the CRC-32, moves the partial file into place and applies the mode.
-async fn finalize_entry(partial: &Path, target: &Path, item: &StreamEntry) -> Result<(), Failure> {
+///
+/// Returns the SHA-256 of the file (#240): `inline` is the digest produced
+/// while this attempt wrote the entry from byte zero. A resumed entry has no
+/// inline digest, so the CRC pass hashes the same bytes it is already reading —
+/// still one read of the file, never a second pass later.
+async fn finalize_entry(
+    partial: &Path,
+    target: &Path,
+    item: &StreamEntry,
+    inline: Option<String>,
+) -> Result<String, Failure> {
     let path = partial.to_path_buf();
     let expected = item.crc32;
-    let crc = tokio::task::spawn_blocking(move || {
+    let hash_inline = inline.is_none();
+    let (crc, sha256) = tokio::task::spawn_blocking(move || {
         use std::io::Read;
         let mut file = std::fs::File::open(&path)?;
         let mut hasher = crc32fast::Hasher::new();
-        let mut buffer = vec![0_u8; 64 * 1024];
+        let mut digest = hash_inline.then(Sha256::new);
+        let mut buffer = vec![0_u8; 1024 * 1024];
         loop {
             let read = file.read(&mut buffer)?;
             if read == 0 {
                 break;
             }
             hasher.update(&buffer[..read]);
+            if let Some(digest) = digest.as_mut() {
+                digest.update(&buffer[..read]);
+            }
         }
-        Ok::<u32, std::io::Error>(hasher.finalize())
+        Ok::<_, std::io::Error>((
+            hasher.finalize(),
+            digest.map(|digest| hex::encode(digest.finalize())),
+        ))
     })
     .await
     .map_err(|e| Failure::Failed(format!("The checksum task failed: {e}")))?
@@ -1280,7 +1373,15 @@ async fn finalize_entry(partial: &Path, target: &Path, item: &StreamEntry) -> Re
             .await;
         }
     }
-    Ok(())
+    // `hash_inline` is true exactly when `inline` is `None`, so one of the two
+    // digests is always present. A silent empty digest would poison the
+    // manifest, so a missing one fails the entry instead (#240).
+    sha256.or(inline).ok_or_else(|| {
+        Failure::Failed(format!(
+            "Could not hash the streamed entry {}; the install manifest would be incomplete",
+            item.path
+        ))
+    })
 }
 
 /// Removes partial files whose entry is already complete or out of range.
@@ -1440,7 +1541,7 @@ mod tests {
         cancel: &CancellationToken,
         pause: &CancellationToken,
         on_complete: impl FnMut(&StreamEntry, &str),
-    ) -> Result<(), Failure> {
+    ) -> Result<Vec<StreamFileHash>, Failure> {
         run_with_tuning(
             server,
             manifest,
@@ -1470,7 +1571,7 @@ mod tests {
         pause: &CancellationToken,
         tuning: StreamTuning<'_>,
         on_complete: impl FnMut(&StreamEntry, &str),
-    ) -> Result<(), Failure> {
+    ) -> Result<Vec<StreamFileHash>, Failure> {
         let pending: Vec<StreamEntry> = files(manifest)
             .into_iter()
             .filter(|item| !completed.contains(item.index))
@@ -1899,7 +2000,7 @@ mod tests {
             |_, _| {},
         )
         .await;
-        downloaded.expect("the stalled entry must resume");
+        let resumed = downloaded.expect("the stalled entry must resume");
 
         let requests = transport.requests();
         assert!(
@@ -1915,6 +2016,24 @@ mod tests {
                 item.path
             );
         }
+        // #240: a resumed entry has no inline digest, so the CRC pass hashes
+        // the same bytes — and the manifest still describes the whole file.
+        let mut digests: Vec<(String, String)> = resumed
+            .into_iter()
+            .map(|file| (file.path, file.sha256))
+            .collect();
+        digests.sort();
+        let mut expected: Vec<(String, String)> = files(&manifest)
+            .iter()
+            .map(|item| {
+                (
+                    item.path.clone(),
+                    hex::encode(Sha256::digest(&contents[item.index])),
+                )
+            })
+            .collect();
+        expected.sort();
+        assert_eq!(digests, expected, "resume still produces every digest");
         let _ = std::fs::remove_dir_all(&staging);
     }
 
@@ -2077,6 +2196,65 @@ mod tests {
             std::fs::read(staging.join(&big.path)).unwrap(),
             contents[big_index]
         );
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+
+    /// #240: every entry the stream writes yields its digest, and the digest
+    /// is the SHA-256 of the bytes on disk (the CRC-32 check still runs).
+    #[tokio::test]
+    async fn streamed_entries_record_their_sha256() {
+        let (manifest, contents) = zip_fixture("digests");
+        let (staging, partial_root) = scripted_staging("digests-staging");
+        let mut completed = CompletedEntries::new(manifest.entry_count);
+        let progress = Arc::new(ProgressState::new(0, 0));
+        let transport = ScriptedTransport::new(contents.clone(), |index, _, _, contents| {
+            full_entry(contents, index)
+        });
+        let pending: Vec<StreamEntry> = files(&manifest)
+            .into_iter()
+            .filter(|item| !completed.contains(item.index))
+            .collect();
+        let expected: Vec<(String, u64, String)> = files(&manifest)
+            .iter()
+            .map(|item| {
+                (
+                    item.path.clone(),
+                    item.size,
+                    hex::encode(Sha256::digest(&contents[item.index])),
+                )
+            })
+            .collect();
+
+        let streamed = download_entries(
+            &transport,
+            "http://test",
+            None,
+            7,
+            9,
+            pending,
+            &staging,
+            &partial_root,
+            &mut completed,
+            0,
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            &progress,
+            fast_tuning(2),
+            |_, _| {},
+        )
+        .await
+        .expect("download");
+
+        let recorded: Vec<(String, u64, String)> = streamed
+            .into_iter()
+            .map(|file| (file.path, file.size, file.sha256))
+            .collect();
+        assert_eq!(recorded.len(), expected.len(), "one digest per entry");
+        let mut recorded = recorded;
+        recorded.sort();
+        let mut expected = expected;
+        expected.sort();
+        assert_eq!(recorded, expected);
         let _ = std::fs::remove_dir_all(&staging);
     }
 

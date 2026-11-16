@@ -752,7 +752,7 @@ pub async fn repair_install(app: &AppHandle, game_id: i64) -> Result<RepairRepor
     .await;
 
     let extracted = match extracted {
-        Ok(Ok(())) => true,
+        Ok(Ok(_hashes)) => true,
         Ok(Err(error)) => {
             tracing::warn!(error = %error, "repair extraction failed");
             false

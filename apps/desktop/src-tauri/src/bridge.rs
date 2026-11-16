@@ -49,13 +49,17 @@ pub struct ExtractUpdate {
 /// place so the caller can decide what to keep. Configured passwords are
 /// handed to the core extractor, which also tries the empty password as a
 /// fallback.
+///
+/// Returns the per-file digests the extractor collected while writing (#240):
+/// the install manifest is built from them, so the extracted tree is never
+/// read again to hash it.
 pub fn extract_archive(
     archive: &Path,
     destination: &Path,
     passwords: &[String],
     cancel: Option<CancellationToken>,
     progress: &mut dyn FnMut(ExtractUpdate),
-) -> Result<(), String> {
+) -> Result<Vec<ludex_core::archive::ExtractedFile>, String> {
     use ludex_core::archive::{extract_archive, CancelCheck, ExtractOptions, ExtractProgress};
 
     let mut options = ExtractOptions::with_passwords(passwords.to_vec());
@@ -75,6 +79,14 @@ pub fn extract_archive(
     };
 
     extract_archive(archive, destination, &options, &mut callback)
-        .map(|_report| ())
+        .map(|report| {
+            tracing::info!(
+                files = report.files,
+                bytes = report.bytes,
+                hashed = report.hashes.len(),
+                "extraction finished; file digests were collected while writing"
+            );
+            report.hashes
+        })
         .map_err(|error| format!("Could not extract {}: {error}", archive.display()))
 }

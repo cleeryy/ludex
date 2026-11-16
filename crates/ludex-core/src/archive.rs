@@ -15,17 +15,26 @@
 //! archive is encrypted. RAR stays on libunrar: RAR5 solid archives are
 //! sequential by design.
 //!
+//! Every byte written during extraction is also fed to a per-file SHA-256
+//! (#240), and [`ExtractReport::hashes`] carries `{path, size, sha256}` for
+//! each file. The install manifest is built from that result, so a 40 GB
+//! install no longer re-reads the extracted tree to hash it a second time.
+//! The native 7-Zip path is the one exception: the binary writes the files
+//! itself, so its digests come from the verification read that already
+//! happens after it exits.
+//!
 //! ```
 //! use std::path::Path;
 //! let format = ludex_core::archive::detect_format(Path::new("missing.zip"));
 //! assert!(format.is_err());
 //! ```
 
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
@@ -59,6 +68,13 @@ const COPY_BUFFER_SIZE: usize = 1024 * 1024;
 /// of a 200 MiB entry stops issuing 16k syscalls. The buffer is allocated per
 /// entry, so a tree of tiny files pays an allocator call, not 4 MiB of pages.
 const WRITE_BUFFER_SIZE: usize = 4 * 1024 * 1024;
+
+/// Read buffer for the hash of a file a backend wrote itself (#240).
+///
+/// Only the native 7-Zip path and the RAR scratch read use it. 4 MiB keeps a
+/// sequential read at full disk speed; SHA-256 with SHA-NI runs at several
+/// hundred MiB/s, so the read is the cost, not the hash.
+const HASH_BUFFER_SIZE: usize = 4 * 1024 * 1024;
 
 /// Progress is reported at most every mebibyte written.
 const PROGRESS_STEP_BYTES: u64 = 1024 * 1024;
@@ -193,6 +209,14 @@ pub struct ExtractOptions {
     /// returns [`ArchiveError::Cancelled`] and leaves the destination as it
     /// is; a caller that stages keeps the stage.
     pub cancel: Option<CancelCheck>,
+    /// Tee every extracted byte into a per-file SHA-256 (#240).
+    ///
+    /// On by default: the digest of every written file is part of
+    /// [`ExtractReport::hashes`], which lets a caller build its install
+    /// manifest without walking the tree again. Turning it off keeps the
+    /// extraction identical but leaves [`ExtractReport::hashes`] empty, for a
+    /// caller that has no use for the digests.
+    pub collect_hashes: bool,
 }
 
 impl Default for ExtractOptions {
@@ -203,6 +227,7 @@ impl Default for ExtractOptions {
             preserve_modes: false,
             zip_workers: 0,
             cancel: None,
+            collect_hashes: true,
         }
     }
 }
@@ -283,6 +308,22 @@ pub struct ExtractProgress {
     pub eta_seconds: Option<u64>,
 }
 
+/// One file produced by an extraction, with the digest computed while its
+/// bytes were written (#240).
+///
+/// `path` is relative to the extraction destination, `/`-separated, exactly
+/// like the path an install manifest expects. The digest is the SHA-256 of the
+/// file content (lowercase hex), never of the compressed entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtractedFile {
+    /// Relative path with `/` separators.
+    pub path: String,
+    /// Size in bytes of the written file.
+    pub size: u64,
+    /// SHA-256 of the file content, lowercase hex.
+    pub sha256: String,
+}
+
 /// Result of [`extract_archive`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ExtractReport {
@@ -290,6 +331,13 @@ pub struct ExtractReport {
     pub files: usize,
     /// Number of bytes written.
     pub bytes: u64,
+    /// Per-file hashes, sorted by path, one entry per written file (#240).
+    ///
+    /// Empty when [`ExtractOptions::collect_hashes`] is off, and empty for a
+    /// skipped entry (`overwrite == false`, the file already existed). The
+    /// native 7-Zip binary writes the files itself, so its digests come from
+    /// the post-run verification read instead of a tee.
+    pub hashes: Vec<ExtractedFile>,
 }
 
 /// Reads the magic bytes of `path` and returns the detected format.
@@ -481,12 +529,50 @@ pub fn extract_archive(
         return Err(ArchiveError::UnsupportedFormat);
     }
     fs::create_dir_all(dest)?;
-    match format {
+    let mut report = match format {
         ArchiveFormat::Zip => extract_zip(path, dest, opts, progress),
         ArchiveFormat::Rar => extract_rar(path, dest, opts, progress),
         ArchiveFormat::SevenZip => extract_seven_zip(path, dest, opts, progress),
         ArchiveFormat::Unknown => Err(ArchiveError::UnsupportedFormat),
+    }?;
+    // One deterministic order for every backend: a manifest built from this is
+    // byte-identical to the one `walk_files` produced, and a duplicate entry
+    // name resolves to the file that is really on disk (last one written).
+    report.hashes = normalize_hashes(std::mem::take(&mut report.hashes));
+    Ok(report)
+}
+
+/// Orders the per-file digests by path and keeps one entry per path (#240).
+///
+/// A ZIP may declare the same name twice; the report must describe the tree
+/// that exists, not both writes. Inserting into a `BTreeMap` keeps the last
+/// value, which is the last write for a sequential extraction and the
+/// last plan entry for the parallel one. The path order is the one the
+/// desktop manifest walk produced, so the persisted manifest is byte-identical
+/// to the old second pass.
+fn normalize_hashes(files: Vec<ExtractedFile>) -> Vec<ExtractedFile> {
+    let mut by_path: BTreeMap<String, ExtractedFile> = BTreeMap::new();
+    for file in files {
+        by_path.insert(file.path.clone(), file);
     }
+    by_path.into_values().collect()
+}
+
+/// Converts a validated relative entry path to the `/` form a manifest uses.
+///
+/// `None` for a component that is not UTF-8, exactly like the desktop manifest
+/// walk (`manifest::relative_slash`) which skips such a file: a lossy path
+/// would be recorded in the manifest and never resolve again, so the file is
+/// written but not hashed (#240).
+fn slash_path(path: &Path) -> Option<String> {
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => parts.push(part.to_str()?.to_string()),
+            _ => return None,
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
 }
 
 /// Normalises and validates an archive entry path.
@@ -544,8 +630,13 @@ struct ZipPlanEntry {
 
 /// Result of writing one plan entry.
 enum EntryOutcome {
-    /// The file was written; carries the number of bytes written.
-    Written(u64),
+    /// The file was written; carries what the manifest needs. `path` is
+    /// `None` for a non-UTF-8 entry name, which the manifest cannot describe.
+    Written {
+        path: Option<String>,
+        bytes: u64,
+        sha256: Option<String>,
+    },
     /// The entry was skipped (`overwrite == false` and the file exists).
     Skipped,
 }
@@ -573,9 +664,20 @@ fn extract_zip(
 
     for entry in &plan {
         match extract_zip_entry(&mut archive, entry.index, dest, opts, &mut sink)? {
-            EntryOutcome::Written(bytes) => {
+            EntryOutcome::Written {
+                path,
+                bytes,
+                sha256,
+            } => {
                 report.files += 1;
                 report.bytes = report.bytes.saturating_add(bytes);
+                if let (Some(path), Some(sha256)) = (path, sha256) {
+                    report.hashes.push(ExtractedFile {
+                        path,
+                        size: bytes,
+                        sha256,
+                    });
+                }
             }
             EntryOutcome::Skipped => {}
         }
@@ -660,10 +762,18 @@ struct ZipShared {
     current_file: Mutex<String>,
     stop: AtomicBool,
     cancelled: AtomicBool,
+    /// One slot per plan entry, filled by the worker that wrote it (#240).
+    ///
+    /// The slot is the pool position, not the central-directory index, so two
+    /// workers writing different entries never touch the same cell. A ZIP that
+    /// declares the same name twice is a malformed archive (both writes target
+    /// the same file, and two workers can race on it); the report keeps one
+    /// entry per path, resolved by plan order in `normalize_hashes`.
+    hashes: Mutex<Vec<Option<ExtractedFile>>>,
 }
 
 impl ZipShared {
-    fn new() -> Self {
+    fn new(plan_len: usize) -> Self {
         Self {
             bytes_done: AtomicU64::new(0),
             entries_done: AtomicU64::new(0),
@@ -671,7 +781,27 @@ impl ZipShared {
             current_file: Mutex::new(String::new()),
             stop: AtomicBool::new(false),
             cancelled: AtomicBool::new(false),
+            hashes: Mutex::new(std::iter::repeat_with(|| None).take(plan_len).collect()),
         }
+    }
+
+    fn record_hash(&self, slot: usize, file: ExtractedFile) {
+        let mut hashes = self
+            .hashes
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(cell) = hashes.get_mut(slot) {
+            *cell = Some(file);
+        }
+    }
+
+    /// Takes the collected digests in pool order (#240).
+    fn take_hashes(&self) -> Vec<ExtractedFile> {
+        let mut hashes = self
+            .hashes
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        std::mem::take(&mut *hashes).into_iter().flatten().collect()
     }
 
     fn set_current(&self, name: &str) {
@@ -798,7 +928,7 @@ fn extract_zip_parallel(
     workers: usize,
 ) -> Result<ExtractReport, ArchiveError> {
     let bytes_total = plan.iter().map(|entry| entry.size).sum::<u64>();
-    let shared = ZipShared::new();
+    let shared = ZipShared::new(plan.len());
     let next = AtomicUsize::new(0);
     let failure: Mutex<Option<(usize, ArchiveError)>> = Mutex::new(None);
     let (wake, signals) = mpsc::sync_channel::<()>(1);
@@ -857,8 +987,21 @@ fn extract_zip_parallel(
                         };
                         match extract_zip_entry(&mut archive, entry.index, dest, opts, &mut sink) {
                             // Counters were updated through the sink as the
-                            // entry was written; only failures need handling.
-                            Ok(EntryOutcome::Written(_)) | Ok(EntryOutcome::Skipped) => {}
+                            // entry was written; the digest is the only extra
+                            // result to keep.
+                            Ok(EntryOutcome::Written {
+                                path: Some(path),
+                                bytes,
+                                sha256: Some(sha256),
+                            }) => shared.record_hash(
+                                slot,
+                                ExtractedFile {
+                                    path,
+                                    size: bytes,
+                                    sha256,
+                                },
+                            ),
+                            Ok(EntryOutcome::Written { .. }) | Ok(EntryOutcome::Skipped) => {}
                             Err(ArchiveError::Cancelled) => {
                                 shared.cancelled.store(true, Ordering::Relaxed);
                                 break;
@@ -904,6 +1047,7 @@ fn extract_zip_parallel(
     Ok(ExtractReport {
         files: shared.files_done.load(Ordering::Relaxed) as usize,
         bytes: shared.bytes_done.load(Ordering::Relaxed),
+        hashes: shared.take_hashes(),
     })
 }
 
@@ -955,11 +1099,21 @@ fn extract_zip_entry<S: EntrySink + ?Sized>(
 
     sink.begin_entry(&name);
     let mut writer = BufWriter::with_capacity(WRITE_BUFFER_SIZE, File::create(&out_path)?);
-    let written = copy_with_progress(&mut entry, &mut writer, opts.cancel.as_ref(), sink)?;
+    let copied = copy_with_progress(
+        &mut entry,
+        &mut writer,
+        opts.cancel.as_ref(),
+        sink,
+        opts.collect_hashes,
+    )?;
     writer.flush()?;
     apply_mode(opts, &out_path, &name, entry.unix_mode())?;
     sink.finish_entry();
-    Ok(EntryOutcome::Written(written))
+    Ok(EntryOutcome::Written {
+        path: slash_path(&relative),
+        bytes: copied.bytes,
+        sha256: copied.sha256,
+    })
 }
 
 fn open_zip_entry<'a>(
@@ -1065,9 +1219,15 @@ fn rar_listing(path: &Path, password: Option<&str>) -> Result<(usize, u64), Arch
 /// RAR5 solid archives compress the whole file set as one stream: entry N+1
 /// cannot be decoded before entry N, so there is nothing to parallelise. The
 /// RAR path is honestly sequential; the only wins here are I/O (directories
-/// pre-created, entry data written once by libunrar, no scratch copy) and the
-/// cancellation check between entries, which lets a cancel keep the staging
-/// directory instead of finishing a 40 GB unpack.
+/// pre-created, no scratch copy when hashes are off) and the cancellation check
+/// between entries, which lets a cancel keep the staging directory instead of
+/// finishing a 40 GB unpack.
+///
+/// libunrar can only extract to a path and offers no streaming reader, so
+/// #240 hashes each entry through a private scratch file: libunrar writes the
+/// scratch, the hash pass reads it (hot in page cache) and `rename` puts it in
+/// place. The install tree is never re-read afterwards, and no second write of
+/// the file happens on top of the one libunrar already did.
 fn extract_rar_pass(
     path: &Path,
     dest: &Path,
@@ -1081,6 +1241,7 @@ fn extract_rar_pass(
     };
     let mut archive = archive.open_for_processing().map_err(map_unrar_error)?;
     let mut report = ExtractReport::default();
+    let mut scratch: Option<ScratchSpace> = None;
 
     while let Some(header) = archive.read_header().map_err(map_unrar_error)? {
         if opts.is_cancelled() {
@@ -1124,13 +1285,48 @@ fn extract_rar_pass(
         }
 
         sink.begin_entry(&name);
-        archive = header
-            .extract_to(&out_path)
-            .map_err(|error| map_unrar_extract_error(error, is_encrypted))?;
+        if opts.collect_hashes {
+            // libunrar writes the entry to a scratch path; the hash pass is
+            // the same read that produces the manifest entry (#240).
+            let space = match scratch.as_mut() {
+                Some(space) => space,
+                None => scratch.insert(ScratchSpace::new(dest)?),
+            };
+            let staged = space.next_file();
+            archive = header
+                .extract_to(&staged)
+                .map_err(|error| map_unrar_extract_error(error, is_encrypted))?;
+            let mut reader = BufReader::with_capacity(COPY_BUFFER_SIZE, File::open(&staged)?);
+            let copied = copy_with_progress(
+                &mut reader,
+                &mut io::sink(),
+                opts.cancel.as_ref(),
+                sink,
+                true,
+            )?;
+            drop(reader);
+            if out_path.exists() {
+                fs::remove_file(&out_path)?;
+            }
+            fs::rename(&staged, &out_path)?;
+            report.files += 1;
+            report.bytes = report.bytes.saturating_add(copied.bytes);
+            if let (Some(path), Some(sha256)) = (slash_path(&relative), copied.sha256) {
+                report.hashes.push(ExtractedFile {
+                    path,
+                    size: copied.bytes,
+                    sha256,
+                });
+            }
+        } else {
+            archive = header
+                .extract_to(&out_path)
+                .map_err(|error| map_unrar_extract_error(error, is_encrypted))?;
+            report.files += 1;
+            report.bytes = report.bytes.saturating_add(size);
+            sink.add_bytes(size);
+        }
         apply_mode(opts, &out_path, &name, rar_unix_mode(attributes))?;
-        report.files += 1;
-        report.bytes = report.bytes.saturating_add(size);
-        sink.add_bytes(size);
         sink.finish_entry();
     }
 
@@ -1558,6 +1754,18 @@ fn verify_native_seven_zip(
                 entry.size()
             )));
         }
+        // The binary owns the writes, so this verification read also produces
+        // the digest of the file it wrote (#240). It is the only path that
+        // hashes after writing instead of while writing.
+        if opts.collect_hashes {
+            if let Some(path) = slash_path(&relative) {
+                report.hashes.push(ExtractedFile {
+                    path,
+                    size: meta.len(),
+                    sha256: hash_file_sha256(&out_path)?,
+                });
+            }
+        }
         apply_mode(
             opts,
             &out_path,
@@ -1568,6 +1776,21 @@ fn verify_native_seven_zip(
         report.bytes = report.bytes.saturating_add(meta.len());
     }
     Ok(report)
+}
+
+/// SHA-256 of a file a backend wrote itself (#240).
+fn hash_file_sha256(path: &Path) -> Result<String, ArchiveError> {
+    let mut file = File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; HASH_BUFFER_SIZE];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hex::encode(hasher.finalize()))
 }
 
 fn extract_seven_zip_entry(
@@ -1609,7 +1832,13 @@ fn extract_seven_zip_entry(
 
     sink.begin_entry(&name);
     let mut writer = BufWriter::with_capacity(WRITE_BUFFER_SIZE, File::create(&out_path)?);
-    let written = copy_with_progress(reader, &mut writer, opts.cancel.as_ref(), sink)?;
+    let copied = copy_with_progress(
+        reader,
+        &mut writer,
+        opts.cancel.as_ref(),
+        sink,
+        opts.collect_hashes,
+    )?;
     writer.flush()?;
     apply_mode(
         opts,
@@ -1618,7 +1847,14 @@ fn extract_seven_zip_entry(
         seven_zip_unix_mode(entry.windows_attributes),
     )?;
     report.files += 1;
-    report.bytes = report.bytes.saturating_add(written);
+    report.bytes = report.bytes.saturating_add(copied.bytes);
+    if let (Some(path), Some(sha256)) = (slash_path(&relative), copied.sha256) {
+        report.hashes.push(ExtractedFile {
+            path,
+            size: copied.bytes,
+            sha256,
+        });
+    }
     sink.finish_entry();
     Ok(())
 }
@@ -1638,13 +1874,19 @@ fn password_candidates(opts: &ExtractOptions) -> Vec<Option<&str>> {
 ///
 /// Cancellation is polled once per chunk (1 MiB), so the caller stops about
 /// one chunk after the flag is raised instead of finishing a 40 GB entry.
+///
+/// When `digest` is set every byte read is also fed to a SHA-256 (#240): the
+/// bytes are already in the buffer, so the per-file hash costs CPU but no
+/// additional read. The digest is `None` when the option is off.
 fn copy_with_progress<S: EntrySink + ?Sized>(
     reader: &mut dyn Read,
     writer: &mut dyn Write,
     cancel: Option<&CancelCheck>,
     sink: &mut S,
-) -> Result<u64, ArchiveError> {
+    digest: bool,
+) -> Result<CopiedEntry, ArchiveError> {
     let mut buffer = vec![0_u8; COPY_BUFFER_SIZE];
+    let mut hasher = digest.then(Sha256::new);
     let mut total = 0_u64;
     loop {
         if cancel.is_some_and(CancelCheck::is_cancelled) {
@@ -1655,10 +1897,22 @@ fn copy_with_progress<S: EntrySink + ?Sized>(
             break;
         }
         writer.write_all(&buffer[..read])?;
+        if let Some(hasher) = hasher.as_mut() {
+            hasher.update(&buffer[..read]);
+        }
         total = total.saturating_add(read as u64);
         sink.add_bytes(read as u64);
     }
-    Ok(total)
+    Ok(CopiedEntry {
+        bytes: total,
+        sha256: hasher.map(|hasher| hex::encode(hasher.finalize())),
+    })
+}
+
+/// What one copied entry produced (#240).
+struct CopiedEntry {
+    bytes: u64,
+    sha256: Option<String>,
 }
 
 /// Returns an error when `out_path` is not inside `dest`.
@@ -4454,5 +4708,409 @@ mod tests {
         };
         let error = extract_archive(&archive, &dest, &options, &mut |_| {}).expect_err("cancelled");
         assert!(matches!(error, ArchiveError::Cancelled), "{error:?}");
+    }
+
+    // -----------------------------------------------------------------------
+    // Hash while extracting (#240)
+    // -----------------------------------------------------------------------
+
+    fn sha256_hex(data: &[u8]) -> String {
+        hex::encode(Sha256::digest(data))
+    }
+
+    /// The reference "second pass": read the extracted tree and hash it.
+    ///
+    /// Same streaming reader as `manifest::hash_file` (4 MiB buffer, one
+    /// `Sha256` per file), so the measurement below compares the production
+    /// walk with the production tee, not a buffered shortcut.
+    fn rehash_tree(root: &Path) -> Vec<ExtractedFile> {
+        let mut buffer = vec![0_u8; HASH_BUFFER_SIZE];
+        let mut files = Vec::new();
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(directory) = stack.pop() {
+            for entry in fs::read_dir(&directory).expect("read dir") {
+                let entry = entry.expect("dir entry");
+                let path = entry.path();
+                let metadata = fs::symlink_metadata(&path).expect("stat");
+                if metadata.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if !metadata.is_file() {
+                    continue;
+                }
+                let mut file = File::open(&path).expect("open extracted file");
+                let mut hasher = Sha256::new();
+                loop {
+                    let read = file.read(&mut buffer).expect("read extracted file");
+                    if read == 0 {
+                        break;
+                    }
+                    hasher.update(&buffer[..read]);
+                }
+                let relative = path.strip_prefix(root).expect("relative path");
+                let Some(relative) = slash_path(relative) else {
+                    // The manifest walker skips non-UTF-8 names too.
+                    continue;
+                };
+                files.push(ExtractedFile {
+                    path: relative,
+                    size: metadata.len(),
+                    sha256: hex::encode(hasher.finalize()),
+                });
+            }
+        }
+        files.sort_by(|left, right| left.path.cmp(&right.path));
+        files
+    }
+
+    fn assert_hashes_match_the_tree(report: &ExtractReport, root: &Path) {
+        let expected = rehash_tree(root);
+        assert_eq!(report.hashes.len(), expected.len(), "{expected:?}");
+        assert_eq!(report.hashes, expected);
+        assert_eq!(
+            report.hashes.iter().map(|file| file.size).sum::<u64>(),
+            report.bytes,
+            "every written byte was hashed exactly once"
+        );
+        for file in &report.hashes {
+            assert_eq!(file.sha256.len(), 64, "lowercase hex digest");
+        }
+    }
+
+    #[test]
+    fn zip_extraction_hashes_match_a_sequential_rehash() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("library.zip");
+        let big = compressible(700_000, 17);
+        write_deflate_zip(
+            &archive,
+            &[
+                ("Game/big.bin", big.as_slice()),
+                ("Game/readme.txt", b"hello" as &[u8]),
+                ("Game/empty.txt", b""),
+                ("Game/unicode-é.txt", "café".as_bytes()),
+            ],
+        );
+
+        let dest = temp.path().join("out");
+        let report =
+            extract_archive(&archive, &dest, &zip_options(1), &mut |_| {}).expect("extract");
+
+        assert_eq!(report.files, 4);
+        assert_eq!(report.hashes.len(), 4);
+        assert_hashes_match_the_tree(&report, &dest);
+        let readme = report
+            .hashes
+            .iter()
+            .find(|file| file.path == "Game/readme.txt")
+            .expect("readme hash");
+        assert_eq!(readme.sha256, sha256_hex(b"hello"));
+        assert_eq!(
+            report
+                .hashes
+                .iter()
+                .find(|file| file.path == "Game/empty.txt")
+                .expect("empty hash")
+                .sha256,
+            sha256_hex(b""),
+            "an empty file still has a digest"
+        );
+    }
+
+    #[test]
+    fn zip_parallel_workers_record_the_same_digests() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("library.zip");
+        let first = compressible(1_500_000, 3);
+        let second = compressible(900_000, 91);
+        write_deflate_zip(
+            &archive,
+            &[
+                ("Game/big-a.bin", first.as_slice()),
+                ("Game/sub/big-b.bin", second.as_slice()),
+                ("Game/readme.txt", b"hello" as &[u8]),
+                ("Game/empty.txt", b""),
+                ("Game/deep/nested/last.bin", &second[..1000]),
+            ],
+        );
+
+        let sequential_dir = temp.path().join("sequential");
+        let parallel_dir = temp.path().join("parallel");
+        let sequential = extract_archive(&archive, &sequential_dir, &zip_options(1), &mut |_| {})
+            .expect("sequential");
+        let parallel = extract_archive(&archive, &parallel_dir, &zip_options(6), &mut |_| {})
+            .expect("parallel");
+
+        assert_eq!(parallel.hashes, sequential.hashes);
+        assert_hashes_match_the_tree(&sequential, &sequential_dir);
+        assert_hashes_match_the_tree(&parallel, &parallel_dir);
+    }
+
+    #[test]
+    fn seven_zip_crate_hashes_match_a_sequential_rehash() {
+        // Encrypted archives and hosts without a binary always use the crate;
+        // pin it so the test does not depend on what is installed.
+        let _guard = seven_zip_env_lock();
+        std::env::set_var(SEVEN_ZIP_ENV, "crate");
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("library.7z");
+        let payload = compressible(400_000, 5);
+        write_seven_zip(
+            &archive,
+            &[
+                ("Game/data.bin", payload.as_slice()),
+                ("Game/readme.txt", b"hello" as &[u8]),
+                ("Game/empty.txt", b""),
+            ],
+        );
+
+        let dest = temp.path().join("out");
+        let report = extract_archive(&archive, &dest, &ExtractOptions::default(), &mut |_| {})
+            .expect("extract 7z");
+        std::env::remove_var(SEVEN_ZIP_ENV);
+
+        assert_eq!(report.files, 3);
+        assert_hashes_match_the_tree(&report, &dest);
+    }
+
+    #[test]
+    fn seven_zip_native_binary_produces_the_manifest() {
+        // The native path is the documented exception: the binary owns the
+        // writes, so the digests come from its verification read. They must
+        // still be exactly what a sequential rehash returns.
+        let _guard = seven_zip_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("library.7z");
+        let entries: Vec<(&str, &[u8])> = vec![
+            ("Game/game.sh", b"#!/bin/sh\n" as &[u8]),
+            ("Game/data.bin", b"payload" as &[u8]),
+        ];
+        write_seven_zip(&archive, &entries);
+        let golden = temp.path().join("golden");
+        golden_tree(&golden, &entries);
+        let script = fake_seven_zip(temp.path(), &golden, 0, false);
+        std::env::set_var(SEVEN_ZIP_ENV, &script);
+
+        let dest = temp.path().join("out");
+        let report = extract_archive(&archive, &dest, &ExtractOptions::default(), &mut |_| {})
+            .expect("native extract");
+        std::env::remove_var(SEVEN_ZIP_ENV);
+
+        assert!(
+            dest.join(".fake-7z-ran").exists(),
+            "the binary must have run"
+        );
+        // The marker is the fake script's proof, not an archive entry.
+        fs::remove_file(dest.join(".fake-7z-ran")).expect("remove marker");
+        assert_eq!(report.hashes.len(), 2);
+        assert_hashes_match_the_tree(&report, &dest);
+        assert_eq!(
+            report
+                .hashes
+                .iter()
+                .find(|file| file.path == "Game/data.bin")
+                .expect("data hash")
+                .sha256,
+            sha256_hex(b"payload")
+        );
+    }
+
+    #[test]
+    fn rar_extraction_hashes_match_a_sequential_rehash() {
+        for name in ["rar4.rar", "rar5.rar"] {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let dest = temp.path().join("out");
+            let report = extract_archive(
+                &fixture(name),
+                &dest,
+                &ExtractOptions::default(),
+                &mut |_| {},
+            )
+            .unwrap_or_else(|error| panic!("extract {name}: {error:?}"));
+
+            assert_eq!(report.files, 4, "{name}");
+            assert_eq!(report.hashes.len(), 4, "{name}");
+            assert_hashes_match_the_tree(&report, &dest);
+            assert_eq!(
+                report
+                    .hashes
+                    .iter()
+                    .find(|file| file.path == "Game/readme.txt")
+                    .unwrap_or_else(|| panic!("{name}: readme hash"))
+                    .sha256,
+                sha256_hex(b"hello")
+            );
+            assert_eq!(
+                report
+                    .hashes
+                    .iter()
+                    .find(|file| file.path == "Game/empty.txt")
+                    .unwrap_or_else(|| panic!("{name}: empty hash"))
+                    .sha256,
+                sha256_hex(b"")
+            );
+            // The scratch file libunrar wrote is gone: the staging folder only
+            // holds the extracted game.
+            let leftovers: Vec<_> = fs::read_dir(&dest)
+                .expect("read dest")
+                .map(|entry| entry.expect("entry").file_name())
+                .filter(|name| name.to_string_lossy().starts_with("ludex-rar-"))
+                .collect();
+            assert!(leftovers.is_empty(), "{name}: {leftovers:?}");
+        }
+    }
+
+    #[test]
+    fn hashes_can_be_turned_off_without_changing_the_extraction() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("library.zip");
+        write_deflate_zip(
+            &archive,
+            &[
+                ("Game/a.bin", compressible(200_000, 9).as_slice()),
+                ("Game/b.txt", b"hello" as &[u8]),
+            ],
+        );
+
+        let hashed_dir = temp.path().join("hashed");
+        let plain_dir = temp.path().join("plain");
+        let hashed = extract_archive(&archive, &hashed_dir, &zip_options(1), &mut |_| {})
+            .expect("hashed extract");
+        let plain = extract_archive(
+            &archive,
+            &plain_dir,
+            &ExtractOptions {
+                collect_hashes: false,
+                ..ExtractOptions::default()
+            },
+            &mut |_| {},
+        )
+        .expect("plain extract");
+
+        assert_eq!(plain.files, hashed.files);
+        assert_eq!(plain.bytes, hashed.bytes);
+        assert!(plain.hashes.is_empty(), "opt-out leaves no digests");
+        assert_eq!(tree_snapshot(&hashed_dir), tree_snapshot(&plain_dir));
+    }
+
+    /// A non-UTF-8 entry name is written but not described: the desktop
+    /// manifest walker skips it, so recording a lossy path would create an
+    /// entry that never resolves (#240).
+    #[test]
+    #[cfg(unix)]
+    fn non_utf8_entry_paths_are_written_but_not_hashed() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let path = Path::new(OsStr::from_bytes(b"Game/\xFF.bin"));
+        assert_eq!(slash_path(path), None);
+        assert_eq!(
+            slash_path(Path::new("Game/ok.bin")),
+            Some("Game/ok.bin".to_string())
+        );
+        assert_eq!(slash_path(Path::new("")), None, "empty is not a file");
+    }
+
+    #[test]
+    fn duplicate_entry_names_keep_the_last_digest_once() {
+        // A ZIP may declare the same name twice; the last write is what stays
+        // on disk, and the report must describe the tree, not both writes.
+        let files = normalize_hashes(vec![
+            ExtractedFile {
+                path: "Game/b.txt".into(),
+                size: 5,
+                sha256: sha256_hex(b"hello"),
+            },
+            ExtractedFile {
+                path: "Game/a.txt".into(),
+                size: 5,
+                sha256: sha256_hex(b"first"),
+            },
+            ExtractedFile {
+                path: "Game/a.txt".into(),
+                size: 6,
+                sha256: sha256_hex(b"second"),
+            },
+        ]);
+
+        assert_eq!(
+            files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Game/a.txt", "Game/b.txt"],
+            "path order, one entry per path"
+        );
+        assert_eq!(files[0].sha256, sha256_hex(b"second"));
+        assert_eq!(files[0].size, 6);
+    }
+
+    /// Measures the pass #240 removed: extraction, then a full re-read of the
+    /// extracted tree, against extraction that hashes while it writes.
+    ///
+    /// Ignored by default because it is a measurement, not a check. Run it with
+    /// `cargo test -p ludex-core --release -- --ignored --nocapture
+    /// benchmark_hash_while_extracting`.
+    #[test]
+    #[ignore = "measurement: prints the cost of the removed second pass"]
+    fn benchmark_hash_while_extracting() {
+        use std::time::Instant;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive = temp.path().join("bench.zip");
+        // 64 entries x 4 MiB: 256 MiB uncompressed, the shape of a real game.
+        let block = compressible(4 * 1024 * 1024, 23);
+        let names: Vec<String> = (0..64)
+            .map(|index| format!("Game/part-{index:02}.bin"))
+            .collect();
+        {
+            let entries: Vec<(&str, &[u8])> = names
+                .iter()
+                .map(|name| (name.as_str(), block.as_slice()))
+                .collect();
+            write_deflate_zip(&archive, &entries);
+        }
+
+        // The shape the app really runs: #232 already inflates on several
+        // workers, while the old manifest walk hashed the tree on one.
+        let mut timings = Vec::new();
+        for workers in [1_usize, 8] {
+            let without_dir = temp.path().join(format!("plain-{workers}"));
+            let options = ExtractOptions {
+                collect_hashes: false,
+                zip_workers: workers,
+                ..ExtractOptions::default()
+            };
+            let started = Instant::now();
+            let plain =
+                extract_archive(&archive, &without_dir, &options, &mut |_| {}).expect("extract");
+            let extract_only = started.elapsed();
+
+            let started = Instant::now();
+            let rehashed = rehash_tree(&without_dir);
+            let second_pass = started.elapsed();
+
+            let with_dir = temp.path().join(format!("hashed-{workers}"));
+            let started = Instant::now();
+            let hashed = extract_archive(&archive, &with_dir, &zip_options(workers), &mut |_| {})
+                .expect("extract");
+            let inline = started.elapsed();
+
+            assert_eq!(hashed.hashes, rehashed, "same digests as the second pass");
+            assert_eq!(plain.bytes, hashed.bytes);
+            timings.push((workers, extract_only, second_pass, inline));
+        }
+
+        println!("64 entries / 256 MiB, SHA-256 without SHA-NI on this host");
+        for (workers, extract_only, second_pass, inline) in timings {
+            let old_total = extract_only + second_pass;
+            let saved = old_total.saturating_sub(inline);
+            let percent = 100.0 * saved.as_secs_f64() / old_total.as_secs_f64();
+            println!(
+                "  {workers} workers: old extract {extract_only:?} + rehash {second_pass:?} = {old_total:?} | new extract+hash {inline:?} | saved {saved:?} ({percent:.0}%)"
+            );
+        }
     }
 }

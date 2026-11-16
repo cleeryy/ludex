@@ -3684,8 +3684,8 @@ stops every write. Each applied change appears in the Backups tab with
 - **Verifying phase (#223).** A resumed or pre-existing `.part` is rehashed
   from byte 0 before extraction. That pass is phase `verifying` with
   `bytesDone` as the hashed byte count, `speedBps: 0` and a message like
-  `Verifying archive (42.5 GB of 96.3 GB)`; the row renders an indeterminate
-  bar and an elapsed time instead of an ETA. The digest is cached next to the
+  `Verifying archive (one pass, 42.5 GB of 96.3 GB)`; the row renders an
+  indeterminate bar and an elapsed time instead of an ETA. The digest is cached next to the
   archive in `{part}.verified.json` (`size`, `mtime`, `etag`, `sha256`) and
   reused while it matches, so an unchanged archive is not rehashed. A mismatch
   deletes the bytes and the cache and retries once from zero; the failure keeps
@@ -3703,6 +3703,26 @@ stops every write. Each applied change appears in the Backups tab with
   A cancel is polled between entries and every 1 MiB chunk: the job ends
   `cancelled`, the downloaded archive and the staging folder are kept, and the
   partial tree is not published.
+- **Finalizing phase and the file manifest (#240).** The extractor hashes every
+  byte it writes (ZIP/7z through the copy loop, RAR through its scratch copy,
+  the native 7-Zip path through the verification read), and the install
+  manifest is assembled from that result: **the installed tree is not read
+  again** to hash it. `message` is `Recording file hashes from extraction` and
+  the phase is `finalizing`; the old `Hashing X of Y files` walk only runs for
+  a legacy install, a repair or a single-file copy, where no transport digest
+  exists. The proved archive digest (#216/#223) is stored on the manifest row
+  as `trusted_archive_sha256` (desktop schema 21) and is never re-proved by
+  hashing the tree. A per-entry stream hashes while writing and hashes only the
+  entries it adopts from an earlier attempt; its archive digest is `null`. A
+  file-manifest install (#231, opt-in) stores the server's manifest as-is: the
+  files the engine downloaded were verified before commit, and a file it adopts
+  from a checkpoint is trusted exactly as #231 already trusts it (by size), so
+  the digest recorded is the server's, not a re-read of the file.
+  The install log carries `archive_read_bytes`, `tree_written_bytes`,
+  `tree_read_bytes` and `hashed_bytes`, so a support bundle can show one
+  archive read plus one extracted write for a normal install. Verification and
+  repair are unchanged: they compare the files on disk against the per-file
+  SHA-256.
 - **Bandwidth limit.** `bandwidthLimitKib` caps the copy loop of archive
   downloads, repairs and stream installs. 0 means unlimited. The cap is read
   when a transfer starts. The field keeps its KiB/s storage for compatibility;

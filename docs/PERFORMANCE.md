@@ -509,6 +509,58 @@ feature to `crates/ludex-core/Cargo.toml` and re-run the table above.
 | RAR slower than everything | Expected: solid, sequential, one core |
 | Cancel latency > 1 s | A single entry larger than the remaining work: cancel is polled per 1 MiB chunk, so this should not happen — report it |
 
+## Hashing while extracting (#240)
+
+The install used to hash every extracted file a second time, after extraction,
+to build the per-file manifest (`Hashing X of Y files` in `finalizing`). That
+was a full extra read of the installed tree — 40–100 GB — while the
+extraction had already streamed every byte once.
+
+The extractor now tees each written byte into a per-file SHA-256 and
+`ExtractReport::hashes` carries `{path, size, sha256}`; the manifest is
+assembled from that result, so no second pass exists. RAR hashes the single
+copy libunrar already wrote (scratch → hash → rename), the native 7-Zip path
+hashes during its presence/size verification read, and the per-entry stream
+hashes while writing and only re-reads entries it adopts from an earlier
+attempt. A legacy install, a repair or a single-file copy still walks the tree
+(`manifest_for_install(None, …)`), because no transport digest exists.
+
+Measured on the dev box (CT 119, Xeon Silver 4208, **no SHA-NI**, so SHA-256
+runs at ~145 MiB/s/core; page cache warm). 64 entries × 4 MiB = 256 MiB ZIP,
+same archive and host for both rows; "old" = extract without hashes then
+`rehash_tree` with the production 4 MiB reader, "new" = extraction with the
+tee:
+
+| workers | old (extract + rehash) | new (extract + hash) | saved |
+|---|---|---|---|
+| 1 | 2.112 s (0.327 + 1.785) | 2.058 s | 3 % |
+| 8 | 1.895 s (0.099 + 1.796) | 0.444 s | **77 % (1.45 s)** |
+
+Read it correctly:
+
+- The win is parallelism for ZIP: the old walk hashed on one thread, the tee
+  hashes on the workers. On a CPU with SHA-NI the same 256 MiB hashes in
+  ~0.2 s on one core, so both columns shrink and the saving approaches the
+  removed **read**.
+- For RAR (sequential by design) the hash CPU is unchanged and the tee merely
+  overlaps it with the write; the saved cost is the second read of the tree,
+  which the warm page cache hides here and a NAS/SMB or cold SSD does not.
+  Do not promise a wall-clock number for RAR from this table.
+- A 40 GB ZIP extrapolates to roughly 4–5 minutes saved on a host without
+  SHA-NI and 20–30 s with it, before counting the disk/Defender cost of the
+  removed pass.
+
+Reproduce with the ignored measurement (release, prints the table above):
+
+```bash
+cargo test -p ludex-core --release -- --ignored --nocapture benchmark_hash_while_extracting
+```
+
+The install log now carries `archive_read_bytes`, `tree_written_bytes`,
+`tree_read_bytes` (0 for a normal install) and `hashed_bytes` (0 when the
+digests came from the extraction), plus `from_extraction` and
+`trusted_archive_sha256` on the `install manifest recorded` line.
+
 ## What the user must measure
 
 On the actual setup (Proxmox host, Caddy, client), collect and record:

@@ -6,6 +6,15 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- Files are hashed while they are extracted (#240): ZIP (sequential and
+  parallel workers), 7z (crate and native) and RAR stream every byte into a
+  per-file SHA-256, so the install manifest no longer re-reads the whole
+  installed tree; the verified archive digest is stored as
+  `trusted_archive_sha256` (schema v22) and the fallback `build_manifest` stays
+  only for legacy installs and repairs.
+
 ## [0.4.16] - 2026-11-16
 
 ### Added

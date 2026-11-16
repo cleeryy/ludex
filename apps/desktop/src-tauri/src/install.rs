@@ -2887,6 +2887,11 @@ async fn execute(
 
     check_stop(&entry.cancel, &pause)?;
 
+    // #240: digests collected by the transport while it wrote the files. When
+    // this is set the manifest is built from it and the install never reads
+    // the extracted tree again; `None` keeps the full-hash fallback.
+    let mut collected_manifest: Option<manifest::FileManifest> = None;
+
     // Full archive hash published by the server (#216). Read once here so both
     // the local shortcut and the classic download verify the same value.
     let mut archive_metadata = expected_archive_metadata(&state, &params).await;
@@ -2920,6 +2925,10 @@ async fn execute(
             Ok(ManifestAttempt::Installed(report)) => {
                 files_installed = true;
                 verified_sha256 = Some(report.archive_sha256.clone());
+                // #240: the server's manifest is exactly the per-file digest
+                // set this install wrote and verified, so it becomes the local
+                // manifest without a single read of the installed files.
+                collected_manifest = Some(manifest::FileManifest::from_entries(report.entries));
                 entry.update(|job| {
                     job.verified_sha256 = Some(report.archive_sha256.clone());
                     job.bytes_done = report.bytes;
@@ -3055,8 +3064,21 @@ async fn execute(
             .await
         };
         match outcome {
-            Ok(StreamOutcome::Done) => {
+            Ok(StreamOutcome::Done { files }) => {
                 streamed = true;
+                // #240: the entries were hashed while they were written (and
+                // the adopted ones when this attempt started), so the manifest
+                // needs no walk of the staging folder.
+                collected_manifest = Some(manifest::FileManifest::from_entries(
+                    files
+                        .into_iter()
+                        .map(|file| manifest::ManifestEntry {
+                            path: file.path,
+                            size: file.size,
+                            sha256: file.sha256,
+                        })
+                        .collect(),
+                ));
                 job_paths.part = None;
                 entry.set_part_path(None);
             }
@@ -3170,7 +3192,7 @@ async fn execute(
                 report.etag.as_deref(),
             )
             .await?;
-            match verdict {
+            match &verdict {
                 crate::archive_verify::ArchiveVerdict::Verified(digest) => {
                     tracing::info!(
                         game_id = params.game_id,
@@ -3180,7 +3202,9 @@ async fn execute(
                         sha256 = %digest,
                         "archive verified against the server SHA-256"
                     );
-                    verified_sha256 = Some(digest);
+                    // #240: the proved digest is stored with the install
+                    // manifest, so nothing re-hashes the tree to prove it again.
+                    verified_sha256 = crate::archive_verify::trusted_digest(&verdict);
                     break;
                 }
                 crate::archive_verify::ArchiveVerdict::Unverified => break,
@@ -3250,7 +3274,7 @@ async fn execute(
     // before extraction. The classic path already proved its digest above.
     if !streamed && !files_installed && verified_sha256.is_none() {
         if let Some(path) = archive.clone() {
-            match verify_archive_on_disk(
+            let verdict = verify_archive_on_disk(
                 app,
                 entry,
                 &params,
@@ -3260,8 +3284,8 @@ async fn execute(
                 None,
                 None,
             )
-            .await?
-            {
+            .await?;
+            match &verdict {
                 crate::archive_verify::ArchiveVerdict::Verified(digest) => {
                     tracing::info!(
                         game_id = params.game_id,
@@ -3269,7 +3293,7 @@ async fn execute(
                         sha256 = %digest,
                         "local archive verified against the server SHA-256"
                     );
-                    verified_sha256 = Some(digest);
+                    verified_sha256 = crate::archive_verify::trusted_digest(&verdict);
                 }
                 crate::archive_verify::ArchiveVerdict::Unverified => {}
                 crate::archive_verify::ArchiveVerdict::Mismatch(mismatch) => {
@@ -3491,16 +3515,40 @@ async fn execute(
             })
             .await
             .map_err(|e| Failure::Failed(format!("The extraction task failed: {e}")))?;
-            if let Err(error) = extraction {
-                // #232: a cancel during extraction is a cancellation, not a
-                // corrupt archive. It wins over the error message so the job
-                // reports "cancelled" and keeps the staging.
-                check_cancel(&entry.cancel)?;
-                return Err(Failure::Failed(extraction_failure(
-                    &effective_staging,
-                    error,
-                )));
-            }
+            let extracted = match extraction {
+                Ok(files) => files,
+                Err(error) => {
+                    // #232: a cancel during extraction is a cancellation, not a
+                    // corrupt archive. It wins over the error message so the job
+                    // reports "cancelled" and keeps the staging.
+                    check_cancel(&entry.cancel)?;
+                    return Err(Failure::Failed(extraction_failure(
+                        &effective_staging,
+                        error,
+                    )));
+                }
+            };
+            tracing::info!(
+                files = extracted.len(),
+                game_id = params.game_id,
+                version_id = params.version_id,
+                // #240 counters: the archive is read once (extraction), the
+                // tree is written once, and nothing is read back to hash it.
+                archive_read_bytes = archive_size.unwrap_or(0),
+                tree_written_bytes = extracted.iter().map(|file| file.size).sum::<u64>(),
+                tree_read_bytes = 0_u64,
+                "extraction produced the per-file digests; no second pass over the installed tree"
+            );
+            collected_manifest = Some(manifest::FileManifest::from_entries(
+                extracted
+                    .into_iter()
+                    .map(|file| manifest::ManifestEntry {
+                        path: file.path,
+                        size: file.size,
+                        sha256: file.sha256,
+                    })
+                    .collect(),
+            ));
 
             // The archive is no longer needed once extraction succeeded.
             if let Some(part) = downloaded.as_deref() {
@@ -3575,9 +3623,18 @@ async fn execute(
     let executable_path = relative_executable.map(|relative| final_path.join(relative));
 
     // 6. Record the file manifest (relative path, size, SHA-256) so the install
-    // can be verified and repaired later. Hashing a large game takes a while, so
-    // progress is reported with the finalizing phase.
-    record_manifest(app, entry, &final_path, &params).await;
+    // can be verified and repaired later. #240: the digests come from the
+    // transport, which hashed every byte while writing it; only a legacy or
+    // repair install still hashes the folder here.
+    record_manifest(
+        app,
+        entry,
+        &final_path,
+        &params,
+        collected_manifest,
+        verified_sha256.clone(),
+    )
+    .await;
 
     // 7. Index the install.
     let size_bytes = {
@@ -3671,7 +3728,17 @@ struct ExecutedInstall {
     pending_setup: Option<crate::installer::RepackLayout>,
 }
 
-/// Build and persist the manifest after the files are in their final folder.
+/// Persist the manifest of an installed folder (#240).
+///
+/// `collected` is what the transport produced while writing: the extraction
+/// result, the per-entry stream or the server's file manifest. When it is set
+/// this function only writes a row — the installed files are not opened again.
+/// `None` is the fallback for a legacy install, a repair or a single-file copy:
+/// the folder is walked and hashed exactly as before.
+///
+/// `trusted_archive_sha256` is the digest proved before extraction (#216/#223)
+/// or the file manifest's `archiveSha256` (#231). Storing it lets a later
+/// repair reuse the archive it came from instead of re-hashing the tree.
 /// A failure here never fails the install: the game is playable, it just cannot
 /// be verified until it is reinstalled.
 async fn record_manifest(
@@ -3679,7 +3746,10 @@ async fn record_manifest(
     entry: &Arc<JobEntry>,
     root: &Path,
     params: &InstallParams,
+    collected: Option<manifest::FileManifest>,
+    trusted_archive_sha256: Option<String>,
 ) {
+    let from_extraction = collected.is_some();
     set_progress(
         app,
         entry,
@@ -3687,7 +3757,14 @@ async fn record_manifest(
         0,
         None,
         0,
-        Some("Recording file manifest".to_string()),
+        Some(
+            if from_extraction {
+                "Recording file hashes from extraction"
+            } else {
+                "Recording file manifest"
+            }
+            .to_string(),
+        ),
     );
 
     let handle = app.clone();
@@ -3695,7 +3772,7 @@ async fn record_manifest(
     let path = root.to_path_buf();
     let built = tokio::task::spawn_blocking(move || {
         let mut last = Instant::now();
-        manifest::build_manifest(&path, &mut |progress| {
+        manifest::manifest_for_install(collected, &path, &mut |progress| {
             if last.elapsed() < Duration::from_millis(250) {
                 return;
             }
@@ -3728,6 +3805,23 @@ async fn record_manifest(
         }
     };
 
+    tracing::info!(
+        game_id = params.game_id,
+        version_id = params.version_id,
+        files = manifest.entries.len(),
+        bytes = manifest.total_bytes,
+        from_extraction,
+        // #240: zero when the digests came from the transport. A non-zero value
+        // is the fallback walk (legacy install, repair, single-file copy).
+        hashed_bytes = if from_extraction {
+            0
+        } else {
+            manifest.total_bytes
+        },
+        trusted_archive_sha256 = trusted_archive_sha256.as_deref().unwrap_or("none"),
+        "install manifest recorded"
+    );
+
     let encoded = match serde_json::to_string(&manifest) {
         Ok(encoded) => encoded,
         Err(error) => {
@@ -3744,6 +3838,7 @@ async fn record_manifest(
         manifest: encoded,
         files: manifest.entries.len() as i64,
         bytes: manifest.total_bytes as i64,
+        trusted_archive_sha256,
         created_at: manifest.created_at.clone(),
         updated_at: now_rfc3339(),
     };
@@ -3807,11 +3902,15 @@ async fn hold_extract(
     Ok(())
 }
 
-/// "Verifying archive (42.5 GiB of 96.3 GiB)" (#223).
+/// "Verifying archive (one pass, 42.5 GiB of 96.3 GiB)" (#223/#240).
+///
+/// "one pass" is deliberate: the archive digest is read once and is not
+/// re-proved after extraction, and the per-file digests come from the
+/// extraction itself.
 pub(crate) fn verifying_message(done: u64, total: u64) -> String {
     if total > 0 {
         format!(
-            "Verifying archive ({} of {})",
+            "Verifying archive (one pass, {} of {})",
             human_bytes(done),
             human_bytes(total)
         )
@@ -4013,6 +4112,8 @@ struct ManifestInstallReport {
     bytes: u64,
     files: usize,
     archive_sha256: String,
+    /// Per-file digests the install verified, in manifest order (#240).
+    entries: Vec<manifest::ManifestEntry>,
 }
 
 /// Outcome of one file-manifest attempt (#231/#235).
@@ -4240,6 +4341,15 @@ async fn manifest_install(
                 bytes: outcome.bytes,
                 files: outcome.files,
                 archive_sha256: outcome.archive_sha256,
+                entries: plan
+                    .files
+                    .iter()
+                    .map(|file| manifest::ManifestEntry {
+                        path: file.relative.clone(),
+                        size: file.size,
+                        sha256: file.sha256.clone(),
+                    })
+                    .collect(),
             }))
         }
         Err(file_manifest::ManifestFailure::Cancelled) => Err(Failure::Cancelled),
@@ -6196,10 +6306,20 @@ fn stream_requested(requested: Option<bool>, settings: &LocalSettings, server_ur
 
 #[derive(Debug)]
 pub(crate) enum StreamOutcome {
-    Done,
+    /// Every entry is on disk; carries the digests collected while writing
+    /// them, so the caller can build the manifest without a second pass (#240).
+    Done { files: Vec<StreamFileHash> },
     /// The server cannot stream this version (non-ZIP, or a server build
     /// without the per-entry endpoints). Fall back to the next strategy.
     Unsupported(reqwest::StatusCode),
+}
+
+/// One streamed file with its digest (#240).
+#[derive(Debug)]
+pub(crate) struct StreamFileHash {
+    pub path: String,
+    pub size: u64,
+    pub sha256: String,
 }
 
 /// Convert a tar entry path to a safe relative path. Rejects absolute paths,
@@ -6369,6 +6489,90 @@ fn resolve_executable(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #240: the manifest the pipeline now persists comes from the extraction,
+    /// and it must be byte-identical to the one the old second pass produced.
+    ///
+    /// The extraction walks every backend's tee (sequential ZIP, parallel ZIP,
+    /// 7z through the crate, RAR through its scratch copy); the reference is
+    /// `manifest::build_manifest`, exactly what `record_manifest` used to call
+    /// on the installed folder.
+    #[test]
+    fn extracted_digests_match_the_manifest_the_second_pass_built() {
+        use std::io::Write as _;
+
+        let root = std::env::temp_dir().join(format!(
+            "ludex-extract-manifest-{}",
+            crate::util::short_id(&uuid::Uuid::new_v4().to_string())
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+
+        let archive_path = root.join("library.zip");
+        {
+            let file = std::fs::File::create(&archive_path).unwrap();
+            let mut writer = zip::ZipWriter::new(file);
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            let big: Vec<u8> = (0..300_000_u32).map(|index| (index % 251) as u8).collect();
+            for (name, data) in [
+                ("Game/game.exe", b"MZ-ludex".as_slice()),
+                ("Game/empty.txt", b"".as_slice()),
+                ("Game/data/big.bin", big.as_slice()),
+                ("Game/unicode-é.txt", "café".as_bytes()),
+            ] {
+                writer.start_file(name, options).unwrap();
+                writer.write_all(data).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let base = root.join("extraction");
+        let digests = crate::bridge::extract_archive(&archive_path, &base, &[], None, &mut |_| {})
+            .expect("extract");
+        assert_eq!(digests.len(), 4, "one digest per written file");
+
+        // Exactly what the install now stores.
+        let collected = manifest::FileManifest::from_entries(
+            digests
+                .into_iter()
+                .map(|file| manifest::ManifestEntry {
+                    path: file.path,
+                    size: file.size,
+                    sha256: file.sha256,
+                })
+                .collect(),
+        );
+        // Exactly what it used to store, from a full walk of the folder.
+        let rebuilt = manifest::build_manifest(&base, &mut |_| {}).expect("build");
+
+        assert_eq!(
+            collected.entries, rebuilt.entries,
+            "path, size and sha256 must be byte-identical to the old manifest"
+        );
+        assert_eq!(collected.total_bytes, rebuilt.total_bytes);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// #240: a job whose transport has no digest still records a manifest, so
+    /// legacy installs, repairs and single-file copies keep working.
+    #[test]
+    fn an_install_without_collected_digests_falls_back_to_the_walk() {
+        let root = std::env::temp_dir().join(format!(
+            "ludex-manifest-fallback-{}",
+            crate::util::short_id(&uuid::Uuid::new_v4().to_string())
+        ));
+        std::fs::create_dir_all(root.join("bin")).unwrap();
+        std::fs::write(root.join("bin/game.bin"), b"payload").unwrap();
+
+        let manifest =
+            manifest::manifest_for_install(None, &root, &mut |_| {}).expect("fallback manifest");
+        assert_eq!(manifest.entries.len(), 1);
+        assert_eq!(manifest.entries[0].path, "bin/game.bin");
+        assert_eq!(manifest.total_bytes, 7);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn content_range_parsing() {
@@ -6699,10 +6903,11 @@ mod tests {
 
     #[test]
     fn the_verifying_message_names_the_bytes_and_never_a_percent() {
-        // #223: the row must say what is happening during the rehash, never
-        // leave "Download already complete" as the only signal.
+        // #223/#240: the row must say what is happening during the rehash, and
+        // that it is the single archive pass, never a percent.
         let message = verifying_message(42 * 1024 * 1024 * 1024, 96 * 1024 * 1024 * 1024);
         assert!(message.starts_with("Verifying archive ("), "{message}");
+        assert!(message.contains("one pass"), "{message}");
         assert!(message.contains("42.0 GiB"), "{message}");
         assert!(message.contains("96.0 GiB"), "{message}");
         // An unknown size still says "Verifying archive".
@@ -7999,7 +8204,7 @@ mod tests {
         async fn run(&mut self) -> Result<StreamOutcome, Failure> {
             self.runs += 1;
             if self.results.is_empty() {
-                return Ok(StreamOutcome::Done);
+                return Ok(StreamOutcome::Done { files: Vec::new() });
             }
             self.results.remove(0)
         }
@@ -8023,7 +8228,7 @@ mod tests {
                     "Entry Game/big.bin failed after 5 attempts (1048576 bytes kept): proxy returned HTTP 524"
                         .to_string(),
                 )),
-                Ok(StreamOutcome::Done),
+                Ok(StreamOutcome::Done { files: Vec::new() }),
             ],
             runs: 0,
         };
@@ -8042,7 +8247,10 @@ mod tests {
         )
         .await;
 
-        assert!(matches!(outcome, Ok(StreamOutcome::Done)), "{outcome:?}");
+        assert!(
+            matches!(outcome, Ok(StreamOutcome::Done { .. })),
+            "{outcome:?}"
+        );
         assert_eq!(attempt.runs, 2, "the job runs again instead of failing");
         let retries = retries.lock().unwrap();
         assert_eq!(retries.len(), 1);
