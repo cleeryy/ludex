@@ -998,11 +998,11 @@ async fn extract_version(
     if declared > state.extracted.budget_bytes() {
         return Err(CacheError::Budget(declared));
     }
-    let source = crate::routes::games::resolve_stream_source(state, version)
+    let source = crate::transfer::zip::resolve_stream_source(state, version)
         .await
         .map_err(|error| CacheError::Source(format!("{}: {}", error.code, error.message)))?;
     if source.format == ArchiveFormat::Unknown {
-        crate::routes::games::cleanup_staged(&source.path, source.staged).await;
+        crate::transfer::object::cleanup_staged(&source.path, source.staged).await;
         return Err(CacheError::Unsupported);
     }
     let archive = source.path.clone();
@@ -1012,7 +1012,7 @@ async fn extract_version(
     let built =
         tokio::task::spawn_blocking(move || extract_entry(&cache, &archive, &key, &progress_job))
             .await;
-    crate::routes::games::cleanup_staged(&source.path, source.staged).await;
+    crate::transfer::object::cleanup_staged(&source.path, source.staged).await;
     match built {
         Ok(result) => result,
         Err(error) => Err(CacheError::Join(error.to_string())),

@@ -78,6 +78,7 @@ pub mod state;
 pub mod storage;
 pub mod stream;
 pub mod totp;
+pub mod transfer;
 pub mod uploads;
 pub mod url_guard;
 pub mod virustotal;

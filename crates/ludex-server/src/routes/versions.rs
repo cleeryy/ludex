@@ -55,10 +55,9 @@ use crate::extracted_cache::{
     ExtractedManifest, Submission,
 };
 use crate::models::VersionRow;
-use crate::routes::games::{
-    self, age_blocked, age_not_found, deny_age_restricted, resolve_entry_range, EntryRange,
-};
+use crate::routes::games::{age_blocked, age_not_found, deny_age_restricted, game_age_rating};
 use crate::state::AppState;
+use crate::transfer::zip::{resolve_entry_range, EntryRange};
 
 /// Response header carrying the served file's SHA-256.
 pub const FILE_SHA256_HEADER: &str = "x-ludex-file-sha256";
@@ -436,10 +435,7 @@ async fn authorize(
     let Some(ticket) = ticket else {
         let token = crate::auth::bearer_token(headers).ok_or_else(ApiError::unauthorized)?;
         let user = crate::auth::authenticate_token(state, &token).await?;
-        if age_blocked(
-            user.age_limit,
-            games::game_age_rating(state, game_id).await?,
-        ) {
+        if age_blocked(user.age_limit, game_age_rating(state, game_id).await?) {
             deny_age_restricted(state, &user, game_id);
             return Err(age_not_found());
         }
