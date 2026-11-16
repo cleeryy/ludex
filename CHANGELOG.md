@@ -6,6 +6,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- CI and desktop robustness (Wave 0 of #237): CI now runs the desktop crate's
+  fmt/clippy/check/tests and a Windows `cargo check` on PRs; the settings save is
+  atomic (temp + fsync + rename, `.bak` recovery) and local-mode pending installs
+  refresh their server URL on resume; pre-existing desktop clippy findings were
+  fixed. (#237 remains an open program for waves 1–5.)
+
 ### Fixed
 
 - A download crash can no longer brick startup (#234): the desktop release
