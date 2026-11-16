@@ -6,6 +6,15 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- Install pipeline split (#237): the 8,598-line `install.rs` becomes
+  `install/{job,plan,scheduler,source,download,files,verify,commit}` with the
+  transport primitives in `net/{retry,progress,cancel}`; the 828-line
+  `execute()` is a small orchestrator over named stages, behaviour unchanged
+  (installed-tree digest pinned by a gate test), and the module map is in
+  `docs/DESKTOP-INSTALL.md`.
+
 ## [0.4.18] - 2026-11-16
 
 ### Added
