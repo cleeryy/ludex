@@ -130,7 +130,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 20;
+const SCHEMA_VERSION: i64 = 21;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -564,6 +564,19 @@ CREATE TABLE IF NOT EXISTS install_job_files (
 );
 "#;
 
+/// The digest of the archive an install manifest was built from (#240).
+///
+/// The row already holds the per-file SHA-256 of every installed file; this
+/// column records the archive digest those files came from when it was proved
+/// before extraction (#216/#223), so support can answer "which archive is this
+/// install" without re-reading anything. It is recorded, not re-proved: a later
+/// verification compares the installed files with the per-file manifest, which
+/// is the check that detects corruption. `NULL` means the install predates the
+/// column or came from a transport without an archive (per-entry stream).
+const SCHEMA_V21: &str = r#"
+ALTER TABLE install_manifests ADD COLUMN trusted_archive_sha256 TEXT;
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -713,6 +726,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
     if version < 20 {
         connection.execute_batch(SCHEMA_V20).map_err(|e| {
             format!("Could not add file-manifest checkpoints to the desktop database: {e}")
+        })?;
+    }
+    if version < 21 {
+        connection.execute_batch(SCHEMA_V21).map_err(|e| {
+            format!("Could not add the trusted archive digest to the desktop database: {e}")
         })?;
     }
 
@@ -2219,6 +2237,10 @@ pub struct InstallManifestRecord {
     pub manifest: String,
     pub files: i64,
     pub bytes: i64,
+    /// Archive digest the per-file hashes were derived from, when it was
+    /// proved before extraction (#240). `None` for a legacy install or a
+    /// transport with no archive.
+    pub trusted_archive_sha256: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -2231,15 +2253,17 @@ pub fn upsert_manifest(
         .execute(
             r#"
             INSERT INTO install_manifests
-                (game_id, version_id, install_path, manifest, files, bytes, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                (game_id, version_id, install_path, manifest, files, bytes,
+                 trusted_archive_sha256, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             ON CONFLICT(game_id) DO UPDATE SET
-                version_id   = excluded.version_id,
-                install_path = excluded.install_path,
-                manifest     = excluded.manifest,
-                files        = excluded.files,
-                bytes        = excluded.bytes,
-                updated_at   = excluded.updated_at
+                version_id             = excluded.version_id,
+                install_path           = excluded.install_path,
+                manifest               = excluded.manifest,
+                files                  = excluded.files,
+                bytes                  = excluded.bytes,
+                trusted_archive_sha256 = excluded.trusted_archive_sha256,
+                updated_at             = excluded.updated_at
             "#,
             params![
                 record.game_id,
@@ -2248,6 +2272,7 @@ pub fn upsert_manifest(
                 record.manifest,
                 record.files,
                 record.bytes,
+                record.trusted_archive_sha256,
                 record.created_at,
                 record.updated_at,
             ],
@@ -2262,7 +2287,8 @@ pub fn get_manifest(
 ) -> Result<Option<InstallManifestRecord>, String> {
     connection
         .query_row(
-            "SELECT game_id, version_id, install_path, manifest, files, bytes, created_at, updated_at
+            "SELECT game_id, version_id, install_path, manifest, files, bytes,
+                    trusted_archive_sha256, created_at, updated_at
              FROM install_manifests WHERE game_id = ?1",
             params![game_id],
             |row| {
@@ -2273,8 +2299,9 @@ pub fn get_manifest(
                     manifest: row.get(3)?,
                     files: row.get(4)?,
                     bytes: row.get(5)?,
-                    created_at: row.get(6)?,
-                    updated_at: row.get(7)?,
+                    trusted_archive_sha256: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
                 })
             },
         )
@@ -3645,6 +3672,8 @@ mod tests {
         connection.execute_batch(SCHEMA_V17).unwrap();
         connection.execute_batch(SCHEMA_V18).unwrap();
         connection.execute_batch(SCHEMA_V19).unwrap();
+        connection.execute_batch(SCHEMA_V20).unwrap();
+        connection.execute_batch(SCHEMA_V21).unwrap();
         connection
     }
 
@@ -4203,12 +4232,18 @@ mod tests {
             manifest: r#"{"entries":[],"totalBytes":0,"createdAt":"2026-01-01T00:00:00Z"}"#.into(),
             files: 0,
             bytes: 0,
+            trusted_archive_sha256: Some("a".repeat(64)),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         };
         upsert_manifest(&connection, &record).unwrap();
         let loaded = get_manifest(&connection, 4).unwrap().unwrap();
         assert_eq!(loaded.install_path, "/games/doom/1.0");
+        assert_eq!(
+            loaded.trusted_archive_sha256,
+            Some("a".repeat(64)),
+            "the archive digest survives the round-trip"
+        );
 
         update_manifest_path(
             &connection,

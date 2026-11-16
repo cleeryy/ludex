@@ -37,7 +37,7 @@ pub use archive::{
     sanitize_entry_path, stream_archive_as_tar, stream_zip_as_tar, verify_archive,
     write_zip_entry_range, zip_entry_info, zip_stream_manifest, zip_tar_size, ArchiveError,
     ArchiveFormat, ArchiveReport, CancelCheck, ExtractOptions, ExtractProgress, ExtractReport,
-    StreamEntry, StreamManifest, TarStreamReport, MAX_ZIP_WORKERS,
+    ExtractedFile, StreamEntry, StreamManifest, TarStreamReport, MAX_ZIP_WORKERS,
 };
 pub use exe::{
     clamp_scan_depth, discover_executables, is_excluded_folder, is_installer, pick_executable,

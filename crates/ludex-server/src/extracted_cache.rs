@@ -1050,9 +1050,13 @@ fn extract_entry(
         preserve_modes: true,
         ..ExtractOptions::default()
     };
-    extract_archive(archive, &files_root, &options, &mut on_progress)?;
+    let report = extract_archive(archive, &files_root, &options, &mut on_progress)?;
 
-    let manifest = build_manifest(&files_root, sha256)?;
+    // #240: the extractor hashed every byte it wrote, so the manifest is
+    // assembled from the extraction result. This walk is metadata-only; a file
+    // the extractor did not report (a legacy or skipped entry) is still hashed
+    // as a fallback.
+    let manifest = build_manifest(&files_root, sha256, &report.hashes)?;
     if manifest.file_count > MAX_FILES {
         return Err(CacheError::TooManyFiles(manifest.file_count));
     }
@@ -1112,7 +1116,20 @@ impl Drop for TempDir {
 }
 
 /// Walks an extracted tree and produces its manifest.
-fn build_manifest(root: &Path, sha256: &str) -> Result<ExtractedManifest, CacheError> {
+///
+/// `extracted` carries the digests the extractor computed while writing
+/// (#240): every file it lists is not reopened, so publishing an extracted
+/// cache costs no second read of the archive content. A file the extractor did
+/// not report is hashed here, which keeps the manifest complete.
+fn build_manifest(
+    root: &Path,
+    sha256: &str,
+    extracted: &[ludex_core::archive::ExtractedFile],
+) -> Result<ExtractedManifest, CacheError> {
+    let known: HashMap<&str, &str> = extracted
+        .iter()
+        .map(|file| (file.path.as_str(), file.sha256.as_str()))
+        .collect();
     let mut files = Vec::new();
     let mut all_dirs: HashSet<String> = HashSet::new();
     let mut used_dirs: HashSet<String> = HashSet::new();
@@ -1163,7 +1180,10 @@ fn build_manifest(root: &Path, sha256: &str) -> Result<ExtractedManifest, CacheE
             if files.len() >= MAX_FILES {
                 return Err(CacheError::TooManyFiles(files.len() + 1));
             }
-            let (_, digest) = crate::content_hash::hash_file(&path)?;
+            let digest = match known.get(relative.as_str()) {
+                Some(digest) => digest.to_string(),
+                None => crate::content_hash::hash_file(&path)?.1,
+            };
             let mode = file_mode(&metadata);
             files.push(ExtractedFile {
                 path: relative.clone(),
@@ -1523,7 +1543,7 @@ mod tests {
             )
             .expect("chmod");
         }
-        let manifest = build_manifest(root, &sha('a')).expect("manifest");
+        let manifest = build_manifest(root, &sha('a'), &[]).expect("manifest");
         assert_eq!(manifest.file_count, 2);
         assert_eq!(manifest.total_bytes, 11);
         assert_eq!(manifest.files[0].path, "Game/bin/game");

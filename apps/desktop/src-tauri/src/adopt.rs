@@ -815,6 +815,9 @@ pub async fn build_manifest(app: &AppHandle, game_id: i64) -> Result<ManifestRep
             .map_err(|e| format!("Could not encode the file manifest: {e}"))?,
         files: i64::try_from(manifest.entries.len()).unwrap_or(i64::MAX),
         bytes: i64::try_from(manifest.total_bytes).unwrap_or(i64::MAX),
+        // An adopted folder has no archive behind it, and `build_manifest`
+        // hashed the tree (#240): there is no digest to trust.
+        trusted_archive_sha256: None,
         created_at: built_at.clone(),
         updated_at: built_at.clone(),
     };

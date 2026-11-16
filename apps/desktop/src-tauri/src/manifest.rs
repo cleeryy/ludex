@@ -35,6 +35,50 @@ pub struct FileManifest {
     pub created_at: String,
 }
 
+impl FileManifest {
+    /// Manifest from digests a transport collected while it wrote the files
+    /// (#240).
+    ///
+    /// Nothing is opened here: the entries are the ones the extractor, the
+    /// per-entry stream or the file-manifest transport produced, so the
+    /// install no longer walks 40 GB to hash them again. The caller is
+    /// responsible for the paths being relative and `/`-separated, which is
+    /// what every producer already guarantees.
+    pub fn from_entries(entries: Vec<ManifestEntry>) -> Self {
+        let total_bytes = entries
+            .iter()
+            .fold(0_u64, |total, entry| total.saturating_add(entry.size));
+        Self {
+            entries,
+            total_bytes,
+            created_at: now_rfc3339(),
+        }
+    }
+
+    /// True when the manifest describes no file (an empty archive).
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+/// The manifest an install should persist (#240).
+///
+/// `collected` is the result the transport produced while writing. When it is
+/// present it is used as-is: re-hashing the tree would be a full extra read of
+/// the install. `None` means the transport had no digest to give (a legacy
+/// install, a repair, a single-file copy), and the folder is hashed as before.
+pub fn manifest_for_install(
+    collected: Option<FileManifest>,
+    root: &Path,
+    progress: &mut dyn FnMut(ManifestProgress),
+) -> Result<FileManifest, String> {
+    match collected {
+        Some(manifest) => Ok(manifest),
+        None => build_manifest(root, progress),
+    }
+}
+
 /// Progress for manifest builds and verification. `filesTotal`/`bytesTotal`
 /// are known up front; `bytesDone` only counts bytes actually hashed.
 #[derive(Debug, Clone, Copy, Default)]
@@ -121,13 +165,14 @@ impl VerifyOutcome {
     }
 }
 
-/// SHA-256 of a file, read in 1 MiB chunks so multi-gigabyte files never land
-/// in memory. Returns `(size, lowercase hex digest)`.
+/// SHA-256 of a file, read in 4 MiB chunks so multi-gigabyte files never land
+/// in memory (#240 uses the same buffer size as the core extractor).
+/// Returns `(size, lowercase hex digest)`.
 pub fn hash_file(path: &Path) -> Result<(u64, String), String> {
     let mut file =
         fs::File::open(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
     let mut hasher = Sha256::new();
-    let mut buffer = vec![0u8; 1024 * 1024];
+    let mut buffer = vec![0u8; 4 * 1024 * 1024];
     let mut size = 0u64;
 
     loop {
@@ -493,5 +538,72 @@ mod tests {
         assert_eq!(seen.last().unwrap().bytes_done, 300);
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_collected_manifest_skips_the_tree_walk() {
+        // The point of #240: when the transport already hashed every file,
+        // nothing reopens the folder. The collected digests describe files
+        // that do not even exist here, and they must come back untouched.
+        let root = temp_root("collected");
+        fs::write(root.join("game.bin"), b"content on disk").unwrap();
+
+        let collected = FileManifest::from_entries(vec![ManifestEntry {
+            path: "Game/from-extraction.bin".into(),
+            size: 3,
+            sha256: "a".repeat(64),
+        }]);
+        let mut progress_calls = 0;
+        let manifest =
+            manifest_for_install(Some(collected.clone()), &root, &mut |_| progress_calls += 1)
+                .unwrap();
+
+        assert_eq!(manifest.entries, collected.entries);
+        assert_eq!(manifest.total_bytes, 3);
+        assert_eq!(progress_calls, 0, "no file was read or hashed");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn without_collected_digests_the_folder_is_hashed_as_before() {
+        // Legacy installs, repairs and single-file copies still get a full
+        // manifest; the fallback is the same code path as before #240.
+        let root = temp_root("fallback");
+        fs::write(root.join("a.bin"), b"alpha").unwrap();
+        fs::write(root.join("b.bin"), b"beta").unwrap();
+
+        let mut progress = Vec::new();
+        let manifest =
+            manifest_for_install(None, &root, &mut |update| progress.push(update)).unwrap();
+        assert_eq!(manifest.entries.len(), 2);
+        assert_eq!(manifest.total_bytes, 9);
+        assert_eq!(progress.len(), 2, "the fallback reports hashing progress");
+        assert_eq!(
+            manifest.entries[0].sha256,
+            hex::encode(Sha256::digest(b"alpha"))
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn from_entries_totals_the_sizes_and_stamps_the_time() {
+        let manifest = FileManifest::from_entries(vec![
+            ManifestEntry {
+                path: "b".into(),
+                size: 2,
+                sha256: "b".repeat(64),
+            },
+            ManifestEntry {
+                path: "a".into(),
+                size: 3,
+                sha256: "a".repeat(64),
+            },
+        ]);
+        assert_eq!(manifest.total_bytes, 5);
+        assert!(!manifest.created_at.is_empty());
+        assert!(!manifest.is_empty());
+        assert!(FileManifest::from_entries(Vec::new()).is_empty());
     }
 }

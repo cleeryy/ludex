@@ -16,6 +16,14 @@
 //! extra sequential read of the archive, which is why the streaming path covers
 //! the common case; the fallback keeps the guarantee without a partial-hash
 //! state file.
+//!
+//! ## What happens after a verified archive
+//!
+//! The digest is not a claim to re-prove later (#240): [`trusted_digest`] hands
+//! the proved value to the install, which stores it next to the per-file
+//! manifest. Once the archive matched, the installed files are never re-hashed
+//! to "verify" them again — the per-file SHA-256 comes from the extraction
+//! itself, and the archive digest is what a future repair reuses.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -122,6 +130,19 @@ pub(crate) fn stream_note(expected: Option<&str>) -> String {
     match expected {
         Some(_) => "per-entry stream install: entries are CRC-32 and size verified, the full archive hash is not applicable because no archive is retained".to_string(),
         None => "per-entry stream install on a legacy version without a full archive hash; entries are CRC-32 and size verified".to_string(),
+    }
+}
+
+/// The digest an install may trust, when verification proved it (#240).
+///
+/// A verified archive is not re-proved later: the install stores this value
+/// next to its per-file manifest, and a repair reuses the archive it names
+/// instead of hashing the installed tree again. An unverified or mismatched
+/// verdict yields `None`.
+pub(crate) fn trusted_digest(verdict: &ArchiveVerdict) -> Option<String> {
+    match verdict {
+        ArchiveVerdict::Verified(digest) => Some(digest.clone()),
+        ArchiveVerdict::Unverified | ArchiveVerdict::Mismatch(_) => None,
     }
 }
 
@@ -689,5 +710,25 @@ mod tests {
         clear_digest(&path);
         assert!(load_digest(&path).is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_a_verified_archive_yields_a_trusted_digest() {
+        let digest = sha256_hex(b"archive");
+        assert_eq!(
+            trusted_digest(&ArchiveVerdict::Verified(digest.clone())),
+            Some(digest.clone()),
+            "a proved digest is what the install stores (#240)"
+        );
+        assert_eq!(trusted_digest(&ArchiveVerdict::Unverified), None);
+        assert_eq!(
+            trusted_digest(&ArchiveVerdict::Mismatch(ArchiveMismatch {
+                expected: digest.clone(),
+                actual: sha256_hex(b"other"),
+                changed_on_server: false,
+            })),
+            None,
+            "a mismatch is never stored as trusted"
+        );
     }
 }
