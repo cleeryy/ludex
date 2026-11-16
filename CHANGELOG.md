@@ -8,6 +8,16 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Changed
 
+- Server structure (#237 wave 4): the archive transport moved into
+  `crates/ludex-server/src/transfer/` (range/If-Range, local serving, object
+  proxying, tar/ZIP streams), `AppState` is grouped into subsystem `Arc`s, the
+  3,300-line `routes/games.rs` is split by concern under `routes/games/`, and
+  every router declares its own OpenAPI operations next to its handlers. The
+  OpenAPI document is byte-identical before/after (sha256 496a3fa6…, 624,151
+  bytes) and the equality test stays green.
+
+### Changed
+
 - Contract and frontend hygiene (#237 waves 1 and 5): API response DTOs have a
   single definition in `ludex-core::models` (server re-exports, desktop shadow
   types deleted), `apps/web/src/lib/types.gen.ts` is generated from the live
