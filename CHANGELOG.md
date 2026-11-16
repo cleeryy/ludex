@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.17] - 2026-11-16
+
 ### Changed
 
 - Files are hashed while they are extracted (#240): ZIP (sequential and
