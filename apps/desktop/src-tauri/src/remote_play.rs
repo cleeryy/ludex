@@ -1496,10 +1496,7 @@ pub struct AdvertisedAddress {
     pub reason: String,
 }
 
-fn select_lan<'a>(
-    addresses: &'a [LocalAddress],
-    route: Option<Ipv4Addr>,
-) -> Option<&'a LocalAddress> {
+fn select_lan(addresses: &[LocalAddress], route: Option<Ipv4Addr>) -> Option<&LocalAddress> {
     let route = route.map(|addr| addr.to_string());
     addresses
         .iter()
@@ -1783,7 +1780,7 @@ pub fn audit_mappings(
             "None of the TCP ports answered from this machine. That is normal when the router does not support NAT loopback; verify from a phone on mobile data.".to_string(),
         );
     }
-    if plan.tcp.iter().any(|port| *port == 47989) {
+    if plan.tcp.contains(&47989) {
         notes.push(
             "Only the forwarded ports are exposed. TCP 47990 (Sunshine Web UI) and UDP 5353 (mDNS) stay on the LAN.".to_string(),
         );

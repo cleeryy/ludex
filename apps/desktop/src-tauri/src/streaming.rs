@@ -139,6 +139,10 @@ pub struct PreviewRemoval {
     pub game_id: Option<i64>,
 }
 
+/// What [`preview_entries`] returns: the game entries, the console entry when
+/// it would be written, and the removals.
+pub type PreviewPlan = (Vec<PreviewEntry>, Option<PreviewEntry>, Vec<PreviewRemoval>);
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SunshinePreview {
@@ -1078,7 +1082,7 @@ pub fn preview_entries(
     desired: &[PublishedApp],
     console: Option<&ConsoleEntry>,
     server_id: &str,
-) -> Result<(Vec<PreviewEntry>, Option<PreviewEntry>, Vec<PreviewRemoval>), String> {
+) -> Result<PreviewPlan, String> {
     let root = match existing.map(str::trim).filter(|text| !text.is_empty()) {
         Some(text) => parse_apps_json(text)?,
         None => json!({ "env": {}, "apps": [] }),
@@ -3895,7 +3899,7 @@ customname=Deck
         assert_eq!(report.added, 1);
         assert_eq!(report.managed_entries, 1);
         let list = apps_ref(&root).unwrap();
-        assert!(!list.iter().any(|app| is_console_app(app)));
+        assert!(!list.iter().any(is_console_app));
         assert!(list.iter().any(|app| managed_game_id(app) == Some(1)));
     }
 

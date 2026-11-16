@@ -292,7 +292,7 @@ fn decode_text(bytes: &[u8]) -> Result<(String, TextEncoding, bool), String> {
         }
         return Ok((text.into_owned(), TextEncoding::Utf16Be, true));
     }
-    if bytes.iter().any(|byte| *byte == 0) {
+    if bytes.contains(&0) {
         return Err(
             "The file looks binary (NUL bytes); Ludex only edits text configs.".to_string(),
         );

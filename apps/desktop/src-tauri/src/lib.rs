@@ -38,6 +38,7 @@ mod protondb;
 mod remote_install;
 mod remote_play;
 mod resume;
+mod resume_url;
 mod roms;
 mod runtime;
 mod saves_detect;

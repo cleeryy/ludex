@@ -139,3 +139,19 @@ Waves are sequential on `main`, each behind green CI. No wave mixes a move with 
 - #231 server-side extracted file transport
 - #232 classic extraction speed
 - #229/#230 Console/controller (closed first passes; UI/UX track reopens the visual work)
+
+## Wave 0 progress
+
+Landed branches, in merge order. An item counts as closed only when it is on `main` with a green CI run.
+
+| Wave 0 item | Branch | What it delivers |
+|---|---|---|
+| Desktop tests + clippy in CI | `lane-ci-wave0` | New `Desktop (fmt, clippy, test)` job: `cargo fmt -- --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test --offline --lib` for `apps/desktop/src-tauri`. The pre-existing clippy findings (10 sites) were fixed with no behaviour change; `remote_install::report` keeps an explicit `too_many_arguments` allow with its rationale. The gate is a hard failure, not a baseline file. |
+| Windows `cargo check` on PRs | `lane-ci-wave0` | New `Desktop (Windows cargo check)` job on `windows-latest`: `cargo check --offline --target x86_64-pc-windows-msvc` on every pull request and `main` push, with the MSVC target installed and a cached desktop workspace. |
+| Local-mode resume URL refresh | `lane-ci-wave0` | New `resume_url` module: `resolve_resume_base` re-points a pending job at the live embedded server when local mode restarts on a different port, and never rewrites a job recorded against a remote catalog. Called from both branches of `server::start_embedded`, before `auto_resume_on_startup` rebuilds the interrupted jobs. |
+| Atomic settings save | `lane-ci-wave0` | `settings::save` writes temp + fsync + rename, keeps `settings.json.bak`, retries the rename and only then copies over the destination (never deletes it first). `settings::load` recovers from the backup when the main file no longer parses and rewrites it, with corruption-recovery tests. |
+| Typed `InstallError` at retry/fallback sites | sibling lane | Not in this branch (`install.rs` is owned elsewhere). |
+| #234 crash loop, #233 window policy, #236 Ludusavi cap, `WaitingForSpace` re-dispatch | sibling lanes | Not in this branch. |
+
+Follow-ups this branch does **not** cover: add the two new desktop jobs to the required status checks in branch protection (`gh api repos/cleeryy/ludex/branches/main/protection`), and enable `paths-ignore` for docs-only PRs.
+

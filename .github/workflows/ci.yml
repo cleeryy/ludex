@@ -169,6 +169,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri -> target
+          # Shared with `desktop-test`: both compile the same dependency graph.
+          shared-key: desktop-linux
 
       - name: Check desktop crate
         working-directory: apps/desktop/src-tauri
@@ -177,6 +179,131 @@ jobs:
             cargo check --locked
           else
             cargo check
+          fi
+
+  # Wave 0 of the 2026-11-16 refactor program (docs/audit/2026-11-16):
+  # the desktop suite (839 tests) used to be invisible to CI because
+  # `apps/desktop/src-tauri` is its own workspace and only `cargo check` ran.
+  desktop-test:
+    name: Desktop (fmt, clippy, test)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Tauri system dependencies
+        run: |
+          for attempt in 1 2 3; do
+            sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+              libwebkit2gtk-4.1-dev librsvg2-dev patchelf libgtk-3-dev \
+              libxdo-dev libssl-dev libudev-dev libayatana-appindicator3-dev && break
+            echo "apt attempt $attempt failed; retrying in 15s" >&2
+            sleep 15
+          done
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev librsvg2-dev patchelf libgtk-3-dev \
+            libxdo-dev libssl-dev libudev-dev libayatana-appindicator3-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+          # Shared with `desktop-check`: same crate, same dependency graph.
+          shared-key: desktop-linux
+
+      # The desktop crate is outside the root workspace, so it has its own
+      # lockfile and its own fmt/clippy/test pass. Lints are enforced with
+      # `-D warnings`: the baseline is clean as of this job's introduction.
+      - name: Format
+        working-directory: apps/desktop/src-tauri
+        run: cargo fmt -- --check
+
+      - name: Fetch dependencies
+        working-directory: apps/desktop/src-tauri
+        run: |
+          if [ -f Cargo.lock ]; then
+            cargo fetch --locked
+          else
+            cargo fetch
+          fi
+
+      - name: Clippy
+        working-directory: apps/desktop/src-tauri
+        run: |
+          if [ -f Cargo.lock ]; then
+            cargo clippy --locked --all-targets -- -D warnings
+          else
+            cargo clippy --all-targets -- -D warnings
+          fi
+
+      # Offline checks after an explicit fetch: the lockfile is honoured and a
+      # missing dependency fails loudly instead of silently resolving a newer
+      # version.
+      - name: Check
+        working-directory: apps/desktop/src-tauri
+        run: |
+          if [ -f Cargo.lock ]; then
+            cargo check --locked --offline
+          else
+            cargo check --offline
+          fi
+
+      - name: Test
+        working-directory: apps/desktop/src-tauri
+        run: |
+          if [ -f Cargo.lock ]; then
+            cargo test --locked --offline --lib
+          else
+            cargo test --offline --lib
+          fi
+
+  # Wave 0: 49 `cfg(windows)` sites were first compiled after merge, in the
+  # edge Windows bundle. This job compiles the desktop crate for the Windows
+  # MSVC target on every pull request so a Windows-only regression is caught
+  # before it reaches `main`.
+  desktop-windows-check:
+    name: Desktop (Windows cargo check)
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+          shared-key: desktop-windows
+
+      - name: Fetch dependencies
+        working-directory: apps/desktop/src-tauri
+        shell: bash
+        run: |
+          if [ -f Cargo.lock ]; then
+            cargo fetch --locked --target x86_64-pc-windows-msvc
+          else
+            cargo fetch --target x86_64-pc-windows-msvc
+          fi
+
+      - name: Check the desktop crate for Windows
+        working-directory: apps/desktop/src-tauri
+        shell: bash
+        run: |
+          if [ -f Cargo.lock ]; then
+            cargo check --locked --offline --target x86_64-pc-windows-msvc
+          else
+            cargo check --offline --target x86_64-pc-windows-msvc
           fi
 
   macos-check:

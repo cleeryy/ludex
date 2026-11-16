@@ -259,6 +259,10 @@ fn status_body(
     body
 }
 
+// Eight arguments keep the call sites readable: the body packs status,
+// progress, message and the client id the claim carried (#184). Splitting them
+// into a struct only moves the same fields to another type.
+#[allow(clippy::too_many_arguments)]
 async fn report(
     state: &AppState,
     base: &str,

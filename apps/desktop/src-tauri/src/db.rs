@@ -1715,6 +1715,23 @@ pub fn set_install_job_archive_format(
     Ok(())
 }
 
+/// Rewrites the server base URL of a job whose local server moved to another
+/// port between app runs (#212 follow-up). Only the origin changes: the token is
+/// read from the settings/secret store when the job resumes.
+pub fn set_install_job_server_url(
+    connection: &Connection,
+    job_id: &str,
+    server_url: &str,
+) -> Result<(), String> {
+    connection
+        .execute(
+            "UPDATE install_job_params SET server_url = ?2 WHERE job_id = ?1",
+            params![job_id, server_url],
+        )
+        .map_err(|e| format!("Could not record the install server URL: {e}"))?;
+    Ok(())
+}
+
 pub fn delete_install_job_params(connection: &Connection, job_id: &str) -> Result<(), String> {
     connection
         .execute(

@@ -42,6 +42,10 @@ pub async fn start_embedded(app: &AppHandle) -> Result<ServerInfo, String> {
             settings.server_url = info.url.clone();
             settings.token = Some(info.token.clone());
         });
+        // #212 follow-up: the local server may have moved to another port since
+        // the interrupted job was recorded; point it at the live URL before the
+        // startup resume rebuilds the workers.
+        crate::resume_url::refresh_pending_install_urls(&state, &info.url);
         emit_status(
             app,
             &ServerStatus {
@@ -106,6 +110,12 @@ pub async fn start_embedded(app: &AppHandle) -> Result<ServerInfo, String> {
     }) {
         tracing::warn!(error = %error, "local server started but settings could not be persisted");
     }
+
+    // #212 follow-up: local mode binds an ephemeral port unless `serverPort` is
+    // pinned, so an interrupted job recorded in a previous run points at a port
+    // this process does not own. Re-point it at the live server before the
+    // startup resume runs.
+    crate::resume_url::refresh_pending_install_urls(&state, &info.url);
 
     emit_status(
         app,
