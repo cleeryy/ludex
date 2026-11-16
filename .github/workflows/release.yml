@@ -9,6 +9,10 @@ permissions:
   contents: write
   packages: write
 
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -78,23 +82,49 @@ jobs:
           retention-days: 7
 
   create-release:
-    name: Create GitHub release
+    name: Prepare draft release
     runs-on: ubuntu-24.04
     needs: verify
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Create release if missing
+      # The release stays a draft until `publish` has attached every artifact,
+      # the SHA256SUMS file and its signature. A late failure leaves an
+      # invisible draft instead of a public release missing a platform (#264).
+      - name: Resolve the version and channel
+        id: meta
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          case "$version" in
+            *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+          echo "tag=$TAG version=$version"
+
+      - name: Create the draft release if missing
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 || \
-            gh release create "$TAG" --title "Ludex $TAG" --generate-notes
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists: $(gh release view "$TAG" --json isDraft,isPrerelease --jq '"draft=\(.isDraft) prerelease=\(.isPrerelease)"')"
+          else
+            gh release create "$TAG" --draft --verify-tag \
+              --title "Ludex $TAG" \
+              --notes "Release notes, contributor credits and checksums are generated from CHANGELOG.md once every artifact is attached."
+          fi
 
   server:
     name: Server binary (linux x86_64)
@@ -294,8 +324,11 @@ jobs:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
           releaseName: "Ludex ${{ github.ref_name }}"
-          releaseDraft: false
-          prerelease: false
+          # #264: the release is a draft until `publish` generates the notes,
+          # the checksums and the signature, so a failed platform never leaves
+          # a public release with missing assets.
+          releaseDraft: true
+          prerelease: ${{ needs.create-release.outputs.prerelease }}
           # tauri-action merges the platform entries into one latest.json and
           # uploads the .sig files next to the bundles.
           includeUpdaterJson: true
@@ -350,3 +383,142 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=ludex-docker
           cache-to: type=gha,mode=max,scope=ludex-docker
+
+  publish:
+    name: Publish release (notes, checksums, signature)
+    runs-on: ubuntu-24.04
+    needs: [create-release, server, desktop, docker]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Everything below runs against a draft read back from the API, so the
+      # notes and checksums describe exactly what will be public.
+      - name: Download every release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist
+          gh release download "$TAG" --dir dist --clobber
+          ls -l dist
+
+      - name: Generate the release body and SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # The script owns the digest list: it is hashed and signed below, then
+          # attached unchanged (docs/RELEASING.md). A generated list must never
+          # be replaced after signing.
+          scripts/release-notes.sh \
+            --tag "$TAG" \
+            --assets dist \
+            --sums-out dist/SHA256SUMS \
+            --sums-signature SHA256SUMS.sig \
+            --out release-body.md
+          cat release-body.md
+
+      # Same minisign key as the updater bundles: SHA256SUMS.sig is verifiable
+      # with plugins.updater.pubkey (docs/RELEASING.md).
+      - name: Sign SHA256SUMS with the updater key
+        working-directory: dist
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          key="${TAURI_SIGNING_PRIVATE_KEY:-}"
+          password="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
+          if [ -z "$key" ] || [ -z "$password" ]; then
+            echo "::error::release checksums must be signed: TAURI_SIGNING_PRIVATE_KEY / _PASSWORD are missing."
+            exit 1
+          fi
+          key_file="$RUNNER_TEMP/ludex-updater.key"
+          if [ -f "$key" ]; then key_file="$key"; else printf '%s' "$key" > "$key_file"; fi
+          chmod 600 "$key_file"
+          pnpm dlx "@tauri-apps/cli@^2" signer sign \
+            --private-key-path "$key_file" --password "$password" SHA256SUMS
+          test -s SHA256SUMS.sig || { echo "::error::SHA256SUMS.sig was not produced"; exit 1; }
+          ls -l SHA256SUMS SHA256SUMS.sig
+
+      # #264: a stable release must never advertise an edge build, and every
+      # platform in the manifest must point at this tag with a signature.
+      - name: Guard latest.json (updater channel)
+        env:
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+          PRERELEASE: ${{ needs.create-release.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          tag = os.environ["TAG"]
+          version = os.environ["VERSION"]
+          prerelease = os.environ["PRERELEASE"] == "true"
+
+          path = "dist/latest.json"
+          if not os.path.isfile(path):
+              sys.exit("::error::latest.json is missing from the release assets")
+
+          data = json.load(open(path, encoding="utf-8"))
+          platforms = data.get("platforms") or {}
+          problems = []
+          if data.get("version") != version:
+              problems.append(f"latest.json version {data.get('version')!r} != {version!r}")
+          if not prerelease and "-" in str(data.get("version", "")):
+              problems.append("a stable release must not publish a prerelease latest.json")
+          for required in ("windows-x86_64", "linux-x86_64"):
+              if required not in platforms:
+                  problems.append(f"latest.json is missing the {required} entry")
+          for name, entry in platforms.items():
+              url = entry.get("url") or ""
+              if f"/releases/download/{tag}/" not in url:
+                  problems.append(f"{name} url does not point at {tag}: {url}")
+              if not entry.get("signature"):
+                  problems.append(f"{name} has no updater signature")
+
+          if problems:
+              sys.stderr.write("\n".join(f"::error::{problem}" for problem in problems) + "\n")
+              raise SystemExit(1)
+          print(f"latest.json OK: version {version}, platforms {', '.join(sorted(platforms))}")
+          PY
+
+      - name: Upload checksums and signature
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" dist/SHA256SUMS dist/SHA256SUMS.sig --clobber
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ needs.create-release.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --draft=false --prerelease="$PRERELEASE" \
+            --title "Ludex $TAG" --notes-file release-body.md
+          gh release view "$TAG" --json tagName,isDraft,isPrerelease

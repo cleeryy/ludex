@@ -462,6 +462,11 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: write
+    # One uploader per platform: two runs must never merge latest.json against
+    # the same rolling release at the same time (#264).
+    concurrency:
+      group: edge-desktop-${{ matrix.label }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
@@ -630,6 +635,83 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      # #264: the edge manifest must stay a prerelease payload. The stable
+      # updater reads /releases/latest/download/latest.json, which GitHub only
+      # resolves for non-prerelease releases, so a stable edge release would
+      # hijack every stable client.
+      - name: Guard the edge updater manifest (#264)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          prerelease="$(gh release view edge --json isPrerelease --jq '.isPrerelease')"
+          if [ "$prerelease" != "true" ]; then
+            echo "::error::the edge release must stay a prerelease so /releases/latest ignores it"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/edge"
+          gh release download edge --pattern latest.json --dir "$RUNNER_TEMP/edge" --clobber
+          python3 - "$VERSION" "$RUNNER_TEMP/edge/latest.json" <<'PY'
+          import json
+          import sys
+
+          version, path = sys.argv[1], sys.argv[2]
+          data = json.load(open(path, encoding="utf-8"))
+          if data.get("version") != version:
+              sys.exit(f"::error::edge latest.json version {data.get('version')!r} != {version!r}")
+          if "-edge." not in str(data.get("version", "")):
+              sys.exit("::error::edge latest.json must carry an -edge. version")
+          for name, entry in (data.get("platforms") or {}).items():
+              if "/releases/download/edge/" not in (entry.get("url") or ""):
+                  sys.exit(f"::error::{name} url does not point at the edge tag")
+          print(f"edge latest.json OK: {version}")
+          PY
+
+  edge-latest:
+    name: Edge updater guard (never latest)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [edge-desktop]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check the edge manifest and the /releases/latest pointer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/edge"
+          gh release download edge --pattern latest.json --dir "$RUNNER_TEMP/edge" --clobber
+          python3 - "$RUNNER_TEMP/edge/latest.json" <<'PY'
+          import json
+          import sys
+
+          path = sys.argv[1]
+          data = json.load(open(path, encoding="utf-8"))
+          version = str(data.get("version", ""))
+          if "-edge." not in version:
+              sys.exit(f"::error::edge latest.json version is not an edge build: {version!r}")
+          platforms = data.get("platforms") or {}
+          missing = {"windows-x86_64", "linux-x86_64"} - set(platforms)
+          if missing:
+              sys.exit(f"::error::edge latest.json lost a platform to a concurrent upload: {sorted(missing)}")
+          for name, entry in platforms.items():
+              if "/releases/download/edge/" not in (entry.get("url") or ""):
+                  sys.exit(f"::error::{name} url does not point at the edge tag")
+          print(f"edge latest.json OK: {version}, platforms {', '.join(sorted(platforms))}")
+          PY
+          stable_tag="$(gh release view --json tagName,isPrerelease --jq 'select(.isPrerelease == false) | .tagName' 2>/dev/null || true)"
+          if [ "$stable_tag" = "edge" ]; then
+            echo "::error::/releases/latest resolves to the edge release"
+            exit 1
+          fi
+          echo "stable /releases/latest -> ${stable_tag:-none}"
+
   edge-release:
     name: Edge release (main)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -638,6 +720,11 @@ jobs:
     timeout-minutes: 25
     permissions:
       contents: write
+    # One owner for the rolling tag: the force-push and the release edit must
+    # never interleave with another run (#264).
+    concurrency:
+      group: edge-release
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -722,6 +809,25 @@ jobs:
           tar -czf "dist/${NAME}.tar.gz" -C "dist/${NAME}" .
           (cd dist && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
 
+      - name: Generate the edge release notes (#264)
+        if: steps.changed.outputs.code == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          version="$(node - <<'JS'
+          const config = require('./apps/desktop/src-tauri/tauri.conf.json');
+          const [major, minor, patch] = config.version.split('-')[0].split('.').map(Number);
+          console.log(`${major}.${minor}.${patch + 1}-edge.${process.env.GITHUB_RUN_NUMBER}`);
+          JS
+          )"
+          scripts/release-notes.sh --tag edge --channel edge --version "$version" \
+            --commit "$SHA" --out "$RUNNER_TEMP/edge-notes.md"
+          cat "$RUNNER_TEMP/edge-notes.md"
+
       - name: Publish edge prerelease
         if: steps.changed.outputs.code == 'true'
         env:
@@ -731,14 +837,13 @@ jobs:
         run: |
           set -euo pipefail
           TAG="edge"
-          NOTES="Rolling prerelease built from main at ${SHA}. E2E-gated; not for production."
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -f "$TAG" "$SHA"
           git push origin "refs/tags/${TAG}" --force
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --prerelease --title "Ludex edge" --notes "$NOTES"
+            gh release edit "$TAG" --prerelease --title "Ludex edge" --notes-file "$RUNNER_TEMP/edge-notes.md"
           else
-            gh release create "$TAG" --prerelease --title "Ludex edge" --notes "$NOTES"
+            gh release create "$TAG" --prerelease --title "Ludex edge" --notes-file "$RUNNER_TEMP/edge-notes.md"
           fi
           gh release upload "$TAG" dist/*.tar.gz dist/*.sha256 --clobber
