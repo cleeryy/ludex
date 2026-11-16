@@ -1405,39 +1405,6 @@ fn position_on_current_monitor(app: &AppHandle, window: &tauri::WebviewWindow) -
     monitor.name().cloned()
 }
 
-/* ------------------------------ close routing ---------------------------- */
-
-/// What a `CloseRequested` event must do for one window (#228).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CloseRequestAction {
-    /// The main window with close-to-tray on: hide it instead of quitting.
-    HideToTray,
-    /// The overlay: hide it, never hide the main window.
-    CloseOverlay,
-    /// Let the window close (a console session, or a window with no tray).
-    Close,
-}
-
-/// Route a window close. Pure so "Alt+F4 on the overlay does not hide Ludex"
-/// is tested without a live window (#228).
-pub fn close_request_action(
-    label: &str,
-    close_to_tray: bool,
-    console_active: bool,
-) -> CloseRequestAction {
-    if label == OVERLAY_LABEL {
-        return CloseRequestAction::CloseOverlay;
-    }
-    if label != "main" {
-        return CloseRequestAction::Close;
-    }
-    if close_to_tray && !console_active {
-        CloseRequestAction::HideToTray
-    } else {
-        CloseRequestAction::Close
-    }
-}
-
 /* -------------------------------- settings ------------------------------- */
 
 fn apply_patch(settings: &mut LocalSettings, patch: OverlaySettingsPatch) {
@@ -1485,6 +1452,8 @@ pub fn update_settings(
     let _ = app.emit_to("overlay", "overlay://settings", &status);
     let _ = app.emit_to("main", "overlay://settings", &status);
     broadcast(app, &status);
+    // #269: enabling or disabling the overlay changes the policy's overlay host.
+    crate::window_policy::emit(app);
     Ok(status)
 }
 
@@ -2218,33 +2187,6 @@ mod tests {
         assert!(detector
             .handle(PadEvent::Pressed(PadButton::Start), 3)
             .is_some());
-    }
-
-    #[test]
-    fn closing_the_overlay_never_hides_the_desktop_shell() {
-        // #228: the old handler called `hide_window` for any window, so Alt+F4
-        // on the overlay hid Ludex.
-        assert_eq!(
-            close_request_action(OVERLAY_LABEL, true, false),
-            CloseRequestAction::CloseOverlay
-        );
-        assert_eq!(
-            close_request_action("main", true, false),
-            CloseRequestAction::HideToTray
-        );
-        // A console session closes for real so Moonlight sees it end.
-        assert_eq!(
-            close_request_action("main", true, true),
-            CloseRequestAction::Close
-        );
-        assert_eq!(
-            close_request_action("main", false, false),
-            CloseRequestAction::Close
-        );
-        assert_eq!(
-            close_request_action("other", true, false),
-            CloseRequestAction::Close
-        );
     }
 
     #[test]

@@ -2801,7 +2801,6 @@
   "Skipped": "已跳过",
   "Skips hidden entries, extracted game trees, Redist, Support, Tools and uninstallers.": "跳过隐藏条目、提取的游戏树、Redist、支持、工具和卸载程序。",
   "Skips the current wait and retries immediately": "跳过当前等待并立即重试",
-  "Sleep keeps the session running. Press a button on the controller to wake the PC.": "睡眠会让会话保持运行。按控制器上的按钮唤醒电脑。",
   "Sleep this PC": "让此电脑进入睡眠",
   "Smart": "聪明的",
   "Smart list": "智能列表",
@@ -3926,5 +3925,9 @@
   "“{query}”": "“{query}”",
   "“{title}” is already {source}. Linking this folder replaces that Ludex entry. Its files are left alone.": "“{title}”已经是{source}。链接此文件夹将替换 Ludex 条目。它的文件被保留。",
   "“{token}” is not a hex colour with three or six digits.": "“{token}”不是三位数或六位数的十六进制颜色。",
-  "…and {count} more": "…以及 {count} 更多"
+  "…and {count} more": "…以及 {count} 更多",
+  "Quit {title} before sleeping this PC.": "让此电脑进入睡眠前先退出 {title}。",
+  "Sleeps this PC until you wake it.": "让此电脑进入睡眠，直到你唤醒它。",
+  "Sleeps this PC. {count} active download(s) pause until you wake it.": "让此电脑进入睡眠。{count} 个进行中的下载会暂停，直到你唤醒它。",
+  "This machine cannot suspend.": "此设备无法进入睡眠。"
 }

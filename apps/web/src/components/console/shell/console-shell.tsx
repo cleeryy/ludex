@@ -7,7 +7,7 @@ import { downloadGame } from "@/lib/download";
 import { useDocumentTitle } from "@/lib/document-title";
 import { errorMessage } from "@/lib/http";
 import { formatPercent } from "@/lib/format";
-import { isNative, native } from "@/lib/native";
+import { isNative, native, type SleepCapability } from "@/lib/native";
 import { listServers } from "@/lib/servers";
 import type { GameSummary } from "@/lib/types";
 import { useInstalledMap, useLaunchGame, useLibraryGames } from "@/lib/hooks";
@@ -437,6 +437,26 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     phaseWitness.current = next;
   }, [jobPhases, emit]);
 
+  // #269: the OS sleep probe, so the Power row is disabled with the real reason
+  // instead of failing on press. A desktop without `sleep_capability` answers
+  // null and keeps the pre-#269 behaviour.
+  const [sleep, setSleep] = useState<SleepCapability | null>(null);
+  useEffect(() => {
+    if (!isNative()) return;
+    let cancelled = false;
+    void native
+      .sleepCapability()
+      .then((capability) => {
+        if (!cancelled) setSleep(capability);
+      })
+      .catch(() => {
+        /* keep the row enabled and report the real error on press */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const shelves = useMemo<BigPictureShelf[]>(() => {
     const recent = games
       .filter((game) => game.lastPlayedAt)
@@ -741,6 +761,10 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     return () => window.clearTimeout(timer);
   }, [ready]);
 
+  // The OS window is not this screen's business any more: `useConsoleSession`
+  // reads the Rust window policy (#269) and takes or hands back fullscreen on
+  // mount and unmount, and it owns the one `exit`.
+
   /* ----------------------------- shell surfaces ---------------------------- */
 
   const syncLevelUrl = (next: ShellLevel, nextSection?: SettingsSectionId) => {
@@ -972,8 +996,12 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
         console: consoleActive,
         native: isNative(),
         gameTitle: runningGame?.title ?? null,
+        // #267: the download state lives in one store; `activeCount` is the same
+        // set the old screen's `activeJobs.length` counted (#269).
+        activeInstalls: activeCount,
+        sleep,
       }),
-    [consoleActive, runningGame?.title],
+    [consoleActive, runningGame?.title, activeCount, sleep],
   );
 
   const runPower = async (action: PowerAction) => {
@@ -986,7 +1014,9 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
           await native.exitConsole();
           return;
         case "sleep":
-          await native.systemSleep();
+          // The confirmation modal already ran (it defaults to Cancel), so an
+          // active install is an explicit choice by the time we get here.
+          await native.systemSleep({ confirmActiveInstalls: activeCount > 0 });
           return;
         case "restart":
           await native.restartApp();
@@ -995,9 +1025,8 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
           try {
             await native.quitApp();
           } catch (cause) {
-            // `quit_app` is still pending in the desktop lane. In a console
-            // session the existing exit command is the honest fallback: the
-            // player asked to end the app, not to stay trapped.
+            // An older desktop without `quit_app` still ends the session through
+            // the console exit: the player asked to stop, not to stay trapped.
             if (consoleActive) {
               await native.exitConsole();
               return;

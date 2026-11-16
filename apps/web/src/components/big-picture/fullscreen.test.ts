@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { fullscreenRestoreOnExit, shouldEnterFullscreen } from "./fullscreen";
+import {
+  bigPictureFullscreenPlan,
+  fullscreenRestoreOnExit,
+  type FullscreenPlanInput,
+} from "./fullscreen";
 
 describe("fullscreenRestoreOnExit", () => {
   it("hands the window back when Big Picture entered fullscreen itself", () => {
@@ -21,40 +25,74 @@ describe("fullscreenRestoreOnExit", () => {
   });
 });
 
-describe("shouldEnterFullscreen", () => {
-  const base = {
-    isNative: true,
-    consoleReady: true,
-    consoleActive: false,
-    consoleFullscreen: false,
-    alreadyFullscreen: false,
-  };
+/* --------------------------------------------------------------------------
+   #269: the native window policy replaces the console-mode inference. The
+   truth table covers Windows/Linux/macOS through the emitted policy; the only
+   platform difference is decorations, which Big Picture does not touch.
+   -------------------------------------------------------------------------- */
 
-  it("enters on a plain manual visit", () => {
-    expect(shouldEnterFullscreen(base)).toBe(true);
+const base: FullscreenPlanInput = {
+  native: true,
+  policy: { fullscreen: false, tray: true },
+  legacyConsoleReady: true,
+  legacyConsoleActive: false,
+  legacyConsoleFullscreen: false,
+};
+
+describe("bigPictureFullscreenPlan", () => {
+  it("takes the desktop window and hands it back on exit", () => {
+    expect(bigPictureFullscreenPlan(base)).toBe("take-over");
   });
 
-  it("leaves an already-fullscreen window to the restore path", () => {
-    expect(shouldEnterFullscreen({ ...base, alreadyFullscreen: true })).toBe(false);
+  it("never touches a console window, fullscreen or --windowed", () => {
+    // tray: false is the policy's console session (it never has a tray).
+    expect(bigPictureFullscreenPlan({ ...base, policy: { fullscreen: true, tray: false } })).toBe(
+      "native",
+    );
+    expect(bigPictureFullscreenPlan({ ...base, policy: { fullscreen: false, tray: false } })).toBe(
+      "native",
+    );
+  });
+
+  it("leaves a policy-fullscreen desktop window to Rust", () => {
+    expect(bigPictureFullscreenPlan({ ...base, policy: { fullscreen: true, tray: true } })).toBe(
+      "native",
+    );
   });
 
   it("does nothing in the browser build", () => {
-    expect(shouldEnterFullscreen({ ...base, isNative: false })).toBe(false);
+    expect(bigPictureFullscreenPlan({ ...base, native: false })).toBe("none");
   });
 
-  it("waits for the console status", () => {
-    expect(shouldEnterFullscreen({ ...base, consoleReady: false })).toBe(false);
+  it("waits while the policy is loading", () => {
+    expect(bigPictureFullscreenPlan({ ...base, policy: undefined })).toBe("wait");
   });
 
-  it("does not fight a console session that started windowed", () => {
+  it("keeps the pre-269 behaviour when the desktop has no policy", () => {
+    // Older desktop: fall back to console_mode(), the way the screen used to.
+    expect(bigPictureFullscreenPlan({ ...base, policy: null })).toBe("take-over");
     expect(
-      shouldEnterFullscreen({ ...base, consoleActive: true, consoleFullscreen: false }),
-    ).toBe(false);
-  });
-
-  it("enters for a console session that runs fullscreen", () => {
+      bigPictureFullscreenPlan({
+        ...base,
+        policy: null,
+        legacyConsoleReady: false,
+      }),
+    ).toBe("wait");
     expect(
-      shouldEnterFullscreen({ ...base, consoleActive: true, consoleFullscreen: true }),
-    ).toBe(true);
+      bigPictureFullscreenPlan({
+        ...base,
+        policy: null,
+        legacyConsoleActive: true,
+        legacyConsoleFullscreen: false,
+      }),
+    ).toBe("native");
+    expect(
+      bigPictureFullscreenPlan({
+        ...base,
+        policy: null,
+        legacyConsoleActive: true,
+        legacyConsoleFullscreen: true,
+      }),
+    ).toBe("take-over");
   });
 });

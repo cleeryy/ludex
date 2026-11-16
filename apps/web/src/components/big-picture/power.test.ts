@@ -75,6 +75,59 @@ describe("power actions by platform", () => {
   });
 });
 
+describe("sleep capability and honesty (issue 269)", () => {
+  it("dropped the false controller-wake promise", () => {
+    const sleep = powerActions(DESKTOP).find((action) => action.id === "sleep");
+    expect(sleep?.detail).toBe("Sleeps this PC until you wake it.");
+    expect(sleep?.detail).not.toMatch(/controller|wake the PC with/i);
+    expect(sleep?.enabled).toBe(true);
+  });
+
+  it("disables the row with the probe reason when the machine cannot suspend", () => {
+    const sleep = powerActions({
+      ...DESKTOP,
+      sleep: { available: false, reason: "systemd-logind reports that this machine cannot suspend." },
+    }).find((action) => action.id === "sleep");
+    expect(sleep?.enabled).toBe(false);
+    expect(sleep?.reason).toBe("systemd-logind reports that this machine cannot suspend.");
+  });
+
+  it("falls back to a reason when the probe gives none", () => {
+    const sleep = powerActions({ ...DESKTOP, sleep: { available: false } }).find(
+      (action) => action.id === "sleep",
+    );
+    expect(sleep?.enabled).toBe(false);
+    expect(sleep?.reason).toBe("This machine cannot suspend.");
+  });
+
+  it("stays enabled when an older desktop cannot answer the probe", () => {
+    for (const sleep of [null, undefined] as const) {
+      const action = powerActions({ ...DESKTOP, sleep }).find((entry) => entry.id === "sleep");
+      expect(action?.enabled).toBe(true);
+      expect(action?.reason).toBeUndefined();
+    }
+  });
+
+  it("asks to quit the running game first: sleep would drop the stream", () => {
+    const sleep = powerActions({
+      ...CONSOLE,
+      gameTitle: "Hades II",
+      sleep: { available: true },
+    }).find((action) => action.id === "sleep");
+    expect(sleep?.enabled).toBe(false);
+    expect(sleep?.reason).toBe("Quit Hades II before sleeping this PC.");
+  });
+
+  it("says which downloads sleep pauses, and still confirms", () => {
+    const sleep = powerActions({ ...DESKTOP, activeInstalls: 3 }).find(
+      (action) => action.id === "sleep",
+    );
+    expect(sleep?.enabled).toBe(true);
+    expect(sleep?.detail).toBe("Sleeps this PC. 3 active download(s) pause until you wake it.");
+    expect(needsPowerConfirm("sleep")).toBe(true);
+  });
+});
+
 describe("power grid geometry", () => {
   it("uses two columns, matching the rendered tiles", () => {
     expect(POWER_GRID_COLUMNS).toBe(2);
