@@ -6,6 +6,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Console evidence (#270): the fake-pad suites now run every gate (overlay
+  single-dispatch, 24u type floor, Cabinet rules, no desktop leaks), a new
+  opt-in probe measures boot-to-home, rail frame deltas, long tasks, JS heap and
+  rAF chains at 1080p/4K, and the WebKitGTK spike + Windows/Sunshine hardware
+  checklists are documented in `docs/console/`.
+
 ### Changed
 
 - Install pipeline split (#237): the 8,598-line `install.rs` becomes
