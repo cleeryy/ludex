@@ -3894,5 +3894,13 @@
   "Install drive (default)": "インストールドライブ（既定）",
   "Resolved per version: the server's extracted files when they are ready, then a streamed ZIP, then the archive. A probe that finds nothing falls back on its own; only a transfer that fails mid-install says why on the job.": "バージョンごとに決定します。サーバーの展開済みファイルが用意されていればそれを使い、次に ZIP のストリーム、最後にアーカイブを使います。何も見つからない場合の確認は自動で切り替わり、インストール途中で失敗した転送だけがジョブに理由を表示します。",
   "Streams ZIP entries as they arrive and never stores the archive. 7z and RAR archives still download and extract the archive.": "ZIP のエントリを到着順にストリームし、アーカイブを保存しません。7z と RAR は引き続きアーカイブをダウンロードして展開します。",
-  "Verified files from the server, one by one. No archive lands on this device.": "サーバーから検証済みのファイルを 1 つずつ取得します。このデバイスにアーカイブは保存されません。"
+  "Verified files from the server, one by one. No archive lands on this device.": "サーバーから検証済みのファイルを 1 つずつ取得します。このデバイスにアーカイブは保存されません。",
+  "Entries unused for 14 days are evicted, and the least recently used ones go first when the budget is reached. The cache lives next to the local server's data and is never unbounded.": "14日間使用されなかったエントリは削除され、予算に達すると最後に使用された日時が最も古いものから順に削除されます。キャッシュはローカルサーバーのデータの隣に置かれ、無制限になることはありません。",
+  "GB": "GB",
+  "In local mode the embedded server can extract an archive once and serve the files to this device, so an install downloads files instead of an archive. It runs on this machine and is bounded by the budget below. The change applies the next time the local server starts.": "ローカルモードでは、組み込みサーバーがアーカイブを一度展開し、そのファイルをこのデバイスに配信できるため、インストールはアーカイブではなくファイルをダウンロードします。このマシン上で実行され、下の予算によって制限されます。変更は次回ローカルサーバーの起動時に適用されます。",
+  "On by default in local mode. Off (or full) keeps the archive download and never writes the cache; a remote server keeps its own LUDEX_EXTRACTED_CACHE opt-in.": "ローカルモードでは既定でオンです。オフ（または満杯）にするとアーカイブのダウンロードを維持し、キャッシュには一切書き込みません。リモートサーバーは独自の LUDEX_EXTRACTED_CACHE のオプトインを保持します。",
+  "Serve extracted files to installs": "展開済みファイルをインストールに配信",
+  "Server file cache": "サーバーファイルキャッシュ",
+  "Server file cache budget in GB": "サーバーファイルキャッシュの予算（GB）",
+  "The cache stays off; installs download the archive and extract it locally.": "キャッシュはオフのままです。インストールはアーカイブをダウンロードし、ローカルで展開します。"
 }

@@ -3894,5 +3894,13 @@
   "Install drive (default)": "Unidade de instalação (padrão)",
   "Resolved per version: the server's extracted files when they are ready, then a streamed ZIP, then the archive. A probe that finds nothing falls back on its own; only a transfer that fails mid-install says why on the job.": "Resolvido por versão: os arquivos extraídos do servidor quando estão prontos, depois um ZIP em streaming e, por fim, o arquivo. Uma sondagem sem resultado muda sozinha; apenas uma transferência que falha no meio da instalação informa o motivo na tarefa.",
   "Streams ZIP entries as they arrive and never stores the archive. 7z and RAR archives still download and extract the archive.": "Transmite as entradas do ZIP conforme chegam e nunca armazena o arquivo. Arquivos 7z e RAR ainda baixam e extraem o arquivo.",
-  "Verified files from the server, one by one. No archive lands on this device.": "Arquivos verificados do servidor, um por um. Nenhum arquivo compactado é gravado neste dispositivo."
+  "Verified files from the server, one by one. No archive lands on this device.": "Arquivos verificados do servidor, um por um. Nenhum arquivo compactado é gravado neste dispositivo.",
+  "Entries unused for 14 days are evicted, and the least recently used ones go first when the budget is reached. The cache lives next to the local server's data and is never unbounded.": "Entradas não usadas por 14 dias são removidas, e as menos usadas recentemente saem primeiro quando o orçamento é atingido. O cache fica ao lado dos dados do servidor local e nunca é ilimitado.",
+  "GB": "GB",
+  "In local mode the embedded server can extract an archive once and serve the files to this device, so an install downloads files instead of an archive. It runs on this machine and is bounded by the budget below. The change applies the next time the local server starts.": "No modo local, o servidor integrado pode extrair um pacote uma vez e servir os arquivos para este dispositivo, então uma instalação baixa arquivos em vez de um pacote. Ele roda nesta máquina e é limitado pelo orçamento abaixo. A mudança se aplica na próxima vez que o servidor local iniciar.",
+  "On by default in local mode. Off (or full) keeps the archive download and never writes the cache; a remote server keeps its own LUDEX_EXTRACTED_CACHE opt-in.": "Ativado por padrão no modo local. Desativado (ou cheio) mantém o download do pacote e nunca grava o cache; um servidor remoto mantém sua própria opção LUDEX_EXTRACTED_CACHE.",
+  "Serve extracted files to installs": "Servir arquivos extraídos para instalações",
+  "Server file cache": "Cache de arquivos do servidor",
+  "Server file cache budget in GB": "Orçamento do cache de arquivos do servidor em GB",
+  "The cache stays off; installs download the archive and extract it locally.": "O cache permanece desativado; as instalações baixam o pacote e o extraem localmente."
 }

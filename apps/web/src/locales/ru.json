@@ -3894,5 +3894,13 @@
   "Install drive (default)": "Диск установки (по умолчанию)",
   "Resolved per version: the server's extracted files when they are ready, then a streamed ZIP, then the archive. A probe that finds nothing falls back on its own; only a transfer that fails mid-install says why on the job.": "Определяется для каждой версии: извлечённые файлы сервера, если они готовы, затем потоковый ZIP, затем архив. Проверка без результата переключается сама; только передача, прерванная посреди установки, указывает причину в задании.",
   "Streams ZIP entries as they arrive and never stores the archive. 7z and RAR archives still download and extract the archive.": "Передаёт записи ZIP по мере поступления и никогда не сохраняет архив. Архивы 7z и RAR по-прежнему скачиваются и распаковываются.",
-  "Verified files from the server, one by one. No archive lands on this device.": "Проверенные файлы с сервера, по одному. На это устройство не попадает архив."
+  "Verified files from the server, one by one. No archive lands on this device.": "Проверенные файлы с сервера, по одному. На это устройство не попадает архив.",
+  "Entries unused for 14 days are evicted, and the least recently used ones go first when the budget is reached. The cache lives next to the local server's data and is never unbounded.": "Записи, не использовавшиеся 14 дней, удаляются, а при достижении лимита первыми уходят самые давно использованные. Кэш хранится рядом с данными локального сервера и никогда не бывает неограниченным.",
+  "GB": "ГБ",
+  "In local mode the embedded server can extract an archive once and serve the files to this device, so an install downloads files instead of an archive. It runs on this machine and is bounded by the budget below. The change applies the next time the local server starts.": "В локальном режиме встроенный сервер может один раз распаковать архив и отдавать файлы этому устройству, поэтому установка скачивает файлы, а не архив. Он работает на этой машине и ограничен лимитом ниже. Изменение применится при следующем запуске локального сервера.",
+  "On by default in local mode. Off (or full) keeps the archive download and never writes the cache; a remote server keeps its own LUDEX_EXTRACTED_CACHE opt-in.": "По умолчанию включено в локальном режиме. Выключено (или заполнено) сохраняет загрузку архива и никогда не пишет кэш; удалённый сервер сохраняет собственное включение LUDEX_EXTRACTED_CACHE.",
+  "Serve extracted files to installs": "Отдавать распакованные файлы для установок",
+  "Server file cache": "Файловый кэш сервера",
+  "Server file cache budget in GB": "Лимит файлового кэша сервера в ГБ",
+  "The cache stays off; installs download the archive and extract it locally.": "Кэш остаётся выключенным; установки скачивают архив и распаковывают его локально."
 }

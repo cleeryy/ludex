@@ -21,7 +21,7 @@ import { identityLabel, padFingerprint, shortFingerprint } from "@/lib/controlle
 import { uiSound } from "@/lib/ui-sound";
 import { clampVolume, stepVolume, type CueId } from "@/lib/ui-sound-specs";
 import { useAuth } from "@/state/auth";
-import { useDownloads } from "@/state/downloads";
+import { useActiveJobs, useAllJobs, useQueueSummary, useTitleFor } from "@/state/downloads";
 import { useSettings } from "@/state/settings";
 import { useToast } from "@/state/toasts";
 import { Wordmark } from "@/components/brand";
@@ -228,7 +228,14 @@ export function BigPictureScreen() {
   const queryClient = useQueryClient();
   const { data, isPending, isError, error, isFetching, refetch } = useAllGames();
   const installed = useInstalledMap();
-  const downloads = useDownloads();
+  const jobs = useAllJobs();
+  const activeJobs = useActiveJobs();
+  const { activeCount, percent: transferPercent } = useQueueSummary();
+  const titleFor = useTitleFor();
+  const jobForGame = useCallback(
+    (gameId: number) => activeJobs.find((entry) => entry.gameId === gameId),
+    [activeJobs],
+  );
   const launch = useLaunchGame();
   const [layout, setLayout] = useBigPictureLayout();
   const [consoleAppearance, setConsoleAppearance] = useConsoleAppearance();
@@ -418,7 +425,6 @@ export function BigPictureScreen() {
   useEffect(() => {
     if (!isNative()) return;
     let cancelled = false;
-    let timer: number | undefined;
     const load = () => {
       void native
         .overlayStatus()
@@ -437,10 +443,10 @@ export function BigPictureScreen() {
         });
     };
     load();
-    timer = window.setInterval(load, 60_000);
+    const timer = window.setInterval(load, 60_000);
     return () => {
       cancelled = true;
-      if (timer !== undefined) window.clearInterval(timer);
+      window.clearInterval(timer);
     };
   }, []);
 
@@ -473,13 +479,13 @@ export function BigPictureScreen() {
   const jobPhases = useRef<Map<string, string> | null>(null);
   useEffect(() => {
     if (jobPhases.current === null) {
-      if (downloads.jobs.length === 0) return;
-      jobPhases.current = new Map(downloads.jobs.map((job) => [job.jobId, job.phase]));
+      if (jobs.length === 0) return;
+      jobPhases.current = new Map(jobs.map((job) => [job.jobId, job.phase]));
       return;
     }
     const previous = jobPhases.current;
     const next = new Map<string, string>();
-    for (const job of downloads.jobs) {
+    for (const job of jobs) {
       next.set(job.jobId, job.phase);
       const before = previous.get(job.jobId);
       if (job.phase === before) continue;
@@ -487,7 +493,7 @@ export function BigPictureScreen() {
       else if (job.phase === "error" && before !== undefined) emit("error");
     }
     jobPhases.current = next;
-  }, [downloads.jobs, emit]);
+  }, [jobs, emit]);
 
   useEffect(() => {
     if (!isNative()) return;
@@ -533,7 +539,7 @@ export function BigPictureScreen() {
   });
   const version = detail.data?.versions[0];
   const installedGame = selected ? installed.get(selected.id) : undefined;
-  const job = selected ? downloads.jobForGame(selected.id) : undefined;
+  const job = selected ? jobForGame(selected.id) : undefined;
   const percent = jobPercent(job);
 
   // #229: the console material. Soft swaps in the cream palette plus the
@@ -661,7 +667,7 @@ export function BigPictureScreen() {
       : overlay === "exit"
         ? 2
         : overlay === "downloads"
-          ? downloads.active.length + 1
+          ? activeJobs.length + 1
           : overlay === "profiles"
             ? profileChoices.length + 2
             : overlay === "collections"
@@ -1063,7 +1069,7 @@ export function BigPictureScreen() {
     }
   };
 
-  const useAccountDefault = async () => {
+  const applyAccountDefault = async () => {
     try {
       await clearDeviceOverride();
       setDeviceOnly(false);
@@ -1874,7 +1880,7 @@ export function BigPictureScreen() {
         return;
       case "account-default":
         emit("confirm");
-        void useAccountDefault();
+        void applyAccountDefault();
         return;
       case "layout":
         emit("confirm");
@@ -2047,12 +2053,10 @@ export function BigPictureScreen() {
       : { detail: t("Nothing played yet"), disabled: true },
     library: { detail: t("All games") },
     downloads:
-      downloads.activeCount > 0
+      activeCount > 0
         ? {
-            detail: `${tn(downloads.activeCount, "1 downloading", "{count} downloading")}${
-              downloads.aggregate?.percent !== null && downloads.aggregate
-                ? ` · ${formatPercent(downloads.aggregate.percent)}`
-                : ""
+            detail: `${tn(activeCount, "1 downloading", "{count} downloading")}${
+              transferPercent !== null ? ` · ${formatPercent(transferPercent)}` : ""
             }`,
           }
         : { detail: t("No downloads running.") },
@@ -2396,7 +2400,7 @@ export function BigPictureScreen() {
     primary,
     onOpenGame: (gameId) => navigate(`/game/${gameId}`),
     onOpenMenu: () => openOverlay("menu"),
-    jobFor: downloads.jobForGame,
+    jobFor: jobForGame,
   };
 
   const body = isPending ? (
@@ -2490,8 +2494,8 @@ export function BigPictureScreen() {
         padFamily={padFamilyLabel(padFamilyName)}
         padBattery={padBattery?.level ?? null}
         padCharging={padBattery?.charging ?? false}
-        downloads={downloads.activeCount}
-        downloadsPercent={downloads.aggregate?.percent ?? null}
+        downloads={activeCount}
+        downloadsPercent={transferPercent}
         refreshing={!isPending && isFetching}
         consoleActive={consoleActive}
       />
@@ -2599,7 +2603,7 @@ export function BigPictureScreen() {
               setOverlayIndex(index);
               activateOverlay(index);
             }}
-            downloads={downloads.activeCount}
+            downloads={activeCount}
           />
         )}
         {overlay === "downloads" && (
@@ -2613,8 +2617,8 @@ export function BigPictureScreen() {
               setOverlayIndex(index);
               activateOverlay(index);
             }}
-            jobs={downloads.active}
-            titleFor={downloads.titleFor}
+            jobs={activeJobs}
+            titleFor={titleFor}
           />
         )}
         {overlay === "profiles" && (

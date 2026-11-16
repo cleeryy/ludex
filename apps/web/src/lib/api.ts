@@ -174,6 +174,13 @@ export const tokenStore = {
 
 export const UNAUTHORIZED_EVENT = "ludex:unauthorized";
 
+/**
+ * A server that accepts the connection but never answers must not leave the
+ * boot screen (or any query) pending forever (#237). Every request engine in
+ * this module gives up after this delay and reports a `timeout` ApiError.
+ */
+export const REQUEST_TIMEOUT_MS = 30_000;
+
 type RequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
@@ -182,6 +189,13 @@ type RequestOptions = {
   /** Extra request headers, e.g. `If-Match` for the preference document. */
   headers?: Record<string, string>;
 };
+
+const timeoutError = (): ApiError =>
+  new ApiError(
+    0,
+    "timeout",
+    t("The server did not answer. Check that it is running, then try again."),
+  );
 
 function buildUrl(path: string, query?: RequestOptions["query"]): string {
   const url = `${baseUrl}/api${path}`;
@@ -201,15 +215,23 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (options.auth !== false && token) headers.Authorization = `Bearer ${token}`;
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(buildUrl(path, options.query), {
       method: options.method ?? "GET",
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: controller.signal,
     });
   } catch {
+    // An abort here is always our own deadline: there is no caller-supplied
+    // signal yet, so a rejected fetch after the timer fired is a timeout.
+    if (controller.signal.aborted) throw timeoutError();
     throw new ApiError(0, "network_error", t("Cannot reach the server. Check that it is running and the address is correct."));
+  } finally {
+    clearTimeout(timer);
   }
 
   if (response.status === 401) {
@@ -1347,6 +1369,30 @@ function filenameFromDisposition(disposition: string): string | null {
   return plain?.[1] ?? null;
 }
 
+
+/**
+ * XHR only exposes a total-duration timeout. A fixed budget would kill a
+ * legitimate multi-minute save upload, so reset the deadline on every progress
+ * signal instead: only a connection that stops moving times out (#237).
+ */
+function armIdleTimeout(xhr: XMLHttpRequest): { reset: () => void; clear: () => void; expired: () => boolean } {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let fired = false;
+  const clear = () => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+  };
+  const reset = () => {
+    clear();
+    timer = setTimeout(() => {
+      fired = true;
+      xhr.abort();
+    }, REQUEST_TIMEOUT_MS);
+  };
+  reset();
+  return { reset, clear, expired: () => fired };
+}
+
 /**
  * Raw binary chunk upload. Uses XHR for progress and to keep the body
  * untouched (a fetch Blob body would otherwise be copied for large chunks).
@@ -1362,11 +1408,21 @@ function putChunk<T>(
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     const token = tokenStore.get();
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    const idle = armIdleTimeout(xhr);
     xhr.upload.onprogress = (event) => {
+      idle.reset();
       if (event.lengthComputable) onProgress?.(event.loaded);
     };
-    xhr.onerror = () => reject(new ApiError(0, "network_error", t("Cannot reach the server. Check that it is running.")));
+    xhr.onreadystatechange = () => {
+      if (!idle.expired()) idle.reset();
+    };
+    xhr.onerror = () => {
+      idle.clear();
+      if (idle.expired()) reject(timeoutError());
+      else reject(new ApiError(0, "network_error", t("Cannot reach the server. Check that it is running.")));
+    };
     xhr.onload = () => {
+      idle.clear();
       let payload: unknown = null;
       if (xhr.responseText) {
         try {
@@ -1413,12 +1469,22 @@ function uploadWithProgress<T>(
     const token = tokenStore.get();
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
 
+    const idle = armIdleTimeout(xhr);
     xhr.upload.onprogress = (event) => {
+      idle.reset();
       if (event.lengthComputable) onProgress?.(event.loaded, event.total);
     };
+    xhr.onreadystatechange = () => {
+      if (!idle.expired()) idle.reset();
+    };
 
-    xhr.onerror = () => reject(new ApiError(0, "network_error", t("Cannot reach the server. Check that it is running.")));
+    xhr.onerror = () => {
+      idle.clear();
+      if (idle.expired()) reject(timeoutError());
+      else reject(new ApiError(0, "network_error", t("Cannot reach the server. Check that it is running.")));
+    };
     xhr.onload = () => {
+      idle.clear();
       let payload: unknown = null;
       if (xhr.responseText) {
         try {

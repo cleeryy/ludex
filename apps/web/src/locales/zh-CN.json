@@ -3894,5 +3894,13 @@
   "Install drive (default)": "安装驱动器（默认）",
   "Resolved per version: the server's extracted files when they are ready, then a streamed ZIP, then the archive. A probe that finds nothing falls back on its own; only a transfer that fails mid-install says why on the job.": "按版本决定：服务器已解压的文件就绪时优先使用，其次是流式 ZIP，最后是压缩包。探测无结果时会自动回退；只有安装中途失败的传输才会在任务上说明原因。",
   "Streams ZIP entries as they arrive and never stores the archive. 7z and RAR archives still download and extract the archive.": "随到随流式写入 ZIP 条目，从不保存压缩包。7z 和 RAR 仍会下载并解压压缩包。",
-  "Verified files from the server, one by one. No archive lands on this device.": "从服务器逐个下载并校验文件。此设备不会写入压缩包。"
+  "Verified files from the server, one by one. No archive lands on this device.": "从服务器逐个下载并校验文件。此设备不会写入压缩包。",
+  "Entries unused for 14 days are evicted, and the least recently used ones go first when the budget is reached. The cache lives next to the local server's data and is never unbounded.": "14 天未使用的条目会被清除；达到预算时，最久未使用的条目会先被清除。缓存位于本地服务器数据旁边，且永远不会无上限。",
+  "GB": "GB",
+  "In local mode the embedded server can extract an archive once and serve the files to this device, so an install downloads files instead of an archive. It runs on this machine and is bounded by the budget below. The change applies the next time the local server starts.": "在本地模式下，内置服务器可以解压一次压缩包，并把文件提供给此设备，因此安装会下载文件而不是压缩包。它运行在本机，并受下方预算限制。更改会在本地服务器下次启动时生效。",
+  "On by default in local mode. Off (or full) keeps the archive download and never writes the cache; a remote server keeps its own LUDEX_EXTRACTED_CACHE opt-in.": "本地模式下默认开启。关闭（或已满）会保留压缩包下载，且从不写入缓存；远程服务器保留其自己的 LUDEX_EXTRACTED_CACHE 选择加入。",
+  "Serve extracted files to installs": "为安装提供已解压文件",
+  "Server file cache": "服务器文件缓存",
+  "Server file cache budget in GB": "服务器文件缓存预算（GB）",
+  "The cache stays off; installs download the archive and extract it locally.": "缓存保持关闭；安装会下载压缩包并在本地解压。"
 }

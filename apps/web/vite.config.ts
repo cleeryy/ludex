@@ -28,8 +28,21 @@ function serviceWorkerPlugin(): Plugin {
       const worker = path.join(dist, "sw.js");
       if (!fs.existsSync(worker)) return;
 
+      // Locale catalogs are runtime-cached, never precached (#237): shipping
+      // all 13 on first install downloaded ~4.5 MB of translations the user
+      // cannot read. `sw.js` caches them on demand via the static-asset route.
+      const manifest = JSON.parse(
+        fs.readFileSync(path.resolve(import.meta.dirname, "src/locales/manifest.json"), "utf8"),
+      ) as Array<{ code: string; file: string | null }>;
+      const localeChunks = manifest
+        .filter((entry) => entry.code !== "en" && entry.file)
+        .map((entry) => `${entry.code}-`);
+
       const files = walkFiles(dist).sort();
-      const precache = files.filter((file) => file !== "sw.js").map((file) => `./${file}`);
+      const precache = files
+        .filter((file) => file !== "sw.js")
+        .filter((file) => !localeChunks.some((prefix) => file.startsWith(`assets/${prefix}`)))
+        .map((file) => `./${file}`);
       const hash = createHash("sha256");
       for (const file of files) {
         hash.update(file);
@@ -46,11 +59,30 @@ function serviceWorkerPlugin(): Plugin {
   };
 }
 
+/**
+ * Vendor grouping (#237). Keeping React, the router, the query cache, icons
+ * and motion in their own chunks lets the browser reuse them across the lazy
+ * route chunks and keeps the entry below the single-chunk warning budget.
+ */
+function manualChunks(id: string): string | undefined {
+  if (!id.includes("node_modules")) return undefined;
+  if (id.includes("react-router")) return "vendor-router";
+  if (id.includes("@tanstack")) return "vendor-query";
+  if (id.includes("lucide-react")) return "vendor-icons";
+  if (id.includes("motion")) return "vendor-motion";
+  if (id.includes("@tauri-apps")) return "vendor-tauri";
+  if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return "vendor-react";
+  return "vendor";
+}
+
 // base: "./" keeps every asset relative so the same bundle works inside the
 // Tauri shell and when the Rust server embeds dist/ under any path.
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, import.meta.dirname, "");
   const apiUrl = env.VITE_API_URL || "http://localhost:8080";
+  // Compile-time flag: the bundler folds every mock branch, so the demo
+  // library never reaches a production bundle (#237). Dev keeps the mocks.
+  const usingMocks = env.VITE_USE_MOCKS === "true" || (env.VITE_USE_MOCKS === undefined && command === "serve");
   // The web build version shown on the auth screens (#175). The server has its
   // own version endpoint; this one must match the bundle that renders it.
   const pkg = JSON.parse(
@@ -62,11 +94,28 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss(), serviceWorkerPlugin()],
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version),
+      __USING_MOCKS__: JSON.stringify(usingMocks),
     },
     resolve: {
-      alias: {
-        "@": fileURLToPath(new URL("./src", import.meta.url)),
-      },
+      alias: [
+        // Production builds never load the demo adapters (#237): alias the two
+        // entry points to tiny stubs so `lib/mock.ts`, `lib/mock-install.ts`
+        // and `data/demo.ts` are not even in the module graph. Mock and demo
+        // builds (`VITE_USE_MOCKS=true` or `vite dev`) use the real modules.
+        ...(usingMocks
+          ? []
+          : [
+              {
+                find: /^@\/lib\/mock$/,
+                replacement: fileURLToPath(new URL("./src/lib/mock-disabled.ts", import.meta.url)),
+              },
+              {
+                find: /^@\/lib\/mock-install$/,
+                replacement: fileURLToPath(new URL("./src/lib/mock-install-disabled.ts", import.meta.url)),
+              },
+            ]),
+        { find: /^@\//, replacement: `${fileURLToPath(new URL("./src", import.meta.url))}/` },
+      ],
     },
     server: {
       port: 5173,
@@ -85,6 +134,11 @@ export default defineConfig(({ mode }) => {
       outDir: "dist",
       emptyOutDir: true,
       sourcemap: false,
+      rolldownOptions: {
+        output: {
+          manualChunks,
+        },
+      },
     },
   };
 });

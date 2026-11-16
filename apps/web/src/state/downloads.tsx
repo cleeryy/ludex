@@ -1,4 +1,15 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, getApiBase, tokenStore } from "@/lib/api";
 import { installBridge, installsAvailable } from "@/lib/install";
@@ -48,6 +59,13 @@ const FAILED_PHASES: ReadonlySet<InstallJob["phase"]> = new Set(["error", "cance
 export const isStreamFailedJob = (job: InstallJob): boolean =>
   job.stream === true && job.resumable !== true && FAILED_PHASES.has(job.phase);
 
+/**
+ * Native progress events drive the strip and the screens; the list poll is a
+ * safety net for a dropped event, not the primary feed (#237). Two seconds is
+ * enough to recover without a full IPC round trip every second.
+ */
+const LIST_POLL_INTERVAL_MS = 2_000;
+
 export interface StartInstallInput {
   gameId: number;
   versionId: number;
@@ -96,6 +114,16 @@ export interface Aggregate {
   phaseElapsedMs: number | null;
 }
 
+/** Everything the status bar and the console need at a glance (#237). */
+export interface QueueSummary {
+  activeCount: number;
+  percent: number | null;
+  speedBps: number;
+  eta: string | null;
+  etaSeconds: number | null;
+  phase: InstallPhase | null;
+}
+
 /** Why the aggregate shows a phase instead of an ETA. */
 const PHASE_ORDER: readonly InstallPhase[] = [
   "downloading",
@@ -124,19 +152,115 @@ const EMPTY_TRANSFER: TransferState = {
   updatedAt: 0,
 };
 
-interface DownloadsValue {
+/** Immutable projection every subscriber reads from the store. */
+interface DownloadsSnapshot {
   available: boolean;
   jobs: InstallJob[];
   active: InstallJob[];
   history: InstallJob[];
   activeCount: number;
   aggregate: Aggregate | null;
-  /** Per-job smoothed speed/ETA, keyed by job id (#102). */
+  summary: QueueSummary;
   meters: Record<string, JobMeter>;
-  /** Aggregate speed samples for the transfer graph, oldest first (#102). */
   speedHistory: SpeedPoint[];
-  /** Timestamp of the newest sample; the graph's right edge. */
   speedHistoryAt: number;
+}
+
+const EMPTY_SUMMARY: QueueSummary = {
+  activeCount: 0,
+  percent: null,
+  speedBps: 0,
+  eta: null,
+  etaSeconds: null,
+  phase: null,
+};
+
+const EMPTY_SNAPSHOT: DownloadsSnapshot = {
+  available: false,
+  jobs: [],
+  active: [],
+  history: [],
+  activeCount: 0,
+  aggregate: null,
+  summary: EMPTY_SUMMARY,
+  meters: EMPTY_TRANSFER.meters,
+  speedHistory: EMPTY_TRANSFER.history,
+  speedHistoryAt: 0,
+};
+
+/** Render-stable snapshot identity is what lets selectors bail out per tick. */
+function shallowEqual(a: object, b: object): boolean {
+  if (a === b) return true;
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  if (keys.length !== Object.keys(right).length) return false;
+  for (const key of keys) if (!Object.is(left[key], right[key])) return false;
+  return true;
+}
+
+/** Install jobs are flat: a key-by-key comparison is enough and cheap. */
+function sameJob(a: InstallJob, b: InstallJob): boolean {
+  return a === b || shallowEqual(a, b);
+}
+
+/**
+ * Keep the previous object for every job whose payload did not change. A list
+ * poll that returns the same progress (a queued or paused job, a stalled
+ * transfer) then keeps the previous array identity and no consumer re-renders
+ * (#237). Reordering still reuses per-job objects.
+ */
+function reconcileJobs(previous: InstallJob[], next: InstallJob[]): InstallJob[] {
+  if (previous === next) return previous;
+  if (previous.length === 0) return next;
+  const byId = new Map(previous.map((job) => [job.jobId, job]));
+  let changed = false;
+  const merged = next.map((job) => {
+    const before = byId.get(job.jobId);
+    if (before && sameJob(before, job)) return before;
+    changed = true;
+    return job;
+  });
+  return changed ? merged : previous;
+}
+
+/**
+ * Tiny external store (#237). React state still owns the data inside the
+ * provider, but consumers subscribe through selectors, so a 1 Hz transfer
+ * sample only re-renders the components that display live progress. Before
+ * this, one context value change repainted the 200-card library and the
+ * console every second.
+ */
+class DownloadsStore {
+  private snapshot: DownloadsSnapshot;
+
+  private listeners = new Set<() => void>();
+
+  constructor(available: boolean) {
+    this.snapshot = { ...EMPTY_SNAPSHOT, available };
+  }
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  getSnapshot = (): DownloadsSnapshot => this.snapshot;
+
+  publish(next: DownloadsSnapshot): void {
+    if (shallowEqual(this.snapshot, next)) return;
+    this.snapshot = next;
+    for (const listener of this.listeners) listener();
+  }
+}
+
+const DownloadsStoreContext = createContext<DownloadsStore | null>(null);
+
+/** All the imperative operations; the value is stable across progress ticks. */
+export interface DownloadActions {
+  available: boolean;
   startInstall: (input: StartInstallInput) => Promise<InstallJob>;
   cancel: (jobId: string) => Promise<void>;
   pause: (jobId: string) => Promise<void>;
@@ -157,12 +281,102 @@ interface DownloadsValue {
   /** Delete every finished job from history; resolves with the entries removed. */
   clearHistory: () => Promise<number>;
   openFolder: (path: string) => Promise<void>;
-  jobForGame: (gameId: number) => InstallJob | undefined;
-  resumableForGame: (gameId: number) => InstallJob | undefined;
   titleFor: (job: InstallJob) => string;
 }
 
-const DownloadsContext = createContext<DownloadsValue | null>(null);
+const ActionsContext = createContext<DownloadActions | null>(null);
+
+interface DownloadsValue extends Omit<DownloadsSnapshot, "summary"> {
+  summary: QueueSummary;
+  startInstall: DownloadActions["startInstall"];
+  cancel: DownloadActions["cancel"];
+  pause: DownloadActions["pause"];
+  resume: DownloadActions["resume"];
+  retryAsDownload: DownloadActions["retryAsDownload"];
+  retryStream: DownloadActions["retryStream"];
+  retryNow: DownloadActions["retryNow"];
+  checkSpace: DownloadActions["checkSpace"];
+  reorder: DownloadActions["reorder"];
+  remove: DownloadActions["remove"];
+  clearHistory: DownloadActions["clearHistory"];
+  openFolder: DownloadActions["openFolder"];
+  jobForGame: (gameId: number) => InstallJob | undefined;
+  resumableForGame: (gameId: number) => InstallJob | undefined;
+  titleFor: DownloadActions["titleFor"];
+}
+
+function useDownloadsStore(): DownloadsStore {
+  const store = useContext(DownloadsStoreContext);
+  if (!store) throw new Error("useDownloads must be used inside DownloadsProvider");
+  return store;
+}
+
+/** Subscribe to a slice; return a primitive or a reference stored in the snapshot. */
+function useDownloadsSelector<T>(select: (snapshot: DownloadsSnapshot) => T): T {
+  const store = useDownloadsStore();
+  return useSyncExternalStore(store.subscribe, () => select(store.getSnapshot()), () => select(store.getSnapshot()));
+}
+
+/** Whole snapshot; only the Downloads screen needs this (it renders meters). */
+export function useDownloadsSnapshot(): DownloadsSnapshot {
+  return useDownloadsSelector((snapshot) => snapshot);
+}
+
+/** Every job, active or finished. Changes only when a job actually differs. */
+export function useAllJobs(): InstallJob[] {
+  return useDownloadsSelector((snapshot) => snapshot.jobs);
+}
+
+/** Active installs in queue order. */
+export function useActiveJobs(): InstallJob[] {
+  return useDownloadsSelector((snapshot) => snapshot.active);
+}
+
+/** The active job of one game, if it has one. */
+export function useJob(gameId: number): InstallJob | undefined {
+  return useDownloadsSelector((snapshot) => snapshot.active.find((job) => job.gameId === gameId));
+}
+
+/** The deduped history row that still offers a resume/retry action (#225). */
+export function useResumableJob(gameId: number): InstallJob | undefined {
+  return useDownloadsSelector((snapshot) =>
+    snapshot.history.find((job) => job.gameId === gameId && FAILED_PHASES.has(job.phase)),
+  );
+}
+
+/**
+ * Install percentage of one game. Library cards subscribe to this instead of
+ * the whole provider, so only the card being installed repaints (#237).
+ */
+export function useInstallingPercent(gameId: number): number | null {
+  return useDownloadsSelector((snapshot) => {
+    const job = snapshot.active.find((entry) => entry.gameId === gameId);
+    if (!job) return null;
+    return job.bytesTotal ? (job.bytesDone / job.bytesTotal) * 100 : 0;
+  });
+}
+
+export function useActiveCount(): number {
+  return useDownloadsSelector((snapshot) => snapshot.activeCount);
+}
+
+/** Aggregate speed/ETA/percent for the status strip and the console badge. */
+export function useQueueSummary(): QueueSummary {
+  return useDownloadsSelector((snapshot) => snapshot.summary);
+}
+
+export function useDownloadsActions(): DownloadActions {
+  const actions = useContext(ActionsContext);
+  if (!actions) throw new Error("useDownloadsActions must be used inside DownloadsProvider");
+  return actions;
+}
+
+/** Job title resolver; stable across progress ticks. */
+export function useTitleFor(): DownloadActions["titleFor"] {
+  return useDownloadsActions().titleFor;
+}
+
+const EMPTY_JOBS: InstallJob[] = [];
 
 export function DownloadsProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -170,7 +384,9 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const available = installsAvailable();
 
-  const [jobs, setJobs] = useState<InstallJob[]>([]);
+  const [store] = useState(() => new DownloadsStore(available));
+
+  const [jobs, setJobs] = useState<InstallJob[]>(EMPTY_JOBS);
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   const [titles, setTitles] = useState<Record<string, string>>({});
   const announced = useRef(new Set<string>());
@@ -180,8 +396,17 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
   // history the Downloads graph reads. Samples are capped at two minutes.
   const [transfer, setTransfer] = useState<TransferState>(EMPTY_TRANSFER);
   const transferRef = useRef<TransferState>(EMPTY_TRANSFER);
-  const jobsRef = useRef<InstallJob[]>(jobs);
-  jobsRef.current = jobs;
+  // Synced from an effect, never written during render (#237): a render must
+  // stay pure, and the sampler runs outside React anyway.
+  const jobsRef = useRef<InstallJob[]>(EMPTY_JOBS);
+  useEffect(() => {
+    jobsRef.current = jobs;
+  }, [jobs]);
+
+  // Polls and sampling pause while the window is hidden; nothing reads them.
+  const [visible, setVisible] = useState(
+    () => typeof document === "undefined" || document.visibilityState !== "hidden",
+  );
 
   const gamesQuery = useQuery({
     queryKey: ["games", "all"],
@@ -196,7 +421,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     if (!available || !user) return;
     try {
       const list = await installBridge.list();
-      setJobs(list);
+      setJobs((current) => reconcileJobs(current, list));
     } catch {
       /* a transient IPC failure should not clear the list */
     }
@@ -227,12 +452,18 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     add(native.onInstallProgress(() => void refresh()));
     add(native.onInstallDone(() => void refresh()));
     add(native.onInstallError(() => void refresh()));
-    add(native.onInstallJobs((list) => setJobs(list)));
+    add(native.onInstallJobs((list) => setJobs((current) => reconcileJobs(current, list))));
     return () => {
       disposed = true;
       for (const off of offs) off();
     };
   }, [available, user, refresh]);
+
+  useEffect(() => {
+    const onVisibility = () => setVisible(document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
 
   // The running install stays pinned at the top, then the waiting queue in
   // start order (#202); the desktop confirms the same order.
@@ -288,7 +519,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!available || !user) {
+    if (!available || !user || !visible) {
       transferRef.current = EMPTY_TRANSFER;
       setTransfer(EMPTY_TRANSFER);
       return;
@@ -297,13 +528,15 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     if (active.length === 0) return;
     const timer = setInterval(sampleTransfers, SAMPLE_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [available, user, active.length, sampleTransfers]);
+  }, [available, user, active.length, sampleTransfers, visible]);
 
+  // Safety net only: native progress events already refresh the list. Stop it
+  // when the window is hidden or when no install is active (#237).
   useEffect(() => {
-    if (!available || !user || active.length === 0) return;
-    const timer = setInterval(() => void refresh(), 1000);
+    if (!available || !user || active.length === 0 || !visible) return;
+    const timer = setInterval(() => void refresh(), LIST_POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [available, user, active.length, refresh]);
+  }, [available, user, active.length, refresh, visible]);
 
   useEffect(() => {
     if (!available) return;
@@ -311,6 +544,20 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [available, refresh]);
+
+  // Coming back from a hidden window: refresh immediately instead of waiting
+  // for the first safety-net tick. The first mount is already covered by the
+  // effect above, so only a hidden → visible transition triggers this.
+  const wasHidden = useRef(false);
+  useEffect(() => {
+    if (!visible) {
+      wasHidden.current = true;
+      return;
+    }
+    if (!wasHidden.current) return;
+    wasHidden.current = false;
+    void refresh();
+  }, [visible, refresh]);
 
   // #212: the desktop owns the retry timers, so it needs the OS reachability.
   // Report once on mount, then on every transition; while offline a retry
@@ -414,19 +661,42 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     };
   }, [active, transfer]);
 
-  // Active job first, then the one history row the list shows for the game
-  // (#225). Because `history` is deduped, a finished game never offers a
-  // Resume button for an older failed attempt, and a game with a running
-  // install has no resumable row either.
-  const jobForGame = useCallback((gameId: number) => active.find((job) => job.gameId === gameId), [active]);
-  const resumableForGame = useCallback(
-    (gameId: number) => history.find((job) => job.gameId === gameId && FAILED_PHASES.has(job.phase)),
-    [history],
+  const summary = useMemo<QueueSummary>(
+    () => ({
+      activeCount: active.length,
+      percent: aggregate?.percent ?? null,
+      speedBps: aggregate?.speedBps ?? 0,
+      eta: aggregate?.eta ?? null,
+      etaSeconds: aggregate?.etaSeconds ?? null,
+      phase: aggregate?.phase ?? null,
+    }),
+    [active.length, aggregate],
   );
+
+  // One publish per committed render; selectors decide who re-renders.
+  const snapshot = useMemo<DownloadsSnapshot>(
+    () => ({
+      available,
+      jobs,
+      active,
+      history,
+      activeCount: active.length,
+      aggregate,
+      summary,
+      meters: transfer.meters,
+      speedHistory: transfer.history,
+      speedHistoryAt: transfer.updatedAt,
+    }),
+    [available, jobs, active, history, aggregate, summary, transfer],
+  );
+
+  useLayoutEffect(() => {
+    store.publish(snapshot);
+  }, [store, snapshot]);
 
   const startInstall = useCallback(
     async (input: StartInstallInput): Promise<InstallJob> => {
-      const existing = active.find((job) => job.gameId === input.gameId);
+      const existing = store.getSnapshot().active.find((job) => job.gameId === input.gameId);
       if (existing) return existing;
 
       const settings = await installBridge.settings();
@@ -448,7 +718,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       announced.current.delete(job.jobId);
       return job;
     },
-    [active],
+    [store],
   );
 
   const cancel = useCallback(
@@ -482,9 +752,10 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
    */
   const runRetry = useCallback(
     async (job: InstallJob, mode: InstallResumeMode | null, failureTitle: string): Promise<InstallJob | null> => {
-      const plan = planRetry(job, active, mode);
+      const activeNow = store.getSnapshot().active;
+      const plan = planRetry(job, activeNow, mode);
       if (plan.action === "focus") {
-        return active.find((entry) => entry.jobId === plan.jobId) ?? null;
+        return activeNow.find((entry) => entry.jobId === plan.jobId) ?? null;
       }
       try {
         const next = await installBridge.resume(plan.jobId, plan.mode);
@@ -495,7 +766,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
         return null;
       }
     },
-    [active, refresh, push],
+    [store, refresh, push],
   );
 
   const resume = useCallback(
@@ -550,7 +821,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
    */
   const reorder = useCallback(
     async (jobId: string, move: QueueMove, position?: number) => {
-      const previous = jobsRef.current;
+      const previous = store.getSnapshot().jobs;
       let optimistic: InstallJob[];
       try {
         optimistic = moveInQueue(previous, jobId, move, position);
@@ -567,7 +838,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
         push({ title: t("Could not reorder the queue"), description: errorMessage(cause), tone: "danger" });
       }
     },
-    [push],
+    [store, push],
   );
 
   const remove = useCallback(
@@ -627,17 +898,9 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     [push],
   );
 
-  const value = useMemo<DownloadsValue>(
+  const actions = useMemo<DownloadActions>(
     () => ({
       available,
-      jobs,
-      active,
-      history,
-      activeCount: active.length,
-      aggregate,
-      meters: transfer.meters,
-      speedHistory: transfer.history,
-      speedHistoryAt: transfer.updatedAt,
       startInstall,
       cancel,
       pause,
@@ -650,18 +913,48 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       remove,
       clearHistory,
       openFolder,
-      jobForGame,
-      resumableForGame,
       titleFor,
     }),
-    [available, jobs, active, history, aggregate, transfer, startInstall, cancel, pause, resume, retryAsDownload, retryStream, retryNow, checkSpace, reorder, remove, clearHistory, openFolder, jobForGame, resumableForGame, titleFor],
+    [
+      available,
+      startInstall,
+      cancel,
+      pause,
+      resume,
+      retryAsDownload,
+      retryStream,
+      retryNow,
+      checkSpace,
+      reorder,
+      remove,
+      clearHistory,
+      openFolder,
+      titleFor,
+    ],
   );
 
-  return <DownloadsContext.Provider value={value}>{children}</DownloadsContext.Provider>;
+  return (
+    <DownloadsStoreContext.Provider value={store}>
+      <ActionsContext.Provider value={actions}>{children}</ActionsContext.Provider>
+    </DownloadsStoreContext.Provider>
+  );
 }
 
 export function useDownloads(): DownloadsValue {
-  const value = useContext(DownloadsContext);
-  if (!value) throw new Error("useDownloads must be used inside DownloadsProvider");
-  return value;
+  const snapshot = useDownloadsSnapshot();
+  const actions = useDownloadsActions();
+  const store = useDownloadsStore();
+  // jobForGame helpers are derived from the latest snapshot, not the context.
+  const jobForGame = useCallback(
+    (gameId: number) => store.getSnapshot().active.find((job) => job.gameId === gameId),
+    [store],
+  );
+  const resumableForGame = useCallback(
+    (gameId: number) => store.getSnapshot().history.find((job) => job.gameId === gameId && FAILED_PHASES.has(job.phase)),
+    [store],
+  );
+  return useMemo(
+    () => ({ ...snapshot, ...actions, jobForGame, resumableForGame }),
+    [snapshot, actions, jobForGame, resumableForGame],
+  );
 }

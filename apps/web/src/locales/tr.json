@@ -3894,5 +3894,13 @@
   "Install drive (default)": "Kurulum sürücüsü (varsayılan)",
   "Resolved per version: the server's extracted files when they are ready, then a streamed ZIP, then the archive. A probe that finds nothing falls back on its own; only a transfer that fails mid-install says why on the job.": "Sürüm başına çözülür: sunucunun çıkarılmış dosyaları hazırsa önce onlar, sonra akışlı bir ZIP, sonra arşiv. Sonuç bulamayan bir yoklama kendiliğinden geri döner; yalnızca kurulum ortasında başarısız olan bir aktarım nedenini görevde söyler.",
   "Streams ZIP entries as they arrive and never stores the archive. 7z and RAR archives still download and extract the archive.": "ZIP girdilerini geldikçe akışla aktarır ve arşivi asla saklamaz. 7z ve RAR arşivleri yine arşivi indirip çıkarır.",
-  "Verified files from the server, one by one. No archive lands on this device.": "Sunucudan doğrulanmış dosyalar, tek tek. Bu cihaza hiçbir arşiv inmez."
+  "Verified files from the server, one by one. No archive lands on this device.": "Sunucudan doğrulanmış dosyalar, tek tek. Bu cihaza hiçbir arşiv inmez.",
+  "Entries unused for 14 days are evicted, and the least recently used ones go first when the budget is reached. The cache lives next to the local server's data and is never unbounded.": "14 gün boyunca kullanılmayan girdiler çıkarılır ve bütçeye ulaşıldığında en son kullanılanlar önce gider. Önbellek yerel sunucunun verilerinin yanında yaşar ve asla sınırsız değildir.",
+  "GB": "GB",
+  "In local mode the embedded server can extract an archive once and serve the files to this device, so an install downloads files instead of an archive. It runs on this machine and is bounded by the budget below. The change applies the next time the local server starts.": "Yerel modda gömülü sunucu bir arşivi bir kez çıkarıp dosyaları bu cihaza sunabilir, böylece kurulum arşiv yerine dosyaları indirir. Bu makinede çalışır ve aşağıdaki bütçeyle sınırlıdır. Değişiklik bir sonraki yerel sunucu başlatmasında uygulanır.",
+  "On by default in local mode. Off (or full) keeps the archive download and never writes the cache; a remote server keeps its own LUDEX_EXTRACTED_CACHE opt-in.": "Yerel modda varsayılan olarak açıktır. Kapalı (veya dolu) arşiv indirmesini korur ve önbelleğe asla yazmaz; uzak bir sunucu kendi LUDEX_EXTRACTED_CACHE tercihini korur.",
+  "Serve extracted files to installs": "Çıkarılan dosyaları kurulumlara sun",
+  "Server file cache": "Sunucu dosya önbelleği",
+  "Server file cache budget in GB": "Sunucu dosya önbelleği bütçesi (GB)",
+  "The cache stays off; installs download the archive and extract it locally.": "Önbellek kapalı kalır; kurulumlar arşivi indirip yerel olarak çıkarır."
 }

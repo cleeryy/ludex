@@ -20,7 +20,7 @@ export function PreferencesSyncPanel() {
     source,
     conflictRevision,
     resetToServer,
-    useDeviceSettings,
+    useDeviceSettings: applyDeviceSettings,
     resolveConflict,
   } = usePreferences();
 
@@ -118,7 +118,7 @@ export function PreferencesSyncPanel() {
             variant="default"
             size="sm"
             icon={<RefreshCw className="size-3.5" />}
-            onClick={() => void useDeviceSettings()}
+            onClick={() => void applyDeviceSettings()}
           >
             {t("Use this device's settings")}
           </Button>
