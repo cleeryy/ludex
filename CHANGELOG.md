@@ -6,6 +6,25 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- Contract and frontend hygiene (#237 waves 1 and 5): API response DTOs have a
+  single definition in `ludex-core::models` (server re-exports, desktop shadow
+  types deleted), `apps/web/src/lib/types.gen.ts` is generated from the live
+  OpenAPI document with a `Types (generated, up to date)` CI gate, the desktop
+  `saves/` and `update/` lanes and the server `saves/` module are real module
+  directories, `bridge.rs` is enforced as the only `ludex_core::` seam, and the
+  controller/queue fixtures are shared by the Rust and web suites; the web now
+  has one `lib/query-keys.ts` factory, `lib/api.ts` as the only fetch adapter,
+  and one `useInstallAction()`/action matrix used by cards, game page, Console
+  and the install dialog.
+
+### Fixed
+
+- The parental-control test no longer races the startup scan: it asserts the
+  age filter with `status=all`, so an archive-less fixture row being marked
+  missing by the scanner can no longer turn the test red (#parental flake).
+
 ### Added
 
 - Console evidence (#270): the fake-pad suites now run every gate (overlay

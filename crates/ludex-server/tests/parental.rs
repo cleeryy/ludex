@@ -158,8 +158,17 @@ async fn age_limits_hide_games_and_block_downloads() {
     let (user_id, token) = server.create_child(Some(12)).await;
 
     // Lists: the 18+ game is absent, the child-safe and unrated ones remain.
+    // `status=all`: this test asserts the age filter, and the directly written
+    // fixture rows have no archive file on disk — the startup scan would mark
+    // their versions missing and the default availability filter would hide
+    // them, which is a different concern (tests/common covers the scan).
     let (status, list) = server
-        .request(reqwest::Method::GET, "/api/games", Some(&token), None)
+        .request(
+            reqwest::Method::GET,
+            "/api/games?status=all",
+            Some(&token),
+            None,
+        )
         .await;
     assert_eq!(status, StatusCode::OK, "{list}");
     let titles: Vec<&str> = list["items"]
