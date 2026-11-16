@@ -63,7 +63,7 @@ export function LanguagePanel() {
     }
   };
 
-  const useAccountDefault = async () => {
+  const applyAccountDefault = async () => {
     setError(null);
     try {
       await clearDeviceOverride();
@@ -72,7 +72,7 @@ export function LanguagePanel() {
     }
   };
 
-  const useServerDefault = async () => {
+  const applyServerDefault = async () => {
     setError(null);
     try {
       // The server default only applies when neither a device override nor an
@@ -104,11 +104,11 @@ export function LanguagePanel() {
       {deviceOverride && (
         <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
           {user && (
-            <Button variant="default" size="sm" onClick={() => void useAccountDefault()}>
+            <Button variant="default" size="sm" onClick={() => void applyAccountDefault()}>
               {t("Use account default")}
             </Button>
           )}
-          <Button variant="ghost" size="sm" onClick={() => void useServerDefault()}>
+          <Button variant="ghost" size="sm" onClick={() => void applyServerDefault()}>
             {t("Use server default")}
           </Button>
         </div>

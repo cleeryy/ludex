@@ -10,7 +10,7 @@ import { formatBytes, formatRating, formatYear, sortLabel, stateLabel, formatPer
 import { isNative, native } from "@/lib/native";
 import type { GameListQuery, GameSummary, InstalledGame } from "@/lib/types";
 import { useBookmark, useGenres, useInstalledGames, useLaunchGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
-import { useDownloads } from "@/state/downloads";
+import { useInstallingPercent } from "@/state/downloads";
 import { useToast } from "@/state/toasts";
 import { installBridge, installsAvailable } from "@/lib/install";
 import {
@@ -116,7 +116,6 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   const updateGame = useUpdateGame();
   const bookmark = useBookmark();
   const launch = useLaunchGame();
-  const downloads = useDownloads();
   const reduceMotion = useReducedMotion();
   const queryClient = useQueryClient();
   const { push } = useToast();
@@ -270,12 +269,6 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
     } finally {
       setRemovingImport(false);
     }
-  };
-
-  const installingPercent = (gameId: number): number | null => {
-    const job = downloads.jobForGame(gameId);
-    if (!job) return null;
-    return job.bytesTotal ? (job.bytesDone / job.bytesTotal) * 100 : 0;
   };
 
   const groups = useMemo(() => {
@@ -643,7 +636,6 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 index={entry.gameId}
                 installed={entry.install ?? undefined}
                 source={entry.launcher ? launcherLabel(entry.launcher) : null}
-                installing={installingPercent(entry.gameId)}
                 update={updates.get(entry.gameId)}
                 onBookmark={() => toggleBookmark(entry.game)}
                 onPlay={
@@ -696,7 +688,6 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
             </div>
             {items.map((entry) => {
               const game = entry.game;
-              const percent = installingPercent(game.id);
               return (
                 <Link
                   key={game.id}
@@ -713,18 +704,11 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                       <p className="truncate text-[14px] text-ink">{game.title}</p>
                       <p className="truncate text-[11.5px] text-ink-3">{game.genres.join(", ")}</p>
                     </div>
-                    {percent !== null ? (
-                      <Badge tone="signal" className="hidden shrink-0 sm:inline-flex">
-                        {t("Installing {percent}", { percent: formatPercent(percent) })}
-                      </Badge>
-                    ) : (
-                      entry.install && (
-                        <span className="hidden shrink-0 items-center gap-1 sm:inline-flex">
-                          <Badge tone="outline">{t("Installed")}</Badge>
-                          {entry.launcher && <Badge tone="signal">{launcherLabel(entry.launcher)}</Badge>}
-                        </span>
-                      )
-                    )}
+                    <InstallStateBadges
+                      gameId={game.id}
+                      installed={Boolean(entry.install)}
+                      launcher={entry.launcher}
+                    />
                   </div>
                   <span className="num hidden text-right text-[11.5px] text-ink-3 sm:block">{formatYear(game.releaseDate)}</span>
                   <span className="num text-right text-[11.5px] text-ink-3">{formatBytes(game.totalSize)}</span>
@@ -950,5 +934,36 @@ function LibraryEmpty({
         signedIn && <span className="text-[13px] text-ink-3">{t("Ask an administrator to add the first game.")}</span>
       )}
     </EmptyState>
+  );
+}
+
+/**
+ * One hook per visible row (#237): installing progress lives in the card/row,
+ * not in a `downloads` object read by the whole screen. A transfer tick then
+ * re-renders this badge alone instead of the 200-row list.
+ */
+function InstallStateBadges({
+  gameId,
+  installed,
+  launcher,
+}: {
+  gameId: number;
+  installed: boolean;
+  launcher: LauncherSourceId | null;
+}) {
+  const percent = useInstallingPercent(gameId);
+  if (percent !== null) {
+    return (
+      <Badge tone="signal" className="hidden shrink-0 sm:inline-flex">
+        {t("Installing {percent}", { percent: formatPercent(percent) })}
+      </Badge>
+    );
+  }
+  if (!installed) return null;
+  return (
+    <span className="hidden shrink-0 items-center gap-1 sm:inline-flex">
+      <Badge tone="outline">{t("Installed")}</Badge>
+      {launcher && <Badge tone="signal">{launcherLabel(launcher)}</Badge>}
+    </span>
   );
 }

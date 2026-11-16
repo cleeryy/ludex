@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { api } from "@/lib/api";
 import { DESKTOP_STATE_PARAM, pendingDesktopState, readDesktopStateFromSearch } from "@/lib/desktop-handoff";
 import { isNative, native } from "@/lib/native";
@@ -31,7 +31,6 @@ import { HomeScreen } from "@/screens/home";
 import { LibraryScreen } from "@/screens/library";
 import { DownloadsScreen } from "@/screens/downloads";
 import { RemoteScreen } from "@/screens/remote";
-import { BigPictureScreen } from "@/screens/big-picture";
 import { GameDetailRoute } from "@/screens/game-detail";
 import { NewsScreen } from "@/screens/news";
 import { CollectionsScreen } from "@/screens/collections";
@@ -42,24 +41,61 @@ import { FriendsScreen } from "@/screens/friends";
 import { ProfileScreen } from "@/screens/profile";
 import { SettingsScreen } from "@/screens/settings";
 import { NotFoundScreen } from "@/screens/not-found";
-import { IngestScreen } from "@/screens/admin/ingest";
-import { ScanScreen } from "@/screens/admin/scan";
-import { AdminGamesScreen } from "@/screens/admin/games";
-import { UsersScreen } from "@/screens/admin/users";
-import { AdminNewsScreen } from "@/screens/admin/news";
-import { ServerScreen } from "@/screens/admin/server";
-import { ObservabilityScreen } from "@/screens/admin/observability";
-import { AuthenticationScreen } from "@/screens/admin/authentication";
-import { MetadataProvidersScreen } from "@/screens/admin/metadata";
-import { IntegrationsScreen } from "@/screens/admin/integrations";
-import { BackupsScreen } from "@/screens/admin/backups";
-import { UploadScreen } from "@/screens/admin/upload";
-import { LibraryHealthScreen } from "@/screens/admin/health";
-import { InvitationsScreen } from "@/screens/admin/invitations";
 import { ShareScreen } from "@/screens/share";
 import { DownloadScreen } from "@/screens/download";
 import { RegisterScreen } from "@/screens/register";
 import { t } from "@/lib/i18n";
+
+/**
+ * Route-level splitting (#237): the console and the admin area are large and
+ * rarely the first screen. They load on navigation instead of bloating the
+ * entry chunk. Named exports need the `.then` adapter.
+ */
+const BigPictureScreen = lazy(() =>
+  import("@/screens/big-picture").then((module) => ({ default: module.BigPictureScreen })),
+);
+const IngestScreen = lazy(() =>
+  import("@/screens/admin/ingest").then((module) => ({ default: module.IngestScreen })),
+);
+const ScanScreen = lazy(() =>
+  import("@/screens/admin/scan").then((module) => ({ default: module.ScanScreen })),
+);
+const AdminGamesScreen = lazy(() =>
+  import("@/screens/admin/games").then((module) => ({ default: module.AdminGamesScreen })),
+);
+const UsersScreen = lazy(() =>
+  import("@/screens/admin/users").then((module) => ({ default: module.UsersScreen })),
+);
+const AdminNewsScreen = lazy(() =>
+  import("@/screens/admin/news").then((module) => ({ default: module.AdminNewsScreen })),
+);
+const ServerScreen = lazy(() =>
+  import("@/screens/admin/server").then((module) => ({ default: module.ServerScreen })),
+);
+const ObservabilityScreen = lazy(() =>
+  import("@/screens/admin/observability").then((module) => ({ default: module.ObservabilityScreen })),
+);
+const AuthenticationScreen = lazy(() =>
+  import("@/screens/admin/authentication").then((module) => ({ default: module.AuthenticationScreen })),
+);
+const MetadataProvidersScreen = lazy(() =>
+  import("@/screens/admin/metadata").then((module) => ({ default: module.MetadataProvidersScreen })),
+);
+const IntegrationsScreen = lazy(() =>
+  import("@/screens/admin/integrations").then((module) => ({ default: module.IntegrationsScreen })),
+);
+const BackupsScreen = lazy(() =>
+  import("@/screens/admin/backups").then((module) => ({ default: module.BackupsScreen })),
+);
+const UploadScreen = lazy(() =>
+  import("@/screens/admin/upload").then((module) => ({ default: module.UploadScreen })),
+);
+const LibraryHealthScreen = lazy(() =>
+  import("@/screens/admin/health").then((module) => ({ default: module.LibraryHealthScreen })),
+);
+const InvitationsScreen = lazy(() =>
+  import("@/screens/admin/invitations").then((module) => ({ default: module.InvitationsScreen })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -268,6 +304,9 @@ export function App() {
             <HashRouter>
               <UpdateNotifier />
               <ConsoleEntry />
+              {/* Lazy routes share one boundary: the fallback is a blank page
+                  shell for the few milliseconds a chunk needs, never a copy. */}
+              <Suspense fallback={<div className="page" aria-busy="true" />}>
               <Routes>
                 {/* Public and account-free: must stay outside the Gate (#9). */}
                 <Route path="/share/:token" element={<ShareScreen />} />
@@ -439,6 +478,7 @@ export function App() {
                   <Route path="*" element={<NotFoundScreen />} />
                 </Route>
               </Routes>
+              </Suspense>
               <OverlayHost />
             </HashRouter>
             <ToastViewport />

@@ -848,6 +848,6 @@ export const DEMO_GENRES = [
   "Stealth",
 ];
 
-export const DEMO_PASSWORD = "ludex";
+export { MOCK_PASSWORD as DEMO_PASSWORD } from "@/lib/mock-credentials";
 
 export const DEMO_SERVER_NAME = "Ludex Archive";

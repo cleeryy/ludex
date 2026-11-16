@@ -57,7 +57,7 @@ export function ServerSwitcher() {
 
   const active = data?.servers.find((server) => server.active) ?? data?.servers[0] ?? null;
 
-  const use = async (id: string) => {
+  const switchTo = async (id: string) => {
     if (id === active?.id) return;
     setBusyId(id);
     try {
@@ -82,7 +82,7 @@ export function ServerSwitcher() {
       label: server.active ? `${server.label} · ${t("in use")}` : server.label,
       icon: server.active ? <Check className="size-3.5 text-signal-text" /> : <Server className="size-3.5" />,
       selected: server.active,
-      onSelect: () => void use(server.id),
+      onSelect: () => void switchTo(server.id),
     })),
     "separator" as const,
     {
@@ -127,7 +127,7 @@ export function ServerSwitcher() {
         }}
         initialFormOpen={formOpen}
         busyId={busyId}
-        onUse={use}
+        onUse={switchTo}
         list={data}
       />
     </>
@@ -145,7 +145,7 @@ export function ServersPanel() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<ServerProfile | null>(null);
 
-  const use = async (id: string) => {
+  const switchTo = async (id: string) => {
     setBusyId(id);
     try {
       const result = await activateServer(id);
@@ -242,7 +242,7 @@ export function ServersPanel() {
             </span>
             <div className="flex shrink-0 items-center gap-1">
               {!server.active && (
-                <Button size="sm" variant="default" loading={busyId === server.id} onClick={() => void use(server.id)}>
+                <Button size="sm" variant="default" loading={busyId === server.id} onClick={() => void switchTo(server.id)}>
                   {t("Use")}
                 </Button>
               )}

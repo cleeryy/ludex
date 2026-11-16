@@ -24,7 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { formatFinding, lintHardcodedStrings } from "./i18n-lint.mjs";
-import { PSEUDO_CLOSE, PSEUDO_OPEN, pseudoCatalog, pseudoText } from "./i18n-pseudo.mjs";
+import { PSEUDO_CLOSE, PSEUDO_OPEN, pseudoCatalog } from "./i18n-pseudo.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.resolve(here, "..");
@@ -208,7 +208,7 @@ function collectCatalog() {
   return { keys: [...keys].sort((a, b) => a.localeCompare(b)), pluralIds };
 }
 
-const { keys, pluralIds } = collectCatalog();
+const { keys } = collectCatalog();
 const keySet = new Set(keys);
 
 if (keys.length === 0) {

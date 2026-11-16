@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, CheckCircle2, KeyRound, Loader2, RotateCcw } from "lucide-react";
 import { api, assetUrl, USING_MOCKS } from "@/lib/api";
-import { MOCK_PASSWORD } from "@/lib/mock";
+import { MOCK_PASSWORD } from "@/lib/mock-credentials";
 import { errorMessage } from "@/lib/http";
 import { isNative, native } from "@/lib/native";
 import {

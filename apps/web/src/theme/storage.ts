@@ -75,7 +75,7 @@ export function defaultConfig(): ThemeConfig {
 
 export function readConfig(storage: StorageLike | null = browserStorage()): ThemeConfig {
   if (!storage) return defaultConfig();
-  let raw: string | null = null;
+  let raw: string | null;
   try {
     raw = storage.getItem(THEME_STORAGE_KEY);
   } catch {
@@ -103,7 +103,7 @@ export function readConfig(storage: StorageLike | null = browserStorage()): Them
 
 export function readCustomThemes(storage: StorageLike | null = browserStorage()): ThemeFile[] {
   if (!storage) return [];
-  let raw: string | null = null;
+  let raw: string | null;
   try {
     raw = storage.getItem(CUSTOM_THEMES_KEY);
   } catch {

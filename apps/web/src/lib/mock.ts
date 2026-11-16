@@ -180,7 +180,7 @@ let games: GameDetail[] = clone(DEMO_GAMES);
 /** Fields edited by hand in the demo, mirroring `games.manual_fields_json` (#135). */
 const manualFields = new Map<number, Set<string>>();
 let users: User[] = loadUsers();
-let passwords = new Map<number, string>();
+const passwords = new Map<number, string>();
 let news: NewsPost[] = clone(DEMO_NEWS);
 let jobs: IngestJob[] = [
   {
@@ -274,7 +274,7 @@ let nextSaveId = 4;
 
 // Demo registry: one online PC so the phone UI can be reviewed without a
 // paired desktop.
-let demoDevices: Device[] = [
+const demoDevices: Device[] = [
   {
     id: "dev_demo_pc",
     name: "Demo gaming PC",
@@ -353,7 +353,7 @@ let remoteInstalls: RemoteInstall[] = [
 /* ------------------------------ collections ------------------------------ */
 
 let collections: Collection[] = clone(DEMO_COLLECTIONS);
-let collectionMembers: Record<number, number[]> = clone(DEMO_COLLECTION_GAMES);
+const collectionMembers: Record<number, number[]> = clone(DEMO_COLLECTION_GAMES);
 let profiles: PublicProfile[] = clone(DEMO_PROFILES);
 let activities: Activity[] = clone(DEMO_ACTIVITIES);
 let nextCollectionId = Math.max(0, ...collections.map((collection) => collection.id)) + 1;
@@ -2724,7 +2724,7 @@ export const mockApi = {
     const hasToken = Boolean(body.token?.trim());
     if (hasSource === hasToken) fail(400, "invalid_source", "Provide exactly one of sourceId and token");
 
-    let source: Collection | null = null;
+    let source: Collection | null;
     let share: MockCollectionShare | null = null;
     if (body.sourceId !== undefined) {
       source = collections.find((entry) => entry.id === body.sourceId) ?? null;
@@ -4240,5 +4240,3 @@ export const mockApi = {
   },
 
 };
-
-export const MOCK_PASSWORD = DEMO_PASSWORD;

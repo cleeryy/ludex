@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { Gamepad2 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -208,7 +208,7 @@ const RAIL_CARD_VARIANTS: Record<
 };
 
 /** Rail card, used by every horizontal layout. */
-export function RailCard({
+function RailCardBase({
   game,
   position,
   selected,
@@ -280,8 +280,15 @@ export function RailCard({
   );
 }
 
+/**
+ * Memoised (#237): the console screen re-renders on every download sample while
+ * an install runs. A card whose game/selection/install state did not change
+ * keeps its DOM and its inline SVG cover.
+ */
+export const RailCard = memo(RailCardBase);
+
 /** Cover grid card: the caption sits under the plate, the ring hugs the plate. */
-export function GridCard({
+function GridCardBase({
   game,
   position,
   selected,
@@ -325,8 +332,10 @@ export function GridCard({
   );
 }
 
+export const GridCard = memo(GridCardBase);
+
 /** One dense list row: index, plate, title, state, live progress. */
-export function CompactRow({
+function CompactRowBase({
   game,
   position,
   selected,
@@ -387,6 +396,8 @@ export function CompactRow({
     </button>
   );
 }
+
+export const CompactRow = memo(CompactRowBase);
 
 /* --------------------------------- footer --------------------------------- */
 

@@ -44,7 +44,7 @@ import type { GameVersion, ProgressState } from "@/lib/types";
 import { useBookmark, useForceCloseGame, useGamePlaytime, useGameSession, useInstalledGames, useLaunchGame, useResumeGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
 import { heroAction, nextForceClosePhase, sessionForGame, type ForceClosePhase } from "@/lib/game-session";
 import { isRollbackInstall } from "@/lib/game-versions";
-import { useDownloads } from "@/state/downloads";
+import { useDownloadsActions, useJob, useResumableJob } from "@/state/downloads";
 import { AchievementsPanel } from "@/components/game/achievements";
 import { RomPanel } from "@/components/game/rom-panel";
 import { ControllerPanel } from "@/components/settings/controller-panel";
@@ -131,7 +131,10 @@ export function GameDetailScreen() {
   );
   const bookmark = useBookmark();
   const launch = useLaunchGame();
-  const downloads = useDownloads();
+  const downloads = useDownloadsActions();
+  // Both hooks must stay above the loading/error early returns.
+  const activeJob = useJob(gameId);
+  const resumableJob = useResumableJob(gameId);
   const updates = useUpdateMap();
   const updateGame = useUpdateGame();
   const [installOpen, setInstallOpen] = useState(false);
@@ -255,8 +258,6 @@ export function GameDetailScreen() {
 
   const isAdopted = isInstalled?.source === "adopted";
   const update = updates.get(game.id);
-  const activeJob = downloads.jobForGame(game.id);
-  const resumableJob = downloads.resumableForGame(game.id);
   const installPct = activeJob?.bytesTotal ? Math.min(100, (activeJob.bytesDone / activeJob.bytesTotal) * 100) : null;
   const spec = artFromUrl(game.backgroundUrl, game.title);
   const dialogVersion = installTarget ?? version;

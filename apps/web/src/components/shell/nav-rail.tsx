@@ -12,7 +12,7 @@ import {
   type NavContext,
   type NavDestination,
 } from "@/lib/navigation";
-import { useDownloads } from "@/state/downloads";
+import { useActiveCount } from "@/state/downloads";
 import { useAuth } from "@/state/auth";
 import { Badge } from "@/components/ui/controls";
 import { NavIcon } from "@/components/shell/nav-icons";
@@ -120,7 +120,7 @@ export function NavRail({ context, onOpenHelp }: { context: NavContext; onOpenHe
   const location = useLocation();
   const pathname = location.pathname;
   const { setup } = useAuth();
-  const downloads = useDownloads();
+  const activeDownloads = useActiveCount();
   const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: () => api.stats(), staleTime: 30_000 });
   const [collapsed, setCollapsed] = useState<string[]>(() => readCollapsedGroups());
 
@@ -136,7 +136,7 @@ export function NavRail({ context, onOpenHelp }: { context: NavContext; onOpenHe
   const footerLinks = systemNav(context);
   const counts: Record<string, number | undefined> = {
     library: stats?.games,
-    downloads: downloads.activeCount,
+    downloads: activeDownloads,
   };
 
   return (

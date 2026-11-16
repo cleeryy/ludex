@@ -6,6 +6,17 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- Frontend performance and hygiene (#237): Downloads exposes selector hooks
+  over an external store with value reconciliation and a 2 s poll only while an
+  install is active and the window visible, so the 1 Hz whole-product repaint is
+  gone; the entry bundle drops from 2.17 MB to 997 kB (568→248 kB gzip) via lazy
+  admin/console routes, vendor chunks, compile-time mock exclusion and locale
+  chunks out of the precache; the API client has a 30 s timeout; game cards and
+  console rows are memoised; ESLint (flat config) and render/timeout tests are
+  in place.
+
 ### Security
 
 - Artwork and metadata fetches are SSRF-guarded (#237): a shared `UrlGuard`

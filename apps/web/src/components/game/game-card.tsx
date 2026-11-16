@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Link } from "react-router-dom";
 import { Bookmark, BookmarkCheck, Play, RefreshCw } from "lucide-react";
 import type { GameSummary, GameUpdate, InstalledGame } from "@/lib/types";
@@ -7,12 +8,12 @@ import { GameCover } from "@/components/art/cover";
 import { STATE_TONE } from "@/components/game/state";
 import { Tooltip } from "@/components/ui/tooltip";
 import { t } from "@/lib/i18n";
+import { useInstallingPercent } from "@/state/downloads";
 
-export function GameCard({
+function GameCardBase({
   game,
   index,
   installed,
-  installing,
   update,
   source,
   onBookmark,
@@ -22,8 +23,6 @@ export function GameCard({
   game: GameSummary;
   index: number;
   installed?: InstalledGame;
-  /** Percent complete while an install job is active. */
-  installing?: number | null;
   /** Newer version available on the server (#30). */
   update?: GameUpdate;
   /** Launcher that owns the install, shown on matched imports (#154). */
@@ -32,6 +31,9 @@ export function GameCard({
   onPlay?: () => void;
   onUpdate?: () => void;
 }) {
+  // Subscribed per card: a progress tick only repaints the card being
+  // installed, not the whole 200-card grid (#237).
+  const installing = useInstallingPercent(game.id);
   const played = formatMinutes(game.minutesPlayed);
 
   return (
@@ -156,3 +158,20 @@ export function GameCard({
     </article>
   );
 }
+
+/**
+ * Memoised (#237): the library re-renders when filters, data or one card's
+ * install progress changes, and every other card keeps its DOM. The inline
+ * handlers are intentionally ignored by the comparator: they only close over
+ * `bookmark`/`launch` mutations (stable) and the same `game` object, so a
+ * changed callback identity with an unchanged game cannot change the output.
+ */
+export const GameCard = memo(GameCardBase, (previous, next) => {
+  return (
+    previous.game === next.game &&
+    previous.index === next.index &&
+    previous.installed === next.installed &&
+    previous.update === next.update &&
+    previous.source === next.source
+  );
+});

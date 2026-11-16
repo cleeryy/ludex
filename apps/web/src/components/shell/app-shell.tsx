@@ -40,7 +40,7 @@ import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
 import { DesktopAppPrompt } from "@/components/desktop-app-prompt";
 import { useNativeEvents } from "@/lib/hooks";
 import { OPEN_SHORTCUTS_EVENT, openFiltersPanel, requestSearchFocus } from "@/lib/ui-events";
-import { useDownloads } from "@/state/downloads";
+import { useActiveJobs, useQueueSummary, useTitleFor } from "@/state/downloads";
 import { formatSpeed, sortLabel, formatPercent } from "@/lib/format";
 import { t } from "@/lib/i18n";
 
@@ -226,12 +226,16 @@ function Topbar({ onOpenPalette, chrome }: { onOpenPalette: () => void; chrome: 
 }
 
 function DownloadsStrip() {
-  const { active, activeCount, aggregate, titleFor } = useDownloads();
+  // Selectors, not the whole provider (#237): only the strip and the console
+  // repaint on a transfer tick; the library and the rest of the shell do not.
+  const active = useActiveJobs();
+  const { activeCount, percent: aggregatePercent, speedBps, eta } = useQueueSummary();
+  const titleFor = useTitleFor();
   if (active.length === 0) return null;
   const job = active[0];
   const paused = job.phase === "paused";
   const jobPct = job.bytesTotal ? Math.min(100, (job.bytesDone / job.bytesTotal) * 100) : null;
-  const pct = paused ? jobPct : (aggregate?.percent ?? null);
+  const pct = paused ? jobPct : aggregatePercent;
 
   return (
     <Link
@@ -249,10 +253,10 @@ function DownloadsStrip() {
       <span className="min-w-0 truncate text-ink">{titleFor(job)}</span>
       {activeCount > 1 && <span className="num shrink-0 text-ink-3">+{activeCount - 1}</span>}
       <span className="num ml-auto shrink-0">{paused ? t("Paused") : pct !== null ? formatPercent(pct) : t("Preparing")}</span>
-      {aggregate?.speedBps ? (
-        <span className="num hidden shrink-0 text-ink-3 sm:inline">{formatSpeed(aggregate.speedBps)}</span>
+      {speedBps ? (
+        <span className="num hidden shrink-0 text-ink-3 sm:inline">{formatSpeed(speedBps)}</span>
       ) : null}
-      {aggregate?.eta ? <span className="num hidden shrink-0 text-ink-3 md:inline">{t("{duration} left", { duration: aggregate.eta })}</span> : null}
+      {eta ? <span className="num hidden shrink-0 text-ink-3 md:inline">{t("{duration} left", { duration: eta })}</span> : null}
       <span className="hidden shrink-0 items-center gap-1 text-ink-3 sm:flex">
         {t("Downloads")}
         <ChevronRight className="rtl:-scale-x-100 size-3" aria-hidden="true" />

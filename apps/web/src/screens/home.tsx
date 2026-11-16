@@ -18,7 +18,7 @@ import {
   useUpdateMap,
 } from "@/lib/hooks";
 import { useIsEditor } from "@/state/auth";
-import { useDownloads } from "@/state/downloads";
+import { useJob } from "@/state/downloads";
 import { useToast } from "@/state/toasts";
 import { ArtPlate } from "@/components/art/cover";
 import { ThemeScope } from "@/components/theme/theme-scope";
@@ -62,7 +62,6 @@ export function HomeScreen() {
   const { push } = useToast();
   const isEditor = useIsEditor();
   const installed = useInstalledMap();
-  const downloads = useDownloads();
   const launch = useLaunchGame();
   const updates = useUpdateMap();
   const updateGame = useUpdateGame();
@@ -97,19 +96,13 @@ export function HomeScreen() {
 
   const version = heroDetail.data?.versions[0];
   const heroInstalled = hero ? installed.get(hero.id) : undefined;
-  const heroJob = hero ? downloads.jobForGame(hero.id) : undefined;
+  const heroJob = useJob(hero?.id ?? -1);
   const heroPct = heroJob?.bytesTotal ? Math.min(100, (heroJob.bytesDone / heroJob.bytesTotal) * 100) : heroJob ? 0 : null;
 
   const recent = played.filter((game) => game.id !== hero?.id).slice(0, 8);
 
   const gamesById = useMemo(() => new Map(games.map((game) => [game.id, game])), [games]);
   const deviceGames = (recentOnDevice.data ?? []).filter((entry) => entry.gameId !== hero?.id);
-
-  const installingPercent = (gameId: number): number | null => {
-    const job = downloads.jobForGame(gameId);
-    if (!job) return null;
-    return job.bytesTotal ? (job.bytesDone / job.bytesTotal) * 100 : 0;
-  };
 
   const download = async () => {
     if (!hero) return;
@@ -342,7 +335,6 @@ export function HomeScreen() {
                   game={game}
                   index={game.id}
                   installed={installed.get(game.id)}
-                  installing={installingPercent(game.id)}
                   onBookmark={() => bookmark.mutate({ id: game.id, bookmarked: !game.bookmarked })}
                   onPlay={
                     isNative() && installed.has(game.id)
@@ -411,7 +403,6 @@ export function HomeScreen() {
               game={game}
               index={game.id}
               installed={installed.get(game.id)}
-              installing={installingPercent(game.id)}
               update={updates.get(game.id)}
               onBookmark={() => bookmark.mutate({ id: game.id, bookmarked: !game.bookmarked })}
               onPlay={

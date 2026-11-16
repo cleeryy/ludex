@@ -22,7 +22,7 @@ const COPY_ATTRIBUTES = ["aria-label", "placeholder", "title", "alt"];
 function isTechnical(text) {
   if (!/[A-Za-z]/.test(text)) return true;
   if (/^[A-Z0-9][A-Z0-9 ._/+-]*$/.test(text)) return true; // codes, acronyms, keys
-  if (/[:/\\{}<>%$#=*\[\]`]/.test(text)) return true; // paths, URLs, formats, code
+  if (/[[:/\\{}<>%$#=*`\]]/.test(text)) return true; // paths, URLs, formats, code
   if (/\.(exe|json|yaml|yml|png|svg|zip|7z|rar|tar|gz|md|iso|cue|bin)\b/i.test(text)) return true;
   if (/\b[A-Za-z]+[A-Z][A-Za-z]*\b/.test(text)) return true; // camelCase / PascalCase identifiers
   if (/\b[a-z]+_[a-z_]+\b/.test(text)) return true; // snake_case identifiers

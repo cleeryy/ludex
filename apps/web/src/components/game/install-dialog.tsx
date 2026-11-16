@@ -7,7 +7,7 @@ import { errorMessage } from "@/lib/http";
 import { formatBytes, formatEta, formatSpeed, installPhaseLabel, formatPercent } from "@/lib/format";
 import { isNative, native } from "@/lib/native";
 import type { GameDetail, GameVersion, LocationStatus } from "@/lib/types";
-import { isStreamFailedJob, useDownloads } from "@/state/downloads";
+import { isStreamFailedJob, useDownloadsActions, useJob, useResumableJob } from "@/state/downloads";
 import {
   isVerifyingJob,
   isWaitingForSpaceJob,
@@ -46,8 +46,10 @@ export function InstallDialog({
   /** Installing an older version than the one on this device (#168). */
   rollback?: boolean;
 }) {
-  const downloads = useDownloads();
-  const job = downloads.jobForGame(game.id) ?? downloads.resumableForGame(game.id);
+  const downloads = useDownloadsActions();
+  const activeJob = useJob(game.id);
+  const resumableJob = useResumableJob(game.id);
+  const job = activeJob ?? resumableJob;
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [installLocationId, setInstallLocationId] = useState<string>("");
