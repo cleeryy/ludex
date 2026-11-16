@@ -120,6 +120,8 @@ import type {
   VirusTotalIntegration,
   VirusTotalKeyInput,
   VirusTotalScanRequest,
+  VirusTotalRescanInput,
+  VirusTotalRescanStatus,
   VirusTotalScanResponse,
   VirusTotalStats,
   VirusTotalTestResult,
@@ -1299,6 +1301,46 @@ function demoVtIntegration(): VirusTotalIntegration {
       remaining: Math.max(0, 500 - usedToday),
       resetAt: new Date(new Date().setUTCHours(24, 0, 0, 0)).toISOString(),
     },
+  };
+}
+
+/**
+ * Demo policy for the server-side re-check (#239). Kept in memory: the mock
+ * has no worker, so `run` simply reports what a pass would have done.
+ */
+let demoVtRescan: {
+  enabled: boolean;
+  intervalHours: number;
+  includeMalicious: boolean;
+  lastRunAt: string | null;
+  lastError: string | null;
+  scannedLastRun: number;
+} = {
+  enabled: false,
+  intervalHours: 168,
+  includeMalicious: false,
+  lastRunAt: null,
+  lastError: null,
+  scannedLastRun: 0,
+};
+
+function demoVtRescanStatus(): VirusTotalRescanStatus {
+  const remaining = games.reduce((count, game) => count + game.versions.length, 0);
+  const nextRunAt =
+    demoVtRescan.enabled && demoVtRescan.intervalHours > 0
+      ? new Date(Date.now() + demoVtRescan.intervalHours * 3_600_000).toISOString()
+      : null;
+  return {
+    enabled: demoVtRescan.enabled,
+    intervalHours: demoVtRescan.intervalHours,
+    includeMalicious: demoVtRescan.includeMalicious,
+    lastRunAt: demoVtRescan.lastRunAt,
+    nextRunAt,
+    cursor: null,
+    lastError: demoVtRescan.lastError,
+    scannedLastRun: demoVtRescan.scannedLastRun,
+    remaining,
+    due: false,
   };
 }
 
@@ -3580,6 +3622,53 @@ export const mockApi = {
       );
     }
     return { scans: [demoVtReport(found.game.id, found.version, true)] };
+  },
+
+  async adminVirusTotalRescan(token: string | null): Promise<VirusTotalRescanStatus> {
+    await latency();
+    requireDemoAdmin(token);
+    return demoVtRescanStatus();
+  },
+
+  async saveVirusTotalRescan(
+    token: string | null,
+    body: VirusTotalRescanInput,
+  ): Promise<VirusTotalRescanStatus> {
+    await latency();
+    requireDemoAdmin(token);
+    if (![0, 24, 168, 720].includes(body.intervalHours)) {
+      fail(
+        400,
+        "invalid_interval",
+        "intervalHours must be 0 (manual only), 24 (daily), 168 (weekly) or 720 (monthly)",
+      );
+    }
+    demoVtRescan = {
+      ...demoVtRescan,
+      enabled: body.enabled,
+      intervalHours: body.intervalHours,
+      includeMalicious: body.includeMalicious,
+    };
+    return demoVtRescanStatus();
+  },
+
+  async runVirusTotalRescan(token: string | null): Promise<VirusTotalRescanStatus> {
+    await latency();
+    requireDemoAdmin(token);
+    if (!demoVtRescan.enabled) {
+      fail(409, "rescan_disabled", "Enable periodic re-checks before running a pass");
+    }
+    if (!demoVtKey) {
+      fail(409, "rescan_disabled", "No VirusTotal API key is configured");
+    }
+    const remaining = games.reduce((count, game) => count + game.versions.length, 0);
+    demoVtRescan = {
+      ...demoVtRescan,
+      lastRunAt: nowIso(),
+      lastError: null,
+      scannedLastRun: remaining,
+    };
+    return { ...demoVtRescanStatus(), remaining: 0 };
   },
 
   async gameVirusTotal(token: string | null, gameId: number): Promise<GameVirusTotalResponse> {

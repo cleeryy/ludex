@@ -897,6 +897,7 @@ pub struct Scanner {
     flight: StdMutex<HashMap<String, Arc<Mutex<()>>>>,
     minute: StdMutex<VecDeque<i64>>,
     runtime: StdMutex<RuntimeStatus>,
+    rescan_busy: std::sync::atomic::AtomicBool,
 }
 
 impl Scanner {
@@ -919,7 +920,29 @@ impl Scanner {
             flight: StdMutex::new(HashMap::new()),
             minute: StdMutex::new(VecDeque::new()),
             runtime: StdMutex::new(RuntimeStatus::default()),
+            rescan_busy: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// Claims the single periodic re-check slot (#239).
+    ///
+    /// Returns `false` when a pass is already running, so the worker and the
+    /// admin "run now" action never walk the same queue twice.
+    pub(crate) fn claim_rescan(&self) -> bool {
+        self.rescan_busy
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+            )
+            .is_ok()
+    }
+
+    /// Releases the periodic re-check slot.
+    pub(crate) fn release_rescan(&self) {
+        self.rescan_busy
+            .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Transport used for lookups.
@@ -1529,7 +1552,7 @@ fn plain_report(version_id: i64, sha256: &str, verdict: Verdict, checked_at: &st
     }
 }
 
-async fn store_link(
+pub(crate) async fn store_link(
     state: &AppState,
     game_id: i64,
     version_id: Option<i64>,
@@ -1701,7 +1724,10 @@ pub async fn scan(state: &AppState, request: ScanRequest) -> Result<Vec<ScanEntr
 }
 
 /// Looks one hash up, honouring the cache, the quota and single-flight.
-async fn lookup_hash(
+///
+/// Shared with the periodic re-check worker (#239), which passes `force: true`
+/// so a stale-but-cached report is actually refreshed.
+pub(crate) async fn lookup_hash(
     state: &AppState,
     key: Option<&ResolvedKey>,
     version_id: i64,

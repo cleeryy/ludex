@@ -4167,3 +4167,39 @@ export interface VirusTotalTestResult {
   ok: boolean;
   message: string;
 }
+
+/* -------------------- VirusTotal periodic re-check (#239) ---------------- */
+
+/** Intervals an administrator can choose, in hours. `0` is manual only. */
+export const VIRUSTOTAL_RESCAN_INTERVALS = [0, 24, 168, 720] as const;
+
+/**
+ * Persisted policy for the server-side re-check plus what it would do now.
+ * The worker runs on the server even when no browser is open; `due` is the
+ * server's own clock, never the client's.
+ */
+export interface VirusTotalRescanStatus {
+  enabled: boolean;
+  /** `0` (manual only), `24`, `168` or `720`. */
+  intervalHours: number;
+  /** Re-check `malicious` verdicts too. Off by default. */
+  includeMalicious: boolean;
+  lastRunAt: string | null;
+  /** `null` when disabled or manual only. */
+  nextRunAt: string | null;
+  /** Last SHA-256 the pass processed, as a progress marker. */
+  cursor: string | null;
+  /** Category-prefixed failure: `invalid_key:`/`quota_exceeded:`/`outage:`. */
+  lastError: string | null;
+  /** Hashes refreshed by the last pass. */
+  scannedLastRun: number;
+  /** Distinct stale archives the policy would select right now. */
+  remaining: number;
+  due: boolean;
+}
+
+export interface VirusTotalRescanInput {
+  enabled: boolean;
+  intervalHours: number;
+  includeMalicious: boolean;
+}

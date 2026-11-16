@@ -25,6 +25,7 @@ use crate::events::Event;
 use crate::extract::{ApiPath, JsonBody};
 use crate::state::AppState;
 use crate::virustotal::{self, GameScanReport, IntegrationStatus, ScanReport, TestResponse};
+use crate::virustotal_rescan::{self, RescanPolicyInput, RescanStatus};
 
 /// Admin and player VirusTotal routes.
 pub fn router() -> Router<AppState> {
@@ -34,6 +35,14 @@ pub fn router() -> Router<AppState> {
             get(status).put(save).delete(remove),
         )
         .route("/admin/integrations/virustotal/test", post(test))
+        .route(
+            "/admin/integrations/virustotal/rescan",
+            get(rescan_status).put(save_rescan),
+        )
+        .route(
+            "/admin/integrations/virustotal/rescan/run",
+            post(run_rescan),
+        )
         .route("/admin/virustotal/scan", post(scan))
         .route("/games/{id}/virustotal", get(game_reports))
 }
@@ -106,6 +115,48 @@ async fn test(
     };
     Ok(Json(
         virustotal::test_key(&state, api_key.as_deref()).await?,
+    ))
+}
+
+async fn rescan_status(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<Json<RescanStatus>, ApiError> {
+    user.require_admin_access()?;
+    Ok(Json(virustotal_rescan::status(&state).await?))
+}
+
+async fn save_rescan(
+    State(state): State<AppState>,
+    user: AuthUser,
+    JsonBody(request): JsonBody<RescanPolicyInput>,
+) -> Result<Json<RescanStatus>, ApiError> {
+    user.require_admin_access()?;
+    let enabled = request.enabled;
+    let interval_hours = request.interval_hours;
+    let include_malicious = request.include_malicious;
+    let status = virustotal_rescan::save_policy(&state, request).await?;
+    state.events.emit(
+        Event::new(actions::VIRUSTOTAL_RESCAN_POLICY, user.actor())
+            .target("virustotal", "rescan")
+            .metadata(json!({
+                "enabled": enabled,
+                "intervalHours": interval_hours,
+                "interval": virustotal_rescan::interval_label(interval_hours),
+                "includeMalicious": include_malicious,
+                "nextRunAt": status.next_run_at,
+            })),
+    );
+    Ok(Json(status))
+}
+
+async fn run_rescan(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<Json<RescanStatus>, ApiError> {
+    user.require_admin_access()?;
+    Ok(Json(
+        virustotal_rescan::run_now(&state, user.actor()).await?,
     ))
 }
 

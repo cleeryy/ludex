@@ -118,3 +118,85 @@
 [54724715ms] [ERROR] [vite] Failed to reload /src/state/virustotal-queue.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
 [55537777ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:22164
 [55547322ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5180/#/bigpicture?lang=fr:0
+[60445875ms] [ERROR] %o
+
+%s
+
+%s
+ Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5180/src/state/auth.tsx?t=1794793675127:233:21)
+    at PreferencesProvider (http://localhost:5180/src/state/preferences.tsx?t=1794793660081:64:20)
+    at Object.react_stack_bottom_frame (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:20259:20)
+    at renderWithHooks (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:5918:24)
+    at updateFunctionComponent (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7763:21)
+    at beginWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:8843:20)
+    at runWithFiberInDEV (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:1133:72)
+    at performUnitOfWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13598:98)
+    at workLoopSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13461:43)
+    at renderRootSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13445:13) The above error occurred in the <PreferencesProvider> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7275
+[60452867ms] [ERROR] %o
+
+%s
+
+%s
+ Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5180/src/state/auth.tsx?t=1794793675127:233:21)
+    at PreferencesProvider (http://localhost:5180/src/state/preferences.tsx?t=1794793657937:64:20)
+    at Object.react_stack_bottom_frame (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:20259:20)
+    at renderWithHooks (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:5918:24)
+    at updateFunctionComponent (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7763:21)
+    at beginWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:8843:20)
+    at runWithFiberInDEV (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:1133:72)
+    at performUnitOfWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13598:98)
+    at workLoopSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13461:43)
+    at renderRootSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13445:13) The above error occurred in the <PreferencesProvider> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7275
+[60453071ms] [ERROR] %o
+
+%s
+
+%s
+ Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5180/src/state/auth.tsx?t=1794793675127:233:21)
+    at PreferencesProvider (http://localhost:5180/src/state/preferences.tsx?t=1794793657937:64:20)
+    at Object.react_stack_bottom_frame (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:20259:20)
+    at renderWithHooks (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:5918:24)
+    at updateFunctionComponent (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7763:21)
+    at beginWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:8843:20)
+    at runWithFiberInDEV (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:1133:72)
+    at performUnitOfWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13598:98)
+    at workLoopSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13461:43)
+    at renderRootSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13445:13) The above error occurred in the <PreferencesProvider> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7275
+[60454816ms] [ERROR] %o
+
+%s
+
+%s
+ Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5180/src/state/auth.tsx?t=1794793675127:233:21)
+    at PreferencesProvider (http://localhost:5180/src/state/preferences.tsx?t=1794793657937:64:20)
+    at Object.react_stack_bottom_frame (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:20259:20)
+    at renderWithHooks (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:5918:24)
+    at updateFunctionComponent (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7763:21)
+    at beginWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:8843:20)
+    at runWithFiberInDEV (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:1133:72)
+    at performUnitOfWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13598:98)
+    at workLoopSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13461:43)
+    at renderRootSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13445:13) The above error occurred in the <PreferencesProvider> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7275
+[60457247ms] [ERROR] %o
+
+%s
+
+%s
+ Error: useAuth must be used inside AuthProvider
+    at useAuth (http://localhost:5180/src/state/auth.tsx?t=1794793675127:233:21)
+    at PreferencesProvider (http://localhost:5180/src/state/preferences.tsx?t=1794793657937:64:20)
+    at Object.react_stack_bottom_frame (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:20259:20)
+    at renderWithHooks (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:5918:24)
+    at updateFunctionComponent (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7763:21)
+    at beginWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:8843:20)
+    at runWithFiberInDEV (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:1133:72)
+    at performUnitOfWork (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13598:98)
+    at workLoopSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13461:43)
+    at renderRootSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13445:13) The above error occurred in the <PreferencesProvider> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7275
+[60466675ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:22164
+[60474236ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5180/#/bigpicture?lang=fr:0

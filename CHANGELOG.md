@@ -6,6 +6,15 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Optional periodic VirusTotal re-check (#239): an admin policy
+  (`{enabled, intervalHours, includeMalicious}`, default off) with a
+  server-side worker that re-scans versions whose cached report is older than
+  the interval, oldest first, skipping `malicious` unless opted in and never
+  exceeding the 4/min + 500/day budget; the integration page shows next/last
+  run and the last error, and policy/run are audited.
+
 ### Changed
 
 - CI and desktop robustness (Wave 0 of #237): CI now runs the desktop crate's

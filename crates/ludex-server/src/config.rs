@@ -393,6 +393,9 @@ pub struct Config {
     pub virustotal_daily_limit: i64,
     /// Timeout for one VirusTotal request (`LUDEX_VIRUSTOTAL_TIMEOUT_MS`).
     pub virustotal_request_timeout: Duration,
+    /// How often the periodic VirusTotal re-check worker checks its schedule
+    /// (`LUDEX_VIRUSTOTAL_RESCAN_TICK_MS`, default 30 s, #239).
+    pub virustotal_rescan_tick: Duration,
 }
 
 impl Config {
@@ -707,6 +710,16 @@ impl Config {
             .transpose()?
             .map(Duration::from_millis)
             .unwrap_or(Duration::from_secs(20));
+        let virustotal_rescan_tick = env_opt("LUDEX_VIRUSTOTAL_RESCAN_TICK_MS")
+            .map(|value| {
+                value
+                    .trim()
+                    .parse::<u64>()
+                    .context("LUDEX_VIRUSTOTAL_RESCAN_TICK_MS must be a positive integer")
+            })
+            .transpose()?
+            .map(Duration::from_millis)
+            .unwrap_or(Duration::from_secs(30));
 
         Ok(Self {
             bind,
@@ -813,6 +826,7 @@ impl Config {
             virustotal_per_minute,
             virustotal_daily_limit,
             virustotal_request_timeout,
+            virustotal_rescan_tick,
         })
     }
 
@@ -912,6 +926,7 @@ impl Config {
             virustotal_per_minute: crate::virustotal::PER_MINUTE_LIMIT,
             virustotal_daily_limit: crate::virustotal::DAILY_LIMIT,
             virustotal_request_timeout: Duration::from_secs(20),
+            virustotal_rescan_tick: Duration::from_secs(30),
         }
     }
 
