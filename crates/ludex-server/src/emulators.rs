@@ -272,7 +272,7 @@ pub async fn create(
     .returning_id(pool)
     .await
     .map_err(|error| {
-        if is_unique_violation(&error) {
+        if crate::db::is_unique_violation(&error) {
             ApiError::conflict(
                 "emulator_exists",
                 "An emulator with this name already exists",
@@ -347,7 +347,7 @@ pub async fn update(
     .execute(pool)
     .await
     .map_err(|error| {
-        if is_unique_violation(&error) {
+        if crate::db::is_unique_violation(&error) {
             ApiError::conflict(
                 "emulator_exists",
                 "An emulator with this name already exists",
@@ -562,15 +562,6 @@ pub async fn launch_for_game(pool: &Database, game_id: i64) -> Result<EmulatorLa
         args: command.args,
         rom_path: rom_path.display().to_string(),
     })
-}
-
-fn is_unique_violation(error: &sqlx::Error) -> bool {
-    // SQLite uses 2067/1555, PostgreSQL uses SQLSTATE 23505; the trait method
-    // normalises both.
-    match error {
-        sqlx::Error::Database(database) => database.is_unique_violation(),
-        _ => false,
-    }
 }
 
 #[cfg(test)]

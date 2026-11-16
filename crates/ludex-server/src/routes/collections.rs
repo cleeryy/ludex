@@ -17,6 +17,7 @@ use crate::collection_share::{
 use crate::collections::{self, Candidate};
 use crate::community;
 use crate::db;
+use crate::db::DbTransaction;
 use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, ApiQuery, JsonBody};
@@ -111,38 +112,45 @@ async fn create(
     let rules_json = serde_json::to_string(&rules).map_err(ApiError::from)?;
     let now = db::db_time(db::now());
 
-    let id = db::query(
-        "INSERT INTO collections
-            (user_id, name, description, is_public, visibility, kind, rules_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(user.id)
-    .bind(&name)
-    .bind(&description)
-    .bind(i64::from(is_public))
-    .bind(visibility.as_str())
-    .bind(kind.as_str())
-    .bind(&rules_json)
-    .bind(&now)
-    .bind(&now)
-    .returning_id(&state.pool)
-    .await
-    .map_err(|error| {
-        if super::system::is_unique_violation(&error) {
-            ApiError::conflict(
-                "collection_exists",
-                "You already have a collection with that name",
+    let id = state
+        .pool
+        .with_tx(async |tx| {
+            let id = db::query(
+                "INSERT INTO collections
+                    (user_id, name, description, is_public, visibility, kind, rules_json, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
-        } else {
-            ApiError::from(error)
-        }
-    })?;
-
-    if kind == CollectionKind::Manual {
-        if let Some(game_ids) = request.game_ids {
-            insert_games(&state, id, &game_ids).await?;
-        }
-    }
+            .bind(user.id)
+            .bind(&name)
+            .bind(&description)
+            .bind(i64::from(is_public))
+            .bind(visibility.as_str())
+            .bind(kind.as_str())
+            .bind(&rules_json)
+            .bind(&now)
+            .bind(&now)
+            .returning_id(&mut *tx)
+            .await
+            .map_err(|error| {
+                if crate::db::is_unique_violation(&error) {
+                    ApiError::conflict(
+                        "collection_exists",
+                        "You already have a collection with that name",
+                    )
+                } else {
+                    ApiError::from(error)
+                }
+            })?;
+            // A rejected game id rolls the collection back too: the caller gets
+            // a 404 and no half-created shelf.
+            if kind == CollectionKind::Manual {
+                if let Some(game_ids) = request.game_ids.as_deref() {
+                    insert_games_in(tx, id, game_ids).await?;
+                }
+            }
+            Ok::<i64, ApiError>(id)
+        })
+        .await?;
 
     let row = load(&state, id).await?;
     // Private and unlisted shelves stay out of the public feed: their name and
@@ -662,7 +670,7 @@ async fn import(
             .returning_id(&state.pool)
             .await
             .map_err(|error| {
-                if super::system::is_unique_violation(&error) {
+                if crate::db::is_unique_violation(&error) {
                     ApiError::conflict(
                         "collection_exists",
                         "You already have a collection with that name",
@@ -766,6 +774,19 @@ async fn insert_games(
     collection_id: i64,
     game_ids: &[i64],
 ) -> Result<i64, ApiError> {
+    state
+        .pool
+        .with_tx(async |tx| insert_games_in(tx, collection_id, game_ids).await)
+        .await
+}
+
+/// Binds games inside an open transaction: either every row lands or none
+/// does, and the collection's `updated_at` moves with them.
+async fn insert_games_in(
+    transaction: &mut DbTransaction<'_>,
+    collection_id: i64,
+    game_ids: &[i64],
+) -> Result<i64, ApiError> {
     let mut unique = Vec::new();
     for id in game_ids {
         if !unique.contains(id) {
@@ -776,7 +797,7 @@ async fn insert_games(
     let sql = format!("SELECT id FROM games WHERE id IN ({placeholders})");
     let binds: Vec<Bind> = unique.iter().copied().map(Bind::Int).collect();
     let existing = bind_query_scalar(db::query_scalar::<i64>(&sql), &binds)
-        .fetch_all(&state.pool)
+        .fetch_all(&mut *transaction)
         .await
         .map_err(ApiError::from)?;
     if existing.len() != unique.len() {
@@ -796,7 +817,7 @@ async fn insert_games(
         .bind(collection_id)
         .bind(game_id)
         .bind(&now)
-        .execute(&state.pool)
+        .execute(&mut *transaction)
         .await
         .map_err(ApiError::from)?;
         added += result.rows_affected();
@@ -804,7 +825,7 @@ async fn insert_games(
     db::query("UPDATE collections SET updated_at = ? WHERE id = ?")
         .bind(&now)
         .bind(collection_id)
-        .execute(&state.pool)
+        .execute(&mut *transaction)
         .await
         .map_err(ApiError::from)?;
     i64::try_from(added).map_err(|_| ApiError::internal())

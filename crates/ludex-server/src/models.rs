@@ -904,6 +904,14 @@ pub struct ProgressRequest {
 pub struct PlaytimeRequest {
     /// Minutes played; clamped to 1..=1440.
     pub minutes: i64,
+    /// Client-generated idempotency key (the desktop's local session id).
+    ///
+    /// The desktop keeps finished sessions in a local outbox and retries them
+    /// until the server acknowledges; replaying the same id after a crash
+    /// between "applied" and "marked synced" must not add the minutes twice.
+    /// Omit it for additive behaviour (older clients, scripts).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
 }
 
 /// Bookmark update.

@@ -1351,7 +1351,7 @@ pub async fn provision_user(
     .returning_id(&state.pool)
     .await
     .map_err(|error| {
-        if crate::routes::system::is_unique_violation(&error) {
+        if crate::db::is_unique_violation(&error) {
             ApiError::conflict(
                 "oidc_provision_failed",
                 "An account with this identity already exists",

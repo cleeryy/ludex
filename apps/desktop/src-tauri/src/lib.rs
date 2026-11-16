@@ -243,6 +243,10 @@ pub fn run() {
                 })
                 .await;
                 launch::sync_pending(handle.clone()).await;
+                // Playtime outbox: finished sessions are already local rows;
+                // the worker retries failed deliveries with bounded backoff
+                // instead of waiting for the next launch.
+                launch::start_retry_worker(handle.clone());
                 // Cloud saves (#108): retry failed automatic uploads with
                 // bounded backoff; pending state is persisted in SQLite.
                 saves_sync::start_retry_worker(handle.clone());

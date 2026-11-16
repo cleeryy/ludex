@@ -1247,7 +1247,8 @@ fn spawn_watcher(
         let sync_app = app.clone();
         let sync_session_id = session_id;
         tauri::async_runtime::spawn(async move {
-            if let Err(error) = sync_session(&sync_app, &sync_session_id, game_id, minutes).await {
+            if let Err(error) = sync_session(&sync_app, &sync_session_id, game_id, minutes, 0).await
+            {
                 tracing::debug!(error = %error, "playtime will be synced later");
             }
             sync_pending(sync_app).await;
@@ -1418,6 +1419,7 @@ pub async fn sync_session(
     session_id: &str,
     game_id: i64,
     minutes: i64,
+    attempts: i64,
 ) -> Result<(), String> {
     if minutes <= 0 {
         return Ok(());
@@ -1434,6 +1436,8 @@ pub async fn sync_session(
     let settings = state.settings_snapshot();
     let base = settings.server_url.trim_end_matches('/');
     if base.is_empty() {
+        // Not a delivery failure: the user has no server yet. Leave the row
+        // untouched so it is retried once a server is configured.
         return Err("No server URL is configured.".to_string());
     }
 
@@ -1441,26 +1445,88 @@ pub async fn sync_session(
         .http
         .post(format!("{base}/api/games/{game_id}/playtime"))
         .timeout(Duration::from_secs(15))
-        .json(&serde_json::json!({ "minutes": minutes }));
+        // The session id is the outbox message id: replaying this exact report
+        // after a crash between "server applied it" and "marked synced" is a
+        // no-op there instead of adding the minutes again.
+        .json(&serde_json::json!({ "minutes": minutes, "messageId": session_id }));
     if let Some(token) = non_empty(settings.token.as_deref()) {
         request = request.bearer_auth(token);
     }
 
-    let response = request
-        .send()
-        .await
-        .map_err(|e| format!("Playtime sync failed: {e}"))?;
+    let response = match request.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            let message = format!("Playtime sync failed: {error}");
+            record_sync_failure(app, session_id, attempts, &message, true);
+            return Err(message);
+        }
+    };
     if !response.status().is_success() {
-        return Err(format!(
-            "Playtime sync failed with HTTP {}",
-            response.status()
-        ));
+        let status = response.status();
+        let message = format!("Playtime sync failed with HTTP {status}");
+        // 4xx means the server will never accept this report (the game was
+        // deleted, the token lost write scope, ...). Retrying it forever only
+        // hides the failure; record it and stop.
+        let retryable = !status.is_client_error()
+            || status == reqwest::StatusCode::REQUEST_TIMEOUT
+            || status == reqwest::StatusCode::TOO_MANY_REQUESTS;
+        record_sync_failure(app, session_id, attempts, &message, retryable);
+        return Err(message);
     }
 
     if let Ok(connection) = state.db.lock() {
         let _ = db::mark_session_synced(&connection, session_id);
     }
     Ok(())
+}
+
+/// Exponential backoff for a failed playtime delivery (same shape as cloud
+/// saves): 30 s, 1 min, 2 min, 4 min, then exhausted.
+pub fn playtime_retry_delay(attempts: i64) -> Option<i64> {
+    if attempts <= 0 || attempts > db::PLAYTIME_SYNC_MAX_ATTEMPTS {
+        return None;
+    }
+    let exponent = u32::try_from(attempts - 1).unwrap_or(0).min(8);
+    Some((30_i64 * 2_i64.pow(exponent)).min(3600))
+}
+
+/// Records one failed delivery so the worker backs off instead of retrying on
+/// every launch. A non-retryable failure spends the budget immediately.
+fn record_sync_failure(
+    app: &AppHandle,
+    session_id: &str,
+    attempts: i64,
+    message: &str,
+    retryable: bool,
+) {
+    let state = app.state::<AppState>();
+    let Ok(connection) = state.db.lock() else {
+        return;
+    };
+    // A non-retryable rejection spends the budget immediately: `attempts`
+    // above the cap plus a NULL `next_attempt_at` is what the outbox query
+    // treats as "never retry automatically".
+    let attempts = if retryable {
+        attempts + 1
+    } else {
+        db::PLAYTIME_SYNC_MAX_ATTEMPTS + 1
+    };
+    let next = playtime_retry_delay(attempts).map(|seconds| {
+        (chrono::Utc::now() + chrono::Duration::seconds(seconds))
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    });
+    let message = if next.is_none() {
+        format!("{message} (automatic retries exhausted)")
+    } else {
+        message.to_string()
+    };
+    let _ = db::record_session_sync_failure(
+        &connection,
+        session_id,
+        attempts,
+        next.as_deref(),
+        &message,
+    );
 }
 
 pub async fn sync_pending(app: AppHandle) {
@@ -1484,13 +1550,31 @@ pub async fn sync_pending(app: AppHandle) {
     };
 
     for session in pending {
-        if let Err(error) = sync_session(&app, &session.id, session.game_id, session.minutes).await
+        if let Err(error) = sync_session(
+            &app,
+            &session.id,
+            session.game_id,
+            session.minutes,
+            session.attempts,
+        )
+        .await
         {
             tracing::debug!(error = %error, session = %session.id, "playtime still pending");
             // Stop at the first failure: the server is probably unreachable.
             break;
         }
     }
+}
+
+/// Flushes the outbox periodically so a delivery that failed while the app
+/// stayed open is retried without waiting for the next launch.
+pub fn start_retry_worker(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(120)).await;
+            sync_pending(app.clone()).await;
+        }
+    });
 }
 
 #[cfg(test)]
@@ -1871,6 +1955,24 @@ mod tests {
         assert!(!should_hide_ludex(false, false));
         assert!(!should_hide_ludex(true, true));
         assert!(!should_hide_ludex(false, true));
+    }
+
+    /// The playtime outbox backs off like cloud saves and then stops: a dead
+    /// server must not be polled on every launch forever.
+    #[test]
+    fn playtime_retry_delay_is_bounded() {
+        assert_eq!(playtime_retry_delay(0), None);
+        assert_eq!(playtime_retry_delay(1), Some(30));
+        assert_eq!(playtime_retry_delay(2), Some(60));
+        assert_eq!(playtime_retry_delay(3), Some(120));
+        assert_eq!(
+            playtime_retry_delay(db::PLAYTIME_SYNC_MAX_ATTEMPTS),
+            Some(480)
+        );
+        assert_eq!(
+            playtime_retry_delay(db::PLAYTIME_SYNC_MAX_ATTEMPTS + 1),
+            None
+        );
     }
 
     /// #160 end-to-end: the resolved nested executable really runs, from its

@@ -157,9 +157,17 @@ impl Database {
     }
 
     /// Starts a transaction on the active backend.
+    ///
+    /// SQLite starts with `BEGIN IMMEDIATE`: a deferred transaction that reads
+    /// first and writes later can fail with `SQLITE_BUSY_SNAPSHOT` when another
+    /// connection commits in between (the scanner reading a game row while the
+    /// metadata worker writes one), and `busy_timeout` does not cover that
+    /// upgrade. Taking the write lock up front waits normally instead.
     pub async fn begin(&self) -> Result<DbTransaction<'_>, sqlx::Error> {
         Ok(match &self.inner {
-            DbInner::Sqlite(pool) => DbTransaction::Sqlite(pool.begin().await?),
+            DbInner::Sqlite(pool) => {
+                DbTransaction::Sqlite(pool.begin_with("BEGIN IMMEDIATE").await?)
+            }
             DbInner::Postgres(pool) => DbTransaction::Postgres(pool.begin().await?),
         })
     }
@@ -169,6 +177,55 @@ impl Database {
         match self.inner {
             DbInner::Sqlite(pool) => pool.close().await,
             DbInner::Postgres(pool) => pool.close().await,
+        }
+    }
+
+    /// Runs one or more statements inside a transaction on both backends.
+    ///
+    /// The closure gets the open transaction; every statement it runs is
+    /// committed together or rolled back together. `E` is the caller's error
+    /// type (`ApiError` in routes, `anyhow::Error` in background jobs) and must
+    /// accept [`sqlx::Error`] so `BEGIN`/`COMMIT` failures surface normally.
+    ///
+    /// Multi-statement invariants must go through this helper:
+    ///
+    /// ```ignore
+    /// let id = db::with_tx(&state.pool, async |tx| {
+    ///     let id = db::query("INSERT INTO games (title) VALUES (?)")
+    ///         .bind(&title)
+    ///         .returning_id(&mut *tx)
+    ///         .await?;
+    ///     db::query("INSERT INTO game_versions (game_id) VALUES (?)")
+    ///         .bind(id)
+    ///         .execute(&mut *tx)
+    ///         .await?;
+    ///     Ok::<_, ApiError>(id)
+    /// }).await?;
+    /// ```
+    ///
+    /// A closure error rolls back; the original error is returned, never a
+    /// rollback error. Callers that expect conflicts map unique violations with
+    /// [`is_unique_violation`] (or `ApiError::conflict_from_db`) because SQLite
+    /// reports them as text while PostgreSQL uses SQLSTATE `23505`.
+    pub async fn with_tx<T, E, F>(&self, f: F) -> Result<T, E>
+    where
+        E: From<sqlx::Error>,
+        F: for<'c> AsyncFnOnce(&mut DbTransaction<'c>) -> Result<T, E>,
+    {
+        let mut transaction = self.begin().await.map_err(E::from)?;
+        match f(&mut transaction).await {
+            Ok(value) => {
+                transaction.commit().await.map_err(E::from)?;
+                Ok(value)
+            }
+            Err(error) => {
+                if let Err(rollback) = transaction.rollback().await {
+                    // The closure error is what the caller needs; a failed
+                    // rollback only matters for the log.
+                    tracing::warn!(error = %rollback, "transaction rollback failed");
+                }
+                Err(error)
+            }
         }
     }
 
@@ -1315,6 +1372,41 @@ impl DbTransaction<'_> {
     }
 }
 
+/// Classifies a database error as a unique/primary-key violation on either
+/// backend.
+///
+/// SQLite reports constraint failures in the message text (`SQLITE_CONSTRAINT`
+/// 2067/1555, "UNIQUE constraint failed: …"); PostgreSQL reports SQLSTATE
+/// `23505`. Never match the message yourself in a route — a PostgreSQL-only
+/// deployment turns that into a 500 instead of a 409/400.
+#[must_use]
+pub fn is_unique_violation(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::Database(database) => {
+            // `DatabaseError::is_unique_violation` normalises the codes sqlx
+            // knows about; the signal keeps the text fallback for SQLite
+            // versions whose error kind is not classified.
+            database.is_unique_violation()
+                || unique_violation_signal(database.code().as_deref(), database.message())
+        }
+        _ => false,
+    }
+}
+
+/// The per-backend half of [`is_unique_violation`], kept pure so both dialects
+/// are unit-tested without a live PostgreSQL server.
+#[must_use]
+pub fn unique_violation_signal(code: Option<&str>, message: &str) -> bool {
+    if matches!(code, Some("23505" | "2067" | "1555")) {
+        return true;
+    }
+    let message = message.to_ascii_lowercase();
+    message.contains("unique constraint failed")
+        || message.contains("duplicate key value violates unique constraint")
+        || message.contains("primary key must be unique")
+        || message.contains("unique constraint violated")
+}
+
 /// Opens the configured database and applies migrations.
 pub async fn connect(database_url: &str) -> Result<Database> {
     connect_with(database_url, DEFAULT_MAX_CONNECTIONS).await
@@ -1747,5 +1839,117 @@ mod tests {
             .expect("query");
         assert_eq!(count, 0);
         pool.close().await;
+    }
+
+    async fn test_database() -> (tempfile::TempDir, Database) {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let url = format!(
+            "sqlite://{}?mode=rwc",
+            temp.path().join("ludex.db").display()
+        );
+        let database = connect(&url).await.expect("connect");
+        (temp, database)
+    }
+
+    #[test]
+    fn unique_violation_signal_covers_both_backends() {
+        // PostgreSQL: SQLSTATE 23505, whatever the message text.
+        assert!(unique_violation_signal(
+            Some("23505"),
+            "duplicate key value violates unique constraint \"users_username_key\""
+        ));
+        // SQLite: numeric codes and the classic message text.
+        assert!(unique_violation_signal(
+            Some("2067"),
+            "UNIQUE constraint failed: users.username"
+        ));
+        assert!(unique_violation_signal(
+            Some("1555"),
+            "UNIQUE constraint failed: games.id"
+        ));
+        assert!(unique_violation_signal(
+            None,
+            "UNIQUE constraint failed: metadata_providers.name"
+        ));
+        // A foreign-key or NOT NULL failure is not a conflict.
+        assert!(!unique_violation_signal(
+            Some("23503"),
+            "insert or update on table \"games\" violates foreign key constraint"
+        ));
+        assert!(!unique_violation_signal(None, "NOT NULL constraint failed"));
+        assert!(!unique_violation_signal(None, "database is locked"));
+    }
+
+    #[tokio::test]
+    async fn with_tx_commits_and_rolls_back() {
+        let (_temp, database) = test_database().await;
+        database
+            .with_tx(async |tx| {
+                query("INSERT INTO users (username, password_hash, role, activated, created_at, updated_at) VALUES (?, 'x', 'user', 1, 'now', 'now')")
+                    .bind("committed")
+                    .execute(&mut *tx)
+                    .await?;
+                Ok::<_, sqlx::Error>(())
+            })
+            .await
+            .expect("commit");
+        assert!(user_exists(&database, "committed").await);
+
+        let error = database
+            .with_tx(async |tx| {
+                query("INSERT INTO users (username, password_hash, role, activated, created_at, updated_at) VALUES (?, 'x', 'user', 1, 'now', 'now')")
+                    .bind("rolled-back")
+                    .execute(&mut *tx)
+                    .await?;
+                Err::<(), _>(sqlx::Error::Protocol("forced rollback".into()))
+            })
+            .await
+            .expect_err("rollback");
+        assert!(error.to_string().contains("forced rollback"));
+        assert!(!user_exists(&database, "rolled-back").await);
+    }
+
+    async fn user_exists(database: &Database, username: &str) -> bool {
+        query_scalar::<i64>("SELECT COUNT(*) FROM users WHERE username = ?")
+            .bind(username)
+            .fetch_one(database)
+            .await
+            .unwrap_or(0)
+            > 0
+    }
+
+    #[tokio::test]
+    async fn with_tx_surfaces_unique_violations_across_the_backend() {
+        let (_temp, database) = test_database().await;
+        insert_user(&database, "dup").await;
+        let error = database
+            .with_tx(async |tx| {
+                insert_user_in(tx, "dup").await?;
+                Ok::<_, sqlx::Error>(())
+            })
+            .await
+            .expect_err("unique violation");
+        assert!(is_unique_violation(&error), "{error}");
+        let message = error.to_string().to_ascii_lowercase();
+        assert!(message.contains("unique"), "{message}");
+    }
+
+    async fn insert_user(database: &Database, username: &str) {
+        query("INSERT INTO users (username, password_hash, role, activated, created_at, updated_at) VALUES (?, 'x', 'user', 1, 'now', 'now')")
+            .bind(username)
+            .execute(database)
+            .await
+            .expect("insert user");
+    }
+
+    async fn insert_user_in(
+        transaction: &mut DbTransaction<'_>,
+        username: &str,
+    ) -> Result<(), sqlx::Error> {
+        query("INSERT INTO users (username, password_hash, role, activated, created_at, updated_at) VALUES (?, 'x', 'user', 1, 'now', 'now')")
+            .bind(username)
+            .execute(&mut *transaction)
+            .await
+            .map(|_| ())
     }
 }

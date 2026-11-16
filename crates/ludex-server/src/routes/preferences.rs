@@ -304,7 +304,7 @@ async fn write(
                 },
                 // Two first writes raced; the loser retries with the winner's
                 // revision instead of replacing it.
-                Err(error) if is_unique_violation(&error) => {
+                Err(error) if crate::db::is_unique_violation(&error) => {
                     let fresh = load(state, user.id).await?;
                     return Ok(conflict(fresh.as_ref().map_or(1, |stored| stored.revision)));
                 }
@@ -355,12 +355,6 @@ async fn load(state: &AppState, user_id: i64) -> Result<Option<StoredPreferences
         revision: row.get("revision"),
         updated_at: row.get("updated_at"),
     }))
-}
-
-fn is_unique_violation(error: &sqlx::Error) -> bool {
-    error
-        .as_database_error()
-        .is_some_and(|database| database.is_unique_violation())
 }
 
 /// Rejects an oversized body before parsing it. The canonical document is

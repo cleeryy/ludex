@@ -26,6 +26,7 @@ use walkdir::{DirEntry, WalkDir};
 
 use crate::audit::actions;
 use crate::db;
+use crate::db::DbTransaction;
 use crate::events::{Actor, Event};
 use crate::roots::{self, LibraryRoot};
 use crate::state::AppState;
@@ -420,10 +421,26 @@ async fn process_candidate(state: &AppState, candidate: &Candidate) -> Result<Pr
     } else {
         grouping_key(&candidate.parsed)
     };
-    let (game_id, game_created) = ensure_game(state, candidate, &key).await?;
-    let (version_id, version_created) = upsert_version(state, game_id, candidate).await?;
+    let remote_storage = candidate.kind != "rom" && state.storage.is_remote();
+    // The game row and its version row are one unit: a crash between the two
+    // inserts used to leave a game with no versions (which every listing hides)
+    // and a re-scan could not match it. Object-storage publishing runs after
+    // the commit so a slow upload never holds the SQLite write lock.
+    let (game_id, version_id, version_created, game_created, publish) = state
+        .pool
+        .with_tx(async |tx| {
+            let (game_id, game_created) = ensure_game(tx, candidate, &key).await?;
+            let (version_id, version_created, publish) =
+                upsert_version(tx, game_id, candidate, remote_storage).await?;
+            Ok::<_, anyhow::Error>((game_id, version_id, version_created, game_created, publish))
+        })
+        .await?;
+
     if candidate.kind == "rom" {
         apply_gamelist_metadata(state, game_id, candidate).await;
+    }
+    if publish {
+        publish_archive(state, candidate, version_id).await;
     }
     Ok(ProcessOutcome {
         game_id,
@@ -433,12 +450,16 @@ async fn process_candidate(state: &AppState, candidate: &Candidate) -> Result<Pr
     })
 }
 
-async fn ensure_game(state: &AppState, candidate: &Candidate, key: &str) -> Result<(i64, bool)> {
+async fn ensure_game(
+    transaction: &mut DbTransaction<'_>,
+    candidate: &Candidate,
+    key: &str,
+) -> Result<(i64, bool)> {
     let existing = db::query_as::<(i64, Option<String>)>(
         "SELECT id, platform FROM games WHERE group_key = ? ORDER BY id LIMIT 1",
     )
     .bind(key)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *transaction)
     .await
     .context("find grouped game")?;
     if let Some((id, platform)) = existing {
@@ -449,7 +470,7 @@ async fn ensure_game(state: &AppState, candidate: &Candidate, key: &str) -> Resu
                     .bind(platform)
                     .bind(db::db_time(db::now()))
                     .bind(id)
-                    .execute(&state.pool)
+                    .execute(&mut *transaction)
                     .await
                     .context("backfill ROM platform")?;
             }
@@ -507,7 +528,7 @@ async fn ensure_game(state: &AppState, candidate: &Candidate, key: &str) -> Resu
     .bind(candidate.platform.as_deref())
     .bind(&now)
     .bind(&now)
-    .returning_id(&state.pool)
+    .returning_id(&mut *transaction)
     .await
     .context("insert game")?;
 
@@ -655,10 +676,11 @@ async fn copy_gamelist_image(
 }
 
 async fn upsert_version(
-    state: &AppState,
+    transaction: &mut DbTransaction<'_>,
     game_id: i64,
     candidate: &Candidate,
-) -> Result<(i64, bool)> {
+    remote_storage: bool,
+) -> Result<(i64, bool, bool)> {
     let release_date = candidate
         .parsed
         .year
@@ -681,7 +703,7 @@ async fn upsert_version(
     )
     .bind(candidate.root_id)
     .bind(&candidate.relative)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *transaction)
     .await
     .context("find indexed version")?;
 
@@ -719,7 +741,7 @@ async fn upsert_version(
         .bind(&now)
         .bind(&now)
         .bind(id)
-        .execute(&state.pool)
+        .execute(&mut *transaction)
         .await
         .context("update game version")?;
         if replaced {
@@ -728,20 +750,15 @@ async fn upsert_version(
             // re-hash the replacement instead of advertising a stale digest.
             db::query("UPDATE game_versions SET content_sha256 = NULL WHERE id = ?")
                 .bind(id)
-                .execute(&state.pool)
+                .execute(&mut *transaction)
                 .await
                 .context("reset the stale archive hash")?;
         }
         // New archives, replaced archives and rows indexed before S3 was
         // enabled are published once. The local file stays in place as the
         // fallback, so a failed upload never makes a game undownloadable.
-        if candidate.kind != "rom"
-            && state.storage.is_remote()
-            && (replaced || backend != "s3" || object_key.is_none())
-        {
-            publish_archive(state, candidate, id).await;
-        }
-        Ok((id, false))
+        let publish = remote_storage && (replaced || backend != "s3" || object_key.is_none());
+        Ok((id, false, publish))
     } else {
         // Index the row first so the version is downloadable immediately; the
         // fingerprint is filled in right after (it reads up to 2 MiB).
@@ -764,7 +781,7 @@ async fn upsert_version(
         .bind(&now)
         .bind(candidate.modified)
         .bind(&now)
-        .returning_id(&state.pool)
+        .returning_id(&mut *transaction)
         .await
         .context("insert game version")?;
 
@@ -777,14 +794,11 @@ async fn upsert_version(
             .bind(db::db_time(db::now()))
             .bind(candidate.root_id)
             .bind(&candidate.relative)
-            .execute(&state.pool)
+            .execute(&mut *transaction)
             .await
             .context("store the archive fingerprint")?;
         }
-        if candidate.kind != "rom" && state.storage.is_remote() {
-            publish_archive(state, candidate, version_id).await;
-        }
-        Ok((version_id, true))
+        Ok((version_id, true, remote_storage))
     }
 }
 

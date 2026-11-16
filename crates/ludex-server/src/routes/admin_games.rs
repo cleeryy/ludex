@@ -850,28 +850,33 @@ async fn delete_missing_versions(state: &AppState, game_id: i64) -> Result<i64, 
     if exists == 0 {
         return Err(ApiError::not_found("game_not_found", "Game not found"));
     }
-    let deleted = db::query(
-        "DELETE FROM game_versions WHERE game_id = ? AND (missing = 1 OR root_unavailable = 1)",
-    )
-    .bind(game_id)
-    .execute(&state.pool)
-    .await
-    .map_err(ApiError::from)?
-    .rows_affected() as i64;
-    if deleted > 0 {
-        db::query(
-            "UPDATE games SET default_version_id = NULL, updated_at = ?
-             WHERE id = ? AND default_version_id IS NOT NULL
-             AND default_version_id NOT IN (SELECT id FROM game_versions WHERE game_id = ?)",
-        )
-        .bind(db::db_time(db::now()))
-        .bind(game_id)
-        .bind(game_id)
-        .execute(&state.pool)
+    // The delete and the default-version repair must land together: a crash
+    // between them leaves `default_version_id` pointing at a removed row.
+    state
+        .pool
+        .with_tx(async |tx| {
+            let deleted = db::query(
+                "DELETE FROM game_versions WHERE game_id = ? AND (missing = 1 OR root_unavailable = 1)",
+            )
+            .bind(game_id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected() as i64;
+            if deleted > 0 {
+                db::query(
+                    "UPDATE games SET default_version_id = NULL, updated_at = ?
+                     WHERE id = ? AND default_version_id IS NOT NULL
+                     AND default_version_id NOT IN (SELECT id FROM game_versions WHERE game_id = ?)",
+                )
+                .bind(db::db_time(db::now()))
+                .bind(game_id)
+                .bind(game_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+            Ok::<i64, ApiError>(deleted)
+        })
         .await
-        .map_err(ApiError::from)?;
-    }
-    Ok(deleted)
 }
 
 fn start_bulk_job(state: &AppState, user: &AuthUser, action: &str, ids: Vec<i64>) -> BulkJobView {

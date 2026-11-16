@@ -1090,29 +1090,28 @@ async fn delete_archive_file(state: &AppState, version: &VersionRow) -> Result<b
 /// and notifications (their `game_id` becomes null), audit logs, health
 /// findings, uploads and provider fetches (historical reports).
 pub(crate) async fn delete_game_rows(state: &AppState, game_id: i64) -> Result<(), ApiError> {
-    let mut transaction = state.pool.begin().await.map_err(ApiError::from)?;
-    for sql in [
-        "DELETE FROM game_versions WHERE game_id = ?",
-        "DELETE FROM achievements WHERE game_id = ?",
-        "DELETE FROM achievement_sources WHERE game_id = ?",
-        "DELETE FROM achievement_scans WHERE game_id = ?",
-        "DELETE FROM collection_games WHERE game_id = ?",
-        "DELETE FROM progress WHERE game_id = ?",
-        "DELETE FROM bookmarks WHERE game_id = ?",
-        "DELETE FROM play_sessions WHERE game_id = ?",
-        "DELETE FROM save_snapshots WHERE game_id = ?",
-        "DELETE FROM share_links WHERE game_id = ?",
-        "DELETE FROM remote_installs WHERE game_id = ?",
-        "DELETE FROM games WHERE id = ?",
-    ] {
-        db::query(sql)
-            .bind(game_id)
-            .execute(&mut transaction)
-            .await
-            .map_err(ApiError::from)?;
-    }
-    transaction.commit().await.map_err(ApiError::from)?;
-    Ok(())
+    state
+        .pool
+        .with_tx(async |tx| {
+            for sql in [
+                "DELETE FROM game_versions WHERE game_id = ?",
+                "DELETE FROM achievements WHERE game_id = ?",
+                "DELETE FROM achievement_sources WHERE game_id = ?",
+                "DELETE FROM achievement_scans WHERE game_id = ?",
+                "DELETE FROM collection_games WHERE game_id = ?",
+                "DELETE FROM progress WHERE game_id = ?",
+                "DELETE FROM bookmarks WHERE game_id = ?",
+                "DELETE FROM play_sessions WHERE game_id = ?",
+                "DELETE FROM save_snapshots WHERE game_id = ?",
+                "DELETE FROM share_links WHERE game_id = ?",
+                "DELETE FROM remote_installs WHERE game_id = ?",
+                "DELETE FROM games WHERE id = ?",
+            ] {
+                db::query(sql).bind(game_id).execute(&mut *tx).await?;
+            }
+            Ok::<(), ApiError>(())
+        })
+        .await
 }
 
 /// Transport hints for a version, derived from its file name only (#226).
@@ -2731,40 +2730,86 @@ async fn report_playtime(
     user.require_scope(Scope::Write)?;
     ensure_game(&state, game_id).await?;
     let minutes = request.minutes.clamp(1, 1440);
+    let message_id = request
+        .message_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    if message_id.is_some_and(|id| id.len() > 128) {
+        return Err(ApiError::bad_request(
+            "invalid_message_id",
+            "`messageId` must be at most 128 characters",
+        ));
+    }
     let existed = progress_exists(&state, user.id, game_id).await?;
     let ended_at = db::now();
     let started_at = ended_at - Duration::minutes(minutes);
     let ended_text = db::db_time(ended_at);
     let started_text = db::db_time(started_at);
 
-    let mut transaction = state.pool.begin().await.map_err(ApiError::from)?;
-    db::query(
-        "INSERT INTO progress (user_id, game_id, state, minutes_played, last_played_at)
-         VALUES (?, ?, 'unplayed', ?, ?)
-         ON CONFLICT(user_id, game_id) DO UPDATE SET
-            minutes_played = progress.minutes_played + excluded.minutes_played,
-            last_played_at = excluded.last_played_at",
-    )
-    .bind(user.id)
-    .bind(game_id)
-    .bind(minutes)
-    .bind(&ended_text)
-    .execute(&mut transaction)
-    .await
-    .map_err(ApiError::from)?;
-    db::query(
-        "INSERT INTO play_sessions (user_id, game_id, minutes, started_at, ended_at)
-         VALUES (?, ?, ?, ?, ?)",
-    )
-    .bind(user.id)
-    .bind(game_id)
-    .bind(minutes)
-    .bind(&started_text)
-    .bind(&ended_text)
-    .execute(&mut transaction)
-    .await
-    .map_err(ApiError::from)?;
-    transaction.commit().await.map_err(ApiError::from)?;
+    // One unit: the receipt (when the client sent a message id), the progress
+    // increment and the play-session row. A crash or error anywhere rolls all
+    // three back, so the outbox retry can safely send the same message again.
+    let applied = state
+        .pool
+        .with_tx(async |tx| {
+            if let Some(message_id) = message_id {
+                // Receipts only need to outlive the desktop's retry window; the
+                // outbox stops retrying long before this.
+                let cutoff = db::db_time(db::now() - Duration::days(90));
+                db::query("DELETE FROM playtime_messages WHERE received_at < ?")
+                    .bind(&cutoff)
+                    .execute(&mut *tx)
+                    .await?;
+                let inserted = db::query(
+                    "INSERT INTO playtime_messages (user_id, message_id, game_id, minutes, received_at)
+                     VALUES (?, ?, ?, ?, ?)
+                     ON CONFLICT(user_id, message_id) DO NOTHING",
+                )
+                .bind(user.id)
+                .bind(message_id)
+                .bind(game_id)
+                .bind(minutes)
+                .bind(&ended_text)
+                .execute(&mut *tx)
+                .await?;
+                if inserted.rows_affected() == 0 {
+                    // Replay: this message was already applied. Report the
+                    // current totals without touching them.
+                    return Ok::<bool, ApiError>(false);
+                }
+            }
+            db::query(
+                "INSERT INTO progress (user_id, game_id, state, minutes_played, last_played_at)
+                 VALUES (?, ?, 'unplayed', ?, ?)
+                 ON CONFLICT(user_id, game_id) DO UPDATE SET
+                    minutes_played = progress.minutes_played + excluded.minutes_played,
+                    last_played_at = excluded.last_played_at",
+            )
+            .bind(user.id)
+            .bind(game_id)
+            .bind(minutes)
+            .bind(&ended_text)
+            .execute(&mut *tx)
+            .await?;
+            db::query(
+                "INSERT INTO play_sessions (user_id, game_id, minutes, started_at, ended_at)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(user.id)
+            .bind(game_id)
+            .bind(minutes)
+            .bind(&started_text)
+            .bind(&ended_text)
+            .execute(&mut *tx)
+            .await?;
+            Ok(true)
+        })
+        .await?;
+
+    if !applied {
+        return Ok(Json(fetch_progress(&state, user.id, game_id).await?));
+    }
 
     if !existed {
         crate::community::record(

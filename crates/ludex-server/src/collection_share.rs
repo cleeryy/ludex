@@ -394,22 +394,26 @@ pub fn verify_access(share: Option<&CollectionShareRow>, password: Option<&str>)
 /// Counts one successful public view.
 pub async fn record_view(pool: &Database, id: i64) -> Result<i64, ApiError> {
     let now = db::db_time(db::now());
-    db::query(
-        "UPDATE collection_shares
-            SET view_count = view_count + 1, last_viewed_at = ?
-          WHERE id = ? AND revoked_at IS NULL",
-    )
-    .bind(&now)
-    .bind(id)
-    .execute(pool)
-    .await
-    .map_err(ApiError::from)?;
-    let count = db::query_scalar::<i64>("SELECT view_count FROM collection_shares WHERE id = ?")
+    // Increment and read back in one transaction so a concurrent view can never
+    // make the reported count skip or regress.
+    pool.with_tx(async |tx| {
+        db::query(
+            "UPDATE collection_shares
+                SET view_count = view_count + 1, last_viewed_at = ?
+              WHERE id = ? AND revoked_at IS NULL",
+        )
+        .bind(&now)
         .bind(id)
-        .fetch_one(pool)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(count)
+        .execute(&mut *tx)
+        .await?;
+        let count =
+            db::query_scalar::<i64>("SELECT view_count FROM collection_shares WHERE id = ?")
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+        Ok::<i64, ApiError>(count)
+    })
+    .await
 }
 
 /// Row of the public game query.

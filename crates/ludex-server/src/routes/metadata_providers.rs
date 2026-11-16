@@ -434,8 +434,10 @@ async fn ensure_name_available(
 }
 
 fn map_unique_error(error: sqlx::Error) -> ApiError {
-    let message = error.to_string();
-    if message.contains("UNIQUE constraint failed") {
+    // Never sniff the message: SQLite says "UNIQUE constraint failed" while
+    // PostgreSQL reports SQLSTATE 23505, so a text match turns a duplicate
+    // provider name into a 500 on PostgreSQL.
+    if crate::db::is_unique_violation(&error) {
         ApiError::bad_request("provider_name_taken", "Provider name already exists")
     } else {
         ApiError::from(error)
@@ -468,4 +470,40 @@ async fn reload(state: &AppState) {
     )
     .await;
     *state.providers.write().await = configs;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression for a PostgreSQL-only 500: the mapper used to match
+    /// `"UNIQUE constraint failed"`, which SQLite prints and PostgreSQL never
+    /// does. It must classify the error, not its wording.
+    #[tokio::test]
+    async fn a_duplicate_name_maps_to_400_on_the_database_error() {
+        let database = crate::db::connect_for_tests("sqlite::memory:")
+            .await
+            .expect("database");
+        db::query(
+            "INSERT INTO metadata_providers
+                (name, base_url, priority, enabled, mapping_json, created_at, updated_at)
+             VALUES ('igdb', 'https://api.igdb.com', 1, 0, '{}', 'now', 'now')",
+        )
+        .execute(&database)
+        .await
+        .expect("seed provider");
+        let error = db::query(
+            "INSERT INTO metadata_providers
+                (name, base_url, priority, enabled, mapping_json, created_at, updated_at)
+             VALUES ('igdb', 'https://api.igdb.com', 2, 0, '{}', 'now', 'now')",
+        )
+        .execute(&database)
+        .await
+        .expect_err("duplicate name");
+
+        let mapped = map_unique_error(error);
+        assert_eq!(mapped.status, StatusCode::BAD_REQUEST);
+        assert_eq!(mapped.code, "provider_name_taken");
+        database.close().await;
+    }
 }

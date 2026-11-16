@@ -703,10 +703,19 @@ fallback). Results are ranked by relevance and carry `matchedField`,
 | Method | Route | Body | Response |
 |---|---|---|---|
 | PUT | `/api/games/{id}/progress` | `{ state }` | `{ state, minutesPlayed, lastPlayedAt }` |
-| POST | `/api/games/{id}/playtime` | `{ minutes }` | updated progress |
+| POST | `/api/games/{id}/playtime` | `{ minutes, messageId? }` | updated progress |
 | PUT | `/api/games/{id}/bookmark` | `{ bookmarked }` | `{ bookmarked }` |
 | POST | `/api/games/{id}/installed` | desktop install report → `{ recorded }` |
 | GET | `/api/stats` | — | `{ games, versions, totalBytes, users, byState: Record<ProgressState, number> }` |
+
+`minutes` is clamped to `1..=1440`. `messageId` is the desktop outbox message
+id (the local session id, at most 128 characters): the server records accepted
+ids per user in `playtime_messages` and replays return the current progress
+without adding the minutes again. The receipt, the `progress` increment and the
+`play_sessions` row commit in one transaction, so a crash anywhere leaves
+nothing half-applied and the desktop can retry the same message safely.
+Requests without `messageId` (older clients, scripts) keep the additive
+behaviour. `400 invalid_message_id` when the id is longer than 128 characters.
 
 
 ### Missing archives and the read side (#210)
@@ -3185,7 +3194,18 @@ without rehashing the archive. Schema v20 adds the file-manifest checkpoint
 staging folder, total bytes, file count) and `install_job_files` (one row per
 committed file: relative path, size, SHA-256, completed_at). The rows describe
 files written into the staging folder; a different `archive_sha256` invalidates
-the whole checkpoint and the install restarts from zero. The scheduler admits
+the whole checkpoint and the install restarts from zero. Schema v21 adds the
+automatic-resume circuit breaker (`resume_markers`, `resume_failures`, #234) and
+v22 adds `install_manifests.trusted_archive_sha256` (#240). Schema v23 turns
+`sessions` into the playtime outbox: `sync_attempts`, `sync_next_at` and
+`sync_error` track failed deliveries so the desktop retries a finished session
+with bounded backoff (5 attempts, 30 s → 8 min) instead of dropping it or
+hammering a dead server; `synced = 0` rows are the queue and the message id sent
+to `/api/games/{id}/playtime` is the session id. Every migration runs in one
+transaction and a snapshot (`<name>-backup-<UTC stamp>-v<NNNN>.db`, last 3 kept)
+is written with `VACUUM INTO` before the first statement; a database whose
+`user_version` is newer than the build is refused instead of opened. The
+scheduler admits
 the lowest position into a **download** slot (1, or 2 with
 `downloadConcurrency`) and a single **extract/commit** slot (#221); the phase
 strings persisted in `install_jobs` are the `as_str()` values, so

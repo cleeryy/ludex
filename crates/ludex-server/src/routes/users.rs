@@ -95,7 +95,7 @@ async fn create(
     .returning_id(&state.pool)
     .await
     .map_err(|error| {
-        if super::system::is_unique_violation(&error) {
+        if crate::db::is_unique_violation(&error) {
             ApiError::conflict("username_taken", "Username is already taken")
         } else {
             ApiError::from(error)
@@ -245,7 +245,7 @@ async fn update(
         .execute(&state.pool)
         .await
         .map_err(|error| {
-            if super::system::is_unique_violation(&error) {
+            if crate::db::is_unique_violation(&error) {
                 ApiError::conflict("username_taken", "Username is already taken")
             } else {
                 ApiError::from(error)
