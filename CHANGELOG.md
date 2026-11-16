@@ -6,6 +6,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Extracted-cache operations UI (#231): an admin cache screen shows on/off,
+  budget vs used, entries with size/files/last use and per-entry eviction
+  (optimistic, rolled back when a download holds the entry), plus a
+  "Prepare file transport" action on a game version that starts the server
+  extraction and follows its progress to ready/failed.
+
 ## [0.4.19] - 2026-11-16
 
 ### Changed
