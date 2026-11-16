@@ -42,6 +42,12 @@ pub mod actions {
     /// A VirusTotal hash lookup completed for a game version (#224). The
     /// metadata carries the hash, verdict, mode and source, never the API key.
     pub const GAME_SCANNED: &str = "game.scanned";
+    /// The periodic VirusTotal re-check policy changed (#239). Metadata carries
+    /// the enabled flag, interval and malicious opt-in, never the API key.
+    pub const VIRUSTOTAL_RESCAN_POLICY: &str = "virustotal.rescan_policy";
+    /// One periodic VirusTotal re-check pass finished (#239). Metadata carries
+    /// the refreshed/remaining counts and the failure category, never the key.
+    pub const VIRUSTOTAL_RESCAN_RUN: &str = "virustotal.rescan_run";
     /// An archive was extracted into the server-side cache (#231). Metadata
     /// carries the version id, archive digest, file count, bytes and duration.
     pub const VERSION_EXTRACTED: &str = "version.extracted";

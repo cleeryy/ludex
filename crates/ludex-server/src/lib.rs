@@ -79,6 +79,7 @@ pub mod stream;
 pub mod totp;
 pub mod uploads;
 pub mod virustotal;
+pub mod virustotal_rescan;
 pub mod watcher;
 pub mod web;
 pub mod webhooks;
@@ -387,6 +388,12 @@ async fn prepare(config: Config) -> Result<Prepared> {
     ));
     tokio::spawn(uploads::cleanup_worker(state.clone()));
     tokio::spawn(extracted_cache::scheduled_worker(
+        state.clone(),
+        cancel_rx.clone(),
+    ));
+    // Optional periodic VirusTotal re-check (#239): off unless an
+    // administrator enabled it, one pass at a time.
+    tokio::spawn(virustotal_rescan::scheduled_worker(
         state.clone(),
         cancel_rx.clone(),
     ));

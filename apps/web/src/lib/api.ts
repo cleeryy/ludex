@@ -112,6 +112,8 @@ import type {
   VirusTotalKeyInput,
   VirusTotalScanRequest,
   VirusTotalScanResponse,
+  VirusTotalRescanInput,
+  VirusTotalRescanStatus,
   VirusTotalTestResult,
   VirusTotalUploadRequest,
 } from "@/lib/types";
@@ -438,6 +440,27 @@ export const api = {
    * Checks the key. `apiKey` is only sent for an unsaved key: the form tests
    * what is typed before replacing a working key.
    */
+  adminVirusTotalRescan(): Promise<VirusTotalRescanStatus> {
+    return USING_MOCKS
+      ? mockApi.adminVirusTotalRescan(tokenStore.get())
+      : request<VirusTotalRescanStatus>("/admin/integrations/virustotal/rescan");
+  },
+  saveVirusTotalRescan(body: VirusTotalRescanInput): Promise<VirusTotalRescanStatus> {
+    return USING_MOCKS
+      ? mockApi.saveVirusTotalRescan(tokenStore.get(), body)
+      : request<VirusTotalRescanStatus>("/admin/integrations/virustotal/rescan", {
+          method: "PUT",
+          body,
+        });
+  },
+  /** Runs one pass now on the server; never uploads and honours the quota. */
+  runVirusTotalRescan(): Promise<VirusTotalRescanStatus> {
+    return USING_MOCKS
+      ? mockApi.runVirusTotalRescan(tokenStore.get())
+      : request<VirusTotalRescanStatus>("/admin/integrations/virustotal/rescan/run", {
+          method: "POST",
+        });
+  },
   testVirusTotalKey(apiKey?: string): Promise<VirusTotalTestResult> {
     const body = apiKey?.trim() ? { apiKey: apiKey.trim() } : undefined;
     return USING_MOCKS

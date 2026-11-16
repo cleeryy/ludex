@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ExternalLink, KeyRound, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
+import { AlertTriangle, CalendarClock, ExternalLink, KeyRound, Play, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { api, USING_MOCKS } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { formatDate, formatRelative } from "@/lib/format";
@@ -11,10 +11,13 @@ import {
   classifyIntegrationError,
   integrationErrorLabel,
   quotaUsedPercent,
+  rescanIntervalOptions,
+  rescanSpanDays,
+  rescanSpansMultipleDays,
 } from "@/lib/virustotal";
 import { useToast } from "@/state/toasts";
 import { ErrorState, PageHeader, SectionHeader } from "@/components/page";
-import { Badge, Button, Field, Input, Progress, Skeleton } from "@/components/ui/controls";
+import { Badge, Button, Checkbox, Field, Input, Progress, Skeleton, Switch } from "@/components/ui/controls";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
@@ -263,6 +266,8 @@ function VirusTotalCardBody({
         </div>
       </section>
 
+      <VirusTotalRescanSection configured={configured} />
+
       <section>
         <SectionHeader title={t("Last error")} />
         {data.lastError ? (
@@ -347,8 +352,226 @@ function VirusTotalCardBody({
   );
 }
 
-/** Demo switch for the mock build: every badge state is one click away. */
-export function VirusTotalDemoSwitch() {
+/**
+ * Periodic re-check policy (#239).
+ *
+ * The worker runs on the server, not in this tab: the card only writes the
+ * persisted policy and reports what the server did. Every number shown here
+ * comes from the server, including `due` and the outstanding count, so a
+ * closed browser (or a different admin machine) sees the same state.
+ */
+function VirusTotalRescanSection({ configured }: { configured: boolean }) {
+  const { push } = useToast();
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState<{
+    enabled: boolean;
+    intervalHours: number;
+    includeMalicious: boolean;
+  } | null>(null);
+
+  const { data, isPending, isError, error, refetch } = useQuery({
+    queryKey: ["admin-virustotal-rescan"],
+    queryFn: () => api.adminVirusTotalRescan(),
+  });
+
+  const save = useMutation({
+    mutationFn: (body: { enabled: boolean; intervalHours: number; includeMalicious: boolean }) =>
+      api.saveVirusTotalRescan(body),
+    onSuccess: (status) => {
+      setDraft(null);
+      queryClient.setQueryData(["admin-virustotal-rescan"], status);
+      void queryClient.invalidateQueries({ queryKey: ["admin-virustotal"] });
+      push({
+        title: status.enabled ? t("Periodic re-check enabled") : t("Periodic re-check disabled"),
+        description: status.nextRunAt
+          ? t("Next run {when}.", { when: formatRelative(status.nextRunAt) })
+          : t("Nothing will run automatically. A manual pass stays available."),
+      });
+    },
+    onError: (cause: Error) =>
+      push({ title: t("Could not save the re-check policy"), description: errorMessage(cause), tone: "danger" }),
+  });
+
+  const run = useMutation({
+    mutationFn: () => api.runVirusTotalRescan(),
+    onSuccess: (status) => {
+      queryClient.setQueryData(["admin-virustotal-rescan"], status);
+      void queryClient.invalidateQueries({ queryKey: ["admin-virustotal"] });
+      push({
+        title: t("Re-check pass finished"),
+        description: t("{scanned} archive(s) refreshed, {remaining} still outstanding.", {
+          scanned: status.scannedLastRun,
+          remaining: status.remaining,
+        }),
+        tone: status.lastError ? "danger" : "success",
+      });
+    },
+    onError: (cause: Error) =>
+      push({ title: t("Could not run a re-check pass"), description: errorMessage(cause), tone: "danger" }),
+  });
+
+  if (isError) return <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} />;
+  if (isPending || !data) return <Skeleton className="h-40 w-full max-w-[620px]" />;
+
+  const value = draft ?? {
+    enabled: data.enabled,
+    intervalHours: data.intervalHours,
+    includeMalicious: data.includeMalicious,
+  };
+  const update = (patch: Partial<typeof value>) => setDraft({ ...value, ...patch });
+  const days = rescanSpanDays(data.remaining);
+  const multiDay = rescanSpansMultipleDays(data.remaining);
+  const rescanError = classifyIntegrationError(data.lastError);
+  const dirty =
+    value.enabled !== data.enabled ||
+    value.intervalHours !== data.intervalHours ||
+    value.includeMalicious !== data.includeMalicious;
+
+  return (
+    <section>
+      <SectionHeader
+        title={t("Periodic re-check")}
+        description={t(
+          "The server can re-check every archive on its own, even with no page open. It only looks hashes up: nothing is uploaded, extracted or executed.",
+        )}
+      />
+      <div className="mt-4 flex max-w-[620px] flex-col gap-4">
+        <div className="flex items-start gap-3">
+          <Switch
+            checked={value.enabled}
+            onCheckedChange={(checked) => update({ enabled: checked })}
+            label={t("Re-check all archives periodically")}
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-[12.5px] text-ink">{t("Re-check all archives periodically")}</span>
+            <span className="text-[11.5px] leading-relaxed text-ink-3">
+              {t("Off by default. The pass runs on the server, survives a restart and stops when you disable it.")}
+            </span>
+          </span>
+        </div>
+
+        <div className="grid max-w-[420px] gap-3 sm:grid-cols-2">
+          <Field
+            label={t("Interval")}
+            hint={t("How old a report must be before it is checked again.")}
+            htmlFor="virustotal-rescan-interval"
+          >
+            <Select
+              id="virustotal-rescan-interval"
+              label={t("Interval")}
+              value={value.intervalHours}
+              onChange={(hours) => update({ intervalHours: hours })}
+              options={rescanIntervalOptions()}
+              className="h-9 text-[12.5px]"
+            />
+          </Field>
+          <div className="flex flex-col justify-end gap-2 pb-1">
+            <div className="flex items-center gap-2.5">
+              <Checkbox
+                checked={value.includeMalicious}
+                onCheckedChange={(checked) => update({ includeMalicious: checked })}
+                label={t("Also re-check malicious verdicts")}
+              />
+              <span className="text-[12.5px] text-ink">{t("Also re-check malicious verdicts")}</span>
+            </div>
+            <p className="text-[11.5px] leading-relaxed text-ink-3">
+              {t("A malicious report is kept for 100 days on purpose: re-checking it spends quota for a verdict that rarely changes.")}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="primary"
+            loading={save.isPending}
+            disabled={!dirty}
+            icon={<CalendarClock className="size-4" />}
+            onClick={() =>
+              save.mutate({
+                enabled: value.enabled,
+                intervalHours: value.intervalHours,
+                includeMalicious: value.includeMalicious,
+              })
+            }
+          >
+            {t("Save schedule")}
+          </Button>
+          <Button
+            variant="default"
+            loading={run.isPending}
+            disabled={!data.enabled || !configured}
+            icon={<Play className="size-4" />}
+            onClick={() => run.mutate()}
+          >
+            {t("Run now")}
+          </Button>
+        </div>
+
+        <dl className="flex max-w-[520px] flex-col gap-1.5 border-t border-line pt-3 text-[12px]">
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-ink-3">{t("Last run")}</dt>
+            <dd className="text-ink-2">{data.lastRunAt ? formatRelative(data.lastRunAt) : t("Never")}</dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-ink-3">{t("Next run")}</dt>
+            <dd className="text-ink-2">
+              {data.nextRunAt
+                ? `${formatRelative(data.nextRunAt)} · ${formatDate(data.nextRunAt)}`
+                : data.enabled
+                  ? t("Manual only")
+                  : t("Disabled")}
+            </dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-ink-3">{t("Refreshed on the last run")}</dt>
+            <dd className="num text-ink-2">{data.scannedLastRun}</dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-ink-3">{t("Outstanding archives")}</dt>
+            <dd className="num text-ink-2">{data.remaining}</dd>
+          </div>
+        </dl>
+
+        <p className="max-w-[620px] border-l-2 border-line-2 pl-3 text-[11.5px] leading-relaxed text-ink-3">
+          {t(
+            "VirusTotal accepts {rate} requests per minute and {daily} per day. A pass paces itself one request per slot and never uploads a file, so a library larger than {daily} archives is drained over several days instead of failing.",
+            { rate: VIRUSTOTAL_RATE_PER_MINUTE, daily: VIRUSTOTAL_DAILY_LIMIT },
+          )}
+        </p>
+        {multiDay && (
+          <p className="flex items-start gap-2 border-l-2 border-signal pl-3 text-[11.5px] leading-relaxed text-signal-text">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <span>
+              {t(
+                "{remaining} archives are outstanding: at {daily} requests per day this pass spans about {days} days.",
+                { remaining: data.remaining, daily: VIRUSTOTAL_DAILY_LIMIT, days },
+              )}
+            </span>
+          </p>
+        )}
+
+        {data.lastError ? (
+          <div className="flex max-w-[620px] flex-col gap-1.5 border-l-2 border-danger pl-3">
+            <p className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink">
+              <Badge tone="danger">{integrationErrorLabel(rescanError) ?? t("Error")}</Badge>
+              <span className="font-mono text-[11px] leading-relaxed text-ink-2">{data.lastError}</span>
+            </p>
+            <p className="text-[11.5px] leading-relaxed text-ink-3">
+              {t("The schedule keeps running: the next pass retries the outstanding archives once the cause is fixed.")}
+            </p>
+          </div>
+        ) : (
+          <p className="flex items-center gap-2 text-[12.5px] text-ink-3">
+            <ShieldCheck className="size-4 text-ok" aria-hidden="true" />
+            {data.enabled ? t("No failure recorded on the last pass.") : t("No pass has run yet.")}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** Demo switch for the mock build: every badge state is one click away. */export function VirusTotalDemoSwitch() {
   const [scenario, setScenario] = useState("mixed");
   useEffect(() => {
     try {

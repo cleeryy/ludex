@@ -11,6 +11,10 @@ import {
   isClean,
   isUnscanned,
   quotaUsedPercent,
+  rescanIntervalLabel,
+  rescanIntervalOptions,
+  rescanSpanDays,
+  rescanSpansMultipleDays,
   scanQueueEtaLabel,
   scanQueueSchedule,
   summaryFor,
@@ -240,5 +244,26 @@ describe("integration errors", () => {
     expect(quotaUsedPercent({ dailyLimit: 500, usedToday: 137, remaining: 363, resetAt: "" })).toBeCloseTo(27.4, 1);
     expect(quotaUsedPercent({ dailyLimit: 500, usedToday: 900, remaining: 0, resetAt: "" })).toBe(100);
     expect(quotaUsedPercent(null)).toBe(0);
+  });
+});
+
+describe("periodic re-check policy (#239)", () => {
+  it("labels every offered interval and nothing else", () => {
+    expect(rescanIntervalLabel(0)).toBe("Manual only");
+    expect(rescanIntervalLabel(24)).toBe("Daily");
+    expect(rescanIntervalLabel(168)).toBe("Weekly");
+    expect(rescanIntervalLabel(720)).toBe("Monthly");
+    expect(rescanIntervalLabel(48)).toBe("Custom");
+    expect(rescanIntervalOptions().map((option) => option.value)).toEqual([0, 24, 168, 720]);
+  });
+
+  it("says how many days a library needs at 500 requests per day", () => {
+    expect(rescanSpanDays(0)).toBe(0);
+    expect(rescanSpanDays(500)).toBe(1);
+    expect(rescanSpanDays(501)).toBe(2);
+    expect(rescanSpanDays(1_200)).toBe(3);
+    expect(rescanSpansMultipleDays(500)).toBe(false);
+    expect(rescanSpansMultipleDays(501)).toBe(true);
+    expect(rescanSpanDays(120, 0)).toBe(0);
   });
 });

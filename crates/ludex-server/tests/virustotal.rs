@@ -46,6 +46,9 @@ struct MockState {
     uploads: AtomicUsize,
     validations: AtomicUsize,
     reject_key: Mutex<bool>,
+    /// Hash of every lookup, in call order: proves selection order and
+    /// per-hash deduplication (#239).
+    order: Mutex<Vec<String>>,
 }
 
 impl MockState {
@@ -70,6 +73,10 @@ async fn file_lookup(
     AxumPath(sha256): AxumPath<String>,
 ) -> Response {
     mock.lookups.fetch_add(1, Ordering::SeqCst);
+    mock.order
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(sha256.clone());
     let behaviour = *mock
         .behaviour
         .lock()
@@ -248,6 +255,35 @@ impl Fixture {
                 "/api/admin/integrations/virustotal",
                 &self.token,
                 json!({ "apiKey": key }),
+            )
+            .await
+    }
+
+    async fn rescan(&self) -> (StatusCode, Value) {
+        self.server
+            .get(
+                "/api/admin/integrations/virustotal/rescan",
+                Some(&self.token),
+            )
+            .await
+    }
+
+    async fn save_rescan(&self, body: Value) -> (StatusCode, Value) {
+        self.server
+            .put(
+                "/api/admin/integrations/virustotal/rescan",
+                &self.token,
+                body,
+            )
+            .await
+    }
+
+    async fn run_rescan(&self) -> (StatusCode, Value) {
+        self.server
+            .post(
+                "/api/admin/integrations/virustotal/rescan/run",
+                Some(&self.token),
+                None,
             )
             .await
     }
@@ -783,4 +819,479 @@ async fn hash_and_binaries_hashes_beside_the_archive_only() {
         .collect();
     assert!(shas.iter().all(|sha| sha.len() == 64));
     assert_ne!(shas[0], shas[1], "the installer has its own hash");
+}
+
+/* ------------------- periodic re-check (#239) ---------------------------- */
+
+/// Inserts or updates one cache row, so a test can age a report without
+/// waiting for a TTL.
+async fn cache_report(
+    server: &TestServer,
+    sha256: &str,
+    verdict: &str,
+    checked_at: &str,
+    ttl_seconds: i64,
+) {
+    let pool = database(server).await;
+    db::query(
+        "INSERT INTO virustotal_cache
+            (sha256, verdict, stats_json, engine_hits_json, checked_at, ttl_seconds)
+         VALUES (?, ?, '{}', '[]', ?, ?)
+         ON CONFLICT (sha256) DO UPDATE SET
+            verdict = excluded.verdict,
+            checked_at = excluded.checked_at,
+            ttl_seconds = excluded.ttl_seconds",
+    )
+    .bind(sha256)
+    .bind(verdict)
+    .bind(checked_at)
+    .bind(ttl_seconds)
+    .execute(&pool)
+    .await
+    .expect("cache row");
+    pool.close().await;
+}
+
+async fn set_next_run(server: &TestServer, value: &str) {
+    let pool = database(server).await;
+    db::query("UPDATE virustotal_rescan SET next_run_at = ? WHERE id = 1")
+        .bind(value)
+        .execute(&pool)
+        .await
+        .expect("next run");
+    pool.close().await;
+}
+
+async fn audit_rows(server: &TestServer, action: &str) -> Vec<Value> {
+    let pool = database(server).await;
+    let rows = db::query_as::<(String, String)>(
+        "SELECT action, metadata FROM audit_logs WHERE action = ? ORDER BY id",
+    )
+    .bind(action)
+    .fetch_all(&pool)
+    .await
+    .expect("audit rows")
+    .into_iter()
+    .map(|(action, metadata)| {
+        json!({
+            "action": action,
+            "metadata": serde_json::from_str::<Value>(&metadata).unwrap_or(Value::Null),
+        })
+    })
+    .collect();
+    pool.close().await;
+    rows
+}
+
+async fn wait_for_audit(server: &TestServer, action: &str) -> Vec<Value> {
+    for _ in 0..80 {
+        let rows = audit_rows(server, action).await;
+        if !rows.is_empty() {
+            return rows;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("no {action} audit row");
+}
+
+fn hours_ago(hours: i64) -> String {
+    db::db_time(db::now() - chrono::Duration::hours(hours))
+}
+
+#[tokio::test]
+async fn rescan_policy_defaults_validation_and_audit() {
+    let fixture = Fixture::start().await;
+
+    let (status, body) = fixture.rescan().await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["enabled"], false, "off by default: {body}");
+    assert_eq!(body["intervalHours"], 168, "{body}");
+    assert_eq!(body["includeMalicious"], false, "{body}");
+    assert_eq!(body["nextRunAt"], Value::Null, "{body}");
+    assert_eq!(body["lastRunAt"], Value::Null, "{body}");
+    assert_eq!(body["remaining"], 0, "{body}");
+    assert_eq!(body["due"], false, "{body}");
+
+    for interval in [json!(12), json!(-24), json!(365)] {
+        let (status, body) = fixture
+            .save_rescan(json!({ "enabled": true, "intervalHours": interval }))
+            .await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "interval {interval}: {body}"
+        );
+        assert_eq!(body["error"]["code"], "invalid_interval", "{body}");
+    }
+
+    let (status, body) = fixture
+        .save_rescan(json!({ "enabled": true, "intervalHours": 24 }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["enabled"], true, "{body}");
+    assert_eq!(body["intervalHours"], 24, "{body}");
+    assert_eq!(body["due"], false, "{body}");
+    let next = body["nextRunAt"].as_str().expect("next run").to_string();
+    let next = db::parse_time(&next).expect("rfc3339");
+    let expected = db::now() + chrono::Duration::hours(24);
+    assert!(
+        (next - expected).num_seconds().abs() < 60,
+        "next run ~24 h away, got {next} vs {expected}"
+    );
+
+    // Disabling clears the schedule but keeps the history fields.
+    let (status, body) = fixture
+        .save_rescan(json!({ "enabled": false, "intervalHours": 24 }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["nextRunAt"], Value::Null, "{body}");
+
+    // Manual only is a valid policy and never schedules a run.
+    let (status, body) = fixture
+        .save_rescan(json!({ "enabled": true, "intervalHours": 0 }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["nextRunAt"], Value::Null, "{body}");
+    assert_eq!(body["due"], false, "{body}");
+
+    let rows = wait_for_audit(&fixture.server, "virustotal.rescan_policy").await;
+    assert_eq!(rows.len(), 3, "one audit row per accepted save: {rows:?}");
+    assert_eq!(rows[0]["metadata"]["intervalHours"], 24);
+    assert_eq!(rows[0]["metadata"]["interval"], "daily");
+    assert_eq!(rows[0]["metadata"]["enabled"], true);
+    assert_eq!(rows[2]["metadata"]["interval"], "manual");
+    assert!(
+        !rows.iter().any(|row| row.to_string().contains("vt-secret")),
+        "the audit trail never carries a key: {rows:?}"
+    );
+
+    // Player accounts cannot read or change the policy.
+    fixture
+        .server
+        .create_user(&fixture.token, "player", ADMIN_PASSWORD, "user")
+        .await;
+    let (_, login) = fixture.server.login("player", ADMIN_PASSWORD).await;
+    let player = login["token"].as_str().expect("token").to_string();
+    let (status, _) = fixture
+        .server
+        .get("/api/admin/integrations/virustotal/rescan", Some(&player))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = fixture
+        .server
+        .put(
+            "/api/admin/integrations/virustotal/rescan",
+            &player,
+            json!({ "enabled": true, "intervalHours": 24 }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = fixture
+        .server
+        .post(
+            "/api/admin/integrations/virustotal/rescan/run",
+            Some(&player),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn rescan_selects_missing_then_oldest_and_deduplicates() {
+    let fixture = Fixture::start_with(|config| config.virustotal_per_minute = 0).await;
+    fixture.save_key("vt-secret-abcd").await;
+    // Never checked: must run first.
+    let (_, missing) = fixture.seed("Hollow", "Hollow.zip", Some(SHA_B)).await;
+    // Old report: second.
+    let (_, old) = fixture.seed("Celeste", "Celeste.zip", Some(SHA_A)).await;
+    cache_report(
+        &fixture.server,
+        SHA_A,
+        "clean",
+        &hours_ago(24 * 10),
+        7 * 24 * 3_600,
+    )
+    .await;
+    // Same archive under a second version: one lookup in total.
+    fixture
+        .seed("Celeste Deluxe", "Celeste Deluxe.zip", Some(SHA_A))
+        .await;
+    // Fresh report: never selected at a 24 h interval.
+    let sha_c = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+    fixture.seed("Tunic", "Tunic.zip", Some(sha_c)).await;
+    cache_report(
+        &fixture.server,
+        sha_c,
+        "clean",
+        &hours_ago(1),
+        7 * 24 * 3_600,
+    )
+    .await;
+
+    let (status, body) = fixture
+        .save_rescan(json!({ "enabled": true, "intervalHours": 24 }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["remaining"], 2, "one missing plus one stale: {body}");
+
+    let (status, body) = fixture.run_rescan().await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["scannedLastRun"], 2, "{body}");
+    assert_eq!(body["remaining"], 0, "{body}");
+    assert_eq!(body["lastError"], Value::Null, "{body}");
+    assert!(body["lastRunAt"].is_string(), "{body}");
+    let order = fixture
+        .mock
+        .state
+        .order
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    assert_eq!(
+        order,
+        vec![SHA_B.to_string(), SHA_A.to_string()],
+        "{order:?}"
+    );
+    assert_eq!(fixture.mock.state.uploads(), 0, "a rescan never uploads");
+    assert_eq!(
+        body["cursor"], SHA_A,
+        "the cursor is the last processed hash: {body}"
+    );
+
+    // The next scheduled run is one interval after this pass.
+    let next = db::parse_time(body["nextRunAt"].as_str().expect("next run")).expect("rfc3339");
+    let last = db::parse_time(body["lastRunAt"].as_str().expect("last run")).expect("rfc3339");
+    assert_eq!((next - last).num_hours(), 24, "{body}");
+
+    // A second run has nothing left to do.
+    let (status, body) = fixture.run_rescan().await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["scannedLastRun"], 0, "{body}");
+    assert_eq!(fixture.mock.state.lookups(), 2, "no duplicate lookups");
+    let _ = (missing, old);
+}
+
+#[tokio::test]
+async fn rescan_skips_malicious_until_opted_in() {
+    let fixture = Fixture::start_with(|config| config.virustotal_per_minute = 0).await;
+    fixture.save_key("vt-secret-abcd").await;
+    let (_, version_id) = fixture.seed("Hollow", "Hollow.zip", Some(SHA_A)).await;
+    cache_report(
+        &fixture.server,
+        SHA_A,
+        "malicious",
+        &hours_ago(24 * 20),
+        100 * 365 * 24 * 3_600,
+    )
+    .await;
+
+    let (status, body) = fixture
+        .save_rescan(json!({ "enabled": true, "intervalHours": 24 }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["remaining"], 0,
+        "a malicious verdict is skipped: {body}"
+    );
+
+    let (status, body) = fixture.run_rescan().await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["scannedLastRun"], 0, "{body}");
+    assert_eq!(fixture.mock.state.lookups(), 0, "nothing left the machine");
+
+    // Opting in keeps the existing schedule and re-checks the archive.
+    let scheduled = body["nextRunAt"].as_str().expect("next run").to_string();
+    let (status, body) = fixture
+        .save_rescan(json!({
+            "enabled": true,
+            "intervalHours": 24,
+            "includeMalicious": true
+        }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["nextRunAt"].as_str(),
+        Some(scheduled.as_str()),
+        "editing the policy keeps the run already scheduled"
+    );
+    assert_eq!(body["remaining"], 1, "{body}");
+    let (status, body) = fixture.run_rescan().await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["scannedLastRun"], 1, "{body}");
+    assert_eq!(fixture.mock.state.lookups(), 1, "{body}");
+    let _ = version_id;
+}
+
+#[tokio::test]
+async fn rescan_fails_soft_on_outage_invalid_key_and_quota() {
+    // Outage: one request, no loop, the schedule keeps moving.
+    let fixture = Fixture::start_with(|config| {
+        config.virustotal_per_minute = 0;
+        config.virustotal_daily_limit = 100;
+    })
+    .await;
+    fixture.save_key("vt-secret-abcd").await;
+    fixture.seed("Celeste", "Celeste.zip", Some(SHA_A)).await;
+    fixture.seed("Hades", "Hades.zip", Some(SHA_B)).await;
+    fixture.mock.state.set(Behaviour::ServerError);
+    fixture
+        .save_rescan(json!({ "enabled": true, "intervalHours": 24 }))
+        .await;
+    let (status, body) = fixture.run_rescan().await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "an outage never fails the request: {body}"
+    );
+    assert!(
+        body["lastError"]
+            .as_str()
+            .is_some_and(|error| error.starts_with("outage:")),
+        "{body}"
+    );
+    assert_eq!(body["scannedLastRun"], 0, "{body}");
+    assert_eq!(
+        body["remaining"], 2,
+        "both archives stay outstanding: {body}"
+    );
+    assert!(body["nextRunAt"].is_string(), "retry next interval: {body}");
+    assert_eq!(
+        fixture.mock.state.lookups(),
+        2,
+        "two attempts, then the pass stops"
+    );
+
+    // A rejected key stops the pass immediately.
+    fixture.mock.state.set(Behaviour::Unauthorized);
+    let pool = database(&fixture.server).await;
+    db::query("DELETE FROM virustotal_cache")
+        .execute(&pool)
+        .await
+        .expect("clear cache");
+    pool.close().await;
+    let (status, body) = fixture.run_rescan().await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        body["lastError"]
+            .as_str()
+            .is_some_and(|error| error.starts_with("invalid_key:")),
+        "{body}"
+    );
+    assert_eq!(
+        fixture.mock.state.lookups(),
+        3,
+        "one rejected request per pass, never a loop"
+    );
+
+    // Daily budget: one archive refreshed, the rest resumes later.
+    let fixture = Fixture::start_with(|config| {
+        config.virustotal_per_minute = 0;
+        config.virustotal_daily_limit = 1;
+    })
+    .await;
+    fixture.save_key("vt-secret-abcd").await;
+    fixture.seed("Celeste", "Celeste.zip", Some(SHA_A)).await;
+    fixture.seed("Hades", "Hades.zip", Some(SHA_B)).await;
+    fixture
+        .save_rescan(json!({ "enabled": true, "intervalHours": 24 }))
+        .await;
+    let (status, body) = fixture.run_rescan().await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        fixture.mock.state.lookups(),
+        1,
+        "the daily budget is honoured"
+    );
+    assert_eq!(body["scannedLastRun"], 1, "{body}");
+    assert_eq!(body["remaining"], 1, "{body}");
+    assert!(
+        body["lastError"]
+            .as_str()
+            .is_some_and(|error| error.starts_with("quota_exceeded:")),
+        "{body}"
+    );
+
+    let rows = wait_for_audit(&fixture.server, "virustotal.rescan_run").await;
+    let last = rows.last().expect("run row");
+    assert_eq!(last["metadata"]["scanned"], 1);
+    assert_eq!(last["metadata"]["remaining"], 1);
+    assert_eq!(last["metadata"]["error"], "quota_exceeded");
+    assert!(
+        !last.to_string().contains("vt-secret"),
+        "no key in the audit trail: {last}"
+    );
+}
+
+#[tokio::test]
+async fn rescan_worker_honours_the_schedule_and_disabling_stops_it() {
+    let fixture = Fixture::start_with(|config| {
+        config.virustotal_per_minute = 0;
+        config.virustotal_rescan_tick = Duration::from_millis(40);
+    })
+    .await;
+    fixture.save_key("vt-secret-abcd").await;
+    fixture.seed("Celeste", "Celeste.zip", Some(SHA_A)).await;
+
+    // Enabled weekly: the persisted next run is a week away, so nothing fires.
+    let (status, body) = fixture
+        .save_rescan(json!({ "enabled": true, "intervalHours": 168 }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        fixture.mock.state.lookups(),
+        0,
+        "the worker respects a future nextRunAt"
+    );
+
+    // Force the schedule into the past, as a restart after a long downtime
+    // would find it: the worker picks it up and persists a fresh next run.
+    set_next_run(&fixture.server, &hours_ago(1)).await;
+    let mut scanned = false;
+    for _ in 0..100 {
+        if fixture.mock.state.lookups() > 0 {
+            scanned = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(40)).await;
+    }
+    assert!(scanned, "the worker runs a due pass");
+    let mut finished = None;
+    for _ in 0..100 {
+        let (status, body) = fixture.rescan().await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        if body["lastRunAt"].is_string() {
+            finished = Some(body);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(40)).await;
+    }
+    let body = finished.expect("the pass persisted its outcome");
+    assert_eq!(body["scannedLastRun"], 1, "{body}");
+    assert_eq!(body["remaining"], 0, "{body}");
+    let next = db::parse_time(body["nextRunAt"].as_str().expect("next run")).expect("rfc3339");
+    let last = db::parse_time(body["lastRunAt"].as_str().expect("last run")).expect("rfc3339");
+    assert_eq!((next - last).num_hours(), 168, "{body}");
+    assert!(
+        next > db::now() - chrono::Duration::minutes(1),
+        "the schedule advanced to the future: {body}"
+    );
+
+    // Disabling stops future passes even with an overdue schedule.
+    let (status, body) = fixture
+        .save_rescan(json!({ "enabled": false, "intervalHours": 168 }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    set_next_run(&fixture.server, &hours_ago(1)).await;
+    let before = fixture.mock.state.lookups();
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    assert_eq!(
+        fixture.mock.state.lookups(),
+        before,
+        "a disabled policy does nothing"
+    );
+    let (status, body) = fixture.run_rescan().await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["error"]["code"], "rescan_disabled", "{body}");
 }

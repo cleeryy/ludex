@@ -150,6 +150,31 @@ describe("mock VirusTotal scenarios", () => {
     await mockApi.saveVirusTotalKey(ADMIN, { apiKey: "demo-virustotal-key-4f2a" });
   });
 
+  it("keeps a default-off re-check policy and validates the interval", async () => {
+    const initial = await mockApi.adminVirusTotalRescan(ADMIN);
+    expect(initial).toMatchObject({ enabled: false, intervalHours: 168, nextRunAt: null, due: false });
+
+    await expect(
+      mockApi.saveVirusTotalRescan(ADMIN, { enabled: true, intervalHours: 12, includeMalicious: false }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    const enabled = await mockApi.saveVirusTotalRescan(ADMIN, {
+      enabled: true,
+      intervalHours: 24,
+      includeMalicious: true,
+    });
+    expect(enabled.enabled).toBe(true);
+    expect(enabled.includeMalicious).toBe(true);
+    expect(enabled.nextRunAt).toBeTruthy();
+
+    const ran = await mockApi.runVirusTotalRescan(ADMIN);
+    expect(ran.lastRunAt).toBeTruthy();
+    expect(ran.remaining).toBe(0);
+    expect(ran.scannedLastRun).toBeGreaterThan(0);
+
+    await mockApi.saveVirusTotalRescan(ADMIN, { enabled: false, intervalHours: 24, includeMalicious: false });
+  });
+
   it("only lets an administrator in", async () => {
     // `ines` is a plain member.
     await expect(mockApi.adminVirusTotal("mock.3.1700000000")).rejects.toMatchObject({ status: 403 });

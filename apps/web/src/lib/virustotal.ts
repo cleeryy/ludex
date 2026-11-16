@@ -16,6 +16,7 @@ import type {
   VirusTotalStats,
   VirusTotalVerdict,
 } from "@/lib/types";
+import { VIRUSTOTAL_RESCAN_INTERVALS } from "@/lib/types";
 
 /** Public API facts that shape the UI (issue #224). */
 export const VIRUSTOTAL_DAILY_LIMIT = 500;
@@ -347,4 +348,54 @@ export function canScanNow(
   const now = options.now ?? Date.now();
   if (options.lastScanAt && now - options.lastScanAt < cooldown) return false;
   return true;
+}
+
+/* --------------------------- periodic re-check --------------------------- */
+
+/**
+ * Interval label for the rescan policy (#239). The words match the audit
+ * metadata, so a log line and the card read the same.
+ */
+export function rescanIntervalLabel(hours: number): string {
+  switch (hours) {
+    case 0:
+      return t("Manual only");
+    case 24:
+      return t("Daily");
+    case 168:
+      return t("Weekly");
+    case 720:
+      return t("Monthly");
+    default:
+      return t("Custom");
+  }
+}
+
+/** Interval choices for the admin select, in ascending order. */
+export function rescanIntervalOptions(): { value: number; label: string }[] {
+  return VIRUSTOTAL_RESCAN_INTERVALS.map((hours) => ({
+    value: hours,
+    label: rescanIntervalLabel(hours),
+  }));
+}
+
+/**
+ * How many days a pass needs at the daily budget. A library larger than 500
+ * archives is drained over several runs, never failed: the card says so
+ * instead of letting the admin think one pass covers everything.
+ */
+export function rescanSpanDays(
+  remaining: number,
+  dailyLimit: number = VIRUSTOTAL_DAILY_LIMIT,
+): number {
+  if (remaining <= 0 || dailyLimit <= 0) return 0;
+  return Math.ceil(remaining / dailyLimit);
+}
+
+/** True when one pass cannot cover the outstanding archives today. */
+export function rescanSpansMultipleDays(
+  remaining: number,
+  dailyLimit: number = VIRUSTOTAL_DAILY_LIMIT,
+): boolean {
+  return rescanSpanDays(remaining, dailyLimit) > 1;
 }

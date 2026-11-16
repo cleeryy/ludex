@@ -1496,6 +1496,23 @@ interface QuotaStatus {
   dailyLimit: number; usedToday: number; remaining: number; resetAt: string;
 }
 
+interface VtRescanStatus {
+  enabled: boolean;
+  /** 0 = manual only, 24 = daily, 168 = weekly, 720 = monthly. */
+  intervalHours: number;
+  includeMalicious: boolean;      // off by default, malicious TTL is 100 days
+  lastRunAt: string | null;
+  nextRunAt: string | null;       // null when disabled or manual only
+  cursor: string | null;          // last sha256 the pass processed
+  lastError: string | null;       // invalid_key: | quota_exceeded: | outage: | disabled:
+  scannedLastRun: number;         // hashes refreshed by the last pass
+  remaining: number;              // distinct stale archives right now
+  due: boolean;                   // server clock, not the browser's
+}
+
+/** PUT body: the three writable fields; history is kept server-side. */
+interface VtRescanInput { enabled: boolean; intervalHours: number; includeMalicious?: boolean; }
+
 interface VtIntegrationStatus {
   configured: boolean;
   source: "env" | "database" | "none";
@@ -1522,6 +1539,9 @@ interface VtGameReport { gameId: number; versions: ScanReport[]; }
 | POST | `/api/admin/integrations/virustotal/test` | admin; optional body `{ apiKey? }` → 200 `VtTestResult`; with `apiKey` the unsaved key is validated and never stored (its failure does not become `lastError`), without it the stored/env key is tested; `GET /users/{key}` is used and rejections are reported in the body, not as 5xx |
 | POST | `/api/admin/virustotal/scan` | admin; `{ gameId?, versionId?, mode?, force?, confirmUpload?, iUnderstand? }` (`consent?` is accepted as an alias) → `VtScanResponse` |
 | GET | `/api/games/{id}/virustotal` | authenticated (read scope) → `VtGameReport`; cached rows only, never calls the API |
+| GET | `/api/admin/integrations/virustotal/rescan` | admin → `VtRescanStatus`; `remaining`/`due` are computed by the server |
+| PUT | `/api/admin/integrations/virustotal/rescan` | admin; `{ enabled, intervalHours, includeMalicious? }` → `VtRescanStatus`; 400 `invalid_interval` unless `intervalHours` is 0, 24, 168 or 720; the last run and error history are kept |
+| POST | `/api/admin/integrations/virustotal/rescan/run` | admin; runs one pass now → `VtRescanStatus`; 409 `rescan_disabled` when the policy is off, 409 `rescan_running` when a pass is already running |
 
 **Verdict mapping.** `malicious > 0` → `malicious` (it wins over every other
 counter); else `suspicious > 0` → `suspicious`; else a known file → `clean`.
@@ -1536,6 +1556,39 @@ indefinite period (100 years; the constant is `MALICIOUS_TTL_SECONDS`). A fresh
 row answers `source: "cache"` with no request; `force: true` re-checks.
 Concurrent scans of the same hash share one request (single-flight). Failures
 are not cached, so a later scan retries.
+
+**Periodic re-check (#239).** The integration also carries one persisted
+policy (`virustotal_rescan`, a single row), **off by default**, so the server can
+re-check every archive on its own with no page open. `intervalHours` selects how
+old a report must be before it is fetched again: `0` (manual only), `24`, `168`
+or `720`. Any other value is 400 `invalid_interval`. Enabling or changing the
+interval schedules `nextRunAt = now + interval`; saving the same enabled
+interval keeps the run already scheduled. Disabling, or `0`, clears
+`nextRunAt` and stops future automatic passes.
+
+A pass selects versions that have a published `content_sha256` (`missing = 0`,
+`root_unavailable = 0`) whose latest cache entry is missing or older than the
+interval, **oldest first** (never-checked archives first). It skips `malicious`
+verdicts unless `includeMalicious` is on (their cache lifetime is 100 days on
+purpose), skips reports newer than the interval, and deduplicates by SHA-256: two
+games sharing one archive hash are one lookup. Every request goes through the
+same `lookup_hash` path as a manual scan — `GET /files/{sha256}` only, never an
+upload — paced at one request per `4/minute` slot and stopped at the daily
+budget. With `intervalHours = 0`, a manual run uses each cache row's own TTL as
+its staleness window.
+
+Failures are soft and recorded in `lastError` with a category prefix: a rejected
+key (`invalid_key:`) stops the pass at once, an exhausted quota
+(`quota_exceeded:`, daily budget or rate window) stops it, and an outage
+(`outage:`) stops it after three consecutive failures; no key at all reports
+`disabled:`. The schedule moves on either way: `lastRunAt`, `nextRunAt`,
+`cursor` (last processed SHA-256) and `scannedLastRun` are persisted, so a
+restart keeps the schedule, and the archives left over stay stale for the next
+run. A library larger than 500 archives drains over several days instead of
+failing. Every accepted PUT emits `virustotal.rescan_policy` (enabled, interval,
+malicious opt-in, next run) and every pass emits `virustotal.rescan_run`
+(`scanned`, `remaining`, `budgetExhausted`, error category). Neither event ever
+carries the API key or a file.
 
 **Modes.** `hash` (default) looks the archive hash up. `hash_and_binaries`
 does the same and then hashes at most five executables/installers

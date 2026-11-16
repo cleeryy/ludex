@@ -2518,6 +2518,37 @@ pub const ROUTES: &[RouteDoc] = &[
         Auth::Session,
         Payload::Schema("GameScanReport"),
     ),
+    // VirusTotal periodic re-check (#239)
+    route(
+        HttpMethod::Get,
+        "/admin/integrations/virustotal/rescan",
+        "VirusTotal",
+        "Read the periodic re-check policy, next run and outstanding archives",
+        Auth::Admin,
+        Payload::Schema("RescanStatus"),
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/admin/integrations/virustotal/rescan",
+            "VirusTotal",
+            "Enable, disable or retune the periodic re-check (400 invalid_interval)",
+            Auth::Admin,
+            Payload::Schema("RescanStatus"),
+        ),
+        "RescanPolicyInput",
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/admin/integrations/virustotal/rescan/run",
+            "VirusTotal",
+            "Run a re-check pass now through the shared quota (409 when disabled or already running)",
+            Auth::Admin,
+            Payload::Schema("RescanStatus"),
+        ),
+        200,
+    ),
     // Server-side extracted cache + file manifest (#231)
     ok(
         route(
@@ -3098,6 +3129,8 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::virustotal::ScanSource>()
         .schema_from::<crate::virustotal::ScanMode>()
         .schema_from::<crate::routes::virustotal::SaveVirustotalKeyRequest>()
+        .schema_from::<crate::virustotal_rescan::RescanStatus>()
+        .schema_from::<crate::virustotal_rescan::RescanPolicyInput>()
         .schema_from::<crate::routes::artwork::ArtworkResponse>()
         .security_scheme(
             "bearerAuth",
