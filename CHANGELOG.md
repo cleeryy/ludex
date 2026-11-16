@@ -6,6 +6,24 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Security
+
+- Artwork and metadata fetches are SSRF-guarded (#237): a shared `UrlGuard`
+  enforces http/https, rejects private/loopback/link-local/CGNAT/metadata/
+  multicast addresses (IPv4 and IPv6), follows redirects manually with a fresh
+  check per hop, pins the connection to the validated IP, and caps body size,
+  content type and timeout; a refused URL is skipped without failing the apply.
+
+### Changed
+
+- Console polish (#237): Studio is the default appearance (Soft stays opt-in and
+  no longer forces cream/coral or disables the theme row), console typography
+  scales with `--bp-u` to the 10-foot rule (label 28 px at 1080p, 56 px at 4K)
+  with a regression test, pads traverse real dialogs and close with B, route
+  changes set `document.title` and focus the screen heading, the game page opens
+  at the top on mobile, and 163 arbitrary px sizes moved to the type scale
+  (1768 remain, documented).
+
 ## [0.4.17] - 2026-11-16
 
 ### Changed
