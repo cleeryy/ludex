@@ -1,6 +1,7 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { resolveControllerProfile } from "@/lib/controller-profiles";
+import { presetProfile } from "@/lib/controller-profiles";
 import type { ControllerProfile } from "@/lib/types";
 
 /**
@@ -18,5 +19,9 @@ export function useControllerProfile(gameId?: number | null): ControllerProfile 
   const global = profiles.data?.global?.profile;
   const game =
     gameId && profiles.data ? profiles.data.games.find((entry) => entry.gameId === gameId)?.profile : undefined;
-  return resolveControllerProfile(global, game);
+  // #267: the fallback preset is built once. A new profile object per render
+  // made every `useInputScope` re-read its options and re-render the provider,
+  // which React reports as a maximum update depth.
+  const fallback = useMemo(() => presetProfile("xbox"), []);
+  return useMemo(() => game ?? global ?? fallback, [global, game, fallback]);
 }

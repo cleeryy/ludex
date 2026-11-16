@@ -37,7 +37,8 @@ import {
   stateOptions,
   type FilterKey,
 } from "@/lib/library-filters";
-import { focusGamepadTarget, gamepadDebugEnabled, useGamepad, type GamepadAction } from "@/lib/gamepad";
+import { focusGamepadTarget, gamepadDebugEnabled, type GamepadAction } from "@/lib/gamepad";
+import { useInput, useInputScope } from "@/components/console/input/input-provider";
 import { moveTargetIndex, type TargetRect } from "@/lib/gamepad-core";
 import { GamepadDebugPanel } from "@/components/gamepad/gamepad-debug";
 import { useControllerProfile } from "@/lib/use-controller-profile";
@@ -353,7 +354,10 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   };
 
   const controllerProfile = useControllerProfile();
-  const gamepad = useGamepad(onGamepad, { profile: controllerProfile, debug });
+  // #267: the library registers a scope on the one input owner instead of
+  // running its own polling loop.
+  const gamepad = useInput();
+  useInputScope({ id: "library", onAction: onGamepad, options: { profile: controllerProfile } });
 
   // Keep the numeric cursor and the ring in sync when the result set, the
   // layout or the route changes (filters, sort, grid/list, new data). The ring

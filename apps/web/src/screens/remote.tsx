@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { api, USING_MOCKS } from "@/lib/api";
 import { useDocumentTitle } from "@/lib/document-title";
-import { usePadBack } from "@/lib/gamepad";
+import { usePadBack } from "@/components/console/input/use-pad-back";
 import { errorMessage } from "@/lib/http";
 import { cn } from "@/lib/cn";
 import { formatBytes, formatRelative } from "@/lib/format";

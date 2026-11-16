@@ -20,7 +20,15 @@ const CONSOLE_FILES = [
     .readdirSync(path.join(srcRoot, "components", "big-picture"))
     .filter((file) => file.endsWith(".tsx"))
     .map((file) => path.join(srcRoot, "components", "big-picture", file)),
-  path.join(srcRoot, "screens", "big-picture.tsx"),
+  // #267: the screen moved into components/console/{shell,routes,input,surfaces}.
+  ...fs
+    .readdirSync(path.join(srcRoot, "components", "console", "shell"))
+    .filter((file) => file.endsWith(".tsx"))
+    .map((file) => path.join(srcRoot, "components", "console", "shell", file)),
+  ...fs
+    .readdirSync(path.join(srcRoot, "components", "console", "surfaces"))
+    .filter((file) => file.endsWith(".tsx"))
+    .map((file) => path.join(srcRoot, "components", "console", "surfaces", file)),
 ];
 
 /** `--bp-text-*: calc(var(--bp-u) * N)` → N, in 1080p pixels. */

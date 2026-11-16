@@ -4,6 +4,7 @@ import { setApiBase, tokenStore } from "@/lib/api";
 import { isNative, native } from "@/lib/native";
 import { I18nProvider } from "@/lib/i18n";
 import { OverlayScreen } from "@/components/overlay/overlay-screen";
+import { InputProvider } from "@/components/console/input/input-provider";
 
 /**
  * Entry point of the floating `overlay` window (#144).
@@ -41,7 +42,11 @@ export function OverlayWindowApp() {
   return (
     <QueryClientProvider client={overlayQueryClient}>
       <I18nProvider>
-        <OverlayBootstrapper />
+        {/* #267: the floating window is its own tree; it still gets the one
+            input owner so the panel's pad handler has a scope to live in. */}
+        <InputProvider>
+          <OverlayBootstrapper />
+        </InputProvider>
       </I18nProvider>
     </QueryClientProvider>
   );

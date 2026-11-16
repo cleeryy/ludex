@@ -309,7 +309,7 @@ fn remove_tray(app: &AppHandle) {
     }
 }
 
-/// Show and focus `main`, and land the web shell on Big Picture.
+/// Show and focus `main`, and land the web shell on the Console (#267).
 ///
 /// `HashRouter` owns the SPA route, so the hash assignment survives a webview
 /// that has not registered its `ui://navigate` listener yet; the event covers
@@ -320,10 +320,10 @@ fn show_console(app: &AppHandle, navigate: bool) {
         return;
     };
     if navigate {
-        if let Err(error) = window.eval("window.location.hash = '#/bigpicture';") {
+        if let Err(error) = window.eval("window.location.hash = '#/console';") {
             tracing::warn!(error = %error, "could not navigate the console shell by hash");
         }
-        if let Err(error) = app.emit_to("main", "ui://navigate", "/bigpicture") {
+        if let Err(error) = app.emit_to("main", "ui://navigate", "/console") {
             tracing::debug!(error = %error, "could not emit the console navigation event");
         }
     }

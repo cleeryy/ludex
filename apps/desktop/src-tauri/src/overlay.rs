@@ -1516,11 +1516,11 @@ pub fn set_game_disabled(
 
 /* ------------------------------- big picture ------------------------------ */
 
-/// Bring the main window forward on Big Picture and close the overlay.
+/// Bring the main window forward on the Console and close the overlay (#267).
 pub fn show_big_picture(app: &AppHandle) -> Result<(), String> {
     let _ = close(app, "manual");
     crate::tray::show_window(app);
-    app.emit_to("main", "overlay://navigate", "/bigpicture")
+    app.emit_to("main", "overlay://navigate", "/console")
         .map_err(|error| format!("Could not reach the main window: {error}"))?;
     Ok(())
 }

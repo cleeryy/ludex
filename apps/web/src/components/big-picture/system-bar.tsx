@@ -16,6 +16,7 @@ import { cn } from "@/lib/cn";
 import { formatPercent } from "@/lib/format";
 import { t, useI18n } from "@/lib/i18n";
 import type { User } from "@/lib/types";
+import { useActiveCount, useQueueSummary } from "@/state/downloads";
 import { Wordmark } from "@/components/brand";
 import { UserAvatar } from "@/components/community/user-avatar";
 import { reveal } from "./entrance";
@@ -37,8 +38,8 @@ export interface SystemBarProps {
   padFamily: string;
   padBattery: number | null;
   padCharging: boolean;
-  downloads: number;
-  downloadsPercent: number | null;
+  downloads?: number;
+  downloadsPercent?: number | null;
   refreshing: boolean;
   consoleActive: boolean;
 }
@@ -106,8 +107,8 @@ export function SystemBar({
   padFamily,
   padBattery,
   padCharging,
-  downloads,
-  downloadsPercent,
+  downloads: downloadsProp,
+  downloadsPercent: downloadsPercentProp,
   refreshing,
   consoleActive,
 }: SystemBarProps) {
@@ -115,6 +116,13 @@ export function SystemBar({
   const clock = useMinuteClock(meta.intl);
   const name = user?.username ?? null;
   const reduceMotion = useReducedMotion();
+  // #267: the bar subscribes to the two numbers it prints instead of receiving
+  // them from the shell. A progress tick repaints this header only, never the
+  // rail, the stage or the overlays.
+  const liveCount = useActiveCount();
+  const liveSummary = useQueueSummary();
+  const downloads = downloadsProp ?? liveCount;
+  const downloadsPercent = downloadsPercentProp ?? liveSummary.percent;
 
   return (
     <motion.header

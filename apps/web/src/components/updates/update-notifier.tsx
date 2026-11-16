@@ -79,8 +79,10 @@ export function UpdateNotifier() {
   const version = available?.version ?? "";
   const at = location.pathname;
   const onCenter = at.startsWith("/updates");
-  const onBigPicture = at.startsWith("/bigpicture");
-  const quietRoute = onCenter || onBigPicture || at === "/setup" || at === "/login";
+  // #267: the Console shell has its own notice surface; no desktop update
+  // dialog or in-app card may paint over it. The legacy route redirects.
+  const onConsole = at.startsWith("/console") || at.startsWith("/bigpicture");
+  const quietRoute = onCenter || onConsole || at === "/setup" || at === "/login";
 
   useEffect(() => {
     if (!available || quietRoute || open) return;
@@ -145,7 +147,7 @@ export function UpdateNotifier() {
   // Big Picture is a console surface: the existing in-shell toast carries the
   // news, once per version, and never an OS popup.
   useEffect(() => {
-    if (!onBigPicture || !available || open) return;
+    if (!onConsole || !available || open) return;
     if (
       !shouldShowUpdateNotice({
         status,
@@ -165,7 +167,7 @@ export function UpdateNotifier() {
       description: noticeBody(available.currentVersion, available.sizeBytes),
     });
   }, [
-    onBigPicture,
+    onConsole,
     available,
     open,
     notice,

@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowLeft, ArrowRight, Download, FolderOpen, HardDrive, Palette, Server, ShieldCheck, Sparkles, X } from "lucide-react";
 import { api } from "@/lib/api";
-import { useGamepad } from "@/lib/gamepad";
+import { useInputScope } from "@/components/console/input/input-provider";
 import { moveModalFocus, type ModalHost } from "@/lib/gamepad-core";
 import { cn } from "@/lib/cn";
 import { formatRelative, formatSpeed } from "@/lib/format";
@@ -148,8 +148,11 @@ export function OnboardingWizard() {
   // #237: a controller-only player must be able to read the tour and leave it.
   // The panel declares itself a pad layer (`data-pad-layer`), so the screen
   // behind it stops taking input; this handler walks the tour's own controls.
-  useGamepad(
-    (action) => {
+  useInputScope({
+    id: "onboarding",
+    enabled: open,
+    padLayer: true,
+    onAction: (action) => {
       const panel = panelRef.current;
       if (!panel) return;
       if (action === "back") {
@@ -168,8 +171,7 @@ export function OnboardingWizard() {
         if (focused && panel.contains(focused)) focused.click();
       }
     },
-    { enabled: open, owner: true },
-  );
+  });
 
   if (!open) return null;
 
