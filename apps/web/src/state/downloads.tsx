@@ -205,6 +205,21 @@ function sameJob(a: InstallJob, b: InstallJob): boolean {
 }
 
 /**
+ * Fold one progress event into the list (#267). `install://progress` already
+ * carries the whole job, so a full `list()` round trip per tick was wasted IPC
+ * and a new array every second. Kept pure and exported so the fold is tested
+ * without a native bridge.
+ */
+export function replaceJob(jobs: InstallJob[], next: InstallJob): InstallJob[] {
+  const index = jobs.findIndex((job) => job.jobId === next.jobId);
+  if (index < 0) return [next, ...jobs];
+  if (sameJob(jobs[index], next)) return jobs;
+  const copy = jobs.slice();
+  copy[index] = next;
+  return copy;
+}
+
+/**
  * Keep the previous object for every job whose payload did not change. A list
  * poll that returns the same progress (a queued or paused job, a stalled
  * transfer) then keeps the previous array identity and no consumer re-renders
@@ -360,6 +375,18 @@ export function useActiveCount(): number {
   return useDownloadsSelector((snapshot) => snapshot.activeCount);
 }
 
+/**
+ * Job identities and phases as one string (#267). The Console plays the
+ * completion/error cue by watching this instead of the whole job list: byte
+ * progress changes every tick, a phase change does not, so the shell does not
+ * re-render at 1 Hz.
+ */
+export function useJobPhases(): string {
+  return useDownloadsSelector((snapshot) =>
+    snapshot.jobs.map((job) => `${job.jobId}:${job.phase}`).join("|"),
+  );
+}
+
 /** Aggregate speed/ETA/percent for the status strip and the console badge. */
 export function useQueueSummary(): QueueSummary {
   return useDownloadsSelector((snapshot) => snapshot.summary);
@@ -427,6 +454,16 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
     }
   }, [available, user]);
 
+  /**
+   * Fold one progress event into the list (#267). `install://progress` already
+   * carries the whole job, so a full `list()` round trip per tick was wasted
+   * IPC and a new array every second. Finished and failed phases still ask for
+   * the list: the desktop may add history rows or reorder the queue then.
+   */
+  const updateOne = useCallback((next: InstallJob) => {
+    setJobs((current) => replaceJob(current, next));
+  }, []);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -449,7 +486,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
         else offs.push(off);
       });
     };
-    add(native.onInstallProgress(() => void refresh()));
+    add(native.onInstallProgress((job) => updateOne(job)));
     add(native.onInstallDone(() => void refresh()));
     add(native.onInstallError(() => void refresh()));
     add(native.onInstallJobs((list) => setJobs((current) => reconcileJobs(current, list))));
@@ -457,7 +494,7 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
       disposed = true;
       for (const off of offs) off();
     };
-  }, [available, user, refresh]);
+  }, [available, user, refresh, updateOne]);
 
   useEffect(() => {
     const onVisibility = () => setVisible(document.visibilityState !== "hidden");

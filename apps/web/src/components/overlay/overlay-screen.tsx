@@ -5,7 +5,7 @@ import { api, tokenStore } from "@/lib/api";
 import { formatBytes, formatPercent, formatSpeed } from "@/lib/format";
 import { errorMessage } from "@/lib/http";
 import { isNative, native } from "@/lib/native";
-import { useGamepad } from "@/lib/gamepad";
+import { useInputScope } from "@/components/console/input/input-provider";
 import { applyGamepadFocus, moveTargetIndex, type MoveAction } from "@/lib/gamepad-core";
 import { useControllerProfile } from "@/lib/use-controller-profile";
 import { jobProgressPercent } from "@/lib/install-phase";
@@ -155,8 +155,12 @@ export function OverlayScreen({ mode, onClose }: OverlayScreenProps) {
     setTab(next);
   }, []);
 
-  useGamepad(
-    (action) => {
+  // #267: one scope on the shared input owner. The panel is a pad layer, so
+  // the screen behind it stops receiving presses (no double dispatch).
+  useInputScope({
+    id: "overlay",
+    padLayer: true,
+    onAction: (action) => {
       switch (action) {
         case "back":
           close();
@@ -184,8 +188,8 @@ export function OverlayScreen({ mode, onClose }: OverlayScreenProps) {
           return;
       }
     },
-    { enabled: true, profile },
-  );
+    options: { profile },
+  });
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (isOverlayCloseKey(event.key)) {

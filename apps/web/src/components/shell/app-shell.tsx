@@ -37,6 +37,10 @@ import { UserAvatar } from "@/components/community/user-avatar";
 import { ServerSwitcher } from "@/components/shell/server-switcher";
 import { ShortcutsDialog } from "@/components/shell/shortcuts-dialog";
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
+import { UpdateNotifier } from "@/components/updates/update-notifier";
+import { ToastViewport } from "@/components/ui/toast";
+import { PwaPrompts } from "@/components/pwa-prompts";
+import { OverlayHost } from "@/components/overlay/overlay-host";
 import { DesktopAppPrompt } from "@/components/desktop-app-prompt";
 import { useNativeEvents } from "@/lib/hooks";
 import { OPEN_SHORTCUTS_EVENT, openFiltersPanel, requestSearchFocus } from "@/lib/ui-events";
@@ -433,6 +437,14 @@ export function AppShell() {
       <OnboardingWizard />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      {/* #267: every desktop-only global lives behind the desktop shell. The
+          Console route never mounts this component, so a toast, the update
+          dialog, a PWA prompt or the in-app overlay can never cover a 10-foot
+          screen. */}
+      <UpdateNotifier />
+      <ToastViewport />
+      <PwaPrompts />
+      <OverlayHost />
     </div>
   );
 }

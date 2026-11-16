@@ -31,8 +31,6 @@ export interface BigPictureLayoutProps {
   onOpenGame: (gameId: number) => void;
   /** Opens the quick menu scoped to the selected game (Spotlight action row). */
   onOpenMenu: () => void;
-  /** Per-row install state for the compact list. */
-  jobFor: (gameId: number) => InstallJob | undefined;
 }
 
 /** Percent done for a job; `0` while the total size is still unknown. */

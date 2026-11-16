@@ -1,11 +1,11 @@
-import { useEffect } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { isNative, native } from "@/lib/native";
 import { api } from "@/lib/api";
 import { USING_MOCKS } from "@/lib/flags";
 import { mockInstalls } from "@/lib/mock-install";
-import type { GameDetail, GameList, GameUpdate, InstalledGame } from "@/lib/types";
+import type { GameDetail, GameList, GameSummary, GameUpdate, InstalledGame } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { t, tn } from "@/lib/i18n";
 
@@ -27,6 +27,74 @@ export function useAllGames() {
     queryFn: () => api.listGames({ limit: 200 }),
     staleTime: 60_000,
   });
+}
+
+/** Server page size for the paginated library (#267). The API caps at 200. */
+export const LIBRARY_PAGE_SIZE = 200;
+
+export interface LibraryPages {
+  items: GameSummary[];
+  total: number;
+}
+
+/**
+ * The next page to request, or `undefined` when the last answer covered the
+ * library. Pure so the pagination rule is tested without a query client: a
+ * server that underfills a page (an age filter, a vanished archive) still ends
+ * the walk instead of looping on an empty response.
+ */
+export function nextLibraryPage(lastPage: GameList | undefined, pageCount: number): number | undefined {
+  if (!lastPage) return 1;
+  if (lastPage.items.length === 0) return undefined;
+  if (lastPage.total > 0 && lastPage.page * lastPage.limit >= lastPage.total) return undefined;
+  return pageCount + 1;
+}
+
+/**
+ * Flatten the fetched pages, keeping server order and dropping duplicates: a
+ * game inserted between two fetches can arrive twice, and React keys (and the
+ * console's selection index) must stay one per game.
+ */
+export function flattenLibraryPages(pages: readonly GameList[]): LibraryPages {
+  const seen = new Set<number>();
+  const items: GameSummary[] = [];
+  for (const page of pages) {
+    for (const game of page.items) {
+      if (seen.has(game.id)) continue;
+      seen.add(game.id);
+      items.push(game);
+    }
+  }
+  const total = pages.length > 0 ? Math.max(pages[0].total, items.length) : 0;
+  return { items, total };
+}
+
+/**
+ * Paginated library (#267). The 200-row cap used to be the whole library; the
+ * Console asks for the next page when the ring approaches the end of what is
+ * loaded, so a 600-game archive renders every game without one 3-page fetch.
+ */
+export function useLibraryGames() {
+  const query = useInfiniteQuery({
+    queryKey: ["games", "all", "pages"],
+    queryFn: ({ pageParam }) => api.listGames({ limit: LIBRARY_PAGE_SIZE, page: pageParam }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, pages) => nextLibraryPage(lastPage, pages.length),
+    staleTime: 60_000,
+  });
+  const flattened = useMemo(() => flattenLibraryPages(query.data?.pages ?? []), [query.data]);
+  return {
+    items: flattened.items,
+    total: flattened.total,
+    isPending: query.isPending,
+    isError: query.isError,
+    error: query.error,
+    isFetching: query.isFetching,
+    refetch: query.refetch,
+    hasNextPage: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+    fetchNextPage: query.fetchNextPage,
+  };
 }
 
 /** Recently launched games on this device, newest first (Home + tray). */

@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { api, assetUrl, USING_MOCKS } from "@/lib/api";
 import { useDocumentTitle } from "@/lib/document-title";
-import { usePadBack } from "@/lib/gamepad";
+import { usePadBack } from "@/components/console/input/use-pad-back";
 import { ApiError, errorMessage } from "@/lib/http";
 import { parseServerGameId } from "@/lib/game-route";
 import {

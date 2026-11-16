@@ -21,6 +21,7 @@ import { OverlayPanel } from "@/components/settings/overlay-panel";
 import { AdminDiagnosticsPanel, DiagnosticsPrivacyPanel } from "@/components/settings/diagnostics-panel";
 import { RomEmulatorsPanel } from "@/components/settings/rom-emulators";
 import { SettingsGroup, SettingsSwitchRow } from "@/components/settings/settings-section";
+import { ConsoleShellPanel } from "@/components/settings/console-shell-panel";
 import { AvatarPanel } from "@/components/settings/avatar-panel";
 import { PreferencesSyncPanel } from "@/components/settings/preferences-sync";
 import { SecurityBody } from "@/components/settings/security-panel";
@@ -397,6 +398,8 @@ export function HelpBody() {
           ))}
         </dl>
       </SettingsGroup>
+
+      <ConsoleShellPanel />
 
       <SettingsGroup
         title={t("Privacy and diagnostics")}

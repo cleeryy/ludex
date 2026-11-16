@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Download, Play } from "lucide-react";
@@ -10,9 +10,9 @@ import { errorMessage } from "@/lib/http";
 import { formatPercent } from "@/lib/format";
 import { isNative, native } from "@/lib/native";
 import { listServers } from "@/lib/servers";
-import type { ConsoleStatus, GameSummary } from "@/lib/types";
-import { useAllGames, useInstalledMap, useLaunchGame } from "@/lib/hooks";
-import { useGamepad, gamepadDebugEnabled, focusGamepadTarget, type ActionSource, type GamepadAction } from "@/lib/gamepad";
+import type { GameSummary } from "@/lib/types";
+import { useInstalledMap, useLaunchGame, useLibraryGames } from "@/lib/hooks";
+import { focusGamepadTarget, gamepadDebugEnabled, type ActionSource, type GamepadAction } from "@/lib/gamepad";
 import { GamepadDebugPanel } from "@/components/gamepad/gamepad-debug";
 import { axisSamplesFor, pickActivePad, useConnectedPads, useControllerDevices } from "@/lib/use-controller-devices";
 import { resolveProfileForPad } from "@/lib/controller-resolve";
@@ -20,21 +20,24 @@ import { sourceFromId, sourceId } from "@/lib/controller-devices";
 import { presetProfile } from "@/lib/controller-profiles";
 import { identityLabel, padFingerprint, shortFingerprint } from "@/lib/controller-identity";
 import { uiSound } from "@/lib/ui-sound";
-import { clampVolume, stepVolume, type CueId } from "@/lib/ui-sound-specs";
+import type { CueId } from "@/lib/ui-sound-specs";
 import { useAuth } from "@/state/auth";
-import { useActiveJobs, useAllJobs, useQueueSummary, useTitleFor } from "@/state/downloads";
+import { useActiveCount, useJob, useJobPhases, useTitleFor } from "@/state/downloads";
 import { useSettings } from "@/state/settings";
-import { useToast } from "@/state/toasts";
 import { Wordmark } from "@/components/brand";
 import { InstallDialog } from "@/components/game/install-dialog";
 import { Button } from "@/components/ui/controls";
+import { useConsoleNotice } from "@/components/console/surfaces/console-notice";
+import { useInput, useInputScope, type InputScopeOptions } from "@/components/console/input/input-provider";
+import { ConsoleOverlayInputScope } from "@/components/console/input/overlay-scope";
+import { consolePathFor, type ConsoleSurface } from "@/components/console/routes/surface";
+import { useConsoleSession } from "@/components/console/shell/use-console-session";
+import { useConsoleSettings } from "@/components/console/shell/use-console-settings";
 import { ENTRANCE_MS } from "@/components/big-picture/entrance";
-import { fullscreenRestoreOnExit, shouldEnterFullscreen } from "@/components/big-picture/fullscreen";
 import {
   AUTO_PROFILE_ID,
   cycleHapticsStrength,
   hapticsActive,
-  hapticsStrengthLabel,
   padFamily,
   padFamilyLabel,
   profileOptions,
@@ -52,7 +55,6 @@ import {
   type MotionKind,
 } from "@/components/big-picture/motion";
 import { MotionProbe } from "@/components/big-picture/motion-probe";
-import { LaunchPlate } from "@/components/big-picture/launch-overlay";
 import {
   LAUNCH_CEILING_MS,
   LAUNCH_FAIL_HOLD_MS,
@@ -76,7 +78,6 @@ import { HeroLayout } from "@/components/big-picture/layout-hero";
 import { ShelfLayout } from "@/components/big-picture/layout-shelf";
 import { SpotlightLayout } from "@/components/big-picture/layout-spotlight";
 import { LayoutSkeleton } from "@/components/big-picture/layout-skeleton";
-import { LayoutPicker } from "@/components/big-picture/layout-switcher";
 import {
   BIG_PICTURE_LAYOUTS,
   clampIndex,
@@ -84,51 +85,29 @@ import {
   type BigPictureLayout,
   type MoveDirection,
 } from "@/components/big-picture/layout";
-import {
-  consoleAccentLabel,
-  consoleBackgroundLabel,
-  consolePresetDescription,
-  consolePresetLabel,
-  consoleRadiusLabel,
-  layoutLabel,
-} from "@/components/big-picture/labels";
+import { layoutLabel } from "@/components/big-picture/labels";
 import { ConsoleBackdrop } from "@/components/big-picture/console-backdrop";
 import { useConsoleAppearance } from "@/components/big-picture/use-console-appearance";
-import {
-  CONSOLE_ACCENT_IDS,
-  CONSOLE_BACKGROUNDS,
-  CONSOLE_PRESETS,
-  CONSOLE_RADII,
-  DEFAULT_CONSOLE_APPEARANCE,
-  consoleAttributes,
-  consoleTokens,
-  consoleVars,
-  cycleChoice,
-  withConsolePreset,
-} from "@/theme/console-appearance";
+import { consoleAttributes, consoleTokens, consoleVars } from "@/theme/console-appearance";
 import { jobPercent, type BigPictureLayoutProps } from "@/components/big-picture/model";
 import { useBigPictureNavigation, type BigPictureShelf } from "@/components/big-picture/navigation";
 import { BigPictureFooter } from "@/components/big-picture/parts";
-import {
-  CollectionsOverlay,
-  CommandMenu,
-  COMMAND_ITEMS,
-  ConfirmPanel,
-  DownloadsOverlay,
-} from "@/components/big-picture/overlays";
+import { COMMAND_ITEMS } from "@/components/big-picture/overlays";
+import { ConsoleDialogs } from "@/components/console/surfaces/console-dialogs";
+import { ConsoleOverlays } from "@/components/console/surfaces/console-overlays";
 import { HomeRow } from "@/components/big-picture/home-row";
 import { PowerApp } from "@/components/big-picture/power-app";
-import { SettingsApp, type SettingsRow } from "@/components/big-picture/settings-app";
+import { SettingsApp } from "@/components/big-picture/settings-app";
 import { SystemBar } from "@/components/big-picture/system-bar";
 import {
   HOME_ITEM_IDS,
+  SETTINGS_SECTIONS,
   closeSystemApp,
   homeRowPlacement,
-  levelFromSearch,
+  isSettingsSection,
   openSystemApp,
   restoreZone,
   sameLevel,
-  settingsSectionFromSearch,
   stepSettingsSection,
   wrapIndex,
   zoneExit,
@@ -145,8 +124,6 @@ import {
   resolvePowerConfirm,
   type PowerAction,
 } from "@/components/big-picture/power";
-import { ProfileOverlay } from "@/components/big-picture/profile-overlay";
-import { SearchOverlay } from "@/components/big-picture/search-overlay";
 import {
   SEARCH_DEBOUNCE_MS,
   applySearchKey,
@@ -159,7 +136,7 @@ import {
 } from "@/components/big-picture/search";
 import { useBigPictureLayout, useViewportWidth } from "@/components/big-picture/use-layout";
 import { usePointerIdle } from "@/components/big-picture/pointer-idle";
-import { localeMeta, selectableLocales, t, tn, useI18n } from "@/lib/i18n";
+import { t, tn, useI18n } from "@/lib/i18n";
 
 /** Ask the server once per open; a quick round trip through the route is free. */
 const REFRESH_ON_OPEN_MS = 10_000;
@@ -201,23 +178,48 @@ function matchesExitShortcut(event: KeyboardEvent, shortcut: string | undefined)
   return pressed === key || event.code.toLowerCase() === key;
 }
 
+/** The shell level a surface renders: library for home/library/downloads/search. */
+function levelForSurface(surface: ConsoleSurface): ShellLevel {
+  if (surface === "settings") return { kind: "app", id: "settings" };
+  if (surface === "power") return { kind: "app", id: "power" };
+  return { kind: "library" };
+}
+
+/** `/console/settings/:section`; an unknown slug keeps the last room. */
+function settingsSectionFromSlug(slug: string | null): SettingsSectionId {
+  return isSettingsSection(slug) ? slug : SETTINGS_SECTIONS[0];
+}
+
+/** Downloads and search are routes, not modal overlays (#267). */
+function overlayForSurface(surface: ConsoleSurface): BigPictureOverlay | null {
+  return surface === "downloads" || surface === "search" ? surface : null;
+}
+
 /**
- * Big Picture: the same archive language at ten feet (#141). One screen, four
- * layouts — shelf, hero, cover grid and compact list — driven by the same
- * selection model, the same keys and the same gamepad buttons. The layout is a
- * device preference: it lives in `localStorage` (see `use-layout.ts`) and
- * applies from here, from the quick switcher or from Settings → Appearance.
+ * Console 2.0 shell (#267): the same archive language at ten feet (#141) —
+ * shelf, hero, cover grid and compact list — driven by one selection model,
+ * one key map and one pad owner. The layout is a device preference
+ * (`use-layout.ts`).
+ *
+ * The shell is mounted by the `/console/*` routes; its surface comes from the
+ * URL, so a deep link, a browser Back and an in-shell push all land in the
+ * same place. Desktop globals (toasts, update dialog, overlay host) never
+ * mount here: errors render on the console's own notice surface.
  */
-export function BigPictureScreen() {
+export interface ConsoleShellProps {
+  surface: ConsoleSurface;
+  gameId?: number | null;
+  section?: string | null;
+}
+
+export function ConsoleShell({ surface, gameId = null, section = null }: ConsoleShellProps) {
   const navigate = useNavigate();
   const { setTv } = useSettings();
   useDocumentTitle(t("Console"));
-  const location = useLocation();
-  const [, setSearchParams] = useSearchParams();
-  const debug = gamepadDebugEnabled(location.search);
-  const { push } = useToast();
-  const { user, updateLocale } = useAuth();
-  const { locale, deviceOverride, setLocale, clearDeviceOverride } = useI18n();
+  const debug = gamepadDebugEnabled();
+  const { notify: push } = useConsoleNotice();
+  const { user } = useAuth();
+  const { deviceOverride } = useI18n();
   const {
     theme,
     resolved,
@@ -228,16 +230,13 @@ export function BigPictureScreen() {
     tv,
   } = useSettings();
   const queryClient = useQueryClient();
-  const { data, isPending, isError, error, isFetching, refetch } = useAllGames();
+  const library = useLibraryGames();
+  const games = library.items;
+  const { isPending, isError, error, isFetching, refetch } = library;
   const installed = useInstalledMap();
-  const jobs = useAllJobs();
-  const activeJobs = useActiveJobs();
-  const { activeCount, percent: transferPercent } = useQueueSummary();
+  const jobPhases = useJobPhases();
+  const activeCount = useActiveCount();
   const titleFor = useTitleFor();
-  const jobForGame = useCallback(
-    (gameId: number) => activeJobs.find((entry) => entry.gameId === gameId),
-    [activeJobs],
-  );
   const launch = useLaunchGame();
   const [layout, setLayout] = useBigPictureLayout();
   const [consoleAppearance, setConsoleAppearance] = useConsoleAppearance();
@@ -246,19 +245,18 @@ export function BigPictureScreen() {
   const [layoutTouched, setLayoutTouched] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerIndex, setPickerIndex] = useState(0);
-  // #196: the console shell level. It lives in the URL so an in-shell language
-  // change (which remounts the provider tree) comes back to the same app.
-  const [level, setLevelState] = useState<ShellLevel>(() => levelFromSearch(location.search));
+  // #196/#267: the shell level follows the route. Local state keeps the push
+  // and pop animations honest while the URL stays the source of truth.
+  const [level, setLevelState] = useState<ShellLevel>(() => levelForSurface(surface));
   const [zone, setZone] = useState<FocusZone>("library");
   const [homeIndex, setHomeIndex] = useState(0);
   const [appIndex, setAppIndex] = useState(0);
-  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>(() =>
-    settingsSectionFromSearch(location.search),
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>(
+    () => settingsSectionFromSlug(section),
   );
   const [deviceOnly, setDeviceOnly] = useState(() => deviceOverride !== null);
   const [pendingPower, setPendingPower] = useState<{ action: PowerAction; index: number } | null>(null);
   const confirmWasOpen = useRef(false);
-  const [runningGame, setRunningGame] = useState<{ sessionId: string; gameId: number; title: string } | null>(null);
   // #229: the launch handoff plate. It opens on the Play press (cover FLIP,
   // dimmed library, hold frame), ends on the launch promise, and gives up at
   // 8 s with the honest line.
@@ -268,13 +266,17 @@ export function BigPictureScreen() {
     status: LaunchPlateStatus;
     detail: string | null;
   } | null>(null);
-  const [online, setOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
-  const [padBattery, setPadBattery] = useState<{ level: number; charging: boolean } | null>(null);
-  // #172: when Sunshine started `ludex --console`, this screen is the console
-  // shell: fullscreen per the settings, no route back into the desktop shell,
-  // and quitting closes the app so Moonlight returns to the host desktop.
-  const [consoleMode, setConsoleMode] = useState<ConsoleStatus | null>(null);
-  const consoleActive = consoleMode?.active === true;
+  // #267: the machine's own state (console mode, fullscreen, battery, the
+  // running game, online) lives in one session hook.
+  const {
+    online,
+    padBattery,
+    consoleMode,
+    consoleActive,
+    runningGame,
+    setRunningGame,
+    exit,
+  } = useConsoleSession();
   // Mirror of the highlight that is always in step with the last key press:
   // a fast A after two d-pad clicks must apply the card that is on screen.
   const pickerIndexRef = useRef(0);
@@ -322,7 +324,7 @@ export function BigPictureScreen() {
   // #138 controller-first state: the open overlay, its highlight, the couch
   // search query (debounced by the filter below) and the device-local profile
   // choice. None of these leave Big Picture when they change.
-  const [overlay, setOverlay] = useState<BigPictureOverlay | null>(null);
+  const [overlay, setOverlay] = useState<BigPictureOverlay | null>(() => overlayForSurface(surface));
   const [overlayIndex, setOverlayIndex] = useState(0);
   const overlayReturnRef = useRef<"library" | "home" | "actions" | "app">("library");
   const [query, setQuery] = useState("");
@@ -398,120 +400,51 @@ export function BigPictureScreen() {
     uiSound.setGameRunning(runningGame !== null);
   }, [runningGame]);
 
-  const games = data?.items ?? [];
-
-  // The shell level is URL state. A browser Back, a language remount or a
-  // deep link all arrive through `location.search`; keep the local level in
-  // step without pushing a new history entry.
+  // #267: the route owns the shell level and the route-backed overlays. A
+  // browser Back, a language remount and a cold deep link all arrive here.
+  const routeLevel = useMemo(() => levelForSurface(surface), [surface]);
   useEffect(() => {
-    const next = levelFromSearch(location.search);
-    setLevelState((current) => (sameLevel(current, next) ? current : next));
-    if (next.kind === "app" && next.id === "settings") {
-      setSettingsSection(settingsSectionFromSearch(location.search));
+    setLevelState((current) => (sameLevel(current, routeLevel) ? current : routeLevel));
+    if (routeLevel.kind === "app" && routeLevel.id === "settings") {
+      setSettingsSection(settingsSectionFromSlug(section));
     }
-  }, [location.search]);
+    if (surface === "downloads" || surface === "search") {
+      setOverlay((current) => (current === surface ? current : surface));
+    } else if (surface === "home" || surface === "library" || surface === "game") {
+      setOverlay((current) =>
+        current === "downloads" || current === "search" ? null : current,
+      );
+    }
+  }, [routeLevel, section, surface]);
 
+  // A job that reaches `done` while the Console is open gets the completion
+  // cue; an install that fails gets the error cue. #267: the witness is the
+  // phase string from the downloads selector, not the job list, so a progress
+  // tick never re-renders the shell.
+  const phaseWitness = useRef<Map<string, string> | null>(null);
   useEffect(() => {
-    const update = () => setOnline(navigator.onLine);
-    window.addEventListener("online", update);
-    window.addEventListener("offline", update);
-    return () => {
-      window.removeEventListener("online", update);
-      window.removeEventListener("offline", update);
-    };
-  }, []);
-
-  // Pad battery only exists through the native listener; the Gamepad API does
-  // not report it. Absent (or a pad with no battery) hides the slot instead of
-  // showing a fabricated value.
-  useEffect(() => {
-    if (!isNative()) return;
-    let cancelled = false;
-    const load = () => {
-      void native
-        .overlayStatus()
-        .then((status) => {
-          if (cancelled) return;
-          const controllers = status?.listener.controllers ?? [];
-          const active = controllers.find((controller) => controller.active) ?? controllers[0];
-          setPadBattery(
-            active && active.battery !== null
-              ? { level: Math.round(active.battery), charging: active.charging }
-              : null,
-          );
+    const list = jobPhases
+      ? jobPhases.split("|").map((entry) => {
+          const at = entry.lastIndexOf(":");
+          return { jobId: entry.slice(0, at), phase: entry.slice(at + 1) };
         })
-        .catch(() => {
-          /* the listener is optional; the bar simply omits the battery */
-        });
-    };
-    load();
-    const timer = window.setInterval(load, 60_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  // A game launched from Big Picture is the only one this shell can stop, and
-  // the exit event clears it even when the player leaves through the game.
-  useEffect(() => {
-    if (!isNative()) return;
-    let cancelled = false;
-    let off: (() => void) | undefined;
-    void native
-      .onGameExited(({ gameId }) => {
-        setRunningGame((current) => (current && current.gameId === gameId ? null : current));
-      })
-      .then((unlisten) => {
-        if (cancelled) unlisten();
-        else off = unlisten;
-      })
-      .catch(() => {
-        /* no session tracking without the desktop event bridge */
-      });
-    return () => {
-      cancelled = true;
-      off?.();
-    };
-  }, []);
-
-  // A job that reaches `done` while Big Picture is open gets the completion
-  // cue; an install that fails gets the error cue. The first non-empty list is
-  // primed silently so persisted history does not replay on mount.
-  const jobPhases = useRef<Map<string, string> | null>(null);
-  useEffect(() => {
-    if (jobPhases.current === null) {
-      if (jobs.length === 0) return;
-      jobPhases.current = new Map(jobs.map((job) => [job.jobId, job.phase]));
+      : [];
+    if (phaseWitness.current === null) {
+      if (list.length === 0) return;
+      phaseWitness.current = new Map(list.map((job) => [job.jobId, job.phase]));
       return;
     }
-    const previous = jobPhases.current;
+    const previous = phaseWitness.current;
     const next = new Map<string, string>();
-    for (const job of jobs) {
+    for (const job of list) {
       next.set(job.jobId, job.phase);
       const before = previous.get(job.jobId);
       if (job.phase === before) continue;
       if (job.phase === "done") emit("installComplete");
       else if (job.phase === "error" && before !== undefined) emit("error");
     }
-    jobPhases.current = next;
-  }, [jobs, emit]);
-
-  useEffect(() => {
-    if (!isNative()) return;
-    let cancelled = false;
-    void native
-      .consoleMode()
-      .then((status) => {
-        if (!cancelled) setConsoleMode(status);
-      })
-      .catch(() => {
-        /* the desktop build always answers; a failure stays in normal mode */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    phaseWitness.current = next;
+  }, [jobPhases, emit]);
 
   const shelves = useMemo<BigPictureShelf[]>(() => {
     const recent = games
@@ -527,7 +460,7 @@ export function BigPictureScreen() {
     shelves,
     layout,
     columns,
-    data: data?.items,
+    data: games,
     reduceMotion,
     instant: instantMotion,
   });
@@ -541,8 +474,42 @@ export function BigPictureScreen() {
   });
   const version = detail.data?.versions[0];
   const installedGame = selected ? installed.get(selected.id) : undefined;
-  const job = selected ? jobForGame(selected.id) : undefined;
+  // #267: one game's job through a selector; the shell no longer holds the
+  // whole active list, so another game's progress never repaints this screen.
+  const job = useJob(selected?.id ?? -1);
   const percent = jobPercent(job);
+
+  // #267: a 600-game library is three server pages. Ask for the next one when
+  // the ring is near the end of what is loaded, so stepping right never runs
+  // out of shelf at the 200-row cap. The ref stops two commits in the same tick
+  // from requesting the same page twice.
+  const pageFetching = useRef(false);
+  useEffect(() => {
+    if (!library.hasNextPage || library.isFetchingNextPage || pageFetching.current) return;
+    const index = nav.index;
+    const count = nav.games.length;
+    if (count === 0 || index < count - 12) return;
+    pageFetching.current = true;
+    void library.fetchNextPage().finally(() => {
+      pageFetching.current = false;
+    });
+  }, [library, nav.index, nav.games.length]);
+
+  // #267: `/console/game/:id` is a real deep link. Select that game once its
+  // page is loaded; a typo leaves the current selection alone rather than
+  // pretending a game exists.
+  const gameRouteApplied = useRef<number | null>(null);
+  useEffect(() => {
+    if (surface !== "game") {
+      gameRouteApplied.current = null;
+      return;
+    }
+    if (gameId === null || games.length === 0) return;
+    if (gameRouteApplied.current === gameId) return;
+    const target = findGameShelf(shelves, gameId);
+    gameRouteApplied.current = gameId;
+    if (target) nav.selectGame(target.shelf, target.index);
+  }, [surface, gameId, games.length, shelves, nav]);
 
   // #229/#237: the console material. Both presets keep the app's rendered
   // (TV-safe) token map; only a curated accent refines it, through derive.ts,
@@ -588,7 +555,11 @@ export function BigPictureScreen() {
     queryFn: () => api.controllerProfiles(),
     staleTime: 5 * 60_000,
   });
-  const accountProfile = profilesQuery.data?.global?.profile ?? presetProfile("xbox");
+  // A memoised fallback: `presetProfile` builds a new object, and a fresh
+  // profile every render would rebuild the pad resolution and re-register the
+  // input scope in a loop (#267).
+  const fallbackProfile = useMemo(() => presetProfile("xbox"), []);
+  const accountProfile = profilesQuery.data?.global?.profile ?? fallbackProfile;
   const gameProfile =
     profilesQuery.data?.games.find((entry) => entry.gameId === selected?.id)?.profile ?? null;
   const profileChoices = useMemo(
@@ -668,7 +639,7 @@ export function BigPictureScreen() {
       : overlay === "exit"
         ? 2
         : overlay === "downloads"
-          ? activeJobs.length + 1
+          ? activeCount + 1
           : overlay === "profiles"
             ? profileChoices.length + 2
             : overlay === "collections"
@@ -749,102 +720,19 @@ export function BigPictureScreen() {
     return () => window.clearTimeout(timer);
   }, [ready]);
 
-  // Big Picture owns the OS window in the desktop app: enter real fullscreen on
-  // mount and hand the window back on the way out. The browser build only gets
-  // the full-viewport layout, and a refused fullscreen never traps the user.
-  // In console mode (#172) the native window is already fullscreen — or was
-  // deliberately started windowed — so this only fills in for a manual visit.
-  useEffect(() => {
-    if (!isNative()) return;
-    // Wait for the native console status so a windowed console session is not
-    // forced fullscreen for a frame first.
-    if (consoleMode === null) return;
-    if (consoleActive && !consoleMode.fullscreen) return;
-    let unmounted = false;
-    let wasFullscreen = false;
-    let entered = false;
-
-    const enter = async () => {
-      try {
-        const { getCurrentWindow } = await import("@tauri-apps/api/window");
-        const win = getCurrentWindow();
-        wasFullscreen = await win.isFullscreen();
-        if (unmounted) return;
-        if (
-          !shouldEnterFullscreen({
-            isNative: true,
-            consoleReady: true,
-            consoleActive,
-            consoleFullscreen: consoleMode?.fullscreen === true,
-            alreadyFullscreen: wasFullscreen,
-          })
-        ) {
-          return;
-        }
-        await win.setFullscreen(true);
-        entered = true;
-      } catch (cause) {
-        console.warn("Big Picture could not enter fullscreen", cause);
-        if (!unmounted) {
-          push({
-            title: "Fullscreen unavailable",
-            description: t("Staying in the in-app view."),
-            tone: "default",
-          });
-        }
-      }
-    };
-
-    const start = enter();
-
-    // Every exit (Esc, Backspace, gamepad B, the Exit button, a route change or
-    // launching a game) unmounts this screen. Cleanup waits for a still-running
-    // enter so it knows what the window looked like before Big Picture touched
-    // it, and hands it back in that state (#233). A window that was already
-    // fullscreen is returned windowed: this screen is one the user leaves, and
-    // staying fullscreen is what trapped them with no way out from inside.
-    return () => {
-      unmounted = true;
-      void start.then(async () => {
-        if (fullscreenRestoreOnExit({ wasFullscreen, entered }) !== "exit") return;
-        try {
-          const { getCurrentWindow } = await import("@tauri-apps/api/window");
-          await getCurrentWindow().setFullscreen(false);
-        } catch (cause) {
-          console.warn("Big Picture could not leave fullscreen", cause);
-        }
-      });
-    };
-  }, [push, consoleMode, consoleActive]);
-
-  const exit = () => {
-    // A console session (#172) has one exit: quit back to the host desktop.
-    if (consoleActive) {
-      void native.exitConsole().catch((cause) => {
-        console.warn("Console mode could not quit", cause);
-        if (window.history.length > 1) navigate(-1);
-        else navigate("/");
-      });
-      return;
-    }
-    if (window.history.length > 1) navigate(-1);
-    else navigate("/");
-  };
-
   /* ----------------------------- shell surfaces ---------------------------- */
 
-  const syncLevelUrl = (next: ShellLevel, section?: SettingsSectionId) => {
-    const params = new URLSearchParams(location.search);
-    if (next.kind === "app") {
-      params.set("app", next.id);
-      if (next.id === "settings") params.set("section", section ?? settingsSection);
-      else params.delete("section");
-    } else {
-      params.delete("app");
-      params.delete("section");
-    }
-    setSearchParams(params, { replace: true });
+  const syncLevelUrl = (next: ShellLevel, nextSection?: SettingsSectionId) => {
     setLevelState(next);
+    if (next.kind === "app") {
+      const sectionForPath = nextSection ?? settingsSection;
+      navigate(
+        consolePathFor(next.id === "settings" ? "settings" : "power", { section: sectionForPath }),
+        { replace: true },
+      );
+      return;
+    }
+    navigate(consolePathFor("library"), { replace: true });
   };
 
   const navRef = useRef(nav);
@@ -1057,42 +945,6 @@ export function BigPictureScreen() {
     setLaunchPlate((current) => (current && plateCanDismiss(current.status) ? null : current));
   }, []);
 
-  const localeChoices = useMemo(() => selectableLocales(), []);
-  const cycleLocale = async (delta: -1 | 1) => {
-    const current = Math.max(0, localeChoices.findIndex((entry) => entry.code === locale));
-    const next = localeChoices[wrapIndex(current, delta, localeChoices.length)];
-    if (!next) return;
-    try {
-      if (!user || deviceOnly) await setLocale(next.code);
-      else await updateLocale(next.code);
-    } catch (cause) {
-      push({ title: t("Could not save the language"), description: errorMessage(cause), tone: "danger" });
-    }
-  };
-
-  const applyAccountDefault = async () => {
-    try {
-      await clearDeviceOverride();
-      setDeviceOnly(false);
-    } catch (cause) {
-      push({ title: t("Could not save the language"), description: errorMessage(cause), tone: "danger" });
-    }
-  };
-
-  const themeChoices = ["system", "dark", "light"] as const;
-  const themeChoice = theme === "system" ? "system" : resolved === "dark" ? "dark" : "light";
-  const cycleTheme = (delta: -1 | 1) => {
-    const next = themeChoices[wrapIndex(themeChoices.indexOf(themeChoice), delta, themeChoices.length)];
-    setTheme(next === "system" ? "system" : next === "dark" ? "midnight" : "light");
-  };
-
-  const cycleLayout = (delta: -1 | 1) => {
-    const next = BIG_PICTURE_LAYOUTS[wrapIndex(BIG_PICTURE_LAYOUTS.indexOf(layout), delta, BIG_PICTURE_LAYOUTS.length)];
-    if (!next || next === layout) return;
-    setLayout(next);
-    setLayoutTouched(true);
-  };
-
   const power = useMemo(
     () =>
       powerActions({
@@ -1244,6 +1096,12 @@ export function BigPictureScreen() {
     overlayReturnRef.current =
       level.kind === "app" ? "app" : zone === "home" ? "home" : zone === "actions" ? "actions" : "library";
     setOverlay(next);
+    // #267: the queue and the couch search are routes. The state changes first
+    // so the surface opens in this commit; the URL follows with `replace` so
+    // Back still leaves the Console instead of walking through its panels.
+    if (next === "downloads" || next === "search") {
+      navigate(consolePathFor(next), { replace: true });
+    }
     if (next === "search") {
       setSearchIndex(0);
     } else if (next === "profiles") {
@@ -1261,6 +1119,9 @@ export function BigPictureScreen() {
     // A transition to another surface (menu → search) is not a close: the new
     // surface plays its own open cue.
     if (refocus && overlay) beginMotion("overlayClose");
+    if (overlay === "downloads" || overlay === "search") {
+      navigate(consolePathFor("library"), { replace: true });
+    }
     setOverlay(null);
     if (!refocus) return;
     const target = overlayReturnRef.current;
@@ -1328,7 +1189,7 @@ export function BigPictureScreen() {
             if (!selected) return;
             emit("confirm");
             closeOverlay(false);
-            return navigate(`/game/${selected.id}`);
+            return navigate(consolePathFor("game", { gameId: selected.id }));
           case "search":
             return openOverlay("search");
           case "downloads":
@@ -1412,6 +1273,27 @@ export function BigPictureScreen() {
     }
   };
 
+  /**
+   * One click path for every surface (#267): the menu, queue, profile sheet and
+   * collection index activate their ring; couch search activates the cell that
+   * was actually clicked.
+   */
+  const chooseOverlay = (index: number) => {
+    if (overlay === "search") {
+      setSearchIndex(index);
+      const cell = cells[index];
+      if (!cell) return;
+      if (cell.kind === "key") {
+        typeSearchKey(cell.key);
+        return;
+      }
+      pickResult(cell.game.id);
+      return;
+    }
+    setOverlayIndex(index);
+    activateOverlay(index);
+  };
+
   const runCommand = (command: BigPictureCommand) => {
     // #198: the command table decides the movement cue, before execution, from
     // the state the press was made in. An edge press is silent because `moved`
@@ -1471,7 +1353,7 @@ export function BigPictureScreen() {
         openPicker();
         return;
       case "game":
-        if (selected) navigate(`/game/${selected.id}`);
+        if (selected) navigate(consolePathFor("game", { gameId: selected.id }));
         return;
       case "power":
         openApp("power");
@@ -1620,24 +1502,10 @@ export function BigPictureScreen() {
       padGesture.current = false;
     }
   };
-  const gamepad = useGamepad(onGamepad, {
-    profile: activeProfile,
-    // #230: resolves the pad that is actually driving the UI, so a second pad
-    // or a reconnect never inherits the first pad's profile.
-    resolveProfile: (pad) =>
-      withBigPictureDefaults(
-        resolveProfileForPad(pad?.id ?? null, padFamily(pad?.id ?? null, accountProfile), devices, {
-          ...padSources,
-          pad,
-          samples: pad ? axisSamplesFor(padFingerprint(pad.id, undefined, { mapping: pad.mapping }).fingerprint) : null,
-        }).profile,
-      ),
-    debug,
-    haptics,
-    hapticsStrength: prefs.hapticsStrength,
-    // The cue decides the pattern; the screen calls `pulse` from `emit`.
-    cueHaptics: true,
-  });
+  // #267: the polling loop lives in `InputProvider`; the shell registers a
+  // scope and consumes the same commands as every other surface.
+  const input = useInput();
+  const gamepad = input;
   pulseRef.current = gamepad.pulse;
   // The hook may have switched pads since the render above (the pad that last
   // produced input wins), so name the pad it settled on, not the guess.
@@ -1704,340 +1572,33 @@ export function BigPictureScreen() {
   }, [layout, level, nav, focusSurface, focusActions]);
 
   const recentGame = shelves.find((shelf) => shelf.id === "recent")?.games[0] ?? null;
-  const themeValue =
-    themeChoice === "system" ? t("Follow the system") : themeChoice === "dark" ? t("Dark") : t("Light");
-
-  /* ------------------------------ settings app ----------------------------- */
-
-  const settingsRows: SettingsRow[] = (() => {
-    if (settingsSection === "language") {
-      const rows: SettingsRow[] = [
-        {
-          id: "language",
-          label: t("Language"),
-          detail: t("Applies to your account on every device. A device override stays on this device."),
-          value: localeMeta(locale).label,
-          kind: "choice",
-        },
-        {
-          id: "device-only",
-          label: t("Only this device"),
-          detail: t("Changes apply immediately."),
-          value: deviceOnly ? t("On") : t("Off"),
-          kind: "toggle",
-        },
-      ];
-      if (deviceOverride) {
-        rows.push({
-          id: "account-default",
-          label: t("Use account default"),
-          detail: t("Applies to your account on every device. A device override stays on this device."),
-          value: t("Select"),
-          kind: "action",
-        });
-      }
-      return rows;
-    }
-    if (settingsSection === "appearance") {
-      return [
-        {
-          id: "layout",
-          label: t("Layout"),
-          detail: t("Change how the library is presented."),
-          value: layoutLabel(layout),
-          kind: "choice",
-        },
-        {
-          id: "console-preset",
-          label: t("Console style"),
-          detail: consolePresetDescription(consoleAppearance.preset),
-          value: consolePresetLabel(consoleAppearance.preset),
-          kind: "choice",
-        },
-        {
-          id: "console-accent",
-          label: t("Accent"),
-          detail: t("A curated console accent. Theme accent follows the appearance settings."),
-          value: consoleAccentLabel(consoleAppearance.accent),
-          kind: "choice",
-        },
-        {
-          id: "console-background",
-          label: t("Background"),
-          detail: t("What the console floats over. Artwork keeps the selected game behind the chrome."),
-          value: consoleBackgroundLabel(consoleAppearance.background),
-          kind: "choice",
-        },
-        {
-          id: "console-radius",
-          label: t("Corners"),
-          detail: t("How round the tiles, panels and sheets are. Sharp keeps the archive's 2 px edge."),
-          value: consoleRadiusLabel(consoleAppearance.radius),
-          kind: "choice",
-        },
-        {
-          id: "theme",
-          label: t("Theme"),
-          detail: t("Theme applies to this browser; language is saved to your account."),
-          value: themeValue,
-          kind: "choice",
-        },
-        {
-          id: "console-reset",
-          label: t("Reset console appearance"),
-          detail: t("Back to Studio, artwork, theme accent and sharp corners."),
-          value: t("Reset"),
-          kind: "action",
-        },
-      ];
-    }
-    if (settingsSection === "controllers") {
-      return [
-        {
-          id: "profile",
-          label: t("Controller profile"),
-          detail: gamepad.connected ? `${padFamilyLabel(padFamilyName)} · ${activeProfile.name}` : t("No controller detected."),
-          value: activeProfile.name,
-          kind: "action",
-        },
-        {
-          id: "vibration",
-          label: t("Vibration"),
-          detail: t("Switch the pad setup and vibration."),
-          value: prefs.haptics ? t("On") : t("Off"),
-          kind: "toggle",
-        },
-        {
-          id: "haptics-strength",
-          label: t("Haptics strength"),
-          detail: t("Standard or strong rumble on this device. Off silences the pad."),
-          value: hapticsStrengthLabel(prefs.hapticsStrength),
-          kind: "choice",
-        },
-        {
-          id: "sound",
-          label: t("UI sounds"),
-          detail: t("Short cues for movement, confirmations and launches. Silent while a game runs."),
-          value: prefs.sound.enabled ? t("On") : t("Off"),
-          kind: "toggle",
-        },
-        {
-          id: "sound-volume",
-          label: t("Volume"),
-          detail: t("Applies to this device. 0 % is silent even when the cues are on."),
-          value: `${Math.round(clampVolume(prefs.sound.volume) * 100)}%`,
-          kind: "choice",
-        },
-        {
-          id: "sound-test",
-          label: t("Test sound"),
-          detail: t("Plays the confirm cue."),
-          value: t("Play"),
-          kind: "action",
-          disabled: !prefs.sound.enabled || clampVolume(prefs.sound.volume) <= 0,
-          reason: prefs.sound.enabled ? t("Volume is at 0 %.") : t("UI sounds are off."),
-        },
-        {
-          id: "haptics-test",
-          label: t("Test pulse"),
-          detail: t("Rumbles once on the connected controller."),
-          value: t("Play"),
-          kind: "action",
-          disabled: !haptics || !gamepad.connected,
-          reason: gamepad.connected ? t("Haptics are off.") : t("No controller detected."),
-        },
-      ];
-    }
-    return [
-      {
-        id: "remote-play",
-        label: t("Remote play"),
-        detail: t("Publish the Ludex library as Sunshine apps and start streams from Moonlight. Ludex never bundles either application."),
-        value: t("Set up remote play"),
-        kind: "action",
-      },
-    ];
-  })();
-
-  const activateSetting = (index: number) => {
-    const row = settingsRows[index];
-    if (!row) return;
-    if (row.disabled) {
-      // #229: a disabled row still answers the press, with the dry chrome click
-      // instead of silence — dead controls are how a console feels broken.
-      emit("click");
-      return;
-    }
-    switch (row.id) {
-      case "language":
-        emit("confirm");
-        void cycleLocale(1);
-        return;
-      case "device-only":
-        emit("confirm");
-        setDeviceOnly((current) => !current);
-        return;
-      case "account-default":
-        emit("confirm");
-        void applyAccountDefault();
-        return;
-      case "layout":
-        emit("confirm");
-        cycleLayout(1);
-        return;
-      case "console-preset":
-        emit("confirm");
-        setConsoleAppearance(
-          withConsolePreset(
-            consoleAppearance,
-            cycleChoice(CONSOLE_PRESETS, consoleAppearance.preset, 1),
-          ),
-        );
-        return;
-      case "console-accent":
-        emit("confirm");
-        setConsoleAppearance({
-          ...consoleAppearance,
-          accent: cycleChoice(CONSOLE_ACCENT_IDS, consoleAppearance.accent, 1),
-        });
-        return;
-      case "console-background":
-        emit("confirm");
-        setConsoleAppearance({
-          ...consoleAppearance,
-          background: cycleChoice(CONSOLE_BACKGROUNDS, consoleAppearance.background, 1),
-        });
-        return;
-      case "console-radius":
-        emit("confirm");
-        setConsoleAppearance({
-          ...consoleAppearance,
-          radius: cycleChoice(CONSOLE_RADII, consoleAppearance.radius, 1),
-        });
-        return;
-      case "console-reset":
-        emit("confirm");
-        setConsoleAppearance(DEFAULT_CONSOLE_APPEARANCE);
-        return;
-      case "theme":
-        emit("confirm");
-        cycleTheme(1);
-        return;
-      case "profile":
-        openOverlay("profiles");
-        return;
-      case "vibration": {
-        emit("confirm");
-        const next = !prefs.haptics;
-        updatePrefs({
-          haptics: next,
-          hapticsStrength: next && prefs.hapticsStrength === "off" ? "standard" : prefs.hapticsStrength,
-        });
-        return;
-      }
-      case "haptics-strength": {
-        emit("confirm");
-        const next = cycleHapticsStrength(prefs.hapticsStrength, 1);
-        updatePrefs({ hapticsStrength: next, haptics: next !== "off" });
-        return;
-      }
-      case "sound": {
-        const next = { ...prefs.sound, enabled: !prefs.sound.enabled };
-        // Apply before the cue: turning sound on should click once, turning it
-        // off should go quiet immediately.
-        uiSound.setPrefs(next);
-        emit("confirm");
-        updatePrefs({ sound: next });
-        return;
-      }
-      case "sound-volume": {
-        const next = { ...prefs.sound, volume: stepVolume(prefs.sound.volume, 1) };
-        uiSound.setPrefs(next);
-        emit("confirm");
-        updatePrefs({ sound: next });
-        return;
-      }
-      case "sound-test":
-        // The cue is the feedback; a pointer press must not rumble.
-        uiSound.play("confirm");
-        return;
-      case "haptics-test":
-        pulseRef.current("confirm");
-        return;
-      case "remote-play":
-        emit("confirm");
-        navigate("/remote");
-        return;
-    }
-  };
-
-  const adjustSetting = (index: number, delta: -1 | 1) => {
-    const row = settingsRows[index];
-    if (!row) return;
-    if (row.disabled) {
-      emit("click");
-      return;
-    }
-    switch (row.id) {
-      case "language":
-        emit("move");
-        void cycleLocale(delta);
-        return;
-      case "layout":
-        emit("move");
-        cycleLayout(delta);
-        return;
-      case "console-preset":
-        emit("move");
-        setConsoleAppearance(
-          withConsolePreset(
-            consoleAppearance,
-            cycleChoice(CONSOLE_PRESETS, consoleAppearance.preset, delta),
-          ),
-        );
-        return;
-      case "console-accent":
-        emit("move");
-        setConsoleAppearance({
-          ...consoleAppearance,
-          accent: cycleChoice(CONSOLE_ACCENT_IDS, consoleAppearance.accent, delta),
-        });
-        return;
-      case "console-background":
-        emit("move");
-        setConsoleAppearance({
-          ...consoleAppearance,
-          background: cycleChoice(CONSOLE_BACKGROUNDS, consoleAppearance.background, delta),
-        });
-        return;
-      case "console-radius":
-        emit("move");
-        setConsoleAppearance({
-          ...consoleAppearance,
-          radius: cycleChoice(CONSOLE_RADII, consoleAppearance.radius, delta),
-        });
-        return;
-      case "theme":
-        emit("move");
-        cycleTheme(delta);
-        return;
-      case "sound-volume": {
-        const next = { ...prefs.sound, volume: stepVolume(prefs.sound.volume, delta) };
-        uiSound.setPrefs(next);
-        emit("move");
-        updatePrefs({ sound: next });
-        return;
-      }
-      case "haptics-strength": {
-        emit("move");
-        const next = cycleHapticsStrength(prefs.hapticsStrength, delta);
-        updatePrefs({ hapticsStrength: next, haptics: next !== "off" });
-        return;
-      }
-      default:
-        return;
-    }
-  };
+  // #267: the settings app's model is a module now (shell/use-console-settings).
+  const settings = useConsoleSettings({
+    section: settingsSection,
+    layout,
+    setLayout,
+    markLayoutTouched: () => setLayoutTouched(true),
+    appearance: consoleAppearance,
+    setAppearance: setConsoleAppearance,
+    theme,
+    resolved,
+    setTheme,
+    prefs,
+    updatePrefs,
+    deviceOnly,
+    setDeviceOnly,
+    padConnected: gamepad.connected,
+    padFamilyName,
+    hapticsActive: haptics,
+    activeProfile,
+    emit,
+    pulse: (cue) => pulseRef.current(cue),
+    openProfiles: () => openOverlay("profiles"),
+    openRemotePlay: () => navigate("/remote"),
+  });
+  const settingsRows = settings.rows;
+  const activateSetting = settings.activate;
+  const adjustSetting = settings.adjust;
 
   /* -------------------------------- home row ------------------------------- */
 
@@ -2054,9 +1615,7 @@ export function BigPictureScreen() {
     downloads:
       activeCount > 0
         ? {
-            detail: `${tn(activeCount, "1 downloading", "{count} downloading")}${
-              transferPercent !== null ? ` · ${formatPercent(transferPercent)}` : ""
-            }`,
+            detail: tn(activeCount, "1 downloading", "{count} downloading"),
           }
         : { detail: t("No downloads running.") },
     collections: collectionsQuery.isPending
@@ -2168,9 +1727,13 @@ export function BigPictureScreen() {
     active.focus({ preventScroll: true });
   }, [pendingPower, level, focusSurface]);
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+  /**
+   * #267: the key map is a scope handler, not a private window listener. The
+   * InputProvider gives it to the top console scope, so an overlay and the
+   * screen behind it can never both answer one press.
+   */
+  const onConsoleKey = (event: KeyboardEvent): void => {
+    if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       const key = event.key;
 
       // #220: a held key (auto-repeat) lands on the final frame; a fresh press
@@ -2341,26 +1904,37 @@ export function BigPictureScreen() {
       // backspace in the search input stay native.
       if (!command) return;
       event.preventDefault();
-      runRef.current(command);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [
-    overlay,
-    pickerOpen,
-    launchPlate,
-    consoleActive,
-    consoleMode?.exitShortcut,
-    pendingPower,
-    level,
-    layout,
-    zone,
-    homeIndex,
-    appIndex,
-    settingsSection,
-    settingsRows,
-    power,
-  ]);
+    runRef.current(command);
+  };
+
+  // The Console scope. The top surface owns the pad and the keys; a menu or a
+  // launch plate mounts a child scope (below), so one press runs one action.
+  const consoleInputOptions = useMemo<InputScopeOptions>(
+    () => ({
+      profile: activeProfile,
+      // #230: resolves the pad that is actually driving the UI, so a second pad
+      // or a reconnect never inherits the first pad's profile.
+      resolveProfile: (pad) =>
+        withBigPictureDefaults(
+          resolveProfileForPad(pad?.id ?? null, padFamily(pad?.id ?? null, accountProfile), devices, {
+            ...padSources,
+            pad,
+            samples: pad ? axisSamplesFor(padFingerprint(pad.id, undefined, { mapping: pad.mapping }).fingerprint) : null,
+          }).profile,
+        ),
+      haptics,
+      hapticsStrength: prefs.hapticsStrength,
+      // The cue decides the pattern; the screen calls `pulse` from `emit`.
+      cueHaptics: true,
+    }),
+    [activeProfile, accountProfile, devices, padSources, haptics, prefs.hapticsStrength],
+  );
+  useInputScope({
+    id: "console",
+    onAction: onGamepad,
+    onKey: onConsoleKey,
+    options: consoleInputOptions,
+  });
 
   const primary = !selected ? null : installedGame ? (
     <Button
@@ -2397,9 +1971,8 @@ export function BigPictureScreen() {
     job,
     percent,
     primary,
-    onOpenGame: (gameId) => navigate(`/game/${gameId}`),
+    onOpenGame: (gameId) => navigate(consolePathFor("game", { gameId })),
     onOpenMenu: () => openOverlay("menu"),
-    jobFor: jobForGame,
   };
 
   const body = isPending ? (
@@ -2432,16 +2005,6 @@ export function BigPictureScreen() {
       return <View {...viewProps} />;
     })()
   );
-
-  const overlayShell = {
-    layout,
-    connected: gamepad.connected,
-    family: padFamilyName,
-    swapAB,
-    reduceMotion,
-    instant: instantMotion,
-    onClose: () => closeOverlay(),
-  };
 
   const footerContext = pendingPower
     ? "exit"
@@ -2478,6 +2041,13 @@ export function BigPictureScreen() {
       style={consoleVars(consoleTheme)}
       {...consoleAttributes(consoleAppearance)}
     >
+      {(overlay || pickerOpen || pendingPower || launchPlate) && (
+        <ConsoleOverlayInputScope
+          onAction={onGamepad}
+          onKey={onConsoleKey}
+          options={consoleInputOptions}
+        />
+      )}
       <div className="grain" aria-hidden="true" />
       <ConsoleBackdrop
         background={consoleAppearance.background}
@@ -2493,8 +2063,6 @@ export function BigPictureScreen() {
         padFamily={padFamilyLabel(padFamilyName)}
         padBattery={padBattery?.level ?? null}
         padCharging={padBattery?.charging ?? false}
-        downloads={activeCount}
-        downloadsPercent={transferPercent}
         refreshing={!isPending && isFetching}
         consoleActive={consoleActive}
       />
@@ -2590,159 +2158,63 @@ export function BigPictureScreen() {
         haptics={haptics}
       />
 
-      <AnimatePresence initial={false}>
-        {overlay === "menu" && (
-          <CommandMenu
-            key="menu"
-            {...overlayShell}
-            context="menu"
-            active={overlayIndex}
-            onHighlight={setOverlayIndex}
-            onChoose={(index) => {
-              setOverlayIndex(index);
-              activateOverlay(index);
-            }}
-            downloads={activeCount}
-          />
-        )}
-        {overlay === "downloads" && (
-          <DownloadsOverlay
-            key="downloads"
-            {...overlayShell}
-            context="downloads"
-            active={overlayIndex}
-            onHighlight={setOverlayIndex}
-            onChoose={(index) => {
-              setOverlayIndex(index);
-              activateOverlay(index);
-            }}
-            jobs={activeJobs}
-            titleFor={titleFor}
-          />
-        )}
-        {overlay === "profiles" && (
-          <ProfileOverlay
-            key="profiles"
-            {...overlayShell}
-            context="profiles"
-            active={overlayIndex}
-            onHighlight={setOverlayIndex}
-            onChoose={(index) => {
-              setOverlayIndex(index);
-              activateOverlay(index);
-            }}
-            options={profileChoices}
-            selectedId={selectedProfileId}
-            profile={padResolutionNow.profile}
-            pad={padSummary}
-            haptics={prefs.haptics}
-            strength={prefs.hapticsStrength}
-          />
-        )}
-        {overlay === "search" && (
-          <SearchOverlay
-            key="search"
-            {...overlayShell}
-            context="search"
-            inputRef={searchInputRef}
-            query={query}
-            onQuery={setQuery}
-            rows={rows}
-            active={searchIndex}
-            onHighlight={setSearchIndex}
-            onChoose={(index) => {
-              setSearchIndex(index);
-              // The highlight may still be the previous index inside this handler;
-              // choose the cell that was actually clicked.
-              const cell = cells[index];
-              if (!cell) return;
-              if (cell.kind === "key") {
-                typeSearchKey(cell.key);
-                return;
-              }
-              pickResult(cell.game.id);
-            }}
-          />
-        )}
-
-        {overlay === "collections" && (
-          <CollectionsOverlay
-            key="collections"
-            {...overlayShell}
-            context="collections"
-            active={overlayIndex}
-            onHighlight={setOverlayIndex}
-            onChoose={(index) => {
-              setOverlayIndex(index);
-              activateOverlay(index);
-            }}
-            collections={collections}
-            loading={collectionsQuery.isPending}
-            error={collectionsQuery.isError ? errorMessage(collectionsQuery.error) : null}
-            onRetry={() => void collectionsQuery.refetch()}
-          />
-        )}
-      </AnimatePresence>
-      <AnimatePresence initial={false}>
-        {launchPlate && (
-          <LaunchPlate
-            key={`launch-${launchPlate.game.id}`}
-            gameId={launchPlate.game.id}
-            title={launchPlate.game.title}
-            coverUrl={launchPlate.game.coverUrl}
-            rect={launchPlate.rect}
-            status={launchPlate.status}
-            detail={launchPlate.detail}
-            reduceMotion={reduceMotion}
-            instant={instantMotion}
-            onDismiss={() => {
-              emit("click");
-              dismissLaunchPlate();
-            }}
-          />
-        )}
-      </AnimatePresence>
-      <AnimatePresence initial={false}>
-        {pendingPower && (
-          <ConfirmPanel
-            key="power-confirm"
-            title={pendingPower.action.label}
-            detail={pendingPower.action.detail}
-            confirmLabel={pendingPower.action.label}
-            tone={pendingPower.action.tone === "danger" ? "danger" : undefined}
-            active={pendingPower.index}
-            onHighlight={(index) => setPendingPower((current) => (current ? { ...current, index } : current))}
-            onChoose={chooseConfirm}
-            context="exit"
-            layout={layout}
-            connected={gamepad.connected}
-            family={padFamilyName}
-            swapAB={swapAB}
-            reduceMotion={reduceMotion}
-            instant={instantMotion}
-            onClose={() => setPendingPower(null)}
-          />
-        )}
-      </AnimatePresence>
+      <ConsoleOverlays
+        overlay={overlay}
+        active={overlayIndex}
+        onHighlight={setOverlayIndex}
+        onChoose={chooseOverlay}
+        onClose={() => closeOverlay()}
+        layout={layout}
+        connected={gamepad.connected}
+        family={padFamilyName}
+        swapAB={Boolean(swapAB)}
+        reduceMotion={Boolean(reduceMotion)}
+        instant={instantMotion}
+        downloads={activeCount}
+        titleFor={titleFor}
+        profileOptions={profileChoices}
+        selectedProfileId={selectedProfileId}
+        profile={padResolutionNow.profile}
+        pad={padSummary}
+        haptics={prefs.haptics}
+        strength={prefs.hapticsStrength}
+        searchInputRef={searchInputRef}
+        query={query}
+        onQuery={setQuery}
+        rows={rows}
+        searchActive={searchIndex}
+        onSearchHighlight={setSearchIndex}
+        collections={collections}
+        collectionsLoading={collectionsQuery.isPending}
+        collectionsError={collectionsQuery.isError ? collectionsQuery.error : null}
+        onCollectionsRetry={() => void collectionsQuery.refetch()}
+      />
+      <ConsoleDialogs
+        layout={layout}
+        connected={gamepad.connected}
+        family={padFamilyName}
+        swapAB={Boolean(swapAB)}
+        reduceMotion={Boolean(reduceMotion)}
+        instant={instantMotion}
+        launchPlate={launchPlate}
+        onDismissPlate={dismissLaunchPlate}
+        pendingPower={pendingPower}
+        onConfirmPower={chooseConfirm}
+        onHighlightPower={(index) => setPendingPower((current) => (current ? { ...current, index } : current))}
+        onClosePower={() => setPendingPower(null)}
+        emit={emit}
+        pickerOpen={pickerOpen}
+        pickerIndex={pickerIndex}
+        onHighlightPicker={highlightPicker}
+        onSelectPicker={applyLayout}
+        onClosePicker={closePicker}
+      />
 
       {version && detail.data && (
         <InstallDialog open={installOpen} onOpenChange={setInstallOpen} game={detail.data} version={version} />
       )}
       {debug && <GamepadDebugPanel info={gamepad.debug} />}
       {debugMotion && <MotionProbe transitions={transitions} />}
-      <AnimatePresence initial={false}>
-        {pickerOpen && (
-          <LayoutPicker
-            key="layout-picker"
-            layout={layout}
-            highlight={pickerIndex}
-            reduceMotion={reduceMotion}
-            onHighlight={highlightPicker}
-            onSelect={applyLayout}
-            onClose={closePicker}
-          />
-        )}
-      </AnimatePresence>
     </div>
   );
 }

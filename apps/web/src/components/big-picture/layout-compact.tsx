@@ -1,8 +1,10 @@
+import { type ComponentProps } from "react";
 import { motion } from "motion/react";
 import { GameCover } from "@/components/art/cover";
 import { Button } from "@/components/ui/controls";
 import { formatYear } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { useJob } from "@/state/downloads";
 import { COPY_CUE, HERO_CUE, cardDelay, reveal } from "./entrance";
 import { jobPercent, type BigPictureLayoutProps } from "./model";
 import { transitionOf } from "./motion";
@@ -15,6 +17,19 @@ import {
   SelectedEyebrow,
   ShelfTabs,
 } from "./parts";
+
+/**
+ * One live row (#267): the row subscribes to its own job, so a progress tick
+ * never repaints the shell or the rest of the list. The previous version
+ * passed a lookup from the screen, which meant the whole Console re-rendered
+ * at the sampler's rate.
+ */
+function LiveCompactRow({
+  ...props
+}: Omit<ComponentProps<typeof CompactRow>, "job" | "percent">) {
+  const job = useJob(props.game.id);
+  return <CompactRow {...props} job={job} percent={jobPercent(job)} />;
+}
 
 /**
  * Compact (#141) — a dense list for big libraries and fast stepping, with the
@@ -32,7 +47,6 @@ export function CompactLayout({
   percent,
   primary,
   onOpenGame,
-  jobFor,
 }: BigPictureLayoutProps) {
   const shelfChanged = useChangeWitness(nav.shelf?.id);
   const game = nav.selected;
@@ -57,7 +71,6 @@ export function CompactLayout({
           initial={shelfChanged ? shelfFrame.initial : false}
         >
           {nav.games.map((entry, position) => {
-            const entryJob = jobFor(entry.id);
             return (
               <motion.div
                 key={entry.id}
@@ -67,14 +80,12 @@ export function CompactLayout({
                   settled,
                 })}
               >
-                <CompactRow
+                <LiveCompactRow
                   game={entry}
                   position={position}
                   selected={position === nav.index}
                   nav={nav}
                   installed={installed.has(entry.id)}
-                  job={entryJob}
-                  percent={jobPercent(entryJob)}
                 />
               </motion.div>
             );

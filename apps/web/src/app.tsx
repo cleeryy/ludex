@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { HashRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { lazy, Suspense, useEffect } from "react";
 import { api } from "@/lib/api";
 import { DESKTOP_STATE_PARAM, pendingDesktopState, readDesktopStateFromSearch } from "@/lib/desktop-handoff";
@@ -7,8 +7,9 @@ import { isNative, native } from "@/lib/native";
 import { useAuth, useIsAdmin, useIsEditor } from "@/state/auth";
 import { SettingsProvider } from "@/state/settings";
 import { I18nProvider, useI18n } from "@/lib/i18n";
+import { consoleEntryRedirect, useConsoleEntry } from "@/lib/console-entry";
+import { legacyConsoleRedirect } from "@/components/console/routes/surface";
 import { UpdateProvider } from "@/components/updates/update-provider";
-import { UpdateNotifier } from "@/components/updates/update-notifier";
 import { UpdatesScreen } from "@/screens/updates";
 import { ToastProvider } from "@/state/toasts";
 import { AuthProvider } from "@/state/auth";
@@ -18,13 +19,11 @@ import { UploadProvider } from "@/state/upload";
 import { VirusTotalQueueProvider } from "@/state/virustotal-queue";
 import { Wordmark } from "@/components/brand";
 import { Button } from "@/components/ui/controls";
-import { ToastViewport } from "@/components/ui/toast";
-import { PwaPrompts } from "@/components/pwa-prompts";
-import { OverlayHost } from "@/components/overlay/overlay-host";
-import { isOverlayEntry, OverlayWindowApp } from "@/components/overlay/overlay-window";
 import { AppShell } from "@/components/shell/app-shell";
 import { FloatingWindowControls } from "@/components/shell/window-controls";
 import { useCustomTitleBar } from "@/lib/window-chrome";
+import { InputProvider } from "@/components/console/input/input-provider";
+import { isOverlayEntry, OverlayWindowApp } from "@/components/overlay/overlay-window";
 import { LoginScreen } from "@/screens/login";
 import { SetupScreen } from "@/screens/setup";
 import { HomeScreen } from "@/screens/home";
@@ -51,8 +50,8 @@ import { t } from "@/lib/i18n";
  * rarely the first screen. They load on navigation instead of bloating the
  * entry chunk. Named exports need the `.then` adapter.
  */
-const BigPictureScreen = lazy(() =>
-  import("@/screens/big-picture").then((module) => ({ default: module.BigPictureScreen })),
+const ConsoleApp = lazy(() =>
+  import("@/components/console/console-app").then((module) => ({ default: module.ConsoleApp })),
 );
 const IngestScreen = lazy(() =>
   import("@/screens/admin/ingest").then((module) => ({ default: module.IngestScreen })),
@@ -171,12 +170,19 @@ function BootError({ message }: { message: string }) {
 function Gate({ children }: { children: React.ReactNode }) {
   const { ready, bootError, user, setup, holdLogin } = useAuth();
   const location = useLocation();
+  const consoleEntry = useConsoleEntry();
+  const at = location.pathname;
+
+  // #267: a device that opens on the Console (flag or `ludex --console`) never
+  // paints the desktop login. The Console has its own signed-out screen.
+  const consoleTarget = holdLogin ? null : consoleEntryRedirect(at, consoleEntry);
+  if (consoleTarget) return <Navigate to={consoleTarget} replace />;
+  if (consoleEntry.pending && at === "/") return <BootScreen />;
 
   if (!ready) return <BootScreen />;
   if (bootError) return <BootError message={bootError} />;
 
   const needsSetup = setup?.needsSetup ?? false;
-  const at = location.pathname;
   // #157: a desktop handoff opens /login in the user's browser. It must stay
   // reachable both before signing in and when that browser already has a
   // session (the page then hands the session back immediately).
@@ -202,6 +208,12 @@ function Gate({ children }: { children: React.ReactNode }) {
   if (user && at === "/login" && !holdLogin && !desktopHandoff) return <Navigate to="/" replace />;
 
   return <>{children}</>;
+}
+
+/** `/bigpicture` -> `/console` for one release (#267). */
+function LegacyConsoleRedirect() {
+  const { pathname } = useLocation();
+  return <Navigate to={legacyConsoleRedirect(pathname) ?? "/console"} replace />;
 }
 
 function RequireEditor({ children }: { children: React.ReactNode }) {
@@ -257,33 +269,6 @@ function ConfigSyncDefaults() {
   return null;
 }
 
-/**
- * Console mode entry point (#172): Sunshine starts `ludex --console`, and the
- * first authenticated screen must be Big Picture, never the desktop shell.
- * Only the root route redirects, so sign-in, setup and Big Picture itself keep
- * their own navigation.
- */
-function ConsoleEntry() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  useEffect(() => {
-    if (!isNative() || location.pathname !== "/") return;
-    let cancelled = false;
-    void native
-      .consoleMode()
-      .then((status) => {
-        if (!cancelled && status.active) navigate("/bigpicture", { replace: true });
-      })
-      .catch(() => {
-        /* a failed probe stays in the desktop shell */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [navigate, location.pathname]);
-  return null;
-}
-
 export function App() {
   // The floating overlay window (#144) loads this same bundle with `?overlay=1`:
   // it gets a tiny provider tree instead of the full app shell and auth gate.
@@ -301,9 +286,10 @@ export function App() {
             <I18nProvider>
             <UpdateProvider>
             <ConfigSyncDefaults />
+            {/* #267: one pad polling loop and one scope stack for the whole
+                app. Console, Library, overlay and onboarding register scopes. */}
+            <InputProvider>
             <HashRouter>
-              <UpdateNotifier />
-              <ConsoleEntry />
               {/* Lazy routes share one boundary: the fallback is a blank page
                   shell for the few milliseconds a chunk needs, never a copy. */}
               <Suspense fallback={<div className="page" aria-busy="true" />}>
@@ -316,19 +302,18 @@ export function App() {
                 <Route path="/download" element={<DownloadScreen />} />
                 {/* Invitation landing page (#166): the invitee has no account yet. */}
                 <Route path="/register" element={<RegisterScreen />} />
+                {/* #267: the Console is its own shell with its own gates. It is
+                    mounted outside `Gate`, so a signed-out or offline player
+                    never lands on the desktop login. */}
+                <Route path="/console/*" element={<ConsoleApp />} />
+                {/* One release of compatibility: old links and the desktop
+                    shortcut keep working, then this route disappears. */}
+                <Route path="/bigpicture" element={<LegacyConsoleRedirect />} />
                 <Route
                   path="/setup"
                   element={
                     <Gate>
                       <SetupScreen />
-                    </Gate>
-                  }
-                />
-                <Route
-                  path="/bigpicture"
-                  element={
-                    <Gate>
-                      <BigPictureScreen />
                     </Gate>
                   }
                 />
@@ -479,10 +464,8 @@ export function App() {
                 </Route>
               </Routes>
               </Suspense>
-              <OverlayHost />
             </HashRouter>
-            <ToastViewport />
-            <PwaPrompts />
+            </InputProvider>
             </UpdateProvider>
             </I18nProvider>
             </VirusTotalQueueProvider>
