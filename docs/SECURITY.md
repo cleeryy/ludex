@@ -255,7 +255,7 @@ initial triage (test fixtures, HKDF salts, AAD and dummy timing values). Of the
 | Rule | Alerts | Disposition |
 | --- | --- | --- |
 | `rust/path-injection` | 35–50 (16) | **Fixed.** Upload ids, archive names and save file names are confined to one component by `paths::{component,child}`, and the assembly/publish paths are re-checked with `paths::canonical_within`. The remaining sinks carry a narrow `// codeql[rust/path-injection]` marker naming the test that proves the confinement (`paths::tests::*`, `uploads::tests::destinations_stay_inside_the_library`, `saves::tests::snapshot_names_cannot_escape_the_game_directory`). |
-| `rust/request-forgery` | 51, 52 | Fixed in the parallel `media.rs`/`metadata.rs` lane (provider URL allowlist + private-address guard), not in this change. |
+| `rust/request-forgery` | 51, 52 | Fixed in the parallel `media.rs`/`providers.rs` lane (provider URL allowlist + private-address guard); the two IGDB `metadata.rs` sinks are re-triaged in the final pass below. |
 | `rust/cleartext-logging` | 29, 33, 34 | **Fixed.** 29: the debug print of a password error was removed and `ExtractOptions`' `Debug` redacts the password list. 33: the integration test no longer echoes the minted API key into an assertion message. 34: the CLI one-time password print is intentional and annotated. |
 | `rust/cleartext-transmission` | 135 | **Fixed.** `HttpTransport::new` refuses a non-HTTPS base and falls back to the public endpoint; `validate_key` re-checks the scheme before sending the key in `/users/{key}` (`virustotal::tests::plaintext_api_base_is_refused`). |
 | `js/xss-through-dom` | 1–16 | **Fixed at the boundary.** `lib/safe-url.ts` accepts only `https:`, `http:`, `data:`, `blob:` and `demo:` schemes plus single-slash relative paths, and `assetUrl` now returns a branded `SafeUrl`. Every `src`/`href`/`assign` in the reports goes through it; the SSO `desktopAddress` redirect additionally requires the configured server origin (`safeRedirectUrl`). False positives are dismissed with `safe-url.test.ts` as evidence. |
@@ -271,9 +271,41 @@ initial triage (test fixtures, HKDF salts, AAD and dummy timing values). Of the
 | `js/bad-tag-filter` | 19 | **Fixed.** The boot-script extractor is attribute-aware and case-insensitive. |
 | `js/incomplete-sanitization` | 18 | **Fixed.** The navigation test escapes every regexp metacharacter. |
 
+### Final triage (#266, 2026-11-16)
+
+The first pass left 36 alerts open on `main` at `0bcea87`. Four were addressed
+in code on the #266 follow-up lane (three real findings and one ambiguous
+format capture):
+
+| Alert | Fix |
+| --- | --- |
+| `js/unused-local-variable` 150 | unused `readFileSync` import removed from `e2e/console-screenshots.mjs` |
+| `js/regex/missing-regexp-anchor` 137 | the thumbnail filter in `e2e/screenshots.mjs` is host- and `/vi/`-anchored, so `youtube.com` inside a foreign URL no longer matches |
+| `js/bad-tag-filter` 142 | the boot test reads `<script>` bodies with a quote-aware scanner instead of a tag regexp; the new “inline script extraction” test covers case, attributes, `<scripted>` and end-tag noise |
+| `rust/unused-variable` 139 | `downgrade_error` passes `version` as an explicit named format argument; `opening_a_newer_database_is_refused_with_a_recovery_path` asserts the rendered version |
+
+The other 32 sit on a sink that is already confined, or on a deliberate
+behaviour. Each was dismissed individually, with the sanitizer/fixture and the
+test named in the dismissal comment:
+
+| Rule | Alerts | Dismissed as | Evidence |
+| --- | --- | --- | --- |
+| `js/xss-through-dom` | 16 | false positive | every `src`/`href`/`assign` target is a branded `SafeUrl` from `assetUrl`/`toSafeUrl`/`safeRedirectUrl`; `apps/web/src/lib/safe-url.test.ts` |
+| `rust/path-injection` | 9 | false positive | `paths::{component,child}` + canonical containment; `saves::tests::paths_stay_under_the_user_game_directory`, `saves::tests::snapshot_names_cannot_escape_the_game_directory`, `uploads::tests::destinations_stay_inside_the_library` |
+| `rust/cleartext-logging` | 3 | false positive | `ExtractOptions`' `Debug` prints `"N redacted"` (`archive::tests::password_errors_and_options_never_echo_the_password`); the `saves.rs` sink is a test assertion message on a sanitised numeric-id path (`saves::tests::snapshot_names_cannot_escape_the_game_directory`) |
+| `rust/cleartext-logging` | 1 | won't fix | the deliberate one-time `ludex-server import` password print, documented in `--help` and covered by `gamevault::tests::credentials_never_debug_their_password` |
+| `rust/cleartext-transmission` | 1 | false positive | `is_secure_base` refuses a non-HTTPS base before `GET /users/{key}`; only loopback `http` is accepted, for the mock (`virustotal::tests::plaintext_api_base_is_refused`) |
+| `rust/request-forgery` | 2 | false positive | `IgdbClient::new` uses the compile-time IGDB endpoints; `with_endpoints` is `#[cfg(test)]` and only the loopback fixture uses it (`metadata::tests::igdb_fetches_a_record_by_id`) |
+
+Open alerts after the sweep: **0** (queried 2026-11-16). The four fixed alerts
+were dismissed with the fix recorded in the comment; the next scan on `main`
+would have closed them anyway. Any new alert is triaged in the PR that
+introduces it: fix it, or dismiss it with a named test and a written reason.
+
 ### Dismissing an alert
 
-Dismiss only after the fixing commit is on `main`, with the reason and the test
+Dismiss only when the fixing commit is on `main` — or, while a scan is still
+pending, with the fix recorded in the comment — with the reason and the test
 named in the comment:
 
 ```bash
@@ -292,8 +324,8 @@ decision.
 
 ### Required checks
 
-Once the open `error` count is zero (after this change and the request-forgery
-lane both land), make CodeQL a required status check on `main`:
+The open alert count is zero as of 2026-11-16, so the CodeQL jobs can be
+required on `main`:
 
 1. Settings → Branches → `main` → Require status checks to pass.
 2. Add `CodeQL (rust)` and `CodeQL (javascript-typescript)` (the matrix job

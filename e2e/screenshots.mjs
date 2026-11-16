@@ -400,9 +400,12 @@ try {
     // label before the known domain must end with a dot, so only a real
     // YouTube host matches (#266).
     await page.route(/^https?:\/\/(?:[a-z0-9-]+\.)*(?:youtube\.com|youtu\.be|ytimg\.com|googlevideo\.com)(?::\d+)?\//i, (route) => {
-      // YouTube thumbnails (img.youtube.com, i.ytimg.com) are the poster of
-      // the trailer facade; everything else (the embed, the player) is dropped.
-      if (/youtube\.com\/vi\/|ytimg\.com/.test(route.request().url())) {
+      // YouTube thumbnails (img.youtube.com/vi/..., i.ytimg.com/vi/...) are the
+      // poster of the trailer facade; everything else (the embed, the player)
+      // is dropped. Anchored to the host and the `/vi/` path like the route
+      // above: the old `/youtube\.com\/vi\/|ytimg\.com/` also matched
+      // `https://attacker.example/?next=youtube.com/vi/` (#266).
+      if (/^https?:\/\/(?:[a-z0-9-]+\.)*(?:youtube\.com|ytimg\.com)\/vi\//i.test(route.request().url())) {
         return route.fulfill({ status: 200, contentType: "image/png", body: poster });
       }
       return route.abort();

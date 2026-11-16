@@ -10,15 +10,80 @@ import { builtinTheme } from "@/theme/registry";
  * variable map synchronously.
  */
 
+interface InlineScript {
+  attributes: string;
+  body: string;
+}
+
+/** Index of the `>` that closes a tag, ignoring `>` inside quoted values. */
+function tagEnd(html: string, from: number): number {
+  let quote: string | null = null;
+  for (let index = from; index < html.length; index += 1) {
+    const character = html[index];
+    if (quote) {
+      if (character === quote) quote = null;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === ">") {
+      return index;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Every inline `<script>` in a document, attributes included.
+ *
+ * A scanner instead of a tag regexp: `js/bad-tag-filter` is right that
+ * `/<script[^>]*>(.*?)<\/script\s*>/` disagrees with a browser on end tags such
+ * as `</script foo>`, and this file is read by the test, not by an HTML parser.
+ * Case-insensitive, quote-aware and it rejects `<scripted>`-style names.
+ */
+function inlineScripts(html: string): InlineScript[] {
+  const lower = html.toLowerCase();
+  const scripts: InlineScript[] = [];
+  let cursor = 0;
+  for (;;) {
+    const open = lower.indexOf("<script", cursor);
+    if (open === -1) break;
+    const nameEnd = open + "<script".length;
+    const next = lower[nameEnd];
+    if (next !== undefined && !/[\s/>]/.test(next)) {
+      cursor = nameEnd;
+      continue;
+    }
+    const close = tagEnd(html, nameEnd);
+    if (close === -1) break;
+    const end = lower.indexOf("</script", close + 1);
+    if (end === -1) break;
+    scripts.push({ attributes: html.slice(nameEnd, close), body: html.slice(close + 1, end) });
+    cursor = end + "</script".length;
+  }
+  return scripts;
+}
+
 const html = fs.readFileSync(new URL("../../index.html", import.meta.url), "utf8");
-// Attribute-aware and case-insensitive: a bare `/<script>/` misses `<script
-// type="module">` and `<SCRIPT>`, which is what `js/bad-tag-filter` flags. The
-// boot guard is the script without attributes that carries the appearance
+// The boot guard is the script without attributes that carries the appearance
 // replay (`ludex-appearance`).
-const inlineScripts = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script\s*>/gi)];
-const boot = inlineScripts.find(([, attributes, body]) => attributes.trim() === "" && body.trim() !== "");
+const boot = inlineScripts(html).find(({ attributes, body }) => attributes.trim() === "" && body.trim() !== "");
 if (!boot) throw new Error("index.html is missing the inline boot script");
-const script = boot[2];
+const script = boot.body;
+
+describe("inline script extraction", () => {
+  it("is case-insensitive, attribute-aware and tolerant of end-tag noise", () => {
+    const sample = '<SCRIPT type="module">external()</SCRIPT><script>boot()</script\t\n data-x>';
+    expect(inlineScripts(sample)).toEqual([
+      { attributes: ' type="module"', body: "external()" },
+      { attributes: "", body: "boot()" },
+    ]);
+    // `<scripted>` is not a script element.
+    expect(inlineScripts('<scripted src="x"></scripted>')).toEqual([]);
+    // `>` inside an attribute value does not close the opening tag.
+    expect(inlineScripts('<script data-value="a>b">run()</script>')).toEqual([
+      { attributes: ' data-value="a>b"', body: "run()" },
+    ]);
+  });
+});
 
 interface BootResult {
   dataset: Record<string, string>;
