@@ -6,6 +6,15 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- Console wallpaper cost (#270): the full-screen `filter: blur()` layer is baked
+  once into a 256×144 plate off the rail's path, so a scroll composites a small
+  static texture instead of re-running the Gaussian; measured p95 50.1 → 33.4 ms
+  at 1080p and 4K scroll long tasks 6–11 → 0–1, with the wallpaper still
+  visible (`docs/console/PERFORMANCE.md`). Closing the quick-actions sheet now
+  re-focuses after the scope restore, so the ring no longer drops.
+
 ### Added
 
 - Extracted-cache operations UI (#231): an admin cache screen shows on/off,
