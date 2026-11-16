@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { centeredScrollLeft } from "@/lib/scroll";
 import {
   gameSectionLabel,
   gameSectionPath,
@@ -50,11 +51,23 @@ export function GameNav({
 }) {
   const listRef = useRef<HTMLUListElement>(null);
 
-  // A deep link can land on a chip that is off-screen; bring it into view
-  // without moving the page vertically.
+  // A deep link can land on a chip that is off-screen. Center it on the
+  // horizontal axis only (#237): `scrollIntoView` also scrolled the vertical
+  // ancestor, which opened `/game/:id` 796 px down on a phone.
   useEffect(() => {
-    const activeChip = listRef.current?.querySelector<HTMLElement>('[aria-current="location"]');
-    activeChip?.scrollIntoView({ block: "nearest", inline: "center" });
+    const list = listRef.current;
+    const activeChip = list?.querySelector<HTMLElement>('[aria-current="location"]');
+    if (!list || !activeChip) return;
+    const listBox = list.getBoundingClientRect();
+    const chipBox = activeChip.getBoundingClientRect();
+    list.scrollLeft = centeredScrollLeft({
+      viewportWidth: list.clientWidth,
+      contentWidth: list.scrollWidth,
+      viewportLeft: listBox.left,
+      targetLeft: chipBox.left,
+      targetWidth: chipBox.width,
+      scrollLeft: list.scrollLeft,
+    });
   }, [active]);
 
   return (
@@ -63,7 +76,7 @@ export function GameNav({
         aria-label={t("Game sections")}
         className="hidden lg:sticky lg:top-0 lg:block lg:w-[228px] lg:shrink-0"
       >
-        <p className="pb-2 text-[10.5px] uppercase tracking-[0.12em] text-ink-3">{t("Sections")}</p>
+        <p className="pb-2 text-meta uppercase tracking-[0.12em] text-ink-3">{t("Sections")}</p>
         <ul className="border-t border-line">
           {sections.map((section) => {
             const current = section.id === active;
@@ -103,7 +116,7 @@ export function GameNav({
                   onClick={onSelect}
                   aria-current={current ? "location" : undefined}
                   className={cn(
-                    "flex h-11 items-center gap-1.5 border-b-2 px-2.5 text-[12.5px] transition-colors",
+                    "flex h-11 items-center gap-1.5 border-b-2 px-2.5 text-label transition-colors",
                     current ? "border-signal text-ink" : "border-transparent text-ink-3 hover:text-ink-2",
                   )}
                 >

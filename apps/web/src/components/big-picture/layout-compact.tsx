@@ -98,7 +98,7 @@ export function CompactLayout({
             </div>
             <div className="flex min-w-0 flex-col gap-1.5">
               <SelectedEyebrow game={game} />
-              <h1 className="max-w-[18ch] text-[clamp(1.15rem,2vw,2rem)] font-semibold leading-[0.98] tracking-[-0.03em] text-stage-ink">
+              <h1 className="max-w-[18ch] text-[clamp(1.15rem,2vw,calc(var(--bp-u)*32))] font-semibold leading-[0.98] tracking-[-0.03em] text-stage-ink">
                 {game.title}
               </h1>
               <MetaLine game={game} installed={installed.has(game.id)} className="flex-col items-start gap-y-0.5" />
@@ -106,7 +106,7 @@ export function CompactLayout({
           </div>
 
           {detail?.description && (
-            <p className="line-clamp-4 text-[12.5px] leading-relaxed text-stage-ink-2">{detail.description}</p>
+            <p className="line-clamp-4 text-bp-meta leading-relaxed text-stage-ink-2 [@media(max-height:820px)]:hidden">{detail.description}</p>
           )}
 
           {job && <ProgressLine job={job} percent={percent} />}

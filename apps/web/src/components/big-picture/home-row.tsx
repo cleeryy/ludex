@@ -73,15 +73,15 @@ function HomeButton({
       <button
         {...common}
         className={cn(
-          "inline-flex h-[max(40px,calc(var(--bp-u)*48))] w-full items-center gap-2 rounded-[var(--bp-radius-sm)] border px-3 text-start",
+          "inline-flex h-[max(40px,calc(var(--bp-u)*56))] w-full items-center gap-2 rounded-[var(--bp-radius-sm)] border px-3 text-start",
           selected
             ? "border-signal bg-surface-2 text-ink"
             : "border-transparent text-ink-2 hover:border-line hover:bg-surface/60",
           item.disabled && "opacity-60",
         )}
       >
-        <Icon className={cn("size-[18px] shrink-0", selected ? "text-signal-text" : "text-ink-3")} aria-hidden="true" />
-        <span className="min-w-0 truncate text-[clamp(0.78rem,0.95vw,1rem)] font-medium leading-none">{label()}</span>
+        <Icon className={cn("size-[calc(var(--bp-u)*22)] shrink-0", selected ? "text-signal-text" : "text-ink-3")} aria-hidden="true" />
+        <span className="min-w-0 truncate text-bp-body font-medium leading-none">{label()}</span>
       </button>
     );
   }
@@ -96,8 +96,8 @@ function HomeButton({
           item.disabled && "opacity-60",
         )}
       >
-        <Icon className="size-[22px] shrink-0" aria-hidden="true" />
-        <span className="max-w-[14ch] truncate font-mono text-[10px] uppercase tracking-[0.08em]">{shortLabel()}</span>
+        <Icon className="size-[calc(var(--bp-u)*28)] shrink-0" aria-hidden="true" />
+        <span className="max-w-[14ch] truncate font-mono text-bp-micro uppercase tracking-[0.08em]">{shortLabel()}</span>
         <span
           aria-hidden="true"
           data-bp-zone-underline="true"
@@ -116,16 +116,16 @@ function HomeButton({
       )}
     >
       <span className="flex w-full items-start justify-between gap-2">
-        <span className="num shrink-0 font-mono text-[9.5px] leading-none text-ink-3">
+        <span className="num shrink-0 font-mono text-bp-micro leading-none text-ink-3">
           {String(index + 1).padStart(2, "0")}
         </span>
-        <Icon className={cn("size-5 shrink-0 sm:size-6", selected ? "text-signal-text" : "text-ink-3")} aria-hidden="true" />
+        <Icon className={cn("size-[calc(var(--bp-u)*28)] shrink-0", selected ? "text-signal-text" : "text-ink-3")} aria-hidden="true" />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-[clamp(0.78rem,1.05vw,1.05rem)] font-semibold leading-tight text-ink">
+        <span className="block truncate text-bp-body font-semibold leading-tight text-ink">
           {label()}
         </span>
-        <span className="mt-0.5 block truncate font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-3">
+        <span className="mt-0.5 block truncate font-mono text-bp-micro uppercase tracking-[0.08em] text-ink-3">
           {item.detail}
         </span>
       </span>

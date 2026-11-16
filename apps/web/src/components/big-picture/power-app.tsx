@@ -36,11 +36,11 @@ export function PowerApp({
 }) {
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain py-5 bp-pad-x" aria-label={t("Power")}>
-      <p className="font-mono text-[9.5px] uppercase tracking-[0.18em] text-signal-text">{t("System")}</p>
-      <h1 className="mt-1 text-[clamp(1.8rem,3.2vw,3rem)] font-semibold leading-[0.95] tracking-[-0.04em] text-ink">
+      <p className="font-mono text-bp-micro uppercase tracking-[0.18em] text-signal-text">{t("System")}</p>
+      <h1 className="mt-1 text-[clamp(1.8rem,3.2vw,calc(var(--bp-u)*48))] font-semibold leading-[0.95] tracking-[-0.04em] text-ink">
         {t("Power")}
       </h1>
-      <p className="mt-2 max-w-[62ch] text-[12.5px] leading-relaxed text-ink-2">
+      <p className="mt-2 max-w-[62ch] text-bp-meta leading-relaxed text-ink-2">
         {t("Everything here works with the controller. B closes this menu.")}
       </p>
 
@@ -64,27 +64,27 @@ export function PowerApp({
                 onPointerEnter={() => onHighlight(index)}
                 onClick={() => onChoose(index)}
                 className={cn(
-                  "bp-tile group relative flex min-h-[128px] w-full flex-col justify-between gap-4 p-4 text-start",
+                  "bp-tile group relative flex min-h-[calc(var(--bp-u)*128)] w-full flex-col justify-between gap-4 p-4 text-start",
                   !action.enabled && "opacity-70",
                 )}
               >
                 <span className="flex w-full items-start justify-between gap-3">
                   <Icon
                     className={cn(
-                      "size-7 shrink-0",
+                      "size-[calc(var(--bp-u)*34)] shrink-0",
                       danger ? "text-danger" : selected ? "text-signal-text" : "text-ink-2",
                     )}
                     aria-hidden="true"
                   />
-                  <span className="num font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-3">
+                  <span className="num font-mono text-bp-micro uppercase tracking-[0.12em] text-ink-3">
                     {String(index + 1).padStart(2, "0")}
                   </span>
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight text-ink">
+                  <span className="block text-bp-body font-semibold leading-tight text-ink">
                     {action.label}
                   </span>
-                  <span className="mt-1 block max-w-[58ch] text-[11px] leading-relaxed text-ink-3">
+                  <span className="mt-1 block max-w-[58ch] text-bp-meta leading-relaxed text-ink-3">
                     {action.enabled ? action.detail : action.reason ?? action.detail}
                   </span>
                 </span>

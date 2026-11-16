@@ -403,15 +403,14 @@ describe("gamepad target geometry", () => {
 });
 
 describe("gamepad modal guard and focus restore", () => {
-  it("only treats aria-modal dialogs as blocking", () => {
+  it("blocks on an aria-modal dialog or a declared pad layer (#237)", () => {
+    const matching = (needle: string) => ({
+      querySelector: (selector: string) => (selector.includes(needle) ? {} : null),
+    });
     expect(hasBlockingModal(null)).toBe(false);
     expect(hasBlockingModal({ querySelector: () => null })).toBe(false);
-    expect(
-      hasBlockingModal({
-        querySelector: (selector) =>
-          selector === '[role="dialog"][aria-modal="true"]' ? {} : null,
-      }),
-    ).toBe(true);
+    expect(hasBlockingModal(matching('[role="dialog"][aria-modal="true"]'))).toBe(true);
+    expect(hasBlockingModal(matching('[data-pad-layer="true"]'))).toBe(true);
   });
 
   it("marks and focuses the resolved target", () => {

@@ -97,12 +97,12 @@ export function OverlayShell({
         {...leave}
       >
         <header className="shrink-0 border-b border-line px-4 py-3 sm:px-5">
-          <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
-          {subtitle && <p className="mt-1 text-[12px] leading-relaxed text-ink-3">{subtitle}</p>}
+          <h2 className="text-bp-body font-semibold leading-tight text-ink">{title}</h2>
+          {subtitle && <p className="mt-1 text-bp-meta leading-relaxed text-ink-3">{subtitle}</p>}
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">{children}</div>
-        <footer className="shrink-0 border-t border-line px-4 py-2 text-[10.5px] text-ink-3 sm:px-5">
-          <HintStrip context={context} layout={layout} connected={connected} family={family} swapAB={swapAB} />
+        <footer className="shrink-0 border-t border-line px-4 py-2 text-bp-meta text-ink-3 sm:px-5">
+          <HintStrip context={context} layout={layout} connected={connected} family={family} swapAB={swapAB} className="text-bp-body" />
         </footer>
       </motion.section>
     </motion.div>
@@ -147,10 +147,10 @@ export function OverlayRow({
     >
       {icon && <span className={cn("shrink-0", active ? "text-signal-text" : "text-ink-3")}>{icon}</span>}
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13.5px] text-ink">{label}</span>
-        {detail && <span className="mt-0.5 block truncate text-[11px] text-ink-3">{detail}</span>}
+        <span className="block truncate text-bp-body text-ink">{label}</span>
+        {detail && <span className="mt-0.5 block truncate text-bp-meta text-ink-3">{detail}</span>}
       </span>
-      {trailing && <span className="shrink-0 text-[11px] text-ink-3">{trailing}</span>}
+      {trailing && <span className="shrink-0 text-bp-meta text-ink-3">{trailing}</span>}
     </button>
   );
 }
@@ -300,7 +300,7 @@ export function CollectionsOverlay({
         </div>
       ) : error ? (
         <div className="flex flex-col gap-2 px-1 py-2">
-          <p className="text-[12.5px] leading-relaxed text-ink-3">{error}</p>
+          <p className="text-bp-meta leading-relaxed text-ink-3">{error}</p>
           <OverlayRow
             active={active === 0}
             onChoose={onRetry}
@@ -311,7 +311,7 @@ export function CollectionsOverlay({
           />
         </div>
       ) : collections.length === 0 ? (
-        <p className="px-3 py-6 text-center text-[13px] text-ink-3">{t("No collections yet.")}</p>
+        <p className="px-3 py-6 text-center text-bp-body text-ink-3">{t("No collections yet.")}</p>
       ) : (
         <ul className="flex flex-col gap-0.5">
           {collections.map((collection, index) => (
@@ -434,7 +434,7 @@ export function DownloadsOverlay({
       {...shell}
     >
       {jobs.length === 0 ? (
-        <p className="px-3 py-6 text-center text-[13px] text-ink-3">{t("No downloads running.")}</p>
+        <p className="px-3 py-6 text-center text-bp-body text-ink-3">{t("No downloads running.")}</p>
       ) : (
         <ul className="flex flex-col gap-1">
           {jobs.map((job, index) => {

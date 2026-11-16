@@ -105,8 +105,8 @@ export function SettingsApp({
       <div className="shrink-0 pb-0 pt-4 bp-pad-x sm:pt-5">
         <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-2">
           <div className="min-w-0">
-            <p className="font-mono text-[9.5px] uppercase tracking-[0.18em] text-signal-text">{t("System")}</p>
-            <h1 className="mt-1 text-[clamp(1.7rem,3vw,2.8rem)] font-semibold leading-[0.95] tracking-[-0.04em] text-ink">
+            <p className="font-mono text-bp-micro uppercase tracking-[0.18em] text-signal-text">{t("System")}</p>
+            <h1 className="mt-1 text-[clamp(1.7rem,3vw,calc(var(--bp-u)*45))] font-semibold leading-[0.95] tracking-[-0.04em] text-ink">
               {t("Settings")}
             </h1>
           </div>
@@ -115,12 +115,12 @@ export function SettingsApp({
               {accountName && <UserAvatar name={accountName} src={accountAvatar} size={26} />}
               <span className="min-w-0">
                 {accountName && (
-                  <span className="block max-w-[22ch] truncate text-[12px] text-ink-2">
+                  <span className="block max-w-[22ch] truncate text-bp-meta text-ink-2">
                     {t("Signed in as {name}", { name: accountName })}
                   </span>
                 )}
                 {serverLabel && (
-                  <span className="mt-0.5 block max-w-[22ch] truncate font-mono text-[9.5px] uppercase tracking-[0.1em] text-ink-3">
+                  <span className="mt-0.5 block max-w-[22ch] truncate font-mono text-bp-micro uppercase tracking-[0.1em] text-ink-3">
                     {t("Server: {name}", { name: serverLabel })}
                   </span>
                 )}
@@ -129,7 +129,7 @@ export function SettingsApp({
           )}
         </div>
 
-        <p className="mt-2 max-w-[76ch] text-[12.5px] leading-relaxed text-ink-2">{meta.description()}</p>
+        <p className="mt-2 max-w-[76ch] text-bp-meta leading-relaxed text-ink-2">{meta.description()}</p>
 
         <div role="group" aria-label={t("Settings")} className="bp-tabs-strip mt-4 flex items-stretch gap-1 border-b border-line">
           {SETTINGS_SECTIONS.map((id) => {
@@ -145,7 +145,7 @@ export function SettingsApp({
                 data-bp-tab-active={selected ? "true" : undefined}
                 onClick={() => onSelectSection(id)}
                 className={cn(
-                  "bp-tab inline-flex h-10 shrink-0 items-center gap-2 px-2.5 text-[12.5px]",
+                  "bp-tab inline-flex h-10 shrink-0 items-center gap-2 px-2.5 text-bp-meta",
                   selected ? "text-ink" : "text-ink-3 hover:text-ink-2",
                 )}
               >
@@ -154,7 +154,7 @@ export function SettingsApp({
               </button>
             );
           })}
-          <span className="ms-auto hidden items-center gap-1.5 self-center pb-1 pe-0.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-3 md:flex">
+          <span className="ms-auto hidden items-center gap-1.5 self-center pb-1 pe-0.5 font-mono text-bp-micro uppercase tracking-[0.12em] text-ink-3 md:flex">
             <Kbd>LB</Kbd>
             <Kbd>RB</Kbd>
             {t("Tabs")}
@@ -168,7 +168,7 @@ export function SettingsApp({
           {...transitionOf("settings", { reduce: reduceMotion, instant })}
         >
           {rows.length === 0 ? (
-            <p className="px-1 py-8 text-center text-[13px] text-ink-3">{t("Unavailable")}</p>
+            <p className="px-1 py-8 text-center text-bp-body text-ink-3">{t("Unavailable")}</p>
           ) : (
             <ul>
               {rows.map((row, index) => {
@@ -192,14 +192,14 @@ export function SettingsApp({
                       )}
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[14px] font-medium text-ink">{row.label}</span>
-                        <span className="mt-0.5 block truncate text-[11px] leading-relaxed text-ink-3">
+                        <span className="block truncate text-bp-body font-medium text-ink">{row.label}</span>
+                        <span className="mt-0.5 block truncate text-bp-meta leading-relaxed text-ink-3">
                           {disabled && row.reason ? row.reason : row.detail}
                         </span>
                       </span>
                       <span className="flex shrink-0 items-center justify-end gap-2">
                         {row.kind === "choice" && (
-                          <span className="bp-panel flex items-center gap-1.5 px-2 py-1 text-[12px] text-ink-2">
+                          <span className="bp-panel flex items-center gap-1.5 px-2 py-1 text-bp-meta text-ink-2">
                             <ChevronLeft className={cn("size-3.5", disabled ? "text-ink-3/50" : "text-ink-3")} aria-hidden="true" />
                             <span className="min-w-[9ch] max-w-[18ch] truncate text-center">{row.value}</span>
                             <ChevronRight className={cn("size-3.5", disabled ? "text-ink-3/50" : "text-ink-3")} aria-hidden="true" />
@@ -208,7 +208,7 @@ export function SettingsApp({
                         {row.kind === "toggle" && (
                           <span
                             className={cn(
-                              "rounded-[var(--bp-radius-pill)] border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.1em]",
+                              "rounded-[var(--bp-radius-pill)] border px-2.5 py-1 font-mono text-bp-micro uppercase tracking-[0.1em]",
                               row.value === t("On")
                                 ? "border-signal text-signal-text"
                                 : "border-line text-ink-3",
@@ -218,7 +218,7 @@ export function SettingsApp({
                           </span>
                         )}
                         {row.kind === "action" && (
-                          <span className="flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-ink-3">
+                          <span className="flex items-center gap-1.5 font-mono text-bp-micro uppercase tracking-[0.1em] text-ink-3">
                             {t("Select")}
                             <CornerDownLeft className="size-3.5" aria-hidden="true" />
                           </span>
@@ -241,8 +241,8 @@ export function SettingsApp({
           { label: t("Controllers"), value: padLabel, numeric: false },
         ].map((fact) => (
           <div key={fact.label} className="min-w-0">
-            <dt className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-3">{fact.label}</dt>
-            <dd className={cn("mt-0.5 truncate text-[11.5px] text-ink-2", fact.numeric && "num")}>{fact.value}</dd>
+            <dt className="font-mono text-bp-micro uppercase tracking-[0.14em] text-ink-3">{fact.label}</dt>
+            <dd className={cn("mt-0.5 truncate text-bp-meta text-ink-2", fact.numeric && "num")}>{fact.value}</dd>
           </div>
         ))}
       </dl>

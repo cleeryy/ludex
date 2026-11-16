@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowLeft, ArrowRight, Download, FolderOpen, HardDrive, Palette, Server, ShieldCheck, Sparkles, X } from "lucide-react";
 import { api } from "@/lib/api";
+import { useGamepad } from "@/lib/gamepad";
+import { moveModalFocus, type ModalHost } from "@/lib/gamepad-core";
 import { cn } from "@/lib/cn";
 import { formatRelative, formatSpeed } from "@/lib/format";
 import { selectableLocales, t, tn, useI18n } from "@/lib/i18n";
@@ -143,6 +145,32 @@ export function OnboardingWizard() {
     return () => window.removeEventListener(OPEN_ONBOARDING_EVENT, onOpen);
   }, [isAdmin, updateOnboarding, user?.id, user?.onboardingStep]);
 
+  // #237: a controller-only player must be able to read the tour and leave it.
+  // The panel declares itself a pad layer (`data-pad-layer`), so the screen
+  // behind it stops taking input; this handler walks the tour's own controls.
+  useGamepad(
+    (action) => {
+      const panel = panelRef.current;
+      if (!panel) return;
+      if (action === "back") {
+        // Same as Escape: the tour closes and focus returns to the trigger.
+        skip();
+        return;
+      }
+      const delta =
+        action === "up" || action === "left" ? -1 : action === "down" || action === "right" ? 1 : 0;
+      if (delta) {
+        moveModalFocus(panel as unknown as ModalHost, document.activeElement, delta);
+        return;
+      }
+      if (action === "confirm") {
+        const focused = document.activeElement as HTMLElement | null;
+        if (focused && panel.contains(focused)) focused.click();
+      }
+    },
+    { enabled: open, owner: true },
+  );
+
   if (!open) return null;
 
   const stepId = ONBOARDING_STEP_IDS[step];
@@ -199,6 +227,7 @@ export function OnboardingWizard() {
 
   return (
     <motion.div
+      data-pad-layer="true"
       initial={reduce ? false : { opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: reduce ? 0 : 0.18, ease: [0.16, 1, 0.3, 1] }}
@@ -217,16 +246,17 @@ export function OnboardingWizard() {
       >
         <div className="flex items-start justify-between gap-4 border-b border-line px-5 pb-4 pt-4">
           <div className="min-w-0">
-            <p className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+            <p className="flex items-center gap-1.5 font-mono text-micro uppercase tracking-[0.14em] text-ink-3">
               <Sparkles className="size-3 text-signal-text" aria-hidden="true" />
               {t("Getting started")}
             </p>
-            <h2 id={titleId} className="mt-1.5 text-[19px] font-semibold leading-tight tracking-[-0.02em]">
+            <h2 id={titleId} className="mt-1.5 text-title font-semibold leading-tight tracking-[-0.02em]">
               {stepTitle(stepId)}
             </h2>
           </div>
           <button
             type="button"
+            data-gamepad-target="true"
             onClick={skip}
             aria-label={t("Close onboarding")}
             className="grid size-8 shrink-0 place-items-center text-ink-3 transition-colors hover:text-ink"
@@ -241,10 +271,20 @@ export function OnboardingWizard() {
 
         <div className="border-t border-line px-5 py-3">
           <div className="flex items-center justify-between gap-3">
-            <button type="button" onClick={skip} className="text-[12px] text-ink-3 transition-colors hover:text-ink">
+            <button
+              type="button"
+              data-gamepad-target="true"
+              onClick={skip}
+              className="text-meta text-ink-3 transition-colors hover:text-ink"
+            >
               {t("Skip for now")}
             </button>
-            <button type="button" onClick={complete} className="text-[12px] text-ink-3 transition-colors hover:text-ink">
+            <button
+              type="button"
+              data-gamepad-target="true"
+              onClick={complete}
+              className="text-meta text-ink-3 transition-colors hover:text-ink"
+            >
               {t("Don’t show again")}
             </button>
           </div>
@@ -270,6 +310,7 @@ export function OnboardingWizard() {
               <Button
                 variant="ghost"
                 size="sm"
+                data-gamepad-target="true"
                 onClick={back}
                 disabled={position === 0}
                 icon={<ArrowLeft className="rtl:-scale-x-100 size-3.5" />}
@@ -279,6 +320,7 @@ export function OnboardingWizard() {
               <Button
                 variant="primary"
                 size="sm"
+                data-gamepad-target="true"
                 onClick={next}
                 iconRight={<ArrowRight className="rtl:-scale-x-100 size-3.5" />}
               >
@@ -316,8 +358,8 @@ function stepTitle(id: OnboardingStepId): string {
 function Fact({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {
   return (
     <div className="flex items-baseline justify-between gap-4 border-b border-line py-2 last:border-0">
-      <dt className="shrink-0 text-[12px] text-ink-3">{label}</dt>
-      <dd className={cn("min-w-0 truncate text-right text-[12.5px] text-ink", mono && "font-mono text-[11.5px]")}>{value}</dd>
+      <dt className="shrink-0 text-label text-ink-3">{label}</dt>
+      <dd className={cn("min-w-0 truncate text-right text-label text-ink", mono && "font-mono text-meta")}>{value}</dd>
     </div>
   );
 }
@@ -330,7 +372,7 @@ function StepLink({ to, children, badge }: { to: string; children: ReactNode; ba
   return (
     <Link
       to={to}
-      className="flex min-h-10 items-center justify-between gap-3 border-b border-line py-2 text-[13px] text-ink-2 transition-colors last:border-0 hover:text-ink"
+      className="flex min-h-10 items-center justify-between gap-3 border-b border-line py-2 text-body text-ink-2 transition-colors last:border-0 hover:text-ink"
     >
       <span className="flex items-center gap-2">
         <ArrowRight className="rtl:-scale-x-100 size-3.5 text-ink-3" aria-hidden="true" />
@@ -346,7 +388,7 @@ function StepLink({ to, children, badge }: { to: string; children: ReactNode; ba
 function WelcomeStep({ libraryPath, serverName, local }: { libraryPath: string | null; serverName: string; local: boolean }) {
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-[13px] leading-relaxed text-ink-2">
+      <p className="text-body leading-relaxed text-ink-2">
         {t("Ludex indexes the archives on your disk and keeps progress, collections and saves per account. It never uploads your games to a third party.")}
       </p>
       <dl className="border-t border-line">
@@ -355,7 +397,7 @@ function WelcomeStep({ libraryPath, serverName, local }: { libraryPath: string |
         <Fact label={t("Server")} value={serverName} />
         {libraryPath && <Fact label={t("Games folder")} value={libraryPath} mono />}
       </dl>
-      <p className="text-[11.5px] leading-relaxed text-ink-3">
+      <p className="text-meta leading-relaxed text-ink-3">
         {t("You can change all of this later. Nothing in this tour changes a setting for you.")}
       </p>
     </div>
@@ -375,7 +417,7 @@ function LibraryStep({
 }) {
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-[13px] leading-relaxed text-ink-2">
+      <p className="text-body leading-relaxed text-ink-2">
         {t("Ludex walks the games folder three levels deep and indexes archives and portable executables. Counts come from the server.")}
       </p>
       <dl className="border-t border-line">
@@ -390,7 +432,7 @@ function LibraryStep({
             <StepLink to="/admin/ingest">{t("Add games")}</StepLink>
           </>
         ) : (
-          <p className="text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-meta leading-relaxed text-ink-3">
             {t("An administrator adds games from Admin → Library scan.")}
           </p>
         )}
@@ -409,7 +451,7 @@ function DownloadsStep({ settings, desktopAvailable }: { settings: LocalSettings
   const native = isNative();
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-[13px] leading-relaxed text-ink-2">
+      <p className="text-body leading-relaxed text-ink-2">
         {t("Install folders, bandwidth and stream installs are desktop settings. In the browser you can download archives without installing them.")}
       </p>
       {native && settings ? (
@@ -424,11 +466,11 @@ function DownloadsStep({ settings, desktopAvailable }: { settings: LocalSettings
         </dl>
       ) : (
         <div className="flex items-center justify-between gap-3 border-y border-line py-3">
-          <p className="text-[12.5px] text-ink-2">{t("Install and download folders live in the desktop app.")}</p>
+          <p className="text-label text-ink-2">{t("Install and download folders live in the desktop app.")}</p>
           <DesktopOnly />
         </div>
       )}
-      <p className="border-l-2 border-line-2 pl-3 text-[11.5px] leading-relaxed text-ink-3">
+      <p className="border-l-2 border-line-2 pl-3 text-meta leading-relaxed text-ink-3">
         {t("Stream installs start faster but cannot resume, and they use more bandwidth. Normal downloads resume after a dropped connection.")}
       </p>
       <div>
@@ -444,7 +486,7 @@ function SavesStep({ settings, desktopAvailable }: { settings: LocalSettings | n
   const native = isNative();
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-[13px] leading-relaxed text-ink-2">
+      <p className="text-body leading-relaxed text-ink-2">
         {t("Back up save files after each session, show what you are playing on Discord, and track achievements.")}
       </p>
       <dl className="border-t border-line">
@@ -465,7 +507,7 @@ function SavesStep({ settings, desktopAvailable }: { settings: LocalSettings | n
         </StepLink>
         <StepLink to="/community">{t("See achievements")}</StepLink>
       </div>
-      <p className="text-[11.5px] leading-relaxed text-ink-3">
+      <p className="text-meta leading-relaxed text-ink-3">
         {t("Ludex never turns these on for you; every toggle is one click in Settings.")}
       </p>
     </div>
@@ -483,11 +525,11 @@ function AppearanceStep() {
   ];
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-[13px] leading-relaxed text-ink-2">
+      <p className="text-body leading-relaxed text-ink-2">
         {t("Theme applies to this browser; language is saved to your account.")}
       </p>
       <div>
-        <p className="mb-2 text-[12px] text-ink-3">{t("Theme")}</p>
+        <p className="mb-2 text-label text-ink-3">{t("Theme")}</p>
         <div className="grid grid-cols-3 gap-2">
           {options.map((option) => (
             <button
@@ -496,7 +538,7 @@ function AppearanceStep() {
               onClick={() => setTheme(option.value)}
               aria-pressed={theme === option.value}
               className={cn(
-                "flex min-h-11 items-center gap-2 border px-2.5 text-left text-[12.5px] transition-colors",
+                "flex min-h-11 items-center gap-2 border px-2.5 text-left text-label transition-colors",
                 theme === option.value ? "border-signal bg-surface-2 text-ink" : "border-line text-ink-2 hover:border-line-2",
               )}
             >
@@ -507,14 +549,14 @@ function AppearanceStep() {
         </div>
       </div>
       <div>
-        <p className="mb-2 text-[12px] text-ink-3">{t("Language")}</p>
+        <p className="mb-2 text-label text-ink-3">{t("Language")}</p>
         <Select
           label={t("Language")}
           value={locale}
           onChange={(value) => void updateLocale(value)}
           options={selectableLocales().map((entry) => ({ value: entry.code, label: entry.label, hint: entry.englishLabel }))}
         />
-        <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="mt-2 text-meta leading-relaxed text-ink-3">
           {t("Community translations fall back to English for missing strings.")}
         </p>
       </div>
@@ -525,7 +567,7 @@ function AppearanceStep() {
 function AdminStep() {
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-[13px] leading-relaxed text-ink-2">
+      <p className="text-body leading-relaxed text-ink-2">
         {t("Optional administrator setup. The library works without any of it.")}
       </p>
       <div className="flex flex-col gap-2">
@@ -533,7 +575,7 @@ function AdminStep() {
         <AdminLink to="/admin/users" icon={<Server className="size-4" />} title={t("Accounts and roles")} />
         <AdminLink to="/admin/server" icon={<HardDrive className="size-4" />} title={t("Server and storage")} />
       </div>
-      <p className="text-[11.5px] leading-relaxed text-ink-3">
+      <p className="text-meta leading-relaxed text-ink-3">
         {t("Normal accounts skip this step. Open any page from the Admin section of the sidebar.")}
       </p>
     </div>
@@ -544,7 +586,7 @@ function AdminLink({ to, icon, title }: { to: string; icon: ReactNode; title: st
   return (
     <Link
       to={to}
-      className="flex items-center gap-3 border border-line px-3 py-2.5 text-[13px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
+      className="flex items-center gap-3 border border-line px-3 py-2.5 text-body text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
     >
       <span className="text-ink-3">{icon}</span>
       <span className="flex-1">{title}</span>
@@ -556,19 +598,19 @@ function AdminLink({ to, icon, title }: { to: string; icon: ReactNode; title: st
 function FinishStep({ onOpenLibrary }: { onOpenLibrary: () => void }) {
   const shortcuts: { keys: ReactNode; label: string }[] = [
     { keys: <Kbd>⌘K</Kbd>, label: t("Search anything") },
-    { keys: <span className="font-mono text-[11px]">g h</span>, label: t("Home") },
-    { keys: <span className="font-mono text-[11px]">g l</span>, label: t("Library") },
-    { keys: <span className="font-mono text-[11px]">g d</span>, label: t("Downloads") },
+    { keys: <span className="font-mono text-meta">g h</span>, label: t("Home") },
+    { keys: <span className="font-mono text-meta">g l</span>, label: t("Library") },
+    { keys: <span className="font-mono text-meta">g d</span>, label: t("Downloads") },
   ];
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-[13px] leading-relaxed text-ink-2">
+      <p className="text-body leading-relaxed text-ink-2">
         {t("The library is ready. These shortcuts work anywhere in the app.")}
       </p>
       <dl className="border-t border-line">
         {shortcuts.map((shortcut, index) => (
           <div key={index} className="flex items-center justify-between gap-4 border-b border-line py-2 last:border-0">
-            <dt className="text-[12.5px] text-ink-2">{shortcut.label}</dt>
+            <dt className="text-label text-ink-2">{shortcut.label}</dt>
             <dd>{shortcut.keys}</dd>
           </div>
         ))}
@@ -577,12 +619,12 @@ function FinishStep({ onOpenLibrary }: { onOpenLibrary: () => void }) {
         <Button variant="primary" onClick={onOpenLibrary} icon={<FolderOpen className="size-4" />}>
           {t("Open the library")}
         </Button>
-        <Link to="/settings" className="inline-flex h-8 items-center gap-1.5 px-2 text-[12.5px] text-ink-3 hover:text-ink">
+        <Link to="/settings" className="inline-flex h-8 items-center gap-1.5 px-2 text-label text-ink-3 hover:text-ink">
           <Download className="size-3.5" aria-hidden="true" />
           {t("Open settings")}
         </Link>
       </div>
-      <p className="text-[11.5px] leading-relaxed text-ink-3">
+      <p className="text-meta leading-relaxed text-ink-3">
         {t("You can replay this tour from Settings → Help.")}
       </p>
     </div>

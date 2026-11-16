@@ -39,7 +39,7 @@ export function SelectedEyebrow({ game, className }: { game: GameSummary; classN
   return (
     <span
       className={cn(
-        "flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-signal",
+        "flex items-center gap-2.5 font-mono text-bp-micro uppercase tracking-[0.16em] text-signal",
         className,
       )}
     >
@@ -60,7 +60,7 @@ export function MetaLine({
 }) {
   const minutes = formatMinutes(game.minutesPlayed);
   return (
-    <div className={cn("flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-[11px] text-stage-ink-2", className)}>
+    <div className={cn("flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-bp-meta text-stage-ink-2", className)}>
       <span>{formatYear(game.releaseDate)}</span>
       <span>{stateLabel(game.state)}</span>
       {formatRating(game.rating) && <span>{formatRating(game.rating)} / 100</span>}
@@ -77,7 +77,7 @@ export function MetaLine({
 
 export function ProgressLine({ job, percent, className }: { job: InstallJob; percent: number | null; className?: string }) {
   return (
-    <p className={cn("flex flex-wrap items-baseline gap-x-3 font-mono text-[10.5px] text-stage-ink-2", className)}>
+    <p className={cn("flex flex-wrap items-baseline gap-x-3 font-mono text-bp-meta text-stage-ink-2", className)}>
       <span className="text-signal">{percent !== null ? formatPercent(percent) : t("Preparing")}</span>
       {job.bytesTotal && (
         <span>{t("{done} of {total}", { done: formatBytes(job.bytesDone), total: formatBytes(job.bytesTotal) })}</span>
@@ -115,7 +115,7 @@ export function ShelfTabs({
       aria-label={t("Shelves")}
       className={cn(
         "nav-scroll flex shrink-0 items-stretch gap-1 overflow-x-auto",
-        dense ? "h-9 px-0" : "bp-tabs-strip h-11 border-b border-line bp-pad-x",
+        dense ? "h-[calc(var(--bp-u)*40)] px-0" : "bp-tabs-strip h-[calc(var(--bp-u)*56)] border-b border-line bp-pad-x",
         className,
       )}
     >
@@ -130,19 +130,19 @@ export function ShelfTabs({
             onClick={() => nav.selectShelf(position)}
             className={cn(
               "bp-tab inline-flex shrink-0 items-center gap-2",
-              dense ? "px-2 text-[12px]" : "h-full px-3 text-[12.5px]",
+              dense ? "px-2 text-bp-meta" : "h-full px-3 text-bp-meta",
               active ? "text-ink" : "text-ink-3 hover:text-ink-2",
             )}
           >
             <span>{shelf.label}</span>
-            <span className={cn("num text-[10.5px]", active ? "text-signal-text" : "text-ink-3")}>
+            <span className={cn("num text-bp-micro", active ? "text-signal-text" : "text-ink-3")}>
               {shelf.games.length}
             </span>
           </button>
         );
       })}
       {!dense && (
-        <span className="ms-auto hidden items-center gap-1.5 self-center pe-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3 md:flex">
+        <span className="ms-auto hidden items-center gap-1.5 self-center pe-2 font-mono text-bp-micro uppercase tracking-[0.12em] text-ink-3 md:flex">
           <Kbd>LB</Kbd>
           <Kbd>RB</Kbd>
           {t("shelf")}
@@ -253,7 +253,7 @@ export function RailCard({
       </div>
       <span
         className={cn(
-          "mt-2 block truncate text-[12.5px]",
+          "mt-2 line-clamp-2 text-bp-meta leading-snug",
           overArt
             ? selected
               ? "text-stage-ink"
@@ -268,7 +268,7 @@ export function RailCard({
       </span>
       <span
         className={cn(
-          "num block truncate text-[9.5px]",
+          "num block truncate text-bp-micro",
           overArt ? "text-stage-ink-2" : "text-ink-3",
           !captionVisible && "opacity-0 group-hover:opacity-100 group-focus:opacity-100",
         )}
@@ -314,10 +314,10 @@ export function GridCard({
         {selected && <FocusRing />}
         {installed && <InstalledDot />}
       </div>
-      <span className={cn("block truncate text-[12.5px] leading-tight", selected ? "text-ink" : "text-ink-2")}>
+      <span className={cn("line-clamp-2 text-bp-meta leading-snug", selected ? "text-ink" : "text-ink-2")}>
         {game.title}
       </span>
-      <span className="num block truncate text-[9.5px] text-ink-3">
+      <span className="num block truncate text-bp-micro text-ink-3">
         {formatYear(game.releaseDate)}
         {selected ? ` · ${stateLabel(game.state)}` : ""}
       </span>
@@ -359,7 +359,7 @@ export function CompactRow({
         selected ? "bg-surface-2" : "hover:bg-surface/70",
       )}
     >
-      <span className={cn("num w-6 shrink-0 text-[10.5px]", selected ? "text-signal-text" : "text-ink-3")}>
+      <span className={cn("num w-6 shrink-0 text-bp-meta", selected ? "text-signal-text" : "text-ink-3")}>
         {String(position + 1).padStart(2, "0")}
       </span>
       <div className="relative block h-[46px] w-[34px] shrink-0">
@@ -367,16 +367,16 @@ export function CompactRow({
         {installed && <InstalledDot className="start-1 top-1" />}
       </div>
       <span className="min-w-0 flex-1">
-        <span className={cn("block truncate text-[15px] leading-tight", selected ? "text-ink" : "text-ink-2")}>
+        <span className={cn("block truncate text-bp-body leading-tight", selected ? "text-ink" : "text-ink-2")}>
           {game.title}
         </span>
-        <span className="num mt-0.5 block truncate text-[10px] text-ink-3">
+        <span className="num mt-0.5 block truncate text-bp-micro text-ink-3">
           {formatYear(game.releaseDate)} · {stateLabel(game.state)}
           {minutes ? ` · ${t("{duration} played", { duration: minutes })}` : ""}
         </span>
       </span>
       {job && (
-        <span className="num shrink-0 text-[10.5px] text-signal">{percent !== null ? formatPercent(percent) : t("Preparing")}</span>
+        <span className="num shrink-0 text-bp-meta text-signal">{percent !== null ? formatPercent(percent) : t("Preparing")}</span>
       )}
       {selected && (
         <>
@@ -486,13 +486,13 @@ export function BigPictureFooter({
   return (
     <motion.footer
       className={cn(
-        "relative z-10 flex min-h-10 shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-t py-1.5 bp-chrome bp-pad-x text-[10.5px] text-ink-3",
+        "relative z-10 flex min-h-10 shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-t py-1.5 bp-chrome bp-pad-x text-bp-meta text-ink-3",
         className,
       )}
       {...reveal(reduceMotion, { y: 6, delay: BOOT_DELAY.footer, duration: BOOT_DURATION })}
     >
-      <HintStrip context={context} layout={layout} connected={connected} family={family} swapAB={swapAB} />
-      <span className="ms-auto hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] xl:flex">
+      <HintStrip context={context} layout={layout} connected={connected} family={family} swapAB={swapAB} className="text-bp-body" />
+      <span className="ms-auto hidden items-center gap-1.5 font-mono text-bp-micro uppercase tracking-[0.12em] xl:flex">
         <Gamepad2 className="size-3.5" aria-hidden="true" />
         {connected ? (
           <>

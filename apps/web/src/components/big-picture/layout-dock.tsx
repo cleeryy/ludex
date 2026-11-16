@@ -51,17 +51,17 @@ export function DockLayout({
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
               <SelectedEyebrow game={game} />
               {nav.shelf && (
-                <span className="min-w-0 truncate font-mono text-[10px] uppercase tracking-[0.16em] text-stage-ink-2">
+                <span className="min-w-0 truncate font-mono text-bp-micro uppercase tracking-[0.16em] text-stage-ink-2">
                   {nav.shelf.label} · {nav.games.length}
                 </span>
               )}
             </div>
-            <span className="num shrink-0 text-[11px] text-stage-ink-2">
+            <span className="num shrink-0 text-bp-meta text-stage-ink-2">
               {String(nav.index + 1).padStart(2, "0")} / {String(nav.games.length).padStart(2, "0")}
             </span>
           </div>
 
-          <h1 className="line-clamp-2 max-w-[24ch] text-[clamp(1.6rem,3.4vw,4.2rem)] font-semibold leading-[0.92] tracking-[-0.04em] text-stage-ink">
+          <h1 className="line-clamp-2 max-w-[24ch] text-[clamp(1.6rem,3.4vw,calc(var(--bp-u)*67))] font-semibold leading-[0.92] tracking-[-0.04em] text-stage-ink">
             {game.title}
           </h1>
           <MetaLine game={game} installed={installed.has(game.id)} />

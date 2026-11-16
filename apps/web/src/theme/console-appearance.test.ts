@@ -20,10 +20,10 @@ import type { StorageLike } from "./storage";
 import type { ThemeMode } from "./types";
 
 /* --------------------------------------------------------------------------
-   Console appearance (#229): the preference must resolve to a complete, safe
-   look without a browser. These tests pin the Soft default, the Studio
-   fallback, the radius/accent/background choices and the curated accent tones
-   against the same contrast contract every built-in theme obeys.
+   Console appearance (#229, #237): the preference must resolve to a complete,
+   safe look without a browser. These tests pin the Studio default, the v1 ->
+   v2 migration, the radius/accent/background choices and the curated accent
+   tones against the same contrast contract every built-in theme obeys.
    -------------------------------------------------------------------------- */
 
 class MemoryStorage implements StorageLike {
@@ -40,13 +40,48 @@ class MemoryStorage implements StorageLike {
 }
 
 describe("console appearance defaults", () => {
-  it("opens Console in the Soft preset with artwork and soft corners", () => {
+  it("opens Console in Studio with artwork and the archive's sharp corners", () => {
     expect(DEFAULT_CONSOLE_APPEARANCE).toEqual({
-      preset: "soft",
+      preset: "studio",
       accent: "theme",
       background: "artwork",
-      radius: "soft",
+      radius: "sharp",
     });
+  });
+
+  it("migrates an untouched v1 record to the Studio default", () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      "ludex.console.appearance",
+      JSON.stringify({
+        v: 1,
+        appearance: { preset: "soft", accent: "theme", background: "artwork", radius: "soft" },
+      }),
+    );
+    expect(readConsoleAppearance(storage)).toEqual(DEFAULT_CONSOLE_APPEARANCE);
+  });
+
+  it("keeps an explicit v1 Soft choice: the preset stays opt-in", () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      "ludex.console.appearance",
+      JSON.stringify({
+        v: 1,
+        appearance: { preset: "soft", accent: "mint", background: "solid", radius: "round" },
+      }),
+    );
+    expect(readConsoleAppearance(storage)).toEqual({
+      preset: "soft",
+      accent: "mint",
+      background: "solid",
+      radius: "round",
+    });
+  });
+
+  it("writes the v2 record", () => {
+    const storage = new MemoryStorage();
+    writeConsoleAppearance(storage, DEFAULT_CONSOLE_APPEARANCE);
+    expect(JSON.parse(storage.getItem("ludex.console.appearance") ?? "{}").v).toBe(2);
   });
 
   it("falls back field by field for a missing, partial or hand-edited record", () => {
@@ -58,12 +93,12 @@ describe("console appearance defaults", () => {
       preset: "studio",
       accent: "theme",
       background: "artwork",
-      radius: "soft",
+      radius: "sharp",
     });
     expect(
       sanitizeConsoleAppearance({ preset: "cinema", radius: "round", background: "gradient" }),
     ).toEqual({
-      preset: "soft",
+      preset: "studio",
       accent: "theme",
       background: "gradient",
       radius: "round",
@@ -103,16 +138,16 @@ describe("console appearance defaults", () => {
 
   it("exposes one data attribute per surface choice", () => {
     expect(consoleAttributes(DEFAULT_CONSOLE_APPEARANCE)).toEqual({
-      "data-console-appearance": "soft",
+      "data-console-appearance": "studio",
       "data-console-background": "artwork",
-      "data-console-radius": "soft",
+      "data-console-radius": "sharp",
     });
   });
 
   it("bundles a native corner scale with each preset", () => {
-    expect(withConsolePreset(DEFAULT_CONSOLE_APPEARANCE, "studio").radius).toBe("sharp");
-    expect(withConsolePreset({ ...DEFAULT_CONSOLE_APPEARANCE, radius: "sharp" }, "soft").radius).toBe(
-      "soft",
+    expect(withConsolePreset(DEFAULT_CONSOLE_APPEARANCE, "soft").radius).toBe("soft");
+    expect(withConsolePreset({ ...DEFAULT_CONSOLE_APPEARANCE, radius: "round" }, "studio").radius).toBe(
+      "sharp",
     );
   });
 });
@@ -128,15 +163,14 @@ describe("console tokens", () => {
     tv: false,
   };
 
-  it("paints the Soft preset with the cream palette, not the app theme", () => {
-    const tokens = consoleTokens(DEFAULT_CONSOLE_APPEARANCE, base);
-    expect(tokens).not.toBeNull();
-    expect(tokens?.bg).toBe(soft.bg);
-    expect(tokens?.ink).toBe(soft.ink);
-    // The stage stays dark in every background: hero copy uses stage tokens and
-    // a cream stage would put cream text on cream (#229 first pass).
-    expect(tokens?.stage).toBe(soft.stage);
-    expect(tokens?.["stage-ink"]).toBe(soft["stage-ink"]);
+  it("keeps the app palette for both presets: Soft owns no colour (#237)", () => {
+    const studio = consoleTokens(DEFAULT_CONSOLE_APPEARANCE, base);
+    const softTokens = consoleTokens({ ...DEFAULT_CONSOLE_APPEARANCE, preset: "soft" }, base);
+    expect(studio).toBeNull();
+    expect(softTokens).toBeNull();
+    // The retired cream palette must not leak back in through any path.
+    expect(softTokens?.bg).toBeUndefined();
+    expect(soft.bg).not.toBe(midnight.bg);
   });
 
   it("keeps the app's rendered tokens for Studio with the theme accent", () => {
@@ -155,31 +189,34 @@ describe("console tokens", () => {
     expect(tokens?.focus).not.toBe(midnight.focus);
   });
 
-  it("keeps the curated accent on the Soft palette even when the app is dark", () => {
-    const tokens = consoleTokens(
-      { ...DEFAULT_CONSOLE_APPEARANCE, accent: "mint" },
-      base,
-    );
-    // The mint light tone (#2c6f4e) is the one that survives on cream; the dark
-    // tone would be rejected and the base signal would leak through.
-    expect(tokens?.signal).toBe("#2c6f4e");
+  it("uses the same curated tone in both presets", () => {
+    const softTokens = consoleTokens({ ...DEFAULT_CONSOLE_APPEARANCE, preset: "soft", accent: "mint" }, base);
+    const studioTokens = consoleTokens({ ...DEFAULT_CONSOLE_APPEARANCE, accent: "mint" }, base);
+    // Both read the app's polarity (dark here), so the tone cannot depend on
+    // which material the player picked.
+    expect(softTokens?.signal).toBe("#93e3b6");
+    expect(studioTokens?.signal).toBe("#93e3b6");
   });
 
-  it("lifts the Soft palette to the TV-safe contract when asked", () => {
-    const tokens = consoleTokens(DEFAULT_CONSOLE_APPEARANCE, { ...base, tv: true });
+  it("lifts a curated accent to the TV-safe contract when asked", () => {
+    const tokens = consoleTokens(
+      { ...DEFAULT_CONSOLE_APPEARANCE, accent: "sun" },
+      { ...base, tv: true },
+    );
     expect(tokens).not.toBeNull();
     const failures = contrastResults(tokens!).filter((check) => !check.ok);
     expect(failures).toEqual([]);
-    expect(contrastResults(tvTokens(soft)).every((check) => check.ok)).toBe(true);
+    expect(contrastResults(tvTokens(midnight)).every((check) => check.ok)).toBe(true);
   });
 
-  it("returns CSS custom properties for the root and nothing for inherited Studio", () => {
+  it("returns CSS custom properties for the root and nothing for the app theme", () => {
     expect(Object.keys(consoleVars(null))).toEqual([]);
-    const vars = consoleVars(consoleTokens({ ...DEFAULT_CONSOLE_APPEARANCE, preset: "studio" }, base));
-    expect(vars).toEqual({});
-    const softVars = consoleVars(consoleTokens(DEFAULT_CONSOLE_APPEARANCE, base));
-    expect(softVars["--bg"]).toBe(soft.bg);
-    expect(softVars["--stage"]).toBe(soft.stage);
+    expect(consoleVars(consoleTokens(DEFAULT_CONSOLE_APPEARANCE, base))).toEqual({});
+    const accented = consoleVars(
+      consoleTokens({ ...DEFAULT_CONSOLE_APPEARANCE, accent: "coral" }, base),
+    );
+    expect(accented["--bg"]).toBe(midnight.bg);
+    expect(accented["--signal"]).toBe("#ffc2b8");
   });
 });
 

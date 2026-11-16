@@ -79,7 +79,7 @@ export function MotionProbe({ transitions }: { transitions: TransitionHub }) {
   return (
     <aside
       aria-label="Motion diagnostics"
-      className="pointer-events-none fixed bottom-3 end-3 z-[120] w-[286px] rounded-[2px] border border-line-2 bg-bg-deep/95 p-3 font-mono text-[10px] leading-relaxed text-ink-2 shadow-debug"
+      className="pointer-events-none fixed bottom-3 end-3 z-[120] w-[286px] rounded-[2px] border border-line-2 bg-bg-deep/95 p-3 font-mono text-bp-micro leading-relaxed text-ink-2 shadow-debug"
     >
       <p className="mb-1.5 flex items-center justify-between text-signal-text">
         <span>motion debug</span>

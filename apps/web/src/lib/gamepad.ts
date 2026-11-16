@@ -8,7 +8,11 @@ import {
   createRepeatTracker,
   cueHapticPulses,
   hapticPattern,
+  activateFocusedControl,
   hasBlockingModal,
+  hasModalDialog,
+  moveModalFocus,
+  type ModalHost,
   parseGamepadDebugFlag,
   readPadPresses,
   resetRepeatTracker,
@@ -22,6 +26,7 @@ import {
   type HapticsStrength,
   type PadActivity,
   type PadLike,
+  type PadPress,
   type PadSelection,
 } from "@/lib/gamepad-core";
 
@@ -108,6 +113,11 @@ export interface GamepadOptions {
   hapticsStrength?: HapticsStrength;
   /** The screen pulses per cue instead of the built-in per-action rumble. */
   cueHaptics?: boolean;
+  /**
+   * This loop owns a pad layer (`data-pad-layer`): the layer is exempt from its
+   * own block, so the tour can be driven by a controller (#237).
+   */
+  owner?: boolean;
 }
 
 export interface GamepadHandle extends GamepadState {
@@ -196,6 +206,7 @@ export function useGamepad(
   strengthRef.current = sanitizeHapticsStrength(options.hapticsStrength);
   const cueHapticsRef = useRef(options.cueHaptics ?? false);
   cueHapticsRef.current = options.cueHaptics ?? false;
+  const owner = options.owner ?? false;
   const pulseRef = useRef<(cue: CueId) => void>(() => undefined);
 
   useEffect(() => {
@@ -371,6 +382,32 @@ export function useGamepad(
       }
     };
 
+    /**
+     * A desktop dialog (install, delete, confirm) is still a 10-foot surface
+     * when it is opened from Console: directions walk its focus stops, A
+     * presses the focused control, B closes through Escape (#237).
+     */
+    const walkModal = (presses: readonly PadPress[]) => {
+      const surface = document.querySelector<HTMLElement>(
+        '[role="dialog"][aria-modal="true"]',
+      );
+      if (!surface) return;
+      for (const press of presses) {
+        if (repeat.pressed.has(press.action)) continue;
+        const delta =
+          press.action === "left" || press.action === "up"
+            ? -1
+            : press.action === "right" || press.action === "down"
+              ? 1
+              : 0;
+        if (delta) {
+          moveModalFocus(surface as unknown as ModalHost, document.activeElement, delta);
+          continue;
+        }
+        if (press.action === "confirm") activateFocusedControl(document.activeElement);
+      }
+    };
+
     const step = (now: number) => {
       if (disposed) return;
       const pad = syncPad();
@@ -386,7 +423,9 @@ export function useGamepad(
         return;
       }
 
-      const modal = hasBlockingModal(document);
+      // A pad layer (`data-pad-layer`) also blocks the screen behind it, but
+      // its own loop owns the input: only a real dialog blocks the owner.
+      const modal = owner ? hasModalDialog(document) : hasBlockingModal(document);
       if (modal !== modalOpen) {
         modalOpen = modal;
         if (modal) {
@@ -405,6 +444,7 @@ export function useGamepad(
       const pressed = new Set<GamepadAction>(presses.map((press) => press.action));
       const sourceFor = new Map(presses.map((press) => [press.action, press.source]));
       const backEdge = pressed.has("back") && !repeat.pressed.has("back");
+      if (modal) walkModal(presses);
       const actions = collectRepeatActions(repeat, pressed, now, modal);
       if (modal && backEdge) {
         // A controller-only player opened the dialog with X; B dismisses it the
@@ -539,6 +579,25 @@ export function useGamepad(
   }, [enabled]);
 
   return { ...state, pulse: (cue: CueId) => pulseRef.current(cue) };
+}
+
+/**
+ * Back-only pad handler for a screen that is not pad-navigable (#237).
+ *
+ * Console can send a player to `/game/:id` or `/remote`, and those screens used
+ * to have no pad input at all: a couch player with no keyboard was stuck. B
+ * returns to the screen they came from, which is the console that owns the
+ * selection, so the ring lands back on the game they left.
+ */
+export function usePadBack(onBack: () => void, options: { enabled?: boolean } = {}): void {
+  const backRef = useRef(onBack);
+  backRef.current = onBack;
+  useGamepad(
+    (action) => {
+      if (action === "back") backRef.current();
+    },
+    { enabled: options.enabled ?? true },
+  );
 }
 
 /**

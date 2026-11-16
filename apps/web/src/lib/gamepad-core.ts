@@ -329,12 +329,27 @@ export interface QueryHost {
   querySelector(selector: string): unknown;
 }
 
+/** A real modal dialog, or a surface that declares the pad belongs to it. */
+export const BLOCKING_SURFACE_SELECTOR =
+  '[role="dialog"][aria-modal="true"], [data-pad-layer="true"]';
+
 /**
  * Only a real modal dialog (`role="dialog"` + `aria-modal="true"`, as rendered
- * by `components/ui/dialog`) swallows gamepad input. A non-modal filter sheet
- * or an inline panel must not block navigation.
+ * by `components/ui/dialog`) or a declared pad layer (`data-pad-layer`, the
+ * onboarding tour) swallows gamepad input. A non-modal filter sheet or an
+ * inline panel must not block navigation.
  */
 export function hasBlockingModal(host?: QueryHost | null): boolean {
+  if (!host) return false;
+  try {
+    return Boolean(host.querySelector(BLOCKING_SURFACE_SELECTOR));
+  } catch {
+    return false;
+  }
+}
+
+/** Only the aria-modal case: a layer that owns the pad still lets it through. */
+export function hasModalDialog(host?: QueryHost | null): boolean {
   if (!host) return false;
   try {
     return Boolean(host.querySelector('[role="dialog"][aria-modal="true"]'));
@@ -343,8 +358,23 @@ export function hasBlockingModal(host?: QueryHost | null): boolean {
   }
 }
 
+/**
+ * The focus stops inside the open dialog. Same order the dialog's own Tab trap
+ * uses, so a pad and a keyboard walk the same path (#237).
+ */
+export const MODAL_FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(", ");
+
 export interface FocusTarget {
   focus(options?: FocusOptions): void;
+  /** Present on anything a player can press; a heading only focuses. */
+  click?(): void;
   setAttribute(name: string, value: string): void;
   removeAttribute(name: string): void;
   hasAttribute?(name: string): boolean;
@@ -398,6 +428,54 @@ export function restoreGamepadFocus(
   target.setAttribute("data-gamepad-focus", "true");
   target.focus({ preventScroll: true });
   return target;
+}
+
+export interface ModalHost {
+  querySelector(selector: string): unknown;
+  querySelectorAll(selector: string): ArrayLike<FocusTarget>;
+}
+
+function visibleTargets(host: ModalHost): FocusTarget[] {
+  try {
+    return Array.from(host.querySelectorAll(MODAL_FOCUSABLE_SELECTOR)).filter(
+      (element) => !("offsetParent" in element) || element.offsetParent !== null,
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Walks the open dialog's focus stops (#237). A controller-only player can
+ * open the install dialog; without this they can only close it. Directions move
+ * the ring, A clicks the focused control, B still closes through Escape.
+ */
+export function moveModalFocus(
+  host: ModalHost | null | undefined,
+  active: unknown,
+  delta: 1 | -1,
+): FocusTarget | null {
+  if (!host) return null;
+  const targets = visibleTargets(host);
+  if (targets.length === 0) return null;
+  const at = targets.findIndex((target) => target === active);
+  const next = at === -1 ? (delta > 0 ? 0 : targets.length - 1) : (at + delta + targets.length) % targets.length;
+  const target = targets[next];
+  if (!target) return null;
+  for (const element of targets) element.removeAttribute("data-gamepad-focus");
+  target.setAttribute("data-gamepad-focus", "true");
+  target.focus({ preventScroll: true });
+  target.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  return target;
+}
+
+/** Clicks the control the pad ring is on; no-op when focus sits elsewhere. */
+export function activateFocusedControl(active: unknown): boolean {
+  if (!active || typeof active !== "object") return false;
+  const control = active as { click?: () => void; tagName?: string };
+  if (typeof control.click !== "function") return false;
+  control.click();
+  return true;
 }
 
 /* --------------------------------- haptics --------------------------------- */

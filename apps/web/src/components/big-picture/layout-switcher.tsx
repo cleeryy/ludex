@@ -44,7 +44,7 @@ export function LayoutTrigger({
       aria-expanded={open}
       aria-label={`${t("Console layout")} — ${layoutLabel(layout)}`}
       className={cn(
-        "inline-flex h-8 items-center gap-2 border border-line px-2.5 text-[11.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink",
+        "inline-flex h-8 items-center gap-2 border border-line px-2.5 text-bp-meta text-ink-2 transition-colors hover:border-line-2 hover:text-ink",
         open && "border-line-2 text-ink",
         className,
       )}
@@ -94,8 +94,8 @@ export function LayoutPicker({
         {...exitOf("overlayOpen", { reduce: reduceMotion })}
       >
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-          <p className="text-[13px] font-medium text-ink">{t("Console layout")}</p>
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+          <p className="text-bp-body font-medium text-ink">{t("Console layout")}</p>
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-bp-micro uppercase tracking-[0.12em] text-ink-3">
             <span className="flex items-center gap-1.5">
               <Kbd>←</Kbd>
               <Kbd>→</Kbd>
@@ -130,10 +130,10 @@ export function LayoutPicker({
               >
                 <LayoutPreview layout={entry} />
                 <span className="flex items-baseline justify-between gap-2 px-0.5">
-                  <span className="text-[12.5px] font-medium text-ink">{layoutLabel(entry)}</span>
+                  <span className="text-bp-meta font-medium text-ink">{layoutLabel(entry)}</span>
                   {active && <Check className="size-3.5 shrink-0 text-signal-text" strokeWidth={3} aria-hidden="true" />}
                 </span>
-                <span className="line-clamp-3 px-0.5 text-[11px] leading-snug text-ink-3">
+                <span className="line-clamp-3 px-0.5 text-bp-meta leading-snug text-ink-3">
                   {layoutDescription(entry)}
                 </span>
               </button>

@@ -20,12 +20,12 @@ export function BigPictureLayoutPanel() {
     <section className="border border-line p-4" aria-label={t("Console layout")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[13px] font-medium text-ink">{t("Console layout")}</p>
-          <p className="mt-1 max-w-[64ch] text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-bp-body font-medium text-ink">{t("Console layout")}</p>
+          <p className="mt-1 max-w-[64ch] text-bp-meta leading-relaxed text-ink-3">
             {t("Console mode opens in this layout. Changes apply immediately, here and in a running screen.")}
           </p>
         </div>
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+        <span className="font-mono text-bp-micro uppercase tracking-[0.12em] text-ink-3">
           {t("Now: {layout}", { layout: layoutLabel(layout) })}
         </span>
       </div>
@@ -50,7 +50,7 @@ export function BigPictureLayoutPanel() {
             >
               <LayoutPreview layout={entry} />
               <span className="flex items-baseline justify-between gap-2 px-0.5">
-                <span className="text-[12.5px] font-medium text-ink">{layoutLabel(entry)}</span>
+                <span className="text-bp-meta font-medium text-ink">{layoutLabel(entry)}</span>
                 <span
                   className={cn(
                     "grid size-4 shrink-0 place-items-center rounded-full border",
@@ -60,7 +60,7 @@ export function BigPictureLayoutPanel() {
                   <Check className="size-2.5" strokeWidth={3} aria-hidden="true" />
                 </span>
               </span>
-              <span className="line-clamp-3 px-0.5 text-[11px] leading-snug text-ink-3">
+              <span className="line-clamp-3 px-0.5 text-bp-meta leading-snug text-ink-3">
                 {layoutDescription(entry)}
               </span>
             </button>
@@ -68,7 +68,7 @@ export function BigPictureLayoutPanel() {
         })}
       </div>
 
-      <p className="mt-2.5 text-[11px] leading-relaxed text-ink-3">
+      <p className="mt-2.5 text-bp-meta leading-relaxed text-ink-3">
         {t("Saved on this device. Console mode switches with L on a keyboard, or Menu → Layout on a controller.")}
       </p>
     </section>

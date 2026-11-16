@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowUpDown,
@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { setRouteDocumentTitle } from "@/lib/document-title";
+import { routeScreenKey, routeTitleId, shouldMoveRouteFocus } from "@/lib/route-focus";
 import { installsAvailable } from "@/lib/install";
 import { navShortcutTarget, type NavContext } from "@/lib/navigation";
 import { useAuth, useIsAdmin, useIsEditor } from "@/state/auth";
@@ -77,7 +79,7 @@ function SortMenu() {
       <button
         {...menu.triggerProps}
         aria-label={t("Sort: {sort}", { sort: current.label })}
-        className="hidden h-9 items-center gap-2 rounded-[2px] px-2.5 text-[13px] text-ink-2 transition-colors hover:bg-surface hover:text-ink md:inline-flex"
+        className="hidden h-9 items-center gap-2 rounded-[2px] px-2.5 text-body text-ink-2 transition-colors hover:bg-surface hover:text-ink md:inline-flex"
       >
         <ArrowUpDown className="size-3.5 text-ink-3" aria-hidden="true" />
         <span>{current.label}</span>
@@ -101,8 +103,8 @@ function UserMenu() {
         <span className="flex items-center gap-2.5">
           <UserAvatar name={user.username} src={user.avatarUrl} size={28} />
           <span className="min-w-0">
-            <span className="block truncate text-[12.5px] text-ink">{user.username}</span>
-            <span className="block text-[10.5px] font-normal text-ink-3">
+            <span className="block truncate text-label text-ink">{user.username}</span>
+            <span className="block text-micro font-normal text-ink-3">
               {user.role === "admin" ? t("Administrator") : user.role === "editor" ? t("Editor") : t("Member")}
             </span>
           </span>
@@ -129,7 +131,7 @@ function UserMenu() {
         <span className="grid size-7 place-items-center overflow-hidden rounded-[2px]">
           <UserAvatar name={user.username} src={user.avatarUrl} size={28} />
         </span>
-        <span className="hidden text-[13px] text-ink-2 sm:block">{user.username}</span>
+        <span className="hidden text-body text-ink-2 sm:block">{user.username}</span>
         <ChevronDown className="hidden size-3.5 text-ink-3 sm:block" aria-hidden="true" />
       </button>
       <DropdownMenu {...menu.menuProps} items={items} label={t("Account")} />
@@ -188,7 +190,7 @@ function Topbar({ onOpenPalette, chrome }: { onOpenPalette: () => void; chrome: 
         <button
           type="button"
           onClick={onOpenPalette}
-          className="hidden h-9 w-[300px] items-center gap-2.5 rounded-[2px] border border-line bg-surface px-3 text-left text-[13px] text-ink-3 transition-colors hover:border-line-2 hover:text-ink-2 sm:flex"
+          className="hidden h-9 w-[300px] items-center gap-2.5 rounded-[2px] border border-line bg-surface px-3 text-left text-body text-ink-3 transition-colors hover:border-line-2 hover:text-ink-2 sm:flex"
         >
           <Search className="size-4 shrink-0" aria-hidden="true" />
           <span className="flex-1 truncate">{t("Search games")}</span>
@@ -235,7 +237,7 @@ function DownloadsStrip() {
     <Link
       to="/downloads"
       aria-label={t("Downloads: {title}, {percent} percent", { title: titleFor(job), percent: pct !== null ? pct.toFixed(0) : "" })}
-      className="relative flex h-10 shrink-0 items-center gap-3 border-t border-line bg-surface-2 px-4 text-[12px] text-ink-2 transition-colors hover:bg-surface"
+      className="relative flex h-10 shrink-0 items-center gap-3 border-t border-line bg-surface-2 px-4 text-label text-ink-2 transition-colors hover:bg-surface"
     >
       <span className="absolute inset-x-0 top-0 h-[2px] bg-line" aria-hidden="true">
         <span
@@ -272,6 +274,8 @@ export function AppShell() {
   useNativeEvents();
   const scrollRef = useRef<HTMLElement>(null);
   const positions = useRef(new Map<string, number>());
+  const previousScreen = useRef<string | null>(null);
+  const screenKey = routeScreenKey(location.pathname);
   const context: NavContext = { editor: isEditor, admin: isAdmin, desktop };
 
   useEffect(() => {
@@ -341,6 +345,50 @@ export function AppShell() {
     el.scrollTop = positions.current.get(location.key) ?? 0;
   }, [location.key]);
 
+  // #237: the tab and the screen-reader announcement follow the screen. A
+  // screen that knows better (a game, a collection) registers over this.
+  useLayoutEffect(() => {
+    const titleId = routeTitleId(location.pathname);
+    setRouteDocumentTitle(titleId ? t(titleId) : null);
+  }, [location.pathname]);
+
+  // #237: focus moves to the new screen's heading. Only when the screen
+  // changed: an in-page section link (`/game/12/rom`) keeps the reader in place.
+  useEffect(() => {
+    const previous = previousScreen.current;
+    previousScreen.current = screenKey;
+    if (!shouldMoveRouteFocus(previous, screenKey)) return;
+    const main = scrollRef.current;
+    if (!main) return;
+    const focusHeading = () => {
+      const heading = main.querySelector<HTMLElement>("h1");
+      if (!heading) return false;
+      // Programmatic focus only; -1 keeps it out of the tab order.
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+      return true;
+    };
+    if (focusHeading()) return;
+    main.focus({ preventScroll: true });
+    // A screen that loads its title (a game) paints its h1 after the data
+    // arrives. Move the ring there once, and only while the fallback still has
+    // the focus: a reader who already tabbed on is not thrown back.
+    const observer = new MutationObserver(() => {
+      const active = document.activeElement;
+      if (active !== main && active !== document.body) {
+        observer.disconnect();
+        return;
+      }
+      if (focusHeading()) observer.disconnect();
+    });
+    observer.observe(main, { childList: true, subtree: true });
+    const timer = window.setTimeout(() => observer.disconnect(), 2_000);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timer);
+    };
+  }, [screenKey]);
+
   return (
     <div className="flex h-dvh flex-col bg-bg text-ink">
       <div className="grain" aria-hidden="true" />
@@ -352,7 +400,7 @@ export function AppShell() {
           event.preventDefault();
           scrollRef.current?.focus();
         }}
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-3 focus:z-[100] focus:rounded-[2px] focus:border focus:border-line-2 focus:bg-surface focus:px-3 focus:py-2 focus:text-[13px] focus:text-ink"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-3 focus:z-[100] focus:rounded-[2px] focus:border focus:border-line-2 focus:bg-surface focus:px-3 focus:py-2 focus:text-body focus:text-ink"
       >
         {t("Skip to content")}
       </a>

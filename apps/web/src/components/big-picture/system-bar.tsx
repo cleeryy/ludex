@@ -74,7 +74,7 @@ function BatteryGlyph({ level, charging }: { level: number; charging: boolean })
   return (
     <span className="flex items-center gap-1">
       <Icon className="size-4" aria-hidden="true" />
-      <span className="num text-[11px] text-ink-2">{level}%</span>
+      <span className="num text-bp-meta text-ink-2">{level}%</span>
     </span>
   );
 }
@@ -91,7 +91,7 @@ function Slot({
   return (
     <div
       title={title}
-      className={cn("flex min-w-0 shrink-0 items-center gap-2 px-3 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3", className)}
+      className={cn("flex min-w-0 shrink-0 items-center gap-2 px-3 font-mono text-bp-micro uppercase tracking-[0.12em] text-ink-3", className)}
     >
       {children}
     </div>
@@ -119,35 +119,38 @@ export function SystemBar({
   return (
     <motion.header
       aria-label={t("System")}
-      className="relative z-20 flex h-[var(--bp-bar-h)] shrink-0 items-stretch border-b bp-chrome bp-pad-x"
+      className="relative z-20 flex h-[var(--bp-bar-h)] shrink-0 items-stretch overflow-hidden border-b bp-chrome bp-pad-x"
       {...reveal(reduceMotion, { y: 6, delay: BOOT_DELAY.bar, duration: BOOT_DURATION })}
     >
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-w-0 shrink items-center gap-3">
         <Wordmark height={17} />
-        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-3">
+        {/* #237: the eyebrow is the first thing to go. At 390 px the wordmark
+            and the clock are the whole bar; the label used to paint under the
+            avatar. */}
+        <span className="hidden font-mono text-bp-micro uppercase tracking-[0.18em] text-ink-3 sm:inline">
           {t("Console")}
         </span>
         {refreshing && (
-          <span role="status" className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+          <span role="status" className="flex items-center gap-1.5 font-mono text-bp-micro uppercase tracking-[0.14em] text-ink-3">
             <RefreshCw className="size-3 animate-spin [animation-duration:1.8s] motion-reduce:animate-none" aria-hidden="true" />
             <span className="sr-only">{t("Refreshing")}</span>
           </span>
         )}
         {consoleActive && (
-          <span className="hidden items-center gap-1.5 rounded-[var(--bp-radius-pill)] border border-line px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-signal-text sm:flex">
+          <span className="hidden items-center gap-1.5 rounded-[var(--bp-radius-pill)] border border-line px-2 py-0.5 font-mono text-bp-micro uppercase tracking-[0.14em] text-signal-text sm:flex">
             {t("console")}
           </span>
         )}
       </div>
 
-      <div className="ms-auto flex min-w-0 items-stretch divide-x divide-line">
+      <div className="ms-auto flex min-w-0 shrink-0 items-stretch divide-x divide-line">
         {name && (
           <Slot className="max-w-[30ch]" title={t("Signed in as {name}", { name })}>
             <UserAvatar name={name} src={user?.avatarUrl} size={22} />
-            <span className="flex min-w-0 flex-col justify-center leading-tight">
-              <span className="truncate text-[11px] normal-case tracking-normal text-ink-2">@{user?.username}</span>
+            <span className="hidden min-w-0 flex-col justify-center leading-tight sm:flex">
+              <span className="truncate text-bp-meta normal-case tracking-normal text-ink-2">@{user?.username}</span>
               {serverLabel && (
-                <span className="hidden max-w-[16ch] truncate text-[9px] tracking-[0.08em] text-ink-3 lg:block">
+                <span className="hidden max-w-[16ch] truncate text-bp-micro tracking-[0.08em] text-ink-3 lg:block">
                   {serverLabel}
                 </span>
               )}
@@ -155,7 +158,7 @@ export function SystemBar({
           </Slot>
         )}
 
-        <Slot title={undefined} className={online ? undefined : "text-ink-2"}>
+        <Slot title={undefined} className={online ? "hidden sm:flex" : "hidden text-ink-2 sm:flex"}>
           {online ? (
             <Wifi className="size-3.5 text-ok" aria-hidden="true" />
           ) : (
@@ -183,7 +186,7 @@ export function SystemBar({
         )}
 
         <Slot className="min-w-[7ch] justify-end">
-          <time dateTime={clock.iso} aria-live="off" className="num text-[12px] text-ink-2">
+          <time dateTime={clock.iso} aria-live="off" className="num text-bp-meta text-ink-2">
             {clock.label}
           </time>
         </Slot>

@@ -1,6 +1,6 @@
 import { notifyPreferencesChanged } from "@/lib/preferences-events";
-import { applyAccent, deriveTheme, tvTokens } from "./derive";
-import { builtinTheme, cssVarsFor } from "./registry";
+import { applyAccent, tvTokens } from "./derive";
+import { cssVarsFor } from "./registry";
 import type { StorageLike } from "./storage";
 import type { ThemeMode, ThemeTokens } from "./types";
 
@@ -13,16 +13,17 @@ import type { ThemeMode, ThemeTokens } from "./types";
  * preference, never in the account document — a phone must not inherit a TV's
  * materials.
  *
- * Colour still comes from the theme registry. The Soft preset is the `soft`
- * built-in palette (cream paper, warm ink) run through the same
- * accent/tint/contrast pipeline as every other theme; the Studio preset keeps
- * the app's rendered tokens and only lets the console accent refine them.
- * Components never see a hex value: this module returns CSS custom properties
- * and data attributes, and the material classes in `styles/index.css` read them.
+ * Colour comes from the app theme, always (#237). A preset only answers the
+ * material question — corners, elevation, wallpaper — so entering Console can
+ * no longer flip the product to a second palette. The curated console accents
+ * still refine the rendered tokens through the same accent/contrast pipeline as
+ * every other theme. Components never see a hex value: this module returns CSS
+ * custom properties and data attributes, and the material classes in
+ * `styles/index.css` read them.
  */
 
 export type ConsolePreset = "soft" | "studio";
-/** `artwork` = the selected game's art, blurred by the Soft material. */
+/** `artwork` = the selected game's art behind the chrome, blurred and veiled. */
 export type ConsoleBackground = "artwork" | "solid" | "gradient";
 export type ConsoleRadius = "soft" | "round" | "sharp";
 export type ConsoleAccentId = "theme" | "coral" | "mint" | "sky" | "lilac" | "sun";
@@ -60,8 +61,25 @@ export const CONSOLE_ACCENT_IDS: readonly ConsoleAccentId[] = [
   "sun",
 ];
 
-/** Soft is the console default: the Switch-like, rounded, translucent look. */
+/**
+ * Studio is the default (#237): the archive look the desktop app already owns,
+ * crisp hairlines, flat panels and the app theme. Soft stays selectable as an
+ * opt-in rounding of the same palette, never as a second palette.
+ */
 export const DEFAULT_CONSOLE_APPEARANCE: ConsoleAppearance = {
+  preset: "studio",
+  accent: "theme",
+  background: "artwork",
+  radius: "sharp",
+};
+
+/**
+ * The v1 default. It is the record every player who never opened the
+ * appearance panel carries implicitly, so a stored value equal to it is read
+ * as "untouched" and migrated to Studio. Anything else is a real choice and is
+ * kept: Soft remains one cycle away.
+ */
+const LEGACY_DEFAULT_APPEARANCE: ConsoleAppearance = {
   preset: "soft",
   accent: "theme",
   background: "artwork",
@@ -69,11 +87,38 @@ export const DEFAULT_CONSOLE_APPEARANCE: ConsoleAppearance = {
 };
 
 export const CONSOLE_APPEARANCE_KEY = "ludex.console.appearance";
-export const CONSOLE_APPEARANCE_VERSION = 1;
+/** v2: Studio default; the preset no longer owns a palette (#237). */
+export const CONSOLE_APPEARANCE_VERSION = 2;
+/** Records written before the version wrapper existed. */
+const LEGACY_CONSOLE_APPEARANCE_VERSION = 1;
 
 export interface StoredConsoleAppearance {
   v: typeof CONSOLE_APPEARANCE_VERSION;
   appearance: ConsoleAppearance;
+}
+
+function sameAppearance(a: ConsoleAppearance, b: ConsoleAppearance): boolean {
+  return (
+    a.preset === b.preset &&
+    a.accent === b.accent &&
+    a.background === b.background &&
+    a.radius === b.radius
+  );
+}
+
+/**
+ * Reads a stored record through the version ladder. Only the untouched v1
+ * default moves; an explicit Soft choice is preserved so a player who picked
+ * the rounded look keeps it after the upgrade.
+ */
+export function migrateConsoleAppearance(
+  appearance: ConsoleAppearance,
+  version: number,
+): ConsoleAppearance {
+  if (version >= CONSOLE_APPEARANCE_VERSION) return appearance;
+  return sameAppearance(appearance, LEGACY_DEFAULT_APPEARANCE)
+    ? { ...DEFAULT_CONSOLE_APPEARANCE }
+    : appearance;
 }
 
 function isOneOf<T extends string>(values: readonly T[], value: unknown): value is T {
@@ -108,9 +153,14 @@ export function readConsoleAppearance(
     // The version wrapper is the record; a bare appearance object is accepted
     // so a value written by an older build still resolves field by field.
     if (parsed && typeof parsed === "object" && "appearance" in parsed) {
-      return sanitizeConsoleAppearance((parsed as Record<string, unknown>).appearance);
+      const record = parsed as Record<string, unknown>;
+      const version = typeof record.v === "number" ? record.v : LEGACY_CONSOLE_APPEARANCE_VERSION;
+      return migrateConsoleAppearance(sanitizeConsoleAppearance(record.appearance), version);
     }
-    return sanitizeConsoleAppearance(parsed);
+    return migrateConsoleAppearance(
+      sanitizeConsoleAppearance(parsed),
+      LEGACY_CONSOLE_APPEARANCE_VERSION,
+    );
   } catch {
     return { ...DEFAULT_CONSOLE_APPEARANCE };
   }
@@ -167,11 +217,11 @@ export function consoleAccentColor(accent: ConsoleAccentId, mode: ThemeMode): st
 }
 
 /**
- * Custom properties for the console root. The return value is a complete map
- * for the Soft preset (it has its own palette) and an empty map for Studio
- * without an accent (it inherits the app's rendered tokens, including the
- * TV-safe variant). Both paths end in the same derived pipeline, so a curated
- * accent that cannot clear 4.5:1 falls back instead of shipping a bad pair.
+ * Custom properties for the console root. Only a curated accent changes
+ * colour: both presets inherit the app's rendered tokens, including the
+ * TV-safe variant, so Console keeps the product's palette (#237). The accent
+ * still runs through the derived pipeline, so a curated tone that cannot clear
+ * 4.5:1 falls back instead of shipping a bad pair.
  */
 export function consoleTokens(
   appearance: ConsoleAppearance,
@@ -183,24 +233,14 @@ export function consoleTokens(
     tv: boolean;
   },
 ): ThemeTokens | null {
-  if (appearance.preset === "studio" && appearance.accent === "theme") return null;
-
-  if (appearance.preset === "studio") {
-    const accent = consoleAccentHex(appearance, app.mode);
-    if (!accent) return null;
-    const tokens = applyAccent(app.tokens, accent).tokens;
-    // `app.tokens` is already the rendered (TV-safe) map, so this only lifts
-    // the accent's text pairs; the line tokens are mixed again, which is a
-    // slightly stronger hairline, never a weaker one.
-    return app.tv ? tvTokens(tokens) : tokens;
-  }
-
-  // Soft is a light palette whatever the desktop theme is: picking the dark
-  // tone of a curated accent here would fail `applyAccent` against the cream
-  // surfaces and silently fall back.
-  const mode: ThemeMode = "light";
-  const accent = consoleAccentHex(appearance, mode) ?? app.accent;
-  const tokens = deriveTheme(builtinTheme("soft"), accent, app.tint).tokens;
+  void app.tint;
+  if (appearance.accent === "theme") return null;
+  const accent = consoleAccentHex(appearance, app.mode);
+  if (!accent) return null;
+  const tokens = applyAccent(app.tokens, accent).tokens;
+  // `app.tokens` is already the rendered (TV-safe) map, so this only lifts the
+  // accent's text pairs; the line tokens are mixed again, which is a slightly
+  // stronger hairline, never a weaker one.
   return app.tv ? tvTokens(tokens) : tokens;
 }
 

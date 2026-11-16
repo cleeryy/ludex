@@ -5,6 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Download, Play } from "lucide-react";
 import { api } from "@/lib/api";
 import { downloadGame } from "@/lib/download";
+import { useDocumentTitle } from "@/lib/document-title";
 import { errorMessage } from "@/lib/http";
 import { formatPercent } from "@/lib/format";
 import { isNative, native } from "@/lib/native";
@@ -210,6 +211,7 @@ function matchesExitShortcut(event: KeyboardEvent, shortcut: string | undefined)
 export function BigPictureScreen() {
   const navigate = useNavigate();
   const { setTv } = useSettings();
+  useDocumentTitle(t("Console"));
   const location = useLocation();
   const [, setSearchParams] = useSearchParams();
   const debug = gamepadDebugEnabled(location.search);
@@ -536,10 +538,9 @@ export function BigPictureScreen() {
   const job = selected ? downloads.jobForGame(selected.id) : undefined;
   const percent = jobPercent(job);
 
-  // #229: the console material. Soft swaps in the cream palette plus the
-  // curated accent; Studio keeps the app's rendered (TV-safe) token map and
-  // only lets the accent refine it. Every path runs through derive.ts, so a
-  // combination that cannot hold 4.5:1 falls back instead of shipping.
+  // #229/#237: the console material. Both presets keep the app's rendered
+  // (TV-safe) token map; only a curated accent refines it, through derive.ts,
+  // so a combination that cannot hold 4.5:1 falls back instead of shipping.
   const consoleTheme = useMemo(
     () =>
       consoleTokens(consoleAppearance, {
@@ -1774,13 +1775,11 @@ export function BigPictureScreen() {
           detail: t("Theme applies to this browser; language is saved to your account."),
           value: themeValue,
           kind: "choice",
-          disabled: consoleAppearance.preset === "soft",
-          reason: t("The Soft console style uses its own cream palette. Switch Console style to Studio to follow the app theme."),
         },
         {
           id: "console-reset",
           label: t("Reset console appearance"),
-          detail: t("Back to Soft, artwork, theme accent and soft corners."),
+          detail: t("Back to Studio, artwork, theme accent and sharp corners."),
           value: t("Reset"),
           kind: "action",
         },
@@ -2063,7 +2062,7 @@ export function BigPictureScreen() {
         : collections.length === 0
           ? { detail: t("No collections yet.") }
           : { detail: t("{count} games", { count: totalCollectionGames }) },
-    settings: { detail: `${layoutLabel(layout)} · ${consolePresetLabel(consoleAppearance.preset)}` },
+    settings: { detail: layoutLabel(layout) },
     power: { detail: consoleActive ? t("End session") : t("Quit") },
   };
 
@@ -2404,8 +2403,8 @@ export function BigPictureScreen() {
   ) : isError && games.length === 0 ? (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
       <Wordmark height={22} />
-      <p className="text-[15px] text-ink-2">{t("The library could not be loaded.")}</p>
-      <p className="max-w-[56ch] font-mono text-[11px] leading-relaxed text-ink-3">{errorMessage(error)}</p>
+      <p className="text-bp-body text-ink-2">{t("The library could not be loaded.")}</p>
+      <p className="max-w-[56ch] font-mono text-bp-meta leading-relaxed text-ink-3">{errorMessage(error)}</p>
       <div className="flex flex-wrap items-center justify-center gap-2">
         <Button variant="primary" onClick={() => void refetch()}>
           {t("Try again")}
@@ -2418,7 +2417,7 @@ export function BigPictureScreen() {
   ) : !selected ? (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 px-6 text-center">
       <Wordmark height={22} />
-      <p className="text-[15px] text-ink-2">{t("The library is empty. Add a game first.")}</p>
+      <p className="text-bp-body text-ink-2">{t("The library is empty. Add a game first.")}</p>
       <Button variant="primary" onClick={exit}>
         {t("Exit Console mode")}
       </Button>

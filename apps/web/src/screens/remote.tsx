@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -12,6 +12,8 @@ import {
   WifiOff,
 } from "lucide-react";
 import { api, USING_MOCKS } from "@/lib/api";
+import { useDocumentTitle } from "@/lib/document-title";
+import { usePadBack } from "@/lib/gamepad";
 import { errorMessage } from "@/lib/http";
 import { cn } from "@/lib/cn";
 import { formatBytes, formatRelative } from "@/lib/format";
@@ -43,6 +45,11 @@ import { DevicePicker, deviceSummary, preferredDeviceId, rememberPreferredDevice
  */
 export function RemoteScreen() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  // #237: Console sends "Remote play" here, so the screen keeps a title and a
+  // way back for a controller-only player.
+  useDocumentTitle(t("Remote installs"));
+  usePadBack(() => navigate(-1));
   const { push } = useToast();
   const queryClient = useQueryClient();
 
