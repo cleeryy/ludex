@@ -44,7 +44,7 @@ pub(super) async fn set_progress(
     .bind(game_id)
     .bind(request.state.as_str())
     .bind(last_played)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -117,8 +117,7 @@ pub(super) async fn report_playtime(
     // One unit: the receipt (when the client sent a message id), the progress
     // increment and the play-session row. A crash or error anywhere rolls all
     // three back, so the outbox retry can safely send the same message again.
-    let applied = state
-        .pool
+    let applied = state.core.pool
         .with_tx(async |tx| {
             if let Some(message_id) = message_id {
                 // Receipts only need to outlive the desktop's retry window; the
@@ -218,14 +217,14 @@ pub(super) async fn set_bookmark(
         )
         .bind(user.id)
         .bind(game_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     } else {
         db::query("DELETE FROM bookmarks WHERE user_id = ? AND game_id = ?")
             .bind(user.id)
             .bind(game_id)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
     }
@@ -239,21 +238,21 @@ pub(super) async fn stats(
     user: AuthUser,
 ) -> Result<Json<Stats>, ApiError> {
     let games = db::query_scalar::<i64>("SELECT COUNT(*) FROM games")
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     let versions = db::query_scalar::<i64>("SELECT COUNT(*) FROM game_versions WHERE missing = 0")
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     let total_bytes = db::query_scalar::<i64>(
         "SELECT CAST(COALESCE(SUM(size), 0) AS BIGINT) FROM game_versions WHERE missing = 0",
     )
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     let users = db::query_scalar::<i64>("SELECT COUNT(*) FROM users")
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
@@ -266,7 +265,7 @@ pub(super) async fn stats(
         "SELECT state, COUNT(*) FROM progress WHERE user_id = ? GROUP BY state",
     )
     .bind(user.id)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     let mut counted = 0;
@@ -294,7 +293,7 @@ async fn progress_exists(state: &AppState, user_id: i64, game_id: i64) -> Result
         db::query_scalar::<i64>("SELECT COUNT(*) FROM progress WHERE user_id = ? AND game_id = ?")
             .bind(user_id)
             .bind(game_id)
-            .fetch_one(&state.pool)
+            .fetch_one(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
     Ok(count > 0)
@@ -330,7 +329,7 @@ async fn fetch_progress(
     )
     .bind(user_id)
     .bind(game_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok(match row {

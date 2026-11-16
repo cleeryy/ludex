@@ -70,7 +70,7 @@ pub(crate) async fn serve(
     // title is blank.
     let title = crate::db::query_scalar::<String>("SELECT title FROM games WHERE id = ?")
         .bind(game_id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::not_found("game_not_found", "Game not found"))?;

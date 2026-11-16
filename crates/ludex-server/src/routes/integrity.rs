@@ -36,7 +36,7 @@ async fn content_hashes(
     user: AuthUser,
 ) -> Result<Json<ContentHashStatus>, ApiError> {
     user.require_admin_access()?;
-    let mut status = state.content_hashes.status();
+    let mut status = state.catalog.content_hashes.status();
     status.pending = content_hash::pending_count(&state).await;
     Ok(Json(status))
 }
@@ -50,7 +50,7 @@ async fn start_content_hashes(
 ) -> Result<(StatusCode, Json<ContentHashStatus>), ApiError> {
     user.require_admin_access()?;
     let started = content_hash::schedule(&state, 0);
-    let mut status = state.content_hashes.status();
+    let mut status = state.catalog.content_hashes.status();
     status.pending = content_hash::pending_count(&state).await;
     let code = if started {
         StatusCode::ACCEPTED
@@ -76,7 +76,7 @@ async fn check(
         None => IntegrityScope::All,
     };
     let report_id = integrity::start(&state, scope).await?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::INTEGRITY_CHECK_STARTED, user.actor())
             .target("integrity_report", report_id.to_string())
             .metadata(serde_json::json!({ "scope": scope.as_str() })),
@@ -104,7 +104,9 @@ async fn list(
 ) -> Result<Json<Vec<IntegrityReport>>, ApiError> {
     user.require_admin_access()?;
     let limit = query.limit.unwrap_or(20);
-    Ok(Json(integrity::list_reports(&state.pool, limit).await?))
+    Ok(Json(
+        integrity::list_reports(&state.core.pool, limit).await?,
+    ))
 }
 
 async fn read(
@@ -113,7 +115,7 @@ async fn read(
     ApiPath(id): ApiPath<i64>,
 ) -> Result<Json<IntegrityReportDetail>, ApiError> {
     user.require_admin_access()?;
-    let (report, findings) = integrity::read_report(&state.pool, id)
+    let (report, findings) = integrity::read_report(&state.core.pool, id)
         .await?
         .ok_or_else(|| ApiError::not_found("report_not_found", "Integrity report not found"))?;
     Ok(Json(IntegrityReportDetail { report, findings }))

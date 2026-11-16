@@ -61,7 +61,7 @@ async fn create(
 
     let exists = db::query_scalar::<i64>("SELECT id FROM games WHERE id = ?")
         .bind(game_id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     if exists.is_none() {
@@ -119,7 +119,7 @@ async fn create(
             )
             .bind(version_id)
             .bind(game_id)
-            .fetch_optional(&state.pool)
+            .fetch_optional(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
             Some(found.ok_or_else(|| {
@@ -141,7 +141,7 @@ async fn create(
         .map_err(ApiError::from)?;
 
     let id = share::insert(
-        &state.pool,
+        &state.core.pool,
         &share::NewShare {
             token_hash: &token_hash,
             game_id,
@@ -155,7 +155,7 @@ async fn create(
     )
     .await?;
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::SHARE_CREATED, user.actor())
             .target("share", id.to_string())
             .metadata(json!({
@@ -168,7 +168,7 @@ async fn create(
             })),
     );
 
-    let row = share::get(&state.pool, id)
+    let row = share::get(&state.core.pool, id)
         .await?
         .ok_or_else(ApiError::internal)?;
     Ok((StatusCode::CREATED, Json(row.to_public(Some(token)))))
@@ -179,7 +179,7 @@ async fn list(
     user: AuthUser,
 ) -> Result<Json<Vec<ShareLink>>, ApiError> {
     user.require_editor()?;
-    let rows = share::list(&state.pool).await?;
+    let rows = share::list(&state.core.pool).await?;
     Ok(Json(rows.iter().map(|row| row.to_public(None)).collect()))
 }
 
@@ -189,12 +189,12 @@ async fn revoke(
     ApiPath(id): ApiPath<i64>,
 ) -> Result<StatusCode, ApiError> {
     user.require_editor()?;
-    let row = share::get(&state.pool, id)
+    let row = share::get(&state.core.pool, id)
         .await?
         .ok_or_else(|| ApiError::not_found("share_not_found", "Share link not found"))?;
     if row.revoked_at.is_none() {
-        share::revoke(&state.pool, id).await?;
-        state.events.emit(
+        share::revoke(&state.core.pool, id).await?;
+        state.core.events.emit(
             Event::new(actions::SHARE_REVOKED, user.actor())
                 .target("share", id.to_string())
                 .metadata(json!({
@@ -213,14 +213,14 @@ async fn view(
     ApiPath(token): ApiPath<String>,
 ) -> Result<Json<ShareView>, ApiError> {
     let token_hash = share::hash_token(&token);
-    let share = share::find_valid_by_token(&state.pool, &token_hash)
+    let share = share::find_valid_by_token(&state.core.pool, &token_hash)
         .await?
         .ok_or_else(|| ShareDenial::NotFound.not_found_error())?;
 
-    let game = share::game_metadata(&state.pool, share.game_id)
+    let game = share::game_metadata(&state.core.pool, share.game_id)
         .await?
         .ok_or_else(|| ShareDenial::NotFound.not_found_error())?;
-    let version = share::resolve_version(&state.pool, share.game_id, share.version_id)
+    let version = share::resolve_version(&state.core.pool, share.game_id, share.version_id)
         .await?
         .ok_or_else(|| ShareDenial::NotFound.not_found_error())?;
 
@@ -253,7 +253,7 @@ async fn access(
     let password = parse_password(&body)?;
     let now = db::now();
 
-    let link = share::find_by_token(&state.pool, &token_hash).await?;
+    let link = share::find_by_token(&state.core.pool, &token_hash).await?;
     // Exactly one Argon2 verification per attempt, whatever the token state,
     // so the response time cannot reveal whether the link exists.
     let password_ok = share::verify_access(link.as_ref(), password.as_deref());
@@ -276,16 +276,17 @@ async fn access(
         ));
     }
 
-    let Some(version) = share::resolve_version(&state.pool, link.game_id, link.version_id).await?
+    let Some(version) =
+        share::resolve_version(&state.core.pool, link.game_id, link.version_id).await?
     else {
         record_denied(&state, Some(&link), "no_version", ip);
         return Err(ShareDenial::NotFound.access_error());
     };
 
-    let Some(download_count) = share::claim_access(&state.pool, &link, now).await? else {
+    let Some(download_count) = share::claim_access(&state.core.pool, &link, now).await? else {
         // Another request changed the row between validation and the atomic
         // claim (or the expiry second ticked over); re-read to pick the reason.
-        let denial = match share::get(&state.pool, link.id).await? {
+        let denial = match share::get(&state.core.pool, link.id).await? {
             Some(current) => share::validate(&current, now)
                 .err()
                 .unwrap_or(ShareDenial::Exhausted),
@@ -302,7 +303,7 @@ async fn access(
         version = version.id,
         "share link accessed"
     );
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::SHARE_ACCESS, Actor::System)
             .target("share", link.id.to_string())
             .metadata(json!({
@@ -331,7 +332,7 @@ async fn collection_view(
             "Too many access attempts; retry in a minute",
         ));
     }
-    let link = collection_share::find_by_token(&state.pool, &token_hash).await?;
+    let link = collection_share::find_by_token(&state.core.pool, &token_hash).await?;
     let Some(link) = link else {
         record_collection_denied(&state, None, ShareDenial::NotFound.reason(), ip);
         return Err(ShareDenial::NotFound.not_found_error());
@@ -342,8 +343,8 @@ async fn collection_view(
     }
     let include_games = link.password_hash.is_none();
     let view = collection_share::view(&state, &link, include_games).await?;
-    let _ = collection_share::record_view(&state.pool, link.id).await;
-    state.events.emit(
+    let _ = collection_share::record_view(&state.core.pool, link.id).await;
+    state.core.events.emit(
         Event::new(actions::COLLECTION_SHARE_ACCESSED, Actor::System)
             .target("collection", link.collection_id.to_string())
             .metadata(json!({ "shareId": link.id, "passwordGate": !include_games }))
@@ -369,7 +370,7 @@ async fn collection_access(
         ));
     }
     let password = parse_password(&body)?;
-    let link = collection_share::find_by_token(&state.pool, &token_hash).await?;
+    let link = collection_share::find_by_token(&state.core.pool, &token_hash).await?;
     let password_ok = collection_share::verify_access(link.as_ref(), password.as_deref());
     let Some(link) = link else {
         record_collection_denied(&state, None, ShareDenial::NotFound.reason(), ip);
@@ -388,8 +389,8 @@ async fn collection_access(
         ));
     }
     let view = collection_share::view(&state, &link, true).await?;
-    let _ = collection_share::record_view(&state.pool, link.id).await;
-    state.events.emit(
+    let _ = collection_share::record_view(&state.core.pool, link.id).await;
+    state.core.events.emit(
         Event::new(actions::COLLECTION_SHARE_ACCESSED, Actor::System)
             .target("collection", link.collection_id.to_string())
             .metadata(json!({ "shareId": link.id, "passwordGate": true }))
@@ -411,7 +412,7 @@ fn record_collection_denied(
         None => Event::new(actions::COLLECTION_SHARE_DENIED, Actor::System)
             .metadata(json!({ "reason": reason })),
     };
-    state.events.emit(event.ip(ip));
+    state.core.events.emit(event.ip(ip));
 }
 
 fn parse_password(body: &Bytes) -> Result<Option<String>, ApiError> {
@@ -438,7 +439,7 @@ fn record_denied(state: &AppState, share: Option<&ShareLinkRow>, reason: &str, i
         None => Event::new(actions::SHARE_ACCESS_DENIED, Actor::System)
             .metadata(json!({ "reason": reason })),
     };
-    state.events.emit(event.ip(ip));
+    state.core.events.emit(event.ip(ip));
 }
 
 fn validate_label(raw: Option<&str>) -> Result<Option<String>, ApiError> {

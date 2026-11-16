@@ -41,7 +41,7 @@ pub async fn status(state: &AppState, user_id: i64) -> Result<MfaStatus, ApiErro
         "SELECT COUNT(*) FROM mfa_recovery_codes WHERE user_id = ? AND used_at IS NULL",
     )
     .bind(user_id)
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     let enabled = row
@@ -94,7 +94,7 @@ pub async fn start_enrollment(
     .bind(&secret)
     .bind(&now)
     .bind(&now)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -135,7 +135,7 @@ pub async fn activate(state: &AppState, user_id: i64, code: &str) -> Result<Vec<
     .bind(&now)
     .bind(&now)
     .bind(user_id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     regenerate_codes(state, user_id).await
@@ -146,12 +146,12 @@ pub async fn activate(state: &AppState, user_id: i64, code: &str) -> Result<Vec<
 pub async fn disable(state: &AppState, user_id: i64) -> Result<(), ApiError> {
     db::query("DELETE FROM user_mfa WHERE user_id = ?")
         .bind(user_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     db::query("DELETE FROM mfa_recovery_codes WHERE user_id = ?")
         .bind(user_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     Ok(())
@@ -163,7 +163,7 @@ pub async fn regenerate_codes(state: &AppState, user_id: i64) -> Result<Vec<Stri
     let now = db::db_time(db::now());
     db::query("DELETE FROM mfa_recovery_codes WHERE user_id = ?")
         .bind(user_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     for code in &codes {
@@ -174,7 +174,7 @@ pub async fn regenerate_codes(state: &AppState, user_id: i64) -> Result<Vec<Stri
         .bind(user_id)
         .bind(totp::hash_secret(&totp::normalize_recovery_code(code)))
         .bind(&now)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     }
@@ -201,7 +201,7 @@ pub async fn create_challenge(
     )
     .bind(user_id)
     .bind(db::db_time(issued))
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     db::query(
@@ -215,7 +215,7 @@ pub async fn create_challenge(
     .bind(ip)
     .bind(db::db_time(issued))
     .bind(db::db_time(expires_at))
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok((token, expires_at))
@@ -237,7 +237,7 @@ pub async fn find_challenge(state: &AppState, token: &str) -> Result<Challenge, 
          FROM mfa_challenges WHERE token_hash = ?",
     )
     .bind(totp::hash_secret(token.trim()))
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| {
@@ -280,7 +280,7 @@ pub async fn record_failed_attempt(state: &AppState, challenge_id: i64) -> Resul
     let now = db::db_time(db::now());
     db::query("UPDATE mfa_challenges SET attempts = attempts + 1 WHERE id = ?")
         .bind(challenge_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     // Burn the row like a used challenge once the budget is spent.
@@ -290,7 +290,7 @@ pub async fn record_failed_attempt(state: &AppState, challenge_id: i64) -> Resul
     .bind(&now)
     .bind(challenge_id)
     .bind(CHALLENGE_MAX_ATTEMPTS)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok(())
@@ -301,7 +301,7 @@ pub async fn consume_challenge(state: &AppState, challenge_id: i64) -> Result<()
     db::query("UPDATE mfa_challenges SET used_at = ? WHERE id = ? AND used_at IS NULL")
         .bind(db::db_time(db::now()))
         .bind(challenge_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     Ok(())
@@ -354,7 +354,7 @@ async fn verify_totp(
     .bind(&now)
     .bind(user_id)
     .bind(step)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .rows_affected();
@@ -373,7 +373,7 @@ async fn verify_recovery_code(
     )
     .bind(user_id)
     .bind(&hash)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     let Some(id) = id else {
@@ -383,7 +383,7 @@ async fn verify_recovery_code(
         db::query("UPDATE mfa_recovery_codes SET used_at = ? WHERE id = ? AND used_at IS NULL")
             .bind(db::db_time(db::now()))
             .bind(id)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?
             .rows_affected();
@@ -398,7 +398,7 @@ pub async fn require_password(
 ) -> Result<(), ApiError> {
     let hash = db::query_scalar::<String>("SELECT password_hash FROM users WHERE id = ?")
         .bind(user_id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?
         .ok_or_else(ApiError::unauthorized)?;
@@ -414,7 +414,7 @@ pub async fn require_password(
 async fn fetch_row(state: &AppState, user_id: i64) -> Result<Option<MfaRow>, ApiError> {
     db::query_as::<MfaRow>("SELECT totp_secret, enabled_at FROM user_mfa WHERE user_id = ?")
         .bind(user_id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)
 }

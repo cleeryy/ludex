@@ -58,7 +58,7 @@ async fn submit(
         return Err(payload_too_large());
     }
 
-    if let Err(seconds) = state.diagnostics_limits.check(&peer.ip().to_string()) {
+    if let Err(seconds) = state.auth.diagnostics_limits.check(&peer.ip().to_string()) {
         return Err(ApiError::new(
             StatusCode::TOO_MANY_REQUESTS,
             "rate_limited",
@@ -80,7 +80,7 @@ async fn submit(
     // nobody visits the admin page.
     if let Err(error) = crate::db::query("DELETE FROM diagnostics_reports WHERE created_at < ?")
         .bind(cutoff)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
     {
         tracing::warn!(error = %error, "diagnostics retention sweep failed");
@@ -101,7 +101,7 @@ async fn submit(
     .bind(&report.summary)
     .bind(&report.detail_json)
     .bind(crate::db::db_time(now))
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -143,7 +143,7 @@ async fn list(
         "SELECT {REPORT_COLUMNS} FROM diagnostics_reports {where_clause} ORDER BY id DESC LIMIT ?"
     );
     let mut rows = bind_query_as::<DiagnosticsReportRow>(crate::db::query_as(&sql), &binds)
-        .fetch_all(&state.pool)
+        .fetch_all(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     let has_more = rows.len() > usize::try_from(limit).unwrap_or(0);
@@ -153,7 +153,7 @@ async fn list(
     let next_before = has_more.then(|| rows.last().map(|row| row.id)).flatten();
 
     let total = crate::db::query_scalar::<i64>("SELECT COUNT(*) FROM diagnostics_reports")
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
@@ -177,7 +177,7 @@ async fn remove(
     user.require_admin_access()?;
     let result = crate::db::query("DELETE FROM diagnostics_reports WHERE id = ?")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     if result.rows_affected() == 0 {
@@ -186,7 +186,7 @@ async fn remove(
             "No diagnostics report with this id",
         ));
     }
-    state.events.emit(
+    state.core.events.emit(
         Event::new("diagnostics.deleted", Actor::User { id: user.id })
             .target("diagnostics_report", id.to_string())
             .metadata(json!({ "reportId": id })),
@@ -201,7 +201,7 @@ async fn counts(state: &AppState, column: &str) -> Result<Vec<DiagnosticsCount>,
          GROUP BY {column} ORDER BY count DESC, value ASC LIMIT 20"
     );
     crate::db::query_as::<DiagnosticsCount>(&sql)
-        .fetch_all(&state.pool)
+        .fetch_all(&state.core.pool)
         .await
         .map_err(ApiError::from)
 }

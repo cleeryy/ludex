@@ -582,7 +582,7 @@ mod tests {
     async fn creates_validates_and_resolves_emulators() {
         let state = state().await;
         let dolphin = create(
-            &state.pool,
+            &state.core.pool,
             &CreateEmulatorRequest {
                 name: "Dolphin".to_string(),
                 command: "dolphin-emu -b -e %ROM%".to_string(),
@@ -593,7 +593,7 @@ mod tests {
         .await
         .expect("create dolphin");
         let retro = create(
-            &state.pool,
+            &state.core.pool,
             &CreateEmulatorRequest {
                 name: "RetroArch SNES".to_string(),
                 command: "retroarch -L snes9x_libretro.so %ROM%".to_string(),
@@ -609,7 +609,7 @@ mod tests {
         assert!(validate_command("retroarch %ROM%; rm -rf /").is_err());
 
         set_defaults(
-            &state.pool,
+            &state.core.pool,
             &UpdateDefaultsRequest {
                 defaults: vec![PlatformDefault {
                     platform: "snes".to_string(),
@@ -619,19 +619,19 @@ mod tests {
         )
         .await
         .expect("set default");
-        let resolved = emulator_for(&state.pool, "snes", None)
+        let resolved = emulator_for(&state.core.pool, "snes", None)
             .await
             .expect("resolve")
             .expect("default");
         assert_eq!(resolved.id, retro.id);
-        let fallback = emulator_for(&state.pool, "wii", None)
+        let fallback = emulator_for(&state.core.pool, "wii", None)
             .await
             .expect("resolve")
             .expect("platform match");
         assert_eq!(fallback.id, dolphin.id);
 
         // An emulator that does not support the platform is ignored.
-        assert!(emulator_for(&state.pool, "gba", None)
+        assert!(emulator_for(&state.core.pool, "gba", None)
             .await
             .expect("resolve")
             .is_none());
@@ -640,9 +640,9 @@ mod tests {
     #[tokio::test]
     async fn builds_a_launch_command_for_a_rom_game() {
         let state = state().await;
-        let root = state.config.games_dir.display().to_string();
+        let root = state.core.config.games_dir.display().to_string();
         let emulator = create(
-            &state.pool,
+            &state.core.pool,
             &CreateEmulatorRequest {
                 name: "Snes9x".to_string(),
                 command: "snes9x %ROM%".to_string(),
@@ -656,7 +656,7 @@ mod tests {
             "INSERT INTO games (title, sort_title, group_key, kind, platform, created_at, updated_at)
              VALUES ('Chrono Trigger', 'Chrono Trigger', 'rom::snes::chrono trigger', 'rom', 'snes', '2026-01-01', '2026-01-01')",
         )
-        .returning_id(&state.pool)
+        .returning_id(&state.core.pool)
         .await
         .expect("insert game");
         db::query(
@@ -664,10 +664,10 @@ mod tests {
              VALUES (?, (SELECT id FROM library_roots LIMIT 1), 'Chrono Trigger.sfc', 'Chrono Trigger.sfc', 4096, 0, 0, '2026-01-01', '2026-01-01')",
         )
         .bind(game_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .expect("insert version");
-        let launch = launch_for_game(&state.pool, game_id)
+        let launch = launch_for_game(&state.core.pool, game_id)
             .await
             .expect("launch command");
         assert_eq!(launch.emulator_id, emulator.id);
@@ -684,14 +684,14 @@ mod tests {
             platforms: vec!["not-a-platform".to_string()],
             enabled: None,
         };
-        assert!(create(&state.pool, &request).await.is_err());
+        assert!(create(&state.core.pool, &request).await.is_err());
         let request = CreateEmulatorRequest {
             name: "Dolphin".to_string(),
             command: "dolphin %ROM%".to_string(),
             platforms: vec!["gamecube".to_string()],
             enabled: None,
         };
-        create(&state.pool, &request).await.expect("first");
-        assert!(create(&state.pool, &request).await.is_err());
+        create(&state.core.pool, &request).await.expect("first");
+        assert!(create(&state.core.pool, &request).await.is_err());
     }
 }

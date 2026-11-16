@@ -384,22 +384,23 @@ pub struct ObservabilitySnapshot {
 pub async fn snapshot(state: &AppState, window: ObservabilityWindow) -> ObservabilitySnapshot {
     let generated_at = Utc::now();
     let started = Instant::now();
-    let db_ok = state.pool.ping().await;
+    let db_ok = state.core.pool.ping().await;
     let db_latency_ms = started.elapsed().as_secs_f64() * 1000.0;
-    let pool = state.pool.pool_stats();
-    let scan = state.scan.read().await.clone();
-    let ingest = state.ingest.as_ref().map(|handle| handle.counts());
-    let window_stats = state.metrics.window(window.seconds());
-    let latency = state.metrics.latency();
+    let pool = state.core.pool.pool_stats();
+    let scan = state.catalog.scan.read().await.clone();
+    let ingest = state.ops.ingest.as_ref().map(|handle| handle.counts());
+    let window_stats = state.ops.metrics.window(window.seconds());
+    let latency = state.ops.metrics.latency();
 
     let error_count = window_stats.client_errors + window_stats.server_errors;
     let total = window_stats.total;
     let seconds = window.seconds().max(1) as f64;
 
     let (saves_snapshots, saves_bytes) = save_usage(state).await;
-    let backups = backup_usage(&state.config.data_dir).await;
-    let (media_files, media_bytes) = crate::metrics::media_usage(&state.config.media_dir).await;
-    let roots = crate::roots::list(&state.pool)
+    let backups = backup_usage(&state.core.config.data_dir).await;
+    let (media_files, media_bytes) =
+        crate::metrics::media_usage(&state.core.config.media_dir).await;
+    let roots = crate::roots::list(&state.core.pool)
         .await
         .unwrap_or_default()
         .into_iter()
@@ -459,6 +460,7 @@ pub async fn snapshot(state: &AppState, window: ObservabilityWindow) -> Observab
             })
             .collect(),
         top_errors: state
+            .ops
             .metrics
             .top_errors(TOP_ERRORS_LIMIT)
             .into_iter()
@@ -473,19 +475,20 @@ pub async fn snapshot(state: &AppState, window: ObservabilityWindow) -> Observab
             scans: i64::from(scan.running),
             ingest_running: ingest.map_or(0, |counts| counts.running),
             ingest_queued: ingest.map_or(0, |counts| counts.queued),
-            downloads: state.metrics.active_downloads(),
+            downloads: state.ops.metrics.active_downloads(),
             integrity_running: state
+                .ops
                 .integrity_busy
                 .load(std::sync::atomic::Ordering::Relaxed),
         },
         database: ObservabilityDatabase {
             ok: db_ok,
-            backend: state.pool.backend().as_str(),
-            size_bytes: match state.pool.backend() {
+            backend: state.core.pool.backend().as_str(),
+            size_bytes: match state.core.pool.backend() {
                 crate::db::Backend::Sqlite => {
-                    crate::metrics::database_size(&state.config.database_url).await
+                    crate::metrics::database_size(&state.core.config.database_url).await
                 }
-                crate::db::Backend::Postgres => state.pool.size_bytes().await,
+                crate::db::Backend::Postgres => state.core.pool.size_bytes().await,
             },
             latency_ms: db_latency_ms,
             connections: pool.size,
@@ -493,11 +496,11 @@ pub async fn snapshot(state: &AppState, window: ObservabilityWindow) -> Observab
             max_connections: pool.max_connections,
         },
         storage: ObservabilityStorage {
-            backend: state.storage.backend().as_str().to_string(),
+            backend: state.transfer.storage.backend().as_str().to_string(),
             disk: ObservabilityDisk {
-                data_free_bytes: crate::metrics::free_space(&state.config.data_dir),
-                games_free_bytes: crate::metrics::free_space(&state.config.games_dir),
-                media_free_bytes: crate::metrics::free_space(&state.config.media_dir),
+                data_free_bytes: crate::metrics::free_space(&state.core.config.data_dir),
+                games_free_bytes: crate::metrics::free_space(&state.core.config.games_dir),
+                media_free_bytes: crate::metrics::free_space(&state.core.config.media_dir),
             },
             media: ObservabilityMedia {
                 files: media_files,
@@ -522,7 +525,7 @@ pub async fn snapshot(state: &AppState, window: ObservabilityWindow) -> Observab
         },
         prometheus: ObservabilityPrometheus {
             endpoint: "/metrics".to_string(),
-            token_protected: state.config.metrics_token.is_some(),
+            token_protected: state.core.config.metrics_token.is_some(),
         },
     }
 }
@@ -533,7 +536,7 @@ async fn recent_events(state: &AppState) -> Vec<ObservabilityEvent> {
          FROM audit_logs ORDER BY id DESC LIMIT ?",
     )
     .bind(RECENT_EVENTS_LIMIT)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await;
     let Ok(rows) = rows else {
         return Vec::new();
@@ -559,7 +562,7 @@ async fn webhook_health(state: &AppState) -> (i64, i64, Vec<ObservabilityWebhook
             CAST(COALESCE(SUM(CASE WHEN delivered_at IS NULL AND next_attempt_at IS NULL THEN 1 ELSE 0 END), 0) AS BIGINT)
          FROM webhook_deliveries",
     )
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .unwrap_or((0, 0));
 
@@ -577,7 +580,7 @@ async fn webhook_health(state: &AppState) -> (i64, i64, Vec<ObservabilityWebhook
          ORDER BY id DESC LIMIT ?",
     )
     .bind(RECENT_WEBHOOK_FAILURES_LIMIT)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .unwrap_or_default();
     let failures = rows
@@ -607,7 +610,7 @@ async fn integrity_findings(state: &AppState, report_id: i64) -> Vec<Observabili
     )
     .bind(report_id)
     .bind(RECENT_FINDINGS_LIMIT)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .unwrap_or_default();
     rows.into_iter()
@@ -628,7 +631,7 @@ async fn save_usage(state: &AppState) -> (i64, i64) {
         "SELECT CAST(COUNT(*) AS BIGINT), CAST(COALESCE(SUM(size), 0) AS BIGINT)
          FROM save_snapshots",
     )
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .unwrap_or((0, 0))
 }

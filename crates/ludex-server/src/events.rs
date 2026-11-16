@@ -135,7 +135,7 @@ pub fn channel() -> (EventSink, mpsc::UnboundedReceiver<Event>) {
 /// Consumes events until every sender is dropped.
 pub async fn worker(state: AppState, mut rx: mpsc::UnboundedReceiver<Event>) {
     while let Some(event) = rx.recv().await {
-        crate::audit::record(&state.pool, &event).await;
+        crate::audit::record(&state.core.pool, &event).await;
         if crate::webhooks::is_webhook_event(&event.action) {
             crate::webhooks::dispatch(&state, &event).await;
         }

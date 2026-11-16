@@ -195,13 +195,13 @@ async fn reset(
 
     let deleted = db::query("DELETE FROM user_preferences WHERE user_id = ?")
         .bind(user.id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?
         .rows_affected();
 
     if deleted > 0 {
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::USER_PREFERENCES_UPDATED, user.actor())
                 .target("user", user.id.to_string())
                 .metadata(json!({ "reset": true, "revision": 0 })),
@@ -267,7 +267,7 @@ async fn write(
             .bind(&updated_at)
             .bind(user.id)
             .bind(stored.revision)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?
             .rows_affected();
@@ -293,7 +293,7 @@ async fn write(
             .bind(schema_version)
             .bind(revision)
             .bind(&updated_at)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await;
             match inserted {
                 Ok(_) => StoredPreferences {
@@ -319,7 +319,7 @@ async fn write(
         .as_object()
         .map(|object| object.keys().map(String::as_str).collect())
         .unwrap_or_default();
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::USER_PREFERENCES_UPDATED, user.actor())
             .target("user", user.id.to_string())
             .metadata(json!({
@@ -339,7 +339,7 @@ async fn load(state: &AppState, user_id: i64) -> Result<Option<StoredPreferences
          FROM user_preferences WHERE user_id = ?",
     )
     .bind(user_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 

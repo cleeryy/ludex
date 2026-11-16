@@ -453,7 +453,7 @@ pub async fn friends(state: &AppState, viewer_id: i64) -> Result<FriendsResponse
             Bind::Int(MAX_FRIENDS),
         ],
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -487,7 +487,7 @@ pub async fn friends(state: &AppState, viewer_id: i64) -> Result<FriendsResponse
          WHERE b.blocker_id = ? ORDER BY lower(u.username) ASC",
     )
     .bind(viewer_id)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -521,7 +521,7 @@ async fn request_rows(
         db::query_as::<RequestRow>(sql),
         &[Bind::Int(viewer_id), Bind::Int(MAX_REQUESTS)],
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok(rows
@@ -575,7 +575,7 @@ pub async fn request_friend(
     viewer_id: i64,
     input: &FriendRequestInput,
 ) -> Result<FriendRequest, ApiError> {
-    let target = find_user(&state.pool, input).await?;
+    let target = find_user(&state.core.pool, input).await?;
     if target.id == viewer_id {
         return Err(ApiError::bad_request(
             "invalid_friend_request",
@@ -584,16 +584,16 @@ pub async fn request_friend(
     }
     // A block by the target is indistinguishable from a missing account; a
     // block by the caller is explicit so the UI can offer to unblock.
-    if is_blocked(&state.pool, target.id, viewer_id).await? {
+    if is_blocked(&state.core.pool, target.id, viewer_id).await? {
         return Err(ApiError::not_found("user_not_found", "User not found"));
     }
-    if is_blocked(&state.pool, viewer_id, target.id).await? {
+    if is_blocked(&state.core.pool, viewer_id, target.id).await? {
         return Err(ApiError::forbidden(
             "friendship_blocked",
             "Unblock this account before sending a friend request",
         ));
     }
-    if friendship_id(&state.pool, viewer_id, target.id)
+    if friendship_id(&state.core.pool, viewer_id, target.id)
         .await?
         .is_some()
     {
@@ -616,7 +616,7 @@ pub async fn request_friend(
     .bind(pair_key(viewer_id, target.id))
     .bind(&stamp)
     .bind(&stamp)
-    .returning_id_optional(&state.pool)
+    .returning_id_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     let Some(id) = inserted else {
@@ -637,7 +637,7 @@ pub async fn request_friend(
         json!({}),
     )
     .await;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::FRIEND_REQUESTED, Actor::User { id: viewer_id })
             .target("user", target.id.to_string())
             .metadata(json!({ "requesterId": viewer_id, "addresseeId": target.id })),
@@ -661,7 +661,7 @@ pub async fn accept_request(
     viewer_id: i64,
     request_id: i64,
 ) -> Result<Friend, ApiError> {
-    let requester_id = pending_requester(&state.pool, request_id, viewer_id, false).await?;
+    let requester_id = pending_requester(&state.core.pool, request_id, viewer_id, false).await?;
     let now = db::now();
     let result = db::query(
         "UPDATE friendships SET status = 'accepted', updated_at = ?
@@ -670,7 +670,7 @@ pub async fn accept_request(
     .bind(db::db_time(now))
     .bind(request_id)
     .bind(viewer_id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     if result.rows_affected() == 0 {
@@ -691,19 +691,19 @@ pub async fn accept_request(
     )
     .await;
     clear_pair_notification(
-        &state.pool,
+        &state.core.pool,
         viewer_id,
         requester_id,
         notification_kinds::FRIEND_REQUEST,
     )
     .await;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::FRIEND_ACCEPTED, Actor::User { id: viewer_id })
             .target("user", requester_id.to_string())
             .metadata(json!({ "requesterId": requester_id, "addresseeId": viewer_id })),
     );
 
-    let row = load_user(&state.pool, requester_id).await?;
+    let row = load_user(&state.core.pool, requester_id).await?;
     Ok(Friend {
         user: SocialUser::from_row(&row),
         since: now,
@@ -721,13 +721,13 @@ pub async fn decline_request(
     viewer_id: i64,
     request_id: i64,
 ) -> Result<(), ApiError> {
-    let requester_id = pending_requester(&state.pool, request_id, viewer_id, false).await?;
+    let requester_id = pending_requester(&state.core.pool, request_id, viewer_id, false).await?;
     let result = db::query(
         "DELETE FROM friendships WHERE id = ? AND addressee_id = ? AND status = 'pending'",
     )
     .bind(request_id)
     .bind(viewer_id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     if result.rows_affected() == 0 {
@@ -738,7 +738,7 @@ pub async fn decline_request(
     }
     // A declined request must not linger in the recipient's notification list.
     clear_pair_notification(
-        &state.pool,
+        &state.core.pool,
         viewer_id,
         requester_id,
         notification_kinds::FRIEND_REQUEST,
@@ -757,13 +757,13 @@ pub async fn cancel_request(
     viewer_id: i64,
     request_id: i64,
 ) -> Result<(), ApiError> {
-    let addressee_id = pending_requester(&state.pool, request_id, viewer_id, true).await?;
+    let addressee_id = pending_requester(&state.core.pool, request_id, viewer_id, true).await?;
     let result = db::query(
         "DELETE FROM friendships WHERE id = ? AND requester_id = ? AND status = 'pending'",
     )
     .bind(request_id)
     .bind(viewer_id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     if result.rows_affected() == 0 {
@@ -773,7 +773,7 @@ pub async fn cancel_request(
         ));
     }
     clear_pair_notification(
-        &state.pool,
+        &state.core.pool,
         addressee_id,
         viewer_id,
         notification_kinds::FRIEND_REQUEST,
@@ -837,13 +837,13 @@ pub async fn remove_friend(
     .bind(friend_id)
     .bind(friend_id)
     .bind(viewer_id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("friend_not_found", "Friend not found"));
     }
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::FRIEND_REMOVED, Actor::User { id: viewer_id })
             .target("user", friend_id.to_string())
             .metadata(json!({ "userId": viewer_id, "friendId": friend_id })),
@@ -864,7 +864,7 @@ pub async fn block_user(state: &AppState, viewer_id: i64, target_id: i64) -> Res
             "You cannot block yourself",
         ));
     }
-    load_user(&state.pool, target_id).await?;
+    load_user(&state.core.pool, target_id).await?;
     let now = db::db_time(db::now());
     db::query(
         "INSERT INTO user_blocks (blocker_id, blocked_id, created_at) VALUES (?, ?, ?)
@@ -873,7 +873,7 @@ pub async fn block_user(state: &AppState, viewer_id: i64, target_id: i64) -> Res
     .bind(viewer_id)
     .bind(target_id)
     .bind(&now)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     db::query(
@@ -885,17 +885,17 @@ pub async fn block_user(state: &AppState, viewer_id: i64, target_id: i64) -> Res
     .bind(target_id)
     .bind(target_id)
     .bind(viewer_id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     // Notifications caused by the blocked account must not resurface.
     db::query("DELETE FROM notifications WHERE user_id = ? AND actor_id = ?")
         .bind(viewer_id)
         .bind(target_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::FRIEND_BLOCKED, Actor::User { id: viewer_id })
             .target("user", target_id.to_string())
             .metadata(json!({ "blockerId": viewer_id, "blockedId": target_id })),
@@ -916,10 +916,10 @@ pub async fn unblock_user(
     db::query("DELETE FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?")
         .bind(viewer_id)
         .bind(target_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::FRIEND_UNBLOCKED, Actor::User { id: viewer_id })
             .target("user", target_id.to_string())
             .metadata(json!({ "blockerId": viewer_id, "blockedId": target_id })),
@@ -941,7 +941,7 @@ pub async fn are_friends(state: &AppState, first: i64, second: i64) -> Result<bo
          WHERE status = 'accepted' AND pair_key = ?",
     )
     .bind(pair_key(first, second))
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok(count > 0)
@@ -1025,7 +1025,7 @@ pub async fn heartbeat(
     user_id: i64,
     heartbeat: &PresenceHeartbeat,
 ) -> Result<PresenceStateResponse, ApiError> {
-    if !presence_enabled(&state.pool, user_id).await? {
+    if !presence_enabled(&state.core.pool, user_id).await? {
         return Ok(PresenceStateResponse {
             enabled: false,
             state: None,
@@ -1047,7 +1047,7 @@ pub async fn heartbeat(
         })?;
         let title = db::query_scalar::<String>("SELECT title FROM games WHERE id = ?")
             .bind(game_id)
-            .fetch_optional(&state.pool)
+            .fetch_optional(&state.core.pool)
             .await
             .map_err(ApiError::from)?
             .ok_or_else(|| ApiError::not_found("game_not_found", "Game not found"))?;
@@ -1069,7 +1069,7 @@ pub async fn heartbeat(
     .bind(next_state)
     .bind(game.as_ref().map(|entry| entry.id))
     .bind(&stamp)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -1091,7 +1091,7 @@ pub async fn own_presence(
     state: &AppState,
     user_id: i64,
 ) -> Result<PresenceStateResponse, ApiError> {
-    let enabled = presence_enabled(&state.pool, user_id).await?;
+    let enabled = presence_enabled(&state.core.pool, user_id).await?;
     if !enabled {
         return Ok(PresenceStateResponse {
             enabled: false,
@@ -1107,7 +1107,7 @@ pub async fn own_presence(
          WHERE p.user_id = ?",
     )
     .bind(user_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     let view = row.as_ref().and_then(|row| {
@@ -1134,7 +1134,7 @@ pub async fn own_presence(
 /// Called from progress and playtime writes; failures are logged because a
 /// presence update must never fail the play report.
 pub async fn touch_playing(state: &AppState, user_id: i64, game_id: i64) {
-    let enabled = match presence_enabled(&state.pool, user_id).await {
+    let enabled = match presence_enabled(&state.core.pool, user_id).await {
         Ok(enabled) => enabled,
         Err(error) => {
             tracing::warn!(code = %error.code, message = %error.message, user_id, "could not read presence opt-in");
@@ -1154,7 +1154,7 @@ pub async fn touch_playing(state: &AppState, user_id: i64, game_id: i64) {
     .bind(user_id)
     .bind(game_id)
     .bind(db::db_time(db::now()))
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await;
     if let Err(error) = result {
         tracing::warn!(error = %error, user_id, "could not update presence");
@@ -1187,7 +1187,7 @@ pub async fn friends_presence(
     .bind(viewer_id)
     .bind(viewer_id)
     .bind(MAX_FRIENDS)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -1320,7 +1320,7 @@ pub async fn notify(
     if actor_id == Some(recipient_id) {
         return;
     }
-    let prefs = match prefs(&state.pool, recipient_id).await {
+    let prefs = match prefs(&state.core.pool, recipient_id).await {
         Ok(prefs) => prefs,
         Err(error) => {
             tracing::warn!(code = %error.code, message = %error.message, recipient_id, kind, "could not read notification prefs");
@@ -1331,7 +1331,7 @@ pub async fn notify(
         return;
     }
     if let Err(error) = insert_notification(
-        &state.pool,
+        &state.core.pool,
         recipient_id,
         kind,
         actor_id,
@@ -1344,7 +1344,7 @@ pub async fn notify(
         tracing::warn!(code = %error.code, message = %error.message, recipient_id, kind, "could not write notification");
         return;
     }
-    prune_notifications(&state.pool, recipient_id).await;
+    prune_notifications(&state.core.pool, recipient_id).await;
 }
 
 async fn insert_notification(
@@ -1432,7 +1432,7 @@ pub async fn notify_achievement(
     name: &str,
     points: i64,
 ) {
-    match shares_with_friends(&state.pool, owner_id).await {
+    match shares_with_friends(&state.core.pool, owner_id).await {
         Ok(true) => {}
         Ok(false) => return,
         Err(error) => {
@@ -1490,7 +1490,7 @@ async fn friend_ids(state: &AppState, user_id: i64) -> Vec<i64> {
     .bind(user_id)
     .bind(user_id)
     .bind(MAX_FRIENDS)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     {
         Ok(ids) => ids,
@@ -1536,7 +1536,7 @@ pub async fn notifications(
         clauses.join(" AND ")
     );
     let mut rows = bind_query_as(db::query_as::<NotificationRow>(&sql), &binds)
-        .fetch_all(&state.pool)
+        .fetch_all(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
@@ -1548,7 +1548,7 @@ pub async fn notifications(
     Ok(NotificationPage {
         items: rows.iter().map(NotificationRow::to_public).collect(),
         next_before,
-        unread_count: unread_count(&state.pool, user_id).await?,
+        unread_count: unread_count(&state.core.pool, user_id).await?,
     })
 }
 
@@ -1632,7 +1632,7 @@ pub async fn mark_read(
     .bind(db::db_time(db::now()))
     .bind(notification_id)
     .bind(user_id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     if result.rows_affected() == 0 {
@@ -1641,7 +1641,7 @@ pub async fn mark_read(
         )
         .bind(notification_id)
         .bind(user_id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
         if exists == 0 {
@@ -1653,7 +1653,7 @@ pub async fn mark_read(
     }
     Ok(NotificationReadResponse {
         updated: i64::try_from(result.rows_affected()).unwrap_or(i64::MAX),
-        unread_count: unread_count(&state.pool, user_id).await?,
+        unread_count: unread_count(&state.core.pool, user_id).await?,
     })
 }
 
@@ -1670,7 +1670,7 @@ pub async fn mark_all_read(
         db::query("UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL")
             .bind(db::db_time(db::now()))
             .bind(user_id)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
     Ok(NotificationReadResponse {

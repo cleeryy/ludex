@@ -40,8 +40,9 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
 /// included, so the endpoint stays public like `/api/health`.
 async fn health_details(State(state): State<AppState>) -> Json<HealthDetails> {
     let snapshot = crate::metrics::snapshot(&state).await;
-    let watcher = state.watcher.read().await.clone();
+    let watcher = state.ops.watcher.read().await.clone();
     let counts = state
+        .ops
         .ingest
         .as_ref()
         .map(|handle| handle.counts())
@@ -53,11 +54,11 @@ async fn health_details(State(state): State<AppState>) -> Json<HealthDetails> {
         uptime_seconds: state.uptime_seconds(),
         database: HealthDatabase {
             ok: snapshot.db_ok,
-            backend: state.pool.backend().as_str().to_string(),
+            backend: state.core.pool.backend().as_str().to_string(),
             size_bytes: snapshot.db_bytes,
-            connections: state.pool.pool_stats().size,
-            idle_connections: state.pool.pool_stats().idle,
-            max_connections: state.pool.pool_stats().max_connections,
+            connections: state.core.pool.pool_stats().size,
+            idle_connections: state.core.pool.pool_stats().idle,
+            max_connections: state.core.pool.pool_stats().max_connections,
         },
         disk: HealthDisk {
             data_free_bytes: snapshot.disk.data_free,
@@ -88,13 +89,13 @@ async fn health_details(State(state): State<AppState>) -> Json<HealthDetails> {
             last_error: watcher.last_error,
         },
         integrity: snapshot.integrity,
-        storage_backend: state.storage.backend().as_str().to_string(),
+        storage_backend: state.transfer.storage.backend().as_str().to_string(),
     })
 }
 
 async fn setup_status(State(state): State<AppState>) -> Result<Json<SetupStatus>, ApiError> {
-    let users = db::count_users(&state.pool).await?;
-    let server_name = db::server_name(&state.pool, &state.config.server_name).await;
+    let users = db::count_users(&state.core.pool).await?;
+    let server_name = db::server_name(&state.core.pool, &state.core.config.server_name).await;
     Ok(Json(SetupStatus {
         needs_setup: users == 0,
         server_name,
@@ -106,7 +107,7 @@ async fn setup(
     State(state): State<AppState>,
     JsonBody(request): JsonBody<SetupRequest>,
 ) -> Result<Json<AuthResponse>, ApiError> {
-    let users = db::count_users(&state.pool).await?;
+    let users = db::count_users(&state.core.pool).await?;
     if users > 0 {
         return Err(ApiError::conflict(
             "setup_complete",
@@ -121,7 +122,7 @@ async fn setup(
 
     // The `WHERE NOT EXISTS` clause closes the race between the count check
     // above and this insert: two concurrent setup requests can never both win.
-    let mut transaction = state.pool.begin().await.map_err(ApiError::from)?;
+    let mut transaction = state.core.pool.begin().await.map_err(ApiError::from)?;
     let created = db::query(
         "INSERT INTO users
             (username, password_hash, email, role, activated, avatar_path, created_at, updated_at)
@@ -182,7 +183,7 @@ async fn setup(
         must_change_password: false,
         locale: None,
     };
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::USER_CREATED, Actor::System)
             .target("user", user.id.to_string())
             .metadata(serde_json::json!({
@@ -191,20 +192,20 @@ async fn setup(
                 "source": "setup",
             })),
     );
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::SETTINGS_UPDATED, Actor::User { id: user.id })
             .target("settings", "server")
             .metadata(serde_json::json!({
                 "serverName": server_name,
             })),
     );
-    let token = issue_access_token(&state.jwt_secret, user.id, user.role)?;
+    let token = issue_access_token(&state.auth.jwt_secret, user.id, user.role)?;
     Ok(Json(AuthResponse::session(token, user, None)))
 }
 
 async fn config(State(state): State<AppState>) -> Result<Json<ServerConfig>, ApiError> {
-    let server_name = db::server_name(&state.pool, &state.config.server_name).await;
-    let default_locale = db::default_locale(&state.pool).await;
+    let server_name = db::server_name(&state.core.pool, &state.core.config.server_name).await;
+    let default_locale = db::default_locale(&state.core.pool).await;
     // Snapshot the live client so a save from the admin UI is reflected
     // without restarting the server.
     let oidc = state.oidc_client().await;
@@ -215,13 +216,13 @@ async fn config(State(state): State<AppState>) -> Result<Json<ServerConfig>, Api
             igdb: state.igdb_enabled(),
             steam: true,
             ingest: true,
-            local_mode: state.config.local_mode,
+            local_mode: state.core.config.local_mode,
             oidc: oidc.is_some(),
             archive_sha256: true,
         },
         max_upload_bytes: MAX_JSON_BYTES as u64,
         oidc_display_name: oidc.as_ref().map_or_else(
-            || state.config.oidc_display_name.clone(),
+            || state.core.config.oidc_display_name.clone(),
             |client| client.display_name().to_string(),
         ),
         default_locale,

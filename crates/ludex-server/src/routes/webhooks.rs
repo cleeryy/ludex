@@ -38,7 +38,7 @@ async fn list(
     let rows = db::query_as::<WebhookRow>(&format!(
         "SELECT {WEBHOOK_COLUMNS} FROM webhooks ORDER BY id DESC"
     ))
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok(Json(rows.iter().map(WebhookRow::to_public).collect()))
@@ -50,7 +50,8 @@ async fn create(
     JsonBody(request): JsonBody<CreateWebhookRequest>,
 ) -> Result<(StatusCode, Json<CreateWebhookResponse>), ApiError> {
     user.require_admin_access()?;
-    let url = webhooks::validate_url(&request.url, state.config.webhooks_allow_private).await?;
+    let url =
+        webhooks::validate_url(&request.url, state.core.config.webhooks_allow_private).await?;
     let events = webhooks::validate_events(&request.events)?;
     let enabled = request.enabled.unwrap_or(true);
     let secret = webhooks::generate_secret();
@@ -65,11 +66,11 @@ async fn create(
     .bind(webhooks::events_json(&events))
     .bind(i64::from(enabled))
     .bind(&now)
-    .returning_id(&state.pool)
+    .returning_id(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::WEBHOOK_CREATED, user.actor())
             .target("webhook", id.to_string())
             .metadata(json!({ "url": url, "events": events, "enabled": enabled })),
@@ -79,7 +80,7 @@ async fn create(
         "SELECT {WEBHOOK_COLUMNS} FROM webhooks WHERE id = ?"
     ))
     .bind(id)
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -107,7 +108,7 @@ async fn update(
     let mut new_secret: Option<String> = None;
 
     if let Some(url) = request.url {
-        let url = webhooks::validate_url(&url, state.config.webhooks_allow_private).await?;
+        let url = webhooks::validate_url(&url, state.core.config.webhooks_allow_private).await?;
         sets.push("url = ?");
         binds.push(Bind::Text(url.clone()));
         changed.insert("url".to_string(), json!(url));
@@ -135,10 +136,10 @@ async fn update(
         binds.push(Bind::Int(id));
         let sql = format!("UPDATE webhooks SET {} WHERE id = ?", sets.join(", "));
         bind_query(db::query(&sql), &binds)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::WEBHOOK_UPDATED, user.actor())
                 .target("webhook", id.to_string())
                 .metadata(json!({ "changes": changed, "url": current.url })),
@@ -161,10 +162,10 @@ async fn remove(
     let row = fetch_webhook(&state, id).await?;
     db::query("DELETE FROM webhooks WHERE id = ?")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::WEBHOOK_DELETED, user.actor())
             .target("webhook", id.to_string())
             .metadata(json!({ "url": row.url })),
@@ -190,7 +191,7 @@ async fn fetch_webhook(state: &AppState, id: i64) -> Result<WebhookRow, ApiError
         "SELECT {WEBHOOK_COLUMNS} FROM webhooks WHERE id = ?"
     ))
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("webhook_not_found", "Webhook not found"))

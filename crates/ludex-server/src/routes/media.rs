@@ -22,7 +22,7 @@ pub fn router() -> Router<AppState> {
 }
 
 async fn media(State(state): State<AppState>, ApiPath(name): ApiPath<String>) -> Response {
-    crate::media::media_response(&state.config.media_dir, &name).await
+    crate::media::media_response(&state.core.config.media_dir, &name).await
 }
 
 async fn gc(
@@ -34,7 +34,7 @@ async fn gc(
     let dry_run = query.dry_run.unwrap_or(true);
     let result = media_gc::run(&state, dry_run).await?;
     if !dry_run && result.deleted_files > 0 {
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::MEDIA_GC_RUN, user.actor())
                 .target("media_cache", "gc")
                 .metadata(serde_json::json!({

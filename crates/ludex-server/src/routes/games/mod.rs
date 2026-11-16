@@ -85,7 +85,7 @@ pub fn router() -> Router<AppState> {
 async fn ensure_game(state: &AppState, id: i64) -> Result<(), ApiError> {
     let exists = db::query_scalar::<i64>("SELECT id FROM games WHERE id = ?")
         .bind(id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     exists

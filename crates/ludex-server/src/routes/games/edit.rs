@@ -157,7 +157,7 @@ pub(super) async fn update_game(
         binds.push(Bind::Int(id));
         let sql = format!("UPDATE games SET {} WHERE id = ?", sets.join(", "));
         bind_query(db::query(&sql), &binds)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
     }
@@ -179,7 +179,7 @@ pub(crate) async fn merge_manual_fields(
 ) -> Result<(), ApiError> {
     let existing = db::query_scalar::<String>("SELECT manual_fields_json FROM games WHERE id = ?")
         .bind(game_id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?
         .unwrap_or_default();
@@ -192,7 +192,7 @@ pub(crate) async fn merge_manual_fields(
     db::query("UPDATE games SET manual_fields_json = ? WHERE id = ?")
         .bind(db::dump_json_list(&list))
         .bind(game_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     Ok(())

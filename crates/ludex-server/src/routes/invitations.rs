@@ -67,7 +67,7 @@ async fn list(
     let rows = db::query_as::<InvitationRow>(format!(
         "{INVITATION_COLUMNS} ORDER BY i.created_at DESC, i.id DESC"
     ))
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     let now = Utc::now();
@@ -126,13 +126,13 @@ async fn create(
     .bind(db::db_time(now))
     .bind(db::db_time(expires_at))
     .bind(max_uses)
-    .returning_id(&state.pool)
+    .returning_id(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
     let row = fetch_row(&state, id).await?;
     let invitation = row.to_public(now);
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::INVITATION_CREATED, user.actor())
             .target("invitation", id.to_string())
             .metadata(json!({
@@ -165,7 +165,7 @@ async fn revoke(
     )
     .bind(db::db_time(db::now()))
     .bind(id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .rows_affected();
@@ -173,7 +173,7 @@ async fn revoke(
         // Either unknown or already revoked; both are "not pending".
         let exists = db::query_scalar::<i64>("SELECT COUNT(*) FROM invitations WHERE id = ?")
             .bind(id)
-            .fetch_one(&state.pool)
+            .fetch_one(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
         if exists == 0 {
@@ -183,7 +183,7 @@ async fn revoke(
             ));
         }
     }
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::INVITATION_REVOKED, user.actor())
             .target("invitation", id.to_string())
             .metadata(json!({})),
@@ -240,7 +240,7 @@ async fn accept(
     JsonBody(request): JsonBody<AcceptInvitationRequest>,
 ) -> Result<(StatusCode, Json<AuthResponse>), ApiError> {
     let ip = peer.ip();
-    if let Err(wait) = state.invitation_limits.check(&ip.to_string()) {
+    if let Err(wait) = state.auth.invitation_limits.check(&ip.to_string()) {
         return Err(ApiError::too_many_requests(
             "invitation_rate_limited",
             format!("Too many invitation attempts. Retry in {wait} seconds."),
@@ -280,7 +280,7 @@ async fn accept(
 
     let now = Utc::now();
     let now_text = db::db_time(now);
-    let mut transaction = state.pool.begin().await.map_err(ApiError::from)?;
+    let mut transaction = state.core.pool.begin().await.map_err(ApiError::from)?;
     // The conditional update is the single-use guarantee: concurrent
     // redemptions of the same link cannot both increment `uses` past `max_uses`.
     let claimed = db::query(
@@ -333,12 +333,12 @@ async fn accept(
          FROM users WHERE id = ?",
     )
     .bind(created)
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     let account = row.to_public();
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::INVITATION_REDEEMED, Actor::User { id: created })
             .target("invitation", invitation.id.to_string())
             .metadata(json!({
@@ -357,7 +357,7 @@ async fn accept(
         ip: Some(ip.to_string()),
     };
     let (issued, session_id) = start_session(&state, created, account.role, &info).await?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::LOGIN_SUCCEEDED, Actor::User { id: created })
             .target("user", created.to_string())
             .metadata(json!({
@@ -381,7 +381,7 @@ async fn lookup(state: &AppState, token: &str) -> Result<InvitationRow, ApiError
     let hash = totp::hash_secret(token.trim());
     db::query_as::<InvitationRow>(format!("{INVITATION_COLUMNS} WHERE i.token_hash = ?"))
         .bind(&hash)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?
         .ok_or_else(|| {
@@ -395,7 +395,7 @@ async fn lookup(state: &AppState, token: &str) -> Result<InvitationRow, ApiError
 async fn fetch_row(state: &AppState, id: i64) -> Result<InvitationRow, ApiError> {
     db::query_as::<InvitationRow>(format!("{INVITATION_COLUMNS} WHERE i.id = ?"))
         .bind(id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::not_found("invitation_not_found", "Invitation not found"))

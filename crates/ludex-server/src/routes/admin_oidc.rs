@@ -101,10 +101,10 @@ async fn put_settings(
 ) -> Result<Json<OidcAdminResponse>, ApiError> {
     user.require_admin_access()?;
 
-    let stored = oidc::load_settings(&state.pool, &state.jwt_secret)
+    let stored = oidc::load_settings(&state.core.pool, &state.auth.jwt_secret)
         .await
         .map_err(ApiError::from)?;
-    let resolved = oidc::resolve_settings(stored.as_ref(), &state.config);
+    let resolved = oidc::resolve_settings(stored.as_ref(), &state.core.config);
     let previous = resolved.settings.clone();
     let mut next = previous.clone();
     apply_request(&request, &mut next, &resolved.env_locked_fields);
@@ -138,19 +138,19 @@ async fn put_settings(
         None => None,
     };
 
-    oidc::save_settings(&state.pool, &next, encrypted_secret.as_deref())
+    oidc::save_settings(&state.core.pool, &next, encrypted_secret.as_deref())
         .await
         .map_err(ApiError::from)?;
     let enabled = client.is_some();
-    *state.oidc.write().await = client;
+    *state.integrations.oidc.write().await = client;
     if enabled {
         record_status(&state, next.issuer.clone(), Ok(())).await;
     } else {
-        *state.oidc_status.write().await = OidcStatus::initial(None);
+        *state.integrations.oidc_status.write().await = OidcStatus::initial(None);
     }
 
     let fields = changed_fields(&previous, &next, secret_changed);
-    state.events.emit(
+    state.core.events.emit(
         Event::new(ACTION_OIDC_UPDATED, user.actor())
             .target("settings", "oidc")
             .metadata(json!({
@@ -169,15 +169,15 @@ async fn test_settings(
 ) -> Result<Json<OidcTestResponse>, ApiError> {
     user.require_admin_access()?;
 
-    let stored = oidc::load_settings(&state.pool, &state.jwt_secret)
+    let stored = oidc::load_settings(&state.core.pool, &state.auth.jwt_secret)
         .await
         .map_err(ApiError::from)?;
-    let resolved = oidc::resolve_settings(stored.as_ref(), &state.config);
+    let resolved = oidc::resolve_settings(stored.as_ref(), &state.core.config);
     let mut next = resolved.settings.clone();
     apply_request(&request, &mut next, &resolved.env_locked_fields);
     next.enabled = true;
     next.admin_groups = normalize_groups(&next.admin_groups);
-    if !state.config.oidc_env_locked.client_secret {
+    if !state.core.config.oidc_env_locked.client_secret {
         if request
             .replace_secret
             .as_deref()
@@ -221,27 +221,28 @@ async fn reset_settings(
 ) -> Result<Json<OidcAdminResponse>, ApiError> {
     user.require_admin_access()?;
 
-    oidc::delete_settings(&state.pool)
+    oidc::delete_settings(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
-    let resolved = oidc::resolve_settings(None, &state.config);
-    let client =
-        OidcClient::from_settings(&resolved.settings, state.http.clone()).map_err(|error| {
+    let resolved = oidc::resolve_settings(None, &state.core.config);
+    let client = OidcClient::from_settings(&resolved.settings, state.core.http.clone()).map_err(
+        |error| {
             tracing::error!(error = %error, "environment OIDC configuration is invalid");
             ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "oidc_env_invalid",
                 format!("The environment OIDC configuration is invalid: {error:#}"),
             )
-        })?;
-    *state.oidc.write().await = client;
+        },
+    )?;
+    *state.integrations.oidc.write().await = client;
     let initial = {
-        let current = state.oidc.read().await;
+        let current = state.integrations.oidc.read().await;
         OidcStatus::initial(current.as_ref())
     };
-    *state.oidc_status.write().await = initial;
+    *state.integrations.oidc_status.write().await = initial;
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(ACTION_OIDC_UPDATED, user.actor())
             .target("settings", "oidc")
             .metadata(json!({
@@ -357,7 +358,7 @@ fn resolve_secret(
     resolved: &oidc::ResolvedOidcSettings,
     next: &mut OidcSettings,
 ) -> Result<(Option<String>, bool), ApiError> {
-    if state.config.oidc_env_locked.client_secret {
+    if state.core.config.oidc_env_locked.client_secret {
         // The secret comes from the environment and wins: ignore the
         // write-only fields. Never copy it into the DB, but keep any previous
         // ciphertext so unsetting the variable later restores the saved secret.
@@ -379,7 +380,8 @@ fn resolve_secret(
                 "The client secret must be at most 4096 characters",
             ));
         }
-        let encrypted = oidc::encrypt_secret(&state.jwt_secret, &secret).map_err(ApiError::from)?;
+        let encrypted =
+            oidc::encrypt_secret(&state.auth.jwt_secret, &secret).map_err(ApiError::from)?;
         next.client_secret = Some(secret);
         next.secret_configured = true;
         return Ok((Some(encrypted), true));
@@ -426,7 +428,7 @@ fn build_candidate(
     state: &AppState,
     settings: &OidcSettings,
 ) -> Result<Option<OidcClient>, ApiError> {
-    OidcClient::from_settings(settings, state.http.clone()).map_err(|error| {
+    OidcClient::from_settings(settings, state.core.http.clone()).map_err(|error| {
         ApiError::bad_request(
             "invalid_oidc_config",
             format!("The OIDC configuration is invalid: {error:#}"),
@@ -443,7 +445,7 @@ fn discovery_failure(error: String) -> ApiError {
 }
 
 async fn record_status(state: &AppState, issuer: Option<String>, result: Result<(), &str>) {
-    let mut status = state.oidc_status.write().await;
+    let mut status = state.integrations.oidc_status.write().await;
     status.issuer = issuer;
     status.checked_at = Some(db::db_time(db::now()));
     match result {
@@ -459,14 +461,14 @@ async fn record_status(state: &AppState, issuer: Option<String>, result: Result<
 }
 
 async fn admin_response(state: &AppState) -> Result<OidcAdminResponse, ApiError> {
-    let stored = oidc::load_settings(&state.pool, &state.jwt_secret)
+    let stored = oidc::load_settings(&state.core.pool, &state.auth.jwt_secret)
         .await
         .map_err(ApiError::from)?;
-    let resolved = oidc::resolve_settings(stored.as_ref(), &state.config);
-    let status = state.oidc_status.read().await.clone();
+    let resolved = oidc::resolve_settings(stored.as_ref(), &state.core.config);
+    let status = state.integrations.oidc_status.read().await.clone();
     let linked_accounts =
         db::query_scalar::<i64>("SELECT COUNT(*) FROM users WHERE oidc_issuer IS NOT NULL")
-            .fetch_one(&state.pool)
+            .fetch_one(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
 

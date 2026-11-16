@@ -35,7 +35,7 @@ async fn list(
     user: AuthUser,
 ) -> Result<Json<Vec<Device>>, ApiError> {
     user.require_scope(Scope::Read)?;
-    Ok(Json(devices::list(&state.pool, user.id).await?))
+    Ok(Json(devices::list(&state.core.pool, user.id).await?))
 }
 
 async fn heartbeat(
@@ -46,6 +46,7 @@ async fn heartbeat(
 ) -> Result<Json<Device>, ApiError> {
     user.require_scope(Scope::Write)?;
     state
+        .auth
         .device_heartbeat_limits
         .check(&user.id.to_string())
         .map_err(|retry| {
@@ -54,11 +55,11 @@ async fn heartbeat(
                 format!("Too many heartbeats; try again in {retry} seconds"),
             )
         })?;
-    let outcome = devices::heartbeat(&state.pool, user.id, &request).await?;
+    let outcome = devices::heartbeat(&state.core.pool, user.id, &request).await?;
     // Heartbeats repeat every 20–30 s; only the first one is audited so the
     // trail stays readable.
     if outcome.registered {
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::DEVICE_REGISTERED, user.actor())
                 .target("device", outcome.device.id.clone())
                 .metadata(json!({
@@ -78,9 +79,9 @@ async fn revoke(
     ApiPath(id): ApiPath<String>,
 ) -> Result<StatusCode, ApiError> {
     user.require_scope(Scope::Write)?;
-    let revoked = devices::revoke(&state.pool, user.id, &id).await?;
+    let revoked = devices::revoke(&state.core.pool, user.id, &id).await?;
     if revoked {
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::DEVICE_REVOKED, user.actor())
                 .target("device", id)
                 .ip(Some(peer.ip())),

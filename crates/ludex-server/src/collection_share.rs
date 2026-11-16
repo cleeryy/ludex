@@ -531,9 +531,9 @@ pub async fn view(
     include_games: bool,
 ) -> Result<CollectionShareView, ApiError> {
     let (games, game_count) = if include_games {
-        public_games(&state.pool, share).await?
+        public_games(&state.core.pool, share).await?
     } else {
-        (Vec::new(), game_count(&state.pool, share).await?)
+        (Vec::new(), game_count(&state.core.pool, share).await?)
     };
 
     #[derive(Debug, sqlx::FromRow)]
@@ -546,7 +546,7 @@ pub async fn view(
         "SELECT public_profile, display_name, username FROM users WHERE id = ?",
     )
     .bind(share.collection_user_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .and_then(|row| {

@@ -84,7 +84,7 @@ async fn list(
         db::query_as::<CollectionRow>(&sql),
         &[Bind::Int(user.id), Bind::Int(user.id)],
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     let rows = decorate_counts(&state, user.id, rows).await?;
@@ -112,8 +112,7 @@ async fn create(
     let rules_json = serde_json::to_string(&rules).map_err(ApiError::from)?;
     let now = db::db_time(db::now());
 
-    let id = state
-        .pool
+    let id = state.core.pool
         .with_tx(async |tx| {
             let id = db::query(
                 "INSERT INTO collections
@@ -252,7 +251,7 @@ async fn update(
         binds.push(Bind::Int(id));
         let sql = format!("UPDATE collections SET {} WHERE id = ?", sets.join(", "));
         bind_query(db::query(&sql), &binds)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
     }
@@ -262,7 +261,7 @@ async fn update(
     if current_kind == CollectionKind::Manual && next_kind == CollectionKind::Smart {
         db::query("DELETE FROM collection_games WHERE collection_id = ?")
             .bind(id)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
     }
@@ -300,7 +299,7 @@ async fn delete(
     owned_collection(&state, user.id, id).await?;
     db::query("DELETE FROM collections WHERE id = ?")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     Ok(StatusCode::NO_CONTENT)
@@ -324,7 +323,7 @@ async fn games(
             db::query_as::<GameListRow>(&sql),
             &[Bind::Int(user.id), Bind::Int(user.id)],
         )
-        .fetch_all(&state.pool)
+        .fetch_all(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
         let matched: Vec<GameListRow> = rows
@@ -348,7 +347,7 @@ async fn games(
 
     let count_sql = "SELECT COUNT(*) FROM collection_games cg WHERE cg.collection_id = ?";
     let total = bind_query_scalar(db::query_scalar::<i64>(count_sql), &[Bind::Int(id)])
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
@@ -369,7 +368,7 @@ async fn games(
             Bind::Int(offset),
         ],
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -428,13 +427,13 @@ async fn remove_game(
     db::query("DELETE FROM collection_games WHERE collection_id = ? AND game_id = ?")
         .bind(id)
         .bind(game_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     db::query("UPDATE collections SET updated_at = ? WHERE id = ?")
         .bind(db::db_time(db::now()))
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     Ok(StatusCode::NO_CONTENT)
@@ -481,7 +480,7 @@ async fn create_share(
         .map_err(ApiError::from)?;
 
     let share_id = collection_share::insert(
-        &state.pool,
+        &state.core.pool,
         &NewCollectionShare {
             token_hash: &token_hash,
             collection_id: id,
@@ -493,7 +492,7 @@ async fn create_share(
     )
     .await?;
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::COLLECTION_SHARED, user.actor())
             .target("collection", id.to_string())
             .metadata(json!({
@@ -503,7 +502,7 @@ async fn create_share(
             })),
     );
 
-    let row = collection_share::get(&state.pool, share_id)
+    let row = collection_share::get(&state.core.pool, share_id)
         .await?
         .ok_or_else(ApiError::internal)?;
     Ok((StatusCode::CREATED, Json(row.to_link(Some(token)))))
@@ -515,7 +514,7 @@ async fn list_shares(
     ApiPath(id): ApiPath<i64>,
 ) -> Result<Json<Vec<CollectionShareLink>>, ApiError> {
     let _ = owned_collection(&state, user.id, id).await?;
-    let rows = collection_share::list_for_collection(&state.pool, id).await?;
+    let rows = collection_share::list_for_collection(&state.core.pool, id).await?;
     Ok(Json(rows.iter().map(|row| row.to_link(None)).collect()))
 }
 
@@ -526,13 +525,13 @@ async fn revoke_share(
 ) -> Result<StatusCode, ApiError> {
     user.require_scope(Scope::Write)?;
     let _ = owned_collection(&state, user.id, id).await?;
-    let row = collection_share::get(&state.pool, share_id)
+    let row = collection_share::get(&state.core.pool, share_id)
         .await?
         .filter(|row| row.collection_id == id)
         .ok_or_else(|| ApiError::not_found("collection_share_not_found", "Share link not found"))?;
     if row.revoked_at.is_none() {
-        collection_share::revoke(&state.pool, share_id).await?;
-        state.events.emit(
+        collection_share::revoke(&state.core.pool, share_id).await?;
+        state.core.events.emit(
             Event::new(actions::COLLECTION_SHARE_REVOKED, user.actor())
                 .target("collection", id.to_string())
                 .metadata(json!({ "shareId": share_id })),
@@ -573,7 +572,7 @@ async fn import(
                     "Too many access attempts; retry in a minute",
                 ));
             }
-            let link = collection_share::find_by_token(&state.pool, &token_hash).await?;
+            let link = collection_share::find_by_token(&state.core.pool, &token_hash).await?;
             // One password verification per attempt, whatever the token state.
             let password_ok =
                 collection_share::verify_access(link.as_ref(), request.password.as_deref());
@@ -637,7 +636,7 @@ async fn import(
     ))
     .bind(user.id)
     .bind(&name)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -667,7 +666,7 @@ async fn import(
             .bind(&rules_json)
             .bind(&now)
             .bind(&now)
-            .returning_id(&state.pool)
+            .returning_id(&state.core.pool)
             .await
             .map_err(|error| {
                 if crate::db::is_unique_violation(&error) {
@@ -689,7 +688,7 @@ async fn import(
               WHERE collection_id = ? ORDER BY added_at ASC, game_id ASC",
         )
         .bind(source.id)
-        .fetch_all(&state.pool)
+        .fetch_all(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
         copy_games(&state, target_id, &source_games).await?
@@ -698,7 +697,7 @@ async fn import(
     };
 
     let row = load(&state, target_id).await?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::COLLECTION_IMPORTED, user.actor())
             .target("collection", target_id.to_string())
             .metadata(json!({
@@ -751,7 +750,7 @@ async fn copy_games(
         .bind(game_id)
         .bind(&now)
         .bind(game_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
         if result.rows_affected() == 1 {
@@ -763,7 +762,7 @@ async fn copy_games(
     db::query("UPDATE collections SET updated_at = ? WHERE id = ?")
         .bind(&now)
         .bind(target_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     Ok((added, skipped))
@@ -775,6 +774,7 @@ async fn insert_games(
     game_ids: &[i64],
 ) -> Result<i64, ApiError> {
     state
+        .core
         .pool
         .with_tx(async |tx| insert_games_in(tx, collection_id, game_ids).await)
         .await
@@ -834,7 +834,7 @@ async fn insert_games_in(
 async fn count_members(state: &AppState, collection_id: i64) -> Result<i64, ApiError> {
     db::query_scalar::<i64>("SELECT COUNT(*) FROM collection_games WHERE collection_id = ?")
         .bind(collection_id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)
 }
@@ -851,7 +851,7 @@ pub(crate) async fn collections_for(
          ORDER BY lower(c.name) ASC, c.id ASC"
     );
     let rows = bind_query_as(db::query_as::<CollectionRow>(&sql), &[Bind::Int(owner_id)])
-        .fetch_all(&state.pool)
+        .fetch_all(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     let rows = decorate_counts(state, viewer_id, rows).await?;
@@ -876,7 +876,7 @@ async fn decorate_counts(
         db::query_as::<GameListRow>(&sql),
         &[Bind::Int(viewer_id), Bind::Int(viewer_id)],
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     for row in &mut rows {
@@ -897,7 +897,7 @@ async fn decorate_counts(
 async fn load(state: &AppState, id: i64) -> Result<CollectionRow, ApiError> {
     let sql = format!("SELECT {COLLECTION_COLUMNS}{COLLECTION_FROM} WHERE c.id = ?");
     bind_query_as(db::query_as::<CollectionRow>(&sql), &[Bind::Int(id)])
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::not_found("collection_not_found", "Collection not found"))

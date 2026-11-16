@@ -512,6 +512,7 @@ pub fn interval(config: &crate::config::Config) -> Option<Duration> {
 /// returns 409 `health_running`.
 pub async fn start(state: &AppState, trigger: HealthTrigger) -> Result<i64, ApiError> {
     if state
+        .ops
         .library_health_busy
         .compare_exchange(
             false,
@@ -526,10 +527,11 @@ pub async fn start(state: &AppState, trigger: HealthTrigger) -> Result<i64, ApiE
             "A library health report is already running",
         ));
     }
-    let report_id = match insert_report(&state.pool, trigger).await {
+    let report_id = match insert_report(&state.core.pool, trigger).await {
         Ok(id) => id,
         Err(error) => {
             state
+                .ops
                 .library_health_busy
                 .store(false, std::sync::atomic::Ordering::SeqCst);
             return Err(ApiError::from(error));
@@ -539,6 +541,7 @@ pub async fn start(state: &AppState, trigger: HealthTrigger) -> Result<i64, ApiE
     tokio::spawn(async move {
         run_report(&state, report_id).await;
         state
+            .ops
             .library_health_busy
             .store(false, std::sync::atomic::Ordering::SeqCst);
     });
@@ -564,18 +567,18 @@ pub async fn run_report(state: &AppState, report_id: i64) {
         Some(error) => ("failed", Some(format!("{error:#}"))),
         None => ("completed", None),
     };
-    if let Err(error) = finish_report(&state.pool, report_id, status, error.as_deref()).await {
+    if let Err(error) = finish_report(&state.core.pool, report_id, status, error.as_deref()).await {
         tracing::error!(%error, report_id, "could not finish library health report");
     }
     tracing::info!(report_id, status, error = ?error, "library health report finished");
 }
 
 async fn generate(state: &AppState, report_id: i64) -> Result<()> {
-    let games = count(&state.pool, "SELECT COUNT(*) FROM games").await?;
-    let versions = count(&state.pool, "SELECT COUNT(*) FROM game_versions").await?;
-    let roots = count(&state.pool, "SELECT COUNT(*) FROM library_roots").await?;
+    let games = count(&state.core.pool, "SELECT COUNT(*) FROM games").await?;
+    let versions = count(&state.core.pool, "SELECT COUNT(*) FROM game_versions").await?;
+    let roots = count(&state.core.pool, "SELECT COUNT(*) FROM library_roots").await?;
     let total = games.saturating_add(versions).saturating_add(roots);
-    update_progress(&state.pool, report_id, 2, total).await?;
+    update_progress(&state.core.pool, report_id, 2, total).await?;
 
     let root_findings = check_roots(state).await?;
     store_phase(state, report_id, 10, &root_findings).await?;
@@ -639,7 +642,7 @@ async fn store_phase(
     findings: &[NewFinding],
 ) -> Result<()> {
     if !findings.is_empty() {
-        insert_findings(&state.pool, report_id, findings).await?;
+        insert_findings(&state.core.pool, report_id, findings).await?;
     }
     db::query(
         "UPDATE library_health_reports
@@ -648,7 +651,7 @@ async fn store_phase(
     .bind(progress)
     .bind(i64::try_from(findings.len()).unwrap_or(i64::MAX))
     .bind(report_id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .context("update library health phase")?;
     Ok(())
@@ -740,7 +743,7 @@ async fn check_roots(state: &AppState) -> Result<Vec<NewFinding>> {
         "SELECT id, label, path, enabled, available, last_error, kind
          FROM library_roots ORDER BY position, id",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .context("list roots for health")?;
     let mut findings = Vec::new();
@@ -758,7 +761,7 @@ async fn check_roots(state: &AppState) -> Result<Vec<NewFinding>> {
         let versions =
             db::query_scalar::<i64>("SELECT COUNT(*) FROM game_versions WHERE root_id = ?")
                 .bind(root.id)
-                .fetch_one(&state.pool)
+                .fetch_one(&state.core.pool)
                 .await
                 .context("count root versions")?;
         let detail = match &root.last_error {
@@ -803,7 +806,7 @@ async fn check_archives(state: &AppState) -> Result<Vec<NewFinding>> {
          JOIN games g ON g.id = v.game_id
          ORDER BY v.id",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .context("list versions for health")?;
     let mut findings = Vec::new();
@@ -814,8 +817,8 @@ async fn check_archives(state: &AppState) -> Result<Vec<NewFinding>> {
             continue;
         }
         let placeholder = crate::roots::resolve_version_path(
-            &state.pool,
-            &state.config,
+            &state.core.pool,
+            &state.core.config,
             row.root_id,
             &row.file_path,
         )
@@ -830,7 +833,8 @@ async fn check_archives(state: &AppState) -> Result<Vec<NewFinding>> {
             ));
             continue;
         }
-        let remote = row.storage_backend.as_deref() == Some("s3") && state.storage.is_remote();
+        let remote =
+            row.storage_backend.as_deref() == Some("s3") && state.transfer.storage.is_remote();
         if remote {
             let Some(key) = row.object_key.as_deref().filter(|key| !key.is_empty()) else {
                 findings.push(
@@ -853,7 +857,7 @@ async fn check_archives(state: &AppState) -> Result<Vec<NewFinding>> {
                 );
                 continue;
             };
-            match state.storage.head(key).await {
+            match state.transfer.storage.head(key).await {
                 Ok(0) => findings.push(empty_archive(&row, key)),
                 Ok(size) => {
                     if row.size > 0 && size != u64::try_from(row.size).unwrap_or(0) {
@@ -888,8 +892,8 @@ async fn check_archives(state: &AppState) -> Result<Vec<NewFinding>> {
         }
 
         let path = crate::roots::resolve_version_path(
-            &state.pool,
-            &state.config,
+            &state.core.pool,
+            &state.core.config,
             row.root_id,
             &row.file_path,
         )
@@ -1036,7 +1040,7 @@ async fn check_games(state: &AppState) -> Result<Vec<NewFinding>> {
          GROUP BY g.id, g.title
          ORDER BY g.id",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .context("list game availability")?;
     let mut findings = Vec::new();
@@ -1097,7 +1101,7 @@ async fn check_games(state: &AppState) -> Result<Vec<NewFinding>> {
 }
 
 async fn check_media(state: &AppState) -> Result<Vec<NewFinding>> {
-    let referenced = crate::integrity::referenced_media(&state.pool)
+    let referenced = crate::integrity::referenced_media(&state.core.pool)
         .await
         .context("list referenced media")?;
     let mut names: Vec<&String> = referenced.iter().collect();
@@ -1118,7 +1122,7 @@ async fn check_media(state: &AppState) -> Result<Vec<NewFinding>> {
             );
             continue;
         }
-        let path = state.config.media_dir.join(name);
+        let path = state.core.config.media_dir.join(name);
         let exists = tokio::fs::metadata(&path)
             .await
             .map(|metadata| metadata.is_file())
@@ -1141,7 +1145,7 @@ async fn check_media(state: &AppState) -> Result<Vec<NewFinding>> {
         }
     }
 
-    if let Ok(mut entries) = tokio::fs::read_dir(&state.config.media_dir).await {
+    if let Ok(mut entries) = tokio::fs::read_dir(&state.core.config.media_dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
             let name = entry.file_name().to_string_lossy().to_string();
             if !safe_media_name(&name) || referenced.contains(&name) {
@@ -1180,7 +1184,7 @@ async fn check_duplicates(state: &AppState) -> Result<Vec<NewFinding>> {
     let games = db::query_as::<GameRow>(
         "SELECT id, title, release_date, provider_slug, provider_id FROM games ORDER BY id",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .context("list games for duplicates")?;
     let titles: HashMap<i64, String> = games
@@ -1275,7 +1279,7 @@ async fn check_duplicates(state: &AppState) -> Result<Vec<NewFinding>> {
          WHERE missing = 0 AND (content_hash IS NOT NULL OR archive_hash IS NOT NULL)
          ORDER BY id",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .context("list archive hashes")?;
     let mut hashes: HashMap<String, Vec<&ArchiveHashRow>> = HashMap::new();
@@ -1349,7 +1353,7 @@ async fn check_metadata(state: &AppState) -> Result<Vec<NewFinding>> {
         "SELECT id, title, cover_path, description, release_date, provider_slug
          FROM games ORDER BY id",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .context("list games for metadata")?;
     let mut findings = Vec::new();
@@ -1400,7 +1404,7 @@ async fn check_counts(state: &AppState) -> Result<Vec<NewFinding>> {
         "SELECT id, label, path, enabled, available, last_error, kind
          FROM library_roots WHERE enabled = 1 ORDER BY position, id",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .context("list roots for counts")?;
     let mut findings = Vec::new();
@@ -1420,7 +1424,7 @@ async fn check_counts(state: &AppState) -> Result<Vec<NewFinding>> {
              WHERE root_id = ? AND missing = 0 AND root_unavailable = 0",
         )
         .bind(root.id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .context("count indexed root versions")?;
         let on_disk = i64::try_from(on_disk).unwrap_or(i64::MAX);
@@ -1475,7 +1479,7 @@ async fn check_integrity(
              WHERE status = 'completed' ORDER BY id DESC LIMIT 1)
          ORDER BY f.id",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .context("list integrity findings")?;
     let mut findings = Vec::new();
@@ -1864,7 +1868,10 @@ async fn load_action_findings(
     for id in &ids {
         query = query.bind(*id);
     }
-    query.fetch_all(&state.pool).await.map_err(ApiError::from)
+    query
+        .fetch_all(&state.core.pool)
+        .await
+        .map_err(ApiError::from)
 }
 
 async fn mark_version_missing(state: &AppState, version_id: i64) -> Result<bool, String> {
@@ -1873,28 +1880,32 @@ async fn mark_version_missing(state: &AppState, version_id: i64) -> Result<bool,
          FROM game_versions WHERE id = ?",
     )
     .bind(version_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(|error| error.to_string())?
     .ok_or_else(|| format!("Version {version_id} no longer exists"))?;
     if row.missing != 0 {
         return Ok(false);
     }
-    if row.storage_backend.as_deref() == Some("s3") && state.storage.is_remote() {
+    if row.storage_backend.as_deref() == Some("s3") && state.transfer.storage.is_remote() {
         return Err(format!(
             "Version {version_id} lives in object storage; run an integrity check instead"
         ));
     }
-    let path =
-        crate::roots::resolve_version_path(&state.pool, &state.config, row.root_id, &row.file_path)
-            .await
-            .ok_or_else(|| format!("Version {version_id} has an unsafe path"))?;
+    let path = crate::roots::resolve_version_path(
+        &state.core.pool,
+        &state.core.config,
+        row.root_id,
+        &row.file_path,
+    )
+    .await
+    .ok_or_else(|| format!("Version {version_id} has an unsafe path"))?;
     if tokio::fs::try_exists(&path).await.unwrap_or(true) {
         return Err(format!("Version {version_id}: the file still exists"));
     }
     db::query("UPDATE game_versions SET missing = 1 WHERE id = ?")
         .bind(version_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(|error| error.to_string())?;
     Ok(true)
@@ -1906,7 +1917,7 @@ async fn remove_version(state: &AppState, version_id: i64) -> Result<bool, Strin
          FROM game_versions WHERE id = ?",
     )
     .bind(version_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(|error| error.to_string())?
     .ok_or_else(|| format!("Version {version_id} no longer exists"))?;
@@ -1917,8 +1928,8 @@ async fn remove_version(state: &AppState, version_id: i64) -> Result<bool, Strin
     }
     if row.missing == 0 {
         let exists = match crate::roots::resolve_version_path(
-            &state.pool,
-            &state.config,
+            &state.core.pool,
+            &state.core.config,
             row.root_id,
             &row.file_path,
         )
@@ -1935,7 +1946,7 @@ async fn remove_version(state: &AppState, version_id: i64) -> Result<bool, Strin
     }
     db::query("DELETE FROM game_versions WHERE id = ?")
         .bind(version_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(|error| error.to_string())?;
     Ok(true)
@@ -1944,7 +1955,7 @@ async fn remove_version(state: &AppState, version_id: i64) -> Result<bool, Strin
 async fn remove_orphan_game(state: &AppState, game_id: i64) -> Result<bool, String> {
     let versions = db::query_scalar::<i64>("SELECT COUNT(*) FROM game_versions WHERE game_id = ?")
         .bind(game_id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(|error| error.to_string())?;
     if versions > 0 {
@@ -1954,17 +1965,17 @@ async fn remove_orphan_game(state: &AppState, game_id: i64) -> Result<bool, Stri
     }
     let progress = db::query_scalar::<i64>("SELECT COUNT(*) FROM progress WHERE game_id = ?")
         .bind(game_id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(|error| error.to_string())?;
     let bookmarks = db::query_scalar::<i64>("SELECT COUNT(*) FROM bookmarks WHERE game_id = ?")
         .bind(game_id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(|error| error.to_string())?;
     let saves = db::query_scalar::<i64>("SELECT COUNT(*) FROM save_snapshots WHERE game_id = ?")
         .bind(game_id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(|error| error.to_string())?;
     if progress + bookmarks + saves > 0 {
@@ -1974,7 +1985,7 @@ async fn remove_orphan_game(state: &AppState, game_id: i64) -> Result<bool, Stri
     }
     db::query("DELETE FROM games WHERE id = ?")
         .bind(game_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(|error| error.to_string())?;
     Ok(true)
@@ -1982,7 +1993,7 @@ async fn remove_orphan_game(state: &AppState, game_id: i64) -> Result<bool, Stri
 
 /// Runs a report on the configured interval. Disabled when the interval is zero.
 pub async fn scheduled_worker(state: AppState, mut cancel: watch::Receiver<bool>) {
-    let Some(interval) = interval(&state.config) else {
+    let Some(interval) = interval(&state.core.config) else {
         return;
     };
     let mut ticker = tokio::time::interval(interval);
@@ -2041,7 +2052,7 @@ mod tests {
         .bind(release_date)
         .bind(&now)
         .bind(&now)
-        .returning_id(&state.pool)
+        .returning_id(&state.core.pool)
         .await
         .expect("game")
     }
@@ -2056,7 +2067,7 @@ mod tests {
     ) -> i64 {
         let root_id =
             db::query_scalar::<i64>("SELECT id FROM library_roots ORDER BY position, id LIMIT 1")
-                .fetch_one(&state.pool)
+                .fetch_one(&state.core.pool)
                 .await
                 .expect("root");
         let now = db::db_time(db::now());
@@ -2073,17 +2084,17 @@ mod tests {
         .bind(i64::from(missing))
         .bind(content_hash)
         .bind(&now)
-        .returning_id(&state.pool)
+        .returning_id(&state.core.pool)
         .await
         .expect("version")
     }
 
     async fn run(state: &AppState) -> LibraryHealthResponse {
-        let report_id = insert_report(&state.pool, HealthTrigger::Manual)
+        let report_id = insert_report(&state.core.pool, HealthTrigger::Manual)
             .await
             .expect("report");
         run_report(state, report_id).await;
-        read_latest(&state.pool, None, None, 500, 0)
+        read_latest(&state.core.pool, None, None, 500, 0)
             .await
             .expect("read report")
     }
@@ -2101,7 +2112,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let state = test_state(temp.path()).await;
         fs::write(
-            state.config.games_dir.join("Hades (2020).zip"),
+            state.core.config.games_dir.join("Hades (2020).zip"),
             vec![7_u8; 2048],
         )
         .expect("write archive");
@@ -2141,7 +2152,12 @@ mod tests {
             "{healthy:?}"
         );
         assert!(
-            state.config.games_dir.join("Hades (2020).zip").exists(),
+            state
+                .core
+                .config
+                .games_dir
+                .join("Hades (2020).zip")
+                .exists(),
             "health checks never delete archive files"
         );
     }
@@ -2150,7 +2166,11 @@ mod tests {
     async fn report_finds_orphaned_media_and_duplicate_games() {
         let temp = tempfile::tempdir().expect("tempdir");
         let state = test_state(temp.path()).await;
-        fs::write(state.config.media_dir.join("orphan.jpg"), vec![0_u8; 128]).expect("orphan");
+        fs::write(
+            state.core.config.media_dir.join("orphan.jpg"),
+            vec![0_u8; 128],
+        )
+        .expect("orphan");
         let first = seed_game(&state, "Celeste", Some("2018")).await;
         seed_version(&state, first, "Celeste (2018).zip", 2048, true, None).await;
         let second = seed_game(&state, "celeste!", Some("2018")).await;
@@ -2159,7 +2179,7 @@ mod tests {
         db::query("UPDATE games SET cover_path = 'missing-cover.jpg', updated_at = ? WHERE id = ?")
             .bind(&now)
             .bind(first)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .expect("cover");
 
@@ -2179,7 +2199,7 @@ mod tests {
             "{found:?}"
         );
         assert!(found.iter().any(|kind| kind == "metadata_gap"), "{found:?}");
-        assert!(state.config.media_dir.join("orphan.jpg").exists());
+        assert!(state.core.config.media_dir.join("orphan.jpg").exists());
     }
 
     #[tokio::test]
@@ -2189,12 +2209,12 @@ mod tests {
         let first = seed_game(&state, "Hollow Knight", Some("2017")).await;
         let second = seed_game(&state, "hollow-knight", Some("2017")).await;
         fs::write(
-            state.config.games_dir.join("Hollow Knight (2017).zip"),
+            state.core.config.games_dir.join("Hollow Knight (2017).zip"),
             vec![1_u8; 2048],
         )
         .expect("one");
         fs::write(
-            state.config.games_dir.join("Hollow Knight copy.zip"),
+            state.core.config.games_dir.join("Hollow Knight copy.zip"),
             vec![2_u8; 2048],
         )
         .expect("two");
@@ -2246,11 +2266,11 @@ mod tests {
     async fn media_gc_dry_run_and_apply_require_confirmation_and_keep_archives() {
         let temp = tempfile::tempdir().expect("tempdir");
         let state = test_state(temp.path()).await;
-        let archive = state.config.games_dir.join("Keep (2020).zip");
+        let archive = state.core.config.games_dir.join("Keep (2020).zip");
         fs::write(&archive, vec![3_u8; 2048]).expect("archive");
         let game = seed_game(&state, "Keep", Some("2020")).await;
         seed_version(&state, game, "Keep (2020).zip", 2048, false, None).await;
-        let orphan = state.config.media_dir.join("stale.jpg");
+        let orphan = state.core.config.media_dir.join("stale.jpg");
         fs::write(&orphan, vec![0_u8; 64]).expect("orphan");
 
         let dry_run = apply_action(

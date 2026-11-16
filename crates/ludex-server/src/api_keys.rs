@@ -153,7 +153,7 @@ pub async fn authenticate(state: &AppState, token: &str) -> Result<Option<ApiKey
         "SELECT id, user_id, secret_hash, scopes, revoked_at FROM api_keys WHERE prefix = ?",
     )
     .bind(prefix)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -170,7 +170,7 @@ pub async fn authenticate(state: &AppState, token: &str) -> Result<Option<ApiKey
     if let Err(error) = db::query("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
         .bind(&now)
         .bind(key_id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
     {
         tracing::warn!(error = %error, key = key_id, "could not update API key usage");

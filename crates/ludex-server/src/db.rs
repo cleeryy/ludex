@@ -190,7 +190,7 @@ impl Database {
     /// Multi-statement invariants must go through this helper:
     ///
     /// ```ignore
-    /// let id = db::with_tx(&state.pool, async |tx| {
+    /// let id = db::with_tx(&state.core.pool, async |tx| {
     ///     let id = db::query("INSERT INTO games (title) VALUES (?)")
     ///         .bind(&title)
     ///         .returning_id(&mut *tx)

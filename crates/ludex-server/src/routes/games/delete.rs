@@ -98,7 +98,7 @@ pub(crate) async fn remove_game(
         "SELECT title, default_version_id FROM games WHERE id = ?",
     )
     .bind(game_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     else {
@@ -112,7 +112,7 @@ pub(crate) async fn remove_game(
          FROM game_versions WHERE game_id = ? ORDER BY id",
     )
     .bind(game_id)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -134,7 +134,7 @@ pub(crate) async fn remove_game(
         }
         if versions
             .iter()
-            .any(|version| state.transfers.is_active(version.id))
+            .any(|version| state.transfer.transfers.is_active(version.id))
         {
             return Err(ApiError::conflict(
                 "version_in_use",
@@ -144,7 +144,7 @@ pub(crate) async fn remove_game(
         for version in &versions {
             if is_s3_version(version) {
                 if let Some(key) = version.object_key.as_deref() {
-                    match state.storage.delete(key).await {
+                    match state.transfer.storage.delete(key).await {
                         Ok(()) => {
                             deleted_files += 1;
                             freed_bytes += version.size;
@@ -164,7 +164,7 @@ pub(crate) async fn remove_game(
 
     delete_game_rows(state, game_id).await?;
 
-    state.events.emit(
+    state.core.events.emit(
         crate::events::Event::new(crate::audit::actions::GAME_DELETED, user.actor())
             .target("game", game_id.to_string())
             .metadata(serde_json::json!({
@@ -199,7 +199,7 @@ pub(crate) async fn remove_game(
 /// that escapes the root, or a canonical target outside it is refused with
 /// `unsafe_path` and nothing is deleted.
 async fn delete_archive_file(state: &AppState, version: &VersionRow) -> Result<bool, ApiError> {
-    let base = roots::base_dir(&state.pool, &state.config, version.root_id)
+    let base = roots::base_dir(&state.core.pool, &state.core.config, version.root_id)
         .await
         .map_err(|_| ApiError::internal())?;
     if !base.is_dir() {
@@ -259,6 +259,7 @@ async fn delete_archive_file(state: &AppState, version: &VersionRow) -> Result<b
 /// findings, uploads and provider fetches (historical reports).
 async fn delete_game_rows(state: &AppState, game_id: i64) -> Result<(), ApiError> {
     state
+        .core
         .pool
         .with_tx(async |tx| {
             for sql in [

@@ -298,7 +298,7 @@ async fn list(
         direction
     );
     let rows = bind_query_as::<AdminGameRowDb>(db::query_as(&sql), &page_binds)
-        .fetch_all(&state.pool)
+        .fetch_all(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
@@ -309,7 +309,7 @@ async fn list(
         )),
         &binds,
     )
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -365,7 +365,7 @@ fn separator(clauses: &[String]) -> &'static str {
 async fn facet_count(state: &AppState, clause: &str, binds: &[Bind]) -> Result<i64, ApiError> {
     let sql = format!("SELECT COUNT(*) FROM games g{clause}");
     bind_query_scalar::<i64>(db::query_scalar(sql), binds)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)
 }
@@ -635,7 +635,7 @@ async fn bulk(
         results.push(run_bulk_item(&state, &user, action, *id).await);
     }
     let totals = totals_of(&results);
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::GAME_BULK_ACTION, user.actor())
             .target("games", "bulk")
             .metadata(serde_json::json!({
@@ -696,7 +696,7 @@ async fn preview_bulk(
         Option<i64>,
         Option<i64>,
     )>(db::query_as(&sql), &binds)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -807,7 +807,7 @@ async fn run_bulk_item(
         "refresh_metadata" => {
             let exists = db::query_scalar::<i64>("SELECT COUNT(*) FROM games WHERE id = ?")
                 .bind(game_id)
-                .fetch_one(&state.pool)
+                .fetch_one(&state.core.pool)
                 .await
                 .unwrap_or(0);
             if exists == 0 {
@@ -844,7 +844,7 @@ async fn run_bulk_item(
 async fn delete_missing_versions(state: &AppState, game_id: i64) -> Result<i64, ApiError> {
     let exists = db::query_scalar::<i64>("SELECT COUNT(*) FROM games WHERE id = ?")
         .bind(game_id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     if exists == 0 {
@@ -852,8 +852,7 @@ async fn delete_missing_versions(state: &AppState, game_id: i64) -> Result<i64, 
     }
     // The delete and the default-version repair must land together: a crash
     // between them leaves `default_version_id` pointing at a removed row.
-    state
-        .pool
+    state.core.pool
         .with_tx(async |tx| {
             let deleted = db::query(
                 "DELETE FROM game_versions WHERE game_id = ? AND (missing = 1 OR root_unavailable = 1)",
@@ -937,7 +936,7 @@ fn start_bulk_job(state: &AppState, user: &AuthUser, action: &str, ids: Vec<i64>
                 entry.finished_at = Some(db::db_time(db::now()));
             }
         }
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::GAME_BULK_ACTION, user.actor())
                 .target("games", "bulk")
                 .metadata(serde_json::json!({

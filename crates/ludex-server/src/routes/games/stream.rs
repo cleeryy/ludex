@@ -47,7 +47,7 @@ pub(super) async fn stream_entry(
     ApiQuery(query): ApiQuery<StreamQuery>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let _download = state.metrics.download_started();
+    let _download = state.ops.metrics.download_started();
     let (version, _lease) = authorized_version(
         &state,
         &headers,

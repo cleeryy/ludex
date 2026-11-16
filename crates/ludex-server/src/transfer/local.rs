@@ -100,8 +100,8 @@ pub(crate) async fn local_version_path(
         ));
     }
     let path = roots::resolve_version_path(
-        &state.pool,
-        &state.config,
+        &state.core.pool,
+        &state.core.config,
         version.root_id,
         &version.file_path,
     )

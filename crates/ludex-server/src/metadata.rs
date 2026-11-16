@@ -575,7 +575,7 @@ pub async fn lookup(
     year: Option<u16>,
     game_id: Option<i64>,
 ) -> Option<ProviderMetadata> {
-    if let Some(igdb) = &state.igdb {
+    if let Some(igdb) = &state.catalog.igdb {
         match igdb.search(title, year).await {
             Ok(Some(metadata)) => return Some(metadata),
             Ok(None) => {}
@@ -589,7 +589,7 @@ pub async fn lookup(
         return Some(metadata);
     }
 
-    match steam_search(&state.http, title).await {
+    match steam_search(&state.core.http, title).await {
         Ok(metadata) => metadata,
         Err(error) => {
             tracing::warn!(error = %error, "Steam lookup failed");
@@ -606,12 +606,12 @@ async fn provider_lookup(
     year: Option<u16>,
     game_id: Option<i64>,
 ) -> Option<ProviderMetadata> {
-    let configs = state.providers.read().await.clone();
+    let configs = state.catalog.providers.read().await.clone();
     for config in configs {
         match crate::providers::search(&config, title, year).await {
             Ok(candidates) => {
                 crate::providers::record_fetch(
-                    &state.pool,
+                    &state.core.pool,
                     config.id,
                     game_id,
                     Ok(candidates.len()),
@@ -629,7 +629,8 @@ async fn provider_lookup(
                 }
             }
             Err(error) => {
-                crate::providers::record_fetch(&state.pool, config.id, game_id, Err(&error)).await;
+                crate::providers::record_fetch(&state.core.pool, config.id, game_id, Err(&error))
+                    .await;
                 tracing::warn!(
                     provider = %config.name,
                     error = %error,
@@ -659,7 +660,7 @@ pub async fn enrich_game(state: &AppState, game_id: i64) {
          FROM games WHERE id = ?",
     )
     .bind(game_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await;
 
     let Ok(Some((title, release_date, kind, provider_slug, provider_id))) = game else {
@@ -777,7 +778,7 @@ pub async fn enrich_game(state: &AppState, game_id: i64) {
     .bind(&metadata.provider.url)
     .bind(now)
     .bind(game_id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await;
 
     match result {
@@ -793,6 +794,7 @@ pub async fn enrich_game(state: &AppState, game_id: i64) {
 /// Whether `slug` names an enabled community provider.
 async fn community_slug(state: &AppState, slug: &str) -> bool {
     state
+        .catalog
         .providers
         .read()
         .await
@@ -829,7 +831,7 @@ pub async fn fetch_by_id(
 ) -> Result<Option<ProviderMetadata>, FetchByIdError> {
     match slug {
         "igdb" => {
-            let Some(igdb) = &state.igdb else {
+            let Some(igdb) = &state.catalog.igdb else {
                 return Ok(None);
             };
             igdb.fetch_by_id(provider_id)
@@ -840,12 +842,12 @@ pub async fn fetch_by_id(
             let Ok(app_id) = provider_id.parse::<i64>() else {
                 return Ok(None);
             };
-            steam_details(&state.http, app_id)
+            steam_details(&state.core.http, app_id)
                 .await
                 .map_err(|error| FetchByIdError::Failed(error.to_string()))
         }
         other => {
-            let configs = state.providers.read().await.clone();
+            let configs = state.catalog.providers.read().await.clone();
             let Some(config) = configs.into_iter().find(|config| config.slug == other) else {
                 return Ok(None);
             };
@@ -853,7 +855,7 @@ pub async fn fetch_by_id(
             let found = result
                 .as_ref()
                 .map(|candidate| usize::from(candidate.is_some()));
-            crate::providers::record_fetch(&state.pool, config.id, game_id, found).await;
+            crate::providers::record_fetch(&state.core.pool, config.id, game_id, found).await;
             match result {
                 Ok(candidate) => Ok(candidate.map(|candidate| candidate.to_metadata(&config.slug))),
                 Err(crate::providers::ProviderError::Status(404, _)) => {
@@ -880,8 +882,8 @@ pub(crate) struct CachedArtwork {
 /// stay on disk until the media GC collects them: they are unreferenced once
 /// the row is updated.
 pub(crate) async fn cache_artwork(state: &AppState, metadata: &ProviderMetadata) -> CachedArtwork {
-    let media_dir = state.config.media_dir.as_path();
-    let allow_private = state.config.providers_allow_private;
+    let media_dir = state.core.config.media_dir.as_path();
+    let allow_private = state.core.config.providers_allow_private;
     let cover = cache_optional(media_dir, metadata.cover_url.as_deref(), allow_private).await;
     let mut screenshot_names = cache_images(media_dir, &metadata.screenshots, allow_private).await;
     screenshot_names.retain(|name| name.is_some());

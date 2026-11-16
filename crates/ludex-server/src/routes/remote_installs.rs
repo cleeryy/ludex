@@ -73,7 +73,7 @@ async fn list(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     let installs = remote_installs::list(
-        &state.pool,
+        &state.core.pool,
         user.id,
         &statuses,
         device_id,
@@ -89,7 +89,9 @@ async fn show(
     ApiPath(id): ApiPath<String>,
 ) -> Result<Json<RemoteInstall>, ApiError> {
     user.require_scope(Scope::Read)?;
-    Ok(Json(remote_installs::get(&state.pool, user.id, &id).await?))
+    Ok(Json(
+        remote_installs::get(&state.core.pool, user.id, &id).await?,
+    ))
 }
 
 async fn create(
@@ -102,9 +104,10 @@ async fn create(
     // able to start downloads on the desktop.
     user.require_scope(Scope::Write)?;
     remote_installs::check_rate_limit(user.id)?;
-    let queued = remote_installs::queue(&state.pool, user.id, user.age_limit, &request).await?;
+    let queued =
+        remote_installs::queue(&state.core.pool, user.id, user.age_limit, &request).await?;
     if queued.created {
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::REMOTE_INSTALL_REQUESTED, user.actor())
                 .target("remote_install", queued.install.id.clone())
                 .metadata(json!({
@@ -132,7 +135,7 @@ async fn update_status(
     JsonBody(request): JsonBody<RemoteInstallStatusRequest>,
 ) -> Result<Json<RemoteInstall>, ApiError> {
     user.require_scope(Scope::Write)?;
-    let install = remote_installs::update_status(&state.pool, user.id, &id, &request).await?;
+    let install = remote_installs::update_status(&state.core.pool, user.id, &id, &request).await?;
     // Progress patches can be frequent; only claim and terminal transitions
     // are worth an audit row.
     if matches!(
@@ -142,7 +145,7 @@ async fn update_status(
             | RemoteInstallStatus::Failed
             | RemoteInstallStatus::Cancelled
     ) {
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::REMOTE_INSTALL_UPDATED, user.actor())
                 .target("remote_install", install.id.clone())
                 .metadata(json!({
@@ -165,8 +168,8 @@ async fn cancel(
     ApiPath(id): ApiPath<String>,
 ) -> Result<StatusCode, ApiError> {
     user.require_scope(Scope::Write)?;
-    let cancelled = remote_installs::cancel(&state.pool, user.id, &id).await?;
-    state.events.emit(
+    let cancelled = remote_installs::cancel(&state.core.pool, user.id, &id).await?;
+    state.core.events.emit(
         Event::new(actions::REMOTE_INSTALL_CANCELLED, user.actor())
             .target("remote_install", id)
             .metadata(json!({ "cancelled": cancelled }))

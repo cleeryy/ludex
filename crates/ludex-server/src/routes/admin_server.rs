@@ -69,13 +69,13 @@ async fn put_settings(
     if let Some(locale) = request.default_locale {
         let locale = locale::validate(locale.as_deref().unwrap_or_default())?;
         db::set_setting(
-            &state.pool,
+            &state.core.pool,
             "default_locale",
             locale.as_deref().unwrap_or_default(),
         )
         .await
         .map_err(ApiError::from)?;
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::SETTINGS_UPDATED, Actor::User { id: user.id })
                 .target("settings", "server")
                 .metadata(serde_json::json!({ "defaultLocale": locale })),
@@ -86,8 +86,8 @@ async fn put_settings(
 }
 
 async fn read_settings(state: &AppState) -> Result<ServerSettings, ApiError> {
-    let server_name = db::server_name(&state.pool, &state.config.server_name).await;
-    let default_locale = db::default_locale(&state.pool).await;
+    let server_name = db::server_name(&state.core.pool, &state.core.config.server_name).await;
+    let default_locale = db::default_locale(&state.core.pool).await;
     Ok(ServerSettings {
         server_name,
         default_locale,

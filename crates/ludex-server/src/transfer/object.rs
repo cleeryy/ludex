@@ -46,6 +46,7 @@ pub(crate) async fn serve(
     };
 
     let object = state
+        .transfer
         .storage
         .open(key, range)
         .await
@@ -127,13 +128,13 @@ pub(crate) async fn stage_object(
         .object_key
         .as_deref()
         .ok_or_else(|| ApiError::not_found("file_not_found", "Object key is missing"))?;
-    let directory = state.config.data_dir.join("tmp");
+    let directory = state.core.config.data_dir.join("tmp");
     let path = directory.join(format!(
         "stream-{}-{}.archive",
         version.id,
         uuid::Uuid::new_v4()
     ));
-    let size = match state.storage.download_to_path(key, &path).await {
+    let size = match state.transfer.storage.download_to_path(key, &path).await {
         Ok(size) => size,
         Err(error) => {
             let _ = tokio::fs::remove_file(&path).await;
@@ -192,6 +193,7 @@ mod tests {
         let archive = temp.path().join("Cat Quest II.zip");
         std::fs::write(&archive, b"0123456789abcdef").expect("write");
         let stored = state
+            .transfer
             .storage
             .publish_archive("identity", "Cat Quest II.zip", &archive)
             .await
@@ -236,7 +238,7 @@ mod tests {
         )));
 
         let (temp, mut state) = state_with_memory_store().await;
-        state.storage = crate::storage::ArchiveStorage::local();
+        state.set_storage(crate::storage::ArchiveStorage::local());
         let version = version_row(Some("archives/whatever.zip".to_string()), "s3");
         let error = serve(&state, &version, "archives/whatever.zip", &HeaderMap::new())
             .await
@@ -245,12 +247,12 @@ mod tests {
         assert_eq!(error.code, "storage_unavailable");
 
         // The local fallback path resolves the file from the library root.
-        let games_dir = state.config.games_dir.clone();
+        let games_dir = state.core.config.games_dir.clone();
         std::fs::write(games_dir.join("Cat Quest II.zip"), b"local").expect("write");
         let root_id = crate::db::query_scalar::<i64>(
             "SELECT id FROM library_roots ORDER BY position, id LIMIT 1",
         )
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .expect("root");
         let mut fallback = version_row(Some("archives/whatever.zip".to_string()), "s3");

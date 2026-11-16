@@ -26,7 +26,9 @@ async fn list(
     user: AuthUser,
 ) -> Result<Json<ControllerProfilesResponse>, ApiError> {
     user.require_scope(Scope::Read)?;
-    Ok(Json(controller_profiles::list(&state.pool, user.id).await?))
+    Ok(Json(
+        controller_profiles::list(&state.core.pool, user.id).await?,
+    ))
 }
 
 async fn save(
@@ -36,7 +38,7 @@ async fn save(
 ) -> Result<Json<ControllerProfileEntry>, ApiError> {
     user.require_scope(Scope::Write)?;
     Ok(Json(
-        controller_profiles::save(&state.pool, user.id, &request).await?,
+        controller_profiles::save(&state.core.pool, user.id, &request).await?,
     ))
 }
 
@@ -52,6 +54,6 @@ async fn remove(
             "gameId must be zero (account profile) or a positive game id",
         ));
     }
-    controller_profiles::delete(&state.pool, user.id, game_id).await?;
+    controller_profiles::delete(&state.core.pool, user.id, game_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

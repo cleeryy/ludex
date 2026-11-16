@@ -65,7 +65,7 @@ async fn login(
     let ip = Some(peer.ip());
     let username = request.username.trim().to_string();
     let key = crate::security::LoginGuard::key(ip, &username);
-    if let Err((wait, locked)) = state.login_guard.check(&key) {
+    if let Err((wait, locked)) = state.auth.login_guard.check(&key) {
         return Err(login_throttled(wait, locked));
     }
 
@@ -78,7 +78,7 @@ async fn login(
          FROM users WHERE username = ?",
     )
     .bind(&username)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -86,8 +86,8 @@ async fn login(
         // Verify against a dummy hash so unknown users cost the same Argon2
         // work as a wrong password (no username enumeration by timing).
         let _ = verify_password(&request.password, dummy_password_hash());
-        let (wait, locked) = state.login_guard.record_failure(&key);
-        state.events.emit(
+        let (wait, locked) = state.auth.login_guard.record_failure(&key);
+        state.core.events.emit(
             Event::new(actions::LOGIN_FAILED, Actor::System)
                 .target("user", &username)
                 .metadata(json!({ "reason": "unknown_user" }))
@@ -99,8 +99,8 @@ async fn login(
         return Err(ApiError::invalid_credentials());
     };
     if !verify_password(&request.password, &row.password_hash) {
-        let (wait, locked) = state.login_guard.record_failure(&key);
-        state.events.emit(
+        let (wait, locked) = state.auth.login_guard.record_failure(&key);
+        state.core.events.emit(
             Event::new(actions::LOGIN_FAILED, Actor::User { id: row.id })
                 .target("user", row.id.to_string())
                 .metadata(json!({ "username": row.username, "reason": "bad_password" }))
@@ -112,7 +112,7 @@ async fn login(
         return Err(ApiError::invalid_credentials());
     }
     if row.activated == 0 {
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::LOGIN_FAILED, Actor::User { id: row.id })
                 .target("user", row.id.to_string())
                 .metadata(json!({ "username": row.username, "reason": "account_disabled" }))
@@ -139,7 +139,7 @@ async fn login(
             Some(&peer.ip().to_string()),
         )
         .await?;
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::LOGIN_CHALLENGE, Actor::User { id: row.id })
                 .target("user", row.id.to_string())
                 .metadata(json!({ "username": row.username, "methods": ["totp", "recovery"] }))
@@ -148,14 +148,14 @@ async fn login(
         return Ok(Json(AuthResponse::challenge(challenge_token, expires_at)));
     }
 
-    state.login_guard.record_success(&key);
+    state.auth.login_guard.record_success(&key);
     let user = row.to_public();
     let info = SessionInfo {
         user_agent,
         ip: Some(peer.ip().to_string()),
     };
     let (issued, session_id) = start_session(&state, user.id, user.role, &info).await?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::LOGIN_SUCCEEDED, Actor::User { id: user.id })
             .target("user", user.id.to_string())
             .metadata(json!({
@@ -178,7 +178,7 @@ async fn mfa_enabled(state: &AppState, user_id: i64) -> Result<bool, ApiError> {
         "SELECT totp_secret, enabled_at FROM user_mfa WHERE user_id = ?",
     )
     .bind(user_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok(row.is_some_and(|(secret, enabled)| secret.is_some() && enabled.is_some()))
@@ -196,7 +196,7 @@ async fn login_mfa(
     // attempts per address and account, independently of the per-challenge
     // budget.
     let attempt_key = format!("{}|{}", peer.ip(), challenge.user_id);
-    if let Err(wait) = state.mfa_attempt_limits.check(&attempt_key) {
+    if let Err(wait) = state.auth.mfa_attempt_limits.check(&attempt_key) {
         return Err(ApiError::too_many_requests(
             "mfa_rate_limited",
             format!("Too many code attempts. Retry in {wait} seconds."),
@@ -207,7 +207,7 @@ async fn login_mfa(
         Ok(method) => method,
         Err(error) => {
             mfa::record_failed_attempt(&state, challenge.id).await?;
-            state.events.emit(
+            state.core.events.emit(
                 Event::new(
                     actions::LOGIN_FAILED,
                     Actor::User {
@@ -234,6 +234,7 @@ async fn login_mfa(
     // The password step succeeded; clear any failure counter now that the
     // second factor completed too.
     state
+        .auth
         .login_guard
         .record_success(&crate::security::LoginGuard::key(
             Some(peer.ip()),
@@ -247,7 +248,7 @@ async fn login_mfa(
         ip: Some(peer.ip().to_string()),
     };
     let (issued, session_id) = start_session(&state, user.id, user.role, &info).await?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::LOGIN_SUCCEEDED, Actor::User { id: user.id })
             .target("user", user.id.to_string())
             .metadata(json!({
@@ -291,7 +292,7 @@ async fn me(State(state): State<AppState>, user: AuthUser) -> Result<Json<UserRe
          FROM users WHERE id = ?",
     )
     .bind(user.id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(ApiError::unauthorized)?;
@@ -335,7 +336,7 @@ async fn update_onboarding(
         binds.push(Bind::Int(user.id));
         let sql = format!("UPDATE users SET {} WHERE id = ?", sets.join(", "));
         bind_query(db::query(&sql), &binds)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
     }
@@ -349,7 +350,7 @@ async fn update_onboarding(
          FROM users WHERE id = ?",
     )
     .bind(user.id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(ApiError::unauthorized)?;
@@ -361,7 +362,7 @@ async fn update_onboarding(
 async fn logout(State(state): State<AppState>, user: AuthUser) -> Result<StatusCode, ApiError> {
     if let Some(jti) = user.jti.as_deref() {
         revoke_token(&state, jti, user.id, "logout").await?;
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::SESSION_REVOKED, user.actor())
                 .target("user", user.id.to_string())
                 .metadata(json!({ "reason": "logout" })),
@@ -379,7 +380,7 @@ async fn sessions(
          FROM auth_sessions WHERE user_id = ? ORDER BY created_at DESC, id DESC",
     )
     .bind(user.id)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok(Json(
@@ -398,7 +399,7 @@ async fn revoke_session(
         "SELECT id, user_id, jti, revoked_at FROM auth_sessions WHERE id = ?",
     )
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("session_not_found", "Session not found"))?;
@@ -407,7 +408,7 @@ async fn revoke_session(
     }
     if row.3.is_none() {
         revoke_token(&state, &row.2, row.1, "session_revoked").await?;
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::SESSION_REVOKED, user.actor())
                 .target("user", row.1.to_string())
                 .metadata(json!({ "sessionId": row.0, "reason": "session_revoked" })),
@@ -431,7 +432,7 @@ async fn change_password(
          FROM users WHERE id = ?",
     )
     .bind(user.id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(ApiError::unauthorized)?;
@@ -450,7 +451,7 @@ async fn change_password(
     .bind(password_hash)
     .bind(db::db_time(db::now()))
     .bind(user.id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -462,7 +463,7 @@ async fn change_password(
         revoke_all_sessions(&state, user.id, "password_changed").await?;
     }
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::USER_PASSWORD_CHANGED, user.actor())
             .target("user", user.id.to_string())
             .metadata(json!({ "username": user.username })),
@@ -485,9 +486,9 @@ async fn enroll_totp(
     user: AuthUser,
 ) -> Result<Json<TotpEnrollment>, ApiError> {
     user.require_scope(Scope::Write)?;
-    let issuer = db::server_name(&state.pool, &state.config.server_name).await;
+    let issuer = db::server_name(&state.core.pool, &state.core.config.server_name).await;
     let enrollment = mfa::start_enrollment(&state, user.id, &issuer, &user.username).await?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::MFA_ENROLLMENT_STARTED, user.actor())
             .target("user", user.id.to_string())
             .metadata(json!({ "method": "totp" })),
@@ -503,7 +504,7 @@ async fn activate_totp(
     user.require_scope(Scope::Write)?;
     let recovery_codes = mfa::activate(&state, user.id, &request.code).await?;
     let status = mfa::status(&state, user.id).await?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::MFA_ENABLED, user.actor())
             .target("user", user.id.to_string())
             .metadata(json!({
@@ -530,7 +531,7 @@ async fn disable_mfa(
     if let Some(jti) = user.jti.as_deref() {
         crate::auth::revoke_other_sessions(&state, user.id, jti, "mfa_disabled").await?;
     }
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::MFA_DISABLED, user.actor())
             .target("user", user.id.to_string())
             .metadata(json!({ "method": "totp" })),
@@ -552,7 +553,7 @@ async fn regenerate_recovery_codes(
         ));
     }
     let codes = mfa::regenerate_codes(&state, user.id).await?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::MFA_RECOVERY_CODES_ROTATED, user.actor())
             .target("user", user.id.to_string())
             .metadata(json!({ "codes": codes.len() })),
@@ -573,7 +574,7 @@ async fn revoke_other_sessions(
         // An API key has no session to keep; revoke them all.
         None => revoke_all_sessions(&state, user.id, "user_revoked").await?,
     };
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::SESSION_REVOKED, user.actor())
             .target("user", user.id.to_string())
             .metadata(json!({ "sessions": revoked, "reason": "user_revoked" })),
@@ -591,7 +592,7 @@ async fn fetch_user_row(state: &AppState, id: i64) -> Result<UserRow, ApiError> 
          FROM users WHERE id = ?",
     )
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(ApiError::unauthorized)

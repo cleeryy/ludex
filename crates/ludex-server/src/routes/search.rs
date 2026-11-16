@@ -70,7 +70,7 @@ async fn suggest(
                  ORDER BY sort_title ASC LIMIT 5000",
             )
             .bind(i64::from(limit))
-            .fetch_all(&state.pool)
+            .fetch_all(&state.core.pool)
             .await
         }
         None => {
@@ -78,7 +78,7 @@ async fn suggest(
                 "SELECT id, title, sort_title, release_date, cover_path, alt_titles_json
                  FROM games ORDER BY sort_title ASC LIMIT 5000",
             )
-            .fetch_all(&state.pool)
+            .fetch_all(&state.core.pool)
             .await
         }
     }

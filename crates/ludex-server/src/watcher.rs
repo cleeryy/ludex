@@ -82,7 +82,7 @@ impl WatcherHandle {
 /// Starts the watcher unless it is disabled. Returns a handle for runtime root
 /// changes.
 pub async fn start(state: &AppState) -> Option<WatcherHandle> {
-    if !state.config.watcher_enabled {
+    if !state.core.config.watcher_enabled {
         return None;
     }
     let (command_tx, command_rx) = mpsc::unbounded_channel();
@@ -92,10 +92,10 @@ pub async fn start(state: &AppState) -> Option<WatcherHandle> {
         _cancel: cancel_tx,
     };
     {
-        let mut status = state.watcher.write().await;
+        let mut status = state.ops.watcher.write().await;
         status.enabled = true;
         status.debounce_ms =
-            u64::try_from(state.config.watcher_debounce.as_millis()).unwrap_or(u64::MAX);
+            u64::try_from(state.core.config.watcher_debounce.as_millis()).unwrap_or(u64::MAX);
     }
     tokio::spawn(manager(state.clone(), command_rx, cancel_rx));
     Some(handle)
@@ -119,7 +119,7 @@ async fn manager(
         Ok(watcher) => watcher,
         Err(error) => {
             tracing::error!(%error, "could not create the library folder watcher");
-            state.watcher.write().await.last_error = Some(error.to_string());
+            state.ops.watcher.write().await.last_error = Some(error.to_string());
             return;
         }
     };
@@ -127,7 +127,7 @@ async fn manager(
     let mut watched: Vec<Watched> = Vec::new();
     reload(&state, &mut watcher, &mut watched).await;
 
-    let debounce = state.config.watcher_debounce;
+    let debounce = state.core.config.watcher_debounce;
     let mut pending = false;
     let mut deadline: Option<tokio::time::Instant> = None;
 
@@ -156,7 +156,7 @@ async fn manager(
                     None => break,
                     Some(Err(error)) => {
                         tracing::warn!(%error, "library watcher error");
-                        state.watcher.write().await.last_error = Some(error.to_string());
+                        state.ops.watcher.write().await.last_error = Some(error.to_string());
                     }
                     Some(Ok(event)) => {
                         if event
@@ -167,7 +167,7 @@ async fn manager(
                             let now = Utc::now();
                             pending = true;
                             deadline = Some(tokio::time::Instant::now() + debounce);
-                            let mut status = state.watcher.write().await;
+                            let mut status = state.ops.watcher.write().await;
                             status.last_event_at = Some(now);
                             status.pending = true;
                         }
@@ -181,7 +181,7 @@ async fn manager(
                 }
                 if crate::scanner::trigger(&state).await {
                     pending = false;
-                    let mut status = state.watcher.write().await;
+                    let mut status = state.ops.watcher.write().await;
                     status.pending = false;
                     status.last_scan_at = Some(Utc::now());
                 } else {
@@ -206,11 +206,11 @@ async fn reload(
     }
     watched.clear();
 
-    let roots = match crate::roots::enabled(&state.pool).await {
+    let roots = match crate::roots::enabled(&state.core.pool).await {
         Ok(roots) => roots,
         Err(error) => {
             tracing::warn!(%error, "could not list roots for the watcher");
-            state.watcher.write().await.last_error = Some(error.to_string());
+            state.ops.watcher.write().await.last_error = Some(error.to_string());
             return;
         }
     };
@@ -235,7 +235,7 @@ async fn reload(
         }
     }
 
-    let mut status = state.watcher.write().await;
+    let mut status = state.ops.watcher.write().await;
     status.enabled = true;
     status.roots = watched
         .iter()
@@ -353,7 +353,7 @@ mod tests {
             .expect("scan triggered")
             .expect("request");
         assert_eq!(request, crate::scanner::ScanRequest::all());
-        assert!(state.watcher.read().await.last_event_at.is_some());
+        assert!(state.ops.watcher.read().await.last_event_at.is_some());
     }
 
     #[tokio::test]
@@ -405,7 +405,7 @@ mod tests {
         let handle = start(&state).await.expect("watcher starts");
         assert!(handle.reload());
         tokio::time::sleep(Duration::from_millis(150)).await;
-        let status = state.watcher.read().await.clone();
+        let status = state.ops.watcher.read().await.clone();
         assert!(status.enabled);
         assert_eq!(status.debounce_ms, 80);
         assert_eq!(status.roots.len(), 1);

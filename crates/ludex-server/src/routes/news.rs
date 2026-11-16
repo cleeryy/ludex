@@ -32,7 +32,7 @@ async fn list(
          FROM news n LEFT JOIN users u ON u.id = n.author_id
          ORDER BY n.created_at DESC, n.id DESC",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok(Json(rows.iter().map(to_post).collect()))
@@ -56,7 +56,7 @@ async fn create(
     .bind(user.id)
     .bind(&now)
     .bind(&now)
-    .returning_id(&state.pool)
+    .returning_id(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -89,7 +89,7 @@ async fn update(
         binds.push(Bind::Int(id));
         let sql = format!("UPDATE news SET {} WHERE id = ?", sets.join(", "));
         bind_query(db::query(&sql), &binds)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
     }
@@ -106,7 +106,7 @@ async fn delete_post(
     user.require_admin_access()?;
     let result = db::query("DELETE FROM news WHERE id = ?")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     if result.rows_affected() == 0 {
@@ -121,7 +121,7 @@ async fn fetch(state: &AppState, id: i64) -> Result<NewsRow, ApiError> {
          FROM news n LEFT JOIN users u ON u.id = n.author_id WHERE n.id = ?",
     )
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("news_not_found", "News post not found"))

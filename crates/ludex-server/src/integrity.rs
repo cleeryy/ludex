@@ -116,6 +116,7 @@ pub fn interval(config: &crate::config::Config) -> Option<Duration> {
 /// Returns the new report id. Only one run can be active per process.
 pub async fn start(state: &AppState, scope: IntegrityScope) -> Result<i64, ApiError> {
     if state
+        .ops
         .integrity_busy
         .compare_exchange(
             false,
@@ -130,10 +131,11 @@ pub async fn start(state: &AppState, scope: IntegrityScope) -> Result<i64, ApiEr
             "An integrity check is already running",
         ));
     }
-    let report_id = match insert_report(&state.pool, scope).await {
+    let report_id = match insert_report(&state.core.pool, scope).await {
         Ok(id) => id,
         Err(error) => {
             state
+                .ops
                 .integrity_busy
                 .store(false, std::sync::atomic::Ordering::SeqCst);
             return Err(ApiError::from(error));
@@ -143,6 +145,7 @@ pub async fn start(state: &AppState, scope: IntegrityScope) -> Result<i64, ApiEr
     tokio::spawn(async move {
         run_report(&state, report_id, scope).await;
         state
+            .ops
             .integrity_busy
             .store(false, std::sync::atomic::Ordering::SeqCst);
     });
@@ -199,7 +202,7 @@ pub async fn run_report(state: &AppState, report_id: i64, scope: IntegrityScope)
     .bind(error.as_deref())
     .bind(db::db_time(db::now()))
     .bind(report_id)
-    .execute(&state.pool)
+    .execute(&state.core.pool)
     .await;
     if let Err(failure) = result {
         tracing::error!(%failure, report_id, "could not finish integrity report");
@@ -225,18 +228,22 @@ async fn check_archives(
          FROM game_versions WHERE missing = 0 AND root_unavailable = 0
          ORDER BY id",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .context("list versions for integrity")?;
 
     for (version_id, root_id, file_path, expected_size, expected_hash) in rows {
         *checked += 1;
-        let Some(path) =
-            crate::roots::resolve_version_path(&state.pool, &state.config, root_id, &file_path)
-                .await
+        let Some(path) = crate::roots::resolve_version_path(
+            &state.core.pool,
+            &state.core.config,
+            root_id,
+            &file_path,
+        )
+        .await
         else {
             record_finding(
-                &state.pool,
+                &state.core.pool,
                 report_id,
                 "corrupt",
                 "archive",
@@ -251,7 +258,7 @@ async fn check_archives(
         let metadata = tokio::fs::metadata(&path).await;
         let Ok(metadata) = metadata else {
             record_finding(
-                &state.pool,
+                &state.core.pool,
                 report_id,
                 "missing",
                 "archive",
@@ -265,7 +272,7 @@ async fn check_archives(
         };
         if !metadata.is_file() {
             record_finding(
-                &state.pool,
+                &state.core.pool,
                 report_id,
                 "missing",
                 "archive",
@@ -279,7 +286,7 @@ async fn check_archives(
         }
         if expected_size > 0 && metadata.len() != u64::try_from(expected_size).unwrap_or(0) {
             record_finding(
-                &state.pool,
+                &state.core.pool,
                 report_id,
                 "size_mismatch",
                 "archive",
@@ -299,7 +306,7 @@ async fn check_archives(
         let hash = tokio::task::spawn_blocking(move || hash_file(&hash_path)).await;
         let Ok(Ok((_, digest))) = hash else {
             record_finding(
-                &state.pool,
+                &state.core.pool,
                 report_id,
                 "corrupt",
                 "archive",
@@ -322,13 +329,13 @@ async fn check_archives(
                 .bind(&digest)
                 .bind(&digest)
                 .bind(version_id)
-                .execute(&state.pool)
+                .execute(&state.core.pool)
                 .await
                 .context("record archive hash baseline")?;
             }
             Some(expected) if expected != digest => {
                 record_finding(
-                    &state.pool,
+                    &state.core.pool,
                     report_id,
                     "corrupt",
                     "archive",
@@ -343,7 +350,7 @@ async fn check_archives(
         }
 
         if *checked % PROGRESS_EVERY == 0 {
-            update_progress(&state.pool, report_id, *checked, *findings).await?;
+            update_progress(&state.core.pool, report_id, *checked, *findings).await?;
         }
     }
     Ok(())
@@ -355,17 +362,17 @@ async fn check_media(
     checked: &mut i64,
     findings: &mut i64,
 ) -> Result<()> {
-    let referenced = referenced_media(&state.pool).await?;
+    let referenced = referenced_media(&state.core.pool).await?;
     for name in referenced {
         if !safe_media_name(&name) {
             continue;
         }
         *checked += 1;
-        let path = state.config.media_dir.join(&name);
+        let path = state.core.config.media_dir.join(&name);
         let metadata = tokio::fs::metadata(&path).await;
         let Ok(metadata) = metadata else {
             record_finding(
-                &state.pool,
+                &state.core.pool,
                 report_id,
                 "missing",
                 "media",
@@ -379,7 +386,7 @@ async fn check_media(
         };
         if !metadata.is_file() {
             record_finding(
-                &state.pool,
+                &state.core.pool,
                 report_id,
                 "missing",
                 "media",
@@ -396,7 +403,7 @@ async fn check_media(
         let hash = tokio::task::spawn_blocking(move || hash_file(&hash_path)).await;
         let Ok(Ok((size, digest))) = hash else {
             record_finding(
-                &state.pool,
+                &state.core.pool,
                 report_id,
                 "corrupt",
                 "media",
@@ -412,7 +419,7 @@ async fn check_media(
         let baseline =
             db::query_as::<(String, i64)>("SELECT sha256, size FROM media_manifest WHERE name = ?")
                 .bind(&name)
-                .fetch_optional(&state.pool)
+                .fetch_optional(&state.core.pool)
                 .await
                 .context("read media manifest")?;
         match baseline {
@@ -429,7 +436,7 @@ async fn check_media(
                 .bind(&digest)
                 .bind(&now)
                 .bind(&now)
-                .execute(&state.pool)
+                .execute(&state.core.pool)
                 .await
                 .context("record media hash baseline")?;
             }
@@ -438,7 +445,7 @@ async fn check_media(
                     || u64::try_from(expected_size).unwrap_or(u64::MAX) != size
                 {
                     record_finding(
-                        &state.pool,
+                        &state.core.pool,
                         report_id,
                         "corrupt",
                         "media",
@@ -452,7 +459,7 @@ async fn check_media(
                     db::query("UPDATE media_manifest SET verified_at = ? WHERE name = ?")
                         .bind(db::db_time(db::now()))
                         .bind(&name)
-                        .execute(&state.pool)
+                        .execute(&state.core.pool)
                         .await
                         .context("touch media manifest")?;
                 }
@@ -539,7 +546,7 @@ async fn update_progress(
 
 /// Runs a check on the configured interval. Disabled when the interval is zero.
 pub async fn scheduled_worker(state: AppState, mut cancel: watch::Receiver<bool>) {
-    let Some(interval) = interval(&state.config) else {
+    let Some(interval) = interval(&state.core.config) else {
         return;
     };
     let mut ticker = tokio::time::interval(interval);
@@ -641,7 +648,7 @@ mod tests {
     async fn seed_version(state: &AppState, name: &str, size: i64, hash: Option<&str>) -> i64 {
         let root_id =
             db::query_scalar::<i64>("SELECT id FROM library_roots ORDER BY position, id LIMIT 1")
-                .fetch_one(&state.pool)
+                .fetch_one(&state.core.pool)
                 .await
                 .expect("root");
         let now = db::db_time(db::now());
@@ -654,7 +661,7 @@ mod tests {
         .bind(name)
         .bind(&now)
         .bind(&now)
-        .returning_id(&state.pool)
+        .returning_id(&state.core.pool)
         .await
         .expect("game");
         db::query(
@@ -669,17 +676,17 @@ mod tests {
         .bind(size)
         .bind(hash)
         .bind(&now)
-        .returning_id(&state.pool)
+        .returning_id(&state.core.pool)
         .await
         .expect("version")
     }
 
     async fn run(state: &AppState) -> (IntegrityReport, Vec<IntegrityFinding>) {
-        let report_id = insert_report(&state.pool, IntegrityScope::Archives)
+        let report_id = insert_report(&state.core.pool, IntegrityScope::Archives)
             .await
             .expect("report");
         run_report(state, report_id, IntegrityScope::Archives).await;
-        read_report(&state.pool, report_id)
+        read_report(&state.core.pool, report_id)
             .await
             .expect("read")
             .expect("report")
@@ -690,9 +697,13 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let state = test_state(temp.path()).await;
         let content = vec![7_u8; 2048];
-        fs::write(state.config.games_dir.join("Hades (2020).zip"), &content).expect("write");
+        fs::write(
+            state.core.config.games_dir.join("Hades (2020).zip"),
+            &content,
+        )
+        .expect("write");
         let (_, digest) =
-            hash_file(&state.config.games_dir.join("Hades (2020).zip")).expect("hash");
+            hash_file(&state.core.config.games_dir.join("Hades (2020).zip")).expect("hash");
         let version_id = seed_version(&state, "Hades (2020).zip", 2048, None).await;
 
         let (report, findings) = run(&state).await;
@@ -702,7 +713,7 @@ mod tests {
         let stored =
             db::query_scalar::<String>("SELECT content_hash FROM game_versions WHERE id = ?")
                 .bind(version_id)
-                .fetch_one(&state.pool)
+                .fetch_one(&state.core.pool)
                 .await
                 .expect("hash");
         assert_eq!(stored, digest);
@@ -712,7 +723,11 @@ mod tests {
     async fn corrupt_archive_is_reported() {
         let temp = tempfile::tempdir().expect("tempdir");
         let state = test_state(temp.path()).await;
-        fs::write(state.config.games_dir.join("Celeste.zip"), vec![1_u8; 2048]).expect("write");
+        fs::write(
+            state.core.config.games_dir.join("Celeste.zip"),
+            vec![1_u8; 2048],
+        )
+        .expect("write");
         seed_version(&state, "Celeste.zip", 2048, Some("deadbeef")).await;
 
         let (report, findings) = run(&state).await;
@@ -734,7 +749,7 @@ mod tests {
         assert_eq!(findings[0].kind, "missing");
         let missing: i64 = db::query_scalar("SELECT missing FROM game_versions WHERE id = ?")
             .bind(version_id)
-            .fetch_one(&state.pool)
+            .fetch_one(&state.core.pool)
             .await
             .expect("row");
         assert_eq!(missing, 0, "integrity checks never delete or mark rows");
@@ -744,7 +759,11 @@ mod tests {
     async fn size_mismatch_is_reported() {
         let temp = tempfile::tempdir().expect("tempdir");
         let state = test_state(temp.path()).await;
-        fs::write(state.config.games_dir.join("Short.zip"), vec![1_u8; 100]).expect("write");
+        fs::write(
+            state.core.config.games_dir.join("Short.zip"),
+            vec![1_u8; 100],
+        )
+        .expect("write");
         seed_version(&state, "Short.zip", 2048, None).await;
 
         let (_, findings) = run(&state).await;
@@ -756,7 +775,7 @@ mod tests {
     async fn media_corruption_is_detected_from_the_manifest() {
         let temp = tempfile::tempdir().expect("tempdir");
         let state = test_state(temp.path()).await;
-        let media = state.config.media_dir.join("cover.jpg");
+        let media = state.core.config.media_dir.join("cover.jpg");
         fs::write(&media, b"good").expect("write media");
         db::query(
             "INSERT INTO media_manifest (name, size, sha256, created_at) VALUES (?, ?, ?, ?)",
@@ -765,7 +784,7 @@ mod tests {
         .bind(4_i64)
         .bind("not-the-real-hash")
         .bind(db::db_time(db::now()))
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .expect("manifest");
         let now = db::db_time(db::now());
@@ -775,15 +794,15 @@ mod tests {
         )
         .bind(&now)
         .bind(&now)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .expect("game");
 
-        let report_id = insert_report(&state.pool, IntegrityScope::Media)
+        let report_id = insert_report(&state.core.pool, IntegrityScope::Media)
             .await
             .expect("report");
         run_report(&state, report_id, IntegrityScope::Media).await;
-        let (report, findings) = read_report(&state.pool, report_id)
+        let (report, findings) = read_report(&state.core.pool, report_id)
             .await
             .expect("read")
             .expect("report");
@@ -803,15 +822,15 @@ mod tests {
         )
         .bind(&now)
         .bind(&now)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .expect("game");
 
-        let report_id = insert_report(&state.pool, IntegrityScope::Media)
+        let report_id = insert_report(&state.core.pool, IntegrityScope::Media)
             .await
             .expect("report");
         run_report(&state, report_id, IntegrityScope::Media).await;
-        let (_, findings) = read_report(&state.pool, report_id)
+        let (_, findings) = read_report(&state.core.pool, report_id)
             .await
             .expect("read")
             .expect("report");

@@ -21,7 +21,9 @@ pub(crate) async fn state_with_memory_store() -> (tempfile::TempDir, AppState) {
     );
     let (scan_tx, _scan_rx) = mpsc::channel(1);
     let mut state = AppState::for_tests(config, scan_tx).await;
-    state.storage = crate::storage::ArchiveStorage::from_store(Arc::new(InMemory::new()));
+    state.set_storage(crate::storage::ArchiveStorage::from_store(Arc::new(
+        InMemory::new(),
+    )));
     (temp, state)
 }
 

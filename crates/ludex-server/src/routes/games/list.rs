@@ -213,7 +213,7 @@ pub(super) async fn list(
     user: AuthUser,
     ApiQuery(query): ApiQuery<GameQuery>,
 ) -> Result<Json<Paginated<GameSummary>>, ApiError> {
-    let filters = Filters::from_query(&query, state.pool.is_postgres())?
+    let filters = Filters::from_query(&query, state.core.pool.is_postgres())?
         .with_availability(query.status.as_deref())?
         .with_age_limit(user.age_limit);
     let page = query.page.unwrap_or(1).max(1);
@@ -228,7 +228,7 @@ pub(super) async fn list(
         let mut binds = vec![Bind::Int(user.id), Bind::Int(user.id)];
         binds.extend(filters.binds.iter().cloned());
         let rows = bind_query_as(db::query_as::<GameListRow>(&sql), &binds)
-            .fetch_all(&state.pool)
+            .fetch_all(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
 
@@ -276,7 +276,7 @@ pub(super) async fn list(
     let mut count_binds = vec![Bind::Int(user.id), Bind::Int(user.id)];
     count_binds.extend(filters.binds.iter().cloned());
     let total = bind_query_scalar(db::query_scalar::<i64>(&count_sql), &count_binds)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
@@ -291,7 +291,7 @@ pub(super) async fn list(
     binds.push(Bind::Int(offset));
 
     let rows = bind_query_as(db::query_as::<GameListRow>(&sql), &binds)
-        .fetch_all(&state.pool)
+        .fetch_all(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
@@ -308,7 +308,7 @@ pub(super) async fn random(
     user: AuthUser,
     ApiQuery(query): ApiQuery<GameQuery>,
 ) -> Result<Json<GameSummary>, ApiError> {
-    let filters = Filters::from_query(&query, state.pool.is_postgres())?
+    let filters = Filters::from_query(&query, state.core.pool.is_postgres())?
         .with_availability(query.status.as_deref())?
         .with_age_limit(user.age_limit);
     let mut binds = vec![Bind::Int(user.id), Bind::Int(user.id)];
@@ -320,7 +320,7 @@ pub(super) async fn random(
             filters.where_clause()
         );
         let rows = bind_query_as(db::query_as::<GameListRow>(&sql), &binds)
-            .fetch_all(&state.pool)
+            .fetch_all(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
         let mut matches: Vec<GameListRow> = rows
@@ -346,7 +346,7 @@ pub(super) async fn random(
         filters.where_clause()
     );
     let row = bind_query_as(db::query_as::<GameListRow>(&sql), &binds)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::not_found("no_game", "No game matches these filters"))?;
@@ -376,7 +376,7 @@ pub(crate) async fn fetch_detail(
         db::query_as::<GameDetailRow>(&sql),
         &[Bind::Int(user_id), Bind::Int(user_id), Bind::Int(id)],
     )
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("game_not_found", "Game not found"))?;
@@ -391,7 +391,7 @@ pub(crate) async fn fetch_detail(
          ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC",
     )
     .bind(id)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 

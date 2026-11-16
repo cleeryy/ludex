@@ -121,7 +121,7 @@ async fn update_profile(
         binds.push(Bind::Int(user.id));
         let sql = format!("UPDATE users SET {} WHERE id = ?", sets.join(", "));
         bind_query(db::query(&sql), &binds)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
     }
@@ -138,7 +138,7 @@ async fn directory(
     let rows = db::query_as::<ProfileRow>(&format!(
         "SELECT {PROFILE_COLUMNS} FROM users WHERE public_profile = 1 ORDER BY lower(username) ASC"
     ))
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     Ok(Json(rows.iter().map(ProfileRow::to_public).collect()))
@@ -174,13 +174,13 @@ async fn profile(
          FROM progress WHERE user_id = ?",
     )
     .bind(id)
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
     let bookmarked = db::query_scalar::<i64>("SELECT COUNT(*) FROM bookmarks WHERE user_id = ?")
         .bind(id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
@@ -198,7 +198,7 @@ async fn profile(
         db::query_as::<crate::models::GameListRow>(&sql),
         &[Bind::Int(id), Bind::Int(id)],
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .into_iter()
@@ -239,7 +239,7 @@ async fn profile_activity(
 async fn load_profile(state: &AppState, id: i64) -> Result<ProfileRow, ApiError> {
     db::query_as::<ProfileRow>(&format!("SELECT {PROFILE_COLUMNS} FROM users WHERE id = ?"))
         .bind(id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::not_found("profile_not_found", "Profile not found"))

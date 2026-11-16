@@ -59,7 +59,7 @@ async fn report(
         .filter(|value| !value.is_empty());
     Ok(Json(
         library_health::read_latest(
-            &state.pool,
+            &state.core.pool,
             severity,
             category,
             query.limit.unwrap_or(200),
@@ -75,7 +75,7 @@ async fn scan(
 ) -> Result<(StatusCode, Json<LibraryHealthStartResponse>), ApiError> {
     user.require_editor()?;
     let report_id = library_health::start(&state, library_health::HealthTrigger::Manual).await?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::HEALTH_SCAN_STARTED, user.actor())
             .target("library_health_report", report_id.to_string())
             .metadata(serde_json::json!({ "trigger": "manual" })),
@@ -106,7 +106,7 @@ async fn apply(
         }
     }
     let result = library_health::apply_action(&state, &request).await?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::HEALTH_ACTION_APPLIED, user.actor())
             .target("library_health_report", "latest")
             .metadata(serde_json::json!({

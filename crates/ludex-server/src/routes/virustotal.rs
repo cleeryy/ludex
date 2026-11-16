@@ -136,7 +136,7 @@ async fn save_rescan(
     let interval_hours = request.interval_hours;
     let include_malicious = request.include_malicious;
     let status = virustotal_rescan::save_policy(&state, request).await?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::VIRUSTOTAL_RESCAN_POLICY, user.actor())
             .target("virustotal", "rescan")
             .metadata(json!({
@@ -168,7 +168,7 @@ async fn scan(
     user.require_admin_access()?;
     let entries = virustotal::scan(&state, request).await?;
     for entry in &entries {
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::GAME_SCANNED, user.actor())
                 .target("game", entry.game_id.to_string())
                 .metadata(json!({

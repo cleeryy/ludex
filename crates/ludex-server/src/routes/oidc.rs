@@ -123,7 +123,10 @@ async fn callback(
 
     let identity = client.complete(code, state_param).await?;
     let user_id = oidc::provision_user(&state, &client, &identity).await?;
-    let one_time_code = state.exchange_codes.issue(user_id, EXCHANGE_CODE_TTL)?;
+    let one_time_code = state
+        .auth
+        .exchange_codes
+        .issue(user_id, EXCHANGE_CODE_TTL)?;
     let location = client.callback_location(&one_time_code);
 
     let mut response = Redirect::to(&location).into_response();
@@ -147,7 +150,7 @@ async fn exchange(
             "Missing SSO exchange code",
         ));
     }
-    let user_id = state.exchange_codes.take(code).ok_or_else(|| {
+    let user_id = state.auth.exchange_codes.take(code).ok_or_else(|| {
         ApiError::new(
             StatusCode::UNAUTHORIZED,
             "invalid_oidc_code",
@@ -164,7 +167,7 @@ async fn exchange(
          FROM users WHERE id = ?",
     )
     .bind(user_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| {
@@ -214,7 +217,7 @@ async fn desktop_handoff(
 ) -> Result<Json<DesktopHandoffResponse>, ApiError> {
     user.require_scope(Scope::Write)?;
     let limit_key = format!("handoff:{}", user.id);
-    if let Err(wait) = state.handoff_create_limits.check(&limit_key) {
+    if let Err(wait) = state.auth.handoff_create_limits.check(&limit_key) {
         return Err(ApiError::too_many_requests(
             "handoff_throttled",
             format!("Too many desktop sign-in attempts. Try again in {wait} seconds."),
@@ -228,13 +231,14 @@ async fn desktop_handoff(
     // code anyway (same 404 as before).
     state.oidc_client().await.ok_or_else(oidc_disabled)?;
 
-    let ttl = state.desktop_handoffs.ttl();
-    let code = state.exchange_codes.issue(user.id, ttl)?;
+    let ttl = state.auth.desktop_handoffs.ttl();
+    let code = state.auth.exchange_codes.issue(user.id, ttl)?;
     let expires_at = state
+        .auth
         .desktop_handoffs
         .insert(&request.state, user.id, &code)?;
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::OIDC_HANDOFF_CREATED, user.actor())
             .target("user", user.id.to_string())
             .metadata(json!({ "expiresAt": expiry_datetime(expires_at) }))
@@ -258,7 +262,7 @@ async fn claim_handoff(
 ) -> Result<Response, ApiError> {
     let ip = peer.ip();
     let limit_key = format!("claim:{ip}");
-    if let Err(wait) = state.handoff_claim_limits.check(&limit_key) {
+    if let Err(wait) = state.auth.handoff_claim_limits.check(&limit_key) {
         return Err(ApiError::too_many_requests(
             "handoff_throttled",
             format!("Too many desktop sign-in attempts. Try again in {wait} seconds."),
@@ -266,7 +270,7 @@ async fn claim_handoff(
         .with_retry_after(wait));
     }
     if let Err(error) = desktop_handoff::validate_state(&request.state) {
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::OIDC_HANDOFF_FAILED, Actor::System)
                 .metadata(json!({ "reason": "invalid_state" }))
                 .ip(Some(ip)),
@@ -274,8 +278,8 @@ async fn claim_handoff(
         return Err(error);
     }
 
-    let Some(claimed) = state.desktop_handoffs.claim(&request.state) else {
-        state.events.emit(
+    let Some(claimed) = state.auth.desktop_handoffs.claim(&request.state) else {
+        state.core.events.emit(
             Event::new(actions::OIDC_HANDOFF_FAILED, Actor::System)
                 .metadata(json!({ "reason": "not_found" }))
                 .ip(Some(ip)),
@@ -287,7 +291,7 @@ async fn claim_handoff(
         ));
     };
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::OIDC_HANDOFF_CLAIMED, Actor::System)
             .target("user", claimed.user_id.to_string())
             .metadata(json!({ "expiresAt": expiry_datetime(claimed.expires_at) }))

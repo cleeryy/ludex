@@ -112,7 +112,7 @@ async fn list(
     user: AuthUser,
 ) -> Result<Json<Vec<MetadataProviderView>>, ApiError> {
     user.require_admin_access()?;
-    let rows = providers::load_records(&state.pool)
+    let rows = providers::load_records(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(rows.iter().map(ProviderRecord::to_view).collect()))
@@ -136,7 +136,7 @@ async fn create(
     let mapping_json = serde_json::to_string(&mapping).unwrap_or_else(|_| "{}".to_string());
     let token_enc = match request.token.as_deref().map(str::trim) {
         Some(token) if !token.is_empty() => {
-            Some(providers::encrypt_token(&state.jwt_secret, token)?)
+            Some(providers::encrypt_token(&state.auth.jwt_secret, token)?)
         }
         _ => None,
     };
@@ -155,11 +155,11 @@ async fn create(
     .bind(&mapping_json)
     .bind(&now)
     .bind(&now)
-    .returning_id(&state.pool)
+    .returning_id(&state.core.pool)
     .await
     .map_err(map_unique_error)?;
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::METADATA_PROVIDER_UPDATED, user.actor())
             .target("metadata_provider", id.to_string())
             .metadata(json!({
@@ -229,7 +229,7 @@ async fn update(
         .map(str::trim)
         .filter(|token| !token.is_empty());
     if let Some(token) = replacement {
-        let encrypted = providers::encrypt_token(&state.jwt_secret, token)?;
+        let encrypted = providers::encrypt_token(&state.auth.jwt_secret, token)?;
         sets.push("token_enc = ?");
         binds.push(crate::sql::Bind::Text(encrypted));
         changed.push("token".to_string());
@@ -247,10 +247,10 @@ async fn update(
             sets.join(", ")
         );
         crate::sql::bind_query(db::query(&sql), &binds)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(map_unique_error)?;
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::METADATA_PROVIDER_UPDATED, user.actor())
                 .target("metadata_provider", id.to_string())
                 .metadata(json!({
@@ -278,15 +278,15 @@ async fn remove(
     // removed provider never leaves rows behind.
     db::query("DELETE FROM provider_fetches WHERE provider_id = ?")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     db::query("DELETE FROM metadata_providers WHERE id = ?")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::METADATA_PROVIDER_UPDATED, user.actor())
             .target("metadata_provider", id.to_string())
             .metadata(json!({
@@ -313,7 +313,7 @@ async fn reorder(
             "At least one provider id is required",
         ));
     }
-    let known: Vec<i64> = providers::load_records(&state.pool)
+    let known: Vec<i64> = providers::load_records(&state.core.pool)
         .await
         .map_err(ApiError::from)?
         .into_iter()
@@ -325,7 +325,7 @@ async fn reorder(
             "Unknown provider id in the requested order",
         ));
     }
-    let mut transaction = state.pool.begin().await.map_err(ApiError::from)?;
+    let mut transaction = state.core.pool.begin().await.map_err(ApiError::from)?;
     for (index, id) in request.ids.iter().enumerate() {
         let priority = i64::try_from(index + 1).unwrap_or(1) * 10;
         db::query("UPDATE metadata_providers SET priority = ?, updated_at = ? WHERE id = ?")
@@ -337,7 +337,7 @@ async fn reorder(
             .map_err(ApiError::from)?;
     }
     transaction.commit().await.map_err(ApiError::from)?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::METADATA_PROVIDER_UPDATED, user.actor())
             .target("metadata_providers", "reorder")
             .metadata(json!({
@@ -366,15 +366,15 @@ async fn test(
     let record = fetch_record(&state, id).await?;
     let config = MetadataProviderConfig::from_record(
         &record,
-        &state.jwt_secret,
-        state.config.providers_allow_private,
+        &state.auth.jwt_secret,
+        state.core.config.providers_allow_private,
     )
     .map_err(ApiError::from)?;
 
     let started = Instant::now();
     let result = providers::search(&config, title, request.year).await;
     let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-    providers::record_fetch(&state.pool, id, None, result.as_ref().map(Vec::len)).await;
+    providers::record_fetch(&state.core.pool, id, None, result.as_ref().map(Vec::len)).await;
     Ok(Json(match result {
         Ok(candidates) => ProviderTestResponse {
             ok: true,
@@ -394,7 +394,7 @@ async fn test(
 }
 
 async fn resolve_base_url(state: &AppState, raw: &str) -> Result<String, ApiError> {
-    providers::resolve_target(raw.trim(), state.config.providers_allow_private)
+    providers::resolve_target(raw.trim(), state.core.config.providers_allow_private)
         .await
         .map(|(url, _)| url.as_str().trim_end_matches('/').to_string())
         .map_err(|error| ApiError::bad_request("invalid_provider_url", error))
@@ -421,7 +421,7 @@ async fn ensure_name_available(
     )
     .bind(name)
     .bind(exclude.unwrap_or(0))
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     if count > 0 {
@@ -449,7 +449,7 @@ async fn fetch_record(state: &AppState, id: i64) -> Result<ProviderRecord, ApiEr
         "SELECT {PROVIDER_COLUMNS} FROM metadata_providers WHERE id = ?"
     ))
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| {
@@ -464,12 +464,12 @@ async fn fetch_view(state: &AppState, id: i64) -> Result<MetadataProviderView, A
 /// Replaces the in-memory provider list after a mutation.
 async fn reload(state: &AppState) {
     let configs = providers::load_enabled(
-        &state.pool,
-        &state.jwt_secret,
-        state.config.providers_allow_private,
+        &state.core.pool,
+        &state.auth.jwt_secret,
+        state.core.config.providers_allow_private,
     )
     .await;
-    *state.providers.write().await = configs;
+    *state.catalog.providers.write().await = configs;
 }
 
 #[cfg(test)]

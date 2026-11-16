@@ -97,11 +97,11 @@ pub(super) async fn set_default_version(
         .bind(version.id)
         .bind(db::db_time(db::now()))
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
 
-    state.events.emit(
+    state.core.events.emit(
         crate::events::Event::new(
             crate::audit::actions::GAME_VERSION_DEFAULT_CHANGED,
             user.actor(),
@@ -144,7 +144,7 @@ pub(super) async fn delete_version(
     )
     .bind(game_id)
     .bind(version_id)
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
     ensure_version_deletable(&state, &version, remaining)?;
@@ -154,6 +154,7 @@ pub(super) async fn delete_version(
     if is_s3_version(&version) {
         if let Some(key) = version.object_key.as_deref() {
             state
+                .transfer
                 .storage
                 .delete(key)
                 .await
@@ -162,8 +163,8 @@ pub(super) async fn delete_version(
     }
     if version.root_unavailable == 0 {
         if let Some(path) = roots::resolve_version_path(
-            &state.pool,
-            &state.config,
+            &state.core.pool,
+            &state.core.config,
             version.root_id,
             &version.file_path,
         )
@@ -187,7 +188,7 @@ pub(super) async fn delete_version(
         None
     };
 
-    let mut transaction = state.pool.begin().await.map_err(ApiError::from)?;
+    let mut transaction = state.core.pool.begin().await.map_err(ApiError::from)?;
     db::query("DELETE FROM game_versions WHERE id = ? AND game_id = ?")
         .bind(version.id)
         .bind(game_id)
@@ -216,7 +217,7 @@ pub(super) async fn delete_version(
         .await;
     }
 
-    state.events.emit(
+    state.core.events.emit(
         crate::events::Event::new(crate::audit::actions::GAME_VERSION_DELETED, user.actor())
             .target("game", game_id.to_string())
             .metadata(serde_json::json!({
@@ -260,7 +261,7 @@ fn ensure_version_deletable(
             "The library root holding this archive is offline; restore it before deleting",
         ));
     }
-    if state.transfers.is_active(version.id) {
+    if state.transfer.transfers.is_active(version.id) {
         return Err(ApiError::conflict(
             "version_in_use",
             "A download or stream is using this archive; stop it first",
@@ -334,7 +335,7 @@ async fn fetch_versions(state: &AppState, game_id: i64) -> Result<GameVersionsRe
          ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC",
     )
     .bind(game_id)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.core.pool)
     .await
     .map_err(ApiError::from)?;
 
@@ -375,7 +376,7 @@ pub(super) async fn game_default_version_id(
     Ok(
         db::query_scalar::<Option<i64>>("SELECT default_version_id FROM games WHERE id = ?")
             .bind(game_id)
-            .fetch_optional(&state.pool)
+            .fetch_optional(&state.core.pool)
             .await
             .map_err(ApiError::from)?
             .flatten(),
@@ -391,7 +392,7 @@ pub(super) async fn newest_version(state: &AppState, game_id: i64) -> Result<i64
          ORDER BY COALESCE(release_date, indexed_at) DESC, id DESC LIMIT 1",
     )
     .bind(game_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("version_not_found", "No downloadable version"))
@@ -406,7 +407,7 @@ pub(super) async fn preferred_version_id(state: &AppState, game_id: i64) -> Resu
         )
         .bind(pinned)
         .bind(game_id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
         if let Some(id) = exists {
@@ -427,7 +428,7 @@ async fn newest_other_version(
     )
     .bind(game_id)
     .bind(exclude)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)
 }
@@ -445,7 +446,7 @@ pub(super) async fn fetch_version(
     )
     .bind(version_id)
     .bind(game_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("version_not_found", "Game version not found"))
@@ -480,8 +481,8 @@ mod tests {
         );
         version.root_unavailable = 0;
 
-        let lease = state.transfers.begin(version.id);
-        assert!(state.transfers.is_active(version.id));
+        let lease = state.transfer.transfers.begin(version.id);
+        assert!(state.transfer.transfers.is_active(version.id));
         assert_eq!(
             ensure_version_deletable(&state, &version, 1)
                 .expect_err("in use")
@@ -489,7 +490,7 @@ mod tests {
             "version_in_use"
         );
         drop(lease);
-        assert!(!state.transfers.is_active(version.id));
+        assert!(!state.transfer.transfers.is_active(version.id));
 
         assert_eq!(
             ensure_version_deletable(&state, &version, 0)

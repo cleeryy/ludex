@@ -31,7 +31,7 @@ pub(crate) async fn game_age_rating(
 ) -> Result<Option<u8>, ApiError> {
     let rating = db::query_scalar::<Option<i64>>("SELECT age_rating FROM games WHERE id = ?")
         .bind(game_id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?
         .flatten();
@@ -56,7 +56,7 @@ pub(super) async fn download_ticket(
             )
             .bind(version_id)
             .bind(game_id)
-            .fetch_optional(&state.pool)
+            .fetch_optional(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
             exists
@@ -66,7 +66,7 @@ pub(super) async fn download_ticket(
     };
 
     let (token, expires_at) =
-        issue_download_ticket(&state.jwt_secret, user.id, game_id, version_id)?;
+        issue_download_ticket(&state.auth.jwt_secret, user.id, game_id, version_id)?;
     Ok(Json(TicketResponse {
         url: format!("/api/games/{game_id}/download?versionId={version_id}&token={token}"),
         expires_at,
@@ -86,7 +86,7 @@ pub(crate) fn age_not_found() -> ApiError {
 /// Records an age-restricted access attempt without leaking the game to the
 /// caller.
 pub(crate) fn deny_age_restricted(state: &AppState, user: &AuthUser, game_id: i64) {
-    state.events.emit(
+    state.core.events.emit(
         Event::new(crate::audit::actions::GAME_ACCESS_DENIED, user.actor())
             .target("game", game_id.to_string())
             .metadata(serde_json::json!({
@@ -104,7 +104,7 @@ async fn authorize_version(
     ticket: Option<&str>,
 ) -> Result<i64, ApiError> {
     if let Some(ticket) = ticket {
-        let decoded = crate::auth::decode_download_ticket(&state.jwt_secret, ticket)
+        let decoded = crate::auth::decode_download_ticket(&state.auth.jwt_secret, ticket)
             .ok_or_else(ApiError::unauthorized)?;
         if decoded.game_id != game_id {
             return Err(ApiError::forbidden(
@@ -142,7 +142,7 @@ pub(super) async fn download(
     ApiQuery(query): ApiQuery<DownloadQuery>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let _download = state.metrics.download_started();
+    let _download = state.ops.metrics.download_started();
     let version_id = authorize_version(
         &state,
         &headers,
@@ -166,6 +166,7 @@ pub(super) async fn download(
     let job_id = download_job_id(&headers, &query)?;
     let part_index = download_part_index(&query)?;
     let admission = state
+        .transfer
         .download_limits
         .admit(peer.ip(), version.id, job_id.as_deref())
         .map_err(download_limited)?;
@@ -174,7 +175,7 @@ pub(super) async fn download(
         part_index,
         admission,
     };
-    let _lease = state.transfers.begin(version.id);
+    let _lease = state.transfer.transfers.begin(version.id);
     let response = transfer::serve_archive(&state, game_id, &version, &headers).await?;
     Ok(log_stream(response, game_id, context, &version))
 }
@@ -197,7 +198,7 @@ pub(super) async fn authorized_version(
             "This version is no longer available",
         ));
     }
-    let lease = state.transfers.begin(version.id);
+    let lease = state.transfer.transfers.begin(version.id);
     Ok((version, lease))
 }
 
@@ -210,7 +211,7 @@ pub(super) async fn stream_version(
     ApiQuery(query): ApiQuery<StreamQuery>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let _download = state.metrics.download_started();
+    let _download = state.ops.metrics.download_started();
     let (version, _lease) = authorized_version(
         &state,
         &headers,
@@ -268,7 +269,7 @@ pub(super) async fn local_path(
     ApiPath((game_id, version_id)): ApiPath<(i64, i64)>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
 ) -> Result<Json<LocalPathResponse>, ApiError> {
-    if !state.config.local_mode || !peer.ip().is_loopback() {
+    if !state.core.config.local_mode || !peer.ip().is_loopback() {
         return Err(ApiError::not_found(
             "local_path_unavailable",
             "Local paths are only available in local mode from loopback",
@@ -294,8 +295,8 @@ pub(super) async fn local_path(
         ));
     }
     let path = roots::resolve_version_path(
-        &state.pool,
-        &state.config,
+        &state.core.pool,
+        &state.core.config,
         version.root_id,
         &version.file_path,
     )

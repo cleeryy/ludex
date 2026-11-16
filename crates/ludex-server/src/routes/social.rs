@@ -53,6 +53,7 @@ async fn send_request(
 ) -> Result<(StatusCode, Json<FriendRequest>), ApiError> {
     user.require_scope(Scope::Write)?;
     if let Err(seconds) = state
+        .auth
         .friend_request_limits
         .check(&format!("user:{}", user.id))
     {
@@ -200,7 +201,7 @@ async fn read_prefs(
     user: AuthUser,
 ) -> Result<Json<NotificationPrefs>, ApiError> {
     user.require_scope(Scope::Read)?;
-    Ok(Json(social::prefs(&state.pool, user.id).await?))
+    Ok(Json(social::prefs(&state.core.pool, user.id).await?))
 }
 
 async fn write_prefs(
@@ -210,6 +211,6 @@ async fn write_prefs(
 ) -> Result<Json<NotificationPrefs>, ApiError> {
     user.require_scope(Scope::Write)?;
     Ok(Json(
-        social::save_prefs(&state.pool, user.id, &patch).await?,
+        social::save_prefs(&state.core.pool, user.id, &patch).await?,
     ))
 }

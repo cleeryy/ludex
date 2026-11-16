@@ -209,6 +209,7 @@ impl Drop for BusyGuard {
 
 fn acquire(state: &AppState) -> Result<BusyGuard, ApiError> {
     if state
+        .ops
         .backup_busy
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -218,7 +219,7 @@ fn acquire(state: &AppState) -> Result<BusyGuard, ApiError> {
             "Another backup operation is already running",
         ));
     }
-    Ok(BusyGuard(state.backup_busy.clone()))
+    Ok(BusyGuard(state.ops.backup_busy.clone()))
 }
 
 /// Whether `name` looks like an archive this API may touch.
@@ -285,7 +286,7 @@ async fn write_verification(directory: &Path, name: &str, verification: &BackupV
 /// symlink or a crafted name can never reach another file.
 async fn resolve_archive(state: &AppState, name: &str) -> Result<PathBuf, ApiError> {
     validate_archive_name(name)?;
-    let directory = &state.config.backup_dir;
+    let directory = &state.core.config.backup_dir;
     let root = tokio::fs::canonicalize(directory).await.map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             ApiError::not_found("backup_not_found", "Backup archive not found")
@@ -338,7 +339,7 @@ fn backup_error(error: anyhow::Error) -> ApiError {
 
 async fn list(State(state): State<AppState>, user: AuthUser) -> Result<Json<BackupList>, ApiError> {
     user.require_admin_access()?;
-    let directory = state.config.backup_dir.clone();
+    let directory = state.core.config.backup_dir.clone();
     tokio::fs::create_dir_all(&directory).await?;
     let mut backups = Vec::new();
     let mut reader = tokio::fs::read_dir(&directory).await?;
@@ -383,28 +384,28 @@ async fn create(
 ) -> Result<(StatusCode, Json<BackupCreated>), ApiError> {
     user.require_admin_access()?;
     let _guard = acquire(&state)?;
-    let planned = next_archive_path(&state.config.backup_dir, "ludex-backup").await?;
+    let planned = next_archive_path(&state.core.config.backup_dir, "ludex-backup").await?;
     let name = planned
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "ludex-backup.tar.gz".to_string());
     let report = backup::create_backup(&BackupRequest {
-        data_dir: state.config.data_dir.clone(),
-        media_dir: state.config.media_dir.clone(),
-        games_dir: state.config.games_dir.clone(),
-        database_url: state.config.database_url.clone(),
+        data_dir: state.core.config.data_dir.clone(),
+        media_dir: state.core.config.media_dir.clone(),
+        games_dir: state.core.config.games_dir.clone(),
+        database_url: state.core.config.database_url.clone(),
         output: Some(planned),
         dry_run: request.dry_run,
         include_media: request.include_media,
         upload_s3: request.upload_s3,
-        storage: Some(state.storage.clone()),
-        config: Some((*state.config).clone()),
+        storage: Some(state.transfer.storage.clone()),
+        config: Some((*state.core.config).clone()),
     })
     .await
     .map_err(backup_error)?;
 
     if !report.dry_run {
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::BACKUP_CREATED, user.actor())
                 .target("backup", name.clone())
                 .metadata(serde_json::json!({
@@ -443,7 +444,7 @@ async fn verify(
     match backup::verify_backup(&archive).await {
         Ok(manifest) => {
             let verification = verification_from(&manifest);
-            write_verification(&state.config.backup_dir, &name, &verification).await;
+            write_verification(&state.core.config.backup_dir, &name, &verification).await;
             Ok(Json(verification))
         }
         Err(error) => {
@@ -453,7 +454,7 @@ async fn verify(
                 message: Some(format!("{error:#}")),
                 ..BackupVerification::default()
             };
-            write_verification(&state.config.backup_dir, &name, &verification).await;
+            write_verification(&state.core.config.backup_dir, &name, &verification).await;
             Err(backup_error(error))
         }
     }
@@ -489,7 +490,7 @@ async fn restore(
                 "Type the archive file name to confirm a destructive restore",
             ));
         }
-        if state.scan.read().await.running {
+        if state.catalog.scan.read().await.running {
             return Err(ApiError::conflict(
                 "restore_blocked",
                 "A library scan is running; wait for it to finish before restoring",
@@ -502,8 +503,8 @@ async fn restore(
     // without writing anything, and also runs before a real restore.
     let preview = backup::restore_backup(&RestoreRequest {
         archive: archive.clone(),
-        data_dir: state.config.data_dir.clone(),
-        media_dir: state.config.media_dir.clone(),
+        data_dir: state.core.config.data_dir.clone(),
+        media_dir: state.core.config.media_dir.clone(),
         force: true,
         dry_run: true,
         include_media: request.include_media,
@@ -516,30 +517,30 @@ async fn restore(
     }
 
     // A safety copy is mandatory: never overwrite the live data without one.
-    let safety = next_archive_path(&state.config.backup_dir, "ludex-pre-restore").await?;
+    let safety = next_archive_path(&state.core.config.backup_dir, "ludex-pre-restore").await?;
     let safety_name = safety
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "ludex-pre-restore.tar.gz".to_string());
     backup::create_backup(&BackupRequest {
-        data_dir: state.config.data_dir.clone(),
-        media_dir: state.config.media_dir.clone(),
-        games_dir: state.config.games_dir.clone(),
-        database_url: state.config.database_url.clone(),
+        data_dir: state.core.config.data_dir.clone(),
+        media_dir: state.core.config.media_dir.clone(),
+        games_dir: state.core.config.games_dir.clone(),
+        database_url: state.core.config.database_url.clone(),
         output: Some(safety),
         dry_run: false,
         include_media: request.include_media,
         upload_s3: false,
-        storage: Some(state.storage.clone()),
-        config: Some((*state.config).clone()),
+        storage: Some(state.transfer.storage.clone()),
+        config: Some((*state.core.config).clone()),
     })
     .await
     .map_err(backup_error)?;
 
     let report = backup::restore_backup(&RestoreRequest {
         archive,
-        data_dir: state.config.data_dir.clone(),
-        media_dir: state.config.media_dir.clone(),
+        data_dir: state.core.config.data_dir.clone(),
+        media_dir: state.core.config.media_dir.clone(),
         force: true,
         dry_run: false,
         include_media: request.include_media,
@@ -547,7 +548,7 @@ async fn restore(
     .await
     .map_err(backup_error)?;
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::BACKUP_RESTORED, user.actor())
             .target("backup", name.clone())
             .metadata(serde_json::json!({
@@ -601,8 +602,8 @@ async fn delete_archive(
         .map(|metadata| metadata.len())
         .unwrap_or(0);
     tokio::fs::remove_file(&archive).await?;
-    let _ = tokio::fs::remove_file(verification_path(&state.config.backup_dir, &name)).await;
-    state.events.emit(
+    let _ = tokio::fs::remove_file(verification_path(&state.core.config.backup_dir, &name)).await;
+    state.core.events.emit(
         Event::new(actions::BACKUP_DELETED, user.actor())
             .target("backup", name.clone())
             .metadata(serde_json::json!({

@@ -66,10 +66,10 @@ async fn update_profile(
             .bind(locale.as_deref())
             .bind(db::db_time(db::now()))
             .bind(user.id)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
-        state.events.emit(
+        state.core.events.emit(
             Event::new(actions::USER_UPDATED, user.actor())
                 .target("user", user.id.to_string())
                 .metadata(json!({ "locale": locale })),
@@ -115,14 +115,14 @@ async fn upload_avatar(
     }
 
     let image = avatar::inspect(&bytes, &file_name).map_err(rejection_error)?;
-    let stored = avatar::store(&state.config.media_dir, user.id, &image, &bytes)
+    let stored = avatar::store(&state.core.config.media_dir, user.id, &image, &bytes)
         .await
         .map_err(store_error)?;
 
     let previous: Option<String> =
         db::query_scalar::<Option<String>>("SELECT avatar_path FROM users WHERE id = ?")
             .bind(user.id)
-            .fetch_optional(&state.pool)
+            .fetch_optional(&state.core.pool)
             .await
             .map_err(ApiError::from)?
             .flatten()
@@ -132,19 +132,19 @@ async fn upload_avatar(
         .bind(&stored.name)
         .bind(db::db_time(db::now()))
         .bind(user.id)
-        .execute(&state.pool)
+        .execute(&state.core.pool)
         .await
     {
         // The database row still points at the old file: remove the new one.
-        avatar::remove(&state.config.media_dir, user.id, &stored.name).await;
+        avatar::remove(&state.core.config.media_dir, user.id, &stored.name).await;
         return Err(ApiError::from(error));
     }
 
     if let Some(previous) = previous {
-        avatar::remove(&state.config.media_dir, user.id, &previous).await;
+        avatar::remove(&state.core.config.media_dir, user.id, &previous).await;
     }
 
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::USER_AVATAR_UPDATED, user.actor())
             .target("user", user.id.to_string())
             .metadata(json!({
@@ -170,7 +170,7 @@ async fn delete_avatar(
     let previous: Option<String> =
         db::query_scalar::<Option<String>>("SELECT avatar_path FROM users WHERE id = ?")
             .bind(user.id)
-            .fetch_optional(&state.pool)
+            .fetch_optional(&state.core.pool)
             .await
             .map_err(ApiError::from)?
             .flatten()
@@ -180,11 +180,11 @@ async fn delete_avatar(
         db::query("UPDATE users SET avatar_path = NULL, updated_at = ? WHERE id = ?")
             .bind(db::db_time(db::now()))
             .bind(user.id)
-            .execute(&state.pool)
+            .execute(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
-        avatar::remove(&state.config.media_dir, user.id, name).await;
-        state.events.emit(
+        avatar::remove(&state.core.config.media_dir, user.id, name).await;
+        state.core.events.emit(
             Event::new(actions::USER_AVATAR_UPDATED, user.actor())
                 .target("user", user.id.to_string())
                 .metadata(json!({ "removed": true })),

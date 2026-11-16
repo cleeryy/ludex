@@ -65,7 +65,7 @@ async fn list_for_game(
     user.require_scope(Scope::Read)?;
     ensure_game(&state, game_id).await?;
     Ok(Json(
-        achievements::for_game(&state.pool, user.id, game_id).await?,
+        achievements::for_game(&state.core.pool, user.id, game_id).await?,
     ))
 }
 
@@ -74,7 +74,7 @@ async fn list_for_me(
     user: AuthUser,
 ) -> Result<Json<UserAchievements>, ApiError> {
     user.require_scope(Scope::Read)?;
-    let (_, response) = achievements::for_user(&state.pool, user.id).await?;
+    let (_, response) = achievements::for_user(&state.core.pool, user.id).await?;
     Ok(Json(response))
 }
 
@@ -84,7 +84,7 @@ async fn list_for_user(
     ApiPath(user_id): ApiPath<i64>,
 ) -> Result<Json<UserAchievements>, ApiError> {
     viewer.require_scope(Scope::Read)?;
-    let (public, response) = achievements::for_user(&state.pool, user_id).await?;
+    let (public, response) = achievements::for_user(&state.core.pool, user_id).await?;
     // Achievement showcases follow the community profile opt-in: a private
     // profile is indistinguishable from a missing one for everyone else.
     if !public.public_profile && viewer.id != user_id {
@@ -115,13 +115,13 @@ async fn create_definition(
 ) -> Result<(StatusCode, Json<DefinitionResponse>), ApiError> {
     user.require_admin_access()?;
     ensure_game(&state, game_id).await?;
-    let id = achievements::create_definition(&state.pool, game_id, &request).await?;
+    let id = achievements::create_definition(&state.core.pool, game_id, &request).await?;
     let key = db::query_scalar::<String>("SELECT key FROM achievements WHERE id = ?")
         .bind(id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
-    state.events.emit(
+    state.core.events.emit(
         Event::new(actions::ACHIEVEMENT_DEFINITION_CREATED, user.actor())
             .target("achievement", format!("{game_id}:{key}"))
             .metadata(json!({ "gameId": game_id, "key": key })),
@@ -140,8 +140,8 @@ async fn update_definition(
 ) -> Result<Json<DefinitionResponse>, ApiError> {
     user.require_admin_access()?;
     ensure_game(&state, game_id).await?;
-    achievements::update_definition(&state.pool, game_id, &key, &request).await?;
-    state.events.emit(
+    achievements::update_definition(&state.core.pool, game_id, &key, &request).await?;
+    state.core.events.emit(
         Event::new(actions::ACHIEVEMENT_DEFINITION_UPDATED, user.actor())
             .target("achievement", format!("{game_id}:{key}"))
             .metadata(json!({ "gameId": game_id, "key": key })),
@@ -156,8 +156,8 @@ async fn delete_definition(
 ) -> Result<StatusCode, ApiError> {
     user.require_admin_access()?;
     ensure_game(&state, game_id).await?;
-    achievements::delete_definition(&state.pool, game_id, &key).await?;
-    state.events.emit(
+    achievements::delete_definition(&state.core.pool, game_id, &key).await?;
+    state.core.events.emit(
         Event::new(actions::ACHIEVEMENT_DEFINITION_DELETED, user.actor())
             .target("achievement", format!("{game_id}:{key}"))
             .metadata(json!({ "gameId": game_id, "key": key })),
@@ -178,7 +178,7 @@ async fn unlock(
         user.require_admin()?;
         let exists = db::query_scalar::<i64>("SELECT id FROM users WHERE id = ?")
             .bind(target)
-            .fetch_optional(&state.pool)
+            .fetch_optional(&state.core.pool)
             .await
             .map_err(ApiError::from)?;
         if exists.is_none() {
@@ -203,7 +203,7 @@ async fn unlock(
 async fn ensure_game(state: &AppState, game_id: i64) -> Result<(), ApiError> {
     let exists = db::query_scalar::<i64>("SELECT id FROM games WHERE id = ?")
         .bind(game_id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?;
     if exists.is_none() {

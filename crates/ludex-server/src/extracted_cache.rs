@@ -911,7 +911,7 @@ impl ExtractedCache {
 
 /// TTL sweeper. Runs until the server shuts down; no-op while disabled.
 pub async fn scheduled_worker(state: AppState, mut cancel: watch::Receiver<bool>) {
-    let cache = Arc::clone(&state.extracted);
+    let cache = Arc::clone(&state.transfer.extracted);
     if !cache.enabled() {
         return;
     }
@@ -949,14 +949,14 @@ pub fn spawn_extract(
     ip: Option<std::net::IpAddr>,
 ) {
     tokio::spawn(async move {
-        let cache = Arc::clone(&state.extracted);
+        let cache = Arc::clone(&state.transfer.extracted);
         cache.mark_extracting(&job);
         let started = Instant::now();
         let outcome = extract_version(&state, &version, &sha256, &job).await;
         let result = cache.finish_extract(&sha256, &job, outcome);
         match &result {
             Ok(outcome) => {
-                state.events.emit(
+                state.core.events.emit(
                     Event::new(crate::audit::actions::VERSION_EXTRACTED, actor)
                         .target("game_version", version.id.to_string())
                         .metadata(serde_json::json!({
@@ -995,7 +995,7 @@ async fn extract_version(
     job: &Arc<Mutex<Job>>,
 ) -> Result<ExtractOutcome, CacheError> {
     let declared = u64::try_from(version.size).unwrap_or(u64::MAX);
-    if declared > state.extracted.budget_bytes() {
+    if declared > state.transfer.extracted.budget_bytes() {
         return Err(CacheError::Budget(declared));
     }
     let source = crate::transfer::zip::resolve_stream_source(state, version)
@@ -1006,7 +1006,7 @@ async fn extract_version(
         return Err(CacheError::Unsupported);
     }
     let archive = source.path.clone();
-    let cache = Arc::clone(&state.extracted);
+    let cache = Arc::clone(&state.transfer.extracted);
     let progress_job = Arc::clone(job);
     let key = sha256.to_string();
     let built =

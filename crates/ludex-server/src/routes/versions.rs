@@ -108,7 +108,7 @@ async fn manifest(
 ) -> Result<Json<ManifestResponse>, ApiError> {
     let access = authorize(&state, &headers, version_id, query.token.as_deref()).await?;
     let sha256 = ready_sha(&state, &access.version)?;
-    let Some(lease) = state.extracted.acquire(sha256) else {
+    let Some(lease) = state.transfer.extracted.acquire(sha256) else {
         return Err(extracted_unavailable());
     };
     lease.touch();
@@ -141,23 +141,25 @@ async fn file(
     ApiQuery(query): ApiQuery<FileQuery>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let _download = state.metrics.download_started();
+    let _download = state.ops.metrics.download_started();
     let access = authorize(&state, &headers, version_id, query.token.as_deref()).await?;
     let sha256 = ready_sha(&state, &access.version)?.to_string();
-    let Some(lease) = state.extracted.acquire(&sha256) else {
+    let Some(lease) = state.transfer.extracted.acquire(&sha256) else {
         return Err(extracted_unavailable());
     };
     lease.touch();
-    let _lease = state.transfers.begin(access.version.id);
+    let _lease = state.transfer.transfers.begin(access.version.id);
 
     let job_id = job_id(&headers, &query)?;
     let admission = state
+        .transfer
         .download_limits
         .admit_stream(peer.ip(), access.version.id, job_id.as_deref())
         .map_err(limited)?;
 
     let manifest = lease.manifest();
-    let (entry, absolute) = resolve_file(&state.extracted, &sha256, &manifest, &requested)?;
+    let (entry, absolute) =
+        resolve_file(&state.transfer.extracted, &sha256, &manifest, &requested)?;
     let size = entry.size;
     let etag = format!("\"{}\"", entry.sha256);
 
@@ -248,7 +250,7 @@ async fn extract(
 ) -> Result<Json<ExtractStatus>, ApiError> {
     user.require_admin()?;
     let version = fetch_version(&state, version_id).await?;
-    if !state.extracted.enabled() {
+    if !state.transfer.extracted.enabled() {
         return Ok(Json(ExtractStatus {
             version_id,
             archive_sha256: version.content_sha256.clone().unwrap_or_default(),
@@ -276,7 +278,7 @@ async fn extract(
         })?
         .to_string();
 
-    match state.extracted.submit(&sha256, version_id) {
+    match state.transfer.extracted.submit(&sha256, version_id) {
         Submission::Ready(status) | Submission::Running(status) => Ok(Json(status)),
         Submission::Started(job) => {
             let status = ExtractStatus {
@@ -340,6 +342,7 @@ async fn cache_overview(
 ) -> Result<Json<CacheOverview>, ApiError> {
     user.require_admin()?;
     let entries = state
+        .transfer
         .extracted
         .entries()
         .into_iter()
@@ -353,10 +356,10 @@ async fn cache_overview(
         })
         .collect();
     Ok(Json(CacheOverview {
-        enabled: state.extracted.enabled(),
-        root: state.extracted.root().display().to_string(),
-        budget_bytes: state.extracted.budget_bytes(),
-        used_bytes: state.extracted.used_bytes(),
+        enabled: state.transfer.extracted.enabled(),
+        root: state.transfer.extracted.root().display().to_string(),
+        budget_bytes: state.transfer.extracted.budget_bytes(),
+        used_bytes: state.transfer.extracted.used_bytes(),
         entries,
     }))
 }
@@ -376,14 +379,16 @@ async fn remove(
     if !extracted_cache::is_sha256_hex(&sha256) {
         return Err(cache_entry_not_found());
     }
-    let cache = state.extracted.clone();
+    let cache = state.transfer.extracted.clone();
     let key = sha256.clone();
     let removed = tokio::task::spawn_blocking(move || cache.remove(&key))
         .await
         .map_err(|_| ApiError::internal())?;
     if removed {
         Ok(StatusCode::NO_CONTENT)
-    } else if state.extracted.has_entry(&sha256) || state.extracted.has_job(&sha256) {
+    } else if state.transfer.extracted.has_entry(&sha256)
+        || state.transfer.extracted.has_job(&sha256)
+    {
         Err(ApiError::conflict(
             "cache_entry_in_use",
             "The entry is being served or extracted; retry once the transfer ends",
@@ -441,8 +446,9 @@ async fn authorize(
         }
         return Ok(VersionAccess { version });
     };
-    let decoded: DownloadTicket = crate::auth::decode_download_ticket(&state.jwt_secret, ticket)
-        .ok_or_else(ApiError::unauthorized)?;
+    let decoded: DownloadTicket =
+        crate::auth::decode_download_ticket(&state.auth.jwt_secret, ticket)
+            .ok_or_else(ApiError::unauthorized)?;
     if decoded.version_id != version.id || decoded.game_id != game_id {
         return Err(ApiError::forbidden(
             "ticket_mismatch",
@@ -454,7 +460,7 @@ async fn authorize(
 
 /// Cache key of a version, or `409 extracted_cache_unavailable`.
 fn ready_sha<'a>(state: &AppState, version: &'a VersionRow) -> Result<&'a str, ApiError> {
-    if !state.extracted.enabled() {
+    if !state.transfer.extracted.enabled() {
         return Err(extracted_unavailable());
     }
     version
@@ -610,7 +616,7 @@ pub(crate) async fn fetch_version(
          storage_backend, object_key, etag FROM game_versions WHERE id = ?",
     )
     .bind(version_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.core.pool)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("version_not_found", "Game version not found"))
@@ -619,7 +625,7 @@ pub(crate) async fn fetch_version(
 async fn version_game(state: &AppState, version_id: i64) -> Result<i64, ApiError> {
     db::query_scalar::<i64>("SELECT game_id FROM game_versions WHERE id = ?")
         .bind(version_id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.core.pool)
         .await
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::not_found("version_not_found", "Game version not found"))
@@ -639,7 +645,7 @@ pub(crate) async fn forget_version_cache(
     )
     .bind(sha256)
     .bind(archive_hash)
-    .fetch_one(&state.pool)
+    .fetch_one(&state.core.pool)
     .await;
     match others {
         // Another version still needs the same bytes, or the count is
@@ -648,7 +654,7 @@ pub(crate) async fn forget_version_cache(
         Ok(0) => {}
         _ => return,
     }
-    let cache = state.extracted.clone();
+    let cache = state.transfer.extracted.clone();
     let key = sha256.to_string();
     let removed = tokio::task::spawn_blocking(move || cache.forget(&key))
         .await
