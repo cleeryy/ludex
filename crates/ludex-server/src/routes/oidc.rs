@@ -12,6 +12,7 @@ use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::Scope;
 use crate::audit::actions;
@@ -22,6 +23,7 @@ use crate::events::{Actor, Event};
 use crate::extract::{ApiQuery, JsonBody};
 use crate::models::{AuthResponse, UserRow};
 use crate::oidc;
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// OIDC and desktop handoff routes.
@@ -312,3 +314,36 @@ async fn claim_handoff(
 fn oidc_disabled() -> ApiError {
     ApiError::not_found("oidc_disabled", "SSO is not configured on this server")
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Desktop SSO handoff (#157)
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/auth/desktop-handoff",
+                "Authentication",
+                "Bind the current web session to a desktop sign-in state",
+                Auth::Session,
+                Payload::Schema("DesktopHandoffResponse"),
+            ),
+            "DesktopHandoffRequest",
+        ),
+        200,
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/auth/desktop-handoff/claim",
+                "Authentication",
+                "Claim a pending desktop handoff exactly once",
+                Auth::Public,
+                Payload::Schema("DesktopHandoffClaimResponse"),
+            ),
+            "DesktopHandoffClaimRequest",
+        ),
+        200,
+    ),
+];

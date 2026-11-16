@@ -5,6 +5,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::audit::actions;
 use crate::auth::AuthUser;
@@ -16,6 +17,7 @@ use crate::models::{
     CreateWebhookRequest, CreateWebhookResponse, UpdateWebhookRequest, UpdateWebhookResponse,
     Webhook, WebhookRow, WebhookTestResponse,
 };
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::sql::{bind_query, Bind};
 use crate::state::AppState;
 use crate::webhooks;
@@ -196,3 +198,57 @@ async fn fetch_webhook(state: &AppState, id: i64) -> Result<WebhookRow, ApiError
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("webhook_not_found", "Webhook not found"))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Webhooks
+    route(
+        HttpMethod::Get,
+        "/webhooks",
+        "Webhooks",
+        "List webhooks",
+        Auth::Admin,
+        Payload::Array("Webhook"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/webhooks",
+            "Webhooks",
+            "Create a webhook",
+            Auth::Admin,
+            Payload::Schema("CreateWebhookResponse"),
+        ),
+        "CreateWebhookRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/webhooks/{id}",
+            "Webhooks",
+            "Update a webhook",
+            Auth::Admin,
+            Payload::Schema("UpdateWebhookResponse"),
+        ),
+        "UpdateWebhookRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/webhooks/{id}",
+            "Webhooks",
+            "Delete a webhook",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Post,
+        "/webhooks/{id}/test",
+        "Webhooks",
+        "Send a test delivery",
+        Auth::Admin,
+        Payload::Schema("WebhookTestResponse"),
+    ),
+];

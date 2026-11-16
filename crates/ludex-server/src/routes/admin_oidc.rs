@@ -13,6 +13,7 @@ use crate::extract::JsonBody;
 use crate::oidc::{
     self, changed_fields, non_empty, OidcClient, OidcDiscoveryInfo, OidcSettings, OidcStatus,
 };
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -21,6 +22,7 @@ use axum::{Json, Router};
 use ludex_core::models::Role;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 /// Audit action recorded when the settings are saved or reset.
 const ACTION_OIDC_UPDATED: &str = "settings.oidc_updated";
@@ -479,3 +481,52 @@ async fn admin_response(state: &AppState) -> Result<OidcAdminResponse, ApiError>
         linked_accounts,
     })
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // OIDC administration (#103)
+    route(
+        HttpMethod::Get,
+        "/admin/oidc",
+        "Authentication",
+        "Effective OIDC settings, environment locks and discovery status",
+        Auth::Admin,
+        Payload::Object,
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/admin/oidc",
+            "Authentication",
+            "Validate, encrypt, discover and hot-swap OIDC settings",
+            Auth::Admin,
+            Payload::Object,
+        ),
+        "OidcSettingsRequest",
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/admin/oidc/test",
+                "Authentication",
+                "Run OIDC discovery against submitted values",
+                Auth::Admin,
+                Payload::Object,
+            ),
+            200,
+        ),
+        "OidcSettingsRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/admin/oidc/reset",
+            "Authentication",
+            "Delete saved OIDC settings and fall back to the environment",
+            Auth::Admin,
+            Payload::Object,
+        ),
+        200,
+    ),
+];

@@ -11,6 +11,7 @@ use axum::response::Response;
 use axum::routing::{delete, get};
 use axum::{Json, Router};
 use tokio_util::io::ReaderStream;
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::Scope;
 use crate::audit::actions;
@@ -21,6 +22,7 @@ use crate::events::Event;
 use crate::extract::{ApiPath, MultipartBody};
 use crate::media::content_disposition;
 use crate::models::{SaveSnapshot, SaveSnapshotRow};
+use crate::openapi::{ok, route, Auth, Payload, RouteDoc};
 use crate::saves::{self, PendingSave, SaveError};
 use crate::state::AppState;
 
@@ -451,3 +453,43 @@ fn map_save_error(error: SaveError, max_bytes: u64) -> ApiError {
         }
     }
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Cloud saves
+    route(
+        HttpMethod::Get,
+        "/games/{id}/saves",
+        "Cloud saves",
+        "List your save snapshots",
+        Auth::Session,
+        Payload::Array("SaveSnapshot"),
+    ),
+    route(
+        HttpMethod::Post,
+        "/games/{id}/saves",
+        "Cloud saves",
+        "Upload a save archive (multipart)",
+        Auth::Session,
+        Payload::Schema("SaveSnapshot"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/saves/{id}/download",
+        "Cloud saves",
+        "Download a save archive",
+        Auth::Session,
+        Payload::Binary,
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/saves/{id}",
+            "Cloud saves",
+            "Delete a save snapshot",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+];

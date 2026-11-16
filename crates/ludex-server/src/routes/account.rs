@@ -14,6 +14,7 @@ use axum::routing::{patch, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 use utoipa::ToSchema;
 
 use crate::api_keys::Scope;
@@ -26,6 +27,7 @@ use crate::events::Event;
 use crate::extract::{JsonBody, MultipartBody};
 use crate::locale;
 use crate::models::User;
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Largest multipart body accepted by the avatar route (file + framing).
@@ -219,3 +221,211 @@ fn map_multipart_error(rejection: axum::extract::multipart::MultipartError) -> A
         ApiError::bad_request("invalid_multipart", rejection.body_text())
     }
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Account avatar (#183)
+    route(
+        HttpMethod::Post,
+        "/account/avatar",
+        "Authentication",
+        "Upload an avatar (multipart field `file`, PNG/JPEG/WebP, 2 MiB, 4096×4096)",
+        Auth::Session,
+        Payload::Schema("User"),
+    ),
+    route(
+        HttpMethod::Delete,
+        "/account/avatar",
+        "Authentication",
+        "Remove the avatar and delete the managed file",
+        Auth::Session,
+        Payload::Schema("User"),
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/account/profile",
+            "Authentication",
+            "Update the interface-language preference of the current account",
+            Auth::Session,
+            Payload::Schema("User"),
+        ),
+        "AccountProfileRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/account/preferences",
+        "Authentication",
+        "Read the synced preference document and its revision",
+        Auth::Session,
+        Payload::Schema("PreferencesResponse"),
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/account/preferences",
+            "Authentication",
+            "Replace the preference document (If-Match revision, 409 on conflict)",
+            Auth::Session,
+            Payload::Schema("PreferencesResponse"),
+        ),
+        "ReplacePreferencesRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/account/preferences",
+            "Authentication",
+            "Deep-merge a preference fragment (If-Match revision, 409 on conflict)",
+            Auth::Session,
+            Payload::Schema("PreferencesResponse"),
+        ),
+        "PatchPreferencesRequest",
+    ),
+    route(
+        HttpMethod::Delete,
+        "/account/preferences",
+        "Authentication",
+        "Reset the synced preference document to defaults",
+        Auth::Session,
+        Payload::Schema("PreferencesResponse"),
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/auth/onboarding",
+            "Authentication",
+            "Update the onboarding preferences of the current account",
+            Auth::Session,
+            Payload::Schema("UserResponse"),
+        ),
+        "OnboardingRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/auth/logout",
+            "Authentication",
+            "Revoke the current token",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/auth/change-password",
+                "Authentication",
+                "Change the account password",
+                Auth::Session,
+                Payload::None,
+            ),
+            204,
+        ),
+        "ChangePasswordRequest",
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/me/password",
+                "Authentication",
+                "Change the account password (alias)",
+                Auth::Session,
+                Payload::None,
+            ),
+            204,
+        ),
+        "ChangePasswordRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/auth/sessions",
+        "Authentication",
+        "List login sessions",
+        Auth::Session,
+        Payload::Array("AuthSession"),
+    ),
+    route(
+        HttpMethod::Delete,
+        "/auth/sessions",
+        "Authentication",
+        "Revoke every other session of the account (#166)",
+        Auth::Session,
+        Payload::Schema("SessionRevocation"),
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/auth/sessions/{id}",
+            "Authentication",
+            "Revoke one session",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Get,
+        "/auth/mfa",
+        "Authentication",
+        "Second-factor status of the account (#166)",
+        Auth::Session,
+        Payload::Schema("MfaStatus"),
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/auth/mfa/totp/enroll",
+            "Authentication",
+            "Start a TOTP enrolment; returns the secret once (#166)",
+            Auth::Session,
+            Payload::Schema("TotpEnrollment"),
+        ),
+        200,
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/auth/mfa/totp/activate",
+                "Authentication",
+                "Confirm a TOTP enrolment and receive recovery codes (#166)",
+                Auth::Session,
+                Payload::Schema("TotpActivated"),
+            ),
+            200,
+        ),
+        "TotpActivationRequest",
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/auth/mfa/disable",
+                "Authentication",
+                "Disable two-factor authentication after re-checking the password (#166)",
+                Auth::Session,
+                Payload::Schema("MfaStatus"),
+            ),
+            200,
+        ),
+        "MfaDisableRequest",
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/auth/mfa/recovery-codes",
+                "Authentication",
+                "Replace the recovery codes (#166)",
+                Auth::Session,
+                Payload::Schema("RecoveryCodes"),
+            ),
+            200,
+        ),
+        "RecoveryCodesRequest",
+    ),
+];

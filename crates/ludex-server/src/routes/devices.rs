@@ -11,6 +11,7 @@ use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::Scope;
 use crate::audit::actions;
@@ -20,6 +21,7 @@ use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, JsonBody};
 use crate::models::{Device, DeviceHeartbeatRequest};
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Device routes, relative to `/api`.
@@ -89,3 +91,41 @@ async fn revoke(
     }
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Device registry (#184)
+    route(
+        HttpMethod::Get,
+        "/devices",
+        "Devices",
+        "List the caller's registered devices with their online state",
+        Auth::Session,
+        Payload::Array("Device"),
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/devices/heartbeat",
+                "Devices",
+                "Register this device or refresh its presence and capabilities",
+                Auth::Session,
+                Payload::Schema("Device"),
+            ),
+            "DeviceHeartbeatRequest",
+        ),
+        200,
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/devices/{id}",
+            "Devices",
+            "Revoke a device; it can no longer heartbeat or claim installs",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+];

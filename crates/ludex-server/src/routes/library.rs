@@ -5,6 +5,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use serde::Deserialize;
+use utoipa::openapi::HttpMethod;
 
 use crate::audit::actions;
 use crate::auth::AuthUser;
@@ -16,6 +17,7 @@ use crate::models::{
     CreateLibraryRootRequest, LibraryFolders, RootScanResponse, ScanResponse, ScanStatus,
     UpdateLibraryRootRequest,
 };
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::roots::{self, LibraryRootView};
 use crate::state::AppState;
 use crate::watcher::WatcherStatus;
@@ -312,3 +314,89 @@ fn default_label(path: &str) -> String {
         .filter(|name| !name.is_empty())
         .map_or_else(|| "Library".to_string(), str::to_string)
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Library
+    route(
+        HttpMethod::Get,
+        "/library/scan",
+        "Library",
+        "Scan status",
+        Auth::Session,
+        Payload::Schema("ScanStatus"),
+    ),
+    route(
+        HttpMethod::Post,
+        "/library/scan",
+        "Library",
+        "Start a library scan",
+        Auth::Editor,
+        Payload::Schema("ScanResponse"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/library/folders",
+        "Library",
+        "Configured directories",
+        Auth::Session,
+        Payload::Schema("LibraryFolders"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/library/roots",
+        "Library",
+        "List library roots",
+        Auth::Session,
+        Payload::Array("LibraryRootView"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/library/roots",
+            "Library",
+            "Add a library root",
+            Auth::Admin,
+            Payload::Schema("LibraryRootView"),
+        ),
+        "CreateLibraryRootRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/library/roots/{id}",
+            "Library",
+            "Update a library root",
+            Auth::Admin,
+            Payload::Schema("LibraryRootView"),
+        ),
+        "UpdateLibraryRootRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/library/roots/{id}",
+            "Library",
+            "Remove a library root",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Post,
+        "/library/roots/{id}/scan",
+        "Library",
+        "Scan one library root",
+        Auth::Editor,
+        Payload::Schema("RootScanResponse"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/library/watcher",
+        "Library",
+        "Folder watcher status",
+        Auth::Session,
+        Payload::Object,
+    ),
+];

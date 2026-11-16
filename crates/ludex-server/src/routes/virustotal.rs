@@ -17,12 +17,14 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::audit::actions;
 use crate::auth::AuthUser;
 use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, JsonBody};
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 use crate::virustotal::{self, GameScanReport, IntegrationStatus, ScanReport, TestResponse};
 use crate::virustotal_rescan::{self, RescanPolicyInput, RescanStatus};
@@ -196,3 +198,99 @@ async fn game_reports(
     user.require_scope(crate::api_keys::Scope::Read)?;
     Ok(Json(virustotal::game_reports(&state, id).await?))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // VirusTotal (#224)
+    route(
+        HttpMethod::Get,
+        "/admin/integrations/virustotal",
+        "VirusTotal",
+        "Read the VirusTotal key source, fingerprint, last error and quota",
+        Auth::Admin,
+        Payload::Schema("IntegrationStatus"),
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/admin/integrations/virustotal",
+            "VirusTotal",
+            "Store an encrypted API key (409 env_managed when the environment pins one)",
+            Auth::Admin,
+            Payload::Schema("IntegrationStatus"),
+        ),
+        "SaveVirustotalKeyRequest",
+    ),
+    route(
+        HttpMethod::Delete,
+        "/admin/integrations/virustotal",
+        "VirusTotal",
+        "Delete the stored API key (409 env_managed when the environment pins one)",
+        Auth::Admin,
+        Payload::Schema("IntegrationStatus"),
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/admin/integrations/virustotal/test",
+            "VirusTotal",
+            "Validate the active key, or the unsaved apiKey from the optional body",
+            Auth::Admin,
+            Payload::Schema("TestResponse"),
+        ),
+        200,
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/admin/virustotal/scan",
+                "VirusTotal",
+                "Hash a version and look it up (upload is explicit and consent-gated)",
+                Auth::Admin,
+                Payload::Schema("ScanResponse"),
+            ),
+            "ScanRequest",
+        ),
+        200,
+    ),
+    route(
+        HttpMethod::Get,
+        "/games/{id}/virustotal",
+        "VirusTotal",
+        "Cached VirusTotal reports for a game (never calls the API)",
+        Auth::Session,
+        Payload::Schema("GameScanReport"),
+    ),
+    // VirusTotal periodic re-check (#239)
+    route(
+        HttpMethod::Get,
+        "/admin/integrations/virustotal/rescan",
+        "VirusTotal",
+        "Read the periodic re-check policy, next run and outstanding archives",
+        Auth::Admin,
+        Payload::Schema("RescanStatus"),
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/admin/integrations/virustotal/rescan",
+            "VirusTotal",
+            "Enable, disable or retune the periodic re-check (400 invalid_interval)",
+            Auth::Admin,
+            Payload::Schema("RescanStatus"),
+        ),
+        "RescanPolicyInput",
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/admin/integrations/virustotal/rescan/run",
+            "VirusTotal",
+            "Run a re-check pass now through the shared quota (409 when disabled or already running)",
+            Auth::Admin,
+            Payload::Schema("RescanStatus"),
+        ),
+        200,
+    ),
+];

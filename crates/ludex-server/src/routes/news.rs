@@ -6,12 +6,14 @@ use axum::routing::get;
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use ludex_core::models::NewsPost;
+use utoipa::openapi::HttpMethod;
 
 use crate::auth::AuthUser;
 use crate::db;
 use crate::error::ApiError;
 use crate::extract::{ApiPath, JsonBody};
 use crate::models::{CreateNewsRequest, NewsRow, UpdateNewsRequest};
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::sql::{bind_query, Bind};
 use crate::state::AppState;
 
@@ -152,3 +154,49 @@ fn validate_text(value: &str, field: &str) -> Result<String, ApiError> {
     }
     Ok(value.to_string())
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // News
+    route(
+        HttpMethod::Get,
+        "/news",
+        "News",
+        "List news posts",
+        Auth::Public,
+        Payload::Array("NewsPost"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/news",
+            "News",
+            "Publish a news post",
+            Auth::Admin,
+            Payload::Schema("NewsPost"),
+        ),
+        "CreateNewsRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/news/{id}",
+            "News",
+            "Edit a news post",
+            Auth::Admin,
+            Payload::Schema("NewsPost"),
+        ),
+        "UpdateNewsRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/news/{id}",
+            "News",
+            "Delete a news post",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+];

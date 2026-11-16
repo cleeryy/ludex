@@ -3,11 +3,13 @@
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
+use utoipa::openapi::HttpMethod;
 
 use crate::auth::AuthUser;
 use crate::error::ApiError;
 use crate::extract::ApiQuery;
 use crate::models::{AuditLogRow, AuditPage, AuditQuery};
+use crate::openapi::{query, route, Auth, Payload, RouteDoc};
 use crate::sql::{bind_query_as, Bind};
 use crate::state::AppState;
 
@@ -91,3 +93,19 @@ async fn list(
         next_before,
     }))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Audit
+    query(
+        route(
+            HttpMethod::Get,
+            "/audit",
+            "Audit",
+            "Read the audit log",
+            Auth::Admin,
+            Payload::Schema("AuditPage"),
+        ),
+        &[("limit", "Page size"), ("before", "Cursor")],
+    ),
+];

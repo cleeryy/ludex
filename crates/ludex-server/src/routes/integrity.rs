@@ -5,6 +5,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
+use utoipa::openapi::HttpMethod;
 
 use crate::audit::actions;
 use crate::auth::AuthUser;
@@ -14,6 +15,7 @@ use crate::events::Event;
 use crate::extract::{ApiPath, ApiQuery, JsonBody};
 use crate::integrity::{self, IntegrityReport, IntegrityScope};
 use crate::models::{IntegrityCheckRequest, IntegrityCheckResponse, IntegrityReportDetail};
+use crate::openapi::{body, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Integrity routes.
@@ -120,3 +122,51 @@ async fn read(
         .ok_or_else(|| ApiError::not_found("report_not_found", "Integrity report not found"))?;
     Ok(Json(IntegrityReportDetail { report, findings }))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Integrity
+    body(
+        route(
+            HttpMethod::Post,
+            "/integrity/check",
+            "Integrity",
+            "Verify library files",
+            Auth::Admin,
+            Payload::Schema("IntegrityCheckResponse"),
+        ),
+        "IntegrityCheckRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/integrity/reports",
+        "Integrity",
+        "List integrity reports",
+        Auth::Session,
+        Payload::Array("IntegrityReportDetail"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/integrity/reports/{id}",
+        "Integrity",
+        "Read one integrity report",
+        Auth::Session,
+        Payload::Schema("IntegrityReportDetail"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/integrity/content-hashes",
+        "Integrity",
+        "Read the full archive hash backfill state (#216)",
+        Auth::Admin,
+        Payload::Schema("ContentHashStatus"),
+    ),
+    route(
+        HttpMethod::Post,
+        "/integrity/content-hashes",
+        "Integrity",
+        "Start a full archive hash backfill (#216)",
+        Auth::Admin,
+        Payload::Schema("ContentHashStatus"),
+    ),
+];

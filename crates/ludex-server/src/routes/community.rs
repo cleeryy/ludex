@@ -4,6 +4,7 @@ use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
 use ludex_core::models::GameSummary;
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::Scope;
 use crate::auth::AuthUser;
@@ -15,6 +16,7 @@ use crate::models::{
     ActivityPage, ActivityQuery, PublicProfile, PublicProfileResponse, PublicStats,
     UpdateProfileRequest,
 };
+use crate::openapi::{body, query, route, Auth, Payload, RouteDoc};
 use crate::routes::games::{summary_from_list, FROM_JOINS, LIST_COLUMNS};
 use crate::sql::{bind_query, bind_query_as, Bind};
 use crate::state::AppState;
@@ -263,3 +265,65 @@ fn clean_text(
     }
     Ok(Some(value.to_string()))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Community
+    route(
+        HttpMethod::Get,
+        "/me/profile",
+        "Community",
+        "Your public profile",
+        Auth::Session,
+        Payload::Schema("PublicProfile"),
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/me/profile",
+            "Community",
+            "Update your public profile",
+            Auth::Session,
+            Payload::Schema("PublicProfile"),
+        ),
+        "UpdateProfileRequest",
+    ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/community/feed",
+            "Community",
+            "Public activity feed",
+            Auth::Session,
+            Payload::Schema("ActivityPage"),
+        ),
+        &[("limit", "Page size"), ("before", "Cursor")],
+    ),
+    route(
+        HttpMethod::Get,
+        "/community/users",
+        "Community",
+        "Public member directory",
+        Auth::Session,
+        Payload::Array("PublicProfile"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/community/users/{id}",
+        "Community",
+        "Public profile of one member",
+        Auth::Session,
+        Payload::Schema("PublicProfileResponse"),
+    ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/community/users/{id}/activity",
+            "Community",
+            "Activity of one member",
+            Auth::Session,
+            Payload::Schema("ActivityPage"),
+        ),
+        &[("limit", "Page size"), ("before", "Cursor")],
+    ),
+];

@@ -11,6 +11,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::Scope;
 use crate::audit::actions;
@@ -18,6 +19,7 @@ use crate::auth::AuthUser;
 use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, ApiQuery, JsonBody};
+use crate::openapi::{body, ok, query, route, Auth, Payload, RouteDoc};
 use crate::remote_installs::{
     self, CreateRemoteInstallRequest, RemoteInstall, RemoteInstallStatus,
     RemoteInstallStatusRequest,
@@ -177,3 +179,72 @@ async fn cancel(
     );
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Mobile companion (#167)
+    query(
+        route(
+            HttpMethod::Get,
+            "/remote-installs",
+            "Remote installs",
+            "List the caller's remote install requests",
+            Auth::Session,
+            Payload::Array("RemoteInstall"),
+        ),
+        &[
+            (
+                "status",
+                "queued, claimed, downloading, ready, failed or cancelled; comma-separate several",
+            ),
+            ("limit", "1-200, default 100"),
+        ],
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/remote-installs",
+                "Remote installs",
+                "Queue an install for a signed-in desktop (idempotent per game)",
+                Auth::Session,
+                Payload::Schema("RemoteInstall"),
+            ),
+            "CreateRemoteInstallRequest",
+        ),
+        201,
+    ),
+    route(
+        HttpMethod::Get,
+        "/remote-installs/{id}",
+        "Remote installs",
+        "Read one remote install request",
+        Auth::Session,
+        Payload::Schema("RemoteInstall"),
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/remote-installs/{id}",
+            "Remote installs",
+            "Cancel an active request or clear a finished one",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/remote-installs/{id}/status",
+                "Remote installs",
+                "Report desktop progress for a remote install",
+                Auth::Session,
+                Payload::Schema("RemoteInstall"),
+            ),
+            "RemoteInstallStatusRequest",
+        ),
+        200,
+    ),
+];

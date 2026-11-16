@@ -4,6 +4,7 @@ use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use ludex_core::models::Role;
+use utoipa::openapi::HttpMethod;
 
 use crate::audit::actions;
 use crate::auth::{hash_password, issue_access_token};
@@ -16,6 +17,7 @@ use crate::models::{
     AuthResponse, FeatureFlags, HealthDatabase, HealthDetails, HealthDisk, HealthIngest,
     HealthLibrary, HealthResponse, HealthWatcher, ServerConfig, SetupRequest, SetupStatus,
 };
+use crate::openapi::{body, query, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Public routes.
@@ -229,3 +231,65 @@ async fn config(State(state): State<AppState>) -> Result<Json<ServerConfig>, Api
         parallel_parts_max: crate::download_limits::JOB_PARTS_MAX as u32,
     }))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // System
+    route(
+        HttpMethod::Get,
+        "/health",
+        "System",
+        "Health probe",
+        Auth::Public,
+        Payload::Schema("HealthResponse"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/health/details",
+        "System",
+        "Detailed health and capacity report",
+        Auth::Public,
+        Payload::Schema("HealthDetails"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/setup/status",
+        "System",
+        "First-run setup status",
+        Auth::Public,
+        Payload::Schema("SetupStatus"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/setup",
+            "System",
+            "Create the first administrator",
+            Auth::Public,
+            Payload::Schema("AuthResponse"),
+        ),
+        "SetupRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/config",
+        "System",
+        "Public server configuration",
+        Auth::Public,
+        Payload::Schema("ServerConfig"),
+    ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/desktop/download",
+            "System",
+            "Latest desktop app installers and checksums",
+            Auth::Public,
+            Payload::Schema("DesktopDownload"),
+        ),
+        &[(
+            "platform",
+            "windows, linux or macos; omit to list every asset",
+        )],
+    ),
+];

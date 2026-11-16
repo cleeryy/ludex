@@ -10,6 +10,7 @@ use axum::routing::{delete, get};
 use axum::{Json, Router};
 use ludex_core::models::Role;
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::{self, Scope};
 use crate::audit::actions;
@@ -21,6 +22,7 @@ use crate::extract::{ApiPath, ApiQuery, JsonBody};
 use crate::models::{
     ApiKey, ApiKeyQuery, ApiKeyRow, CreateApiKeyRequest, CreateApiKeyResponse, UserRow,
 };
+use crate::openapi::{body, ok, query, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Longest accepted key label.
@@ -257,3 +259,41 @@ fn parse_requested_scopes(raw: Option<&[String]>) -> Result<Vec<Scope>, ApiError
     scopes.sort();
     Ok(scopes)
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // API keys
+    query(
+        route(
+            HttpMethod::Get,
+            "/keys",
+            "API keys",
+            "List API keys",
+            Auth::Session,
+            Payload::Array("ApiKey"),
+        ),
+        &[("all", "Admin: list every account's keys")],
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/keys",
+            "API keys",
+            "Create an API key",
+            Auth::Session,
+            Payload::Schema("CreateApiKeyResponse"),
+        ),
+        "CreateApiKeyRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/keys/{id}",
+            "API keys",
+            "Revoke an API key",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+];

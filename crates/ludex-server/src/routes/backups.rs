@@ -20,6 +20,7 @@ use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokio_util::io::ReaderStream;
+use utoipa::openapi::HttpMethod;
 use utoipa::ToSchema;
 
 use crate::audit::actions;
@@ -28,6 +29,7 @@ use crate::backup::{self, BackupManifest, BackupRequest, RestoreRequest};
 use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, ApiQuery, JsonBody};
+use crate::openapi::{body, ok, query, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Backup routes.
@@ -636,6 +638,77 @@ async fn download(
         .body(Body::from_stream(ReaderStream::new(file)))
         .map_err(|_| ApiError::internal())
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Backups (#169)
+    route(
+        HttpMethod::Get,
+        "/admin/backups",
+        "Backups",
+        "List backup archives and their verification state",
+        Auth::Admin,
+        Payload::Schema("BackupList"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/admin/backups",
+            "Backups",
+            "Create a backup archive, or plan one with a dry run",
+            Auth::Admin,
+            Payload::Schema("BackupCreated"),
+        ),
+        "CreateBackupRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/admin/backups/{name}/verify",
+            "Backups",
+            "Verify every checksum in an archive",
+            Auth::Admin,
+            Payload::Schema("BackupVerification"),
+        ),
+        200,
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/admin/backups/{name}/restore",
+                "Backups",
+                "Preview or restore an archive after a safety copy",
+                Auth::Admin,
+                Payload::Schema("RestoreBackupResponse"),
+            ),
+            200,
+        ),
+        "RestoreBackupRequest",
+    ),
+    query(
+        ok(
+            route(
+                HttpMethod::Delete,
+                "/admin/backups/{name}",
+                "Backups",
+                "Delete an archive after a typed confirmation",
+                Auth::Admin,
+                Payload::None,
+            ),
+            204,
+        ),
+        &[("confirm", "Archive file name; must match the path")],
+    ),
+    route(
+        HttpMethod::Get,
+        "/admin/backups/{name}/download",
+        "Backups",
+        "Stream an archive for an offsite copy",
+        Auth::Admin,
+        Payload::Binary,
+    ),
+];
 
 #[cfg(test)]
 mod tests {

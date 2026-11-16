@@ -17,6 +17,7 @@ use chrono::{Duration, Utc};
 use ludex_core::models::Role;
 use rand::RngCore;
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::audit::actions;
 use crate::auth::{hash_password, start_session, AuthUser, SessionInfo};
@@ -28,6 +29,7 @@ use crate::models::{
     AcceptInvitationRequest, AuthResponse, CreateInvitationRequest, CreatedInvitation, Invitation,
     InvitationPreview, InvitationRow, InvitationStatus, UserRow,
 };
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 use crate::totp;
 
@@ -407,6 +409,87 @@ fn new_token() -> String {
     rand::thread_rng().fill_bytes(&mut bytes);
     hex::encode(bytes)
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Invitations (#166)
+    route(
+        HttpMethod::Get,
+        "/invitations",
+        "Invitations",
+        "List invitation links",
+        Auth::Admin,
+        Payload::Array("Invitation"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/invitations",
+            "Invitations",
+            "Create an expiring invitation link; the token is returned once",
+            Auth::Admin,
+            Payload::Schema("CreatedInvitation"),
+        ),
+        "CreateInvitationRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/invitations/{id}",
+            "Invitations",
+            "Revoke an invitation link",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Get,
+        "/invitations/{id}",
+        "Invitations",
+        "Preview an invitation before registering (the path segment is the token)",
+        Auth::Public,
+        Payload::Schema("InvitationPreview"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/invitations/{id}/accept",
+            "Invitations",
+            "Redeem an invitation and sign the new account in",
+            Auth::Public,
+            Payload::Schema("AuthResponse"),
+        ),
+        "AcceptInvitationRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/auth/oidc/start",
+        "Authentication",
+        "Start the OIDC authorization flow",
+        Auth::Public,
+        Payload::Binary,
+    ),
+    route(
+        HttpMethod::Get,
+        "/auth/oidc/callback",
+        "Authentication",
+        "OIDC provider callback",
+        Auth::Public,
+        Payload::Binary,
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/auth/oidc/exchange",
+            "Authentication",
+            "Exchange a one-time SSO code for a token",
+            Auth::Public,
+            Payload::Schema("AuthResponse"),
+        ),
+        "OidcExchangeRequest",
+    ),
+];
 
 #[cfg(test)]
 mod tests {

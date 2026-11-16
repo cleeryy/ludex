@@ -10,6 +10,7 @@ use axum::http::StatusCode;
 use axum::routing::{delete, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use utoipa::openapi::HttpMethod;
 
 use crate::artwork::{self, ArtworkKind, MAX_ARTWORK_BYTES};
 use crate::audit::actions;
@@ -17,6 +18,7 @@ use crate::auth::AuthUser;
 use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, ApiQuery, MultipartBody};
+use crate::openapi::{ok, query, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Largest multipart body accepted by the artwork route (file + framing).
@@ -256,3 +258,33 @@ fn map_multipart_error(rejection: axum::extract::multipart::MultipartError) -> A
         ApiError::bad_request("invalid_multipart", rejection.body_text())
     }
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Custom artwork (#38)
+    ok(
+        route(
+            HttpMethod::Post,
+            "/games/{id}/artwork",
+            "Games",
+            "Upload custom cover or background art",
+            Auth::Editor,
+            Payload::Schema("ArtworkResponse"),
+        ),
+        201,
+    ),
+    ok(
+        query(
+            route(
+                HttpMethod::Delete,
+                "/games/{id}/artwork",
+                "Games",
+                "Reset a custom cover or background",
+                Auth::Editor,
+                Payload::None,
+            ),
+            &[("kind", "cover or background")],
+        ),
+        204,
+    ),
+];

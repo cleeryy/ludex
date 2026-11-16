@@ -13,6 +13,7 @@ use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use utoipa::openapi::HttpMethod;
 use utoipa::ToSchema;
 
 use crate::audit::actions;
@@ -22,6 +23,7 @@ use crate::error::ApiError;
 use crate::events::{Actor, Event};
 use crate::extract::JsonBody;
 use crate::locale;
+use crate::openapi::{body, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Administrator settings routes.
@@ -93,3 +95,27 @@ async fn read_settings(state: &AppState) -> Result<ServerSettings, ApiError> {
         default_locale,
     })
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Server settings (#188)
+    route(
+        HttpMethod::Get,
+        "/admin/server",
+        "System",
+        "Server display name and default interface language",
+        Auth::Admin,
+        Payload::Schema("ServerSettings"),
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/admin/server",
+            "System",
+            "Set the default interface language (empty = System/English)",
+            Auth::Admin,
+            Payload::Schema("ServerSettings"),
+        ),
+        "UpdateServerSettingsRequest",
+    ),
+];

@@ -7,6 +7,7 @@ use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use serde::Serialize;
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::achievements::{
     self, Achievement, DefinitionInput, DefinitionPatch, GameAchievements, ScanReport, ScanRequest,
@@ -18,6 +19,7 @@ use crate::auth::AuthUser;
 use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, JsonBody};
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Achievement routes.
@@ -211,3 +213,93 @@ async fn ensure_game(state: &AppState, game_id: i64) -> Result<(), ApiError> {
     }
     Ok(())
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Achievements
+    route(
+        HttpMethod::Get,
+        "/games/{id}/achievements",
+        "Achievements",
+        "Achievements of a game for the current account",
+        Auth::Session,
+        Payload::Schema("GameAchievements"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/games/{id}/achievements",
+            "Achievements",
+            "Create a manual achievement definition",
+            Auth::Admin,
+            Payload::Schema("DefinitionResponse"),
+        ),
+        "DefinitionInput",
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/games/{id}/achievements/scan",
+                "Achievements",
+                "Scan local achievement providers",
+                Auth::Editor,
+                Payload::Schema("ScanReport"),
+            ),
+            "ScanRequest",
+        ),
+        200,
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/games/{id}/achievements/{key}",
+            "Achievements",
+            "Update a manual achievement definition",
+            Auth::Admin,
+            Payload::Schema("DefinitionResponse"),
+        ),
+        "DefinitionPatch",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/games/{id}/achievements/{key}",
+            "Achievements",
+            "Delete an achievement definition and its unlocks",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/games/{id}/achievements/{key}/unlock",
+                "Achievements",
+                "Unlock an achievement (idempotent)",
+                Auth::Editor,
+                Payload::Schema("UnlockResponse"),
+            ),
+            "UnlockRequest",
+        ),
+        200,
+    ),
+    route(
+        HttpMethod::Get,
+        "/me/achievements",
+        "Achievements",
+        "Achievements unlocked by the current account",
+        Auth::Session,
+        Payload::Schema("UserAchievements"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/users/{id}/achievements",
+        "Achievements",
+        "Public achievement showcase",
+        Auth::Session,
+        Payload::Schema("UserAchievements"),
+    ),
+];

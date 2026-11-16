@@ -9,12 +9,14 @@
 
 use axum::routing::get;
 use axum::{extract::State, Json, Router};
+use utoipa::openapi::HttpMethod;
 
 use crate::auth::AuthUser;
 use crate::db;
 use crate::error::ApiError;
 use crate::extract::ApiQuery;
 use crate::models::{GameSuggestion, SuggestQuery, SuggestResponse};
+use crate::openapi::{query, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Minimum score a candidate needs to be considered a match.
@@ -362,6 +364,22 @@ where
     });
     scored
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Search
+    query(
+        route(
+            HttpMethod::Get,
+            "/games/suggest",
+            "Search",
+            "Fuzzy title suggestions",
+            Auth::Session,
+            Payload::Schema("SuggestResponse"),
+        ),
+        &[("q", "Partial title"), ("limit", "Maximum suggestions")],
+    ),
+];
 
 #[cfg(test)]
 mod tests {

@@ -8,11 +8,13 @@ use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::Deserialize;
+use utoipa::openapi::HttpMethod;
 
 use crate::auth::AuthUser;
 use crate::error::ApiError;
 use crate::extract::ApiQuery;
 use crate::observability::{self, ObservabilitySnapshot, ObservabilityWindow};
+use crate::openapi::{query, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Observability route.
@@ -42,3 +44,19 @@ async fn snapshot(
     };
     Ok(Json(observability::snapshot(&state, window).await))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Observability (#170)
+    query(
+        route(
+            HttpMethod::Get,
+            "/admin/observability",
+            "Observability",
+            "Admin dashboard snapshot",
+            Auth::Admin,
+            Payload::Schema("ObservabilitySnapshot"),
+        ),
+        &[("window", "Time window: 1h (default) or 24h")],
+    ),
+];

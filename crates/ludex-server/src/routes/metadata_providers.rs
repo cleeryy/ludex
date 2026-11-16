@@ -12,6 +12,7 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use utoipa::openapi::HttpMethod;
 
 use crate::audit::actions;
 use crate::auth::AuthUser;
@@ -19,6 +20,7 @@ use crate::db;
 use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, JsonBody};
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::providers::{
     self, MetadataProviderConfig, MetadataProviderView, ProviderRecord, ProviderTestResponse,
 };
@@ -471,6 +473,96 @@ async fn reload(state: &AppState) {
     .await;
     *state.catalog.providers.write().await = configs;
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Community metadata providers (#28)
+    route(
+        HttpMethod::Get,
+        "/admin/metadata-providers",
+        "Metadata",
+        "List metadata providers, ordered by priority",
+        Auth::Admin,
+        Payload::Array("MetadataProviderView"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/admin/metadata-providers",
+            "Metadata",
+            "Create a metadata provider (token is write-only)",
+            Auth::Admin,
+            Payload::Schema("MetadataProviderView"),
+        ),
+        "CreateMetadataProviderRequest",
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/admin/metadata-providers/reorder",
+                "Metadata",
+                "Rewrite provider priorities from an explicit id order",
+                Auth::Admin,
+                Payload::Array("MetadataProviderView"),
+            ),
+            200,
+        ),
+        "ReorderMetadataProvidersRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/admin/metadata-providers/{id}",
+            "Metadata",
+            "Update a metadata provider (blank token keeps the stored one)",
+            Auth::Admin,
+            Payload::Schema("MetadataProviderView"),
+        ),
+        "UpdateMetadataProviderRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/admin/metadata-providers/{id}",
+            "Metadata",
+            "Delete a metadata provider",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/admin/metadata-providers/{id}/test",
+                "Metadata",
+                "Query a provider and return its candidates or error",
+                Auth::Admin,
+                Payload::Schema("ProviderTestResponse"),
+            ),
+            200,
+        ),
+        "TestMetadataProviderRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/openapi.json",
+        "System",
+        "This OpenAPI document",
+        Auth::Public,
+        Payload::Object,
+    ),
+    route(
+        HttpMethod::Get,
+        "/docs",
+        "System",
+        "Optional HTML API explorer",
+        Auth::Public,
+        Payload::Binary,
+    ),
+];
 
 #[cfg(test)]
 mod tests {

@@ -43,6 +43,7 @@ use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
+use utoipa::openapi::HttpMethod;
 use utoipa::ToSchema;
 
 use crate::auth::{AuthUser, DownloadTicket};
@@ -55,6 +56,7 @@ use crate::extracted_cache::{
     ExtractedManifest, Submission,
 };
 use crate::models::VersionRow;
+use crate::openapi::{ok, query, route, Auth, Payload, RouteDoc};
 use crate::routes::games::{age_blocked, age_not_found, deny_age_restricted, game_age_rating};
 use crate::state::AppState;
 use crate::transfer::zip::{resolve_entry_range, EntryRange};
@@ -666,3 +668,72 @@ pub(crate) async fn forget_version_cache(
         );
     }
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Server-side extracted cache + file manifest (#231)
+    ok(
+        route(
+            HttpMethod::Post,
+            "/admin/versions/{version_id}/extract",
+            "Downloads",
+            "Extract one archive into the server cache (deduped, background job)",
+            Auth::Admin,
+            Payload::Schema("ExtractStatus"),
+        ),
+        200,
+    ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/versions/{version_id}/manifest",
+            "Downloads",
+            "File manifest of an extracted archive",
+            Auth::Public,
+            Payload::Schema("ManifestResponse"),
+        ),
+        &[(
+            "token",
+            "Download ticket issued by POST /api/games/{id}/download-ticket",
+        )],
+    ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/versions/{version_id}/files/{*path}",
+            "Downloads",
+            "One file of an extracted archive (single Range supported)",
+            Auth::Public,
+            Payload::Binary,
+        ),
+        &[
+            (
+                "token",
+                "Download ticket issued by POST /api/games/{id}/download-ticket",
+            ),
+            (
+                "jobId",
+                "Parallel job id; caps concurrent file streams per job",
+            ),
+        ],
+    ),
+    route(
+        HttpMethod::Get,
+        "/admin/extracted-cache",
+        "Downloads",
+        "Extracted cache state, budget and entries",
+        Auth::Admin,
+        Payload::Schema("CacheOverview"),
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/admin/extracted-cache/{sha256}",
+            "Downloads",
+            "Delete one extracted cache entry",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+];

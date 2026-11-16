@@ -6,6 +6,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use ludex_core::models::{GameSummary, Paginated};
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::Scope;
 use crate::audit::actions;
@@ -26,6 +27,7 @@ use crate::models::{
     CollectionKind, CollectionRow, CollectionVisibility, CreateCollectionRequest, GameListRow,
     SmartRules, UpdateCollectionRequest,
 };
+use crate::openapi::{body, ok, query, route, Auth, Payload, RouteDoc};
 use crate::routes::games::{summary_from_list, FROM_JOINS, LIST_COLUMNS};
 use crate::share::ShareDenial;
 use crate::sql::{bind_query, bind_query_as, bind_query_scalar, Bind};
@@ -1059,3 +1061,131 @@ fn clean_optional(
     }
     Ok(Some(value.to_string()))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Collections
+    route(
+        HttpMethod::Get,
+        "/collections",
+        "Collections",
+        "List collections",
+        Auth::Session,
+        Payload::Array("Collection"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/collections",
+            "Collections",
+            "Create a collection",
+            Auth::Session,
+            Payload::Schema("Collection"),
+        ),
+        "CreateCollectionRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/collections/import",
+            "Collections",
+            "Copy a public or link-shared collection into your account",
+            Auth::Session,
+            Payload::Schema("ImportCollectionResponse"),
+        ),
+        "ImportCollectionRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/collections/{id}",
+        "Collections",
+        "Read a collection",
+        Auth::Session,
+        Payload::Schema("Collection"),
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/collections/{id}",
+            "Collections",
+            "Update a collection",
+            Auth::Session,
+            Payload::Schema("Collection"),
+        ),
+        "UpdateCollectionRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/collections/{id}",
+            "Collections",
+            "Delete a collection",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/collections/{id}/games",
+            "Collections",
+            "List collection games",
+            Auth::Session,
+            Payload::Schema("CollectionGamesResponse"),
+        ),
+        &[("page", "Page"), ("limit", "Page size")],
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/collections/{id}/games",
+            "Collections",
+            "Add games to a collection",
+            Auth::Session,
+            Payload::Schema("CollectionGamesResponse"),
+        ),
+        "CollectionGamesRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/collections/{id}/games/{game_id}",
+            "Collections",
+            "Remove a game from a collection",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/collections/{id}/share",
+            "Collections",
+            "Create a share link for a collection",
+            Auth::Session,
+            Payload::Schema("CollectionShareLink"),
+        ),
+        "CreateCollectionShareRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/collections/{id}/shares",
+        "Collections",
+        "List a collection's share links",
+        Auth::Session,
+        Payload::Array("CollectionShareLink"),
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/collections/{id}/shares/{share_id}",
+            "Collections",
+            "Revoke a collection share link",
+            Auth::Session,
+            Payload::None,
+        ),
+        204,
+    ),
+];

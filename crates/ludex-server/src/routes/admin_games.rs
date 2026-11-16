@@ -18,6 +18,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use utoipa::openapi::HttpMethod;
 use utoipa::ToSchema;
 
 use crate::audit::actions;
@@ -26,6 +27,7 @@ use crate::db;
 use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, ApiQuery, JsonBody};
+use crate::openapi::{body, query, route, Auth, Payload, RouteDoc};
 use crate::routes::games::{remove_game, DeleteMode};
 use crate::sql::{bind_query_as, bind_query_scalar, Bind};
 use crate::state::AppState;
@@ -966,6 +968,53 @@ async fn job(
         .map(Json)
         .ok_or_else(|| ApiError::not_found("job_not_found", "Unknown bulk job"))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Admin Games manager (#209)
+    query(
+        route(
+            HttpMethod::Get,
+            "/admin/games",
+            "Admin",
+            "Search, filter and page the admin game table",
+            Auth::Admin,
+            Payload::Schema("AdminGamesResponse"),
+        ),
+        &[
+            ("q", "Title substring"),
+            ("status", "available (default), missing, partial or all"),
+            ("provider", "Metadata provider slug"),
+            ("kind", "game or rom"),
+            (
+                "sort",
+                "title, releaseDate, addedAt, updatedAt, size, versions, missing, installed",
+            ),
+            ("order", "asc or desc"),
+            ("page", "1-based page"),
+            ("limit", "Page size (1-200, default 50)"),
+        ],
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/admin/games/bulk",
+            "Admin",
+            "Preview or run a bulk game action",
+            Auth::Admin,
+            Payload::Schema("BulkResponse"),
+        ),
+        "BulkRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/admin/games/jobs/{id}",
+        "Admin",
+        "Progress and report of a bulk archive deletion",
+        Auth::Admin,
+        Payload::Schema("BulkJobView"),
+    ),
+];
 
 #[cfg(test)]
 mod tests {

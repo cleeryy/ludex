@@ -14,6 +14,7 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use ludex_core::archive::is_archive_path;
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::Scope;
 use crate::audit::actions;
@@ -26,6 +27,7 @@ use crate::models::{
     part_len, total_parts, CompleteUploadResponse, CreateUploadRequest, UploadPartResponse,
     UploadRow, UploadSession,
 };
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::paths;
 use crate::state::AppState;
 use crate::uploads;
@@ -403,3 +405,54 @@ async fn mark_error(state: &AppState, id: &str, message: &str) {
         .execute(&state.core.pool)
         .await;
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Resumable uploads
+    body(
+        route(
+            HttpMethod::Post,
+            "/uploads",
+            "Uploads",
+            "Start a resumable archive upload",
+            Auth::Editor,
+            Payload::Schema("UploadSession"),
+        ),
+        "CreateUploadRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/uploads/{id}",
+        "Uploads",
+        "Upload progress for resume",
+        Auth::Editor,
+        Payload::Schema("UploadSession"),
+    ),
+    route(
+        HttpMethod::Put,
+        "/uploads/{id}/parts/{part}",
+        "Uploads",
+        "Upload one chunk (idempotent, binary body)",
+        Auth::Editor,
+        Payload::Schema("UploadPartResponse"),
+    ),
+    route(
+        HttpMethod::Post,
+        "/uploads/{id}/complete",
+        "Uploads",
+        "Verify, assemble and index the archive",
+        Auth::Editor,
+        Payload::Schema("CompleteUploadResponse"),
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/uploads/{id}",
+            "Uploads",
+            "Abandon an upload",
+            Auth::Editor,
+            Payload::None,
+        ),
+        204,
+    ),
+];

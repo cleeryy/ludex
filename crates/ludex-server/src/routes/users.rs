@@ -6,6 +6,7 @@ use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use ludex_core::models::Role;
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::audit::actions;
 use crate::auth::{generate_password, hash_password, AuthUser};
@@ -16,6 +17,7 @@ use crate::extract::{ApiPath, JsonBody};
 use crate::models::{
     CreateUserRequest, ResetPasswordRequest, ResetPasswordResult, UpdateUserRequest, User, UserRow,
 };
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::sql::{bind_query, Bind};
 use crate::state::AppState;
 
@@ -404,3 +406,71 @@ async fn reset_password(
         must_change_password: require_change,
     }))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Users
+    route(
+        HttpMethod::Get,
+        "/users",
+        "Users",
+        "List accounts",
+        Auth::Admin,
+        Payload::Array("User"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/users",
+            "Users",
+            "Create an account",
+            Auth::Admin,
+            Payload::Schema("User"),
+        ),
+        "CreateUserRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/users/{id}",
+            "Users",
+            "Update an account",
+            Auth::Admin,
+            Payload::Schema("User"),
+        ),
+        "UpdateUserRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/users/{id}",
+            "Users",
+            "Delete an account",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Delete,
+        "/users/{id}/sessions",
+        "Users",
+        "Revoke every session of an account",
+        Auth::Admin,
+        Payload::Schema("SessionRevocation"),
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/users/{id}/reset-password",
+                "Users",
+                "Reset an account password and sign every device out (#166)",
+                Auth::Admin,
+                Payload::Schema("ResetPasswordResult"),
+            ),
+            200,
+        ),
+        "ResetPasswordRequest",
+    ),
+];

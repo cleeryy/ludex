@@ -12,6 +12,7 @@ use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::audit::actions;
 use crate::auth::{self, AuthUser};
@@ -20,6 +21,7 @@ use crate::db;
 use crate::error::ApiError;
 use crate::events::{Actor, Event};
 use crate::extract::{ApiPath, JsonBody};
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::share::{
     self, CreateShareRequest, ShareAccessRequest, ShareAccessResponse, ShareDenial, ShareLink,
     ShareLinkRow, ShareView,
@@ -460,3 +462,76 @@ fn validate_label(raw: Option<&str>) -> Result<Option<String>, ApiError> {
     }
     Ok(Some(label.to_string()))
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Share links (implemented in `share.rs`, migration 0011)
+    body(
+        route(
+            HttpMethod::Post,
+            "/games/{id}/shares",
+            "Shares",
+            "Create a public share link",
+            Auth::Editor,
+            Payload::Schema("ShareLink"),
+        ),
+        "CreateShareRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/shares",
+        "Shares",
+        "List share links",
+        Auth::Editor,
+        Payload::Array("ShareLink"),
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/shares/{id}",
+            "Shares",
+            "Revoke a share link",
+            Auth::Editor,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Get,
+        "/share/{token}",
+        "Shares",
+        "Public metadata for a share link",
+        Auth::Public,
+        Payload::Schema("ShareView"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/share/{token}/access",
+            "Shares",
+            "Exchange a share link and password for a download ticket",
+            Auth::Public,
+            Payload::Schema("ShareAccessResponse"),
+        ),
+        "ShareAccessRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/share/collection/{token}",
+        "Shares",
+        "Public metadata for a collection share link",
+        Auth::Public,
+        Payload::Schema("CollectionShareView"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/share/collection/{token}/access",
+            "Shares",
+            "Unlock a password-protected collection share link",
+            Auth::Public,
+            Payload::Schema("CollectionShareView"),
+        ),
+        "CollectionShareAccessRequest",
+    ),
+];

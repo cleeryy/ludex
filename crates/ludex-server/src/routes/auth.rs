@@ -13,6 +13,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde_json::json;
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::Scope;
 use crate::audit::actions;
@@ -31,6 +32,7 @@ use crate::models::{
     RecoveryCodesRequest, TotpActivated, TotpActivationRequest, TotpEnrollment, UserResponse,
     UserRow,
 };
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::sql::{bind_query, Bind};
 use crate::state::AppState;
 
@@ -597,3 +599,41 @@ async fn fetch_user_row(state: &AppState, id: i64) -> Result<UserRow, ApiError> 
     .map_err(ApiError::from)?
     .ok_or_else(ApiError::unauthorized)
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Authentication
+    body(
+        route(
+            HttpMethod::Post,
+            "/auth/login",
+            "Authentication",
+            "Password login",
+            Auth::Public,
+            Payload::Schema("AuthResponse"),
+        ),
+        "LoginRequest",
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/auth/login/mfa",
+                "Authentication",
+                "Finish a login with a TOTP or recovery code (#166)",
+                Auth::Public,
+                Payload::Schema("AuthResponse"),
+            ),
+            200,
+        ),
+        "MfaLoginRequest",
+    ),
+    route(
+        HttpMethod::Get,
+        "/auth/me",
+        "Authentication",
+        "Current account",
+        Auth::Session,
+        Payload::Schema("UserResponse"),
+    ),
+];

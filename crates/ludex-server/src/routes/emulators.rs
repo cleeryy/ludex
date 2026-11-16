@@ -4,6 +4,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
+use utoipa::openapi::HttpMethod;
 
 use crate::api_keys::Scope;
 use crate::auth::AuthUser;
@@ -15,6 +16,7 @@ use crate::emulators::{
 };
 use crate::error::ApiError;
 use crate::extract::{ApiPath, JsonBody};
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 
 /// Emulator routes.
@@ -181,3 +183,115 @@ async fn set_game_emulator(
         .map_err(ApiError::from)?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Emulators and ROMs (#52)
+    route(
+        HttpMethod::Get,
+        "/emulators",
+        "Emulators",
+        "List configured emulators",
+        Auth::Session,
+        Payload::Array("Emulator"),
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/emulators",
+            "Emulators",
+            "Register an emulator command",
+            Auth::Admin,
+            Payload::Schema("Emulator"),
+        ),
+        "CreateEmulatorRequest",
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Post,
+                "/emulators/validate",
+                "Emulators",
+                "Validate an emulator command template without running it",
+                Auth::Admin,
+                Payload::Schema("ValidateCommandResponse"),
+            ),
+            "ValidateCommandRequest",
+        ),
+        200,
+    ),
+    route(
+        HttpMethod::Get,
+        "/emulators/defaults",
+        "Emulators",
+        "Default emulator per platform",
+        Auth::Session,
+        Payload::Array("PlatformDefault"),
+    ),
+    body(
+        route(
+            HttpMethod::Put,
+            "/emulators/defaults",
+            "Emulators",
+            "Set or clear platform default emulators",
+            Auth::Admin,
+            Payload::Array("PlatformDefault"),
+        ),
+        "UpdateDefaultsRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Patch,
+            "/emulators/{id}",
+            "Emulators",
+            "Update an emulator",
+            Auth::Admin,
+            Payload::Schema("Emulator"),
+        ),
+        "UpdateEmulatorRequest",
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/emulators/{id}",
+            "Emulators",
+            "Delete an emulator",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+    route(
+        HttpMethod::Get,
+        "/platforms",
+        "Emulators",
+        "Platform catalog with ROM counts",
+        Auth::Session,
+        Payload::Array("PlatformView"),
+    ),
+    ok(
+        route(
+            HttpMethod::Post,
+            "/games/{id}/launch-command",
+            "Emulators",
+            "Resolve the emulator launch command for a ROM game",
+            Auth::Session,
+            Payload::Schema("EmulatorLaunch"),
+        ),
+        200,
+    ),
+    ok(
+        body(
+            route(
+                HttpMethod::Put,
+                "/games/{id}/emulator",
+                "Emulators",
+                "Set or clear the per-game emulator override",
+                Auth::Editor,
+                Payload::None,
+            ),
+            "SetGameEmulatorRequest",
+        ),
+        204,
+    ),
+];

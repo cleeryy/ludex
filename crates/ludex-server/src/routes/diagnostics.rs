@@ -16,6 +16,7 @@ use axum::routing::{delete, post};
 use axum::{Json, Router};
 use chrono::{Duration, Utc};
 use serde_json::{json, Value};
+use utoipa::openapi::HttpMethod;
 
 use crate::auth::AuthUser;
 use crate::config::{DIAGNOSTICS_RETENTION_DAYS, MAX_DIAGNOSTICS_BYTES};
@@ -25,6 +26,7 @@ use crate::extract::{ApiPath, ApiQuery};
 use crate::models::{
     DiagnosticsCount, DiagnosticsPage, DiagnosticsReportInput, DiagnosticsReportRow,
 };
+use crate::openapi::{body, ok, query, route, Auth, Payload, RouteDoc};
 use crate::sql::{bind_query_as, Bind};
 use crate::state::AppState;
 
@@ -368,6 +370,51 @@ pub struct DiagnosticsQuery {
     #[serde(default)]
     pub kind: Option<String>,
 }
+
+/// OpenAPI operations served by this module (#237).
+pub(crate) const DOCS: &[RouteDoc] = &[
+    // Diagnostics (#171)
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/diagnostics",
+                "Diagnostics",
+                "Submit an explicitly sent anonymous report",
+                Auth::Public,
+                Payload::Object,
+            ),
+            202,
+        ),
+        "DiagnosticsReportInput",
+    ),
+    query(
+        route(
+            HttpMethod::Get,
+            "/diagnostics",
+            "Diagnostics",
+            "List reports and aggregate counts",
+            Auth::Admin,
+            Payload::Schema("DiagnosticsPage"),
+        ),
+        &[
+            ("limit", "Page size (1-200, default 50)"),
+            ("before", "Cursor"),
+            ("kind", "Filter by error kind"),
+        ],
+    ),
+    ok(
+        route(
+            HttpMethod::Delete,
+            "/diagnostics/{id}",
+            "Diagnostics",
+            "Delete one stored report",
+            Auth::Admin,
+            Payload::None,
+        ),
+        204,
+    ),
+];
 
 #[cfg(test)]
 mod tests {
