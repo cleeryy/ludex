@@ -6,9 +6,9 @@ server, no archive, no account, no network: the demo library in
 [`apps/web/src/data/demo.ts`](../../../apps/web/src/data/demo.ts) provides the catalogue and the
 generated artwork.
 
-The last run is recorded in [`manifest.json`](manifest.json): app version, commit, date,
-viewport, theme, locale and a size for every file. This page documents the contract, not a
-particular run.
+The last run is recorded in [`manifest.json`](manifest.json): app version, the source commit
+the build came from, the capture date, viewport, theme, locale and a size for every file. This
+page documents the contract, not a particular run.
 
 ## Regenerate
 
