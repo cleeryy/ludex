@@ -6,6 +6,14 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- VirusTotal bulk scans keep running across routes (#238): the 4/min queue is
+  an app-level provider mounted above the router, so leaving Admin → Games no
+  longer stops it; it dedupes ids, appends on a second start, keeps the ETA and
+  stop control, invalidates admin games/integration/game reports and toasts from
+  any route, with a small admin indicator in the shell.
+
 ## [0.4.14] - 2026-11-15
 
 ### Changed

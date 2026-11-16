@@ -114,3 +114,7 @@
     at workLoopSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13461:43)
     at renderRootSync (http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:13445:13) The above error occurred in the <PreferencesProvider> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:7275
 [29153267ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5180/#/bigpicture?lang=fr:0
+[54724583ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5180/src/state/virustotal-queue.tsx?t=1794787967753:0
+[54724715ms] [ERROR] [vite] Failed to reload /src/state/virustotal-queue.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5180/@vite/client:808
+[55537777ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5180/node_modules/.vite/deps/react-dom_client.js?v=6bd3ca31:22164
+[55547322ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5180/#/bigpicture?lang=fr:0
