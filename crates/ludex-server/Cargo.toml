@@ -51,7 +51,7 @@ flate2.workspace = true
 tar.workspace = true
 base64 = "0.22"
 rust-embed = { version = "8", optional = true, features = ["axum"] }
-utoipa = { version = "5", features = ["chrono"] }
+utoipa = { version = "6", features = ["chrono"] }
 
 [dev-dependencies]
 http-body-util = "0.1"
