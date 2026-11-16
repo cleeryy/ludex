@@ -8,6 +8,15 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Changed
 
+- Data safety (#237): desktop migrations run in a single transaction with a
+  pre-migration `VACUUM INTO` snapshot (three kept), and a downgrade guard
+  refuses an unknown newer schema; the server gained `db::with_tx` with
+  `BEGIN IMMEDIATE` on SQLite and one per-backend unique-violation mapper used
+  by the multi-write sites; playtime sync is now an idempotent outbox keyed by
+  message id (desktop retry/backoff, server receipts, migration 0034).
+
+### Changed
+
 - Frontend performance and hygiene (#237): Downloads exposes selector hooks
   over an external store with value reconciliation and a 2 s poll only while an
   install is active and the window visible, so the 1 Hz whole-product repaint is
