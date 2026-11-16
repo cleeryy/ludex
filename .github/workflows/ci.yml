@@ -917,10 +917,13 @@ jobs:
 
           version, path = sys.argv[1], sys.argv[2]
           data = json.load(open(path, encoding="utf-8"))
-          if data.get("version") != version:
-              sys.exit(f"::error::edge latest.json version {data.get('version')!r} != {version!r}")
-          if "-edge." not in str(data.get("version", "")):
-              sys.exit("::error::edge latest.json must carry an -edge. version")
+          # The new build is published later by the release job, so this guard
+          # checks the *published* edge manifest is an edge build on the edge
+          # tag; the exact version is verified by `edge-latest` after publishing.
+          published = str(data.get("version", ""))
+          if "-edge." not in published:
+              sys.exit(f"::error::edge latest.json must carry an -edge. version: {published!r}")
+          _ = version
           for name, entry in (data.get("platforms") or {}).items():
               if "/releases/download/edge/" not in (entry.get("url") or ""):
                   sys.exit(f"::error::{name} url does not point at the edge tag")
@@ -930,7 +933,7 @@ jobs:
   edge-latest:
     name: Edge updater guard (never latest)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [edge-desktop]
+    needs: [edge-release]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
