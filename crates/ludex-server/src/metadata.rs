@@ -48,19 +48,28 @@ pub struct IgdbClient {
 
 impl IgdbClient {
     /// Builds a client from IGDB application credentials.
+    ///
+    /// Production builds always talk to the compile-time IGDB endpoints; there
+    /// is no environment or request value that can move the token or games URL
+    /// (`rust/request-forgery` at these sinks is a false positive).
     #[must_use]
     pub fn new(http: Client, client_id: String, client_secret: String) -> Self {
-        Self::with_endpoints(
-            http,
+        Self {
             client_id,
             client_secret,
-            IGDB_TOKEN_URL,
-            IGDB_GAMES_URL,
-        )
+            http,
+            token: Arc::new(Mutex::new(None)),
+            token_url: IGDB_TOKEN_URL.to_string(),
+            games_url: IGDB_GAMES_URL.to_string(),
+        }
     }
 
-    /// Builds a client against explicit endpoints. Tests point this at a local
-    /// fixture server so the metadata pipeline never touches the network.
+    /// Builds a client against explicit endpoints.
+    ///
+    /// Test-only: the fixtures point this at a loopback server so the metadata
+    /// pipeline never touches the network. Keeping it out of non-test builds is
+    /// what makes `new` the only production constructor, with constant URLs.
+    #[cfg(test)]
     #[must_use]
     pub fn with_endpoints(
         http: Client,

@@ -22,7 +22,7 @@
  */
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
