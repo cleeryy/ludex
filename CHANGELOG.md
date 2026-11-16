@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.19] - 2026-11-16
+
 ### Changed
 
 - Server structure (#237 wave 4): the archive transport moved into
