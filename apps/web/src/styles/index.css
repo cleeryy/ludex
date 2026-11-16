@@ -1220,12 +1220,37 @@
   background: var(--bp-wall);
 }
 
+/*
+ * The wall is painted once (#270): a 256×144 texture with the blur baked in
+ * (components/big-picture/console-backdrop.tsx). The layer is a static bitmap,
+ * so scrolling the rail over it costs a blit, not a full-screen filter pass.
+ */
 .bp-backdrop-art {
   position: absolute;
   inset: -6%;
-  filter: blur(var(--bp-wall-blur)) saturate(1.12);
   opacity: var(--bp-wall-opacity);
   transform: translate3d(0, 0, 0);
+  contain: paint;
+}
+
+/*
+ * The live filter is the fallback, not the path: the frames before the bake
+ * lands, an engine that cannot blur a canvas, and any wall the stylesheet
+ * leaves sharp. Same declaration the layer used to carry.
+ */
+.bp-backdrop-art[data-bp-wall="live"] {
+  filter: blur(var(--bp-wall-blur)) saturate(1.12);
+}
+
+.bp-wall-plate {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The baked texture replaces the live plate; the source stays for the next bake. */
+.bp-backdrop-art[data-bp-wall="baked"] .bp-wall-source {
+  display: none;
 }
 
 .bp-backdrop-wash {

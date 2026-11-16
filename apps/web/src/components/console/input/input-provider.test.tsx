@@ -227,4 +227,56 @@ describe("one input owner", () => {
 
     expect(log).toEqual(["library:key:Enter"]);
   });
+
+  /**
+   * #270: closing the quick-actions sheet with B had two writers for the ring.
+   * The pop restored the card it covered, and the shell re-drew its own target
+   * a tick later — as a `setTimeout`, which the browser is free to run before
+   * React commits the close. When that happened the restore landed second and
+   * cleared the mark the shell had just drawn.
+   */
+  it("keeps the ring a deferred re-focus drew before the scope popped", () => {
+    vi.useFakeTimers();
+    const log: string[] = [];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (open: boolean) => (
+      <QueryClientProvider client={client}>
+        <InputProvider>
+          <button type="button" data-testid="card">
+            Chrono Trigger
+          </button>
+          <button type="button" data-testid="intent">
+            Intent
+          </button>
+          {open && <Scope id="sheet" log={log} />}
+        </InputProvider>
+      </QueryClientProvider>
+    );
+
+    const { rerender } = render(tree(false));
+    const card = screen.getByTestId("card");
+    const intent = screen.getByTestId("intent");
+    // A pointer left DOM focus on the card; the pad never marked it, so the
+    // sheet is pushed with an unmarked snapshot.
+    act(() => card.focus());
+    rerender(tree(true));
+
+    // The shell's re-focus runs while the sheet is still up (the timer beat
+    // React's commit), then B pops the scope.
+    act(() => {
+      window.setTimeout(() => intent.setAttribute("data-gamepad-focus", "true"), 0);
+      vi.advanceTimersByTime(0);
+    });
+    expect(intent.getAttribute("data-gamepad-focus")).toBe("true");
+
+    rerender(tree(false));
+
+    // The pop restored focus to the card and left the surface's ring alone:
+    // exactly one element wears the mark, and it is the one just drawn.
+    expect(document.activeElement).toBe(card);
+    expect(intent.getAttribute("data-gamepad-focus")).toBe("true");
+    expect(card.hasAttribute("data-gamepad-focus")).toBe(false);
+
+    vi.useRealTimers();
+  });
 });

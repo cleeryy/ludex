@@ -47,6 +47,13 @@ function isConnected(element: HTMLElement | null): element is HTMLElement {
  * exists (the card was filtered out, the overlay's own row was removed) is a
  * no-op: the caller keeps whatever the browser considers focused rather than
  * moving the ring to an arbitrary element.
+ *
+ * A restore draws the ring it captured and nothing else (#270). The surface
+ * underneath may have re-focused while the scope was on top — closing a sheet
+ * re-centres the rail for the game the player left — and sweeping every mark
+ * here would leave the player with no ring at all on the frame the sheet
+ * disappears. Focus still moves back; a ring the snapshot never owned is not
+ * the restore's to erase.
  */
 export function restoreFocus(
   snapshot: FocusSnapshot,
@@ -55,8 +62,10 @@ export function restoreFocus(
   if (!doc) return false;
   const target = snapshot.target;
   if (!isConnected(target)) return false;
-  doc.querySelectorAll("[data-gamepad-focus]").forEach((element) => element.removeAttribute("data-gamepad-focus"));
-  if (snapshot.marked || snapshot.fromMark) target.setAttribute("data-gamepad-focus", "true");
+  if (snapshot.marked || snapshot.fromMark) {
+    doc.querySelectorAll("[data-gamepad-focus]").forEach((element) => element.removeAttribute("data-gamepad-focus"));
+    target.setAttribute("data-gamepad-focus", "true");
+  }
   try {
     target.focus({ preventScroll: true });
   } catch {

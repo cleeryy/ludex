@@ -50,7 +50,22 @@ describe("console materials", () => {
     const blurred = [...declarationsOnly.matchAll(/(?:^|\s)(?:-webkit-)?backdrop-filter\s*:/gm)];
     expect(blurred.length).toBeLessThanOrEqual(1);
     expect(css).toContain(".bp-backdrop-art");
-    expect(css).toMatch(/filter:\s*blur\(var\(--bp-wall-blur\)\)/);
+    // The blur is baked into the plate (#270): the live filter only survives as
+    // the fallback for the frames before the bake and for engines that cannot
+    // blur a canvas.
+    expect(css).toMatch(
+      /\.bp-backdrop-art\[data-bp-wall="live"\]\s*\{[^}]*filter:\s*blur\(var\(--bp-wall-blur\)\)/,
+    );
+  });
+
+  it("paints the wallpaper once instead of filtering the layer", () => {
+    const layer = /(?:^|\n)\.bp-backdrop-art\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(layer, "the wall layer itself must not carry a filter").not.toMatch(/(?:^|\s)filter\s*:/);
+    expect(layer, "the wall layer is a static texture").toContain("contain: paint");
+    expect(css).toContain(".bp-wall-plate");
+    expect(css, "the baked plate replaces the live one").toContain(
+      '.bp-backdrop-art[data-bp-wall="baked"] .bp-wall-source',
+    );
   });
 
   it("keeps the Cabinet radius family at or below 24u", () => {
