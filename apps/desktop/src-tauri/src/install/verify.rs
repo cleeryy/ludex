@@ -10,10 +10,10 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use serde::Deserialize;
 use tauri::{AppHandle, Emitter};
 use tokio_util::sync::CancellationToken;
 
+use crate::bridge::models::{GameDetail, GameVersion};
 use crate::space;
 use crate::state::{AppState, JobEntry};
 use crate::util::{human_bytes, non_empty};
@@ -29,48 +29,27 @@ pub(super) struct ArchiveMetadata {
     pub(super) format: Option<String>,
 }
 
-/// Game detail payload, read for the archive digest and format (#216/#226).
-#[derive(Debug, Deserialize)]
-struct GameDetail {
-    #[serde(default)]
-    versions: Vec<VersionMetadata>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct VersionMetadata {
-    id: i64,
-    #[serde(default)]
-    content_sha256: Option<String>,
-    /// Published by newer servers; older ones omit the key entirely, so it is
-    /// read defensively as an `Option` and never blocks an install.
-    #[serde(default)]
-    archive_format: Option<String>,
-}
-
-impl GameDetail {
-    /// Digest and format for one version.
-    fn archive_metadata(&self, version_id: i64) -> ArchiveMetadata {
-        let Some(version) = self
-            .versions
-            .iter()
-            .find(|version| version.id == version_id)
-        else {
-            return ArchiveMetadata::default();
-        };
-        ArchiveMetadata {
-            sha256: version
-                .content_sha256
-                .as_deref()
-                .map(|digest| digest.trim().to_ascii_lowercase())
-                .filter(|digest| digest.len() == 64),
-            format: version
-                .archive_format
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(|value| value.to_ascii_lowercase()),
-        }
+/// Digest and format the server published for one version (#216/#226).
+///
+/// `versions` is the shared contract payload (`crate::bridge::models`),
+/// re-exported through [`crate::bridge`]; the desktop keeps no shadow DTO
+/// (#237).
+fn archive_metadata(versions: &[GameVersion], version_id: i64) -> ArchiveMetadata {
+    let Some(version) = versions.iter().find(|version| version.id == version_id) else {
+        return ArchiveMetadata::default();
+    };
+    ArchiveMetadata {
+        sha256: version
+            .content_sha256
+            .as_deref()
+            .map(|digest| digest.trim().to_ascii_lowercase())
+            .filter(|digest| digest.len() == 64),
+        format: version
+            .archive_format
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_ascii_lowercase()),
     }
 }
 
@@ -119,7 +98,7 @@ pub(super) async fn expected_archive_metadata(
     let Ok(detail) = response.json::<GameDetail>().await else {
         return ArchiveMetadata::default();
     };
-    let metadata = detail.archive_metadata(params.version_id);
+    let metadata = archive_metadata(&detail.versions, params.version_id);
     match metadata.sha256.as_deref() {
         Some(digest) => tracing::info!(
             game_id = params.game_id,
@@ -343,19 +322,27 @@ mod tests {
 
     #[test]
     fn archive_metadata_reads_the_format_defensively() {
-        let detail: GameDetail = serde_json::from_value(serde_json::json!({
-            "versions": [
-                {
-                    "id": 1,
-                    "contentSha256": "  AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  ",
-                    "archiveFormat": " 7Z ",
-                },
-                { "id": 2 }
-            ]
-        }))
-        .expect("game detail");
+        let versions: Vec<GameVersion> = serde_json::from_value(serde_json::json!([
+            {
+                "id": 1,
+                "fileName": "game.7z",
+                "size": 10,
+                "earlyAccess": false,
+                "downloadUrl": "/api/games/1/download?versionId=1",
+                "contentSha256": "  AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  ",
+                "archiveFormat": " 7Z ",
+            },
+            {
+                "id": 2,
+                "fileName": "legacy.7z",
+                "size": 10,
+                "earlyAccess": false,
+                "downloadUrl": "/api/games/1/download?versionId=2",
+            }
+        ]))
+        .expect("game versions");
 
-        let metadata = detail.archive_metadata(1);
+        let metadata = archive_metadata(&versions, 1);
         assert_eq!(
             metadata.sha256.as_deref(),
             Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
@@ -363,11 +350,11 @@ mod tests {
         assert_eq!(metadata.format.as_deref(), Some("7z"));
 
         // A legacy row (or an older server) has neither key.
-        let legacy = detail.archive_metadata(2);
+        let legacy = archive_metadata(&versions, 2);
         assert!(legacy.sha256.is_none());
         assert!(legacy.format.is_none());
 
         // An unknown version is not an error either.
-        assert_eq!(detail.archive_metadata(9), ArchiveMetadata::default());
+        assert_eq!(archive_metadata(&versions, 9), ArchiveMetadata::default());
     }
 }

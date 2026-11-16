@@ -46,8 +46,19 @@ pub use exe::{
 };
 pub use fingerprint::{archive_fingerprint, is_fingerprint, FINGERPRINT_PREFIX};
 pub use models::{
-    GameDetail, GameSummary, GameVersion, LaunchInfo, NewsPost, Paginated, ProgressState,
-    ProgressUpdate, ProviderRef, Role, Stats, Trailer, User,
+    Activity, ActivityCollection, ActivityGame, ActivityPage, ActivityUser, ApiKey, AuditLog,
+    AuditPage, AuthResponse, AuthSession, BookmarkResponse, Collection, CollectionGamesResponse,
+    CollectionKind, CollectionOwner, CollectionVisibility, CompleteUploadResponse,
+    CreateApiKeyResponse, CreateWebhookResponse, CreatedInvitation, DeleteVersionResponse, Device,
+    DeviceCapabilities, FeatureFlags, GameDetail, GameSuggestion, GameSummary, GameVersion,
+    GameVersionInfo, GameVersionsResponse, InstalledReportResponse, IntegrityCheckResponse,
+    Invitation, InvitationPreview, InvitationStatus, LatestVersion, LaunchInfo, LibraryFolders,
+    LocalPathResponse, MfaStatus, NewsPost, Paginated, ProgressState, ProgressUpdate, ProviderRef,
+    PublicProfile, PublicProfileResponse, PublicStats, RecoveryCodes, RefreshResponse,
+    ResetPasswordResult, Role, RootScanResponse, SaveSnapshot, ScanResponse, ScanStatus,
+    ServerConfig, SetupStatus, SmartRule, SmartRules, Stats, SuggestResponse, TicketResponse,
+    TotpActivated, TotpEnrollment, Trailer, UpdateWebhookResponse, UploadPartResponse,
+    UploadSession, User, UserResponse, UserSource, Webhook, WebhookTestResponse,
 };
 pub use naming::{grouping_key, normalize_title, parse_filename, ParsedName};
 pub use redact::{path_hash, redact, redact_json, RedactionContext};

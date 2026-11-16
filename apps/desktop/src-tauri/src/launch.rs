@@ -564,10 +564,10 @@ fn record_launch(
 
 /// Deepest folder scan tried when a recorded executable is gone (#160).
 ///
-/// `ludex_core::exe::discover_executables` clamps to 4..=8; the maximum covers
+/// `crate::bridge::exe::discover_executables` clamps to 4..=8; the maximum covers
 /// GameVault layouts such as
 /// `Installation/<edition>/<version>/binaries/x64/game.exe`.
-const STALE_EXECUTABLE_SCAN_DEPTH: usize = ludex_core::exe::MAX_SCAN_DEPTH;
+const STALE_EXECUTABLE_SCAN_DEPTH: usize = crate::bridge::exe::MAX_SCAN_DEPTH;
 
 /// Resolve the program to launch for an install (#160).
 ///
@@ -1239,7 +1239,7 @@ fn spawn_watcher(
 
         // Cloud saves (#108): debounce the automatic upload so the game's
         // final writes settle; failures are queued and retried off-thread.
-        crate::saves_sync::schedule_after_exit(app.clone(), game_id);
+        crate::saves::sync::schedule_after_exit(app.clone(), game_id);
 
         // Discord presence goes back to idle (#12).
         crate::presence::set_payload(Some(crate::presence::PresencePayload::idle()));

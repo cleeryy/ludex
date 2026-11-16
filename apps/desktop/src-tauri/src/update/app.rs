@@ -590,7 +590,7 @@ pub fn set_update_skip(app: AppHandle, version: Option<String>) -> Result<Update
     if skipped.is_none() {
         // "Prompts are back on": let the next check raise an OS banner for the
         // version the user had silenced (#213).
-        crate::update_notify::clear_notified_version(&app);
+        crate::update::notify::clear_notified_version(&app);
     }
     tracing::info!(
         skipped = skipped.as_deref().unwrap_or("none"),

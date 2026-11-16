@@ -1,0 +1,40 @@
+{
+  "description": "Install queue ordering shared by the desktop scheduler (apps/desktop/src-tauri/src/pipeline.rs) and the web mirror (apps/web/src/lib/install-queue.ts) (#202, #237). Both sides sort waiting jobs by queue position and keep rows without a position last.",
+  "cases": [
+    {
+      "name": "waiting jobs start in queue-position order",
+      "jobs": [
+        { "jobId": "job-c", "phase": "queued", "queuePosition": 2, "createdAt": "2026-01-01T00:00:03Z" },
+        { "jobId": "job-b", "phase": "queued", "queuePosition": 1, "createdAt": "2026-01-01T00:00:02Z" },
+        { "jobId": "job-a", "phase": "queued", "queuePosition": 0, "createdAt": "2026-01-01T00:00:01Z" }
+      ],
+      "expectedOrder": ["job-a", "job-b", "job-c"]
+    },
+    {
+      "name": "legacy rows without a position sort last",
+      "jobs": [
+        { "jobId": "legacy", "phase": "queued", "queuePosition": null, "createdAt": "2026-01-01T00:00:00Z" },
+        { "jobId": "job-b", "phase": "queued", "queuePosition": 1, "createdAt": "2026-01-01T00:00:02Z" }
+      ],
+      "expectedOrder": ["job-b", "legacy"]
+    },
+    {
+      "name": "space-blocked and paused jobs keep their slot",
+      "jobs": [
+        { "jobId": "blocked", "phase": "waitingForSpace", "queuePosition": 1, "createdAt": "2026-01-01T00:00:04Z" },
+        { "jobId": "paused", "phase": "paused", "queuePosition": 2, "createdAt": "2026-01-01T00:00:03Z" },
+        { "jobId": "queued", "phase": "queued", "queuePosition": 0, "createdAt": "2026-01-01T00:00:05Z" }
+      ],
+      "expectedOrder": ["queued", "blocked", "paused"]
+    },
+    {
+      "name": "compacted positions list the whole waiting queue",
+      "jobs": [
+        { "jobId": "job-d", "phase": "paused", "queuePosition": 1, "createdAt": "2026-01-01T00:00:06Z" },
+        { "jobId": "job-c", "phase": "queued", "queuePosition": 0, "createdAt": "2026-01-01T00:00:07Z" },
+        { "jobId": "job-e", "phase": "queued", "queuePosition": 2, "createdAt": "2026-01-01T00:00:08Z" }
+      ],
+      "expectedOrder": ["job-c", "job-d", "job-e"]
+    }
+  ]
+}

@@ -29,12 +29,12 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
-use crate::saves_detect::Platform;
+use crate::saves::detect::Platform;
 
 /// Embedded resolver registry. Validated by the tests in this module.
-pub const REGISTRY_YAML: &str = include_str!("../../../../data/save-roots.yaml");
+pub const REGISTRY_YAML: &str = include_str!("../../../../../data/save-roots.yaml");
 /// Embedded optional per-game overrides.
-pub const OVERRIDES_YAML: &str = include_str!("../../../../data/save-overrides.yaml");
+pub const OVERRIDES_YAML: &str = include_str!("../../../../../data/save-overrides.yaml");
 
 /// Candidate source tags. `manifest` and `manual` are produced by `saves_detect`.
 pub const SOURCE_KNOWN_FOLDER: &str = "known-folder";

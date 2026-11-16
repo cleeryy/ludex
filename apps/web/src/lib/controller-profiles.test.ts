@@ -1,4 +1,8 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
+
+import type { ControllerProfile } from "@/lib/types";
 import {
   actionForAxis,
   actionForButton,
@@ -60,5 +64,51 @@ describe("controller profile maths", () => {
     expect(validateControllerProfile({ ...presetProfile("xbox"), deadzone: 2 })).not.toBeNull();
     expect(() => parseControllerProfile('{"deadzone": -1}')).toThrow();
     expect(() => parseControllerProfile('{"mappings":{"button0":"teleport"}}')).toThrow();
+  });
+});
+
+const sharedFixture = JSON.parse(
+  readFileSync(
+    new URL("../../../../crates/ludex-core/tests/fixtures/controller-profiles.json", import.meta.url),
+    "utf8",
+  ),
+) as {
+  profile: ControllerProfile;
+  axisCases: { name: string; x: number; expected: number; tolerance?: number }[];
+  buttonCases: { name: string; button: number; value: number; action: string | null }[];
+  axisMappingCases: { name: string; axis: number; x: number; y: number; action: string | null }[];
+};
+
+describe("shared controller-profile fixture (#237)", () => {
+  const profile = sharedFixture.profile;
+
+  it("accepts the fixture profile", () => {
+    expect(validateControllerProfile(profile)).toBeNull();
+  });
+
+  it("matches every axis case asserted by the Rust suite", () => {
+    for (const testCase of sharedFixture.axisCases) {
+      const actual = applyStick(profile, testCase.x, 0, true);
+      expect(Math.abs(actual - testCase.expected), testCase.name).toBeLessThanOrEqual(
+        testCase.tolerance ?? 0,
+      );
+    }
+  });
+
+  it("matches every button case asserted by the Rust suite", () => {
+    for (const testCase of sharedFixture.buttonCases) {
+      expect(actionForButton(profile, testCase.button, testCase.value), testCase.name).toBe(
+        testCase.action,
+      );
+    }
+  });
+
+  it("matches every axis-mapping case asserted by the Rust suite", () => {
+    for (const testCase of sharedFixture.axisMappingCases) {
+      expect(
+        actionForAxis(profile, testCase.axis, testCase.x, testCase.y),
+        testCase.name,
+      ).toBe(testCase.action);
+    }
   });
 });

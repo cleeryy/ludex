@@ -59,7 +59,7 @@ fn base_url(state: &AppState) -> Result<String, String> {
 pub async fn latest_version(
     state: &AppState,
     game_id: i64,
-) -> Result<ludex_core::models::LatestVersion, String> {
+) -> Result<crate::bridge::models::LatestVersion, String> {
     let base = base_url(state)?;
     let settings = state.settings_snapshot();
     let mut request = state
@@ -82,7 +82,7 @@ pub async fn latest_version(
         return Err(format!("The server answered HTTP {status}."));
     }
     response
-        .json::<ludex_core::models::LatestVersion>()
+        .json::<crate::bridge::models::LatestVersion>()
         .await
         .map_err(|e| format!("The server returned an invalid version payload: {e}"))
 }
@@ -152,7 +152,7 @@ pub async fn check(app: &AppHandle) -> Result<Vec<GameUpdate>, String> {
 /// Decide whether `latest` is an update over `installed`.
 fn compare(
     installed: &InstalledGame,
-    latest: &ludex_core::models::LatestVersion,
+    latest: &crate::bridge::models::LatestVersion,
 ) -> Option<UpdateReason> {
     if installed.version_id != latest.version_id {
         return Some(UpdateReason::NewVersion);
@@ -251,8 +251,8 @@ mod tests {
         }
     }
 
-    fn latest(version_id: i64, hash: Option<&str>) -> ludex_core::models::LatestVersion {
-        ludex_core::models::LatestVersion {
+    fn latest(version_id: i64, hash: Option<&str>) -> crate::bridge::models::LatestVersion {
+        crate::bridge::models::LatestVersion {
             game_id: 1,
             version_id,
             version_label: Some("1.1".into()),

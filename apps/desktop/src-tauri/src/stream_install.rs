@@ -18,8 +18,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::bridge::archive::{StreamEntry, StreamManifest};
 use futures_util::StreamExt;
-use ludex_core::archive::{StreamEntry, StreamManifest};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::AsyncWriteExt;
@@ -1493,7 +1493,7 @@ mod tests {
         archive.write_all(b"#!/bin/sh\nexit 0\n").unwrap();
         archive.finish().unwrap();
 
-        let manifest = ludex_core::archive::zip_stream_manifest(&path).expect("manifest");
+        let manifest = crate::bridge::archive::zip_stream_manifest(&path).expect("manifest");
         let highest = manifest
             .entries
             .iter()
@@ -1506,7 +1506,7 @@ mod tests {
                 continue;
             }
             let mut bytes = Vec::new();
-            ludex_core::archive::write_zip_entry_range(&path, item.index, 0, None, &mut bytes)
+            crate::bridge::archive::write_zip_entry_range(&path, item.index, 0, None, &mut bytes)
                 .expect("entry bytes");
             assert_eq!(bytes.len() as u64, item.size);
             assert_eq!(crc32fast::hash(&bytes), item.crc32);

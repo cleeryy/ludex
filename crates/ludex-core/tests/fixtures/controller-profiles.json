@@ -1,0 +1,52 @@
+{
+  "description": "Controller profile cases shared by crates/ludex-core/src/gamepad.rs and apps/web/src/lib/controller-profiles.ts (#51, #237). Both implementations must produce these results for the profile below.",
+  "profile": {
+    "name": "Fixture pad",
+    "deadzone": 0.2,
+    "sensitivity": 1.5,
+    "curve": 2.0,
+    "invertX": true,
+    "invertY": false,
+    "triggerThreshold": 0.4,
+    "vibration": false,
+    "mappings": {
+      "button0": "menu",
+      "button1": "back",
+      "button2": "confirm",
+      "button3": "downloads",
+      "button6": "downloads",
+      "axis0-": "left",
+      "axis0+": "right",
+      "axis1-": "up",
+      "axis1+": "down"
+    }
+  },
+  "axisCases": [
+    { "name": "inside the deadzone is zero", "x": 0.2, "expected": 0 },
+    { "name": "negative inside the deadzone is zero", "x": -0.1, "expected": 0 },
+    {
+      "name": "outside the deadzone uses curve, sensitivity and inversion",
+      "x": 0.6,
+      "expected": -0.375,
+      "tolerance": 0.000001
+    },
+    {
+      "name": "negative input stays inverted",
+      "x": -0.6,
+      "expected": 0.375,
+      "tolerance": 0.000001
+    }
+  ],
+  "buttonCases": [
+    { "name": "mapped face button", "button": 0, "value": 1.0, "action": "menu" },
+    { "name": "face button below half press", "button": 0, "value": 0.2, "action": null },
+    { "name": "trigger below the profile threshold", "button": 6, "value": 0.3, "action": null },
+    { "name": "trigger above the profile threshold", "button": 6, "value": 0.9, "action": "downloads" }
+  ],
+  "axisMappingCases": [
+    { "name": "inverted x pushes left", "axis": 0, "x": 0.9, "y": 0.0, "action": "left" },
+    { "name": "inverted y keeps down", "axis": 0, "x": -0.9, "y": 0.0, "action": "right" },
+    { "name": "up on the second stick", "axis": 1, "x": 0.0, "y": -0.9, "action": "up" },
+    { "name": "inside the deadzone has no action", "axis": 1, "x": 0.0, "y": 0.1, "action": null }
+  ]
+}

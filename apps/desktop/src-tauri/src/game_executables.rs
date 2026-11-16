@@ -505,7 +505,7 @@ fn classify(name: &str, excluded_dir: bool) -> Option<ExecutableKind> {
     if stem.starts_with("setup") || stem.starts_with("install") || stem.starts_with("gog") {
         return Some(ExecutableKind::Installer);
     }
-    if excluded_dir || ludex_core::exe::is_installer(name) {
+    if excluded_dir || crate::bridge::exe::is_installer(name) {
         return Some(ExecutableKind::Other);
     }
     Some(ExecutableKind::Launch)

@@ -779,7 +779,7 @@ async fn install_from_archive(
 /// Fingerprint the archive of this attempt (#30 update detection).
 async fn fingerprint_archive(archive: Option<PathBuf>) -> Option<String> {
     let path = archive?;
-    match tokio::task::spawn_blocking(move || ludex_core::archive_fingerprint(&path)).await {
+    match tokio::task::spawn_blocking(move || crate::bridge::archive_fingerprint(&path)).await {
         Ok(Ok(value)) => Some(value),
         Ok(Err(error)) => {
             tracing::debug!(error = %error, "could not fingerprint the archive");

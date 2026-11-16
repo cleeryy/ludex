@@ -26,7 +26,7 @@ use serde_json::Value as JsonValue;
 use serde_yaml::Value as YamlValue;
 
 use crate::db::{InstalledGame, SaveDetectionRecord, SavePathRecord};
-use crate::saves_registry::{self, ResolvedFolders, SaveCandidate, SaveRegistry};
+use crate::saves::registry::{ResolvedFolders, SaveCandidate, SaveRegistry};
 use crate::settings::LocalSettings;
 use crate::steam;
 
@@ -165,7 +165,7 @@ impl DetectEnv {
         app_id_override: Option<u32>,
     ) -> Self {
         let platform = Platform::current();
-        let known = saves_registry::system_known_folders(platform);
+        let known = crate::saves::registry::system_known_folders(platform);
         let home = known
             .get("home")
             .or_else(|| known.get("profile"))
@@ -204,7 +204,7 @@ impl DetectEnv {
             xdg_state,
             windows,
             known,
-            registry: saves_registry::registry().clone(),
+            registry: crate::saves::registry::registry().clone(),
             steam_roots,
             prefix,
             steam_user_ids: discover_steam_user_ids(),
@@ -528,7 +528,7 @@ pub fn detect_at(
     //    high-confidence ones are promoted automatically (#180). Manifest
     //    results above stay the trusted per-game layer and are de-duplicated
     //    here.
-    let discovery = saves_registry::discover(&saves_registry::DiscoveryInputs {
+    let discovery = crate::saves::registry::discover(&crate::saves::registry::DiscoveryInputs {
         platform: env.platform,
         user_name: &env.os_user_name,
         folders: &env.known,
@@ -540,7 +540,7 @@ pub fn detect_at(
         roots: &roots,
         now,
         registry: &env.registry,
-        overrides: saves_registry::overrides(),
+        overrides: crate::saves::registry::overrides(),
     });
     let saved_paths: BTreeSet<String> = detection
         .saves
@@ -839,7 +839,7 @@ pub struct PromotionGuard {
 
 impl PromotionGuard {
     pub fn for_game(settings: &LocalSettings, game: &InstalledGame) -> Self {
-        let known = saves_registry::system_known_folders(Platform::current());
+        let known = crate::saves::registry::system_known_folders(Platform::current());
         let home = known
             .get("home")
             .or_else(|| known.get("profile"))
@@ -979,7 +979,7 @@ pub fn auto_promote_detected(
 ) -> usize {
     let mut promoted: Vec<DetectedSave> = Vec::new();
     for candidate in detection.candidates.iter_mut() {
-        if !saves_registry::is_high_confidence(candidate) {
+        if !crate::saves::registry::is_high_confidence(candidate) {
             continue;
         }
         if ignored.iter().any(|path| path == &candidate.path) {
@@ -1426,7 +1426,7 @@ fn resolve_manifest_path(
         return (Some(path.clone()), "configured");
     }
 
-    let managed = crate::saves_manifest::ManifestPaths::for_app_data(app_data).manifest;
+    let managed = crate::saves::manifest::ManifestPaths::for_app_data(app_data).manifest;
     if managed.is_file() {
         return (Some(managed), "managed");
     }
@@ -1627,13 +1627,13 @@ fn root_reports(env: &DetectEnv, candidates: &[SaveCandidate]) -> Vec<RootReport
     if let Some(prefix) = env.prefix.as_deref() {
         let drive_c = prefix_drive_c(prefix);
         roots.push(RootReport {
-            id: saves_registry::ROOT_PROTON_PREFIX.to_string(),
+            id: crate::saves::registry::ROOT_PROTON_PREFIX.to_string(),
             label: "Proton prefix".to_string(),
             path: drive_c.to_string_lossy().to_string(),
             exists: drive_c.is_dir(),
             candidates: candidates
                 .iter()
-                .filter(|candidate| candidate.root_id == saves_registry::ROOT_PROTON_PREFIX)
+                .filter(|candidate| candidate.root_id == crate::saves::registry::ROOT_PROTON_PREFIX)
                 .count(),
         });
     }
@@ -2861,7 +2861,7 @@ mod tests {
             xdg_state: home.join(".local/state"),
             windows: WindowsDirs::default(),
             known,
-            registry: saves_registry::registry().clone(),
+            registry: crate::saves::registry::registry().clone(),
             steam_roots: Vec::new(),
             prefix: Some(prefix.clone()),
             steam_user_ids: vec!["76561198000000001".to_string()],
@@ -3464,8 +3464,11 @@ mod tests {
             .iter()
             .find(|candidate| candidate.path.ends_with(".local/share/Hades"))
             .expect("candidate");
-        assert_eq!(candidate.source, saves_registry::SOURCE_KNOWN_FOLDER);
-        assert!(candidate.confidence == saves_registry::CONFIDENCE_LIKELY);
+        assert_eq!(
+            candidate.source,
+            crate::saves::registry::SOURCE_KNOWN_FOLDER
+        );
+        assert!(candidate.confidence == crate::saves::registry::CONFIDENCE_LIKELY);
         assert!(!candidate.confirmed);
         assert!(
             detection.message.contains("synced automatically"),
@@ -3517,8 +3520,11 @@ mod tests {
             .iter()
             .find(|candidate| candidate.path.contains(".minecraft"))
             .expect("Minecraft candidate");
-        assert_eq!(candidate.source, saves_registry::SOURCE_ENGINE);
-        assert_eq!(candidate.confidence, saves_registry::CONFIDENCE_GUESS);
+        assert_eq!(candidate.source, crate::saves::registry::SOURCE_ENGINE);
+        assert_eq!(
+            candidate.confidence,
+            crate::saves::registry::CONFIDENCE_GUESS
+        );
         assert!(detection.saves.is_empty(), "{:?}", detection.saves);
     }
 
@@ -3536,8 +3542,8 @@ mod tests {
             kind: "directory".to_string(),
             root_id: "home".to_string(),
             subpath: ".minecraft/saves".to_string(),
-            source: saves_registry::SOURCE_OVERRIDE.to_string(),
-            confidence: saves_registry::CONFIDENCE_CERTAIN.to_string(),
+            source: crate::saves::registry::SOURCE_OVERRIDE.to_string(),
+            confidence: crate::saves::registry::CONFIDENCE_CERTAIN.to_string(),
             evidence: "Observed override for Minecraft".to_string(),
             confirmed: true,
             ..SaveCandidate::default()
@@ -3678,7 +3684,7 @@ mod tests {
             xdg_state: profile.join(".local/state"),
             windows,
             known,
-            registry: saves_registry::registry().clone(),
+            registry: crate::saves::registry::registry().clone(),
             steam_roots: Vec::new(),
             prefix: None,
             steam_user_ids: Vec::new(),
@@ -4049,8 +4055,8 @@ mod tests {
                     kind: "directory".to_string(),
                     root_id: "steam_userdata".to_string(),
                     subpath: "Hades".to_string(),
-                    source: saves_registry::SOURCE_STORE.to_string(),
-                    confidence: saves_registry::CONFIDENCE_CERTAIN.to_string(),
+                    source: crate::saves::registry::SOURCE_STORE.to_string(),
+                    confidence: crate::saves::registry::CONFIDENCE_CERTAIN.to_string(),
                     evidence: "Steam Cloud".to_string(),
                     ..SaveCandidate::default()
                 },
@@ -4059,8 +4065,8 @@ mod tests {
                     kind: "directory".to_string(),
                     root_id: "xdg_config".to_string(),
                     subpath: "unity3d/Hades".to_string(),
-                    source: saves_registry::SOURCE_ENGINE.to_string(),
-                    confidence: saves_registry::CONFIDENCE_GUESS.to_string(),
+                    source: crate::saves::registry::SOURCE_ENGINE.to_string(),
+                    confidence: crate::saves::registry::CONFIDENCE_GUESS.to_string(),
                     evidence: "Unity default".to_string(),
                     ..SaveCandidate::default()
                 },
@@ -4076,13 +4082,13 @@ mod tests {
         let store_candidate = detection
             .candidates
             .iter()
-            .find(|candidate| candidate.source == saves_registry::SOURCE_STORE)
+            .find(|candidate| candidate.source == crate::saves::registry::SOURCE_STORE)
             .unwrap();
         assert_eq!(store_candidate.auto_status, CANDIDATE_STATUS_SAVING);
         let guess_candidate = detection
             .candidates
             .iter()
-            .find(|candidate| candidate.source == saves_registry::SOURCE_ENGINE)
+            .find(|candidate| candidate.source == crate::saves::registry::SOURCE_ENGINE)
             .unwrap();
         assert_eq!(guess_candidate.auto_status, "");
 
@@ -4097,7 +4103,7 @@ mod tests {
         let dismissed_store = dismissed
             .candidates
             .iter()
-            .find(|candidate| candidate.source == saves_registry::SOURCE_STORE)
+            .find(|candidate| candidate.source == crate::saves::registry::SOURCE_STORE)
             .unwrap();
         assert_eq!(dismissed_store.auto_status, CANDIDATE_STATUS_SKIPPED);
         let _ = fs::remove_dir_all(&root);
