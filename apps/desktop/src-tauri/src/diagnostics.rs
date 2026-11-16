@@ -533,12 +533,16 @@ pub fn store_path(app_data: &Path) -> PathBuf {
 pub fn install_panic_hook(app: AppHandle) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        // #234: the worker guard runs on the panicking thread and cannot read
+        // `PanicHookInfo` itself, so the hook hands it the message and the
+        // source location before the unwind continues.
+        let location = info
+            .location()
+            .map(|location| format!("{}:{}", location.file(), location.line()));
+        let message = panic_message(info);
+        crate::crash_guard::note_panic(&message, location.as_deref());
         if let Some(state) = app.try_state::<AppState>() {
-            let location = info
-                .location()
-                .map(|location| format!("{}:{}", location.file(), location.line()))
-                .unwrap_or_else(|| "unknown location".to_string());
-            let message = panic_message(info);
+            let location = location.unwrap_or_else(|| "unknown location".to_string());
             let backtrace = std::backtrace::Backtrace::force_capture().to_string();
             state.diagnostics.record(
                 "panic",

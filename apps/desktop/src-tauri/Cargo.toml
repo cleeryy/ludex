@@ -96,5 +96,10 @@ gilrs = "0.11"
 codegen-units = 1
 lto = true
 opt-level = "s"
-panic = "abort"
+# #234: a panic inside a download/extraction worker must fail that job, not
+# kill the app (and with auto-resume, loop on every launch). `unwind` is what
+# lets `crash_guard::guard_worker` contain it; see docs/RELEASING.md before
+# changing this back. A native `abort`/segfault cannot be caught, which is why
+# the startup circuit breaker exists as well.
+panic = "unwind"
 strip = true

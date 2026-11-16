@@ -130,7 +130,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 20;
+const SCHEMA_VERSION: i64 = 21;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS installed_games (
@@ -564,6 +564,28 @@ CREATE TABLE IF NOT EXISTS install_job_files (
 );
 "#;
 
+/// Startup crash-loop breaker (#234). `resume_markers` holds one row per job
+/// the desktop resumed by itself: the row is written *before* the worker
+/// starts and deleted once the app has been healthy for 15 s. A row still
+/// present at the next launch means the previous run died with that job in
+/// flight, so `resume_failures` is incremented. Two such launches in a row park
+/// the job (`error`) with a manual-retry message instead of resuming it again.
+///
+/// Both tables are local bookkeeping only: nothing here is synced to the
+/// server, and a delete never touches the `.part`/staging files.
+const SCHEMA_V21: &str = r#"
+CREATE TABLE IF NOT EXISTS resume_markers (
+    job_id TEXT PRIMARY KEY,
+    at     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS resume_failures (
+    job_id     TEXT    PRIMARY KEY,
+    failures   INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT    NOT NULL
+);
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -713,6 +735,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
     if version < 20 {
         connection.execute_batch(SCHEMA_V20).map_err(|e| {
             format!("Could not add file-manifest checkpoints to the desktop database: {e}")
+        })?;
+    }
+    if version < 21 {
+        connection.execute_batch(SCHEMA_V21).map_err(|e| {
+            format!("Could not add the startup resume circuit breaker to the desktop database: {e}")
         })?;
     }
 
@@ -2150,6 +2177,9 @@ pub fn delete_install_job(connection: &Connection, job_id: &str) -> Result<bool,
         .map_err(|e| format!("Could not remove the install job: {e}"))?;
     if affected > 0 {
         let _ = delete_install_job_params(connection, job_id);
+        // #234: a removed job has no automatic resume left to protect.
+        let _ = delete_resume_marker(connection, job_id);
+        let _ = reset_resume_failures(connection, job_id);
     }
     // The stream manifest and its checkpoint are intentionally kept: they
     // describe files still present in the staging folder, so a later install
@@ -2172,6 +2202,19 @@ pub fn clear_finished_install_jobs(connection: &Connection) -> Result<usize, Str
             [],
         )
         .map_err(|e| format!("Could not clear finished install jobs: {e}"))?;
+    // #234: the breaker only describes jobs that still exist.
+    connection
+        .execute(
+            "DELETE FROM resume_markers WHERE job_id NOT IN (SELECT job_id FROM install_jobs)",
+            [],
+        )
+        .map_err(|e| format!("Could not clear the startup resume markers: {e}"))?;
+    connection
+        .execute(
+            "DELETE FROM resume_failures WHERE job_id NOT IN (SELECT job_id FROM install_jobs)",
+            [],
+        )
+        .map_err(|e| format!("Could not clear the automatic resume failures: {e}"))?;
     Ok(affected)
 }
 
@@ -2208,6 +2251,169 @@ pub fn mark_interrupted_jobs(
             params![message, now],
         )
         .map_err(|e| format!("Could not mark interrupted install jobs: {e}"))
+}
+
+/// One `{job_id, at}` row written before an automatic resume (#234).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResumeMarker {
+    pub job_id: String,
+    pub at: String,
+}
+
+/// Record that this job is about to be resumed by the startup path (#234).
+///
+/// Must be committed before the worker starts: a row that survives to the next
+/// launch is the only evidence that the previous launch died with this job.
+pub fn set_resume_marker(connection: &Connection, job_id: &str, at: &str) -> Result<(), String> {
+    connection
+        .execute(
+            "INSERT INTO resume_markers (job_id, at) VALUES (?1, ?2)
+             ON CONFLICT(job_id) DO UPDATE SET at = excluded.at",
+            params![job_id, at],
+        )
+        .map_err(|e| format!("Could not write the startup resume marker: {e}"))?;
+    Ok(())
+}
+
+/// Every marker left by the previous launch, oldest first.
+pub fn resume_markers(connection: &Connection) -> Result<Vec<ResumeMarker>, String> {
+    let mut statement = connection
+        .prepare("SELECT job_id, at FROM resume_markers ORDER BY at ASC")
+        .map_err(|e| format!("Could not read the startup resume markers: {e}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(ResumeMarker {
+                job_id: row.get(0)?,
+                at: row.get(1)?,
+            })
+        })
+        .map_err(|e| format!("Could not read the startup resume markers: {e}"))?;
+    let mut markers = Vec::new();
+    for row in rows {
+        markers.push(row.map_err(|e| format!("Could not read the startup resume markers: {e}"))?);
+    }
+    Ok(markers)
+}
+
+/// Delete one marker: the app stayed healthy, or the resume never started.
+pub fn delete_resume_marker(connection: &Connection, job_id: &str) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM resume_markers WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| format!("Could not clear the startup resume marker: {e}"))?;
+    Ok(())
+}
+
+/// Count one unclean startup for this job and return the new total (#234).
+///
+/// A marker whose job no longer exists is dropped instead of counted: the user
+/// removed the row, nothing can be resumed. `0` therefore means "not counted".
+pub fn bump_resume_failure(
+    connection: &Connection,
+    job_id: &str,
+    now: &str,
+) -> Result<u32, String> {
+    let exists: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM install_jobs WHERE job_id = ?1)",
+            params![job_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Could not inspect the install job: {e}"))?;
+    if !exists {
+        delete_resume_marker(connection, job_id)?;
+        return Ok(0);
+    }
+    connection
+        .execute(
+            "INSERT INTO resume_failures (job_id, failures, updated_at) VALUES (?1, 1, ?2)
+             ON CONFLICT(job_id) DO UPDATE SET
+                 failures   = resume_failures.failures + 1,
+                 updated_at = excluded.updated_at",
+            params![job_id, now],
+        )
+        .map_err(|e| format!("Could not record a failed automatic resume: {e}"))?;
+    connection
+        .query_row(
+            "SELECT failures FROM resume_failures WHERE job_id = ?1",
+            params![job_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|failures| failures.max(0) as u32)
+        .map_err(|e| format!("Could not read the automatic resume failure count: {e}"))
+}
+
+/// Reconcile the markers left by the previous launch (#234).
+///
+/// A marker still present at startup means that launch auto-resumed the job and
+/// never reached the healthy window: count one unclean startup for it and
+/// consume the marker. Returns the new counts as `(job_id, failures)`, oldest
+/// marker first, so the caller can park the jobs that reached the limit.
+pub fn reconcile_resume_markers(
+    connection: &Connection,
+    now: &str,
+) -> Result<Vec<(String, u32)>, String> {
+    let markers = resume_markers(connection)?;
+    let mut counts = Vec::new();
+    for marker in markers {
+        let failures = bump_resume_failure(connection, &marker.job_id, now)?;
+        delete_resume_marker(connection, &marker.job_id)?;
+        if failures > 0 {
+            counts.push((marker.job_id, failures));
+        }
+    }
+    Ok(counts)
+}
+
+/// Consecutive unclean startups recorded for this job.
+#[cfg(test)]
+pub fn resume_failures(connection: &Connection, job_id: &str) -> Result<u32, String> {
+    connection
+        .query_row(
+            "SELECT failures FROM resume_failures WHERE job_id = ?1",
+            params![job_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map(|failures| failures.unwrap_or(0).max(0) as u32)
+        .map_err(|e| format!("Could not read the automatic resume failure count: {e}"))
+}
+
+/// A manual Resume proved the user wants this job: the streak restarts (#234).
+pub fn reset_resume_failures(connection: &Connection, job_id: &str) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM resume_failures WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| format!("Could not reset the automatic resume failure count: {e}"))?;
+    Ok(())
+}
+
+/// Park a job instead of auto-resuming it again (#234).
+///
+/// The row becomes `error` with the breaker message, which
+/// `interrupted_install_jobs` ignores: a parked job can only come back through
+/// an explicit Resume. `.part`, staging and the parameters are untouched, so
+/// that Resume still continues the download.
+pub fn park_install_job(
+    connection: &Connection,
+    job_id: &str,
+    message: &str,
+    now: &str,
+) -> Result<bool, String> {
+    let affected = connection
+        .execute(
+            "UPDATE install_jobs
+                SET phase = 'error', error = ?2, updated_at = ?3, speed_bps = 0,
+                    queue_position = NULL
+              WHERE job_id = ?1",
+            params![job_id, message, now],
+        )
+        .map_err(|e| format!("Could not park the interrupted install job: {e}"))?;
+    Ok(affected > 0)
 }
 
 /// Row shape of `install_manifests`.
@@ -3645,6 +3851,8 @@ mod tests {
         connection.execute_batch(SCHEMA_V17).unwrap();
         connection.execute_batch(SCHEMA_V18).unwrap();
         connection.execute_batch(SCHEMA_V19).unwrap();
+        connection.execute_batch(SCHEMA_V20).unwrap();
+        connection.execute_batch(SCHEMA_V21).unwrap();
         connection
     }
 
@@ -5526,5 +5734,185 @@ mod tests {
 
         delete_file_manifest(&connection, "job-new").unwrap();
         assert!(get_file_manifest(&connection, "job-new").unwrap().is_none());
+    }
+
+    /// Store a job row the startup path would see (#234).
+    fn store_job(
+        connection: &Connection,
+        job_id: &str,
+        phase: &str,
+        error: &str,
+        part: Option<&str>,
+    ) {
+        upsert_install_job(
+            connection,
+            &InstallJobRecord {
+                job_id: job_id.to_string(),
+                game_id: 7,
+                version_id: 3,
+                phase: phase.to_string(),
+                bytes_done: 4096,
+                bytes_total: Some(1_000_000),
+                speed_bps: 0,
+                part_path: part.map(str::to_string),
+                install_path: None,
+                staging_path: None,
+                error: Some(error.to_string()),
+                stream: false,
+                resumable: true,
+                stream_completed: None,
+                entries_total: None,
+                queue_position: Some(0),
+                verified_sha256: None,
+                created_at: "2026-11-16T00:00:00Z".to_string(),
+                updated_at: "2026-11-16T00:00:00Z".to_string(),
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn resume_marker_lifecycle_counts_only_unclean_launches() {
+        let connection = memory_database();
+        store_job(
+            &connection,
+            "job-breaker",
+            "error",
+            crate::install::INTERRUPTED_MESSAGE,
+            None,
+        );
+        // Clean launch: the marker is written, the app reaches the healthy
+        // window and the marker is cleared again. No failure is recorded.
+        set_resume_marker(&connection, "job-breaker", "2026-11-16T10:00:00Z").unwrap();
+        assert_eq!(resume_markers(&connection).unwrap().len(), 1);
+        delete_resume_marker(&connection, "job-breaker").unwrap();
+        assert!(resume_markers(&connection).unwrap().is_empty());
+        assert_eq!(resume_failures(&connection, "job-breaker").unwrap(), 0);
+        assert_eq!(
+            crate::crash_guard::startup_resume_decision(0),
+            crate::crash_guard::StartupResume::Resume
+        );
+
+        // First unclean launch: the marker survived, so the count is 1 and the
+        // job is still resumed (one strike).
+        set_resume_marker(&connection, "job-breaker", "2026-11-16T10:01:00Z").unwrap();
+        let counts = reconcile_resume_markers(&connection, "2026-11-16T10:02:00Z").unwrap();
+        assert_eq!(counts, vec![("job-breaker".to_string(), 1)]);
+        assert!(resume_markers(&connection).unwrap().is_empty());
+        assert_eq!(
+            crate::crash_guard::startup_resume_decision(1),
+            crate::crash_guard::StartupResume::Resume
+        );
+
+        // Second consecutive unclean launch: the breaker trips.
+        set_resume_marker(&connection, "job-breaker", "2026-11-16T10:03:00Z").unwrap();
+        let counts = reconcile_resume_markers(&connection, "2026-11-16T10:04:00Z").unwrap();
+        assert_eq!(counts, vec![("job-breaker".to_string(), 2)]);
+        assert_eq!(
+            crate::crash_guard::startup_resume_decision(2),
+            crate::crash_guard::StartupResume::Park
+        );
+
+        // A manual Resume clears the streak, so the user is never locked out.
+        reset_resume_failures(&connection, "job-breaker").unwrap();
+        assert_eq!(resume_failures(&connection, "job-breaker").unwrap(), 0);
+        assert_eq!(
+            crate::crash_guard::startup_resume_decision(0),
+            crate::crash_guard::StartupResume::Resume
+        );
+    }
+
+    #[test]
+    fn a_marker_of_a_deleted_job_is_dropped_without_counting() {
+        let connection = memory_database();
+        set_resume_marker(&connection, "job-gone", "2026-11-16T10:00:00Z").unwrap();
+        let counts = reconcile_resume_markers(&connection, "2026-11-16T10:01:00Z").unwrap();
+        assert!(counts.is_empty());
+        assert!(resume_markers(&connection).unwrap().is_empty());
+        assert_eq!(resume_failures(&connection, "job-gone").unwrap(), 0);
+    }
+
+    #[test]
+    fn parking_a_job_keeps_the_partial_file_and_stops_auto_resume() {
+        let connection = memory_database();
+        let part = std::env::temp_dir().join(format!("ludex-234-{}.part", std::process::id()));
+        std::fs::write(&part, b"partial archive").unwrap();
+        let part_path = part.to_string_lossy().to_string();
+        store_job(
+            &connection,
+            "job-park",
+            "error",
+            crate::install::INTERRUPTED_MESSAGE,
+            Some(&part_path),
+        );
+
+        assert!(park_install_job(
+            &connection,
+            "job-park",
+            crate::install::RESUME_DISABLED_MESSAGE,
+            "2026-11-16T10:00:00Z"
+        )
+        .unwrap());
+
+        let record = get_install_job(&connection, "job-park").unwrap().unwrap();
+        assert_eq!(record.phase, "error");
+        assert_eq!(
+            record.error.as_deref(),
+            Some(crate::install::RESUME_DISABLED_MESSAGE)
+        );
+        assert_eq!(record.part_path.as_deref(), Some(part_path.as_str()));
+        assert_eq!(record.queue_position, None);
+        // A parked row is invisible to the startup auto-resume, even though the
+        // `.part` is still on disk and a manual Resume can use it.
+        assert!(interrupted_install_jobs(
+            &connection,
+            crate::install::INTERRUPTED_MESSAGE,
+            crate::install::LEGACY_INTERRUPTED_MESSAGE
+        )
+        .unwrap()
+        .is_empty());
+        assert!(part.is_file(), "parking must never delete the partial file");
+        // A manual Resume still finds the row and continues the same job.
+        let resumable = latest_resumable_job_for_version(&connection, 7, 3, false)
+            .unwrap()
+            .expect("a parked job must stay resumable by hand");
+        assert_eq!(resumable.job_id, "job-park");
+        assert_eq!(resumable.part_path.as_deref(), Some(part_path.as_str()));
+        let _ = std::fs::remove_file(&part);
+    }
+
+    #[test]
+    fn auto_resume_never_selects_paused_or_cancelled_jobs() {
+        let connection = memory_database();
+        store_job(
+            &connection,
+            "job-interrupted",
+            "error",
+            crate::install::INTERRUPTED_MESSAGE,
+            None,
+        );
+        store_job(
+            &connection,
+            "job-failed",
+            "error",
+            "The server returned 404",
+            None,
+        );
+        store_job(&connection, "job-paused", "paused", "Paused", None);
+        store_job(
+            &connection,
+            "job-cancelled",
+            "cancelled",
+            "Install cancelled",
+            None,
+        );
+        let selected = interrupted_install_jobs(
+            &connection,
+            crate::install::INTERRUPTED_MESSAGE,
+            crate::install::LEGACY_INTERRUPTED_MESSAGE,
+        )
+        .unwrap();
+        let ids: Vec<&str> = selected.iter().map(|row| row.job_id.as_str()).collect();
+        assert_eq!(ids, vec!["job-interrupted"]);
     }
 }

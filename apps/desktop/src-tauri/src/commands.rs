@@ -544,7 +544,23 @@ pub async fn move_install(
 /// Compare the installed files with their manifest.
 #[tauri::command]
 pub async fn verify_install(app: AppHandle, game_id: i64) -> Result<VerifyReport, String> {
-    maintenance::verify_install(&app, game_id).await
+    // #234: verification reads the install folder and a large archive; a panic
+    // there must fail the check, not the app.
+    match crate::crash_guard::guard_worker(maintenance::verify_install(&app, game_id)).await {
+        Ok(result) => result,
+        Err(panic) => {
+            tracing::error!(
+                game_id,
+                message = %panic.message,
+                panic_location = ?panic.location,
+                "install verification panicked"
+            );
+            Err(format!(
+                "The verification crashed: {}. The install was left as it was; run the check again.",
+                panic.describe()
+            ))
+        }
+    }
 }
 
 /// Restore missing/corrupt files from the version archive.

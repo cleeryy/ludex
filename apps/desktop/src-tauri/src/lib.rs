@@ -9,6 +9,7 @@ mod compat;
 mod config_adapters;
 mod config_fields;
 mod console;
+mod crash_guard;
 mod db;
 mod diagnostics;
 mod elevate;
@@ -225,8 +226,9 @@ pub fn run() {
                 .await;
 
                 server::autostart(handle.clone()).await;
-                // #212: re-enter downloads interrupted by the previous app
-                // run after the embedded server is up (their URL points at it).
+                // #212/#234: re-enter downloads interrupted by the previous
+                // app run after the embedded server is up (their URL points at
+                // it). Safe mode and the two-strike circuit breaker live there.
                 install::auto_resume_on_startup(&handle);
                 // #222: rebuild the per-volume reservation ledger from the
                 // active rows, so a restart never double-counts a reservation.
@@ -434,6 +436,9 @@ pub fn run() {
 
     app.run(|app_handle, event| {
         if matches!(event, RunEvent::Exit) {
+            // #234: a clean quit must not look like an unclean startup on the
+            // next launch (startup markers are dropped here).
+            install::clear_resume_markers_on_clean_exit(app_handle);
             server::stop_on_exit(app_handle);
             presence::shutdown();
         }
