@@ -458,7 +458,7 @@ PY
     note "corrupt: recovery pass reported a failure"
   fi
   after=$(sha256sum "$dest/$victim" | awk '{print $1}')
-  redownloaded=$(awk -v path="$victim" '$1 == "ok" && $2 == path' "$WORK/download.log" | wc -l)
+  redownloaded=$(awk -F'\t' -v path="$victim" '$1 == "ok" && $2 == path' "$WORK/download.log" | wc -l)
   if [[ "$before" != "$expected" && "$after" == "$expected" && "$redownloaded" -ge 1 ]]; then
     detected=1
     # A second pass over the same file proves the recovery converges.
