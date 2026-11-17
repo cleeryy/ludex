@@ -86,6 +86,14 @@ archive twice does not extract it twice. `GET /api/admin/extracted-cache`
 shows the budget and the entries; `DELETE /api/admin/extracted-cache/{sha256}`
 drops one.
 
+In the web UI, **Admin → Cache** shows the on/off state, budget vs used and the
+entries (size, files, last use) with a per-entry evict action — refused with
+`cache_entry_in_use` while a download or extraction holds the entry. A game's
+**Archive files** list in the admin game drawer carries **Prepare file
+transport**, which starts the extraction and follows its counters to
+ready/failed. The cache stays off for remote deployments until
+`LUDEX_EXTRACTED_CACHE=1`.
+
 Security is the same as a download: a ticket is bound to a game and a version,
 Bearer works for interactive use, the age gate applies, and the file route
 refuses `..`, absolute paths, backslashes and symlinks and serves only paths
