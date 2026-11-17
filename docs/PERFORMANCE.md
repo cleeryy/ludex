@@ -387,6 +387,10 @@ Reading it:
   check matched `download.log` with whitespace splitting, so any path with a
   space reported `NOT detected` (PR #273), and `unzip` cannot inflate this
   repack (see the `--extract-cmd` note above).
+- **`--jobs 4` was not run.** The procedure asks for both and to keep the
+  better one; here the 8-job row never reached the shaped link (39.4 MB/s
+  against ~107 MB/s available), so concurrency was not the limiter and a
+  four-job repeat would only have spent another 25 min of spinning-disk time.
 
 **Gate reading for #231.** The 1.5× gate is cleared **on a storage-bound
 client** (2.02×, peak disk halved, recovery verified). It is not cleared by this
