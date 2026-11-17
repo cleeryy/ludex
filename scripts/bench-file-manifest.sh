@@ -167,12 +167,15 @@ server_disk_mib() {
 start_peak_sampler() {
   local directory=$1 output=$2
   : > "$output"
+  # Detach the sampler from the command-substitution pipe: without this the
+  # $(start_peak_sampler …) call waits for EOF until the sampler exits, i.e.
+  # forever. The loop only writes to the output file.
   (
     while :; do
       du -sb "$directory" 2>/dev/null | awk '{print $1}' >> "$output"
       sleep 0.2
     done
-  ) &
+  ) >/dev/null 2>&1 &
   echo $!
 }
 
@@ -209,11 +212,20 @@ fetch_json() {
     -H "Authorization: Bearer $TOKEN" -o "$output" "$url"
 }
 
+# The extract route both starts the job and reports its status, and it is a
+# POST (the GET form answers 405 and used to loop forever in wait_ready).
+post_json() {
+  local url=$1 output=$2
+  curl --fail --silent --show-error --location --max-time 60 \
+    -X POST -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+    -d '{}' -o "$output" "$url"
+}
+
 wait_ready() {
   local body="$WORK/extract.json"
   local attempt=0
   while (( attempt < POLL_LIMIT )); do
-    if ! fetch_json "$URL/api/admin/versions/$VERSION/extract" "$body"; then
+    if ! post_json "$URL/api/admin/versions/$VERSION/extract" "$body"; then
       note "extract request failed; retrying"
     else
       local status
@@ -436,12 +448,20 @@ PY
   start=$(now_ms)
   DEST="$dest"
   export DEST
-  local detected=0
+  # Detection is "the corrupted file was noticed and repaired", not "the pass
+  # failed": the pass succeeds precisely because it re-downloaded the file.
+  # Compare the victim before/after and require a fresh `ok` entry for it.
+  local expected before after redownloaded detected=0
+  expected=$(awk -F'\t' -v path="$victim" '$1 == path {print $3}' "$files")
+  before=$(sha256sum "$dest/$victim" | awk '{print $1}')
   if ! download_all "$files" "$JOBS"; then
-    detected=1
+    note "corrupt: recovery pass reported a failure"
   fi
-  # A second pass over the same file proves the recovery converges.
-  if [[ "$detected" == "1" ]]; then
+  after=$(sha256sum "$dest/$victim" | awk '{print $1}')
+  redownloaded=$(awk -v path="$victim" '$1 == "ok" && $2 == path' "$WORK/download.log" | wc -l)
+  if [[ "$before" != "$expected" && "$after" == "$expected" && "$redownloaded" -ge 1 ]]; then
+    detected=1
+    # A second pass over the same file proves the recovery converges.
     download_all "$files" "$JOBS" || note "corrupt: recovery did not converge"
   fi
   end=$(now_ms)

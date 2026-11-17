@@ -6,6 +6,16 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- The file-manifest benchmark works end to end (#231): the peak sampler no
+  longer hangs the command substitution, the extract poll uses POST (the GET
+  form answered 405 and retried forever), and the corrupted-file phase reports
+  detection when the file is re-downloaded and repaired instead of only when
+  the pass fails. Validated on a 128 MB archive: classic 1.49 s vs manifest
+  0.66 s, resume keeps the completed file, corrupted file detected and
+  re-downloaded; the 40 GB gate is unchanged.
+
 ## [0.4.20] - 2026-11-16
 
 ### Changed
