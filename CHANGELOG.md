@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.21] - 2026-11-17
+
 ### Fixed
 
 - The file-manifest benchmark works end to end (#231): the peak sampler no
