@@ -18,6 +18,8 @@ yanked = "warn"
 # review date in the reason. Keep it empty unless there is no upgrade path.
 ignore = [
   { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys 0.30.1 bundles SQLite 3.53.2 (CVE-2026-119375, WAL file written by an untrusted party). The server owns its /data directory and never opens a database an attacker wrote. Fix = rusqlite 0.41 / libsqlite3-sys 0.39 (Rust >= 1.89); dependency upgrade tracked separately. Review by 2026-12-15." },
+  { id = "RUSTSEC-2026-0543", reason = "chrono 0.4.45 is flagged unmaintained. It is a direct dependency of ludex-core/ludex-server and is pulled in by object_store and sqlx-core, so replacing it is a cross-workspace migration (time/jiff) with a serialization-format risk. No CVE, no soundness issue; tracked as a dependency task. Review by 2027-01-15." },
+  { id = "RUSTSEC-2026-0542", reason = "humantime 2.4.0 is flagged unmaintained and only enters through object_store 0.14.2 (server object storage). object_store owns the dependency edge; we do not call humantime directly. Re-evaluate when object_store bumps it. Review by 2027-01-15." },
 ]
 
 [licenses]
