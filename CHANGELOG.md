@@ -6,6 +6,21 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- The file-manifest benchmark reads its download log with tab separators, so a
+  corrupted file whose path contains spaces is reported as detected and
+  re-downloaded instead of being counted as a pass (#273); `cargo deny` accepts
+  the two unmaintained-advisory ids (chrono, humantime) with review dates and
+  documented reasons, so the security gate is green again.
+
+### Changed
+
+- The 50.9 GiB homelab campaign for #231 is recorded in `docs/PERFORMANCE.md`:
+  classic 2,942.9 s and 106.8 GiB peak client disk vs manifest 1,453.7 s and
+  53.4 GiB peak, 2.02x end to end (the issue gate is 1.5x), with the resume and
+  corrupted-file recovery cases verified in the same run.
+
 ## [0.4.21] - 2026-11-17
 
 ### Fixed
