@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.22] - 2026-11-17
+
 ### Fixed
 
 - The file-manifest benchmark reads its download log with tab separators, so a
