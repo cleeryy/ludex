@@ -292,6 +292,15 @@ Cost model, so the numbers are read correctly:
    keep the better one, as the issue asks for 4/8. `--classic-only` and
    `--manifest-only` re-run a single phase against an already warm cache.
 
+   Pass `--extract-cmd` explicitly: the script saves the archive as
+   `archive.bin`, so it falls back to `unzip`, and `unzip` refuses repacks it
+   cannot inflate (`exit 81`, unsupported compression method) while `7z`
+   extracts the same file fine.
+
+   ```bash
+   --extract-cmd "7z x -y -o$WORK/classic/extracted $WORK/classic/archive.bin"
+   ```
+
 4. **Sample the server separately** while the script runs, so the summary is
    not the only evidence: `vmstat 1`, `iostat -x 1`, `sar -n DEV 1`, and the
    `ludex_http_requests_total{route=...}` / `ludex_http_request_duration_seconds`
@@ -319,6 +328,78 @@ Cost model, so the numbers are read correctly:
 
 The chunk-size and stream findings above are unchanged: this prototype does not
 bring back client-side parallel ranges (#217) and does not add a chunk store.
+
+### Homelab result: 50.9 GiB archive (the 40 GB gate)
+
+Measured on 2026-11-17, one run, one archive, against a live `v0.4.21` server.
+
+| Item | Value |
+|---|---|
+| Archive | `007 First Light.zip`, game 31 / version 31, 54 668 902 063 B (50.9 GiB) |
+| Extracted tree | 87 files, 57 323 553 725 B (53.4 GiB) |
+| Server | CT `gamevault` (v0.4.21), `/srv/ludex` on a LVM-thin pool of five SAS disks behind a PERC H730P (all `ROTA=1`) |
+| Client | throwaway 8 vCPU / 8 GiB LXC on the same host, work directory on the same thin pool, veth shaped with `tbf` at 900 Mbit/s to emulate the 1 Gbit LAN |
+| Path | `https://ludex.cleeryy.cloud` → Caddy → `gamevault:8081` (TLS, HTTP/2) |
+| Server one-off extraction | 20.7 min for 53.4 GiB (extract job queued at 10:12Z, cache entry created at 10:33:21Z) |
+
+```
+phase                      wall_s client_cpu  server_cpu    server_rd    server_wr   peak_disk      moved
+------------------------------------------------------------------------------------------------------------
+classic                  2942.877        n/a         n/a          n/a          n/a    106798.4   106804.4
+manifest (8 jobs)        1453.668        n/a         n/a          n/a          n/a     54668.0    54668.0
+resume (after kill)      1682.523        n/a         n/a          n/a          n/a     54668.0    54668.0
+corrupt file             3796.990        n/a         n/a          n/a          n/a     54668.0    54668.0
+------------------------------------------------------------------------------------------------------------
+classic archive download alone: 1103.623s (rest is verification + extraction)
+server extraction (one-off): 20.7 min (measured outside the script, cache already warm)
+corrupted file: detected / re-downloaded
+verdict: classic/manifest speedup 2.02x (gate 1.5x, strong 2.0x) - PASS
+```
+
+Reading it:
+
+- **2.02× on this client, and the win is the client's disk, not the link.**
+  Both rows shared the same 900 Mbit/s path: classic pulled the 50.9 GiB archive
+  at 49.5 MB/s for 1 104 s, then spent 1 839 s verifying 50.9 GiB and unpacking
+  53.4 GiB; the manifest pulled 53.4 GiB at 39.4 MB/s in 1 454 s and was done.
+  Peak client disk halves, 104.3 GiB → 53.4 GiB: that is the structural gain.
+- **Bytes go up, not down.** The manifest moved 53.4 GiB against a 50.9 GiB
+  archive (+5 %), so on a client that is fast at both (SSD, 1 Gbit LAN) only the
+  removed extraction remains and the ratio degrades towards ~1.2-1.4×. The gate
+  is cleared here because spinning disks make the classic row pay the archive
+  twice.
+- **Server cost, per archive and per digest:** 20.7 min wall time and
+  roughly `2 × extracted_size` of disk traffic, plus the tree held on the server
+  (budget 200 GiB, TTL 14 days). On an all-spinning-disk server this is the
+  dominant cost of the feature.
+- **`client_cpu` and the server columns are `n/a` here.** The client was a
+  container, so `/proc/stat` is the host's and the per-phase delta is not
+  attributable, and no SSH sampler was wired. Host sampling during the run
+  (`/proc/stat` + `/proc/diskstats`, 10 s) gives 14.3 % CPU busy (p95 19.3),
+  pooled disk reads at 309 MB/s median (p95 566) and writes at 197 MB/s median
+  (p95 560): the server was not the bottleneck.
+- **Resume (1 683 s) and corrupt (3 797 s) are dominated by re-hashing the whole
+  tree**, not by the transfer — every pass verifies each file before committing,
+  and 53.4 GiB of SHA-256 on the same spinning disks costs minutes. They prove
+  behaviour (85 kept / 2 re-fetched, then `detected / re-downloaded` and a
+  converging second pass), not throughput.
+- Two script defects were found and fixed during the campaign: the recovery
+  check matched `download.log` with whitespace splitting, so any path with a
+  space reported `NOT detected` (PR #273), and `unzip` cannot inflate this
+  repack (see the `--extract-cmd` note above).
+- **`--jobs 4` was not run.** The procedure asks for both and to keep the
+  better one; here the 8-job row never reached the shaped link (39.4 MB/s
+  against ~107 MB/s available), so concurrency was not the limiter and a
+  four-job repeat would only have spent another 25 min of spinning-disk time.
+
+**Gate reading for #231.** The 1.5× gate is cleared **on a storage-bound
+client** (2.02×, peak disk halved, recovery verified). It is not cleared by this
+campaign on a desktop-class client, where both rows are network-bound and the
+manifest only removes extraction. Recommendation carried to the issue: keep the
+cache **opt-in** (`LUDEX_EXTRACTED_CACHE`, default `0`), document the
+per-archive server cost above, and re-run the gate on a real desktop before
+making the manifest the default transport.
+
 
 ## Archive extraction (#232)
 
