@@ -1,0 +1,60 @@
+name: Install script
+
+# Guards install.sh (#275): shellcheck on both scripts, then the offline fixture
+# test that signs fake release assets with a throwaway key and exercises every
+# failure path. No real release asset is downloaded here.
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - install.sh
+      - scripts/test-install.sh
+      - .github/workflows/install.yml
+  pull_request:
+    paths:
+      - install.sh
+      - scripts/test-install.sh
+      - .github/workflows/install.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shellcheck:
+    name: Shellcheck
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck
+
+      # install.sh is POSIX sh (dash): shellcheck reads the shebang, so a bashism
+      # is reported here instead of at a user's first run.
+      - name: Lint install.sh and scripts/test-install.sh
+        run: shellcheck install.sh scripts/test-install.sh
+
+  fixture:
+    name: Fixture verification test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install minisign
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends minisign python3
+
+      - name: Run the offline fixture test
+        run: ./scripts/test-install.sh
