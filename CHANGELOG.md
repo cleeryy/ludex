@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.23] - 2026-11-18
+
 ### Added
 
 - Packaging and the install page (#277): an AUR `ludex-bin` package (pinned
