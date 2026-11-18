@@ -6,6 +6,15 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- One-line installers (#275, #276): `install.sh` (POSIX, minisign-verified
+  `SHA256SUMS` before the AppImage is fetched, `libwebkit2gtk-4.1` preflight,
+  per-user install with desktop entry and uninstall record, stable/edge
+  channels, refuses non-x86_64) and `install.ps1` (Windows, SHA-256 plus
+  minisign when present, per-user NSIS `/S`, `-WhatIf`/`-Uninstall`, explicit
+  SmartScreen/Authenticode note). Both have fixture test suites and CI jobs.
+
 ### Fixed
 
 - Save detection works with the official Ludusavi manifest again (#236): the
