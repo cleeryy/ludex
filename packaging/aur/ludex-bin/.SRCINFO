@@ -1,0 +1,21 @@
+pkgbase = ludex-bin
+	pkgdesc = DRM-free game library, launcher and save manager (published AppImage build)
+	pkgver = 0.4.22
+	pkgrel = 1
+	url = https://github.com/cleeryy/ludex
+	arch = x86_64
+	license = AGPL-3.0-only
+	depends = webkit2gtk-4.1
+	depends = gtk3
+	depends = libayatana-appindicator
+	depends = hicolor-icon-theme
+	provides = ludex
+	conflicts = ludex
+	options = !strip
+	options = !debug
+	source = Ludex_0.4.22_amd64.AppImage::https://github.com/cleeryy/ludex/releases/download/v0.4.22/Ludex_0.4.22_amd64.AppImage
+	source = ludex.png::https://github.com/cleeryy/ludex/raw/v0.4.22/apps/desktop/src-tauri/icons/icon.png
+	sha256sums = bc6b32ab2705f73458b4014eabe0a4e13e9f9551aca77a986b93ebcb84b5940a
+	sha256sums = 9d4cf2c2d825afc99ea45d4787dd3ed41465d82805804244e1cff0e380292c8a
+
+pkgname = ludex-bin

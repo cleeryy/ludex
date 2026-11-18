@@ -1,0 +1,108 @@
+name: Packaging
+
+# The AUR package repackages a published AppImage, so it is only correct as long
+# as its digest is the digest of the release it pins. Both jobs fail on drift:
+# one compares the PKGBUILD with the release SHA256SUMS, the other runs the
+# package through the real Arch tooling (makepkg, namcap).
+
+on:
+  pull_request:
+    paths:
+      - "packaging/**"
+      - "scripts/check-packaging.mjs"
+      - "docs/INSTALL.md"
+      - ".github/workflows/packaging.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "packaging/**"
+      - "scripts/check-packaging.mjs"
+      - "docs/INSTALL.md"
+      - ".github/workflows/packaging.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packaging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-digest:
+    name: PKGBUILD vs release SHA256SUMS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Cheap first: a stale .SRCINFO or a bad array fails without the network.
+      - name: Offline consistency
+        run: node scripts/check-packaging.mjs --offline
+
+      - name: Digest against the published release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/check-packaging.mjs
+
+  arch-package:
+    name: PKGBUILD in Arch (makepkg, namcap)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and check inside archlinux:latest
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --volume "$PWD:/src:ro" \
+            archlinux:latest \
+            bash -euo pipefail -c '
+              pacman -Syu --noconfirm --needed base-devel namcap >/dev/null
+
+              # makepkg refuses to run as root; the package is built as a user.
+              useradd -m builder
+              cp -a /src/packaging/aur/ludex-bin /home/builder/pkg
+              chown -R builder /home/builder/pkg
+
+              echo "::group::makepkg --printsrcinfo vs committed .SRCINFO"
+              su builder -c "cd /home/builder/pkg && makepkg --printsrcinfo" > /tmp/srcinfo
+              diff -u /home/builder/pkg/.SRCINFO /tmp/srcinfo
+              echo "::endgroup::"
+
+              echo "::group::namcap PKGBUILD"
+              namcap /home/builder/pkg/PKGBUILD
+              echo "::endgroup::"
+
+              # The release URL and the digest, resolved by pacman itself.
+              echo "::group::makepkg --verifysource"
+              su builder -c "cd /home/builder/pkg && makepkg --verifysource"
+              echo "::endgroup::"
+
+              echo "::group::makepkg build"
+              su builder -c "cd /home/builder/pkg && makepkg -f --nodeps --noconfirm"
+              echo "::endgroup::"
+
+              echo "::group::namcap package"
+              namcap /home/builder/pkg/*.pkg.tar.zst > /tmp/namcap.txt || true
+              cat /tmp/namcap.txt
+              echo "::endgroup::"
+
+              # Accepted exemption: the AppImage lives in /opt/ludex (the layout
+              # #277 asks for), which namcap cannot introspect, so every binary
+              # it ships is "an ELF file outside of a valid path" and its host
+              # libraries look unused.
+              unexpected="$(grep " E: " /tmp/namcap.txt | grep -v "ELF files outside of a valid path" || true)"
+              if [ -n "$unexpected" ]; then
+                printf "::error::namcap reported errors:\n%s\n" "$unexpected"
+                exit 1
+              fi
+
+              echo "::group::package contents"
+              bsdtar -tvf /home/builder/pkg/*.pkg.tar.zst
+              echo "::endgroup::"
+            '
