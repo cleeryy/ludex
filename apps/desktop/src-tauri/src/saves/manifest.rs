@@ -53,8 +53,9 @@ pub const METADATA_FILE_NAME: &str = "ludusavi-manifest.json";
 
 /// Automatic checks run at most once per 24 h.
 pub const AUTO_CHECK_INTERVAL_HOURS: i64 = 24;
-/// Hard cap on the downloaded file, matching the parser's own limit.
-pub const MAX_MANIFEST_BYTES: u64 = 64 * 1024 * 1024;
+/// Hard cap on the downloaded file. The parser owns the number; this module
+/// only enforces the same bound while streaming.
+pub use crate::saves::detect::MAX_MANIFEST_BYTES;
 /// Whole-request timeout for the download.
 pub const DOWNLOAD_TIMEOUT_SECS: u64 = 60;
 
@@ -456,6 +457,14 @@ pub fn store(
     }
     verify_checksum(&fetched.body, fetched.checksum.as_deref())?;
 
+    // A body Ludex cannot parse must not replace a working database: detection
+    // would fail until the next successful check. Validating here also lets the
+    // next detection reuse the parse (#236).
+    let text = std::str::from_utf8(&fetched.body).map_err(|_| {
+        "The downloaded manifest is not valid UTF-8; Ludex keeps the cached copy.".to_string()
+    })?;
+    let manifest = crate::saves::detect::parse_manifest(text)?;
+
     let digest = sha256_hex(&fetched.body);
     let stamp = now.to_rfc3339();
     let metadata = ManifestMetadata {
@@ -465,11 +474,12 @@ pub fn store(
         last_updated_at: Some(stamp),
         source_url: source_url.to_string(),
         size_bytes: fetched.body.len() as u64,
-        sha256: Some(digest),
+        sha256: Some(digest.clone()),
         error: None,
     };
 
     write_atomic(&paths.manifest, &fetched.body)?;
+    crate::saves::detect::remember_manifest(&paths.manifest, &digest, manifest);
     if let Err(error) = write_metadata(paths, &metadata) {
         // The new file is in place; report the metadata problem but do not
         // pretend the update failed outright.
@@ -1022,6 +1032,53 @@ mod tests {
         assert!(!looks_like_manifest(b"<html></html>"));
         assert!(!looks_like_manifest(&[0u8, 1, 2]));
         assert!(looks_like_manifest(b"\"Hades\":\n  files: []\n"));
+    }
+
+    #[tokio::test]
+    async fn an_unparseable_download_keeps_the_cached_manifest_and_its_version() {
+        let fixture = fixture("unparseable");
+        fs::create_dir_all(&fixture.paths.dir).unwrap();
+        fs::write(&fixture.paths.manifest, MANIFEST).unwrap();
+        write_metadata(
+            &fixture.paths,
+            &ManifestMetadata {
+                version: Some("sha256:bbbb".to_string()),
+                last_checked_at: Some("2026-11-10T10:00:00Z".to_string()),
+                last_updated_at: Some("2026-11-10T10:00:00Z".to_string()),
+                size_bytes: MANIFEST.len() as u64,
+                ..ManifestMetadata::default()
+            },
+        )
+        .unwrap();
+        let broken = b"\"Hades\":\n  files: [\n";
+        let update = block_on_update(&fixture, at("2026-11-11T10:00:00Z"), |_etag| async {
+            Ok(FetchedManifest {
+                status: FetchStatus::Ok,
+                etag: Some("\"new\"".to_string()),
+                checksum: Some(sha256_hex(broken)),
+                body: broken.to_vec(),
+            })
+        })
+        .await;
+        assert!(!update.updated, "{update:?}");
+        assert_eq!(
+            fs::read_to_string(&fixture.paths.manifest).unwrap(),
+            MANIFEST
+        );
+        assert!(
+            update.status.message.contains("Invalid Ludusavi manifest"),
+            "{update:?}"
+        );
+        assert!(
+            update.status.message.contains("keeps the cached copy"),
+            "{update:?}"
+        );
+        // The cached copy's version and date are still reported (#236).
+        assert_eq!(update.status.version.as_deref(), Some("sha256:bbbb"));
+        assert_eq!(
+            update.status.updated_at.as_deref(),
+            Some("2026-11-10T10:00:00Z")
+        );
     }
 
     #[tokio::test]

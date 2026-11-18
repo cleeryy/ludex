@@ -224,10 +224,55 @@ The upstream project publishes it on the `data` branch of
   are flushed, then renamed over the target. On Windows, where a rename cannot
   replace an existing file, the old file is removed only after the temp file is
   complete.
+- A download is **parsed before it replaces the cached copy** (#236): a body that
+  is not valid UTF-8, not a manifest, or over a parse limit is rejected, the
+  previous file stays, and the panel keeps showing its version and
+  `lastUpdatedAt`.
 - The download is **data only**. `saves_detect` parses it with `serde_yaml`;
   nothing in it is executed, and the optional CLI is never launched from it.
 - Manifest contents, the cached path and the metadata stay local. They are
   never included in an API request, telemetry or a save snapshot.
+
+### Parse limits (#236)
+
+The official manifest keeps growing — 53,557 top-level entries in 17.8 MB on
+2026-11-18, past the old 50,000-game cap that made **every** detection fail with
+"lists too many games". Detection now parses the real file and the caps are far
+above it:
+
+| Limit | Value | Reason |
+|---|---|---|
+| File size | 64 MiB (`MAX_MANIFEST_BYTES`) | same bound as the downloader; the file is `stat`ed before it is read, so a 1 GB file is rejected without being loaded |
+| Games | 250,000 top-level entries (`MAX_MANIFEST_GAMES`) | ~4.7× the 2026-11-16 file |
+| One entry | 4 MiB (`MAX_MANIFEST_ENTRY_BYTES`) | one game cannot dominate the parse |
+| YAML nodes | 16,000,000 (`MAX_MANIFEST_NODES`) | the official file has ~1.9 M; bounds traversal work |
+| YAML anchors/aliases | none allowed (`MAX_MANIFEST_ALIASES = 0`) | an alias bomb is a few KB that expands until memory runs out; the official file uses none |
+
+- **Chunked parse.** The file is split at first-column entries into chunks of
+  4,000 games or 4 MiB (`MANIFEST_CHUNK_GAMES`,
+  `MAX_MANIFEST_CHUNK_BYTES`) and each chunk is a separate `serde_yaml`
+  document, so the whole 17.8 MB document is never materialised at once. On the
+  2026-11-18 file (53,557 games) the parse peak was ~140 MB of process RSS in a
+  debug build, including the manifest text and the parsed games; the
+  single-document parse that #236 replaced peaked around 670 MB.
+- **Depth and alias amplification** are also bounded by `serde_yaml` itself (a
+  128-level recursion limit and a 100× event repetition limit). The alias ban
+  is stricter on purpose: the repetition limit scales with the document, so a
+  large file could still expand an alias bomb for a long time.
+- **Rejections carry the numbers** in `message`, never a vague failure: the
+  entry count and the cap, the byte size and the cap, the offending entry size,
+  the alias count, or the exact `serde_yaml` error prefixed with
+  `Invalid Ludusavi manifest:`. The manifest error is prefixed with
+  `The Ludusavi manifest could not be read: ` in the panel.
+- **Cached per content.** The parsed manifest is kept in memory keyed by path
+  and SHA-256, so the second detection in a session (every game page, and again
+  after each launch) costs a read and a hash instead of a full parse. A rewrite
+  invalidates it, and a successful update seeds it with the copy it just
+  validated.
+
+Both game entry shapes work: the official `files:` **mapping** of
+`"<template>": {tags, when}` (tags are ignored, `when` filters are honoured) and
+the older `files: [{path, when}]` / `files: ["<template>"]` list.
 
 ### Licence and provenance
 
@@ -340,6 +385,10 @@ Distinct states reported in `message`:
   then re-detect.` (missing-save retry)
 - `This game is not in the Ludusavi manifest. …`
 - `The Ludusavi manifest only lists registry locations for this game. …`
+- `The Ludusavi manifest could not be read: …` (unreadable, invalid, over the
+  byte/game/entry/node/alias cap; the reason carries the actual numbers)
+- `The Ludusavi manifest is … (… bytes), larger than the 64 MiB Ludex parses
+  safely. Update Ludex, or add a save path manually.`
 - `No Ludusavi manifest or CLI was found. …`
 - `No save folder detected for this game yet. …`
 
