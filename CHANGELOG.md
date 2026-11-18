@@ -6,6 +6,16 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Save detection works with the official Ludusavi manifest again (#236): the
+  parser now understands the manifest's `files:` mapping shape (not only the
+  legacy sequence), reads the 17.8 MB file in bounded chunks (250k games,
+  64 MiB file, 4 MiB per entry, 16M YAML nodes, no anchors/aliases) with a
+  per-path cache, and rejects oversized input with the real numbers instead of
+  reporting no saves. Measured on the 2026-11-18 file: 53,557 games, Hades 3
+  file paths, Stardew Valley 6, peak RSS ~140 MB (was 670 MB), cached read 1.4 s.
+
 ## [0.4.22] - 2026-11-17
 
 ### Fixed
