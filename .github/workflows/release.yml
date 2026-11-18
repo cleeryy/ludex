@@ -493,6 +493,34 @@ jobs:
           gh release download "$TAG" --dir dist --clobber
           ls -l dist
 
+      # The installers and the AUR package ship with the release: they are
+      # copied into dist before SHA256SUMS is written, so the signed list covers
+      # them (#277). `.SRCINFO` is attached as `ludex-bin.SRCINFO` because
+      # release-notes.sh skips dotfiles, and a signed checksum list must cover
+      # every attached file. A missing file fails the release instead of
+      # publishing a page whose install section points at nothing.
+      - name: Attach the installer scripts and the AUR package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          for file in install.sh install.ps1 packaging/aur/ludex-bin/PKGBUILD packaging/aur/ludex-bin/.SRCINFO; do
+            if [ ! -f "$file" ]; then
+              echo "::error::$file is missing from $TAG; the release would ship without it."
+              exit 1
+            fi
+          done
+          cp install.sh dist/install.sh
+          cp install.ps1 dist/install.ps1
+          cp packaging/aur/ludex-bin/PKGBUILD dist/ludex-bin.PKGBUILD
+          cp packaging/aur/ludex-bin/.SRCINFO dist/ludex-bin.SRCINFO
+          gh release upload "$TAG" \
+            dist/install.sh dist/install.ps1 dist/ludex-bin.PKGBUILD dist/ludex-bin.SRCINFO \
+            --clobber
+          ls -l dist
+
       - name: Generate the release body and SHA256SUMS
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
