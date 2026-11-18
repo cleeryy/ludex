@@ -8,6 +8,16 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Added
 
+- Packaging and the install page (#277): an AUR `ludex-bin` package (pinned
+  AppImage, `/opt/ludex` + `--appimage-extract-and-run` wrapper, desktop entry
+  and icon, no scriptlets) with a generated `.SRCINFO`, a dependency-free
+  `check-packaging` (offline consistency + digest against the release
+  `SHA256SUMS`, `.SRCINFO` drift), an Arch-container CI job (makepkg/namcap),
+  `docs/INSTALL.md` for every channel, and release assets for `install.sh`,
+  `install.ps1`, `ludex-bin.PKGBUILD`/`.SRCINFO`.
+
+### Added
+
 - One-line installers (#275, #276): `install.sh` (POSIX, minisign-verified
   `SHA256SUMS` before the AppImage is fetched, `libwebkit2gtk-4.1` preflight,
   per-user install with desktop entry and uninstall record, stable/edge
