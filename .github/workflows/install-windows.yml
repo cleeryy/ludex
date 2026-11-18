@@ -1,0 +1,85 @@
+name: Install (Windows)
+
+# install.ps1 is the one-line Windows installer (#276). It ships outside every
+# build, so it gets its own gate: parse under Windows PowerShell 5.1 (the
+# `#Requires -Version 5.1` promise) and under `pwsh -NoProfile`, plan a local
+# fixture through -WhatIf, then run the Pester-free test script. No network and
+# no installer is ever executed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.ps1'
+      - 'scripts/test-install.ps1'
+      - '.github/workflows/install-windows.yml'
+  pull_request:
+    paths:
+      - 'install.ps1'
+      - 'scripts/test-install.ps1'
+      - '.github/workflows/install-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install-script:
+    name: install.ps1
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The script promises Windows PowerShell 5.1 compatibility, so the AST
+      # parse runs on the inbox host first.
+      - name: Parse with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path ./install.ps1), [ref]$tokens, [ref]$errors) | Out-Null
+          foreach ($parseError in $errors) {
+            Write-Host "::error file=install.ps1,line=$($parseError.Extent.StartLineNumber)::$($parseError.Message)"
+          }
+          if ($errors.Count -gt 0) { exit 1 }
+          Write-Host "install.ps1 parses in $($PSVersionTable.PSVersion) ($($tokens.Count) tokens)."
+
+      - name: Parse with pwsh -NoProfile
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -Command '$tokens = $null; $errors = $null; [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path ./install.ps1), [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Host "::error file=install.ps1,line=$($_.Extent.StartLineNumber)::$($_.Message)" }; exit 1 }; Write-Host "pwsh -NoProfile parse OK ($($tokens.Count) tokens)."'
+
+      # Local fixture: a fake SHA256SUMS and a fake setup. -WhatIf must print
+      # the plan and leave the machine alone.
+      - name: -WhatIf against a local fixture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'ludex-install-fixture'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $setup = Join-Path $dir 'Ludex_9.9.9_x64-setup.exe'
+          [IO.File]::WriteAllText($setup, "fixture, not an installer`n")
+          $hash = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $dir 'SHA256SUMS'), "$hash  Ludex_9.9.9_x64-setup.exe`n")
+
+          $output = & pwsh -NoProfile -File ./install.ps1 -WhatIf -BaseUri $dir 2>&1
+          $code = $LASTEXITCODE
+          $output | ForEach-Object { Write-Host $_ }
+          if ($code -ne 0) { throw "-WhatIf exited with code $code." }
+          $text = ($output | ForEach-Object { [string]$_ }) -join "`n"
+          if ($text -notmatch 'Would install silently') { throw '-WhatIf did not plan a silent install.' }
+          if ($text -match 'Installing Ludex') { throw '-WhatIf ran the installer.' }
+          if (-not (Test-Path -LiteralPath $setup)) { throw '-WhatIf removed the fixture.' }
+          Write-Host 'WhatIf fixture OK.'
+
+      - name: Run the install.ps1 tests
+        shell: pwsh
+        run: pwsh -NoProfile -File ./scripts/test-install.ps1
